@@ -1,647 +1,696 @@
-# GH #2657 / REQ-502 -- WMS stock ledger core (1 of 4): append-only `stock_movement` header plus legs, gap-free posting sequence, reversal, no-negative guard
+# GH #2657 / REQ-502 -- WMS stock ledger core (1 of 4): append-only posting header plus legs, gap-free posting sequence, reversal, no-negative guard
 
-Author: CODE-DESIGNER, 2026-10-19. Branch `docs/GH-2657-wms-ledger-core-design`, from `origin/main` `a614e9c1`
-("fix(GH #2707): EventStore.append/2 locks the instance projection first", #2866). Design only: signatures, type
-shapes, table and constraint lists, step lists, SQL statement shapes in prose, test briefs. No function bodies.
-Nothing here was run (docs-only; the host is memory-starved). Every claim about existing code carries a
-`file:line` re-read on `a614e9c1` today, or is marked NOT FOUND or NOT VERIFIED. Line numbers are at that sha.
+Author: CODE-DESIGNER, 2026-10-19. Revision 1 (CDV FAIL + SECURITY PASS_WITH_FINDINGS applied; advisor ruling R-N applied; section 21 maps every finding).
+Branch `docs/GH-2657-wms-ledger-core-design`, from `origin/main` `a614e9c1`. Design only: signatures, type shapes, table
+and constraint lists, step lists, SQL statement shapes in prose, test briefs. No function bodies. Nothing here was run (docs only).
+Every claim about existing code carries a `file:line` re-read on `a614e9c1`, or is marked NOT FOUND or NOT VERIFIED.
 
-Sources: decision 0057 D5, D4, D9 and gap G7 (`docs/migration/decisions/0057-wms-customer-draft-reconciliation.md:17,16,44-48,22`),
-0058 part (c) (`0058-wms-offline-readiness.md:25-34`), 0060 (decimal_strict), 0061 (engine lock order), 0050, 0052, 0054,
-base document `docs/WMS/WMS_Procurement_Requirements_Draft.md` (MD-08 line 67, MD-09 line 68, WM-06 line 79, CS-01 line 117,
-WM-12 line 85, NF-09 line 138), mapping `docs/migration/wms-customer-draft-mapping-20261016.md`,
-`lib/letflow/design/gh2590-req501-module-write-handlers.md`.
+Sources: decision 0057 D5, D4, D9, G7 (`docs/migration/decisions/0057-wms-customer-draft-reconciliation.md:17,16,44-48,22`), 0058 (c)
+(`0058-wms-offline-readiness.md:25-34`), 0060, 0061, 0039 D1/D3, 0054 D6 and its "Correction" (`0054...md:143`), 0040; base document
+`docs/WMS/WMS_Procurement_Requirements_Draft.md` (MD-08 :67, MD-09 :68, WM-06 :79, CS-01 :117, WM-12 :85); mapping
+`docs/migration/wms-customer-draft-mapping-20261016.md`; `lib/letflow/design/gh2590-req501-module-write-handlers.md` (cited `gh2590...md`).
 
 ## 0. Verdicts in one screen
 
 | # | Question | Verdict |
 |---|---|---|
-| V1 | Can the REQ-501 handler mechanism, as merged, run the no-negative guard? | **NO.** It is create-only: a handler reads no table, holds no repo, takes no lock, cannot update (`handler_writes.ex:138-149`, contract `gh2590...md:480-483`, deferred items `gh2590...md:1093-1099`). A ledger needs read, lock, counter, update. This note therefore needs ONE new platform primitive and a new decision record (section 3, D-L1; section 15; OQ-1). |
-| V2 | Storage | Three tenant-schema tables of the platform (`stock_movement`, `stock_movement_leg`, `stock_balance`) plus a one-row counter table, created by a core tenant migration; NOT entity types. Written only by a new core context `Letflow.StockLedger`, reached from a handler through a new `HandlerWrites.post/3`. |
-| V3 | Append-only enforcement | In the DATABASE (UPDATE, DELETE and TRUNCATE refusal triggers, structural constraints, deferred constraint triggers), plus single-writer static scan. No REVOKE (NOT FOUND in any migration, and the app role owns the tables). |
-| V4 | Gap-free sequence | One row per tenant (`stock_ledger_counter`), incremented by `UPDATE ... RETURNING` in the posting transaction and locked to commit; NOT a Postgres SEQUENCE. A trigger forces `+1` steps. Proof in section 6. One sequence per TENANT. |
-| V5 | Lock order | Inside decision 0061's order: after class 5 (entity-type rows), before class 6 (audit chain row). Inside the ledger: balance rows ascending by key, THEN the counter row (last). New class "5b" needs a 0061 amendment (D-L4). SERVICE_TASK origin is refused in the first slices because it takes the audit chain row before the handler's writes (real cycle, section 7.4). |
-| V6 | Errors | Typed 409 `insufficient_stock` and 8 siblings with a machine-readable `details` object; 40P01 and 55P03 map to the existing 503 `entity_write_contention`; nothing committed, no counter value consumed. |
-| V7 | Event time (G7) | A late-synchronised movement keeps its `client_event_time` as `event_time` and gets the server `posting_time` and a new `posting_seq` at posting; published as-posted balances (`posting_seq <= N`) never change. Every report states its basis and cut-off (section 8). |
-| V8 | Status of prerequisites today | REQ-501 R1-R5 are ALL merged (the issue text is stale); #2654 is CLOSED (PR-2 merged); masters #2661/#2663 and the `stock` module are NOT FOUND on main. Section 1. |
+| V1 | Can the merged REQ-501 handler contract run the guard? | **No.** Create-only: no read, no lock, no update, no repo (`handler_writes.ex:138-149`; `gh2590...md:199,211,466-469,1073,1093-1099`). |
+| V2 | Which route? | **R-N**, a domain-neutral core posting primitive. RULED by the advisor letflow-ec (Opus), high confidence, relayed by the coordinator 2026-10-19. R-D (entity-type ledger through update-kind handler writes) is kept in section 3.2 as the REJECTED alternative with the ruling's reason. |
+| V3 | Storage | Core tenant tables `ledger_entry` (header), `ledger_leg`, `ledger_balance`, `ledger_counter` (one row per registered ledger id). Core names no business term; the stock vocabulary (item, location, status, lot, `stock_movement`, `stock_balance`) lives in the stock module's registration, policy and read layer. |
+| V4 | Append-only | Database triggers against UPDATE/DELETE/TRUNCATE (a TRIPWIRE, not a security boundary: the app role owns the tables), structural constraints, deferred constraint triggers, hash chain; single-writer scans; the pooled test reset is changed (5.4). |
+| V5 | Sequence | One counter row PER LEDGER ID, locked to commit, `+1` forced by trigger; NOT a Postgres SEQUENCE; proof in section 6. One posting per transaction (7.4). |
+| V6 | Lock order | Class 5b between 0061 classes 5 and 6: balance rows ascending (missing rows inserted first, same order), then the counter row. Needs a 0061 amendment. |
+| V7 | Errors | Typed 409s with `details` through a new 4-tuple refusal channel (12.3); 503 for contention. |
+| V8 | Time (G7) | `event_time` kept, `posting_time`/`posting_seq` server-side; lateness cap DECIDED 96 h (8.3). |
+| V9 | Audit | One `ledger.posted` audit entry per posting, appended by the engine tail after the counter (7.7). |
+| V10 | Prerequisites today | REQ-501 R1-R5 merged; #2654 closed; masters #2661/#2663 and the #2658/#2660 notes NOT FOUND (section 1). The ledger core (L1-L3) does not depend on the masters. |
 
 ## 1. Prerequisite section (carried from the issue, re-verified today)
 
-### 1.1 REQ-501 / #2590 (the mechanism the guard runs in)
+### 1.1 REQ-501 / #2590
 
-The issue states R3, R4a, R4b and R5 are NOT merged (it was written at `5997f92c`). Re-verified on `a614e9c1`:
+The issue says R3, R4a, R4b, R5 are not merged (written at `5997f92c`). On `a614e9c1` all are merged:
 
-| REQ-501 piece | Merge commit on main | Evidence |
+| Piece | Commit | Evidence |
 |---|---|---|
-| R1 Catalog registration, validation, lookup, manifest hash | `8a7b1be8` (#2650) | `git log origin/main --grep "GH #2590"` |
+| R1 Catalog registration | `8a7b1be8` (#2650) | `git log origin/main --grep "GH #2590"` |
 | R2 stamp storage | `a43ad970` (#2652) | same |
-| R3 declaration and activation (`module_writes`, activation checks, PinRebind guard) | `e5ed281b` (#2665) | same; `lib/letflow/definitions/module_writes.ex` exists |
-| R4a entities core (`HandlerWrites`, `HandlerContext`, handler contract) | `1a50321c` (#2670) | `lib/letflow/entities/handler_writes.ex`, `handler_context.ex` exist |
-| R4b engine HUMAN_TASK integration, failure mapping | `b5c5e498` (#2672) | `engine.ex:380-400` |
-| R5 SERVICE_TASK (HTTP and script-bound) | `6b1fb16b` (#2722) | `engine.ex:400-410` |
+| R3 declaration and activation | `e5ed281b` (#2665) | `lib/letflow/definitions/module_writes.ex` exists |
+| R4a `HandlerWrites`, `HandlerContext` | `1a50321c` (#2670) | `lib/letflow/entities/handler_writes.ex` |
+| R4b engine HUMAN_TASK integration | `b5c5e498` (#2672) | `engine.ex:393-398` |
+| R5 SERVICE_TASK | `6b1fb16b` (#2722) | `engine.ex:400-410` |
 
-GH #2590 is CLOSED (`gh issue view 2590`). Production `:modules` is still `[Letflow.Modules.Exam]` and Exam declares no
-handler (`config/config.exs:60`), so no handler runs in production today; the mechanism is exercised by the test fixtures only.
+GH #2590 is CLOSED. Production `:modules` is `[Letflow.Modules.Exam]`, which declares no handler (`config/config.exs:60`).
 
-REQ-501 acceptance criteria this design RELIES on, each marked on main today:
+REQ-501 criteria relied on, and what is NOT on main:
 
-| Relied-on criterion | On main? |
+| Criterion | On main? |
 |---|---|
-| A module registers handlers only via the Catalog; the handler runs INSIDE the step Multi; the platform builds the Owner, source, key; replay never runs a handler (D-R.1, D-R.4, D-R.19) | YES (R1, R4a, R4b) |
-| Only a definition version stamped by the module's install may call the handler; hash and body checked at activation AND at run time | YES (R2, R3, R4b `P0b`, `owner_recheck`, `handler_writes.ex:476`) |
-| Type locks are ordered by the engine, ascending, before any write (D-R.7) | YES (`handler_writes.ex:426-437`, `step_writes.ex:526-585`, `engine.ex:393-398`) |
-| HUMAN_TASK and SERVICE_TASK origins, platform sentinel actor and activator subject on the service path | YES (R5, `handler_writes.ex:8-13`) |
-| A handler can UPDATE a record, READ a table, take a row lock of its own, or write a non-entity table | **NO. NOT FOUND, by design.** `gh2590...md:199` (F-R5), `:211` (D-R.5), `:466-469` (no `step/3`, no read function), `:1093-1099` (deferred: update kind, read facade, "the first real ledger handler"). |
-| An actor-capability layer (`ActorCapabilities`) | NOT FOUND (`grep -r ActorCapabilit lib docs` returns nothing). The access path used here is `Authorization.role_allows?/2` (`authorization.ex:1518-1520`), `TypeAccess` (`type_access.ex:73`), `FieldGrants` (`entities/query/field_grants.ex`), `RecordAccess` (`record_access.ex:43`). |
-
-The last two rows are the finding that shapes this whole note (V1). The first real ledger handler is explicitly deferred by
-REQ-501 itself (`gh2590...md:1094`).
+| Handlers registered only through the Catalog; run inside the step Multi; platform builds Owner/source/key; replay never runs a handler | YES |
+| Stamp, hash and body checked at activation and at run time (`handler_writes.ex:476`) | YES |
+| Type locks ordered by the engine ascending before any write | YES (`handler_writes.ex:426-437`, `step_writes.ex:526-585`) |
+| HUMAN and SERVICE origins | YES |
+| A handler UPDATES a record, READS a table, takes a lock, or writes a non-entity table | **NO. NOT FOUND by design** (`gh2590...md:199` F-R5, `:1073` OQ-R4 "update kind is a separate prerequisite", `:1094` "the first real ledger handler", `:1099` "a narrow read facade ... together with update-kind support") |
+| `ActorCapabilities` | NOT FOUND (`grep -r ActorCapabilit lib docs` empty). The access path is `Authorization.role_allows?/2` (`authorization.ex:1518-1520`), `TypeAccess` (`type_access.ex:73`), `FieldGrants`, `RecordAccess` (`record_access.ex:43`). |
+| A function resolving a user id to its effective roles from the DATABASE inside a transaction | NOT FOUND (`effective_roles/2`, `authorization.ex:630`, maps role strings of a verified token). Required by section 16.2. |
 
 ### 1.2 Soft dependencies
 
 | Dependency | State today | Effect |
 |---|---|---|
-| #2654 exact decimal strings | CLOSED 2026-10-17. PR-1 `49f43759` (#2761, writes) and PR-2 `e6dc2419` (#2770, reads, filters, cursor, aggregates) are both on main. The 2026-10-17 issue update ("strict reads wait for PR-2") is superseded. | A strict field is exact on write AND read now. The ledger does not depend on it for its own columns (they are Postgres `numeric`, exact by construction); it uses the public parser `Decimals.parse/3` (`entities/record/decimals.ex:128-148`) for the wire value of a posting quantity. Entity-store quantity fields of documents may rely on #2654 as shipped. |
-| Masters #2661 (REQ-473 org), #2663 (REQ-474 catalog_items), behaviour halves #2662, #2664 | all OPEN; `lib/letflow/modules/` holds only `exam/`, `priv/modules/` only `exam/` (NOT FOUND: `Letflow.Modules.Org`, `Letflow.Modules.CatalogItems`, any `stock` module). | SOFT for this design (written against the planned read API of #2662/#2664: `active?/2`, `item_uom_valid?/3`). HARD for the slices that validate masters (L4, section 14). The core ledger slices L1-L3 do not reference a master type. |
-| #2658 REQ-503 dimensions, #2660 REQ-504 quantity | both OPEN, no design note on main (`ls lib/letflow/design` shows neither). | This note includes their columns BY REFERENCE (section 4.5) with a provisional name list; the first migration file is written only after both notes are accepted (L1 depends on the notes, not on their implementations). |
+| #2654 exact decimals | CLOSED 2026-10-17; PR-1 `49f43759` (#2761) and PR-2 `e6dc2419` (#2770) on main; the 2026-10-17 issue update is superseded | strict reads/filters/aggregates are live. The ledger's own columns are Postgres `numeric` (exact by construction); the wire value is parsed by `Decimals.parse/3` (`entities/record/decimals.ex:128-148`). |
+| Masters #2661/#2663 and behaviour halves #2662/#2664 | all OPEN; `lib/letflow/modules/` has only `exam/`, `priv/modules/` only `exam/` (NOT FOUND: `Org`, `CatalogItems`, any stock module) | SOFT for this design; HARD for slice L4. |
+| #2658 (dimensions), #2660 (quantity) | OPEN, no note on main | columns by reference (4.5); L1 waits for both notes. |
 
 ## 2. Sources and verification (all on `a614e9c1`)
 
 | # | Claim | Source |
 |---|---|---|
-| S1 | The handler-facing API is `create/3` only; it appends entity creates through `Records.command_multi/3` with a platform-derived Owner; no `repo`, no read, no step function | `entities/handler_writes.ex:138-149`; moduledoc `:1-70`; contract `gh2590...md:480-497` |
-| S2 | Platform-facing: `lock_types/3,4` emit one `{:type_lock, type}` (or `{:pre_type_lock, type}`) step per type, ASCENDING, before any write | `handler_writes.ex:426-437`; `step_writes.ex:526-585`; `engine/entity_port.ex:236-254` |
-| S3 | Engine order of a HUMAN completion: tasks, projection, pure steps, `:lock_ancestors`, entity-type rows (`:entity_writes_started`, `{:type_lock,_}`), the handler calls, THEN the tail (timer cancels, token reconcile, task activation, audit rows, events, projection, cascade) | `engine.ex:383-398` |
-| S4 | Order of a SERVICE apply: `:lock_ancestors`, `{:pre_type_lock,_}` group, THEN tokens and task activation whose `task.create` audit takes the audit chain row, THEN the entity writes and handler calls, events, projection, cascade, entity audits last | `engine.ex:400-410`; pre-lock call `engine.ex:5800` |
-| S5 | A completion whose node has lines or `module_writes` runs `SET LOCAL lock_timeout = '2s'` (and `statement_timeout` 5 s) as its first statements; a deadlock or timeout is reported `entity_write_contention`, HTTP 503, nothing committed | `engine.ex:390-392, 2920, 3195, 5664`; `api/response.ex:312-314`; `routers/tasks.ex:456-463` |
-| S6 | The refusal envelope is `{"error": code, "line_index": n|null}` with a closed status table: `write_not_permitted` 403, `record_version_conflict` 409, `entity_write_contention` 503, everything else 422; `write_not_permitted` is byte-identical for every cause (INV-5) | `api/response.ex:288-314`; `engine.ex:2938-2946` (`@service_refusal_codes`) |
-| S7 | Sequence-row protocol: insert-if-absent, `FOR UPDATE`, increment under the held lock, Ecto query composition (no SQL string, INV-7); `lock_instance_sequence/3` is the lock-only variant | `event_store.ex:787-845` |
-| S8 | A per-tenant serialisation row already exists: the audit chain row (`audit_chain_locks`), insert-if-absent then `FOR UPDATE`, held to commit; every audited write of a tenant takes it | `audit.ex:211-232`; migration registered at `tenant_provisioning.ex:661` |
-| S9 | Database-level append-only precedent: BEFORE UPDATE and BEFORE DELETE row triggers raising a fixed exception, created inside the tenant-guarded migration (`if prefix() do`), no interpolation of tenant data. **No TRUNCATE trigger exists** (row-level triggers do not fire on TRUNCATE). No `REVOKE` appears in any migration | `priv/repo/migrations/20260830020001_create_audit_entries_tenant_scoped.exs:1-45, 76-110`; `grep -rn REVOKE priv/repo/migrations` returns nothing |
-| S10 | Tenant tables come from `priv/repo/migrations/` PLUS a registration in `TenantProvisioning.tenant_scoped_migrations/0`; both halves are mandatory; the last entry today is `20261019200001`; the table-set oracle is `TenantFixture.expected_tenant_tables/0` | `tenant_provisioning.ex:661, 728-731`; `test/letflow/support/tenant_fixture_test.exs:144`; `test/letflow/migrations/tasks_scope_node_id_migration_test.exs:152` |
-| S11 | Migration version prefixes must be unique; pick against open branches | `docs/anti-patterns.md:574` |
-| S12 | Optimistic concurrency on entity records: `expected_last_event_global_seq`, mismatch `{:error, :record_version_conflict}` (HTTP 409) | `entities/records.ex:59, 577-581`; `api/response.ex:313` |
-| S13 | The reserved idempotency prefix: a client key starting `sys:step:` is refused `{:error, :reserved_idempotency_key}` | `entities/records.ex:175, 1004-1007` |
-| S14 | Exact decimal parser: canonical grammar `-?(0|[1-9][0-9]*)(\.[0-9]+)?`, no exponent, no `+`; scale and precision refused, never rounded; a JSON float is not accepted | `entities/record/decimals.ex:120-148`; decision 0060 item 2 |
-| S15 | Handler PURITY scan H4 covers HANDLER files derived from manifests, and flags every `HandlerWrites` call but `create/3`; it is a tripwire, "the boundary is that the API hands a handler nothing dangerous" | `test/letflow/entities/handler_writes_callers_test.exs:21-35` |
-| S16 | Forced-overlap harness: barrier row held by a third connection, workers on pinned connections, lock-queue FIFO, telemetry handler reports every 40P01 and 55P03 even if retried | `test/support/lock_order_helpers.ex:1-52`; decision 0061 rule 5 |
-| S17 | Postgres 16 (so `NULLS NOT DISTINCT` exists, but this design does not rely on it) | `docker-compose.yml:3` |
-| S18 | Default isolation: no override of the Repo or the config (`grep isolation config lib/letflow/repo.ex` empty), so READ COMMITTED; the gap-free proof states this assumption and a test pins it | `lib/letflow/repo.ex`, `config/*.exs` (NOT FOUND any override) |
-| S19 | A foreign key from the engine's own tables takes `KEY SHARE` on the referenced row when the referencing row is inserted or twice-updated in a transaction (the #2709 mechanism) | decision 0061 "Amended (GH #2709, PR-2)" |
-| S20 | `scope_node_paths` table lock (0054 D3 rule 3a) applies only to scoped types; scoped types are refused for handler writes until decision 0051 | `gh2590...md:972` (INV-6); `handler_writes.ex:30-33` |
+| S1 | Handler API is `create/3` only; no repo, no read, no step function | `entities/handler_writes.ex:138-149`; `gh2590...md:480-497` |
+| S2 | `lock_types/3,4`: one `{:type_lock,t}` / `{:pre_type_lock,t}` step per type ascending | `handler_writes.ex:426-437`; `step_writes.ex:526-585`; `engine/entity_port.ex:236-254` |
+| S3 | HUMAN completion order: tasks, projection, pure steps, `:lock_ancestors`, entity-type rows, handler calls, THEN the tail | `engine.ex:383-398` |
+| S3b | The tail starts with `:cancel_escalation_timers`, `:cancel_reminder_timers`, then token reconcile, task activation, audit rows, events, projection, cascade | `engine.ex:7350, 7365` and the moduledoc `:383-398`; 0061 "Amended (GH #2707, PR-1)" item 1 puts timer rows after the entity-type rows and before the audit chain row, touched only while `P_x` is held |
+| S4 | SERVICE apply: `:lock_ancestors`, `{:pre_type_lock,_}`, then tokens and task activation whose `task.create` audit takes the audit chain row, then entity writes and handlers | `engine.ex:400-410`, pre-lock `:5800` |
+| S5 | A node with lines/`module_writes` runs `SET LOCAL lock_timeout '2s'` and `statement_timeout` 5 s first; contention codes `[:lock_not_available, :query_canceled, :deadlock_detected]` map to 503 `entity_write_contention` | `engine.ex:390-392, 2920, 2925, 3195, 5664`; `api/response.ex:312-314`; `routers/tasks.ex:456-463` |
+| S6 | Refusal envelope `{"error": code, "line_index": n|null}`; status table 403/409/503/422; `write_not_permitted` byte-identical for every cause | `api/response.ex:288-314`; `engine.ex:2938-2946` |
+| S6b | Failure channel: `EntityPort.failure` is `{:refused, index, code, detail_atom} \| {:failed, index, step} \| :not_a_line_failure`; the engine writes a best-effort refusal audit AFTER the rollback (ids and a closed detail atom) and returns the 3-tuple `{:entity_write_refused, index, code}`; the `details` map has no channel | `engine/entity_port.ex:179-182`; `engine.ex:8440-8462`; `step_writes.ex:944-960` |
+| S6c | Sites that match the 3-tuple `{:entity_write_refused, _, _}` | `engine.ex:2549, 2994, 3038, 3057, 3062, 3116, 3143, 3243, 3250, 5478, 5675, 5682, 5695, 5737, 6008, 6045, 6073-6101, 8433, 8461-8462`; `engine/service_task_dispatcher.ex:667`; `engine/script_task_dispatcher.ex:107`; `routers/tasks.ex:456-463`; `entities/records.ex:828-876` (Records-level `{:entity_write_refused, i, code}`) |
+| S7 | Sequence-row protocol: insert-if-absent, `lock: "FOR UPDATE"` Ecto composition, increment; `lock_instance_sequence/3` | `event_store.ex:787-845` (lock query `:806-811`) |
+| S8 | A per-tenant serialisation row already exists: the audit chain row, held to commit by every audited write | `audit.ex:211-232`; `tenant_provisioning.ex:661` |
+| S9 | `audit_legs` immutability: BEFORE UPDATE/DELETE row triggers, fixed exception, inside the tenant-guarded migration. It deliberately has **no TRUNCATE trigger**; so do `lua_script_execution_audit` and the repository tables, because the pooled test-schema reset TRUNCATEs them. No `REVOKE` in any migration | `priv/repo/migrations/20260830020001_create_audit_legs_tenant_scoped.exs:76-110`; `20261015100002_lua_script_audit_read_only.exs:11-13`; `test/support/tenant_template.ex:621-631` |
+| S9b | `TenantTemplate`: clones are `CREATE TABLE (LIKE ... INCLUDING ALL)` (no rows); `@seed_tables` is the fixed list `["event_type_registry","schema_migrations","script_policy"]` copied from the live template; `reset_clone_schema!/3` TRUNCATEs exactly the dirty tables and returns `{:error,{:unprovable,_}}` on drift; functions and triggers are re-created with the template-schema qualifier textually replaced by the clone schema | `tenant_template.ex:292, 1343, 1565, 1609-1619, 621-640` |
+| S10 | Tenant tables need a migration PLUS a `TenantProvisioning` entry; oracle `expected_tenant_tables/0`; last entry `20261019200001` | `tenant_provisioning.ex:661, 728-731`; `test/letflow/support/tenant_fixture_test.exs:144` |
+| S11 | Unique migration version prefixes | `docs/anti-patterns.md:574` |
+| S12 | `expected_last_event_global_seq` -> `:record_version_conflict` (409) | `entities/records.ex:59, 577-581` |
+| S13 | A client key starting `sys:step:` is refused `:reserved_idempotency_key` | `entities/records.ex:175, 1004-1007` |
+| S14 | Exact decimal parser: canonical grammar, scale/precision refused not rounded, floats not accepted | `entities/record/decimals.ex:120-148`; 0060 item 2 |
+| S15 | Scan H4 covers HANDLER files derived from manifests and flags every `HandlerWrites` call but `create/3` | `test/letflow/entities/handler_writes_callers_test.exs:21-35` |
+| S16 | Forced-overlap harness | `test/support/lock_order_helpers.ex:1-52` |
+| S17 | Postgres 16 | `docker-compose.yml:3` |
+| S18 | No isolation override (READ COMMITTED) | `lib/letflow/repo.ex`, `config/*.exs` (NOT FOUND any override) |
+| S19 | FK on the engine's tables takes `KEY SHARE` on a parent (the #2709 mechanism) | 0061 "Amended (GH #2709, PR-2)" |
+| S20 | Scoped types refused for handler writes until 0051 | `handler_writes.ex:30-33`; `gh2590...md:972` |
+| S21 | Catalog rule 10: `@handler_keys [:args,:function,:name,:targets]` exact key set; `check_handler_targets_and_code` refuses empty `targets` (`write_handler_no_targets`), targets outside `manages_entity_types`, a handler outside the module namespace; `WriteHandler` struct `[:module_id,:name,:entry_module,:targets,:args]`, `@enforce_keys` all five | `modules/catalog.ex:61-77, 596-690` |
+| S22 | `TENANT_ADMIN` holds every tenant-scope permission, Catalog permissions included | `api/authorization.ex:1536-1542` |
+| S23 | Decision 0039 D1: "Platform core ... Names no business domain."; D3: boundaries enforced by `mix letflow.check_boundaries` | `0039...md:52-60, 72-`; `lib/mix/tasks/letflow.check_boundaries.ex` rules 0-6 |
+| S24 | Decision 0054 "Correction": ledger invariants (balanced transfers, no negative stock under lock) belong in reviewed MODULE code, not in declarative step data | `0054...md:143` |
+| S25 | Decision 0040: no per-actor rate limit on authenticated routes | `0040...md:23, 27` |
 
-## 3. Decisions (one-line rationale each)
+## 3. Route decision (OQ-1 CLOSED: R-N, advisor letflow-ec ruling)
 
-* **D-L1 The ledger is a platform primitive with module-owned policy; storage is real SQL tables, not entity records.**
-  Rationale: V1. Entity records are event-sourced rows reachable by handlers only through create-only `create/3`; the ledger needs a
-  counter (read-modify-write), a no-negative check (read under lock) and a balance cache (update). Rejected options:
-  * *R-A entity types for header, legs and balance, written by `create/3`*: no counter, no guard, no balance update; each leg would also cost an event plus a projection row. Rejected.
-  * *R-B module code with a "scoped repo" in a platform-provided step*: gives module code the thing F-2/D-R.5 removed on purpose (tables, prefix, lock order, `SET LOCAL`), and 0054 option B ("module callback ... runs inside the locked transaction, unbounded time under row locks", `0054...md:45`) was rejected for the same reason. Rejected.
-  * *R-C chosen*: the SQL lives in ONE core context, `Letflow.StockLedger`, whose posting function takes every lock itself in one fixed order (so the lock order cannot be violated by module code, the same argument as D-R.7), and a handler reaches it through ONE new handler-facing function `HandlerWrites.post/3` that builds a Multi step. The handler stays pure (no repo, no read). The module supplies the command (arguments from the task) and a policy callback (master checks, unit conversion); the platform supplies authority, locks, sequence, guard, writes.
-  Consequence: decision 0057 D5's wording "the guard runs inside the module write handler" is met in substance (same transaction as the step, under ordered row locks, reached from the handler call) and amended in form: needs **decision 0062** (section 15).
-* **D-L2 Append-only is enforced in the database, with a single-writer code scan as the second layer.** Section 5.
-* **D-L3 One gap-free sequence per TENANT.** One sequence per tenant, not per warehouse: a transfer between warehouses is one header with one number, and a cut-off `N` is one number for every report. The tenant already has a per-tenant serialisation row on every audited write (S8), so the counter adds no new class of serialisation to a process-step transaction. Per-warehouse is the scale-out path (OQ-2). Section 6.
-* **D-L4 Lock order:** ledger balance rows (ascending by balance key), then the counter row, positioned between decision 0061 classes 5 and 6 as new class "5b". Section 7.
-* **D-L5 Time:** `event_time` (physical) and `posting_time` (server) are both stored; `posting_seq` is the only authority for order and cut-off. Section 8.
-* **D-L6 Idempotency:** two unique keys, the client's `client_op_id` and the platform's `origin_key`; same key plus same payload hash returns the existing `movement_id` and posts nothing; same key plus different payload is a typed 409. Section 9.
-* **D-L7 Reversal:** a NEW header (`cause = 'reversal'`, `reverses_header_id`) whose legs exactly negate the target's; at most one reversal per header; a reversal cannot be reversed; the guard applies to it. Section 10.
-* **D-L8 `stock_balance` is a cache** updated in the same transaction, never read to decide anything but the guard, with a read-only reconciliation. Section 11.
-* **D-L9 Errors are typed, closed, machine-readable.** Section 12.
-* **D-L10 Contradictions between the customer draft and international practice are recorded and decided** (decision 0057 D9). Section 3.1.
-* **D-L11 No foreign key from a ledger table to any engine table or entity table.** Rationale: S19. An FK from a ledger row to `instance_projections` or `tasks` would take a `KEY SHARE` lock on the parent in an order the ledger does not control, after the ledger rows, which 0061 forbids; masters are entity records whose references are declarative only (decision 0050 D3.6 as cited by #2661). The BPM references are plain columns. The only FKs are inside the ledger (leg to header, reversal to header).
-* **D-L12 SERVICE_TASK origin is refused in slices L1-L4** (`post/3` returns a closed error and the apply lands in ERROR + DLQ as any handler refusal does). Rationale: the real cycle in section 7.4.
+### 3.1 Constraint set
 
-### 3.1 Contradictions and rulings (decision 0057 D9: international practice is the tie-break)
+C1 core names no business domain (0039 D1, enforced by D3's check, S23); C2 ledger invariants live in reviewed module code (0054 Correction, S24); C3 0057 D5: the guard runs "inside the module write handler"; C4 gh2590 F-R5/OQ-R4: the planned route was update-kind handler writes plus a narrow read facade, scheduled for WMS slice 5 (`gh2590...md:199,1073,1094,1099`); C5 the ledger needs a gap-free counter, an atomic multi-leg posting, a guard under ordered row locks and exact quantities; C6 offline fields (0058 c).
 
-| # | Customer draft says | International practice | Ruling |
-|---|---|---|---|
-| C-1 | WM-06: "Every movement balances source and destination" (line 79); MD-08: "every transfer has balanced source/destination legs" (line 67), and receipts, issues, returns, adjustments are also "balanced postings" | Perpetual-inventory ledgers (SAP material documents, Dynamics 365 inventory transactions) post a goods receipt or issue single-sided and balance only the two-sided kinds (transfer posting, status/stock-type change); the counterpart of a receipt is the supplier or the consumption, outside the stock ledger | **Zero-sum per item is required for `transfer`, `status_change` and `reversal` of those; `receipt`/`return` have only positive legs, `issue` only negative legs, `adjustment` any sign** (D5 says only "a transfer sums to zero per item"). The statement "every movement balances" is read as per-kind. No virtual-location double entry in the ledger (the Odoo school) because it would put negative rows for suppliers in the balance table. |
-| C-2 | MD-08: "retain reference to ... any 1C/SAP acknowledgment" next to an append-only ledger | An acknowledgment arrives AFTER posting and must not edit a posted row | The acknowledgment is NOT a header column. It is a later append-only table keyed by `movement_id` (gap G9, outbound ERP events; out of this issue). The header carries only the BPM references. |
-| C-3 | MD-09: "late offline synchronization and corrections shall not silently rewrite earlier published balances" | Posting date versus document date (SAP, Dynamics): a late document gets the current posting number with its own document date; corrections are new documents | Matches D5 and G7; recorded for the reversal rule: a reversal carries its OWN event time (when the reversal was performed), never the target's, so a correction never rewrites a closed cut-off (section 10). |
-| C-4 | The draft is silent on negative stock | Some systems allow negative stock by configuration; D5 forbids it | D5 stands (ruled). Slice 1 has no `allow_negative` switch (OQ-3). The database backs the guard with `CHECK (on_hand >= 0)` on `stock_balance`. |
-| C-5 | D5: "one gap-free sequence per tenant OR per warehouse" | Document-number ranges are usually per company code, not per site | **Per tenant** (D-L3). |
+### 3.2 Route R-D (REJECTED): entity-type ledger through update-kind handler writes plus a read facade
 
-## 4. Schema (first migration; nothing here is created by an entity definition)
+Shape: header, leg and balance are managed ENTITY TYPES; the handler writes them through `create/3` (header and legs are `append_only` types: update/delete refused at runtime with `entity_append_only`, `0054...md:167`) and a NEW update-kind with a record-version precondition (S12), plus a NEW read facade returning one record under the type's lock.
 
-Names follow the issue text (`stock_movement`, legs, `stock_balance`). All tables live in each TENANT schema (tenancy is the
-schema prefix, no `tenant_id` column, as `audit_entries` and `tenant_module_upgrades`, `0055...md:58`). Delivery: one tenant
-migration file (or a small ordered set) in `priv/repo/migrations/` AND its entry in `TenantProvisioning.tenant_scoped_migrations/0`
-(S10); the oracle `expected_tenant_tables/0` gains the four table names in the same PR; the version prefix is chosen against open
-branches (S11). Every non-null id is `uuid`. Quantities are `numeric(30,9)` provisionally (OQ-10; REQ-504 may narrow the scale).
+Needs from REQ-501 housekeeping (all NOT FOUND today): update kind in `Records.command_multi` (it supports only `kind: :create`, `gh2590...md:199`); a read facade and lock rule (handler purity contract, S15); update lines in the `TASK_ENTITY_WRITES_APPLIED` schema (`additionalProperties: false`); engine plan and authorisation of update lines.
 
-### 4.1 `stock_ledger_counter` (one row)
+Why rejected (the ruling's reason): R-D **cannot give a gap-free queryable `posting_seq`** (the only gap-free number is the header type's per-type sequence number in the event stream, S7; exposing it as a field needs a new core "system field" feature) **and cannot give an atomic multi-leg posting** beyond the 49 creates per handler call and 20 lines per node; the guard serialises on the balance TYPE row tenant-wide (`handler_writes.ex:426-437`), so "item id, then location" row locks (0057 D5) are not expressible; append-only would be Records-layer only (no database trigger exists for entity records); each leg and each balance update costs an event, a projection row and an audit entry. The two core changes that make a neutral primitive justifiable are already accepted: `append_only` entity types (`0054...md:167`) and `non_negative`/`min`/`max` bounds (GH #2532, closed, `0057...md:26`).
+
+### 3.3 Route R-N (ADOPTED): a domain-neutral core posting primitive
+
+A core context `Letflow.Ledger` (directory `lib/letflow/ledger/`) names only **ledger, entry, leg, balance, balance key, counter, quantity**. Dimensions are an OPAQUE ordered tuple of text slots. There is no item, location, stock, warehouse or site vocabulary, no cause list, no hard-coded permission atom and no business CHECK in core. The MODULE registers the ledger in its manifest (new top-level `ledger` key): the ledger id pattern, the slot names, the closed set of CAUSES with their sign rules, the permission atoms (post, reverse, read, reconcile), the optional scope slot, the lateness cap and the policy callbacks. The vocabulary of the issue (`stock_movement`, `stock_balance`, item, location) lives in the stock module's registration, policy data, read views and routes.
+
+**Boundary enforcement (new `check_boundaries` rule, "Rule 7").** Files under `lib/letflow/ledger/**` and the ledger migration may not (a) reference any `lib/letflow/modules/<id>/` file (already refused by the existing edge rules 4/5, S23) and (b) contain, case-insensitively as whole words, any of `stock`, `item`, `location`, `warehouse`, `site`, `lot`, `serial`, `sku`, `material`, `inventory`, `bin`, `pallet`, `:Stock`; the rule is a source-text scan added to `mix letflow.check_boundaries` and mirrored by the ExUnit scan T-SC-2. The list is a reviewed constant; adding a business term to it is a one-line diff.
+
+**Second plausible consumer (0039 D1 test):** a CMMS spare-part store (issues and returns against a non-negative on-hand with gap-free document numbers) or HR leave balances (accrual and usage legs, non-negative balance, reversal by a new entry). Neither is built; both would register a different ledger id, slots and causes with no core change. The primitive is otherwise justified as a platform feature by the two accepted core changes above.
+
+How R-N answers the constraints:
+
+| Constraint | R-N |
+|---|---|
+| C1 | neutral mechanism like the event store or audit chain; Rule 7 and T-SC-2 |
+| C2 (0054 Correction) | The Correction wants ledger invariants in reviewed module code, not declarative step data. R-N keeps that for everything that is BUSINESS: which causes exist, their sign rules, the slot meanings, master validation, unit conversion, who may post, the process route, all registered as reviewed module data and code. The core enforces only the generic MECHANICAL invariants that a create-only handler cannot (append-only, gap-free counter, zero-sum per declared group, non-negative balance, reversal pairing). 0062 records this as a deviation from the letter of the Correction and states that module code still owns the policy. |
+| C3 (0057 D5) | met in substance; 0062 amends the wording (the guard runs in the transaction of the handler's step, reached by `HandlerWrites.post/3`, under row locks in a fixed order) |
+| C4 (OQ-R4) | **OQ-R4 stays OWED at WMS slice 5 and is NOT replaced**: update-kind handler writes and the read facade are still needed for entity DOCUMENTS (a receipt document's status, quantities received). R-N removes only the LEDGER's dependence on them. |
+
+### 3.4 What the ruling requires of the rest of the note
+
+The note is written for R-N. R-D would have changed sections 4-7 and 12.3; it is not maintained. Unchanged either way: sections 8, 9.2-9.5, 10, 12.2, 13 intent, 16.
+
+## 4. Schema (R-N; first migration)
+
+All tables are per tenant schema (tenancy is the prefix, no `tenant_id`). Delivery: one tenant migration file (or an ordered set) in `priv/repo/migrations/` AND an entry in `TenantProvisioning.tenant_scoped_migrations/0` (S10), `expected_tenant_tables/0` updated in the same PR (4.6), version prefix chosen against open branches (S11). Every trigger and function body qualifies EVERY table name with the schema from `prefix()` (no `search_path`, no unqualified reference), uses no `SECURITY DEFINER` and contains no interpolated tenant data; this is what lets `TenantTemplate` clone them by replacing the template qualifier (S9b); a clone test (T-TT-2) proves the triggers in a clone refuse and name the clone schema. The `down` of the migration raises unless the environment is dev or test (a legal record: a production rollback must be a deliberate new migration). Quantities are `numeric(30,9)` provisionally (OQ-10). No FK from any ledger table to an engine or entity table (D-L11).
+
+Naming map (issue term -> core table -> stock module view/read name): `stock_movement` -> `ledger_entry` -> `stock_movement`; legs -> `ledger_leg` -> `stock_movement_leg`; `stock_balance` -> `ledger_balance` -> `stock_balance`. The module names are views or read-API names defined by the stock module slice (L4), never core tables.
+
+### 4.1 `ledger_counter` (one row per ledger id)
 
 | Column | Type | Rule |
 |---|---|---|
-| `id` | smallint PK | `CHECK (id = 1)`; the single row is INSERTED BY THE MIGRATION (seed `last_seq = 0`), so there is no insert-if-absent race |
+| `ledger_id` | text PK | `1..64` bytes; matches the registration's ledger-id pattern (checked in code); one sequence domain: a module registers either one fixed id or a pattern that makes one id per instance (per-warehouse sequences are the scale path, 7.6) |
 | `last_seq` | bigint NOT NULL | `CHECK (last_seq >= 0)` |
+| `last_chain_hash` | text NOT NULL | hash of the last entry (SEC-10); `''` at start |
 
-Triggers (rules in 5.2). Never deleted, never truncated.
+**Bootstrap (F3).** There is NO seed row in the migration: ledger ids are data (module registrations), so the row is created lazily by the poster with insert-if-absent (`ON CONFLICT DO NOTHING`, then the locking read), exactly as the sequence-row precedent (S7, `insert_sequence_row_if_absent`). Two first-posters of one ledger race harmlessly: the second insert waits on the first's transaction and then conflicts. This also makes pooled test clones (built with `LIKE`, no rows copied, `@seed_tables` a fixed list, S9b) work with NO change to `@seed_tables`. The BEFORE INSERT trigger allows only `last_seq = 0, last_chain_hash = ''`.
 
-### 4.2 `stock_movement` (header, append-only)
+### 4.2 `ledger_entry` (header, append-only)
 
-| Column | Type | Null | Meaning and rule |
+| Column | Type | Null | Meaning |
 |---|---|---|---|
-| `id` | uuid PK | no | the **stable operation id** returned to callers and echoed on a duplicate |
-| `posting_seq` | bigint | no | UNIQUE; `CHECK (posting_seq >= 1)`; allocated by the counter (section 6) |
-| `cause` | text | no | closed `CHECK`: `receipt`, `issue`, `transfer`, `return`, `status_change`, `adjustment`, `reversal` (the MD-08 list plus reversal) |
-| `reason_code` | text | yes | required (non-blank) when `cause IN ('adjustment','reversal')` (WM-12: an adjustment has a reason) |
-| `document_type`, `document_id`, `related_document_id` | text | yes | business document ids (e.g. receipt document, its purchase order); opaque strings, each at most 128 bytes |
-| `actor_id` | uuid | no | the event actor: the completer on the HUMAN path, the platform sentinel on a (later) service path |
-| `subject_id` | uuid | no | the authorisation subject (equals `actor_id` on the HUMAN path; the activator on the service path) |
-| `correlation_id` | text | no | at most 128 bytes; defaults to the BPM instance id when the command gives none |
-| `bpm_instance_id`, `bpm_task_id` | uuid | yes | from the `HandlerContext` (`instance_id`, `origin` `{:task, id}`); no foreign key (D-L11) |
-| `bpm_node_id` | text | yes | the node id |
-| `bpm_definition_id`, `bpm_definition_version` | uuid, text | yes | the pinned definition |
-| `event_time` | timestamptz | no | physical event time (section 8) |
-| `posting_time` | timestamptz | no | server time read UNDER the counter lock; `CHECK (event_time <= posting_time + interval '5 minutes')` is a backstop of the configured skew (OQ-4) |
-| `client_op_id` | text | no | UNIQUE; the idempotency key (0058 c.1); 1-128 bytes; must not start with `sys:` (S13) |
-| `origin_key` | text | no | UNIQUE; platform-derived `sys:step:<origin id>:<line>:<ordinal>` of the posting call (what makes a task-completion retry impossible to double-post even if the client reuses a `client_op_id` across tasks) |
-| `payload_hash` | text | no | SHA-256 hex of the canonical posting payload (section 9) |
-| `device_id` | text | yes | 0058 c.1 |
-| `client_seq` | bigint | yes | per-device monotonic number; `CHECK (client_seq >= 0)`; `device_id` and `client_seq` both set or both null; UNIQUE `(device_id, client_seq)` where not null |
-| `client_event_time` | timestamptz | yes | exactly what the device reported (kept even when `event_time` is clamped, never silently) |
-| `reverses_header_id` | uuid | yes | FK to `stock_movement(id)`; `CHECK ((cause = 'reversal') = (reverses_header_id IS NOT NULL))`; UNIQUE partial index (`WHERE reverses_header_id IS NOT NULL`): at most ONE reversal per header |
-| `site_id` | uuid | yes | the warehouse/site copy, filled by the policy when known (OQ-5); not part of any balance key |
-| `leg_count` | smallint | no | number of legs; the deferred check (5.3) requires it to equal the legs inserted |
+| `id` | uuid PK | no | the **stable operation id** |
+| `ledger_id` | text | no | the sequence domain; FK-free reference to `ledger_counter.ledger_id` |
+| `posting_seq` | bigint | no | `>= 1`; UNIQUE `(ledger_id, posting_seq)` |
+| `cause` | text | no | one of the causes the module REGISTERED (checked in code against the registration); **no core CHECK on the list**: only `CHECK (octet_length(cause) BETWEEN 1 AND 64)`; the cause `reversal` is reserved by core |
+| `sign_rule` | text | no | copied from the registration by the poster so the deferred trigger needs no access to code: `CHECK (sign_rule IN ('positive','negative','zero_sum_by_slot_1','any','reversal'))` (a closed MECHANISM vocabulary, not a business list) |
+| `reverses_entry_id` | uuid | yes | FK to `ledger_entry(id)`; `CHECK ((cause = 'reversal') = (reverses_entry_id IS NOT NULL))`; UNIQUE partial index where not null |
+| `reason_code` | text | yes | `CHECK (octet_length <= 64)`; required non-blank for `reversal` and for causes the registration marks `reason_required` |
+| `document_type`, `document_id`, `related_document_id` | text | yes | each `CHECK (octet_length <= 128)` |
+| `actor_id`, `subject_id` | uuid | no | event actor and authorisation subject (equal on the HUMAN path) |
+| `correlation_id` | text | no | `<= 128` bytes; defaults to the BPM instance id |
+| `bpm_instance_id`, `bpm_task_id` | uuid | yes | from `HandlerContext`; no FK (D-L11) |
+| `bpm_node_id` | text | yes | `<= 128` bytes |
+| `bpm_definition_id`, `bpm_definition_version` | uuid, text | yes | version `<= 64` bytes |
+| `event_time` | timestamptz | no | section 8 |
+| `posting_time` | timestamptz | no | `clock_timestamp()` read under the counter lock |
+| `client_op_id` | text | no | `1..128` bytes; no `sys:` prefix; UNIQUE with `subject_id` |
+| `origin_key` | text | no | UNIQUE; `sys:step:<origin>:<line>:<ordinal>` |
+| `payload_hash` | text | no | SHA-256 hex over the validated RAW command plus `subject_id` (9.2) |
+| `chain_hash` | text | no | SHA-256 hex over `(prev chain_hash, ledger_id, posting_seq, id, payload_hash)`; the previous value is `ledger_counter.last_chain_hash` read under the counter lock |
+| `device_id` | text | yes | `<= 64` bytes, `[A-Za-z0-9._:-]`; untrusted metadata |
+| `client_seq` | bigint | yes | `>= 0`; both or neither with `device_id`; UNIQUE `(subject_id, device_id, client_seq)` where set |
+| `client_event_time` | timestamptz | yes | exactly as reported; allowed only with `device_id` |
+| `scope_ref` | text | yes | opaque scope reference copied from the registered scope slot when the registration declares one (OQ-5, 16.2); `<= 128` bytes; not in any balance key |
+| `leg_count` | smallint | no | `1..200` |
 
-Also `UNIQUE (id, posting_seq, event_time)` (target of the leg's composite foreign key).
+Also `UNIQUE (id, ledger_id, posting_seq, event_time)`. Indexes: UNIQUE `(ledger_id, posting_seq)`; UNIQUE `(subject_id, client_op_id)`; UNIQUE `origin_key`; `(ledger_id, event_time, posting_seq)`; `(document_type, document_id)`; `(bpm_task_id)`; `(correlation_id)`; the partial uniques.
 
-Indexes: UNIQUE `posting_seq`; UNIQUE `client_op_id`; UNIQUE `origin_key`; `(event_time, posting_seq)`; `(document_type, document_id)`;
-`(bpm_instance_id)`; `(correlation_id)`; the partial uniques above.
+### 4.3 `ledger_leg` (append-only)
 
-### 4.3 `stock_movement_leg` (append-only)
-
-| Column | Type | Null | Meaning and rule |
+| Column | Type | Null | Meaning |
 |---|---|---|---|
 | `id` | uuid PK | no | |
-| `movement_id`, `posting_seq`, `event_time` | uuid, bigint, timestamptz | no | composite FK `(movement_id, posting_seq, event_time)` to the header's `UNIQUE (id, posting_seq, event_time)`: the copies cannot differ from the header, so a cut-off sum and an event-time sum need no join |
-| `leg_no` | smallint | no | 1-based; UNIQUE `(movement_id, leg_no)`; at most 200 per header |
-| `item_id` | uuid | no | the `catalog_item` record id (declarative reference only) |
-| `location_id` | uuid | no | the location record id (declarative reference only) |
-| `quantity_base` | numeric(30,9) | no | the signed DELTA in the item's base unit; `CHECK (quantity_base <> 0)` |
-| `base_unit_id` | uuid | no | the `catalog_uom` record id of the base unit (REQ-504 states the scale) |
-| `document_line_id` | text | yes | the stable document-line id generated at issue time (0058 c.3) |
-| *(columns owned by REQ-504 and REQ-503, section 4.5)* | | | |
+| `entry_id`, `ledger_id`, `posting_seq`, `event_time` | uuid, text, bigint, timestamptz | no | composite FK to the header's `UNIQUE (id, ledger_id, posting_seq, event_time)`: the copies cannot differ |
+| `leg_no` | smallint | no | 1-based; UNIQUE `(entry_id, leg_no)` |
+| `k1` .. `k8` | text COLLATE "C" | no | the balance-key slots, default `''` (none); `k1` and `k2` must be non-empty; each `CHECK (octet_length <= 128)`; canonical form: lowercase UUID text or the module's canonical string, compared as bytes |
+| `quantity` | numeric(30,9) | no | signed delta in the base unit; `CHECK (quantity <> 0)` |
+| `unit_ref` | text | no | the base unit's opaque reference |
+| `attrs` | jsonb | yes | non-key attributes (e.g. an expiry), `CHECK (octet_length(attrs::text) <= 4096)` |
+| `document_line_id` | text | yes | `<= 128` bytes |
+| (REQ-504 columns) | | | 4.5 |
 
-Indexes: `(item_id, location_id, posting_seq)` INCLUDE `quantity_base` (as-posted sums); `(item_id, location_id, event_time, posting_seq)`
-(event-time sums); `(movement_id, leg_no)`.
+Indexes: `(ledger_id, k1, k2, posting_seq)` INCLUDE `quantity`; `(ledger_id, k1, k2, event_time, posting_seq)`; `(entry_id, leg_no)`.
 
-### 4.4 `stock_balance` (derived cache; the ONLY mutable ledger table)
+### 4.4 `ledger_balance` (derived cache; the only mutable ledger table)
 
-| Column | Type | Null | Rule |
-|---|---|---|---|
-| `item_id`, `location_id` | uuid | no | key |
-| *(balance-key dimension columns of REQ-503, NOT NULL with a sentinel for "none", section 4.5)* | | no | key |
-| `on_hand` | numeric(30,9) | no | `CHECK (on_hand >= 0)` (the database backstop of the guard, C-4) |
-| `last_posting_seq` | bigint | no | the `posting_seq` of the last posting that changed the row |
-| `updated_at` | timestamptz | no | |
+PRIMARY KEY `(ledger_id, k1 .. k8)`; `on_hand numeric(30,9) NOT NULL CHECK (on_hand >= 0)`; `last_posting_seq bigint NOT NULL`; `updated_at timestamptz`. A row is inserted with `on_hand = 0, last_posting_seq = 0` on first touch and never deleted (tombstone rule).
 
-PRIMARY KEY is the full key (item, location, dimension key columns). A row is created on first touch with `on_hand = 0` and is
-NEVER deleted (tombstone rule, 0058 c.7): a zero balance stays as a zero row.
+### 4.5 Columns by reference (consequences of R-N for #2658 and #2660)
 
-### 4.5 Columns included by reference
+* **REQ-503 (#2658).** Under R-N the typed nullable dimension columns become **slots**: the module registration lists the slot names in an APPEND-ONLY ordered list (the stock module: `["item","location","status","lot","serial","owner","custodian"]`, at most 8); an unused slot is `''`; adding a dimension registers a new slot name, no DDL and no row rewrite. A dimension that is not a balance-key part (expiry) goes into `attrs`. #2658's AC wording (typed nullable columns, a migration byte-identity test) becomes "slot registration is append-only and a populated ledger is byte-identical after a registration change"; #2658 must be aligned (cross-note finding, OQ-16).
+* **REQ-504 (#2660).** `quantity_original numeric(30,9)` (signed), `original_unit_ref text`, `conversion_factor numeric`, a tolerance-evidence reference: nullable on `ledger_leg`; the conversion itself is module policy (14.4).
+* Comparator (F16): byte comparison of the slot texts (`COLLATE "C"` in SQL, binary comparison in Elixir), `''` the sentinel, UUID slots lowercase canonical text. Slot order is the lock order: slot 1, slot 2, ... (for the stock module: item, then location, as in 0057 D5). The slot list is append-only; reordering or removing a slot is refused by the Catalog (rule 11, 14.3).
 
-| From | Columns (this note's PROVISIONAL names; the owning note's names win) | Placement |
-|---|---|---|
-| REQ-504 (#2660) | `quantity_original numeric(30,9)` (signed), `original_unit_id uuid`, `conversion_factor` (the decimal string applied, as `numeric`), tolerance evidence reference | leg, all nullable (a posting in the base unit leaves them null or equal) |
-| REQ-503 (#2658) | `status` (default value decided there), `lot`, `serial`, `expiry`, `owner`, `custodian` | leg: all nullable (#2658 AC: "all new dimension columns are nullable"); balance: only those #2658 puts in the balance key |
+### 4.6 Tenant export, restore, delete and the table-set oracle
 
-Rules this note imposes on #2658 so the first migration can be written: (a) it states the **balance key** as an ordered column list;
-(b) in `stock_balance` each key dimension is NOT NULL with one sentinel per type (empty string for text, the nil uuid for uuid), and the
-single function that maps a leg's nullable value to the sentinel is the only place null is interpreted; (c) the reconciliation
-query groups legs by `COALESCE(col, sentinel)` for the same columns; (d) the byte-identity migration test in #2658's AC (a posted leg is
-unchanged by adding a nullable column) is run against THIS table; (e) the issue lists `status` and `lot` among the leg fields: they ARE those
-columns, not a second pair. Until #2658 is accepted, no migration file is written (L1 is blocked by the note, section 14).
+* **Table-set oracle:** `TenantFixture.expected_tenant_tables/0` (`test/support/tenant_fixture.ex:133, 862`; the list holds `audit_chain_locks` at `:141`) gains the four names in the L1 PR; the replay test (`tasks_scope_node_id_migration_test.exs:152` style) asserts the table set equals the oracle.
+* **Provisioning:** the migration is registered in `TenantProvisioning.tenant_scoped_migrations/0` (`tenant_provisioning.ex:728-731`), so a new tenant, a replayed tenant and a sandbox schema all get the tables.
+* **Delete:** the only schema removal found is the sandbox pool's `DROP SCHEMA ... CASCADE` (`sandbox_pool.ex:1004-1026`); DROP does not fire the row or TRUNCATE triggers, so deleting a sandbox is unaffected. A production TENANT delete path: NOT FOUND.
+* **Export and restore:** a tenant export/restore mechanism is NOT FOUND in `lib/`; decision 0057 D19 (`0057...md:68`) plans an export package ("documents and audit"). Requirement carried to that work: the ledger (`ledger_entry`, `ledger_leg`, the `chain_hash` column) is part of the package; a restore is whole-schema (counter, entries, legs, balances together) so the counter, the chain and the balances stay consistent; a partial restore of a ledger table is forbidden; after any restore `reconcile/3` must report clean before the tenant is unfrozen. Purge of ledger rows is never offered (D19: purge only on written request and after retention allows; for the ledger, by dropping the whole schema).
 
-## 5. Append-only enforcement (decision: database level, three layers)
+## 5. Append-only enforcement
 
-### 5.1 Why the database and not only the module path
+### 5.1 Decision: database level, a tripwire plus a single writer
 
-The module-write-handler path is NOT a sufficient guarantee: a bug in `Letflow.StockLedger`, a console session, a migration, or a
-future second writer can all bypass any application-level rule, and the ledger is the legal record of stock. The repository precedent
-for a legal-record table is the database trigger (S9, `audit_entries`: "enforced in the DATABASE, not by Ecto changeset validation").
-Decision 0054 option A (managed types) and the stamp mechanism (R2) protect ENTITY types and process definitions; they do not apply
-because the ledger is not an entity type (D-L1). Layers:
+The handler path alone is not a sufficient guarantee for a legal record; the repository precedent for such a record is the database trigger (S9). Decision 0054 option A (managed types) and the R2 stamp protect entity types and definitions, not these tables. The triggers are a **TRIPWIRE against bugs and accidents, not a security boundary**: the application connects as the table owner, which can disable triggers.
 
-1. **Triggers** on `stock_movement` and `stock_movement_leg`: BEFORE UPDATE and BEFORE DELETE (row) and **BEFORE TRUNCATE (statement)**, each raising one fixed exception text, no tenant data (`'stock_movement is immutable'`). The TRUNCATE trigger is NEW against the `audit_entries` precedent, which lacks it (S9: row triggers do not fire on TRUNCATE).
-2. **Structural constraints** (4.2-4.4) and the deferred checks of 5.3.
-3. **Single writer**: a scan (new test file, same style as `handler_writes_callers_test.exs`, S15) asserts that only `lib/letflow/stock_ledger/**` references the four table names or their schema modules, and that `HandlerWrites.post/3` is the only caller of `StockLedger.post`.
+1. **Triggers** on `ledger_entry` and `ledger_leg`: BEFORE UPDATE and BEFORE DELETE (row) raising one fixed text, and **BEFORE TRUNCATE (statement)** raising the same (added on the advisor's instruction; the precedent tables omit it because the pooled test reset needs TRUNCATE, S9 - resolved in 5.4).
+2. **Structural constraints** (section 4) and the deferred checks (5.3).
+3. **Single writer scans** (T-SC-1/2/3) and the process token (16.4).
 
-Residuals, stated: the table owner can `ALTER TABLE ... DISABLE TRIGGER` and a superuser can set `session_replication_role = replica`;
-`REVOKE` is NOT used because the application connects as the owner of the tenant tables (no REVOKE in any migration, S9). Detecting
-tampering after the fact is the reconciliation read (11.2) plus the gap check. These are accepted limits that SECURITY-REVIEWER records.
+Residuals, stated: the table owner can `ALTER TABLE ... DISABLE TRIGGER`; a superuser can set `session_replication_role = replica`; `REVOKE` is not used (no REVOKE in any migration, S9). **Tamper evidence** (SEC-10): `ledger_entry.chain_hash` and `ledger_counter.last_chain_hash` form a hash chain per ledger id over `(ledger_id, posting_seq, id, payload_hash)`, serialised for free by the counter lock; `reconcile/3` verifies it. The chain is in the FIRST migration because an append-only table cannot be back-filled. It detects, not prevents, tampering by the owner. 0062 records both residuals.
 
-### 5.2 Trigger rules (prose, no bodies)
+### 5.2 Trigger rules
 
 | Table | Trigger | Rule |
 |---|---|---|
-| `stock_movement`, `stock_movement_leg` | BEFORE UPDATE, DELETE (row); BEFORE TRUNCATE (statement) | raise the fixed text |
-| `stock_ledger_counter` | BEFORE UPDATE (row) | `NEW.last_seq = OLD.last_seq + 1` and `NEW.id = OLD.id`, else raise |
-| `stock_ledger_counter` | BEFORE DELETE, BEFORE TRUNCATE | raise |
-| `stock_movement` | BEFORE INSERT (row) | `NEW.posting_seq` must equal the counter's CURRENT `last_seq` (so a header can only carry a value the same transaction just allocated); when `reverses_header_id` is set, the target exists and its own `reverses_header_id` IS NULL (a reversal cannot be reversed) |
-| `stock_balance` | BEFORE UPDATE (row) | if `on_hand` changes, `NEW.last_posting_seq` must equal the counter's current `last_seq` (a balance can only change inside a posting that allocated a number); `item_id`/`location_id`/key columns immutable; no DELETE, no TRUNCATE (raise) |
+| entry, leg | BEFORE UPDATE, DELETE (row), TRUNCATE (statement) | raise the fixed text |
+| counter | BEFORE UPDATE | `NEW.last_seq = OLD.last_seq + 1`, `ledger_id` unchanged |
+| counter | BEFORE INSERT | `last_seq = 0` and `last_chain_hash = ''` only |
+| counter | BEFORE DELETE, TRUNCATE | raise |
+| entry | BEFORE INSERT | `NEW.posting_seq` equals the CURRENT `last_seq` of the counter row of `NEW.ledger_id` (the number must have been allocated by this transaction); when `reverses_entry_id` is set, the target exists, has the same `ledger_id`, and its own `reverses_entry_id` IS NULL |
+| balance | BEFORE INSERT | `on_hand = 0` and `last_posting_seq = 0` |
+| balance | BEFORE UPDATE | key columns immutable; if `on_hand` changes then `NEW.last_posting_seq` equals the counter's current `last_seq` for the row's `ledger_id`; no DELETE/TRUNCATE. This proves the change happened in a transaction that already holds the allocated number; it does NOT prove the change came from the poster (a session with UPDATE rights could set both), which is why reconciliation exists. |
 
-### 5.3 Deferred constraint triggers (evaluated at COMMIT, once per posting)
+### 5.3 Deferred constraint triggers (at COMMIT)
 
 | On | Rule |
 |---|---|
-| `stock_ledger_counter` AFTER UPDATE, `DEFERRABLE INITIALLY DEFERRED` | a `stock_movement` row with `posting_seq = NEW.last_seq` exists (a transaction that allocated a number without a header cannot commit: no gap by bug) |
-| `stock_movement` AFTER INSERT, `DEFERRABLE INITIALLY DEFERRED` (one execution per header) | (i) the number of legs equals `leg_count`; (ii) for `cause IN ('transfer','status_change')` the legs sum to zero per `item_id`; (iii) `receipt`/`return` have only positive legs, `issue` only negative; (iv) for `reversal`, per balance key the legs of this header plus the legs of the target sum to zero and the key sets are equal |
+| counter AFTER UPDATE, `DEFERRABLE INITIALLY DEFERRED` | an entry with `(ledger_id, posting_seq) = (NEW.ledger_id, NEW.last_seq)` exists |
+| entry AFTER INSERT, `DEFERRABLE INITIALLY DEFERRED` (once per header) | (i) the number of legs equals `leg_count`; (ii) the legs obey the header's `sign_rule`: `positive` all quantities > 0, `negative` all < 0, `zero_sum_by_slot_1` the quantities sum to zero per distinct `k1`, `any` none; (iii) for `reversal`, per balance key the legs of this entry and of the target sum to zero and the key sets are equal |
 
-Why per header and not per leg: a row-level constraint trigger on legs would run the sum once per leg (quadratic); on the header row it
-runs once.
+The mechanism vocabulary is closed and neutral; WHICH cause uses WHICH rule is module data.
+
+### 5.4 Pooled test schemas (TenantTemplate): the reset conflict, resolved
+
+Facts (S9b): `reset_clone_schema!/3` TRUNCATEs exactly the dirty tables plus the closure of FK-referencing tables (no CASCADE), re-copies `@seed_tables`, and its moduledoc states there is no BEFORE TRUNCATE trigger (`tenant_template.ex:621-631`); clones are `CREATE TABLE (LIKE ... INCLUDING ALL)` with no rows (`:1343`). With the new triggers a reset of a dirty ledger table would raise.
+
+Chosen mechanism (recorded for 0062): **ledger tables are unresettable.** `TenantTemplate` gets a fixed list `@append_only_tables = ["ledger_entry","ledger_leg","ledger_counter","ledger_balance"]`; when its probe finds ANY of them dirty, `reset_clone_schema!` returns `{:error, {:unprovable, [:append_only_table_dirty]}}` BEFORE any DML, and the caller rebuilds the slot with the existing `rebuild_clone_schema!/1` (no repair in place, as for drift). The counter bootstrap needs no `@seed_tables` change (4.1: lazily created; a seed row would be dirtied by every posting and cannot be deleted). Rejected: a GUC-controlled TRUNCATE bypass inside the trigger (weakens the guard for every tenant, since any raw SQL session can set a GUC); omitting the TRUNCATE trigger (the precedent; leaves TRUNCATE open, against the advisor's instruction). Cost: every test module that posts rebuilds its slot afterwards; ledger tests are few and `async: false`. Tests: T-TT-1 (a dirty ledger slot is `unprovable` and rebuilt; a clean slot untouched), T-TT-2 (triggers in a clone refuse and name the clone schema).
 
 ## 6. The gap-free sequence
 
 ### 6.1 Mechanism
 
-The posting transaction touches the counter in two statements (steps 6 and 8 of 7.1), both after every balance row is locked and the guard
-has passed: (1) a locking read of the single counter row, Ecto `lock: "FOR UPDATE"` composition exactly as the sequence-row precedent
-(`event_store.ex:808-811`, S7), which waits for the previous holder and returns the latest committed `last_seq`; (2) after the idempotency
-re-check under that lock, an Ecto `update_all` with `inc: [last_seq: 1]` and a `select` of the new `last_seq` (an
-`UPDATE ... SET last_seq = last_seq + 1 ... RETURNING last_seq`; no SQL string, INV-7), with the tenant `prefix:` option. The row lock
-is held until the transaction ends. Header and legs are inserted in the same transaction with the returned value. NOT a Postgres
-SEQUENCE and not `max(posting_seq) + 1`: a SEQUENCE's `nextval` is not transactional (a rollback burns the number), and `max + 1` needs a
-lock anyway.
+Two counter statements, both after every balance row is locked and the guard has passed (steps 8 and 9 of 7.1), on the ONE counter row of the posting's `ledger_id` (a posting touches exactly one ledger id): (1) a locking read of that row, Ecto `lock: "FOR UPDATE"` composition exactly as the sequence-row precedent (`event_store.ex:806-811`, S7), which waits for the previous holder and returns the latest committed `last_seq` and `last_chain_hash`; (2) after the idempotency re-check under that lock, an Ecto `update_all` with `inc: [last_seq: 1]` and a `select` of the new value (`UPDATE ... SET last_seq = last_seq + 1 ... RETURNING`; no SQL string, INV-7) that also sets `last_chain_hash`, with the tenant `prefix:` option. The lock is held to the end of the transaction. NOT a Postgres SEQUENCE (`nextval` is not transactional: a rollback burns the number) and not `max + 1`. READ COMMITTED is assumed (S18): after waiting, `FOR UPDATE` returns the latest committed version; under REPEATABLE READ the read would raise a serialization failure instead of producing a gap; a test pins the isolation level. A duplicate found by the re-check returns WITHOUT the UPDATE.
 
-READ COMMITTED is assumed (S18): after waiting, `FOR UPDATE` returns the latest committed row version (the EvalPlanQual recheck). Under
-REPEATABLE READ or SERIALIZABLE the read would raise a serialization failure instead of producing a gap; a test pins the isolation level of
-the posting transaction. A duplicate command found by the re-check returns WITHOUT the increment (so the duplicate path never burns or
-needs to give back a number); the counter lock it took is released with the surrounding transaction.
+### 6.2 Proof of gap-freeness
 
-### 6.2 Proof of gap-freeness (two concurrent postings)
+Claim G1: for each ledger id, the committed `posting_seq` values are exactly `1..M` for all time (everything below is per ledger id). Claim G2: every snapshot sees a prefix `1..n`.
 
-Claim G1: the committed `posting_seq` values of `stock_movement` are exactly `1..M` for some `M`, for all time; and
-Claim G2: at any instant every snapshot sees a prefix `1..n` of them (so `posting_seq <= N` is a stable cut-off).
+Facts (each enforced above): F1 the only writer of `last_seq` is the posting UPDATE, +1 (trigger 5.2); F2 a header's `posting_seq` equals the counter value current in its transaction (trigger 5.2) and a transaction that bumps the counter cannot commit without a header of that number (deferred trigger 5.3); F3 the counter row lock is held to commit or rollback; F4 a rolled-back transaction leaves the counter as it was (MVCC); F5 PostgreSQL makes a commit visible to new snapshots (ProcArray removal) BEFORE it releases the transaction's locks (argued from PostgreSQL commit internals, not run here); F6 a transaction that finds a duplicate under the lock does not run the UPDATE.
 
-Facts used (each enforced above): F1 the only writer of `last_seq` is the posting UPDATE, which adds exactly 1 (trigger 5.2); F2 a header's
-`posting_seq` must equal the counter value current in its transaction (trigger 5.2), and a transaction that bumps the counter cannot
-commit without a header of that number (deferred trigger 5.3); F3 the counter row lock (taken by the locking read of step 6) is held until commit or rollback; F4 a
-rolled-back transaction leaves the counter row as it was (MVCC), unlike `nextval`; F5 PostgreSQL makes a commit visible to new snapshots
-(ProcArray removal) BEFORE it releases the transaction's locks; F6 a transaction that takes the lock and finds a duplicate does not run the UPDATE (no number is used, the trigger is not involved).
+Proof of G1: induction over the transactions in the order they acquired the counter lock. By F3 the order is total and non-overlapping: `Tk` acquires the lock only after the previous holder committed, rolled back or took the duplicate path. Let `c(k)` be the committed `last_seq` before `Tk`: unchanged if the previous holder rolled back or took the duplicate path (F4, F6), `+1` if it committed an UPDATE (F1). `Tk` reads `c(k)`, writes `c(k)+1` and, if it commits, commits a header numbered `c(k)+1` (F2). So committed numbers are `1,2,3,...` in lock order, none skipped, none reused. QED. Proof of G2: `Tk` is visible to new snapshots (F5) before `T(k+1)` can take the lock.
 
-Proof of G1 by induction on the transactions that run the counter UPDATE, in the order they acquired the row lock. By F3 that order is total and
-non-overlapping: transaction `Tk` acquires the lock only after the previous lock holder (including a duplicate-path holder, F6, which changed nothing) has committed or rolled back. Let `c(k)` be the committed value
-of `last_seq` before `Tk`. If the previous holder rolled back or took the duplicate path, then by F4/F6 `c(k)` is unchanged; if it committed an UPDATE, `c(k)` grew by 1 by F1. `Tk`
-reads `c(k)` (READ COMMITTED recheck), writes `c(k)+1` and, if it commits, commits a header numbered `c(k)+1` (F2). Hence the committed header numbers
-are `1, 2, 3, ...` in lock order with no value skipped and none reused. QED.
+Two concurrent postings (counter at 41):
 
-Proof of G2: `Tk` commits (visible to new snapshots, F5) before `T(k+1)` can take the counter lock, so no snapshot can contain the header
-of `T(k+1)` without that of `Tk`.
-
-Two concurrent postings, the interleavings that matter (counter at 41 committed):
-
-| Step | T1 | T2 | Counter row | Outcome |
+| Step | T1 | T2 | Counter | Outcome |
 |---|---|---|---|---|
-| a | locks its balance rows, passes the guard | locks its (different) balance rows, passes the guard | 41 | no conflict so far |
-| b | counter `FOR UPDATE` -> 41, then `UPDATE` -> 42, holds the row | counter `FOR UPDATE` blocks | 42 (T1) | T2 waits (lock queue) |
-| c1 | T1 inserts header 42 and legs, commits | T2 wakes, reads 42, writes 43 | 42 then 43 | both commit: 42, 43 |
-| c2 | T1 fails after (b) (a constraint, a timeout, a crash) and ROLLS BACK | T2 wakes, reads 41, writes 42 | 41 then 42 | T2 commits 42; **no gap, 42 reused** |
-| d | T1 and T2 carry the same `client_op_id` | T2 re-checks `client_op_id` AFTER obtaining the counter lock (step 7) and finds T1's committed header | 42 | T2 posts nothing and does not run the UPDATE |
-
-A rolled-back posting that already took a balance row lock releases it with the rollback; no number is ever stored outside the
-transaction. Test names in section 13 (T-GF-1..3).
+| a | locks its balance rows, passes the guard | locks its (different) rows, passes the guard | 41 | no conflict |
+| b | counter `FOR UPDATE` then `UPDATE` -> 42 | counter `FOR UPDATE` blocks | 42 (T1) | T2 queues |
+| c1 | inserts posting 42 and legs, commits | wakes, reads 42, writes 43 | 42, 43 | commits 42, 43 |
+| c2 | fails after (b) and ROLLS BACK | wakes, reads 41, writes 42 | 41, 42 | T2 commits 42, **no gap, 42 reused** |
+| d | same `(subject, client_op_id)` as T2 | re-checks after the lock (step 8), finds T1's committed header | 42 | T2 posts nothing, no UPDATE |
 
 ### 6.3 Reader contract
 
-A report takes `N` and its rows in ONE snapshot: a single statement (CTE) or one `REPEATABLE READ READ ONLY` transaction; `N` is
-`max(posting_seq)` of that snapshot, or a caller-supplied number `<= max`. By G2 a report at `N` run later returns the same rows
-(legs are immutable). A caller-supplied `N` above the counter is refused (`cutoff_in_future`).
+A report takes `N` and its rows in ONE snapshot (a single statement/CTE, or one `REPEATABLE READ READ ONLY` transaction); `N` is `max(posting_seq)` of that snapshot or a caller number `<= max`; above the counter it is refused `cutoff_in_future`. By G2 a report at `N` run later returns the same rows.
 
 ## 7. Lock order
 
-### 7.1 The posting algorithm (normative step list, one transaction, run inside the engine's step Multi)
+### 7.1 The posting algorithm (normative; ONE posting per transaction, one ledger id per posting)
 
-Inputs are the validated command (section 9.1) and the `HandlerContext`. Every statement uses the tenant `prefix:` option and bound parameters.
+Inputs: the validated command (9.1) and the `HandlerContext`. Every statement uses the tenant `prefix:` option and bound parameters.
 
-1. **Shape and authority (no lock).** Closed-shape check; origin must be `{:task, _}` (D-L12); the subject holds `:StockPost` (and `:StockReverse` for a reversal) through `Authorization.role_allows?/2` (`authorization.ex:1518-1520`); a denial is the one public `write_not_permitted` body (INV-5).
-2. **Policy (lock-free reads).** The module's `Policy.validate/2` (14.4) resolves masters (item, location active; unit valid; REQ-504 conversion to the base unit) and returns the NORMALISED command (base quantities as `Decimal`, scale checked, never rounded: `Decimals.parse/3`, S14). Reads take no lock.
-3. **Idempotency pre-check (lock-free).** A header with this `client_op_id` or `origin_key` exists: payload hash equal returns `{:ok, {:duplicate, movement_id}}` and stops; different hash returns `idempotency_key_reuse`.
-4. **Balance keys.** Compute the DISTINCT balance keys the legs touch (reversal: read the target's legs, which are immutable, no lock); sort ASCENDING by the tuple (`item_id`, `location_id`, then the dimension key columns in the order #2658 states), compared as bytes. For each key in that order: (a) insert-if-absent with `on_hand = 0` (`ON CONFLICT DO NOTHING`), (b) `SELECT ... FOR UPDATE` of that row, returning `on_hand`. One key at a time, so the acquisition order is the sorted order (a batched `ORDER BY ... FOR UPDATE` is a later optimisation that needs its own probe test).
-5. **Guard.** For every key, `on_hand + sum(delta of its legs) >= 0`, else `{:error, {:insufficient_stock, details}}` (12.2) with nothing written and the counter untouched. The first violating key in sorted order is reported, with all violating leg indexes in `details`.
-6. **Counter lock.** The locking read of 6.1 (the LAST ledger lock; it fixes the order of this posting among all postings).
-7. **Idempotency re-check under the counter lock** (the race window of 6.2 row d): re-read the two keys (a plain read; the first committed same-key poster is visible after the wait under READ COMMITTED). Found: same payload hash returns `{:ok, %{duplicate: true, ...}}` and the algorithm stops with NO write and NO counter UPDATE; different hash returns `idempotency_key_reuse`.
-8. **Number and writes.** The counter UPDATE of 6.1, `posting_time` from the database clock read now (under the lock), insert the header, insert the legs, `UPDATE stock_balance` per key (`on_hand + delta`, `last_posting_seq = posting_seq`).
-9. **Return** `{:ok, %{movement_id, posting_seq, duplicate: false}}`. Audit and events are the engine tail's (no change of event schema, 14.5).
+1. **Shape, token, origin (no lock).** The process token of the handler call is verified by `Letflow.Ledger.post/2` itself (16.4); the command's closed shape is checked; the transaction-scoped posting counter (7.4) must be zero; the origin must be `{:task, _}`, else the typed refusal `:ledger_origin_not_supported` (D-L12).
+2. **Authority (no lock).** The subject's roles are read from the DATABASE in this transaction and must include one holding the registration's `post` permission (`reverse` for a reversal), 16.2; a subject with any scoped (not tenant-wide) role grant is REFUSED, fail-closed (16.2).
+3. **Facts and declaration (before ANY ledger lock; no lock at all is taken by it).** The module's optional `gather_facts` callback (lock-free reads through the module's read API, under the transaction's `statement_timeout`) and then its PURE `declare` callback (14.4) produce the declarative posting: ledger id, cause, legs (slot values, quantity, unit, attrs), reason, document ids. The core then checks the GENERIC rules against the registration: ledger id matches the pattern, cause is registered, sign rule, leg count, slot count, canonical decimals (never rounded), caps. Neither callback runs under a ledger row lock (running module code under row locks is the rejected 0054 option B, `0054...md:45`); they do run after the engine locks the transaction already holds (class 1-5), because the handler call executes there (running them in the pre-transaction plan phase is OQ-17, default no).
+4. **Idempotency pre-check (lock-free).** Lookup by `(subject_id, client_op_id)` and by `origin_key`: same `payload_hash` returns the duplicate result and stops; a different hash, or the two keys matching DIFFERENT entries, returns `idempotency_key_reuse`; a `(subject_id, device_id, client_seq)` held by a different `client_op_id` returns `client_seq_conflict`.
+5. **Reversal derivation (no lock; immutable data).** For `cause = reversal`: read the target entry; absent, other ledger id or not visible -> `validation_failed` reason `movement_not_found`; target is itself a reversal -> `posting_is_reversal`; derive the negated legs from the target's legs.
+6. **Balance rows: insert, then lock, both ascending.** Compute the DISTINCT balance keys; sort ASCENDING by `(k1 .. k8)` byte-wise. (6a) For every key in that order: insert-if-absent with `ON CONFLICT DO NOTHING` (so every missing row exists before any is locked, in the same order as the locks). (6b) For every key in that order: `SELECT ... FOR UPDATE` returning `on_hand`. One key at a time.
+7. **Guard, and the reversal re-check under the key locks.** For a reversal, re-read whether a reversal of the target now exists (the first of two concurrent reversals commits before the second gets the shared key locks): found -> `posting_already_reversed`. For every key `on_hand + sum(delta) >= 0`, else `insufficient_stock` (12.2); nothing written, counter untouched.
+8. **Counter lock and idempotency re-check.** Insert-if-absent of the counter row of the ledger id, then the locking read of 6.1 (the LAST ledger lock). Re-read the two keys: found -> duplicate result (same hash) or `idempotency_key_reuse`, with NO write and NO UPDATE.
+9. **Number and writes.** The counter UPDATE (6.1); `posting_time = clock_timestamp()` read now; compute `chain_hash`; insert the header, the legs, then `UPDATE ledger_balance` per key (`on_hand + delta`, `last_posting_seq = posting_seq`).
+10. **Return** `{:ok, %{entry_id, ledger_id, posting_seq, duplicate: false}}`. The audit entry and events are the engine tail's (7.7, 14.5).
 
-### 7.2 Position in decision 0061's global order
+### 7.2 Position in decision 0061's order, and why
 
-Decision 0061 rule 1 (`0061...md:13-21`): (1) the instance's tasks/timers/dispatch rows, (2) `P_x`, (3) ancestor group, (4) own tokens, (5) entity-type
-rows ascending (`scope_node_paths` table lock first when it applies), (6) the tenant audit chain row, (7) sequence rows, (8) projection UPDATEs.
+Decision 0061 rule 1 (`0061...md:13-21`): (1) instance tasks/dispatch rows, (2) `P_x`, (3) ancestor group, (4) own tokens, (5) entity-type rows ascending, (6) the tenant audit chain row, (7) sequence rows, (8) projection UPDATEs; 0061 "Amended (GH #2707, PR-1)" item 1 places the instance's own `timers` rows after class 5 and before class 6, touched only while `P_x` is held.
 
-The ledger rows slot in as **class 5b: after class 5, before class 6**, internally "balance rows ascending, then the counter row". Reasons:
-* the handler runs AFTER the type locks of the HUMAN path (S3), so the ledger step naturally follows class 5;
-* everything that follows the handler on the HUMAN path (task activation audit, audit rows, events, projection, cascade) is class 6 or later (S3);
-* the counter is taken LAST among the ledger rows so the long part of the work (reads, balance locks, the guard) happens while the tenant-wide counter is still free, and the counter is held for the shortest suffix of the transaction.
+The ledger is **class 5b: after 5, before 6** (internally: balance rows ascending, then the counter row of the ledger id). Why this cannot cross any other class: on the HUMAN path the handler runs after the type locks (S3) and everything after it is the TAIL: `:cancel_escalation_timers` and `:cancel_reminder_timers` (`engine.ex:7350, 7365`), token reconcile, task activation, audit rows (class 6), events and sequence rows (7), projection UPDATEs (8) (S3b). Every row of the tail classes is either (a) instance-own and touched only while THIS transaction holds `P_x` (timers, tokens, sequence rows, projection), so no other transaction can hold one while waiting for a ledger row (it would have to hold `P_x` of this instance, which this transaction holds), or (b) newly inserted by this transaction, or (c) the tenant-wide audit chain row, which a ledger-posting transaction takes only AFTER its ledger rows and which a non-ledger transaction holds without ever waiting for a ledger row. The 0061 amendment text (section 15) names the timers.
 
-This requires **an amendment of decision 0061** (rule 5: "new code takes more than one of these row classes in this order, or amends this record in the same pull request") adding class 5b, written in the L3 PR; the amendment text is in 15.
+### 7.3 Why it cannot deadlock
 
-### 7.3 Why the order cannot deadlock
+* Ledger vs ledger: every posting takes keys ascending then the counter; the counter holder takes no further ledger lock (it updates rows it already holds); a cycle would need a counter holder waiting for a ledger row it does not hold, impossible. Opposite item order `[(A,B)]`/`[(B,A)]` both sort to `A,B`.
+* **The counter holder DOES wait for rows later in the transaction** (the tail: audit chain row, sequence rows, projection). Deadlock-freedom there rests on 7.2: nothing that holds a tail row ever waits for a ledger row.
+* The insert-if-absent of a missing balance row waits on the inserting transaction in the same ascending order.
+* No FK from the ledger to engine tables (D-L11, S19).
+* **One posting per transaction (7.4).**
 
-* Ledger vs ledger: every posting takes balance rows in ascending key order, then the counter; the counter holder never waits for a balance row afterwards (it only inserts and updates rows it already holds). A wait-for cycle would need a transaction holding the counter and waiting for a balance row held by one waiting for the counter: impossible by the order. Two postings with opposite item order `[(A,B)]`/`[(B,A)]` both sort to `A, B`, so the second queues behind the first on `A` and never holds `B` first.
-* Ledger vs the rest of the engine: ledger locks come after class 5 and before class 6 on every path that can post (HUMAN, S3). A path that takes class 6 or later and then wants a ledger lock would invert; none exists on the HUMAN path, and the SERVICE path is refused (7.4).
-* The insert-if-absent of a missing balance row waits on the transaction that inserted it, in the same ascending order, so it cannot cycle with row locks.
-* No FK from the ledger to engine tables (D-L11), so no hidden `KEY SHARE` edges (S19). The legs' FK to their own header (same transaction, own row) and the reversal FK to a committed header add no contended edge.
-* The handler's `module_writes` target types (class 5) are locked before; a posting handler registers NO entity target type (or only bookkeeping ones), so the class-5 set is unchanged.
+### 7.4 Why more than one posting per transaction is forbidden (BLOCKER F2)
 
-### 7.4 The SERVICE_TASK hazard (why L1-L4 refuse the service origin)
+A node may declare up to 20 `module_writes` lines, each a handler call, and `post/3` could be called once per line. Posting #2 would take balance rows AFTER posting #1 holds the counter: T1 holds the counter and wants key `y`, T2 holds `y` and wants the counter -> a cycle. Rule: **at most ONE `post/3` per transaction**, enforced by a transaction-scoped token (a per-transaction marker created by the engine's step context and checked and set by `Letflow.Ledger.post/3` at step 1; a second call returns the closed error `:too_many_postings`, which `HandlerWrites.post/3` returns to the handler and the build turns into a failing step), plus a limit of 200 legs per posting. Test T-LK-5 (two lines both posting, forced overlap with an opposite-key poster: the second call is refused at build, no deadlock). A multi-leg business operation is ONE posting with many legs.
 
-On the service apply the order is `:lock_ancestors`, `{:pre_type_lock,_}`, then token inserts and task activation whose `task.create`
-audit takes the audit chain row **A**, then the entity writes and handler calls (S4, `engine.ex:400-410`). A posting there takes the
-balance rows and the counter AFTER **A**. Interleaving: a HUMAN posting `Th` holds balance row `B(x)` and the counter and wants **A** for its tail
-audit; a service apply `Ts` holds **A** and wants `B(x)`: `Ts` waits for `Th` (row `B(x)`), `Th` waits for `Ts` (**A**). A real cycle,
-resolved only by the 2 s lock timeout or the deadlock detector. Class 5b would have to be taken in the service path BEFORE the task
-activation, as a lock-only pre-step like the type pre-lock (`engine.ex:5800`), and the balance keys depend on handler arguments, which
-are resolved from variables (known at plan time on the service path: NOT VERIFIED, this is L5's first task). Until then `post/3` refuses
-`{:dispatch, _}` with the closed error `:ledger_origin_not_supported`.
+### 7.5 The SERVICE_TASK hazard (why L1-L4 refuse the service origin)
 
-### 7.5 Deadlock and timeout behaviour
+On the service apply the order is `:lock_ancestors`, `{:pre_type_lock,_}`, then tokens and task activation whose `task.create` audit takes the audit chain row **A**, then the handler calls (S4). A posting there takes balance rows and the counter AFTER **A**. Interleaving: a HUMAN posting `Th` holds `B(x)` and the counter and wants **A** for its tail audit; a service apply `Ts` holds **A** and wants `B(x)`: a real cycle (derived by reading, not run). `post/3` refuses `{:dispatch, _}` with the TYPED refusal `:ledger_origin_not_supported` (surfaced as `write_not_permitted`, and as ERROR + DLQ on the service path). Lifting it needs a later 0061 amendment (ledger lock-only pre-steps before the task-activation audit) and its own forced-overlap tests.
 
-| Event | Where | Result |
-|---|---|---|
-| `55P03` lock timeout (the plan's `SET LOCAL lock_timeout = '2s'`, S5) or `40P01` deadlock victim | any ledger lock wait | the transaction rolls back (nothing committed, no counter value consumed, no balance changed); the engine's contention rescue maps it to `{:entity_write_refused, :contention, :entity_write_contention}`: HTTP **503** `entity_write_contention`, retryable, `line_index: null` (S5, S6). No new code. |
-| `statement_timeout` 5 s (`query_canceled`) | a slow statement | same mapping: `@contention_error_codes [:lock_not_available, :query_canceled, :deadlock_detected]` (`engine.ex:2925`) |
-| a database error in a ledger step that is not contention (e.g. `23514` on `on_hand >= 0` after the guard passed) | the backstop | mapped to `insufficient_stock` only if the violated constraint is the balance CHECK (the race the guard should have closed; logged as a defect-class counter with ids only), otherwise `entity_write_failed` (500, no text) |
+Consequence (F20): **automated and integration postings are excluded from L1-L4**: no script-bound or HTTP SERVICE_TASK, scheduled adjustment, or ERP/1C-driven posting can use the ledger until L5. Conditions for lifting (SEC-12): (a) the ledger rows are taken as lock-only pre-steps BEFORE the task-activation audit, with balance keys resolvable at plan time (NOT VERIFIED that service-path arguments are); (b) the subject's roles are re-resolved from the database at run time and the platform sentinel never holds the post permission (the activator's roles are the subject); (c) when script-produced variables feed legs, activation requires an explicit consent flag on the node recorded with `activated_by`; (d) the cycle test T-LK-4 inverted.
 
-Hot item or hot counter: a waiter queues FIFO behind the holder for at most the lock timeout (2 s) and then gets 503; the holder is
-itself bounded by `statement_timeout` 5 s and the 10 s wall guard (`gh2590...md:749-750`). Bounds: 200 legs per posting, 200 legs per
-completion (a per-call token counter, like the 49-write cap), 20 `module_writes` lines per node. Throughput of the single counter is NOT
-measured; the estimate (tens of postings per second per tenant, bounded by the tail of the completion transaction) must be measured by
-test T-LD-1 against NF-01/NF-02 targets before a pilot (OQ-2 names the scale-out).
+### 7.6 Deadlock and timeout behaviour
+
+| Event | Result |
+|---|---|
+| `55P03` (the plan's `lock_timeout 2s`, S5), `40P01`, `57014` (`statement_timeout` 5 s) | rollback; nothing committed, no number consumed; mapped to 503 `entity_write_contention`, `line_index: null` (`engine.ex:2925`, `tasks.ex:456-463`). No new code. |
+| a `23514` on `on_hand >= 0` after the guard passed | the race the guard should have closed: `insufficient_stock` with `details` of 12.2 (reversal: only `leg_no` and count), logged as a defect-class counter with no values |
+
+Hot item/counter: FIFO behind the holder for at most 2 s then 503; holder bounded by 5 s statement and 10 s wall guard (`gh2590...md:749-750`). Bounds: 200 legs per posting, 1 posting per transaction, 20 lines per node.
+
+**Throughput (F18).** The counter is held from step 8 to the END of the surrounding transaction, i.e. through the engine tail, and a ledger transaction also waits behind the tenant-wide audit-chain row (S8): the hold is not "the shortest suffix", it is the tail. One authenticated actor can occupy the convoy with sequential completions; decision 0040 records that there is NO per-actor rate limit (S25), so the only bounds are the lock timeout (2 s -> 503) and the posting caps. Pilot exit criterion for T-LD-1: with 4 concurrent workers on ONE tenant, at least **20 postings/s sustained for 60 s, p95 completion latency under 500 ms, contention 503 rate under 1%**; if the customer's NF-01 peak (lines/s) is declared higher, the criterion is 2x that figure. Failing it triggers OQ-2. Accepted for release 1: postings of one ledger id serialise across the tenant. The recorded scale path is **per-ledger-instance sequences**: a module that registers a ledger id pattern per warehouse gets one counter row, one gap-free sequence and one cut-off number per warehouse, with no core change (a transfer between two warehouses then needs two postings or a shared ledger id, a module decision).
+
+### 7.7 The audit entry per posting (`ledger.posted`)
+
+One audit chain entry `ledger.posted` per NON-duplicate posting, with ids only: `entry_id`, `ledger_id`, `posting_seq`, `cause`, `leg_count`, the actor; no quantity, no slot value, no free text. It is appended by the ENGINE TAIL beside the per-line entity-write audits (`append_entity_write_audits`, `engine.ex:3330`, action `entity_write.process_step` at `:3334`), built from the `:ledger_post` step result in `changes`, not by the ledger step itself. Consistency with the lock order: the audit chain row (class 6) is therefore taken in the tail, AFTER the counter row (class 5b), exactly as 0061 requires; taking it inside the ledger step would put class 6 before the tail's timer rows (benign by 7.2 (a) but a needless departure from the written order). A refused or duplicate posting writes no `ledger.posted`; refusals keep the existing best-effort refusal audit (12.3).
 
 ## 8. Time basis, late movements (G7) and reports
 
 ### 8.1 Event time of a late-synchronised movement
 
-* `client_event_time` is stored exactly as reported (null for an online posting).
-* `event_time` = `client_event_time` when present, else `posting_time`. It is NEVER overwritten by the posting time of a late sync: a receipt executed yesterday and synchronised today has `event_time` yesterday, `posting_time` today, `posting_seq` the next number (0058 b: facts "are ACCEPTED late: posted at server posting time, client event time kept").
-* Refused: `event_time` later than `posting_time` plus the skew tolerance (default 5 minutes, OQ-4) -> 422 `event_time_in_future`. No lower bound in this slice (the offline lease bounds lateness: default 3 days, 0057 D13, REQ-480).
-* The guard is evaluated at POSTING time against current balances, not at event time (a late issue that is negative as of its event time but positive now posts; a late issue that is negative now is refused `insufficient_stock`, 0058 b).
+* `client_event_time` is stored exactly as reported (null online); it is accepted only together with `device_id` (a device that queues work). Online postings use `event_time = posting_time` and a `client_event_time` without `device_id` is `invalid_posting`.
+* `event_time = client_event_time` when present, else `posting_time`; NEVER overwritten by the posting time (0058 b: facts accepted late, client event time kept).
+* `posting_time = clock_timestamp()` read under the counter lock (single database clock). It is informational and can in principle regress (clock step); `posting_seq` alone orders.
+* Timestamps are parsed strictly: ISO-8601 with explicit offset or `Z`, microsecond precision, years 2000-2100; `infinity`, `-infinity`, out-of-range and offset-less values are `invalid_posting`.
+* The guard is evaluated at POSTING time against current balances (a late issue negative as of its event time but positive now posts; negative now -> `insufficient_stock`, 0058 b).
 
 ### 8.2 Two bases, both reproducible
 
 | Basis | Predicate | Property |
 |---|---|---|
-| **as-posted** (default; stock on hand, audit) | `posting_seq <= N` | immutable and reproducible forever (G2); a late movement has `posting_seq > N` so it never changes a published report at `N` |
-| **as-of event time** (period reports, CS-01 "any chosen historical moment") | `event_time <= T AND posting_seq <= N` | the pair `(T, N)` reproduces a published report exactly; recomputed with a larger `N` it includes late arrivals, which is the intended "appears in the appropriate period" (MD-09) |
+| as-posted (default) | `posting_seq <= N` | immutable and reproducible (G2); a late movement has `posting_seq > N` |
+| as-of event time | `event_time <= T AND posting_seq <= N` | the pair `(T, N)` reproduces a published report; with a larger `N` it includes late arrivals ("appears in the appropriate period", MD-09) |
 
-The mixed form (event time only, no `N`) is NOT offered: it would silently rewrite a published balance when a late movement arrives (MD-09).
+Event time WITHOUT `N` is not offered (it would rewrite a published balance).
 
-### 8.3 What every report states (CS-01 line 117)
+### 8.3 DECISION D-T: the lateness cap (OQ-15 decided)
 
-The read API returns, with every result, `basis` (`"posting_seq"` or `"event_time"`), `cutoff_seq` (`N`), `as_of` (`T` or null), `timezone` (the tenant
-timezone used to render period boundaries; storage is UTC), `filters`, and `ledger_seq` (the counter value in the snapshot). Opening balance
-plus period receipts minus period issues and adjustments equals closing balance by construction, because all three are sums over the
-same legs under one basis (test T-RP-3).
+Rule: `event_time` may be earlier than `posting_time` by at most **4 days** (`max_event_lateness`, default 96 hours, configuration key under the ledger registration, platform default), and later than `posting_time` by at most 5 minutes (skew). Beyond either, the posting is refused `event_time_too_old` (422) or `event_time_in_future` (422), nothing written.
+
+Reasoning: (a) the offline lease is the maximum outage, default 3 days (0058 (a), 0057 D13); a fact captured at the start of the longest permitted outage must still be postable on reconnection; (b) one day of margin covers synchronisation delay and a device clock set to local time; (c) international practice in ERP inventory ledgers is that backdating is bounded by an OPEN POSTING PERIOD, and that period control is a configured window (SAP MM posting-period control opens the current and previous period; Dynamics 365 inventory close/`inventory closing` prevents posting before the last closing date): the cap is the minimal stand-in for a period window, since period close is out of scope here (no closing exists); (d) a cap with no value would let any actor with the post permission backdate unboundedly, which defeats "published balances are not silently rewritten"; (e) it cannot rewrite a published as-posted report anyway (G2), it only bounds how far an event-time report can move. A longer window is a tenant configuration change by a platform operator, recorded in the audit chain; period close is a later requirement. Recorded for 0062.
+
+### 8.4 What every report states (CS-01 :117)
+
+`basis`, `cutoff_seq` (`N`), `as_of` (`T` or null), `timezone` (tenant timezone used for period boundaries; storage UTC), `filters`, `ledger_seq` (counter value in the snapshot). Opening + period receipts - issues and adjustments = closing, by construction (all sums over the same legs under one basis; T-RP-3).
 
 ## 9. Commands, idempotency, offline fields, versions, tombstones
 
-### 9.1 The posting command (the closed map `post/3` accepts)
+### 9.1 The posting command (closed map)
 
-`cause`, `legs` (list of `%{item_id, location_id, quantity (decimal string or integer; never a float), unit_id, dimensions (REQ-503 map), document_line_id}`),
-`reason_code`, `document_type`, `document_id`, `related_document_id`, `correlation_id`, `event_time`/`client_event_time`, and the
-offline fields **`client_op_id` (required)**, **`device_id`**, **`client_seq`**, **`client_event_time`** (0058 c.1; the ledger stores them beside `posting_seq` and `posting_time`). For `cause = 'reversal'`: `reverses_movement_id` and `reason_code`, no legs. Unknown keys, a float quantity, a string that does not match the canonical grammar (S14), or a quantity with more than 9 fractional digits are refused (`invalid_posting`, never rounded). The encoded command is capped at 256 KiB and 200 legs (this note's own cap; the service-origin write caps of R5 are described in `docs/guides/adding-an-application-module.md` section 5c).
+`cause`, `legs` (list of `%{k: [slot texts], quantity (decimal string or integer, never a float), unit_ref, attrs, document_line_id}`), `reason_code`, `document_type`, `document_id`, `related_document_id`, `correlation_id`, and the offline fields **`client_op_id` (required)**, `device_id`, `client_seq`, `client_event_time` (0058 c.1). For `reversal`: `reverses_entry_id` and `reason_code`, no legs. Unknown keys, floats, non-canonical decimals or more than 9 fractional digits (never rounded) are `invalid_posting`. The encoded command is capped at 256 KiB.
 
-### 9.2 Idempotency (AC: a duplicate command with the same key posts once and returns the same stable operation id)
+How the offline fields reach the handler (F17): they are fields of the TASK COMPLETION request's variables (the same body that carries form values), mapped to the handler's declared `var` arguments (`gh2590...md` D-R.4: args are resolved values only); they are never taken from headers. `client_op_id` is a required handler argument, generated by the client UI for an online posting too; `device_id`, `client_seq`, `client_event_time` are omitted online and left null. `expected_document_version` is optional in the command and **required exactly when the command names a `document_id` whose type the module marks versioned** (policy rule, 9.4).
 
-`payload_hash` = SHA-256 over the canonical, key-sorted JSON of the NORMALISED command without `client_event_time`/transport fields. Outcomes:
+### 9.2 Idempotency and the payload hash
+
+`payload_hash` = SHA-256 over the canonical, key-sorted JSON of the VALIDATED RAW command (the client-supplied fields after closed-shape check and decimal canonicalisation, BEFORE any master-data normalisation, so a later master change cannot turn a replay into a different payload) PLUS `subject_id`. Keys are scoped per actor: `UNIQUE (subject_id, client_op_id)` (SEC-5): another actor's identical `client_op_id` is a different key and posts independently, so no existence oracle exists across actors; the same actor with the same key and a different hash gets `idempotency_key_reuse`.
 
 | Situation | Result |
 |---|---|
-| `client_op_id` (or `origin_key`) not seen | post |
-| seen, same `payload_hash` | `{:ok, %{movement_id: existing, posting_seq: existing, duplicate: true}}`; nothing written, counter untouched |
-| seen, different `payload_hash` | `{:error, :idempotency_key_reuse}` -> 409 (same name as the entity side, `records.ex` `:idempotency_key_reuse`) |
+| neither key seen | post |
+| `(subject, client_op_id)` seen, same hash | `{:ok, %{entry_id: existing, posting_seq: existing, duplicate: true}}`, nothing written |
+| seen, different hash | `idempotency_key_reuse` (409) |
+| `client_op_id` and `origin_key` match DIFFERENT headers | `idempotency_key_reuse` (409) |
 | `client_op_id` starting `sys:` | refused (S13) |
 
-### 9.3 Where the duplicate is decided (race-free, no burned number)
+The decision is made in two places (7.1 step 4 lock-free, step 8 under the counter lock); the unique indexes are the backstop (a `23505` maps to `idempotency_key_reuse` without revealing the other row).
 
-Two checks, both reads: the lock-free pre-check (7.1 step 3) answers the common replay without any lock; the authoritative check is
-step 7, taken UNDER the counter lock and BEFORE the counter UPDATE. Because the counter lock is the same lock that orders all postings, two
-same-key postings cannot both pass step 7: the second sees the first's committed header. The unique indexes on `client_op_id` and
-`origin_key` are the backstop only (a `23505` there is a defect-class event mapped to `idempotency_key_reuse` with the existing row's id
-omitted). No advisory lock is used. Rejected: an advisory lock keyed on the `client_op_id` hash (an extra lock class that 0061 would have to
-list) and `ON CONFLICT` after the counter increment (it would burn the number and need a controlled abort).
+### 9.3 Offline `client_seq` (F8)
 
-### 9.4 `expected_version` (0058 c.2) and mutable resources
+`UNIQUE (subject_id, device_id, client_seq)`. A `(device_id, client_seq)` already held by a DIFFERENT `client_op_id` is `client_seq_conflict` (409), found by the pre-check (7.1 step 4) and backed by a `23505` mapping. **Out-of-order acceptance is intended**: the ledger does not reject a lower `client_seq` than a previous one; "per-device monotonic" (0058 c.1) is a property the DEVICE guarantees and the replayer (REQ-480) uses to apply commands in order. `device_id`, `client_seq` and `client_event_time` are untrusted metadata: never used for ordering, cut-off or authorisation; `device_id` is length- and charset-bounded.
 
-The ledger has no client-mutable resource: headers and legs are immutable, `stock_balance` and the counter are platform-written. The
-requirement is met as follows: (a) a posting that refers to a mutable ENTITY record (a document line record) may carry
-`expected_document_version` (the record's `last_event_global_seq`); the module policy (step 2) compares it with the current record
-(through the read facade, 14.4) and returns the existing `record_version_conflict` 409 on mismatch (S12); (b) a reversal states the version of the thing it
-reverses in the only form that exists for an immutable target: its identity plus "not yet reversed", which is the typed
-`movement_already_reversed` 409 (section 10); (c) entity-store masters keep their own `expected_last_event_global_seq` (S12).
+### 9.4 `expected_version` (0058 c.2)
+
+The ledger has no client-mutable resource (legs/postings immutable, balance/counter platform-written). The criterion is met by: (a) `expected_document_version` against a mutable entity record (its `last_event_global_seq`), compared by the policy, mismatch -> `record_version_conflict` (S12); (b) a reversal's precondition is "not yet reversed" -> `posting_already_reversed`; (c) entity masters keep `expected_last_event_global_seq`.
 
 ### 9.5 Retire/cancel is a tombstone (0058 c.7)
 
-No ledger row is ever deleted (5.2); a zero `stock_balance` row stays; "cancelling" a posting is a reversal, not a delete. Retiring an item or location sets `active=false` on the entity master (not this slice); the policy (14.4) refuses NEW stock-adding legs (`receipt`, `return`, transfer destinations) to a retired item or location with 422/409 `master_inactive`, and always allows stock-removing legs and reversals so stock can be drained. Facts already true (0058 b) are a REQ-480 flag, out of scope.
+No ledger row is ever deleted (5.2); a zero balance row stays; cancelling a posting is a reversal. A retired master (`active=false`) blocks only STOCK-ADDING legs (positive quantity) with `master_inactive`; stock-removing legs and reversals are always allowed so stock can be drained (test T-RT-1). Facts already true (0058 b) are REQ-480.
 
 ## 10. Reversal
 
-* A reversal is a NEW header, `cause = 'reversal'`, `reverses_header_id = target`, legs = the exact negation of the target's legs (same keys, same base unit, original quantity negated), `reason_code` required, its own `event_time` (C-3), its own `posting_seq`, `document_id` and `correlation_id` default to the target's.
-* **Refused**: unknown target -> `movement_not_found` (denied == absent: the same body for a target of another tenant, which cannot be named anyway because tables are per-tenant, and for a malformed id); a target that already has a reversal -> `movement_already_reversed` (409); a target that is itself a reversal -> `movement_is_reversal` (409) ("reversal of a reversed header is refused" in both readings: reversing the reversed original and reversing the reversal).
-* Race: two concurrent reversals of one header serialise on the balance keys (same keys) and, with the idempotency lock, only one passes; the other re-checks "already reversed" under the balance locks (the check is part of step 4-5, under the key locks) and is refused. The partial unique index is the backstop (a `23505` on it maps to `movement_already_reversed`).
-* The guard applies: reversing a receipt whose stock was partly issued is refused `insufficient_stock` (practice: the correction needs a new document).
-* No partial reversal and no reversal "in the past": a correction of a quantity is a reversal plus a new posting, or an `adjustment`.
-* Permission: `:StockReverse` (separate from `:StockPost`, separation of duties).
+* A reversal is a NEW posting, `cause = reversal`, `reverses_entry_id = target`, legs = the exact negation of the target's (same keys, unit, original quantity negated), `reason_code` required, its own `event_time` (never the target's: a correction never rewrites a closed cut-off, MD-09), own `posting_seq`; `document_id` and `correlation_id` default to the target's.
+* Refused: unknown/malformed/not-visible target -> `validation_failed` reason `movement_not_found` (one body); target already reversed -> `posting_already_reversed` (409); target is itself a reversal -> `posting_is_reversal` (409) (both readings of "reversal of a reversed header").
+* Concurrency and where the checks sit: 7.1 steps 5 (target exists, is not a reversal, derive negated legs), 6 (key locks), 7 (re-read "already reversed" AFTER the key locks, BEFORE the counter lock); two concurrent reversals of one header share every key, so the second re-reads after the first commits. The partial unique index is the backstop.
+* The guard applies. Reversing a receipt whose stock was partly issued is `insufficient_stock`; for a reversal the `details` carry ONLY `leg_no` and the count, never the target's contents (SEC-7). Residual (documented): a caller allowed to post can learn "enough/not enough" for a key by probing; the guard is an oracle by nature; the exact `available` is permission-gated (12.2).
+* No partial reversal; permission is the registration's `reverse` atom.
 
-## 11. `stock_balance` and the reconciliation read
+## 11. `ledger_balance` and reconciliation
 
 ### 11.1 Maintenance
 
-Updated only by `StockLedger.post` in step 8, after the guard, under the held row lock, in the same transaction as the legs. `on_hand` of a key after
-posting `n` equals the sum of the key's legs with `posting_seq <= n` (invariant I-BAL). It is never the source of truth and never read for a report or a cut-off; it is read only inside the guard.
+Updated only by `Letflow.Ledger.post` in step 9, after the guard, under the held row lock, in the same transaction. Invariant I-BAL: `on_hand` after posting `n` equals the sum of the key's legs with `posting_seq <= n`. Read only inside the guard.
 
-### 11.2 Reconciliation (`StockLedger.reconcile/2`)
+### 11.2 `reconcile/3`
 
-A read-only, `REPEATABLE READ READ ONLY` snapshot: for the key range (optionally chunked by key cursor), `FULL OUTER JOIN` of `stock_balance` and `SELECT key, SUM(quantity_base) ... GROUP BY key` over legs of the same snapshot; reports every key where the two differ or one side is missing (a missing balance row for a key with legs, a balance with no legs and `on_hand <> 0`), plus the sequence check `count(header) = max(posting_seq) = counter.last_seq`. Result: `%{checked_through_seq, mismatches: [%{key, balance, ledger_sum}], gap_check: :ok | {:gap, ...}}`. It repairs nothing (OQ-9). Permission `:StockLedgerReconcile`. Cost grows with the legs; chunking is part of the interface.
+A `REPEATABLE READ READ ONLY` snapshot under a `statement_timeout`, **mandatorily chunked by key cursor** (a page cap), with a **concurrency cap** (one reconcile per tenant at a time, a second returns `reconcile_busy`): FULL OUTER JOIN of `ledger_balance` with the grouped entry sums per key, reporting every differing or missing key; plus the sequence check `count = max(posting_seq) = counter.last_seq` and the hash-chain check. Result: `%{checked_through_seq, mismatches: [%{key, balance, ledger_sum}], gap_check, chain_check}`. It repairs nothing (OQ-9). The registration's `reconcile` permission. Cut-off reports have the same statement timeout and page cap (SEC-9).
 
 ## 12. Errors (typed, closed, machine-readable)
 
 ### 12.1 Envelope
 
-The existing refusal body `{"error": code, "line_index": n}` (S6) gains an optional third key `"details"` ONLY for the codes of the table below (all other codes keep their exact bytes; golden test). `details` holds ids and closed enums, never free text or exception text (INV-4/8). The status table of `Response.entity_write_status/1` (`api/response.ex:311-314`) gains the 409 rows. HUMAN path: `routers/tasks.ex:456-463` renders them.
+The refusal body `{"error": code, "line_index": n}` (S6) gains an optional `"details"` ONLY for the codes of 12.2; every other code keeps its exact bytes (golden test over all existing codes). `details` holds ids and closed enums, never free text or exception text. `Response.entity_write_status/1` (`api/response.ex:311-314`) gains 409 rows.
 
 ### 12.2 Codes
 
-| Code | HTTP | When | `details` (machine-readable) |
+| Code | HTTP | When | `details` |
 |---|---|---|---|
-| `insufficient_stock` | 409 | guard (step 5) or the CHECK backstop | `{"legs": [{"leg_no": n, "item_id", "location_id", "dimensions": {...}, "requested": "<decimal string>", "available": "<decimal string>"}]}`; `available` appears ONLY when the subject holds `:StockLedgerRead`, otherwise the key is omitted (the id echo is the caller's own input) |
-| `movement_not_balanced` | 409 | a transfer/status_change/reversal sum is not zero per item (checked before any lock; the deferred trigger is the backstop) | `{"item_ids": [...]}` |
-| `movement_already_reversed` | 409 | section 10 | `{"movement_id": ...}` (the caller named it) |
-| `movement_is_reversal` | 409 | section 10 | `{"movement_id": ...}` |
+| `insufficient_stock` | 409 | step 7 or the CHECK backstop | `{"legs": [{"leg_no", "k": [...slots], "requested", "available"?}]}`; `available` only with the registration's `read` permission; for a REVERSAL: `{"leg_nos": [...], "count": n}` only |
+| `posting_not_balanced` | 409 | sign rule `zero_sum_by_slot_1` violated (before any lock) | `{"k1": [...]}` |
+| `posting_already_reversed` | 409 | 10 | `{"entry_id"}` (the caller named it) |
+| `posting_is_reversal` | 409 | 10 | `{"entry_id"}` |
 | `idempotency_key_reuse` | 409 | 9.2 | `{}` |
+| `client_seq_conflict` | 409 | 9.3 | `{}` |
 | `record_version_conflict` | 409 | 9.4 (existing code) | as today |
-| `master_inactive` | 409 | 9.5 | `{"kind": "item"|"location", "leg_no": n}` |
-| `event_time_in_future` | 422 | 8.1 | `{}` |
-| `invalid_posting` | 422 | shape, float, scale, sign-per-cause, leg cap | `{"leg_no": n|null, "reason": <closed enum>}` |
-| `validation_failed` (reason `movement_not_found`) | 422 | a reversal target that is unknown, malformed or not visible; the engine envelope has no 404 and a handler refusal is a step refusal, so it is the existing 422 class with `reason` in `details`, byte-identical for unknown and malformed ids | `{"reason": "movement_not_found"}` |
-| `write_not_permitted` | 403 | no permission, wrong origin (`ledger_origin_not_supported`), stamp/hash failure | none (one body, INV-5) |
-| `entity_write_contention` | 503 | 7.5 | none |
-| duplicate (not an error) | 200/201 | 9.2 | result `duplicate: true` |
+| `master_inactive` | 409 | 9.5 | `{"slot": name, "leg_no": n}` |
+| `event_time_in_future`, `event_time_too_old` | 422 | 8.3 | `{}` |
+| `invalid_posting` | 422 | shape, float, scale, sign, caps, strict timestamp | `{"leg_no": n|null, "reason": <closed enum>}` |
+| `validation_failed` reason `movement_not_found` | 422 | reversal target | `{"reason": "movement_not_found"}` |
+| `write_not_permitted` | 403 | no permission, wrong origin, stamp failure, `:too_many_postings` at activation-visible level | none |
+| `entity_write_contention` | 503 | 7.6 | none |
+| duplicate | success | 9.2 | result `duplicate: true` |
 
-`line_index` is the declared index of the `module_writes` line (as for every handler refusal). The ledger step's Multi step names are
-`{:line, key, :ledger_post}` inside the call's own `{:line, k0+1..k0+49, _}` range (`handler_writes.ex` contract: names outside the range are a contract violation), so the engine's `interpret_failure/2` maps a failed `:ledger_post` step through the new clause below.
+### 12.3 The failure channel for `details` (F6)
 
-### 12.3 Failure carrier
+Today `EntityPort.failure` is `{:refused, index, code, detail_atom}` and the engine returns the 3-tuple `{:entity_write_refused, index, code}` (S6b). New, additive:
 
-A `:ledger_post` step failure value is a closed tuple `{:ledger_refused, code_atom, details_map}`; `interpret_failure/2` (R4b's mapping in `StepWrites`/`HandlerWrites`, `handler_writes.ex` platform-facing functions) gains one clause turning it into `{:entity_write_refused, line_index, code}` carrying `details` to `Response.entity_write_refused/4` (new arity). Nothing from an exception reaches a body.
+```
+# engine/entity_port.ex failure union gains:
+{:refused_detailed, index :: non_neg_integer(), code :: atom(), detail :: atom(), details :: map()}
+# the engine result gains a DISTINCT 4-tuple (the 3-tuple is untouched):
+{:error, {:entity_write_refused_detailed, index :: non_neg_integer(), code :: atom(), details :: map()}}
+```
+
+Producer: `StepWrites.interpret_failure/2` (`step_writes.ex:944`) maps a failed `{:line, key, :ledger_post}` whose reason is `{:ledger_refused, code, details}`. Engine: one new clause in `interpret_complete_result/3` (`engine.ex:8440-8462`) beside `{:refused, ...}` that writes the best-effort refusal audit (same function, same shape: ids + the closed `detail` atom ONLY, never the `details` map, so no quantity, no slot value reaches the audit chain) and returns the 4-tuple. Pattern sites to touch: `engine.ex:2549` (type), `engine.ex:8461-8462` (producer), `routers/tasks.ex:456-463` (new clause BEFORE the generic one, rendering `Response.entity_write_refused/4`), `engine/service_task_dispatcher.ex:667` and `engine/script_task_dispatcher.ex:107` (classify the 4-tuple as `:entity_write_refused`; unreachable in L1-L4 because the service origin is refused, but exhaustive). Sites matching only `{:entity_write_refused, :contention, _}` (`engine.ex:5695, 5737, 6008, 6045`) and the Records-level tuples (`records.ex:828-876`) are unchanged. Golden tests T-ERR-2: every existing 3-tuple consumer yields byte-identical results for every existing code; the 4-tuple yields the exact envelope.
 
 ## 13. Test plan
 
-New files (all `async: false`; the concurrency ones in Sandbox `:auto` with real commits, style of `Letflow.LockOrderHelpers`, S16; names are the proposal):
+New files, `async: false`; concurrency ones in Sandbox `:auto` with real commits in the style of `Letflow.LockOrderHelpers` (S16). The posting identifiers use the module-neutral core names; the WMS-level assertions are made through a test registration (a fixture module), because core has no stock vocabulary.
 
 | Id | File | Case |
 |---|---|---|
-| T-AC1 | `stock_ledger/post_balance_test.exs` | a `transfer` whose legs do not sum to zero per item is refused `movement_not_balanced` before any lock and the counter is unchanged; one that sums to zero posts; a `receipt` with a negative leg and an `issue` with a positive leg are `invalid_posting` |
-| T-AC2 | `stock_ledger/concurrent_no_negative_test.exs` | on hand 10 at one item+location; two concurrent `issue` of 6, forced overlap: both park on the balance row (barrier row held by Z), release Z: EXACTLY ONE posts, the other `insufficient_stock` with `details.legs[0]`; balance 4; leg sum 4; counter advanced by exactly 1 |
-| T-AC3 | `stock_ledger/reversal_test.exs` | reversal of a reversed header -> `movement_already_reversed`; reversal of a reversal -> `movement_is_reversal`; reversal of a receipt partly issued -> `insufficient_stock`; two concurrent reversals of one header: one wins; unknown/malformed id -> the one `movement_not_found` body |
-| T-AC4 | `stock_ledger/cutoff_test.exs` | post 5 movements, record `N=3` balances from legs `posting_seq <= 3`; post 2 more (one late with an earlier `event_time`); the as-posted report at `N=3` is byte-identical; the event-time report `(T, N=3)` is byte-identical, `(T, N=7)` includes the late one; the report states basis, cutoff, tz, ledger_seq |
-| T-AC5 | `stock_ledger/balance_reconcile_test.exs` | after every posting of a StreamData sequence of random postings and reversals `stock_balance == SUM(legs)` per key (property); then a deliberately corrupted `on_hand` (set through a test-only `session_replication_role` bypass inside a throwaway tenant) is reported by `reconcile/2` with key, balance and ledger sum; a missing balance row is reported; a gap injected is reported by the gap check |
-| T-AC6 | `stock_ledger/idempotency_test.exs` | same `client_op_id` and payload twice: one header, second returns the same `movement_id`, `duplicate: true`, counter advanced once; same key different payload -> `idempotency_key_reuse`; `sys:`-prefixed key refused; two concurrent same-key posts: one header, both return the same id; two tasks of one process carrying one `client_op_id`: the second completion succeeds with no second posting |
-| T-GF-1 | `stock_ledger/gap_free_test.exs` | forced overlap at the counter: Z holds the counter row; T1 and T2 park there after their balance locks; release; seq values consecutive and commit order equals seq order (read `xmin`/commit order via a deferred probe row) |
-| T-GF-2 | same | T1 fails after the counter UPDATE (test seam that raises in step 8) and rolls back while T2 is parked: T2 commits with the number T1 had; `max(posting_seq) = count(*)` |
-| T-GF-3 | same | the isolation level of the posting transaction is READ COMMITTED (pinned); a 100-posting concurrent soak (4 workers, bounded, within the machine limits) ends with `1..100`, no gap, no duplicate |
-| T-LK-1 | `stock_ledger/lock_order_test.exs` | postings with opposite item order `[(A,B)]` and `[(B,A)]` in forced overlap: no `40P01` reported by the telemetry handler (`attach_error_handler/1`), both commit; a step-name probe asserts the order balance keys ascending then counter |
-| T-LK-2 | same | a HUMAN completion that posts and a HUMAN completion that writes class 6 only, in overlap on the audit chain row: no deadlock; the order class 5, ledger, audit chain row is asserted by a probe on the step names |
-| T-LK-3 | same | Z holds the counter longer than the lock timeout (`engine_test_seams` override to ~300 ms): the poster returns 503 `entity_write_contention`, nothing committed, counter unchanged (no gap), the telemetry handler reports `55P03` |
-| T-LK-4 | same | the SERVICE origin: a posting handler on a SERVICE_TASK node is refused (`write_not_permitted`, ERROR + DLQ), nothing written |
-| T-AO-1 | `migrations/stock_ledger_migration_test.exs` | tenant replay creates the four tables and the seed row; `UPDATE`, `DELETE`, `TRUNCATE` on header and legs raise the fixed text; a header inserted with a made-up `posting_seq`, a counter bump by 2, a counter UPDATE without a header at commit, a leg whose copied `posting_seq` differs from its header, a reversal of a reversal, a second reversal of one header, a transfer not summing to zero (raw SQL) are each refused by the database; `expected_tenant_tables/0` updated |
-| T-OFF-1 | `stock_ledger/offline_fields_test.exs` | `client_op_id`, `device_id`, `client_seq`, `client_event_time` stored and returned; `(device_id, client_seq)` unique; `device_id` without `client_seq` refused; a late `client_event_time` is kept as `event_time` while `posting_time`/`posting_seq` are the server's; a future `client_event_time` beyond the tolerance -> `event_time_in_future` |
-| T-ERR-1 | `engine/ledger_failure_mapping_test.exs` | each code of 12.2 once: status, `line_index`, `details` shape exact; `available` omitted without `:StockLedgerRead`; byte-identity of every pre-existing refusal body (golden); no exception text, no stack |
-| T-SEC-1 | `stock_ledger/security_test.exs` | two-tenant: tenant B's prefix never reads tenant A's headers/legs/balances and a reversal naming A's `movement_id` under B is the `movement_not_found` body; a subject without `:StockPost` is `write_not_permitted` byte-identical to every other cause; SQL text of every ledger statement contains no value (bound parameters; assert via a telemetry capture of the query text) |
-| T-SC-1 | `entities/stock_ledger_callers_test.exs` | scan: only `lib/letflow/stock_ledger/**` names the tables/schemas; `StockLedger.post` has the single caller `HandlerWrites.post/3`; H4 allows exactly `create/3` and `post/3` |
-| T-MIG-1 | with #2658 | adding a nullable dimension column to a populated ledger leaves posted rows byte-identical and sums unchanged (#2658's AC, run on these tables) |
-| T-LD-1 | `stock_ledger/counter_throughput_test.exs` (tagged, not in CI default) | measured postings/s at 1, 2, 4 workers on one tenant; the number is written into the runbook; the pilot gate NF-01/NF-02 |
+| T-AC1 | `ledger/post_balance_test.exs` | a `zero_sum_by_slot_1` posting whose legs do not sum to zero per slot 1 is refused `posting_not_balanced` before any lock, counter unchanged; a balanced one posts; a `positive` kind with a negative entry and a `negative` kind with a positive entry are `invalid_posting` |
+| T-AC2 | `ledger/concurrent_no_negative_test.exs` | on hand 10; two concurrent `negative` postings of 6 in forced overlap (barrier row on the balance key): EXACTLY ONE posts, the other `insufficient_stock` with `details.legs[0]`; balance 4; counter advanced by exactly 1 |
+| T-AC3 | `ledger/reversal_test.exs` | reversal of a reversed posting -> `posting_already_reversed`; reversal of a reversal -> `posting_is_reversal`; reversal of a partly-consumed receipt -> `insufficient_stock` with only `leg_nos`/count; two concurrent reversals of one posting: one wins; unknown/malformed id -> the one `movement_not_found` body; a caller WITHOUT the read permission gets no `available` and no target content |
+| T-AC4 | `ledger/cutoff_test.exs` | after N=3 record the as-posted report; post more incl. a late one with an earlier `event_time`: the as-posted report at N=3 is byte-identical, the event-time report `(T, N=3)` identical, `(T, N=7)` includes the late one; the report carries basis, cutoff, tz, ledger_seq |
+| T-AC5 | `ledger/balance_reconcile_test.exs` | property (StreamData): after every posting/reversal `ledger_balance == SUM(legs)` per key; then a deliberately corrupted balance, made by a plain `UPDATE ledger_balance SET on_hand = ..., last_posting_seq = <counter>` (allowed by the trigger because the balance table is mutable; **no superuser and no `session_replication_role` needed**), is reported by `reconcile/3` with key, balance and ledger sum |
+| T-AC6 | `ledger/idempotency_test.exs` | same `(subject, client_op_id)` and payload twice: one header, same `entry_id`, `duplicate: true`, counter advanced once; same key different payload -> `idempotency_key_reuse`; `sys:` key refused; two concurrent same-key posts: one header, both return the same id; ANOTHER actor with the same `client_op_id` posts independently and cannot observe the first (no oracle); `client_op_id`/`origin_key` matching different headers -> `idempotency_key_reuse`; payload hash stable when a master is renamed between replays |
+| T-GF-1..3 | `ledger/gap_free_test.exs` | forced overlap at the counter (consecutive, commit order = seq order); T1 rolls back after the UPDATE while T2 waits (T2 reuses the number; `max = count`); READ COMMITTED pinned; bounded 100-posting soak (4 workers) `1..100` |
+| T-LK-1 | `ledger/lock_order_test.exs` | opposite key order `[(A,B)]`/`[(B,A)]` in forced overlap: no `40P01` (telemetry handler), both commit; step-name probe: keys ascending then counter |
+| T-LK-2 | same | a posting HUMAN completion and a non-posting completion overlapping on the audit chain row: no deadlock; probe: class 5, ledger, timers/audit order |
+| T-LK-3 | same | counter held beyond the lock timeout (`engine_test_seams` override): 503, nothing committed, counter unchanged |
+| T-LK-4 | same | SERVICE origin refused (`write_not_permitted`, ERROR + DLQ), nothing written; the Th/Ts interleaving is the documented reason |
+| T-LK-5 | same | a node with two posting lines: the second `post/3` returns `:too_many_postings` at build; with an opposite-key poster in overlap there is no deadlock |
+| T-AO-1 | `migrations/ledger_migration_test.exs` | tenant replay creates the four tables, the seed row (idempotent on second replay); UPDATE/DELETE/TRUNCATE on posting/entry refused with the fixed text; a made-up `posting_seq`, a counter bump by 2, a counter UPDATE without header at commit, an entry whose copied seq differs, a reversal of a reversal, a second reversal, an unbalanced `zero_sum` posting (raw SQL) are each refused. The deferred cases need **real commits (Sandbox `:auto`) or `SET CONSTRAINTS ALL IMMEDIATE`**; a plain sandboxed transaction never reaches COMMIT. `down` refused outside dev/test |
+| T-TT-1/2 | `support/tenant_template_ledger_test.exs` | a dirty ledger slot is `unprovable` and rebuilt, a clean slot untouched; triggers in a clone refuse and name the clone schema (S9b) |
+| T-OFF-1 | `ledger/offline_fields_test.exs` | offline fields stored and returned; `(subject, device_id, client_seq)` unique -> `client_seq_conflict`; out-of-order `client_seq` accepted; `client_event_time` kept as `event_time` with server `posting_time`/`posting_seq`; future beyond tolerance -> `event_time_in_future`; older than 4 days -> `event_time_too_old`; `client_event_time` without `device_id` and `infinity`/offset-less/out-of-range timestamps -> `invalid_posting`; over-long `device_id`/free text -> refused by the DB CHECK as well |
+| T-ERR-1/2 | `engine/ledger_failure_mapping_test.exs` | each code of 12.2 once (status, `line_index`, `details` shape); `available` omitted without the read permission; golden: every pre-existing refusal body and 3-tuple consumer unchanged |
+| T-SEC-1 | `ledger/security_test.exs` | two-tenant: tenant B's prefix never reads A; subject without the post permission -> `write_not_permitted` byte-identical to every other cause; roles resolved from the DATABASE: a role revoked between task claim and completion is refused; `TENANT_AUDITOR` can hold read/reconcile but a post/reverse grant to it is refused by the matrix test; SQL text carries no value (telemetry capture) |
+| T-SEC-2 | `ledger/scope_refusal_test.exs` | a subject with a non-tenant-wide role grant (user or group principal) is refused with the one `write_not_permitted` body and audit detail `scoped_principal_unsupported`; a tenant-wide subject posts |
+| T-AU-1 | `engine/ledger_audit_test.exs` | a posting writes exactly one `ledger.posted` audit entry with ids only, appended in the tail AFTER the counter (step-name probe), none for a duplicate or a refusal |
+| T-SC-4 | `ledger/boundaries_test.exs` | Rule 7: a core ledger file containing a denylist term fails `mix letflow.check_boundaries`; Rule 8: a second caller of `Letflow.Ledger.post` fails it |
+| T-SC-1/2/3 | `ledger/callers_test.exs` | only `lib/letflow/ledger/**` names the tables; `Letflow.Ledger.post` has the single caller `HandlerWrites.post/3`; the scan covers EVERY file under `lib/letflow/modules/**` (module code must not reference ledger tables or `Letflow.Ledger` except through the manifest registration); no Lua/WASM host function names the ledger; (T-SC-2) no core ledger file contains stock vocabulary |
+| T-RP-1 | `ledger/report_test.exs` | `balances/3` as-posted and event-time with filters; the result states basis, cutoff, tz, ledger_seq, filters |
+| T-RP-2 | same | a cut-off or reconcile read is chunked, honours the page cap and `statement_timeout`; a concurrent second reconcile -> `reconcile_busy` |
+| T-RP-3 | same | **CS-01 identity**: opening balance at `N0` + period receipts - period issues and adjustments (legs with `N0 < posting_seq <= N1`) = closing balance at `N1` for the same key and basis, for both bases |
+| T-VER-1 | `ledger/document_version_test.exs` | `expected_document_version` stale -> `record_version_conflict`; current -> posts (via the fixture policy) |
+| T-RT-1 | `ledger/retired_master_test.exs` | a retired master blocks a stock-adding entry (`master_inactive`), allows a stock-removing entry and a reversal |
+| T-MIG-1 | with #2658 | adding a slot name to the registration of a populated ledger leaves posted rows byte-identical and sums unchanged |
+| T-LD-1 | `ledger/counter_throughput_test.exs` (tagged) | the exit criterion of 7.6 |
+
+NOT VERIFIED for the test DB: whether the test role is a superuser; no test above depends on it.
 
 ## 14. Interfaces
 
-### 14.1 `Letflow.StockLedger` (core, `lib/letflow/stock_ledger/`; the only module that touches the ledger tables)
+### 14.1 `Letflow.Ledger` (core, `lib/letflow/ledger/`)
 
 ```
-@type cause :: :receipt | :issue | :transfer | :return | :status_change | :adjustment | :reversal
-@type posting_command :: %{required(:cause) => cause(), required(:client_op_id) => String.t(), optional(atom()) => term()}   # closed keys, 9.1
-@type posted :: %{movement_id: Ecto.UUID.t(), posting_seq: pos_integer(), duplicate: boolean()}
+@type ledger_id :: String.t()
+@type cause :: String.t()                      # a module-registered name; core does not enumerate causes
+@type basis :: {:posting_seq, non_neg_integer() | :latest}
+             | {:event_time, DateTime.t(), known_through :: non_neg_integer() | :latest}
+@type posting_command :: %{required(:client_op_id) => String.t(), optional(atom()) => term()}      # the MODULE-level command (client fields + business fields)
+@type declarative_posting :: %{ledger_id: ledger_id(), cause: cause(), legs: [declared_leg()],
+                               reason_code: String.t() | nil, document_type: String.t() | nil, document_id: String.t() | nil,
+                               related_document_id: String.t() | nil, correlation_id: String.t() | nil,
+                               event_time: DateTime.t() | nil, reverses_entry_id: Ecto.UUID.t() | nil, scope_ref: String.t() | nil}
+@type declared_leg :: %{k: [String.t()], quantity: Decimal.t(), unit_ref: String.t(), attrs: map() | nil,
+                        document_line_id: String.t() | nil, optional(atom()) => term()}      # REQ-504 columns ride in the optional keys
+@type posted :: %{entry_id: Ecto.UUID.t(), ledger_id: ledger_id(), posting_seq: pos_integer(), duplicate: boolean()}
 @type refusal :: {:ledger_refused, code :: atom(), details :: map()}
+@type report :: %{basis: basis(), ledger_id: ledger_id(), cutoff_seq: non_neg_integer(), as_of: DateTime.t() | nil, timezone: String.t(),
+                  filters: map(), ledger_seq: non_neg_integer(), rows: [map()], next_cursor: term() | nil}
+@type page_result :: %{rows: [map()], next_cursor: term() | nil}
+@type reconciliation :: %{ledger_id: ledger_id(), checked_through_seq: non_neg_integer(),
+                          mismatches: [%{key: [String.t()], balance: String.t(), ledger_sum: String.t()}],
+                          gap_check: :ok | {:gap, [pos_integer()]}, chain_check: :ok | {:broken_at, pos_integer()}, next_cursor: term() | nil}
 
-@spec post(Ecto.Repo.t() | module(), HandlerContext.t(), posting_command()) :: {:ok, posted()} | {:error, refusal()}
-@spec balances(prefix :: String.t(), basis(), filters :: map()) :: {:ok, report()} | {:error, :cutoff_in_future | :invalid_filter}
-@spec movements(prefix :: String.t(), filters :: map(), page :: map()) :: {:ok, page_result()}
-@spec fetch_by_client_op_id(prefix :: String.t(), String.t()) :: {:ok, posted()} | {:error, :not_found}
-@spec reconcile(prefix :: String.t(), opts :: map()) :: {:ok, reconciliation()}
-@type basis :: {:posting_seq, non_neg_integer() | :latest} | {:event_time, DateTime.t(), known_through :: non_neg_integer() | :latest}
+@spec post(HandlerContext.t(), posting_command()) :: {:ok, posted()} | {:error, refusal()}      # @doc false context; verifies the process token itself
+@spec balances(prefix :: String.t(), ledger_id(), basis(), filters :: map(), page :: map()) :: {:ok, report()} | {:error, :cutoff_in_future | :invalid_filter}
+@spec entries(prefix :: String.t(), ledger_id(), filters :: map(), page :: map()) :: {:ok, page_result()}
+@spec fetch_by_client_op_id(prefix :: String.t(), subject_id :: Ecto.UUID.t(), String.t()) :: {:ok, posted()} | {:error, :not_found}
+@spec reconcile(prefix :: String.t(), ledger_id(), opts :: map()) :: {:ok, reconciliation()} | {:error, :reconcile_busy}
 ```
 
-`post/3` runs inside a Multi step (`Ecto.Multi.run`), never opens its own transaction (it asserts it is inside one). The read functions are
-plain reads with the tenant prefix from the caller's authorised context.
+`post/2` runs inside the engine's Multi step and asserts it is inside a transaction. It verifies the per-call process token itself and refuses a forged or absent context (the same discipline as `create/3`, `handler_writes.ex` token); the context type is `@doc false`. A `mix letflow.check_boundaries` rule (new, "Rule 8") limits the callers of `Letflow.Ledger.post` to `lib/letflow/entities/handler_writes.ex`. The read functions take the permission check from the registration (`read` / `reconcile` atoms) in their callers (module routes, L4); core hard-codes no atom.
 
-### 14.2 `Letflow.Entities.HandlerWrites.post/3` (the one new handler-facing function)
+### 14.2 `HandlerWrites.post/3` (the one new handler-facing function)
 
 ```
-@spec post(Ecto.Multi.t(), HandlerContext.t(), posting_command()) ::
+@spec post(Ecto.Multi.t(), HandlerContext.t(), Letflow.Ledger.posting_command()) ::
         {:ok, Ecto.Multi.t()} | {:error, :invalid_posting | :too_many_postings | :ledger_not_registered}
 ```
 
-Same discipline as `create/3`: per-call token, context must be the exact one built for this call, step names confined to the call's range
-(`{:line, key, :ledger_post}`), at most one posting per handler call (and 200 legs per completion), requires the handler's registration to
-carry `posts_ledger: true` (a new optional key of the `write_handlers` entry, validated by Catalog rule 10; `:ledger_not_registered` otherwise). The
-handler is pure: it computes the command from its arguments and returns. Scan H4 is amended from "any `HandlerWrites` call but `create/3`" to "but `create/3` and `post/3`".
+Same discipline as `create/3`; step names confined to the call's range (`{:line, key, :ledger_post}`); at most one posting per TRANSACTION (7.4). Scan H4 changes from "any `HandlerWrites` call but `create/3`" to "`create/3` and `post/3`".
 
-### 14.3 Manifest additions (module `stock`, proposed)
+### 14.3 Catalog / manifest changes (F5), each specified
 
-`write_handlers` entries with `posts_ledger: true` (e.g. `post_receipt`, `post_issue`, `post_transfer`, `post_status_change`, `post_adjustment`, `post_reversal`); `ledger_policy: {Mod, :fun}` (one policy callback module under the module namespace); permissions `:StockPost`, `:StockReverse`, `:StockLedgerRead`, `:StockLedgerReconcile`; `depends_on ["org", "catalog_items"]`; `role_grants` decided in the module skeleton slice (NOT VERIFIED role list; defaults in OQ-11). The module id `stock` and entry `Letflow.Modules.Stock` are proposals (NOT FOUND on main).
+* New optional top-level manifest key `ledger` (map, one or more registrations): `ledger_id_pattern` (a regex that must start with the module id, e.g. `^stock(:[a-z0-9-]{1,32})?$`), `slots` (append-only ordered list, at most 8 names), `causes` (map name -> `%{sign_rule, reason_required}`), `permissions` (map `post|reverse|read|reconcile` -> atoms declared in the manifest's own `permissions`), `scope_slot` (optional slot name whose value is the scope reference, 16.2), `max_event_lateness_hours` (default 96), `policy` (`{Mod, :fun}` base in the module's namespace: `gather_facts/2` optional, `declare/3` required). New Catalog rule 11 validates it (slot names format, uniqueness and append-only against the previously installed registration where known, cause names, sign rule in the closed set, permission atoms declared and NOT core atoms (reusing the existing `core_permission_collision` rule), policy exported and in the module namespace). `Catalog.fetch_ledger/2` resolves by string comparison (D-R.2 pattern).
+* Write handler entries (rule 10, S21): the exact-key check `@handler_keys` is relaxed to the four required keys plus the optional `:posts_ledger` (boolean); the `WriteHandler` struct gains `posts_ledger` (default false, NOT in `@enforce_keys`). A handler with `posts_ledger: true` requires a `ledger` registration in the same manifest (new error `write_handler_ledger_missing`). **A posting handler still needs at least one target** (rules `write_handler_no_targets` and `write_handler_without_managed_types` are unchanged): require ONE bookkeeping managed target (the module already manages entity types, e.g. its document-line record) and say so rather than relaxing rule 10; `EntityPort.lock_types` is then unchanged.
+* `ManifestHash` (`modules/manifest_hash.ex`) must cover the `ledger` registration (id pattern, slots, causes, sign rules, permission atoms, scope slot, lateness, policy MFA) and each handler's `posts_ledger`; any change bumps the hash and so (OQ-R3 of gh2590) refuses in-flight handler tasks until re-stamped: the module bumps `version` with such a change.
+* Activation/`ModuleWrites`: arguments are validated as today; one new activation check: a `posts_ledger` handler may not appear on a SERVICE_TASK node in L1-L4 (refused at activation with a `module_writes_node_type_not_supported`-style code, so the refusal is visible at design time, not only at run time).
 
-### 14.4 The policy callback (module logic that needs reads) and the read facade
+### 14.4 The policy callbacks (module code; PURE declaration before any ledger lock)
 
 ```
-@callback validate(prefix :: String.t(), posting_command()) :: {:ok, normalised_command()} | {:error, atom()}
+@callback gather_facts(prefix :: String.t(), posting_command()) :: {:ok, facts :: map()} | {:error, {code :: atom(), details :: map()}}   # OPTIONAL
+@callback declare(posting_command(), facts :: map(), registration :: map()) :: {:ok, declarative_posting()} | {:error, {code :: atom(), details :: map()}}   # REQUIRED, PURE
 ```
 
-Run by `StockLedger.post` at step 2 through a Catalog `apply/3` on registered data (the D-R.1 pattern: the Catalog is the single resolver and
-apply site; no core file names a module file, Rule 1/6 of `mix letflow.check_boundaries`). It may read through the module's own read API (`Org.active?/2`,
-`CatalogItems.item_uom_valid?/3`; #2662/#2664, NOT FOUND today) with NO lock and NO write; it is not a handler file, so H4 does not scan it, and
-it gets its own scan (no `Repo.update_*`, no `lock`, no `Multi`). This callback is the "narrow read facade" that `gh2590...md:1099` defers; it is
-narrower than a facade because the module cannot choose a lock or a table of the ledger. A module that wants the REQ-504 conversion
-implements it here.
+* `declare/3` is a PURE function: no read, no write, no process, no clock, no lock; it maps the module-level command (and the facts) to the declarative posting (ledger id, cause, legs with slot values, quantities in the base unit, reason, document ids, scope reference). A callback that ran under ledger row locks would be 0054 option B (`0054...md:45`, rejected); here neither callback runs under a ledger lock (7.1 step 3).
+* `gather_facts/2` is the only place module code reads for the ledger: master checks (`Org.active?/2`, `CatalogItems.item_uom_valid?/3`; NOT FOUND today), unit-conversion factors, the current version of a document record (9.4). It takes no lock, writes nothing, and runs under the transaction's `statement_timeout`. It is absent until the slices that need masters (L4); the ledger core (L1-L3) and its fixture work with `facts = %{}`, so the core does not wait for #2661/#2663.
+* Codes either may return: `master_inactive` (details `{slot, leg_no}`), `record_version_conflict`, `invalid_posting` (details `{leg_no, reason}`); any other value becomes `write_not_permitted`. Resolved through a Catalog `apply/3` on registered data.
+* Forbidden in policy modules (new scan, SEC-11; `gather_facts` may use only the module's read API): `Repo.query`, `Ecto.Adapters.SQL`, any prefix other than the one passed, `Process`, `:erlang`, `Task`, reads of the ledger tables, `Ecto.Multi`, `lock`, and (for `declare/3`) any `Repo`, `Ecto.Query`, I/O or clock reference.
+* Core re-validates every generic rule on the declarative posting; module code cannot make core accept an unregistered cause, a slot beyond the registration, a float, or a sign-rule violation.
+* The REQ-504 conversion (alternate unit to base unit, rounding rule per item, tolerance) is computed by `declare/3` from the facts the module gathered (the conversion factor) and rides in the optional leg keys. It does not close OQ-R4.
 
 ### 14.5 No event schema change
 
-The `TASK_ENTITY_WRITES_APPLIED` v2 line items have `additionalProperties: false` (`gh2590...md` F-1); adding `movement_id` would force a v3 in-place seed bump. This
-design does NOT: the ledger header carries `bpm_task_id`/`bpm_instance_id`, so the link is ledger-to-task; the reverse lookup is `movements/3` by `bpm_task_id`. (OQ-12.)
+`TASK_ENTITY_WRITES_APPLIED` v2 line items have `additionalProperties: false` (`gh2590...md` F-1); adding a posting id would force a v3 bump. The header carries `bpm_task_id`/`bpm_instance_id`; reverse lookup is `entries/4` by `bpm_task_id` (OQ-12).
 
 ## 15. Decision records needed
 
-* **0062 (proposed number, title): "Stock ledger primitive: platform-owned append-only ledger tables, gap-free counter, handler-facing `post/3`".** Content: D-L1, D-L2, D-L3, D-L4 (class 5b), D-L11, D-L12; amends the wording of 0057 D5 ("the guard runs inside the module write handler" -> reached from the handler call by `post/3`); amends gh2590 D-R.5 (handler API: `create/3` and `post/3`); lists the S19 FK rule. REVIEWER and SECURITY-REVIEWER sign it. Written by the L0 PR, NOT by this issue.
-* **Amendment of 0061 (same L3 PR as the code, rule 5):** "Rule 1 gains class 5b between 5 and 6: the stock ledger's balance rows ascending by key, then the single `stock_ledger_counter` row. Taken only after the entity-type rows and before the audit chain row. A transaction that holds the audit chain row never takes a ledger row, so the SERVICE origin is refused until its pre-lock exists (7.4)." with the forced-overlap tests T-LK-1..4.
-* **0058 note:** none needed; item 1 (columns), 2 and 7 are satisfied by 9.4 and 9.5; item 4 (typed 409 with details) by 12; items 5, 6, 8 are REQ-480.
+* **0062 (proposed): "Domain-neutral ledger primitive: platform-owned append-only ledger tables, gap-free counter per ledger id, handler-facing `post/3`"**, written by L0 (docs). Contents:
+  1. the route ruling R-N (advisor letflow-ec) and the rejection of R-D with its reason (3.2);
+  2. **relation to 0039 D1**: core names no business domain; the primitive is neutral; `check_boundaries` Rule 7 and scan T-SC-2; the second plausible consumer (CMMS spare parts, HR leave balances) and the two accepted core changes (`append_only` types, non-negative bounds) that justify it as a platform feature;
+  3. **amendment of the wording of 0057 D5**: "the no-negative guard runs inside the module write handler" becomes "runs, under row locks in a fixed order (slot 1, then slot 2, ...), in the transaction of the handler's step, reached from the handler call by `HandlerWrites.post/3`; the stock module's registration supplies the item/location slot meaning";
+  4. **what the 0054 Correction still requires of module code**: ledger POLICY stays reviewed module data and code (causes, sign rules, slot meanings, master validation, unit conversion, permissions, process routes, the pure `declare` callback); the core enforces only generic mechanical invariants; the deviation from the letter of the Correction is recorded with V1 as the reason;
+  5. **OQ-R4 (update-kind handler writes plus the read facade for entity documents) stays OWED at WMS slice 5 and is NOT replaced** by this primitive;
+  6. D-L2..D-L5, D-L11, D-L12; the TRUNCATE trigger as a tripwire and the TenantTemplate "unresettable" choice (5.4); the hash chain and the owner-tamper residual (5.1); the lateness cap D-T (8.3); the per-cause balancing decision D-C (19); the SERVICE refusal as a TYPED refusal whose lifting needs a later 0061 amendment (7.5); the `ledger.posted` audit entry (7.7); tenant export/restore requirements (4.6).
+* **0061 amendment (L3 PR, rule 5):** "Rule 1 gains class 5b between 5 and 6, AFTER the instance's own timer rows of 'Amended (GH #2707, PR-1)' item 1: the ledger's balance rows ascending by `(k1..k8)` (missing rows inserted first in the same order), then the single counter row of the ledger id. At most one posting per transaction and one ledger id per posting. A transaction that holds the audit chain row or any later class never takes a ledger row; the SERVICE origin is refused (typed) until its pre-lock exists." with tests T-LK-1..5.
+* 0058: no note needed (items 1, 2, 4, 7 satisfied by 9.1, 9.4, 12, 9.5).
 
 ## 16. Security
 
-* **Tenant scoping (INV-1).** The tables are per tenant schema; the prefix comes from the engine's authorised context (`HandlerContext.prefix` set by `HandlerWrites`, `gh2590...md:967`), never from a command field; every statement passes `prefix:`; there is no `tenant_id` column to forge. A cross-tenant id in a command is simply absent in the other schema.
-* **Who may post.** BPM decides when/who/which route; the platform step additionally requires the SUBJECT's role to carry `:StockPost` (`:StockReverse` for a reversal), checked with `Authorization.role_allows?/2` against the module's `role_grants` (`authorization.ex:1518-1520`, guide section 3). The completer must also be the task's assignee (engine, unchanged). `RecordAccess`/`TypeAccess` (`record_access.ex:43`, `type_access.ex:73`) govern the entity-store documents the module also writes; the ledger tables are NOT entity types, so `TypeAccess` and `FieldGrants` do not apply to them and `:StockLedgerRead` is the read gate (a new permission, T-SEC-1). `ActorCapabilities`: NOT FOUND. Location/warehouse scoping of a posting by 0051 scope grants (0058 a) is NOT in this issue: slice 1 is permission-only within the tenant (OQ-13); the `scope_node_paths` lock of 0054 D3 rule 3a does not apply (the ledger tables are unscoped, S20).
-* **Denied == absent (INV-5).** Every authorisation, stamp, origin and target refusal is the one `write_not_permitted` body; `movement_not_found` is one body for unknown and malformed ids.
-* **No tenant data in errors/logs (INV-2/4).** Refusals carry ids and closed enums only; `available` is permission-gated; no exception text; logging at the posting step is ids and counts only; the `23514` backstop log carries `movement`-less ids only.
-* **SQL (INV-7).** Ecto query composition with bound parameters and the `prefix:` option; the only literal SQL is the migration's trigger/function text (fixed, no interpolation of tenant data; the tenant schema name comes from `prefix()` as in S9).
-* **Lock/DoS.** A hot item/location serialises its postings FIFO for at most 2 s then 503; a holder is bounded by 5 s statement and 10 s wall guard; legs/posting 200, postings/handler call 1, legs/completion 200, lines/node 20; the counter is a tenant-wide convoy point (already the case for the audit chain row, S8). A malicious task completer cannot hold a lock beyond one completion transaction. The `allow_negative`-style bypass does not exist. Oversized `details` impossible (leg cap).
-* **What SECURITY-REVIEWER must check:** (1) the trigger set blocks UPDATE/DELETE/TRUNCATE and the residuals of 5.1 are accepted; (2) the single-writer scan and that `post/3` cannot be reached with a forged context or from a non-handler; (3) the origin refusal and the 7.4 cycle; (4) `details` disclosure and the permission gate; (5) the policy callback cannot write or lock; (6) idempotency keys cannot collide with `sys:` and cannot leak another tenant's movement; (7) INV-5 byte-identity golden for old refusals; (8) the migration is in the provisioning list and replay is idempotent; (9) no FK to engine tables; (10) the `23514` path never reveals balance.
+### 16.1 Tenant scoping (INV-1)
 
-## 17. Implementation slicing (proposal; each slice one PR, serial merge per `core-directives.md`)
+Per-tenant schema; the prefix comes from the engine's authorised context (`HandlerContext.prefix`, `gh2590...md:967`), never from a command field; every statement passes `prefix:`.
+
+### 16.2 Authorization of posting (F10 / SEC-3)
+
+* Permission atoms AND the scope dimension come from the module's `ledger` registration (permissions declared in its manifest and granted by `role_grants`; the optional `scope_slot`), checked with `Authorization.role_allows?/2` (`authorization.ex:1518-1520`); core hard-codes no atom and no scope vocabulary.
+* **Scope (fail-closed until 0051 is wired for `post/3`).** `post/3` does NOT yet enforce scope-node grants (decision 0051, `Letflow.Api.Scope.Enforce`). Until a later slice wires it, a subject that holds ANY non-tenant-wide role grant (a `role_scope_grants` row with `tenant_wide = false` for the user or one of its groups; table `priv/repo/migrations/20261015025331_create_role_scope_grants.exs:80-97`; the exact lookup is NOT VERIFIED and is read by the implementer) is REFUSED with the one `write_not_permitted` body (audit detail `scoped_principal_unsupported`), so a scoped principal can never post by accident. Test T-SEC-2. Warehouse/zone scoping by the registered `scope_slot` is OQ-13.
+* **Position:** a step inside the transaction (7.1 step 2), not an activation snapshot and not only the pre-transaction `authorize_module_writes` (which checks the stamp, `engine.ex:3093-3096`). Roles of `subject_id` are resolved FROM THE DATABASE in this transaction. The function that does this is NOT FOUND (1.1); L3 must add one (signature: `effective_roles_for_user(prefix, user_id) :: [role]`, covering group-derived roles and the org-scoped grants merged by REQ-517..519 `d206c83a`; how those scoped grants are consulted is NOT VERIFIED and must be read by the implementer). Test: role revoked between task claim and completion -> refused.
+* **No separation of duties for `TENANT_ADMIN`:** it holds every tenant-scope permission automatically, Catalog permissions included (`authorization.ex:1536-1542`, S22), so the post and reverse atoms are held by it regardless of `role_grants`. `TENANT_AUDITOR` may be granted at most the read and reconcile atoms, never post or reverse (matrix test). `PLATFORM_ADMIN` holds everything (`authorization.ex:1535`) and is NOT relied on as an authorization argument. A `TASK_WORKER` post grant is tenant-wide (no warehouse scope in this series, OQ-13): the real gate is BPM routing, the task assignee and the stamp, not the atom.
+* Denied == absent (INV-5): every authorisation, stamp, origin and target refusal is the one `write_not_permitted` body.
+
+### 16.3 Disclosure, logs, SQL, DoS
+
+Refusals carry ids/enums only; `available` is permission-gated; reversal details never echo the target; the guard-oracle residual is documented (10). Free-text columns carry `CHECK (octet_length(...) <= n)` (4.2, 4.3) and are not logged; logging at the posting step is ids and counts. SQL is Ecto composition with bound parameters and `prefix:` (INV-7); the only literal SQL is the fixed migration text. DoS: FIFO at most 2 s then 503; holder bounded by 5 s/10 s; 200 legs, 1 posting per transaction, 20 lines per node; the counter convoy is tenant-wide (already so for the audit chain row, S8) and there is no per-actor rate limit (S25), stated as a residual; reconcile and cut-off reads are timeout-bound, chunked and concurrency-capped (11.2).
+
+### 16.4 Single access path (SEC-4)
+
+`Letflow.Ledger.post` verifies the per-call process token itself; the context struct is `@doc false`; `check_boundaries` limits callers to `handler_writes.ex`; T-SC-1 scans EVERY file under `lib/letflow/modules/**` for ledger table or `Letflow.Ledger` references; a negative scan asserts no Lua/WASM host function names the ledger.
+
+### 16.5 SECURITY-REVIEWER checklist (per slice)
+
+L1 (`ledger_*` tables): triggers (UPDATE/DELETE/TRUNCATE) as a tripwire, schema-qualified names, no SECURITY DEFINER, lazy counter bootstrap, hash chain, CHECKs, `down` guard, TenantTemplate "unresettable" change, oracle and provisioning entries, Rule 7 (no business term in core). L2 (`Letflow.Ledger.post/2`): algorithm order (insert-then-lock ascending, counter last), token/idempotency scoping per subject, lateness cap, strict timestamps, bound parameters, no values in logs, READ COMMITTED pinned. L3 (`HandlerWrites.post/3`): single access path (Rule 8), roles from the DB, scoped principal refused, details gating, the 4-tuple channel and unchanged 3-tuple bytes, Catalog rule 11, pure-`declare` scan, `ledger.posted` audit ids only, SERVICE origin typed refusal. L4 (stock module): routes and read gating by the registered atoms, chunking/timeouts, module scan, no ledger SQL in module code. L5: SEC-12 conditions and its 0061 amendment.
+
+## 17. Implementation slicing (proposal; neutral names)
 
 | Slice | Content | Size | Depends on |
 |---|---|---|---|
-| L0 | decision 0062, 0061 amendment text, 0057 D5 wording note (docs only) | S | this note accepted by CDV and SUPERVISOR (OQ-1) |
-| L1 | migration(s): four tables, seed counter row, all triggers and deferred triggers, provisioning entries, `expected_tenant_tables` oracle, schemas, migration tests T-AO-1 | M (~700 LOC + tests) | design notes #2658 and #2660 accepted (columns); L0 |
-| L2a | `Letflow.StockLedger.post/3` core: algorithm 7.1 for the five kinds, guard, counter, idempotency, offline fields, balance maintenance; concurrency tests T-AC1/2/6, T-GF-*, T-LK-1/3, T-OFF-1 | L (~900 + tests) | L1 |
-| L2b | reversal, `balances/3`, `movements/3`, `reconcile/2`, basis/cut-off, T-AC3/4/5, T-RP | M | L2a |
-| L3 | `HandlerWrites.post/3`, Catalog `posts_ledger` and `ledger_policy` validation, H4 amendment, failure carrier and the 409 envelope, 0061 amendment, engine lock-order tests T-LK-2/4, T-ERR-1, T-SC-1, T-SEC-1; fixture module with a posting handler | L | L2a, REQ-501 R1-R5 (all merged) |
-| L4 | module `stock` skeleton: manifest, permissions, role_grants, policy callback with master checks, read routes (balances, movements, reconcile) behind `:StockLedgerRead`, runbook limits | L | L3, #2661/#2662 and #2663/#2664 (masters + read APIs) |
-| L5 | SERVICE-origin pre-locks (7.4) and removal of the refusal | M | L3, a plan-time argument-resolution design |
+| L0 | decision 0062, 0061 amendment text, 0057 D5 wording (docs only) | S | this note accepted |
+| L1 | migration(s): `ledger_counter`, `ledger_entry`, `ledger_leg`, `ledger_balance`, all triggers, hash chain, provisioning entry, `expected_tenant_tables` oracle, `TenantTemplate` "unresettable" change, check_boundaries Rule 7, T-AO-1, T-TT-*, T-SC-2 | M | notes #2658/#2660 accepted (slot and unit columns); L0 |
+| L2a | `Letflow.Ledger.post/2`: algorithm 7.1 for non-reversal causes with a TEST registration (fixture ledger, `facts = %{}`): guard, counter, idempotency, offline fields; T-AC1/2/6, T-GF, T-LK-1/3, T-OFF-1 | L | L1 |
+| L2b | reversal, `balances/5`, `entries/4`, `reconcile/3`; T-AC3/4/5, T-RP-* | M | L2a |
+| L3 | `HandlerWrites.post/3`, Catalog rule 11 and `posts_ledger`, `ManifestHash`, H4 change, failure channel 12.3, roles-from-DB function, scoped-principal refusal, `ledger.posted` audit in the engine tail, Rule 8, 0061 amendment code, T-LK-2/4/5, T-ERR-*, T-SEC-*, T-SC-*, fixture module | L | L2a, REQ-501 R1-R5 (merged) |
+| L4 | stock module: manifest (ledger registration: slots, causes, permissions, `declare` and `gather_facts`), views `stock_movement`/`stock_balance`, read routes, runbook | L | L3; #2661/#2662 and #2663/#2664 only for `gather_facts` master checks (the `declare` part and the registration do not wait) |
+| L5 | SERVICE-origin pre-locks and lifting the typed refusal (SEC-12), with its 0061 amendment | M | L3 |
 
-Explicitly OUT of this issue and its slices: REQ-503 behaviour (quarantine flows, serial uniqueness, owner/custodian transfer, available-to-pick; its
-design is #2658); REQ-504 conversion, rounding rule, tolerance and the unit scale (its design is #2660; this note only reserves the
-columns and the policy callback); the 1C/SAP acknowledgment table (G9); the command log and lease (REQ-480); counts and variance
-approval (WM-12 behaviour); document issuing (REQ-488); allocation/FEFO; per-warehouse scoping of postings; a balance repair action.
+The ledger core (L1-L3) proceeds without the masters: its fixture registration and `facts = %{}` do not depend on them. Explicitly OUT of this issue and its slices: REQ-503 behaviour (quarantine, serial uniqueness, owner/custodian transfer, available-to-pick); REQ-504 conversion/rounding/tolerance logic (its design is #2660; this note reserves the columns and the callback); the 1C/SAP acknowledgment table (G9); command log and lease (REQ-480); counts/variance (WM-12); period close; per-ledger-instance sequences (the scale path); a balance repair action; automated postings (until L5); OQ-R4's update-kind and read facade for entity documents (owed at WMS slice 5).
 
-## 18. Acceptance-criteria map (issue #2657 and its comment)
+## 18. Acceptance-criteria map
 
 | AC | Where |
 |---|---|
-| Note names the tables, append-only enforcement, sequence with proof under two concurrent postings, the lock order; claims cited or NOT FOUND | 4, 5, 6.2, 7; 2 |
-| Event time of a late-synchronised movement (G7); report time basis and cut-off | 8 |
-| Test plan: unbalanced transfer refused; two concurrent postings below zero leave one; reversal of reversed refused; balance at cut-off N; cache equals sum and reconciliation reports corruption; duplicate key posts once with the same operation id | 13 T-AC1..T-AC6 |
-| Prerequisite carried; REQ-501 ACs not on main listed | 1.1 (only the update/read/lock facade is missing; handled by D-L1) |
-| CDV passes; SECURITY-REVIEWER is a gate | 16 (reviewer checklist); L3/L1 PRs |
-| Offline: `client_op_id`, `device_id`, per-device `client_seq`, `client_event_time` stored beside `posting_seq` and posting time | 4.2, 9.1, T-OFF-1 |
-| Offline: typed 409 with machine-readable details, at least `insufficient_stock` | 12 |
-| Offline: `expected_version` on mutable resources, typed conflict | 9.4 |
-| Offline: retire/cancel is a tombstone | 9.5, 5.2 |
-| Quantities per D4 and the interim shape until #2654 | 1.2 (#2654 shipped; Postgres `numeric(30,9)`; parser S14) |
-| REQ-503 and REQ-504 columns by reference | 4.5 |
+| Tables, append-only, sequence proof, lock order, citations | 4, 5, 6.2, 7, 2 |
+| G7 event time; time basis/cut-off | 8 |
+| Test plan (unbalanced, concurrent negative, reversal, cut-off, cache+reconcile, idempotency) | 13 T-AC1..6 |
+| Prerequisite carried; REQ-501 ACs not on main | 1.1 |
+| CDV/SECURITY gates | 16.5, 21 |
+| Offline: ids, 409 details, expected_version, tombstone | 4.2, 9, 12, 9.4, 9.5 |
+| Quantities per D4 | 1.2, 4.3 |
+| REQ-503/504 by reference | 4.5 |
 
-## 19. Open questions for the supervisor (recommended default each)
+## 19. Decisions recorded (not open)
 
-| Id | Question | Recommended default |
+* **D-L1 route:** R-N, RULED by the advisor letflow-ec (OQ-1 closed).
+* **D-L2** append-only in the database (5.1); **D-L3** one sequence PER LEDGER ID (the stock module registers one id per tenant in release 1; the tenant already has a per-tenant serialisation row, S8; per-ledger-instance ids are the scale path); **D-L4** class 5b (7.2); **D-L5** time (8); **D-L11** no FK from ledger tables to engine tables (S19); **D-L12** SERVICE origin refused in L1-L4 (7.5).
+* **D-T lateness cap = 96 hours** (8.3).
+* **D-C per-cause balancing (OQ-14 decided).** The draft says WM-06 "every movement balances source and destination" and MD-08 "every transfer has balanced source/destination legs". International practice (SAP material documents, Dynamics 365 inventory transactions) posts a goods receipt or issue single-sided and balances only two-sided causes (transfer posting, stock-type/status change); the counterpart of a receipt is the supplier, outside the stock ledger. Decision: sign rules per cause (`positive`, `negative`, `zero_sum_by_slot_1`, `any`, `reversal`); "every movement balances" is read per cause; no virtual-location double entry. This agrees with 0057 D5 ("a transfer sums to zero per item") and with the draft's own MD-08 wording for transfers; no real conflict needing the user was found. Recorded in 0062.
+* **C-2** the 1C/SAP acknowledgment is a later append-only table, not a header column (practice: an acknowledgment arrives after posting). **C-3** a reversal carries its own event time. **C-4** negative stock forbidden (D5) with the `CHECK` backstop. **C-5** per-tenant sequence.
+
+## 20. Open questions
+
+| Id | Question | Default |
 |---|---|---|
-| OQ-1 | Accept D-L1 (platform ledger primitive + `HandlerWrites.post/3`, new decision 0062) instead of extending REQ-501 with a generic read/lock/update facade or giving module code a scoped repo? | Accept D-L1. It is the smallest primitive that keeps the handler pure and the lock order in one place. |
-| OQ-2 | One sequence per tenant or per warehouse? | Per tenant now; per-warehouse only if T-LD-1 shows the convoy is a problem (it needs a per-site counter table and a cut-off per site; a cross-site transfer would then need two numbers). |
-| OQ-3 | Allow negative stock by item/location policy? | No in slice 1 (D5). The CHECK stays. A policy switch is a later decision. |
-| OQ-4 | Future-event tolerance and any lateness bound? | Tolerance 5 minutes (config), no lower bound (the offline lease bounds it). |
-| OQ-5 | Include a nullable `site_id` copy on the header now? | Yes (append-only tables cannot be back-filled later), filled by the policy when known, not in any balance key. |
-| OQ-6 | Is the duplicate decided under the counter lock (9.3, no advisory lock, no burned number)? | Yes, as written; the unique indexes are only the backstop. |
-| OQ-7 | `available` in `insufficient_stock.details`: always, or only with `:StockLedgerRead`? | Only with `:StockLedgerRead`; the pick UI that needs it gets that permission. |
-| OQ-8 | Caps: 200 legs per posting and per completion, 1 posting per handler call? | Yes. |
-| OQ-9 | Should `reconcile/2` ever repair a balance? | No; read-only. A repair (rebuild from legs under a locked tenant) is its own design. |
-| OQ-10 | Quantity column type `numeric(30,9)` until REQ-504 fixes scales? | Yes; the poster refuses more than 9 fractional digits and never rounds. |
-| OQ-11 | Role grants for `:StockPost`, `:StockReverse`, `:StockLedgerRead`, `:StockLedgerReconcile`? | `:StockPost` and `:StockLedgerRead` to the task-worker role; `:StockReverse` and `:StockLedgerReconcile` to the tenant admin and auditor roles only. The real role list is NOT VERIFIED here; decided in L4. |
-| OQ-12 | Put `movement_id` into the APPLIED event? | No (it needs a v3 seed bump); reverse lookup by `bpm_task_id`. |
-| OQ-13 | Warehouse/zone scoping of postings (0051/0058 a) in this series? | Out; permission-only now; revisit with REQ-480 leases. |
+| OQ-2 | One stock ledger id per tenant (release 1) or one per warehouse? | per tenant; per-warehouse ids (the scale path of 7.6) only if T-LD-1 fails its exit criterion |
+| OQ-3 | Allow negative balance by policy? | no (D5) |
+| OQ-5 | Fill `scope_ref` from a registered scope slot now? | store it when the registration declares a scope slot; enforcement is OQ-13 |
+| OQ-9 | Should reconcile repair? | no |
+| OQ-10 | `numeric(30,9)` until REQ-504 fixes scales? | yes |
+| OQ-11 | Role grants for the four atoms? | task-worker post+read; tenant-admin gets all automatically (S22); auditor read+reconcile; real role list NOT VERIFIED, decided in L4 |
+| OQ-12 | Entry id into the APPLIED event? | no |
+| OQ-13 | Warehouse/zone scoping of postings (0051/0058 a)? | out; until wired a scoped principal is refused (16.2) |
+| OQ-16 | #2658 alignment: slots instead of typed nullable columns. | slots (4.5); the #2658 designer must align its note |
+| OQ-17 | Run `gather_facts`/`declare` in the pre-transaction plan phase (before ANY lock of the transaction) instead of inside the step? | no; inside the step, before any ledger lock (7.1 step 3) |
 
-## 20. Risks for CODE-DESIGN-VALIDATOR to attack first
+Closed: OQ-1 (R-N ruled), OQ-4 (skew 5 min, part of D-T), OQ-6 (duplicate under the counter lock), OQ-7 (`available` permission-gated), OQ-8 (one posting per transaction, 200 legs), OQ-14 (D-C), OQ-15 (D-T, 96 h).
 
-1. **V1 / D-L1**: that a core ledger primitive honours "the guard runs in the module write handler" (D5) and the layering of 0039; and that no cheaper route exists with the merged REQ-501 contract.
-2. **The gap-free proof (6.2)**: the counter-last order, the READ COMMITTED `FOR UPDATE` recheck, F5 (visibility before lock release, argued from PostgreSQL commit internals, not run here), and whether the deferred trigger of 5.3 closes "incremented but no header". Also the duplicate path (step 7, F6): the counter lock is taken but the UPDATE is skipped.
-3. **The SERVICE-origin cycle (7.4)** is asserted by reading `engine.ex:400-410`; the interleaving is derived, not run.
-4. **Class 5b**: that no HUMAN-path statement between the handler and the commit takes a class below 6 after the ledger (the tail list in S3 is from the moduledoc, not a statement-by-statement trace).
-5. **Throughput** of the single counter is an estimate (NOT MEASURED).
-6. **Dimension columns by reference**: 4.5 depends on #2658/#2660 stating the balance key and sentinels.
-7. **Trigger residuals**: owner can disable triggers; `session_replication_role`.
+## 21. Revision map (findings of the CDV FAIL and the SECURITY review)
+
+| Finding | Status | Where |
+|---|---|---|
+| F1 route R-N/R-D, 0039/0054/OQ-R4 (OQ-1 then ruled R-N) | done | 3, 15, 20 |
+| F2 one posting per transaction; false claim fixed; OQ-8 | done | 7.3, 7.4, 20 |
+| F3 TRUNCATE, seed row, TenantTemplate; precedent wording | done | 4.1, 5.1, 5.4, S9, S9b |
+| F4 class 5b justification, tail list, timers | done | 7.2, S3b, 15 |
+| F5 Catalog rule 10 / struct / ManifestHash / ModuleWrites / lock_types | done | 14.3 |
+| F6 failure channel | done | 12.3, S6b, S6c |
+| F7 payload hash, key mismatch, SEC-5 scoping | done | 9.2 |
+| F8 client_seq conflict, out-of-order, untrusted | done | 9.3 |
+| F9 reversal checks in algorithm | done | 7.1 steps 5-7, 10 |
+| F10 / SEC-3 permission lookup, DB roles, TENANT_ADMIN/AUDITOR/PLATFORM_ADMIN | done (lookup function NOT FOUND, specified) | 16.2 |
+| F11 / SEC-11 callback types, error shape, forbidden, timeouts | done | 14.1, 14.4 |
+| F12 tests | done | 13 |
+| F13 / SEC-6 clock_timestamp, no hard CHECK, lateness cap, strict timestamps | done | 8, 4.2 |
+| F14 balance first insert, soften claim | done | 4.4, 5.2 |
+| F15 / SEC-2 qualified names, no SECURITY DEFINER, idempotent seed, down | done | 4, 4.1 |
+| F16 comparator, append-only dimension list | done | 4.5 |
+| F17 offline fields path, conditional version | done | 9.1 |
+| F18 T-LD-1 criterion, convoy, 0040 | done | 7.6 |
+| F19 C-1 into 0062 and decided | done | 15, 19 |
+| F20 SERVICE exclusion | done | 7.5 |
+| SEC-4 single access path | done | 14.1, 16.4 |
+| SEC-7 reversal details | done | 10, 12.2 |
+| SEC-8 octet_length CHECKs | done | 4.2, 4.3, 16.3 |
+| SEC-9 reconcile bounds | done | 11.2 |
+| SEC-10 tamper evidence | done (hash chain in L1) | 5.1 |
+| SEC-12 L5 conditions | done | 7.5 |
+| Addendum 2 OQ-15 decided; addendum 3 OQ-14 decided; addendum 1 R-N default / R-D laid out | done | 8.3, 19, 3 |
+| Ruling 1 neutral names and data (`ledger_entry/leg/balance/counter`, counter per ledger id, cause is policy data, Rule 7) | done | 3.3, 4, 5.3 |
+| Ruling 2 pure `declare` before any lock; `gather_facts` | done | 7.1 step 3, 14.4 |
+| Ruling 3 permissions and scope from the registration; scoped principal refused | done | 14.3, 16.2, T-SEC-2 |
+| Ruling 4 0062 contents (0057 D5 wording, 0054 Correction, OQ-R4 owed) | done | 15 |
+| Ruling 5 second consumer | done | 3.3 |
+| Technical: insert-then-lock ascending; class 5b; per-ledger scale path; D-L12 typed; TRUNCATE trigger + reset; READ COMMITTED test; export/restore/delete/oracle; `ledger.posted` audit; slices | done | 7.1, 7.2, 7.5, 7.6, 5.4, T-GF-3, 4.6, 7.7, 17 |
+
+## 22. Risks for CODE-DESIGN-VALIDATOR to attack first
+
+1. Neutrality (3.3): that no business term can enter core (Rule 7 is a text scan), that the slot/cause registration really removes the stock vocabulary from core, and that 0062 states the Correction deviation honestly.
+2. The gap-free proof (6.2), F5 visibility argument and the duplicate path.
+3. Class 5b against the real tail (7.2) and the SERVICE cycle (7.5): derived by reading, not run.
+4. Slots vs typed columns (4.5) and the cross-note effect on #2658.
+5. The roles-from-DB function (NOT FOUND) and the org-scoped grants interaction.
+6. Throughput numbers (criterion only, not measured).
