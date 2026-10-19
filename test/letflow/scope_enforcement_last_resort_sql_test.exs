@@ -162,7 +162,7 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
       # one UPDATE of the column and one audit INSERT, nothing else writes
       assert length(Regex.scan(~r/UPDATE public\.tenants/, sql)) == 1
       assert length(Regex.scan(~r/INSERT INTO %I\.audit_entries/, sql)) == 1
-      refute sql =~ ~r/\x08(DELETE|TRUNCATE|DROP|ALTER|DISABLE)\x08/i
+      refute sql =~ ~r/\b(DELETE|TRUNCATE|DROP|ALTER|DISABLE)\b/i
 
       # the locks in the command's order: A, the tenants row, the audit chain lock
       {a, _} = :binary.match(sql, "pg_advisory_xact_lock")
