@@ -37048,7 +37048,7 @@ requirements:
     depends_on: [REQ-520]
 
   - id: REQ-522
-    title: "mix letflow.risk_tier: prints FULL, SHORT or DIRECT with the failing check named, one test per path rule"
+    title: "mix letflow.risk_tier: prints FULL, SHORT, DIRECT or HIGH with the failing check named for FULL, one test per path rule"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
