@@ -46,6 +46,9 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
   # GH #2706 PR-2: the cancel transaction bounds its lock waits with the literal `lock_timeout`
   # setting (value bound as a parameter, never the stamp setting).
   @engine "lib/letflow/engine.ex"
+  # GH #2883: the operator break-glass sets a transaction-local `lock_timeout` with a bound parameter and
+  # a literal setting name (reviewed by SECURITY-REVIEWER, fresh-packet code gate).
+  @scope_enforcement "lib/letflow/scope_enforcement.ex"
   @release "lib/letflow/release/managed_types.ex"
   @mix_stamp "lib/mix/tasks/letflow.stamp_managed_types.ex"
   @mix_inventory "lib/mix/tasks/letflow.managed_types_tamper_inventory.ex"
@@ -79,7 +82,7 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
     "priv/repo/migrations/20261018100001_add_scope_node_fkey_to_role_scope_grants.exs"
   ]
   # Assertion 3
-  @set_config_files [@step_writes, @stamp, @snapshot_rollout, @engine]
+  @set_config_files [@step_writes, @stamp, @snapshot_rollout, @engine, @scope_enforcement]
   # Assertion 4
   @stamp_callers [@release, @mix_stamp, @mix_inventory]
   # Assertion 5: the insert-time stamping path (as it stands) plus the platform stamp.
@@ -382,7 +385,7 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
                "Found: #{inspect(dynamic_sql_files(files))}"
     end
 
-    test "3: set_config appears in lib/ only in step_writes.ex, stamp.ex, the exam snapshot rollout.ex and engine.ex (timeouts), with literal setting names",
+    test "3: set_config appears in lib/ only in step_writes.ex, stamp.ex, the exam snapshot rollout.ex, engine.ex and scope_enforcement.ex (timeouts), with literal setting names",
          %{files: files} do
       lib_only = Enum.filter(files, fn {path, _} -> String.starts_with?(path, "lib/") end)
 
