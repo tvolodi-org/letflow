@@ -336,7 +336,7 @@ defmodule Letflow.Definitions.PromotionReviewStore do
           filters,
           prefix,
           row_visible?,
-          {id, DateTime.to_unix(inserted_at, :microsecond)},
+          {id, inserted_at},
           chunk_size,
           want,
           acc
