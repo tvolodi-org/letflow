@@ -243,7 +243,16 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
           )
       end
 
-    {:ok, _} = Application.ensure_all_started(:yaml_elixir)
+    case Application.ensure_all_started(:yaml_elixir) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Mix.raise(
+          "mix letflow.check_requirements_registration: FAILED [R8] -- " <>
+            "yaml_elixir is not available (run under MIX_ENV=test or dev): #{inspect(reason)}"
+        )
+    end
 
     case parse_check(content) do
       :ok ->
