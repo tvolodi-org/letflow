@@ -1,0 +1,56 @@
+{
+  "name": "org_legal_entity",
+  "display_name": "Org Legal Entity",
+  "description": "GH #2661 / REQ-473, decisions 0050 D1 and 0057 D1. A legal entity (a taxpayer, identified by bin) that owns sites and org units. active is queried and required (a retired record stays readable by id). code is the unique business key. external_ref_system and external_ref_id are nullable, both queried so each gets a column and the unique pair constraint exists (many rows with both NULL are allowed); the both-set-or-both-absent rule is enforced by the module write functions, not by this definition. No foreign_keys: references are declarative only (0050 D3.6).",
+  "fields": [
+    {
+      "name": "code",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "bin",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "external_ref_system",
+      "type": "string",
+      "queried": true
+    },
+    {
+      "name": "external_ref_id",
+      "type": "string",
+      "queried": true
+    }
+  ],
+  "constraints": [
+    {
+      "name": "uq_org_legal_entity_code",
+      "type": "unique",
+      "fields": [
+        "code"
+      ]
+    },
+    {
+      "name": "uq_org_legal_entity_external_ref",
+      "type": "unique",
+      "fields": [
+        "external_ref_system",
+        "external_ref_id"
+      ]
+    }
+  ]
+}

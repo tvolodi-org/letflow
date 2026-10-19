@@ -34,12 +34,12 @@ defmodule Letflow.Modules.InstallsManagedByTest do
   alias Letflow.TenantProvisioning.ColumnPromotion
 
   @managed [
-    "org_legal_entity",
-    "org_site",
-    "org_unit",
-    "org_unit_membership",
-    "catalog_item",
-    "catalog_uom",
+    "fxm_legal_entity",
+    "fxm_site",
+    "fxm_unit",
+    "fxm_unit_membership",
+    "fxm_item",
+    "fxm_uom",
     "fxm_ledger"
   ]
 
@@ -87,7 +87,7 @@ defmodule Letflow.Modules.InstallsManagedByTest do
   end
 
   defp new_org_unit_shape_pack do
-    name = "org_unit"
+    name = "fxm_unit"
 
     %{
       "pack_id" => "req496-owner-upgrade-#{System.unique_integer([:positive])}",
@@ -104,7 +104,7 @@ defmodule Letflow.Modules.InstallsManagedByTest do
           "name" => name,
           "display_name" => "Org Unit v2",
           "logical_shape_version" =>
-            Base.encode16(:crypto.hash(:sha256, "org_unit v2"), case: :lower),
+            Base.encode16(:crypto.hash(:sha256, "fxm_unit v2"), case: :lower),
           "definition_json" => %{
             "name" => name,
             "display_name" => "Org Unit v2",
@@ -179,11 +179,11 @@ defmodule Letflow.Modules.InstallsManagedByTest do
                owner
              )
 
-    assert count_named(ctx.schema, "org_unit") == 2
+    assert count_named(ctx.schema, "fxm_unit") == 2
 
     assert Repo.all(
              from(d in EntityDefinition,
-               where: d.name == "org_unit",
+               where: d.name == "fxm_unit",
                select: {d.managed_by, d.status},
                order_by: d.inserted_at
              ),
@@ -197,7 +197,7 @@ defmodule Letflow.Modules.InstallsManagedByTest do
              Definitions.create_definition(
                %{
                  definition: %{
-                   name: "org_site",
+                   name: "fxm_site",
                    display_name: "Tenant's own site",
                    fields: [%{name: "address", type: :string}]
                  },
@@ -207,10 +207,10 @@ defmodule Letflow.Modules.InstallsManagedByTest do
              )
 
     assert install("fixture_managed", ctx.schema) ==
-             {:error, {:pack_install_failed, {:managed_name_taken, "org_site"}}}
+             {:error, {:pack_install_failed, {:managed_name_taken, "fxm_site"}}}
 
     # Rolled back: nothing stamped, nothing installed, only the tenant's own row remains.
-    assert rows(ctx.schema) == [{"org_site", nil, :inactive}]
+    assert rows(ctx.schema) == [{"fxm_site", nil, :inactive}]
     assert Repo.get!(EntityDefinition, own.id, prefix: ctx.schema).managed_by == nil
     refute module_installed?(ctx.schema, "fixture_managed")
 
@@ -220,7 +220,7 @@ defmodule Letflow.Modules.InstallsManagedByTest do
              )
            )
 
-    assert ManagedTypes.owner_of("org_site", ctx.schema) == :unmanaged
+    assert ManagedTypes.owner_of("fxm_site", ctx.schema) == :unmanaged
   end
 
   test "T-19: a declared managed type the pack does not insert fails the install and rolls back",

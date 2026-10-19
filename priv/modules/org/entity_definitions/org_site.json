@@ -1,0 +1,57 @@
+{
+  "name": "org_site",
+  "display_name": "Org Site",
+  "description": "GH #2661 / REQ-473, decisions 0050 D1 and 0057 D1. A physical site of a legal entity. legal_entity_id is the id of an org_legal_entity record as a queried string (declarative reference, no foreign key: 0050 D3.6). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+  "fields": [
+    {
+      "name": "code",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "legal_entity_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "external_ref_system",
+      "type": "string",
+      "queried": true
+    },
+    {
+      "name": "external_ref_id",
+      "type": "string",
+      "queried": true
+    }
+  ],
+  "constraints": [
+    {
+      "name": "uq_org_site_code",
+      "type": "unique",
+      "fields": [
+        "code"
+      ]
+    },
+    {
+      "name": "uq_org_site_external_ref",
+      "type": "unique",
+      "fields": [
+        "external_ref_system",
+        "external_ref_id"
+      ]
+    }
+  ]
+}

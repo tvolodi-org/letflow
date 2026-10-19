@@ -790,7 +790,7 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
       assert snapshot(s) == before
 
       # A managed name keeps the #2530 constant refusal (0050 D7), unchanged.
-      conn = request(entities, :post, "/definitions", designer_ctx, definition_body("org_unit"))
+      conn = request(entities, :post, "/definitions", designer_ctx, definition_body("fxm_unit"))
       assert conn.status == 403, conn.resp_body
       assert conn.resp_body == Error.serialise(%{Error.entity_type_managed() | trace_id: @trace})
       assert snapshot(s) == before

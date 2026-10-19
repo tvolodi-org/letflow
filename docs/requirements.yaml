@@ -37248,7 +37248,7 @@ requirements:
   - id: REQ-473
     title: "WMS foundation (slice 0, 1a): module org skeleton: legal company (org_legal_entity), site, org unit, membership; manifest, install, external_ref columns"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S7
     gh: 2661
     # Source: GH #2661 (REQ-473, labels state:ready, prio:2, type:requirement). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.

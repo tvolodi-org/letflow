@@ -293,6 +293,7 @@ config :letflow, :public_read_kinds, %{
 # rollback -- design §9 open question 1, option (a), its own recommendation).
 config :letflow, :modules, [
   Letflow.Modules.Exam,
+  Letflow.Modules.Org,
   Letflow.Modules.Fixture,
   Letflow.Modules.FixtureDependent,
   Letflow.Modules.FixtureFailingInstall,

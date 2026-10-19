@@ -44,12 +44,12 @@ defmodule Letflow.Routers.EntitiesManagedByTest do
 
   # The six 0050 foundation names, all declared by fixture_managed.
   @six [
-    "org_legal_entity",
-    "org_site",
-    "org_unit",
-    "org_unit_membership",
-    "catalog_item",
-    "catalog_uom"
+    "fxm_legal_entity",
+    "fxm_site",
+    "fxm_unit",
+    "fxm_unit_membership",
+    "fxm_item",
+    "fxm_uom"
   ]
 
   @operator ["PROCESS_OPERATOR"]
@@ -370,7 +370,7 @@ defmodule Letflow.Routers.EntitiesManagedByTest do
 
     test "Revision 1 B2 order pin: malformed shapes on a managed type get the 403, not 400/413/422",
          ctx do
-      type = "org_unit"
+      type = "fxm_unit"
       record = owner_record!(ctx, type)
       id = record.record_id
       non_object = %{"_json" => ["not", "an", "object"]}
@@ -603,11 +603,11 @@ defmodule Letflow.Routers.EntitiesManagedByTest do
       assert table_count(ctx.schema, "artifact_activation_history") == history
     end
 
-    test "T-11: a NEW shape named like a managed type (catalog_uom) -> 403, no row", ctx do
-      before = definition_count(ctx.schema, "catalog_uom")
+    test "T-11: a NEW shape named like a managed type (fxm_uom) -> 403, no row", ctx do
+      before = definition_count(ctx.schema, "fxm_uom")
 
       body = %{
-        "name" => "catalog_uom",
+        "name" => "fxm_uom",
         "display_name" => "Tenant UoM",
         "fields" => [
           %{"name" => "code", "type" => "string", "required" => true},
@@ -616,14 +616,14 @@ defmodule Letflow.Routers.EntitiesManagedByTest do
       }
 
       assert_managed!(call_entities(ctx, @designer, :post, "/definitions", body, []), "new shape")
-      assert definition_count(ctx.schema, "catalog_uom") == before
+      assert definition_count(ctx.schema, "fxm_uom") == before
     end
 
     test "T-12: a body carrying managed_by is refused for a new unmanaged name, a managed name and a null value",
          ctx do
       cases = [
         {"fxm_brand_new", "fixture_managed"},
-        {"org_unit", "fixture_managed"},
+        {"fxm_unit", "fixture_managed"},
         {"fxm_null_claim", nil}
       ]
 
@@ -679,8 +679,8 @@ defmodule Letflow.Routers.EntitiesManagedByTest do
       end
 
       # Byte-identical to a plain managed type's refusal (T-02's body).
-      other = owner_record!(ctx, "org_unit")
-      plain = call_entities(ctx, @admin, :put, "/records/org_unit/#{other.record_id}", body, [])
+      other = owner_record!(ctx, "fxm_unit")
+      plain = call_entities(ctx, @admin, :put, "/records/fxm_unit/#{other.record_id}", body, [])
 
       ledger =
         call_entities(ctx, @admin, :put, "/records/fxm_ledger/#{record.record_id}", body, [])
@@ -790,8 +790,8 @@ defmodule Letflow.Routers.EntitiesManagedByTest do
       for {route, conn} <- conns, do: assert_managed!(conn, "raced #{route} fxm_free")
 
       # Byte-identical to the guard's own refusal of a plainly managed type (REQ-496 T-01 body).
-      guarded = call_entities(ctx, @admin, :post, "/records/org_unit", body, [])
-      assert_managed!(guarded, "guarded org_unit")
+      guarded = call_entities(ctx, @admin, :post, "/records/fxm_unit", body, [])
+      assert_managed!(guarded, "guarded fxm_unit")
       for {_route, conn} <- conns, do: assert(conn.resp_body == guarded.resp_body)
 
       assert stored(ctx, "fxm_free", record.record_id) == before

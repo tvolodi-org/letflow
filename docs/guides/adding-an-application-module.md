@@ -374,28 +374,29 @@ script-bound (R5); this section is the contract a handler is written against.
 ## 6. Registration: `config/config.exs`, `config/test.exs`, and `catalog_test.exs`
 
 `Letflow.Modules.Catalog` reads its module list once, at compile time, via
-`Application.compile_env(:letflow, :modules, [])` (`lib/letflow/modules/catalog.ex:55`).
+`Application.compile_env(:letflow, :modules, [])` (`lib/letflow/modules/catalog.ex:57`).
 Registering a new module means editing **both** config files, plus the test
 that pins their contents:
 
-- `config/config.exs:60` — `config :letflow, :modules, [Letflow.Modules.Exam]`
+- `config/config.exs:60` — `config :letflow, :modules, [Letflow.Modules.Exam, Letflow.Modules.Org]`
   — the real, production module list. Add your entry module here.
-- `config/test.exs:267` — `config :letflow, :modules, [...]` — the test-env
-  list, currently `[Letflow.Modules.Exam, Letflow.Modules.Fixture,
-  Letflow.Modules.FixtureDependent, Letflow.Modules.FixtureFailingInstall]`
-  (prod entries first, then the test-only fixtures under
+- `config/test.exs:294` — `config :letflow, :modules, [...]` — the test-env
+  list, currently `[Letflow.Modules.Exam, Letflow.Modules.Org,
+  Letflow.Modules.Fixture, Letflow.Modules.FixtureDependent,
+  Letflow.Modules.FixtureFailingInstall, ...]` (more fixtures follow;
+  prod entries first, then the test-only fixtures under
   `test/support/modules/`). Add your entry module here too if it needs to be
   exercised in the test env (a genuinely new production module should be
-  registered exactly like `Letflow.Modules.Exam` was).
+  registered exactly like `Letflow.Modules.Exam` and `Letflow.Modules.Org` were).
 - `test/letflow/modules/catalog_test.exs` — **this is ISS-0846's flagged
   root cause of the stale-`CatalogTest` issue.** Two assertions there
   hardcode the module list and go stale unless updated in the same change:
   - `"entry_modules/0 returns the registered test-only fixtures, in config
     order"` asserts `Catalog.entry_modules() ==
-    [Letflow.Modules.Exam, Letflow.Modules.Fixture, ...]` literally — add
+    [Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.Fixture, ...]` literally — add
     your module to this literal list, in the same order as `config/test.exs`.
-  - `"config/config.exs registers exactly [Letflow.Modules.Exam]"` greps the
-    real file (`~r/config :letflow, :modules, \[Letflow\.Modules\.Exam\]/`)
+  - `"config/config.exs registers exactly [Letflow.Modules.Exam, Letflow.Modules.Org]"` greps the
+    real file (`~r/config :letflow, :modules, \[Letflow\.Modules\.Exam, Letflow\.Modules\.Org\]/`)
     — update this regex to match your new `config/config.exs` line.
 
 Forgetting either edit does not fail compilation — it fails exactly these

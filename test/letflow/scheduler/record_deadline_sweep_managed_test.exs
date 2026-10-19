@@ -88,13 +88,13 @@ defmodule Letflow.Scheduler.RecordDeadlineSweepManagedTest do
     Map.take(record, [:field_values, :deleted, :last_event_global_seq])
   end
 
-  # The only due org_unit record of a fresh tenant, created by the owning module.
+  # The only due fxm_unit record of a fresh tenant, created by the owning module.
   defp managed_due_record!(schema) do
     # The rule's cast `(field_values->>'name')::timestamptz` must see ONLY this record.
-    assert record_count(schema, "org_unit") == 0
+    assert record_count(schema, "fxm_unit") == 0
 
-    {:ok, %{record: record}} = FixtureManaged.create_record("org_unit", %{"name" => @due}, schema)
-    assert record_count(schema, "org_unit") == 1
+    {:ok, %{record: record}} = FixtureManaged.create_record("fxm_unit", %{"name" => @due}, schema)
+    assert record_count(schema, "fxm_unit") == 1
     record
   end
 
@@ -102,12 +102,12 @@ defmodule Letflow.Scheduler.RecordDeadlineSweepManagedTest do
     test "T-12: run/2 returns :ok, the record is unchanged and no ENTITY_RECORD_UPDATED is appended",
          %{schema: schema} do
       record = managed_due_record!(schema)
-      before = stored(schema, "org_unit", record.record_id)
+      before = stored(schema, "fxm_unit", record.record_id)
       events = updated_event_count(schema)
 
-      assert RecordDeadlineSweep.run(schema, rule("org_unit")) == :ok
+      assert RecordDeadlineSweep.run(schema, rule("fxm_unit")) == :ok
 
-      assert stored(schema, "org_unit", record.record_id) == before
+      assert stored(schema, "fxm_unit", record.record_id) == before
       assert before.field_values == %{"name" => @due}
       assert updated_event_count(schema) == events
     end
@@ -123,12 +123,12 @@ defmodule Letflow.Scheduler.RecordDeadlineSweepManagedTest do
             format: "[$level] $metadata| $message\n",
             metadata: [:schema, :entity_type, :record_id, :reason]
           ],
-          fn -> assert RecordDeadlineSweep.run(schema, rule("org_unit")) == :ok end
+          fn -> assert RecordDeadlineSweep.run(schema, rule("fxm_unit")) == :ok end
         )
 
       assert log =~ "deadline sweep: one record failed to transition"
       assert log =~ "reason=:entity_type_managed"
-      assert log =~ "entity_type=org_unit"
+      assert log =~ "entity_type=fxm_unit"
       assert log =~ "record_id=#{record.record_id}"
       assert log =~ "schema=#{schema}"
       refute log =~ @due

@@ -1,0 +1,65 @@
+{
+  "name": "org_unit",
+  "display_name": "Org Unit",
+  "description": "GH #2661 / REQ-473, decisions 0050 D1 and 0057 D1. A node of the org-unit tree. parent is the id of the parent org_unit as a string, absent for a root (0050 D1). legal_entity_id and site_id are required declarative references and are deliberately NOT queried: no column and no index (0050 D3.6). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+  "fields": [
+    {
+      "name": "code",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "legal_entity_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "site_id",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "parent",
+      "type": "string"
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "external_ref_system",
+      "type": "string",
+      "queried": true
+    },
+    {
+      "name": "external_ref_id",
+      "type": "string",
+      "queried": true
+    }
+  ],
+  "constraints": [
+    {
+      "name": "uq_org_unit_code",
+      "type": "unique",
+      "fields": [
+        "code"
+      ]
+    },
+    {
+      "name": "uq_org_unit_external_ref",
+      "type": "unique",
+      "fields": [
+        "external_ref_system",
+        "external_ref_id"
+      ]
+    }
+  ]
+}
