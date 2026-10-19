@@ -37347,7 +37347,7 @@ requirements:
   - id: REQ-474
     title: "WMS foundation (slice 0, 2a): module catalog_items skeleton: item and unit of measure; manifest, install, external_ref columns"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S7
     gh: 2663
     # Source: GH #2663 (REQ-474, labels state:blocked, prio:2, type:requirement; blocked on REQ-473). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.

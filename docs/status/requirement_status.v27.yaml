@@ -197,3 +197,18 @@ history:
       guide docs/guides/adding-an-application-module.md was already corrected by the
       implementing agent; no other documented behaviour changed. NOT run by this agent:
       mix letflow.check.test and the full suite.
+
+  - req: REQ-474
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-19T17:07:32Z"
+    note: >
+      GH #2663. catalog_items module skeleton (item and unit of measure) delivered on branch
+      feat/GH-2663-req474: feat b57d4a3b, tests 372b2db1; the PR is not yet merged at the
+      time of this entry. RELEASE-VALIDATOR re-verification: PASS WITH FINDINGS, all
+      acceptance criteria evidenced; permission_matrix_test T24 (AC9) fails on a local
+      Windows CRLF checkout only. TEST-DESIGN-VALIDATOR PASS (13 mutants killed),
+      SECURITY-REVIEWER PASS, REVIEWER PASS. Docs: the module guide
+      docs/guides/adding-an-application-module.md was already updated by the implementing
+      agent; no other documented behaviour changed. NOT run by this agent: mix
+      letflow.check.test and the full suite (hosted CI covers them).
