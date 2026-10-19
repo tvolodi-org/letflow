@@ -182,3 +182,18 @@ history:
       (AttachmentLinksIssue, PlatformServicesManage, ScriptsWrite, ScriptsPublish) are only in the
       roles.md matrix, which is the parity-tested authority. GH #2233 was closed COMPLETED on
       2026-10-05 with no comments.
+
+  - req: REQ-473
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-19T05:18:48Z"
+    note: >
+      GH #2661. Org module skeleton (org_legal_entity, site, org unit, membership;
+      manifest, install, external_ref columns; fixture rename) on branch
+      feat/GH-2661-org-skeleton: feat be168e79, review fixes 68bbb449, tests 9475c034;
+      not yet merged at the time of this entry. RELEASE-VALIDATOR re-verification:
+      PASS WITH FINDINGS, all acceptance criteria evidenced. SECURITY-REVIEWER and
+      REVIEWER verdicts are recorded in the PR Gates block, not here. Docs: the module
+      guide docs/guides/adding-an-application-module.md was already corrected by the
+      implementing agent; no other documented behaviour changed. NOT run by this agent:
+      mix letflow.check.test and the full suite.
