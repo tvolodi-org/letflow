@@ -105,3 +105,17 @@ Static-scan mutants (MU-BG-9 second changeset expression, MU-BG-16 a reference f
 | F4 audit-chain fault (switched by R10 to option (b), an accepted limitation) | `roles_on_flip_docs_test.exs`: positive pins `Audit-chain fault (accepted limitation)`, `There is NO sanctioned SQL path`, `Escalate to the platform owner`, `needs its own decision record`, the absolute `Never write the column with SQL` + `that skips the audit entry and the locks`; A11: `audit-chain fault`, `makes the command fail and roll back`, `enforcement then stays as it is`, `ACCEPTED LIMITATION`, `option (b)`, `there is no sanctioned SQL path`, `needs its own decision`. NEGATIVE pins (a re-introduced SQL path fails and goes to the auditor): `last resort`/`last-resort` in the break-glass section, `last resort` in A11, `sign-off` in the section or A11 paragraph, any `INSERT INTO` / `UPDATE tenants` snippet in the section or A11, and the weakening `as a routine step`. Each rule has a seeded offender that must fire. The old pins (`last resort`, `ONE transaction`, `WRITTEN sign-off`) are gone. |
 
 Per-file runs after the follow-up: docs 26 (after R10), flip_authority 33, release 27, core 44 (all passed). NOTE: the scratchpad is shared with sibling sessions; `m.sh` and `mutate.exs` there were overwritten by another session, so this step's harness lives in `gh2883_mutate.exs` / `gh_m.sh`.
+
+## Auditor tightening on PR #2894: `@set_config_files` is a map (`stamp_opener_scan_test.exs`, assertion 3)
+
+`lib/letflow/scope_enforcement.ex` was added to the `set_config` allow-list; the auditor accepted it with ONE compensating tightening, implemented here: the allow-list is a MAP file => the only literal setting names it may set, minimal and derived from the current literals:
+
+| File | Names |
+|---|---|
+| `lib/letflow/entities/step_writes.ex` | `lock_timeout`, `statement_timeout` |
+| `lib/letflow/entities/managed_types/stamp.ex` | `letflow.managed_by_stamp`, `lock_timeout`, `statement_timeout` |
+| `lib/letflow/modules/exam/snapshot/rollout.ex` | `lock_timeout`, `statement_timeout` |
+| `lib/letflow/engine.ex` | `lock_timeout` |
+| `lib/letflow/scope_enforcement.ex` | `lock_timeout` ONLY |
+
+`set_config_violations/1` now also reports an allow-listed file whose literal names are not a subset of its entry; the real-tree test pins EQUALITY (minimal entries, not a union), that the stamp setting is in `stamp.ex` only and that `scope_enforcement.ex` is `["lock_timeout"]`. Synthetic negatives (same detector, seeded sources): (1) the stamp setting in `scope_enforcement.ex`, `step_writes.ex`, the rollout and `engine.ex`; (2) `scope_enforcement.ex` setting `statement_timeout`, `search_path`, `role`, `x.y`, and a forbidden name next to `lock_timeout`; (3) a file not in the map, also with `lock_timeout`; (4) a non-literal name inside an allowed file; plus a positive control that the allowed names do not violate. File: 16 passed, format clean.

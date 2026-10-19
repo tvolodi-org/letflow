@@ -22,8 +22,12 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
        permitted other occurrence and is stripped before the check.)
     2. every `Repo.query`/`Repo.query!`/`Ecto.Adapters.SQL.query`/`query!` call whose SQL argument
        is not a compile-time string literal sits in a file of `@dynamic_sql_files`.
-    3. `set_config` occurs in `lib/` string literals only in `step_writes.ex`, `stamp.ex` and the exam snapshot `rollout.ex` and `engine.ex` (timeouts), and
-       there only with a LITERAL setting name (`set_config('name', ...)`, never `set_config($1, ...)`).
+    3. `set_config` occurs in `lib/` string literals only in the files of the `@set_config_files`
+       MAP, and there only with a LITERAL setting name (`set_config('name', ...)`, never
+       `set_config($1, ...)`) that is in THAT FILE's entry. The map is minimal (exactly the names each
+       file sets today, not a union): `letflow.managed_by_stamp` only in `stamp.ex`, the timeouts
+       elsewhere, and `scope_enforcement.ex` (the GH #2883 break-glass) may set ONLY `lock_timeout`
+       (auditor ruling on PR #2894: an allow-listed file may not set a name outside its entry).
     4. `Stamp.run/1` and `Stamp.run_tenant/2` are referenced (call, capture, `apply`) only from
        `lib/letflow/release/managed_types.ex` and the two Mix tasks.
     5. no `update_all`/`update` touching `:managed_by`, and no SQL literal updating it, outside
@@ -81,8 +85,15 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
     # the 20261015025331 migration above); reviewed by SECURITY-REVIEWER (code gate step-07).
     "priv/repo/migrations/20261018100001_add_scope_node_fkey_to_role_scope_grants.exs"
   ]
-  # Assertion 3
-  @set_config_files [@step_writes, @stamp, @snapshot_rollout, @engine, @scope_enforcement]
+  # Assertion 3: file => the ONLY setting names its `set_config('name', ...)` literals may use. Minimal:
+  # derived from the literals in each file today (the real-tree test pins equality, not a subset).
+  @set_config_files %{
+    @step_writes => ~w(lock_timeout statement_timeout),
+    @stamp => ~w(letflow.managed_by_stamp lock_timeout statement_timeout),
+    @snapshot_rollout => ~w(lock_timeout statement_timeout),
+    @engine => ~w(lock_timeout),
+    @scope_enforcement => ~w(lock_timeout)
+  }
   # Assertion 4
   @stamp_callers [@release, @mix_stamp, @mix_inventory]
   # Assertion 5: the insert-time stamping path (as it stands) plus the platform stamp.
@@ -239,12 +250,35 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
 
   defp set_config?(literal), do: String.contains?(literal, "set_config")
 
+  # The literal setting names of the `set_config('name', ...)` calls of one AST.
+  defp set_config_names(ast) do
+    for literal <- literals(ast),
+        set_config?(literal),
+        [name] <-
+          Regex.scan(~r/set_config\(\s*'([A-Za-z_.]+)'/, literal, capture: :all_but_first),
+        uniq: true,
+        do: name
+  end
+
+  # `%{path => sorted names}` for the allow-listed files present in `files`.
+  defp set_config_names_by_file(files) do
+    for {path, ast} <- files, Map.has_key?(@set_config_files, path), into: %{} do
+      {path, ast |> set_config_names() |> Enum.sort()}
+    end
+  end
+
   defp set_config_violations(files) do
-    outside = Enum.reject(set_config_files(files), &(&1 in @set_config_files))
+    outside = Enum.reject(set_config_files(files), &Map.has_key?(@set_config_files, &1))
+
+    outside_entry =
+      for {path, ast} <- files,
+          allowed = Map.get(@set_config_files, path),
+          set_config_names(ast) -- allowed != [],
+          do: path
 
     non_literal_name =
       for {path, ast} <- files,
-          path in @set_config_files,
+          Map.has_key?(@set_config_files, path),
           literal <- literals(ast),
           set_config?(literal),
           opens = length(Regex.scan(~r/set_config\(/, literal)),
@@ -253,7 +287,7 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
           uniq: true,
           do: path
 
-    outside ++ non_literal_name
+    Enum.uniq(outside ++ non_literal_name ++ outside_entry)
   end
 
   # Assertion 4: references to Stamp.run / Stamp.run_tenant (call, capture, apply).
@@ -385,12 +419,21 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
                "Found: #{inspect(dynamic_sql_files(files))}"
     end
 
-    test "3: set_config appears in lib/ only in step_writes.ex, stamp.ex, the exam snapshot rollout.ex, engine.ex and scope_enforcement.ex (timeouts), with literal setting names",
+    test "3: set_config appears in lib/ only in the files of the map, with literal setting names that are in each file's entry (scope_enforcement.ex: lock_timeout only; the stamp setting: stamp.ex only)",
          %{files: files} do
       lib_only = Enum.filter(files, fn {path, _} -> String.starts_with?(path, "lib/") end)
 
-      assert Enum.sort(set_config_files(lib_only)) == Enum.sort(@set_config_files)
+      assert Enum.sort(set_config_files(lib_only)) == Enum.sort(Map.keys(@set_config_files))
       assert set_config_violations(lib_only) == []
+
+      # the entries are minimal: exactly the names found today, not a union
+      assert set_config_names_by_file(lib_only) ==
+               Map.new(@set_config_files, fn {path, names} -> {path, Enum.sort(names)} end)
+
+      stamp_setting = "letflow.managed_by_stamp"
+
+      assert for({path, names} <- @set_config_files, stamp_setting in names, do: path) == [@stamp]
+      assert @set_config_files[@scope_enforcement] == ["lock_timeout"]
     end
 
     test "4: Stamp.run and Stamp.run_tenant are referenced only from the release wrapper (and the Mix tasks)",
@@ -501,6 +544,76 @@ SELECT set_config('letflow.managed_by_stamp', 'exam', true)
                "lib/s3.ex",
                "lib/s4.ex"
              ]
+    end
+
+    test "auditor tightening: a name outside a file's entry violates, per file (PR #2894)" do
+      # (1) the stamp setting outside stamp.ex, here in scope_enforcement.ex
+      stamp_elsewhere =
+        synthetic([
+          {@scope_enforcement,
+           ~s|Repo.query!("SELECT set_config('letflow.managed_by_stamp', $1, true)", ["exam"])|}
+        ])
+
+      assert set_config_violations(stamp_elsewhere) == [@scope_enforcement]
+
+      # ... and in each other allow-listed file that does not hold it today
+      for path <- [@step_writes, @snapshot_rollout, @engine] do
+        files =
+          synthetic([
+            {path, ~s|Repo.query!("SELECT set_config('letflow.managed_by_stamp', $1, true)", [])|}
+          ])
+
+        assert set_config_violations(files) == [path], path
+      end
+
+      # (2) scope_enforcement.ex setting any name other than lock_timeout
+      for name <- ["statement_timeout", "search_path", "role", "x.y"] do
+        files =
+          synthetic([
+            {@scope_enforcement, ~s|Repo.query!("SELECT set_config('#{name}', $1, true)", [v])|}
+          ])
+
+        assert set_config_violations(files) == [@scope_enforcement], name
+      end
+
+      # a second, forbidden name next to the allowed one still violates
+      mixed =
+        synthetic([
+          {@scope_enforcement,
+           ~s|Repo.query!("SELECT set_config('lock_timeout', $1, true)", [v])\nRepo.query!("SELECT set_config('statement_timeout', $1, true)", [v])|}
+        ])
+
+      assert set_config_violations(mixed) == [@scope_enforcement]
+
+      # (3) a file not in the map violates (existing behaviour), also with an allowed name
+      not_in_map =
+        synthetic([
+          {"lib/letflow/other.ex",
+           ~s|Repo.query!("SELECT set_config('lock_timeout', $1, true)", [v])|}
+        ])
+
+      assert set_config_violations(not_in_map) == ["lib/letflow/other.ex"]
+
+      # (4) a non-literal setting name still violates inside an allowed file
+      non_literal =
+        synthetic([
+          {@scope_enforcement, ~s|Repo.query!("SELECT set_config($1, $2, true)", [name, v])|}
+        ])
+
+      assert set_config_violations(non_literal) == [@scope_enforcement]
+    end
+
+    test "the allowed names in the allowed files do not violate (the detector is not over-eager)" do
+      files =
+        synthetic([
+          {@scope_enforcement,
+           ~s|Repo.query!("SELECT set_config('lock_timeout', $1, true)", [v])|},
+          {@stamp,
+           ~s|Repo.query!("SELECT set_config('letflow.managed_by_stamp', $1, true)", ["exam"])|},
+          {@engine, ~s|Repo.query!("SELECT set_config('lock_timeout', $1, true)", [v])|}
+        ])
+
+      assert set_config_violations(files) == []
     end
   end
 

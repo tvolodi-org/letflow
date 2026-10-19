@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-GH2883-BREAKGLASS-20261019/step-05-test-designer.json",
   "created_at": "2026-10-19T07:21:34Z",
   "started_at": "2026-10-19T06:40:00Z",
-  "completed_at": "2026-10-19T07:25:08Z",
+  "completed_at": "2026-10-19T07:46:27Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -28,14 +28,15 @@
   },
   "result": {
     "status": "PASS",
-    "summary": "All T-BG tests written and green per file. Real per-file runs: scope_enforcement_out_of_band_test 43 passed; release/scope_break_glass_test 24 passed; mix/tasks/letflow_scope_enforcement_break_glass_test 12 passed; scope_enforcement_flip_authority_test 31 passed (14 + 17 new); docs/roles_on_flip_docs_test 25 passed (18 + 7 new); regressions unchanged and green: on_flip_guards 17, scope_enforcement_transitions 36, scope_enforcement_test 23, scope_enforcement_on_test 16, ci_backend_path_filter 18. mix format --check-formatted on all six touched/new test files: clean. GAPS: mix letflow.check.test NOT run (supervisor rule), so the dead-default-argument check is not machine-verified (no test helper uses a default argument; the one fixture function with defaults was avoided by design); only 5 mutants measured (below). R5 FOLLOW-UP (F1-F4) done: per-file runs docs 26, flip_authority 33, release 27, core 44, mix task 12, all passed; 12 mutants measured in memory. R10 update: F4 pins switched to option (b) (accepted limitation, positive pins + negative pins for last resort / sign-off / SQL snippet / weakened prohibition, each with a seeded offender); roles_on_flip_docs_test 26 passed, format clean.",
+    "summary": "All T-BG tests written and green per file. Real per-file runs: scope_enforcement_out_of_band_test 43 passed; release/scope_break_glass_test 24 passed; mix/tasks/letflow_scope_enforcement_break_glass_test 12 passed; scope_enforcement_flip_authority_test 31 passed (14 + 17 new); docs/roles_on_flip_docs_test 25 passed (18 + 7 new); regressions unchanged and green: on_flip_guards 17, scope_enforcement_transitions 36, scope_enforcement_test 23, scope_enforcement_on_test 16, ci_backend_path_filter 18. mix format --check-formatted on all six touched/new test files: clean. GAPS: mix letflow.check.test NOT run (supervisor rule), so the dead-default-argument check is not machine-verified (no test helper uses a default argument; the one fixture function with defaults was avoided by design); only 5 mutants measured (below). R5 FOLLOW-UP (F1-F4) done: per-file runs docs 26, flip_authority 33, release 27, core 44, mix task 12, all passed; 12 mutants measured in memory. R10 update: F4 pins switched to option (b) (accepted limitation, positive pins + negative pins for last resort / sign-off / SQL snippet / weakened prohibition, each with a seeded offender); roles_on_flip_docs_test 26 passed, format clean. AUDITOR TIGHTENING (PR #2894): stamp_opener_scan_test.exs @set_config_files is now a minimal file=>names map (scope_enforcement.ex: lock_timeout only; letflow.managed_by_stamp: stamp.ex only), with synthetic negatives (1)-(4); 16 passed, format clean.",
     "artifacts_out": [
       "test/specs/GH2883-break-glass.md",
       "test/support/break_glass_fixture.ex (new)",
       "test/letflow/scope_enforcement_out_of_band_test.exs (new, 43)",
       "test/letflow/release/scope_break_glass_test.exs (new, 24)",
       "test/mix/tasks/letflow_scope_enforcement_break_glass_test.exs (new, 12)",
-      "modified: test/letflow/scope_enforcement_flip_authority_test.exs (+17), test/letflow/docs/roles_on_flip_docs_test.exs (+7)"
+      "modified: test/letflow/scope_enforcement_flip_authority_test.exs (+17), test/letflow/docs/roles_on_flip_docs_test.exs (+7)",
+      "modified: test/letflow/entities/managed_types/stamp_opener_scan_test.exs"
     ],
     "mutants": [
       {
