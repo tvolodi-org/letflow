@@ -33611,7 +33611,7 @@ requirements:
   - id: REQ-445
     title: "Decision record 0046 and role charter: platform scope vs tenant scope, role set grows to eight (TENANT_ADMIN, TENANT_AUDITOR), PLATFORM_ADMIN valid only in the platform tenant"
     owner: CODE-DESIGNER
-    status: pending
+    status: done
     stage: S4
     impl_order: 962  # letflow-queue task id, GH#2233. Registered 2026-10-05 by ORCH (role-system audit AUDIT-ROLES-20261005, model ratified by the user).
     gh: 2233  # REQ-445 board issue (row Q-962); impl_order above is history
