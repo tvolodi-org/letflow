@@ -764,5 +764,5 @@ blocks; PR-3 adds no lock, no order and no writer).
    the supervisor / letflow-2): a retry count or a `fire_at` backoff on `:contended`. The telemetry event
    `[:letflow, :scheduler, :timer_contended]` is the alerting signal meanwhile.
 10. **Accepted gaps.** A `>=` versus `>` pin on the budget comparison is not deterministic (the elapsed time of
-    the first fire is never exactly the budget), so it is not tested; the other review gaps M5, M6 and M7
-    are accepted as recorded in the review, not covered here.
+    the first fire is never exactly the budget), so it is not tested. Also accepted (TDV survivors): the log `schema:`
+    metadata is not asserted; the `:timer_fire_lock_timeout_ms` config read is not tested (only the default and the override); a nested call whose 55P03 leaves the outer transaction aborted is documented, not tested.
