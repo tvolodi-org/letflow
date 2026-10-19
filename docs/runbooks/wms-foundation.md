@@ -1,0 +1,42 @@
+# WMS foundation runbook
+
+Operational notes for the WMS foundation modules (decision 0050). Each module adds its own
+section; REQ-507 (catalog) reuses this file.
+
+## Org module limits
+
+Module `org` (GH #2661 / REQ-473 skeleton, GH #2662 / REQ-506 read API) as it is on main. Each
+limit names the GH issue or the code that holds it; code lines were re-read when this section
+was written.
+
+1. **Generic writes to the four types are refused.** `org_legal_entity`, `org_site`, `org_unit`
+   and `org_unit_membership` are in `manages_entity_types`, so the generic entity routes answer
+   403 `entity_type_managed` (GH #2530, PR #2568). The router maps
+   `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:525`, and
+   `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
+   (`lib/letflow/entities/records.ex:1802`, delegating to `ManagedTypes.check_record_write/3`).
+2. **Writes go through the module's own Owner only, and nothing checks references.** Module
+   code writes with the `/3` arity, `Records.create_record/3` with
+   `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:383`). The
+   module ships no write functions yet (the unit functions are REQ-495). References between the
+   types (`legal_entity_id`, `site_id`, `parent`, `org_unit_id`) are declarative strings with no
+   foreign keys and no reference check: a record can name a legal entity, site or unit that does
+   not exist (decision 0050 D3.6; `priv/modules/org/entity_definitions/`).
+3. **Record attachment routes are not covered by the managed-type write lock.** GH #2582 is
+   still open: the attachment routes on a module-managed type (the four org types included) are
+   not refused with `entity_type_managed` (attachment routes in `lib/letflow/routers/entities.ex`, access check
+   `Letflow.Entities.RecordAccess.attachment/3`, `lib/letflow/entities/record_access.ex`).
+4. **Client idempotency keys cannot use the reserved server-derived prefix.** The single-command
+   entry points (`create_record`, `update_record`, `delete_record`) refuse, before any query, an
+   `idempotency_key` that starts with the exact bytes `sys:step:` and return
+   `{:error, :reserved_idempotency_key}` (`reject_step_key/1`,
+   `lib/letflow/entities/records.ex:1004`; prefix `@step_key_prefix`, line 330). Only
+   `command_multi/3` accepts that key family, and its one caller is `Letflow.Entities.StepWrites`.
+   `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:997`) is a separate check:
+   a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
+   is closed (PR #2600).
+5. **The read API is by record id only.** `Letflow.Modules.Org.lookup/2`, `active?/2` and
+   `member?/3` (`lib/letflow/modules/org/org.ex`) take a `record_id` uuid; a non-uuid value is
+   "not found" or `false`, never a raise. A soft-deleted record is indistinguishable from an
+   absent one (`Letflow.Entities.Record.Latest.get_live/3`, GH #2734). There is no lookup by
+   `code` or by external reference.

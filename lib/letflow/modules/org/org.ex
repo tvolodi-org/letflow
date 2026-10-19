@@ -25,7 +25,12 @@ defmodule Letflow.Modules.Org do
 
   import Letflow.Modules.Module, only: [defmanifest: 1]
 
+  import Ecto.Query, only: [from: 2, limit: 2]
+
+  alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.EntityActivation
+  alias Letflow.Repo
+  alias Letflow.TenantProvisioning
 
   # Must stay equal to `manages_entity_types` in the manifest below (defmanifest takes literals).
   @types [
@@ -34,6 +39,9 @@ defmodule Letflow.Modules.Org do
     "org_unit",
     "org_unit_membership"
   ]
+
+  @membership "org_unit_membership"
+  @unit "org_unit"
 
   @impl true
   defmanifest(
@@ -57,5 +65,87 @@ defmodule Letflow.Modules.Org do
   @impl true
   def on_install(prefix, _settings, ctx) do
     EntityActivation.activate_and_promote(prefix, ctx, @types)
+  end
+
+  @doc """
+  Read API (GH #2662 / REQ-506, decision 0050 D2): the live record `id` (a `record_id` uuid) in
+  tenant schema `prefix`, searched across the four org types.
+
+  The map has string keys: `"record_id"`, `"entity_type"` (the type name) and every stored field
+  value. A value that is not a uuid, an unknown uuid and a soft-deleted record are all
+  `{:error, :not_found}` (never a raise, never distinguishable). Read-only and tenant-scoped by
+  `prefix` alone.
+  """
+  @spec lookup(prefix :: String.t(), id :: term()) :: {:ok, map()} | {:error, :not_found}
+  def lookup(prefix, id) when is_binary(prefix) do
+    with {:ok, record_id} <- Ecto.UUID.cast(id),
+         {:ok, row} <- first_live(prefix, record_id, @types) do
+      {:ok, to_map(row)}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def lookup(_prefix, _id), do: {:error, :not_found}
+
+  @doc """
+  True only for an existing, non-deleted record (any of the four types) whose `active` field is
+  `true`. A non-uuid `id` is `false`.
+  """
+  @spec active?(prefix :: String.t(), id :: term()) :: boolean()
+  def active?(prefix, id) do
+    match?({:ok, %{"active" => true}}, lookup(prefix, id))
+  end
+
+  @doc """
+  True only when `user_id` has an active `org_unit_membership` in `org_unit_id` and that
+  `org_unit` is itself live and active. `org_unit_id` is a record_id uuid; a non-uuid value or a
+  non-text `user_id` is `false`.
+  """
+  @spec member?(prefix :: String.t(), user_id :: term(), org_unit_id :: term()) :: boolean()
+  def member?(prefix, user_id, org_unit_id)
+      when is_binary(prefix) and is_binary(user_id) do
+    with {:ok, unit_id} <- Ecto.UUID.cast(org_unit_id),
+         {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         {:ok, %{"active" => true}} <- unit_by_id(prefix, unit_id) do
+      active_membership?(prefix, user_id, unit_id)
+    else
+      _ -> false
+    end
+  end
+
+  def member?(_prefix, _user_id, _org_unit_id), do: false
+
+  defp unit_by_id(prefix, unit_id) do
+    case Latest.get_live(unit_id, @unit, prefix) do
+      {:ok, row} -> {:ok, row.field_values}
+      error -> error
+    end
+  end
+
+  defp active_membership?(prefix, user_id, unit_id) do
+    query =
+      from(r in Latest,
+        where:
+          r.entity_type == @membership and not r.deleted and
+            fragment("?->>'user_id' = ?", r.field_values, ^user_id) and
+            fragment("?->>'org_unit_id' = ?", r.field_values, ^unit_id) and
+            fragment("?->>'active' = 'true'", r.field_values)
+      )
+
+    Repo.exists?(limit(query, 1), prefix: prefix)
+  end
+
+  defp first_live(_prefix, _record_id, []), do: {:error, :not_found}
+
+  defp first_live(prefix, record_id, [type | rest]) do
+    case Latest.get_live(record_id, type, prefix) do
+      {:ok, _row} = found -> found
+      _ -> first_live(prefix, record_id, rest)
+    end
+  end
+
+  defp to_map(%Latest{} = row) do
+    Map.merge(row.field_values, %{"record_id" => row.record_id, "entity_type" => row.entity_type})
   end
 end
