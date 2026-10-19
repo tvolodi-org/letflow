@@ -228,3 +228,19 @@ history:
       not built was found in docs/guides/adding-an-application-module.md, docs/WMS or decision
       0050, so none was edited. NOT run by this agent: mix letflow.check.test and the full suite
       (hosted CI covers them).
+
+  - req: REQ-507
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-19T20:26:38Z"
+    note: >
+      GH #2664. catalog_items read API (lookup/2, active?/2, item_uom_valid?/3) in
+      lib/letflow/modules/catalog_items/catalog_items.ex and the Catalog module limits section in
+      docs/runbooks/wms-foundation.md, delivered on branch feat/GH-2664-req507 (HEAD 61f3673a); the
+      PR is not yet merged at the time of this entry. SECURITY-REVIEWER PASS_WITH_FINDINGS (probe on
+      two real tenants), REVIEWER PASS_WITH_FINDINGS (moduledoc fixed in 0cfd975b; duplication with
+      the org read API tracked as #2905), TEST-DESIGN-VALIDATOR PASS (17 mutants killed on 61f3673a),
+      RELEASE-VALIDATOR PASS (all acceptance criteria evidenced, permission matrix unchanged). Docs:
+      no stale statement that the catalog read API is not built was found in
+      docs/guides/adding-an-application-module.md, docs/WMS or decision 0050, so none was edited.
+      NOT run by this agent: mix letflow.check.test and the full suite (hosted CI covers them).

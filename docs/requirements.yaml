@@ -37467,7 +37467,7 @@ requirements:
   - id: REQ-507
     title: "WMS foundation (slice 0, 2b): module catalog_items behaviour, read API (lookup, active?, item_uom_valid?) and limits runbook section"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S7
     gh: 2664
     # Source: GH #2664 (REQ-507, labels state:blocked, prio:2, type:requirement; blocked on REQ-474 and REQ-506). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.
