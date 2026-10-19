@@ -151,3 +151,19 @@ history:
       validator; PR CI is the evidence. Decision-record amendment 0051 A1-A7 and the WF-04
       stage-gate checks were not re-checked. Follow-ups: #2800 (one source for the deny
       reasons), REQ-518 AC 23 and REQ-519 AC 22 (SEC C-2, C-1; PR #2801).
+
+  - req: REQ-505
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-19T03:04:36Z"
+    note: >
+      GH #2659 closed by PR #2805 (27274bd2, merged 2026-10-18T04:46:17Z), the third of three
+      PRs (#2797 c75ad320, #2803 33d68c57). Registered into docs/requirements.yaml by
+      REQ-ANALYST (transcription of a requirement that existed only as a GitHub issue).
+      Verified by reading, nothing run: the issue is CLOSED, PR #2805 is MERGED, and the
+      deliverable lib/letflow/design/gh2659-external-ref-idempotent-import.md exists on
+      origin/main. The ACs were checked against the PRs by the issue evidence comment of
+      2026-10-18, not re-derived here; no RELEASE-VALIDATOR re-verification was run. Flipped on the
+      supervisor explicit authorisation of 2026-10-19, not a RELEASE-VALIDATOR verdict. Open, tracked
+      separately: module-handler part of design T9 (follow-up filed), #2794, #2784; permission_matrix_test
+      T24 failed locally on a Windows CRLF checkout (not confirmed by a base run); CI on PR #2805 was green.
