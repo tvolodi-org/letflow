@@ -414,6 +414,12 @@ defmodule Letflow.Identity do
   `{:error, :last_tenant_wide_admin}` (0051 N1; the refusal is then audited in its own
   transaction by `record_guard_refused/2`). A failed token revocation rolls everything
   back and returns `{:error, {:token_revocation_failed, reason}}`.
+
+  GH #2869 (a): in a tenant stored `on`, a deactivation that takes the interactive explicit
+  tenant-wide admin count (`count_interactive_explicit_tenant_wide_admins/1`) from at least
+  one to none is refused with `{:error, :last_interactive_tenant_wide_admin}` after the N1
+  guard (which keeps its own error when both would fire); the refusal is audited in its own
+  transaction and the token revocation rolls back with it.
   """
   @spec update_user_status(
           id :: Ecto.UUID.t(),
@@ -442,6 +448,7 @@ defmodule Letflow.Identity do
           | {:error, {:login_directory, term()}}
           | {:error, {:transaction_failed, Exception.t()}}
           | {:error, :last_tenant_wide_admin}
+          | {:error, :last_interactive_tenant_wide_admin}
           | {:error, {:token_revocation_failed, term()}}
 
   # GH 2564 (design §2): a write is a status write when the request carries `status`,
@@ -491,6 +498,10 @@ defmodule Letflow.Identity do
         Multi.run(multi, :admins_before, fn _repo, _changes ->
           {:ok, count_tenant_wide_admins(prefix)}
         end)
+        |> Multi.run(:interactive_before, fn _repo, _changes ->
+          # GH #2869 (a): the interactive count before the write, next to :admins_before.
+          {:ok, TenantAdminGuard.count_before!(prefix, :interactive_explicit)}
+        end)
       end)
       |> Multi.update(:user, fn %{locked_user: locked} -> changeset_fun.(locked) end,
         prefix: prefix
@@ -536,6 +547,9 @@ defmodule Letflow.Identity do
         Multi.run(multi, :admin_guard, fn _repo, %{user: updated, admins_before: before} ->
           admin_guard(updated, before, prefix)
         end)
+        |> Multi.run(:interactive_guard, fn _repo, %{user: updated, interactive_before: before} ->
+          interactive_guard(updated, before, prefix)
+        end)
       end)
       |> Repo.transaction()
       |> case do
@@ -570,6 +584,13 @@ defmodule Letflow.Identity do
             })
 
           {:error, :last_tenant_wide_admin}
+
+        {:error, :interactive_guard, :last_interactive_tenant_wide_admin, _changes} ->
+          TenantAdminGuard.refuse(
+            prefix,
+            TenantAdminGuard.interactive_refusal(:deactivate_user, id),
+            ctx
+          )
       end
     rescue
       exception -> {:error, {:transaction_failed, exception}}
@@ -592,6 +613,19 @@ defmodule Letflow.Identity do
   end
 
   defp admin_guard(%User{}, _before, _prefix), do: {:ok, :not_checked}
+
+  # GH #2869 (a): the second guard, after the N1 guard (which keeps its own error when both
+  # would fire). Only a write that leaves the user inactive can lower the interactive count.
+  @spec interactive_guard(User.t(), non_neg_integer(), String.t()) ::
+          {:ok, :ok | :not_checked} | {:error, :last_interactive_tenant_wide_admin}
+  defp interactive_guard(%User{status: :inactive}, before, prefix) do
+    case TenantAdminGuard.interactive_admin_check(prefix, before) do
+      :ok -> {:ok, :ok}
+      :refused -> {:error, :last_interactive_tenant_wide_admin}
+    end
+  end
+
+  defp interactive_guard(%User{}, _before, _prefix), do: {:ok, :not_checked}
 
   # GH 2564 (design §2): revokes every non-revoked token of `user_id` (expired ones
   # included), row by row in id order under FOR UPDATE, all with one second-truncated
@@ -1161,6 +1195,10 @@ defmodule Letflow.Identity do
   that binding points to must leave a tenant-wide admin; otherwise the removal rolls back
   and `{:error, :last_tenant_wide_admin}` is returned after one `tenant_admin.guard_refused`
   entry (action `remove_tenant_admin_member`) is written in its own transaction.
+
+  GH #2869 (a): in a tenant stored `on`, the same removal is also refused with
+  `{:error, :last_interactive_tenant_wide_admin}` when it takes the interactive explicit
+  tenant-wide admin count from at least one to none (after the N1 guard).
   """
   @spec remove_group_member(
           group_id :: Ecto.UUID.t(),
@@ -1170,6 +1208,7 @@ defmodule Letflow.Identity do
           :ok
           | {:error, :group_not_found}
           | {:error, :last_tenant_wide_admin}
+          | {:error, :last_interactive_tenant_wide_admin}
           | {:error, {:audit_failed, term()}}
           | {:error, {:transaction_failed, Exception.t()}}
   def remove_group_member(group_id, user_id, opts) do
@@ -1211,6 +1250,11 @@ defmodule Letflow.Identity do
       if same_uuid_text?(group_id, admin_group_id),
         do: TenantAdminGuard.count_before!(prefix)
 
+    # GH #2869 (a): the interactive before-count, same trigger, taken before the delete.
+    interactive_before =
+      if same_uuid_text?(group_id, admin_group_id),
+        do: TenantAdminGuard.count_before!(prefix, :interactive_explicit)
+
     {count, _rows} =
       from(m in GroupMember, where: m.group_id == ^group_id and m.user_id == ^user_id)
       |> Repo.delete_all(prefix: prefix)
@@ -1224,6 +1268,17 @@ defmodule Letflow.Identity do
           :remove_tenant_admin_member,
           user_id,
           admin_before
+        )
+    end
+
+    # GH #2869 (a): the second guard, after the N1 guard.
+    if count == 1 and is_integer(interactive_before) do
+      :ok =
+        TenantAdminGuard.ensure_interactive_admin_remains!(
+          prefix,
+          :remove_tenant_admin_member,
+          user_id,
+          interactive_before
         )
     end
 

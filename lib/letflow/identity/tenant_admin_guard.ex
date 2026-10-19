@@ -11,10 +11,22 @@ defmodule Letflow.Identity.TenantAdminGuard do
     * HTTP: 409 with code `last_tenant_wide_admin`;
     * event: `tenant_admin.guard_refused`, its `after_state` keys EXACTLY `"action"`,
       `"actor"`, `"target_id"`, `"reason_code"`, `"counted_admins"`, `"trace_id"`;
-    * `reason_code`: `"last_tenant_wide_admin"` (the only value);
+    * `reason_code`: `"last_tenant_wide_admin"` by default (every N1 path), or, for the
+      GH #2869 last-interactive-admin guard, `"last_interactive_tenant_wide_admin"` (function
+      error `{:error, :last_interactive_tenant_wide_admin}`, HTTP 409 with that code);
     * `action`: `unbind_tenant_admin` (POST /roles kind change), `remove_tenant_admin_member`,
-      `rebind_tenant_admin`, `revoke_pending_grant`, `revoke_token`, and (#2564)
-      `deactivate_user`.
+      `rebind_tenant_admin`, `revoke_pending_grant`, `revoke_token`, (#2564)
+      `deactivate_user`, and (#2869) `flag_service_principal`.
+
+  ## Last interactive administrator (GH #2869 part (a))
+
+  `ensure_interactive_admin_remains!/4` is the second guard. It counts with
+  `Letflow.Identity.count_interactive_explicit_tenant_wide_admins/1` (the SAME counter gate
+  fact `zero_tenant_wide_admins` uses; this module builds no query of its own) and applies the
+  transition rule: refuse only when the count goes from above 0 to 0 AND the tenant is stored
+  `on` (`Letflow.ScopeEnforcement.mode_under_lock!/1`, read after lock A and only in that one
+  case; an unreadable mode raises and rolls the write back, fail closed). It runs after the N1
+  guard, which keeps its own error when both would fire.
 
   ## Protocol
 
@@ -37,12 +49,14 @@ defmodule Letflow.Identity.TenantAdminGuard do
   alias Letflow.Identity.AuditContext
   alias Letflow.Identity.TenantRole
   alias Letflow.Repo
+  alias Letflow.ScopeEnforcement
 
   require Logger
 
   @tenant_admin_role "TENANT_ADMIN"
   @event "tenant_admin.guard_refused"
   @reason_code "last_tenant_wide_admin"
+  @interactive_reason_code "last_interactive_tenant_wide_admin"
 
   @type action ::
           :unbind_tenant_admin
@@ -53,13 +67,21 @@ defmodule Letflow.Identity.TenantAdminGuard do
           | :deactivate_user
           | :scope_tenant_admin
           | :revoke_tenant_admin_grant
+          | :flag_service_principal
 
-  @type refusal :: %{action: action(), target_id: String.t(), counted_admins: non_neg_integer()}
+  # The refusal event keeps the N1 contract: the six keys incl. `target_id` (the id already in
+  # the request); `counted_admins` is 0 and the 409 body carries no id and no count.
+  @type refusal :: %{
+          required(:action) => action(),
+          required(:target_id) => String.t(),
+          required(:counted_admins) => non_neg_integer(),
+          optional(:reason_code) => String.t()
+        }
 
   @type refuse_opt :: {:platform_companion, platform_prefix :: String.t()}
 
   @typedoc "Which admin count a guarded path uses (REQ-517 finding F1)."
-  @type counter :: :counted | :explicit
+  @type counter :: :counted | :explicit | :interactive_explicit
 
   @doc """
   Locks the `tenant_role` row named `TENANT_ADMIN` (no `kind` filter) `FOR UPDATE` in the
@@ -106,6 +128,63 @@ defmodule Letflow.Identity.TenantAdminGuard do
 
   defp count(prefix, :counted), do: Identity.count_tenant_wide_admins(prefix)
   defp count(prefix, :explicit), do: Identity.count_explicit_tenant_wide_admins(prefix)
+
+  defp count(prefix, :interactive_explicit),
+    do: Identity.count_interactive_explicit_tenant_wide_admins(prefix)
+
+  @doc """
+  GH #2869 (a): the second guard, after the write and after the N1 guard, in the same
+  transaction under lock A. `before_count` is `count_before!(prefix, :interactive_explicit)`
+  taken before the write. `0` is `:ok` (the write removed nobody). Otherwise the interactive
+  count is taken after the write; above 0 is `:ok`. At 0 the stored mode is read
+  (`ScopeEnforcement.mode_under_lock!/1`): `:on` rolls back with `{:tenant_admin_guard,
+  refusal}` (`counted_admins` 0, `reason_code` `"last_interactive_tenant_wide_admin"`),
+  `:shadow` and `:off` are `:ok`. A raise from the mode read propagates (fail closed).
+  Raises `ArgumentError` outside a transaction.
+  """
+  @spec ensure_interactive_admin_remains!(
+          prefix :: String.t(),
+          action(),
+          target_id :: String.t(),
+          before_count :: non_neg_integer()
+        ) :: :ok
+  def ensure_interactive_admin_remains!(prefix, action, target_id, before_count)
+      when is_binary(prefix) do
+    ensure_in_transaction!("ensure_interactive_admin_remains!/4")
+
+    case interactive_admin_check(prefix, before_count) do
+      :ok -> :ok
+      :refused -> Repo.rollback({:tenant_admin_guard, interactive_refusal(action, target_id)})
+    end
+  end
+
+  @doc """
+  The decision of `ensure_interactive_admin_remains!/4` without the rollback, for a caller
+  that is an `Ecto.Multi` step (`update_locked_user`): `:ok` or `:refused`. Same transaction,
+  same lock, same fail-closed mode read. Raises `ArgumentError` outside a transaction.
+  """
+  @spec interactive_admin_check(prefix :: String.t(), before_count :: non_neg_integer()) ::
+          :ok | :refused
+  def interactive_admin_check(prefix, before_count) when is_binary(prefix) do
+    ensure_in_transaction!("interactive_admin_check/2")
+
+    cond do
+      before_count == 0 -> :ok
+      count(prefix, :interactive_explicit) > 0 -> :ok
+      ScopeEnforcement.mode_under_lock!(prefix) == :on -> :refused
+      true -> :ok
+    end
+  end
+
+  @doc "The refusal map of the last-interactive-admin guard (`counted_admins` is 0)."
+  @spec interactive_refusal(action(), target_id :: String.t()) :: refusal()
+  def interactive_refusal(action, target_id),
+    do: %{
+      action: action,
+      target_id: target_id,
+      counted_admins: 0,
+      reason_code: @interactive_reason_code
+    }
 
   @doc "`ensure_admins_remain!(prefix, action, target_id, :not_measured)` (state rule)."
   @spec ensure_admins_remain!(prefix :: String.t(), action(), target_id :: String.t()) :: :ok
@@ -164,11 +243,13 @@ defmodule Letflow.Identity.TenantAdminGuard do
 
   @doc "`refuse(prefix, refusal, ctx, [])`."
   @spec refuse(prefix :: String.t(), refusal(), AuditContext.t()) ::
-          {:error, :last_tenant_wide_admin}
+          {:error, :last_tenant_wide_admin | :last_interactive_tenant_wide_admin}
   def refuse(prefix, refusal, ctx), do: refuse(prefix, refusal, ctx, [])
 
   @doc """
-  Records a refusal and returns `{:error, :last_tenant_wide_admin}`. Called AFTER the
+  Records a refusal and returns `{:error, :last_tenant_wide_admin}` (or, when the refusal
+  carries `reason_code` `"last_interactive_tenant_wide_admin"`, `{:error,
+  :last_interactive_tenant_wide_admin}`). Called AFTER the
   guarded transaction returned its rollback value, i.e. outside any transaction; inside one
   it writes nothing (an inner write would roll back with the caller) and logs one constant
   line.
@@ -181,7 +262,7 @@ defmodule Letflow.Identity.TenantAdminGuard do
   failure logs one constant line (no ids) and the refusal is still returned.
   """
   @spec refuse(prefix :: String.t(), refusal(), AuditContext.t(), [refuse_opt()]) ::
-          {:error, :last_tenant_wide_admin}
+          {:error, :last_tenant_wide_admin | :last_interactive_tenant_wide_admin}
   def refuse(prefix, %{action: action} = refusal, ctx, opts)
       when is_binary(prefix) and is_list(opts) do
     if Repo.in_transaction?() do
@@ -190,15 +271,20 @@ defmodule Letflow.Identity.TenantAdminGuard do
       write_refusal(prefix, refusal, ctx, Keyword.get(opts, :platform_companion))
     end
 
-    {:error, :last_tenant_wide_admin}
+    refusal_error(refusal)
   rescue
     exception ->
       Logger.error(
         "tenant_admin_guard_refusal_not_recorded exception=#{inspect(exception.__struct__)} action=#{action}"
       )
 
-      {:error, :last_tenant_wide_admin}
+      refusal_error(refusal)
   end
+
+  defp refusal_error(%{reason_code: @interactive_reason_code}),
+    do: {:error, :last_interactive_tenant_wide_admin}
+
+  defp refusal_error(_refusal), do: {:error, :last_tenant_wide_admin}
 
   # The common case: the shared writer from GH 2564 (one transaction, the six contract
   # keys, never raises); only the kind of the refused target differs per action.
@@ -207,6 +293,7 @@ defmodule Letflow.Identity.TenantAdminGuard do
       action: Atom.to_string(refusal.action),
       actor: Map.get(ctx, :actor_id),
       target_id: refusal.target_id,
+      reason_code: Map.get(refusal, :reason_code, @reason_code),
       counted_admins: refusal.counted_admins,
       trace_id: Map.get(ctx, :trace_id),
       resource_type: resource_type(refusal.action)
@@ -275,6 +362,7 @@ defmodule Letflow.Identity.TenantAdminGuard do
   defp resource_type(:revoke_token), do: "api_token"
   defp resource_type(:revoke_pending_grant), do: "pending_admin_grant"
   defp resource_type(:deactivate_user), do: "user"
+  defp resource_type(:flag_service_principal), do: "user"
 
   # REQ-517 (finding F3): without these clauses `refuse/4` would raise `FunctionClauseError`
   # into its blanket rescue and silently lose the audit event.

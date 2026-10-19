@@ -15,6 +15,14 @@ defmodule Letflow.Identity.ServicePrincipal do
   user row `FOR UPDATE`, the update, and one `service_principal.flagged` /
   `service_principal.unflagged` audit entry in the same transaction (an audit failure rolls
   everything back). A request equal to the current value writes nothing and no audit entry.
+
+  GH #2869 (a): flagging (never unflagging) removes the user from the interactive count, so
+  it is guarded like a removal. In a tenant stored `on`, a flag that takes the interactive
+  explicit tenant-wide admin count from at least one to none is refused with
+  `{:error, :last_interactive_tenant_wide_admin}`: nothing is written, no
+  `service_principal.flagged` entry exists, and one `tenant_admin.guard_refused` entry (action
+  `flag_service_principal`) is written in its own transaction. The reason is validated first,
+  so a bad reason never reaches the guard.
   """
 
   import Ecto.Query
@@ -23,6 +31,7 @@ defmodule Letflow.Identity.ServicePrincipal do
   alias Letflow.Audit.Reason
   alias Letflow.Identity
   alias Letflow.Identity.ApiToken
+  alias Letflow.Identity.TenantAdminGuard
   alias Letflow.Identity.User
   alias Letflow.Repo
 
@@ -39,6 +48,7 @@ defmodule Letflow.Identity.ServicePrincipal do
              :not_found
              | :reason_required
              | :invalid_reason
+             | :last_interactive_tenant_wide_admin
              | {:audit_failed, term()}
              | {:transaction_failed, Exception.t()}}
 
@@ -61,6 +71,16 @@ defmodule Letflow.Identity.ServicePrincipal do
         Repo.transaction(fn -> do_set_flag(user_id, flagged, reason, actor, prefix) end,
           prefix: prefix
         )
+        |> case do
+          {:error, {:tenant_admin_guard, refusal}} ->
+            TenantAdminGuard.refuse(prefix, refusal, %{
+              actor_id: actor.user_id,
+              trace_id: actor.trace_id
+            })
+
+          other ->
+            other
+        end
       rescue
         exception -> {:error, {:transaction_failed, exception}}
       end
@@ -102,9 +122,23 @@ defmodule Letflow.Identity.ServicePrincipal do
     if flagged?(user) == flagged do
       %{user_id: user.id, flagged: flagged, changed: false}
     else
+      # GH #2869 (a): only a flag (not an unflag) can lower the interactive count.
+      interactive_before =
+        if flagged, do: TenantAdminGuard.count_before!(prefix, :interactive_explicit)
+
       user
       |> Ecto.Changeset.change(admin_flagged_service_principal: flagged)
       |> Repo.update!(prefix: prefix)
+
+      if is_integer(interactive_before) do
+        :ok =
+          TenantAdminGuard.ensure_interactive_admin_remains!(
+            prefix,
+            :flag_service_principal,
+            user.id,
+            interactive_before
+          )
+      end
 
       case Audit.insert_entry(Repo, audit_attrs(user, flagged, reason, actor, prefix), prefix) do
         {:ok, _entry} -> %{user_id: user.id, flagged: flagged, changed: true}

@@ -1,0 +1,69 @@
+{
+  "handoff_id": "d2869000-0519-4c02-9e11-000000000005",
+  "run_id": "WF02-GH2869-LASTADMIN-20261019",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "TEST-DESIGNER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-GH2869-LASTADMIN-20261019/step-05-test-designer.json",
+  "created_at": "2026-10-19T11:53:32Z",
+  "completed_at": "2026-10-19T11:53:32Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "branch_name": "feature/WF02-REQ519-2869-LASTADMIN-20261019",
+    "artifacts_in": [
+      "lib/letflow/design/gh2869-last-interactive-admin-guard.md",
+      "handoffs/WF02-GH2869-LASTADMIN-20261019/step-04-elixir-dev.json"
+    ]
+  },
+  "task": {
+    "description": "WF-02 step 5: tests for GH #2869 (a)+(c) per design r4 section 5 (T-LA-*), section 6 (existing tests that change), section 7 (mutants). No lib/ edits. No commit."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "All T-LA tests written and green per file (181 tests across the 7 touched/new test files in one fresh-compile run: 0 dead-default-argument warnings, 0 warnings). Per file: last_interactive_admin_guard_test 63 passed; last_interactive_admin_controls_test 19; last_interactive_admin_race_test 10; last_admin_paths_test 10; routers/last_interactive_admin_routes_test 28; docs/roles_on_flip_docs_test 31 (27 + 4 new T-LA-31); enforced_writers_lock_test 20 (18 + 2 new bounded T-L8). mix format --check-formatted over the whole tree: clean. Regression per file, unchanged and green: tenant_admin_guard 30, tenant_admin_guard_scoped 6, routers/gh2564_deactivation 26, routers/tenant_role_scope_grants 50, identity_role_rebind 18, identity_roles_guard 8, service_principal_route 18, mint_service_principal 9, binding_writers_scan 15, binding_writers_membership_rows 20, binding_writers_modes 50, tenant_wide_admins 23, group 1, role_scope_grants_writers 22, sync_scope_guard 40, gh2547_ta_audit_paths 25, pending_admin_binding 55, pending_admin_grants 13, token_preconditions 5, tenant_admin_migration 36, binding_refusal 10, role_scope_grants_migration 8, role_scope_grants 15, gh2552_token_issuer 35, on_gate 35, refused_audit 13, scope_enforcement_transitions 36, scripts/sod 24, ci_backend_path_filter 18, identity_login_directory 44 (it failed 43/44 on my first draft because its static guard requires login_directory: :skip or :tenant_id literally in the call arguments; fixed in the new tests). GAPS: mix letflow.check.test NOT run (supervisor instruction: per-file only, hosted CI is the suite); the dead-default-argument class was checked by a fresh-compile (touched) combined run of all my files and a grep of the full output for the fixed substring (0 hits). MU-LA-4, 7, 12, 13, 16, 18, 20, 21, 22 were not measured as separate mutants (their behaviours are asserted by the per-path tests; 20 by the P6 reason test, 21/22 by the P5/P4 'guard inert' mutants measured below). No lib/ defect found; four design-text drifts reported in the spec.",
+    "artifacts_out": [
+      "test/specs/GH2869-last-interactive-admin-guard.md (new)",
+      "test/support/last_interactive_admin_fixture.ex (new)",
+      "test/letflow/identity/last_interactive_admin_guard_test.exs (new, 63)",
+      "test/letflow/identity/last_interactive_admin_controls_test.exs (new, 19)",
+      "test/letflow/identity/last_interactive_admin_race_test.exs (new, 10)",
+      "test/letflow/identity/last_admin_paths_test.exs (new, 10)",
+      "test/letflow/routers/last_interactive_admin_routes_test.exs (new, 28)",
+      "modified: test/letflow/docs/roles_on_flip_docs_test.exs (+4), test/letflow/identity/enforced_writers_lock_test.exs (+2)",
+      "modified (one comment line each, no assertion changed): test/letflow/identity/tenant_admin_guard_test.exs, tenant_admin_guard_scoped_test.exs, test/letflow/routers/gh2564_deactivation_revokes_tokens_test.exs, tenant_role_scope_grants_test.exs"
+    ],
+    "mutants": [
+      {"id": "MU-LA-1", "mutation": "interactive_admin_check counts :counted instead of :interactive_explicit", "result": "KILLED", "failed": 31, "passed": 42, "files": "guard + paths"},
+      {"id": "MU-LA-2", "mutation": "private Repo.aggregate/from query for :interactive_explicit in the guard's count/2", "result": "KILLED", "failed": 3, "passed": 26, "files": "paths + controls (T-LA-18 x2, T-LA-17)"},
+      {"id": "MU-LA-3/P1", "mutation": "P1 interactive_guard step answers ok on refusal", "result": "KILLED", "failed": 8, "passed": 65, "files": "guard + paths"},
+      {"id": "MU-LA-3/P2", "mutation": "P2 second guard call disabled (if false and ...)", "result": "KILLED", "failed": 8, "passed": 65, "files": "guard + paths"},
+      {"id": "MU-LA-3/P3", "mutation": "P3 interactive before-count forced to 0", "result": "KILLED", "failed": 5, "passed": 58, "files": "guard"},
+      {"id": "MU-LA-3/P4", "mutation": "P4 interactive before-count forced to 0", "result": "KILLED", "failed": 3, "passed": 60, "files": "guard"},
+      {"id": "MU-LA-3/P5", "mutation": "P5 interactive before-count forced to 0", "result": "KILLED", "failed": 4, "passed": 59, "files": "guard"},
+      {"id": "MU-LA-3/P6", "mutation": "P6 interactive before-count forced to 0", "result": "KILLED", "failed": 5, "passed": 58, "files": "guard"},
+      {"id": "MU-LA-5", "mutation": "state rule: before_count == 0 no longer short-circuits", "result": "KILLED", "failed": 1, "passed": 18, "files": "controls (T-LA-P7 unrelated writes at zero)"},
+      {"id": "MU-LA-6", "mutation": "refuses in shadow and off too", "result": "KILLED", "failed": 10, "passed": 53, "files": "guard (T-LA-20 x10)"},
+      {"id": "MU-LA-8", "mutation": "failed mode read treated as :off (fail open)", "result": "KILLED", "failed": 11, "passed": 80, "files": "guard + routes (5 function + 6 HTTP; P4 is protected by the pre-existing reconcile read, equivalent for the guard's own read)"},
+      {"id": "MU-LA-9", "mutation": "mode read before the cond, on every guarded write", "result": "KILLED", "failed": 6, "passed": 77, "files": "guard + enforced_writers_lock (new T-L8 test + 5 T-LA-23)"},
+      {"id": "MU-LA-10", "mutation": "P2: the new guard block runs BEFORE the N1 guard", "result": "KILLED", "failed": 2, "passed": 61, "files": "guard (T-LA-22 p2, T-LA-27)"},
+      {"id": "MU-LA-11", "mutation": "refusal event always carries the old reason_code", "result": "KILLED", "failed": 15, "passed": 48, "files": "guard"},
+      {"id": "MU-LA-14", "mutation": "service-principal router clause removed (500)", "result": "KILLED", "failed": 2, "passed": 26, "files": "routes"},
+      {"id": "MU-LA-17", "mutation": "new lock-A call site in ScopedGrants.make_tenant_wide with no inventory row", "result": "KILLED", "failed": 2, "passed": 8, "files": "paths (T-LA-30)"},
+      {"id": "MU-LA-19", "mutation": "lock A removed from do_remove_group_member", "result": "KILLED", "failed": 8, "passed": 12, "files": "race + paths (queue_two! never sees the worker blocked; T-LA-30 sees a missing site)"},
+      {"id": "MU-LA-15", "mutation": "unflag guarded", "result": "EQUIVALENT", "note": "an unflag only raises the interactive count; a guard on it can never refuse. T-LA-P6 still pins that unflagging is allowed."}
+    ],
+    "lib_untouched": "after every mutant the byte-exact backup was restored; sha256 of all nine lib/ files changed or added by ELIXIR-DEV compared with the starting state: 0 differences; git status of lib/ unchanged",
+    "findings": [
+      "No lib/ defect found.",
+      "Design drift F3/P4: in an on tenant a rebind moves the old group's rows to the new group (and clears the target's own rows); the move is skipped only when ZERO rows move. The F3 shape needs a row-less admin group (A1 holds a user row); tests build it with userize_admin_row!/1. With a group row, the rebind to a group with a member is allowed (pinned).",
+      "P4 fail-closed: reconcile_binding! already reads the mode for a platform-to-platform move, so a rebind in an unreadable tenant raises regardless of the new guard; the bounded T-L8 'never reads the mode' claim cannot hold for a rebind, and the guard's own read there is unobservable (equivalent for MU-LA-8).",
+      "P8: deleting the populated admin group answers :not_found_or_has_members (bound_to_role is for a memberless bound group).",
+      "Windows checkout: mix test prints Result: N passed / N/M passed (no 'tests, failures' line); the repo static guard test/letflow/identity_login_directory_test.exs requires the literal login_directory: :skip (or :tenant_id) in the argument text of every update_user_status/update_user_profile call under test/."
+    ]
+  },
+  "gates_requested": ["TEST-DESIGN-VALIDATOR"]
+}

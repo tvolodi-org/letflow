@@ -713,6 +713,15 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     end
   end
 
+  defp a12_after_a11?(record) do
+    with {a11, _} <- :binary.match(record, "**A11. Operator break-glass for the flag.**"),
+         {a12, _} <- :binary.match(record, "**A12.") do
+      a11 < a12
+    else
+      _ -> false
+    end
+  end
+
   # Every violation of the GH #2883 documentation rules for the three documents (pure).
   defp bg_violations(roles, runbook, record) do
     bg_section = section(runbook, @bg_heading)
@@ -741,7 +750,15 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
          :an_eighth_limit_item_for_the_break_glass},
         {occurrences(record, "**A11. Operator break-glass for the flag.**") != 1,
          :record_a11_not_exactly_once},
-        {String.contains?(record, "**A12."), :record_has_an_unexpected_a12},
+        # GH #2869 (c): A12 is Amendment 4, exactly once, after A11; A10 is unedited; no A13
+        {occurrences(record, "**A12.") != 1, :record_a12_not_exactly_once},
+        {not a12_after_a11?(record), :record_a12_not_after_a11},
+        {String.contains?(record, "**A13."), :record_has_an_unexpected_a13},
+        {occurrences(record, "**A10. Known gap, tracked.**") != 1 or
+           not String.contains?(
+             flat(record),
+             "an `on` tenant can lose the last interactive TENANT_ADMIN and have no way to turn enforcement off"
+           ), :record_a10_edited},
         # the last-resort SQL: exactly ONE fenced block, a single DO statement, audit insert first
         {length(Regex.scan(~r/```sql\n/, runbook)) != 1, :sql_block_not_exactly_one},
         {occurrences(runbook, "DO $last_resort$") != 1, :last_resort_do_not_exactly_once},
@@ -847,7 +864,7 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
       end
     end
 
-    test "decision 0051 holds A11 once, after A10, as Amendment 3, and it is the last paragraph",
+    test "decision 0051 holds A11 once as Amendment 3, then A12 once as Amendment 4, and A12 is the last paragraph",
          %{record: record} do
       {a10, _} = :binary.match(record, "**A10. Known gap, tracked.**")
       {a11, _} = :binary.match(record, "**A11. Operator break-glass for the flag.**")
@@ -856,7 +873,18 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
       assert record =~
                "## Amendment 3 (2026-10-19): operator break-glass for the enforcement flag"
 
-      tail = binary_part(record, a11, byte_size(record) - a11)
+      {a12, _} = :binary.match(record, "**A12.")
+      assert a11 < a12
+      assert occurrences(record, "**A12.") == 1
+
+      assert record =~
+               "## Amendment 4 (2026-10-19): last-interactive-admin guard for an `on` tenant"
+
+      # A11 sits under the Amendment 3 heading with no other heading between them ...
+      between = binary_part(record, a11, a12 - a11)
+      refute between =~ "\n## Amendment 3"
+      # ... and nothing follows A12's amendment except its own paragraphs.
+      tail = binary_part(record, a12, byte_size(record) - a12)
       refute tail =~ "\n## "
     end
 
@@ -1190,6 +1218,249 @@ UPDATE public.tenants SET scope_enforcement = 'off';
                runbook,
                String.replace(record, "stays open and is still required", "is done")
              )
+    end
+  end
+
+  # --- GH #2869 (T-LA-31): the last-interactive-admin guard is documented, A11 and A10 did not move ---
+
+  @la_gate_marker "**Gate #2869 (last admin).**"
+  @la_a11_marker "**A11. Operator break-glass for the flag.**"
+  @la_a12_marker "**A12. Last interactive tenant-wide administrator.**"
+  # SHA-256 of the whole A11 paragraph as merged by GH #2883: A12 must NOT edit it (design F8)
+  @la_a11_sha256 "8189c6adeca27b62b3251aa4a4e653eb72eccaa8369e7257bf21baf77550ab5a"
+
+  # the claims of the Gate paragraph of BOTH documents (case-insensitive, whitespace-normalised)
+  @la_gate_claims [
+    "last_interactive_tenant_wide_admin",
+    "the guard cannot see an administrator who exists in letflow",
+    "is delivered by gh #2883",
+    "counted exactly as gate fact `zero_tenant_wide_admins` counts",
+    "token owners, flagged service principals and zero-row members do not count"
+  ]
+
+  # the claims of A12 (design section 13)
+  @la_a12_claims [
+    "refused with 409 `last_interactive_tenant_wide_admin`",
+    "audited as `tenant_admin.guard_refused`",
+    "`count_interactive_explicit_tenant_wide_admins/1`",
+    "token owners and zero-row members do not count",
+    "This NARROWS the wording of A1",
+    "A1 is not restated or edited",
+    "the flip route is interactive-only (A8)",
+    "it does not apply in `shadow` or `off`",
+    "It runs after the N1 guard, which keeps its own code",
+    "It is implemented by GH #2869 (a); A10 stays open until that implementation is on `main`",
+    "A11's sentence that the guard \"stays open\" is read accordingly",
+    "**Does A7 cover this case? Partly.**",
+    "A7 does NOT cover the flag",
+    "the operator break-glass of A11 (GH #2883), which has no HTTP route",
+    "it cannot see an administrator who exists in Letflow but can no longer log in at the identity provider",
+    "Neither the guard nor A11 is special-cased by the other"
+  ]
+
+  defp la_gate(text) do
+    case String.split(text, @la_gate_marker, parts: 2) do
+      [_before, rest] -> rest |> String.split("\n\n", parts: 2) |> hd() |> flat()
+      [_whole] -> nil
+    end
+  end
+
+  # the A11 paragraph: from its marker to the blank line before the next heading
+  defp la_a11_paragraph(record) do
+    case String.split(record, @la_a11_marker, parts: 2) do
+      [_before, rest] -> @la_a11_marker <> (rest |> String.split("\n\n## ", parts: 2) |> hd())
+      [_whole] -> nil
+    end
+  end
+
+  # the text from A12 to the end of the record, whitespace-normalised
+  defp la_a12_text(record) do
+    case String.split(record, "**A12.", parts: 2) do
+      [_before, rest] -> flat("**A12." <> rest)
+      [_whole] -> ""
+    end
+  end
+
+  # Every violation of the GH #2869 documentation rules for the three documents (pure).
+  defp la_violations(roles, runbook, record) do
+    gates = [{:roles, la_gate(roles)}, {:runbook, la_gate(runbook)}]
+
+    gate_checks =
+      for {doc, gate} <- gates,
+          claim <- @la_gate_claims,
+          is_nil(gate) or not String.contains?(String.downcase(gate), claim),
+          do: {:gate_missing_claim, doc, claim}
+
+    still_open =
+      for {doc, text} <- [{:roles, roles}, {:runbook, runbook}],
+          String.contains?(text, "(still open)") or
+            String.contains?(text, "the guard that prevents the gap is still open"),
+          do: {:still_open_remains, doc}
+
+    a11 = la_a11_paragraph(record)
+    a12 = la_a12_text(record)
+
+    record_checks =
+      [
+        {occurrences(record, "**A12.") != 1, :a12_not_exactly_once},
+        {occurrences(record, @la_a12_marker) != 1, :a12_heading_changed},
+        {not a12_after_a11?(record), :a12_not_after_a11},
+        {String.contains?(record, "**A13."), :an_a13_exists},
+        {is_nil(a11) or Base.encode16(:crypto.hash(:sha256, a11), case: :lower) != @la_a11_sha256,
+         :a11_edited},
+        {record |> String.split("**A12.", parts: 2) |> List.last() |> String.contains?("\n## "),
+         :a12_is_not_the_last_paragraph},
+        {la_gate(roles) != la_gate(runbook), :gate_differs_between_documents}
+      ]
+      |> Enum.filter(&elem(&1, 0))
+      |> Enum.map(&elem(&1, 1))
+
+    claim_gaps =
+      for claim <- @la_a12_claims,
+          not String.contains?(a12, claim),
+          do: {:a12_missing_claim, claim}
+
+    gate_checks ++ still_open ++ record_checks ++ claim_gaps
+  end
+
+  # removes `claim` from the A12 text only (the claims are all inside A12)
+  defp replace_in_a12(record, claim) do
+    [before, a12] = String.split(record, "**A12.", parts: 2)
+    before <> "**A12." <> String.replace(a12, claim, "REMOVED")
+  end
+
+  describe "T-LA-31 the last-interactive-admin guard documentation (GH #2869 parts (a) and (c))" do
+    setup do
+      {:ok, roles: read("docs/roles.md"), runbook: read(@runbook), record: read(@decision)}
+    end
+
+    test "the real documents satisfy every GH #2869 rule", %{
+      roles: roles,
+      runbook: runbook,
+      record: record
+    } do
+      assert la_violations(roles, runbook, record) == []
+    end
+
+    test "A12 is Amendment 4, exactly once, after A11, the last paragraph; A10 and A11 are unedited; no A13",
+         %{record: record} do
+      assert occurrences(record, "**A12.") == 1
+      assert occurrences(record, @la_a12_marker) == 1
+      assert a12_after_a11?(record)
+      refute String.contains?(record, "**A13.")
+
+      assert Base.encode16(:crypto.hash(:sha256, la_a11_paragraph(record)), case: :lower) ==
+               @la_a11_sha256
+
+      # A10's own text, checked by its needle
+      assert occurrences(record, "**A10. Known gap, tracked.**") == 1
+
+      assert flat(record) =~
+               "an `on` tenant can lose the last interactive TENANT_ADMIN and have no way to turn enforcement off"
+
+      # A11's sentence stays; A12 says how it is read, nothing rewrites it
+      assert la_a11_paragraph(record) =~
+               "the last-admin guard (GH #2869 part (a)) stays open and is still required before any customer `on`"
+    end
+
+    test "the Gate paragraph is identical in docs/roles.md and the runbook, keeps its pinned phrase and drops (still open)",
+         %{roles: roles, runbook: runbook} do
+      assert la_gate(roles) == la_gate(runbook)
+      assert la_gate(roles) =~ "is delivered by GH #2883"
+      refute la_gate(roles) =~ "(still open)"
+      assert la_gate(roles) =~ "`last_interactive_tenant_wide_admin`"
+
+      # the intro still names #2869 (now a closed reference)
+      for text <- [roles, runbook], do: assert(text =~ "#2869")
+    end
+
+    test "seeded bad documents fire every rule", %{roles: roles, runbook: runbook, record: record} do
+      # the Gate paragraph of EACH document: every claim fires when removed
+      for {claim, replacement} <- [
+            {"last_interactive_tenant_wide_admin", "last_admin"},
+            {"The guard cannot see an administrator who exists in Letflow",
+             "The guard sees everyone"},
+            {"is delivered by GH #2883", "is open"},
+            {"counted exactly as gate fact `zero_tenant_wide_admins` counts", "counted somehow"}
+          ] do
+        assert Enum.any?(
+                 la_violations(String.replace(roles, claim, replacement), runbook, record),
+                 &match?({:gate_missing_claim, :roles, _}, &1)
+               ),
+               claim
+
+        assert Enum.any?(
+                 la_violations(roles, String.replace(runbook, claim, replacement), record),
+                 &match?({:gate_missing_claim, :runbook, _}, &1)
+               ),
+               claim
+      end
+
+      assert {:still_open_remains, :roles} in la_violations(
+               roles <> "\nThe fix is (still open).\n",
+               runbook,
+               record
+             )
+
+      assert {:still_open_remains, :runbook} in la_violations(
+               roles,
+               String.replace(
+                 runbook,
+                 "the guard that prevents the gap is built",
+                 "the guard that prevents the gap is still open"
+               ),
+               record
+             )
+
+      assert :gate_differs_between_documents in la_violations(
+               roles,
+               String.replace(runbook, "zero-row members do not count", "zero-row members count"),
+               record
+             )
+
+      # A12: twice, before A11, an A13, A11 edited, not the last paragraph, a renamed heading
+      assert :a12_not_exactly_once in la_violations(
+               roles,
+               runbook,
+               record <> "\n\n**A12. Again.** a second one.\n"
+             )
+
+      early =
+        record
+        |> String.replace(@la_a12_marker, "**A9x.**")
+        |> String.replace(@la_a11_marker, @la_a12_marker <> " early\n\n" <> @la_a11_marker)
+
+      assert :a12_not_after_a11 in la_violations(roles, runbook, early)
+
+      assert :an_a13_exists in la_violations(roles, runbook, record <> "\n**A13.** one more.\n")
+
+      assert :a11_edited in la_violations(
+               roles,
+               runbook,
+               String.replace(record, "stays open and is still required", "is done")
+             )
+
+      assert :a12_is_not_the_last_paragraph in la_violations(
+               roles,
+               runbook,
+               record <> "\n## Amendment 5 (2026-10-20): something else\n\ntext\n"
+             )
+
+      assert :a12_heading_changed in la_violations(
+               roles,
+               runbook,
+               String.replace(record, @la_a12_marker, "**A12. Renamed.**")
+             )
+
+      # every A12 claim fires when removed
+      for claim <- @la_a12_claims do
+        assert {:a12_missing_claim, claim} in la_violations(
+                 roles,
+                 runbook,
+                 replace_in_a12(record, claim)
+               ),
+               claim
+      end
     end
   end
 end
