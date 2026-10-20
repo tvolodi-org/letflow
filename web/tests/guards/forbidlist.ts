@@ -172,3 +172,9 @@ export const PATTERNS: GuardPattern[] = [
     rationale: 'ISS-0813',
   },
 ]
+
+// GH #2470: undefined-token guard (token-scan.spec.ts). Regexes live here with the other patterns.
+// A reference is var(--name) with no fallback; var(--name, x) is self-defending and not checked.
+export const TOKEN_REF_REGEX = /var\(\s*(--[a-zA-Z0-9_-]+)\s*\)/g
+// A definition is a declaration of the custom property in tokens.css.
+export const TOKEN_DEF_REGEX = /(?:^|[\s;{])(--[a-zA-Z0-9_-]+)\s*:/g

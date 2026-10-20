@@ -121,7 +121,7 @@ export function EntityFilterBuilder({ fields, rows, onChange }: EntityFilterBuil
     border: '1px solid var(--border-default)',
     borderRadius: 'var(--radius-sm)',
     padding: 'var(--space-1) var(--space-2)',
-    background: 'var(--surface-input)',
+    background: 'var(--surface-card)',
     color: 'var(--text-primary)',
   }
 
