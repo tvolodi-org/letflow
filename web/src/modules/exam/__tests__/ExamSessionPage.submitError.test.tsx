@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 expect.extend(jestDomMatchers)
@@ -141,5 +141,41 @@ describe('Q-1077 / GH 2434 -- a failed submit shows an error', () => {
 
     expect(await screen.findByTestId('exam-expired')).toBeTruthy()
     expect(screen.queryByTestId('exam-submit-error')).toBeNull()
+  })
+})
+
+describe('GH 2471 -- a submit in flight guards the button', () => {
+  it('two clicks in one tick send one request and the button is busy meanwhile', async () => {
+    let resolveSubmit!: (v: never) => void
+    mockedExamApi.submitSession.mockReturnValue(
+      new Promise((resolve) => (resolveSubmit = resolve as typeof resolveSubmit)),
+    )
+    renderPage()
+    const button = await screen.findByTestId('exam-submit-action')
+
+    fireEvent.click(button)
+    fireEvent.click(button)
+
+    expect(mockedExamApi.submitSession).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(screen.getByTestId('exam-submit-action').hasAttribute('disabled')).toBe(true))
+    expect(screen.getByTestId('ds-button-spinner')).toBeTruthy()
+
+    resolveSubmit(SUBMITTED as never)
+    await waitFor(() => expect(screen.queryByTestId('exam-session-page')).toBeNull())
+    expect(mockedExamApi.submitSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed submit enables the button again and a retry sends a second request', async () => {
+    mockedExamApi.submitSession
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(SUBMITTED as never)
+    const user = await openAndSubmit()
+
+    await screen.findByTestId('exam-submit-error')
+    await waitFor(() => expect(screen.getByTestId('exam-submit-action').hasAttribute('disabled')).toBe(false))
+
+    await user.click(screen.getByTestId('exam-submit-action'))
+    await waitFor(() => expect(screen.queryByTestId('exam-session-page')).toBeNull())
+    expect(mockedExamApi.submitSession).toHaveBeenCalledTimes(2)
   })
 })

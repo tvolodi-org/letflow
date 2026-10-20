@@ -132,6 +132,10 @@ function ExamSessionPageInner() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   // Q-1077 / GH 2434: a failed submit is shown, not swallowed; the button stays usable to retry.
   const [submitError, setSubmitError] = useState(false)
+  // GH 2471: a submit in flight disables the button. The ref is the guard (it is set synchronously, so a
+  // second click in the same tick is refused); the state only drives the busy rendering.
+  const [submitting, setSubmitting] = useState(false)
+  const submitInFlightRef = useRef(false)
   const [warning, setWarning] = useState<{ eventCount: number } | null>(null)
   const [questionIndex, setQuestionIndex] = useState(0)
 
@@ -315,7 +319,9 @@ function ExamSessionPageInner() {
   )
 
   const handleSubmit = () => {
-    if (!session) return
+    if (!session || submitInFlightRef.current) return
+    submitInFlightRef.current = true
+    setSubmitting(true)
     setSubmitError(false)
     examApi
       .submitSession(session.session.id)
@@ -328,6 +334,10 @@ function ExamSessionPageInner() {
           return
         }
         setSubmitError(true)
+      })
+      .finally(() => {
+        submitInFlightRef.current = false
+        setSubmitting(false)
       })
   }
 
@@ -379,7 +389,13 @@ function ExamSessionPageInner() {
       <PageLayout
         title={intl.formatMessage({ id: 'exam.session.remainingTime' }, { minutes, seconds })}
         actions={
-          <Button variant="primary" size="md" data-testid="exam-submit-action" onClick={handleSubmit}>
+          <Button
+            variant="primary"
+            size="md"
+            data-testid="exam-submit-action"
+            loading={submitting}
+            onClick={handleSubmit}
+          >
             {intl.formatMessage({ id: 'exam.session.submitAction' })}
           </Button>
         }
