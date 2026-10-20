@@ -37756,3 +37756,78 @@ requirements:
       - "3. Extra tests: two concurrent imports of the same external id leave one record; the same external_ref in two tenants does not collide; upsert_by interacts correctly with the idempotency key (GH #2543); the note decides whether the import schema version needs a bump."
       - "4. Permission model unchanged: the import keeps its route-level gate (EntitiesRecordsImport); SECURITY-REVIEWER gate; CODE-DESIGN-VALIDATOR passes the note."
     depends_on: []
+
+  - id: REQ-528
+    title: "WMS catalog_items follow-up: unit master with scale and dimension, item units, rounding and tolerance (design REQ-504 section 9, slice L7)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2888
+    # Source: lib/letflow/design/gh2660-wms-quantity.md (design of GH #2660 / REQ-504) section 9 "#2663 / #2664" (the proposed follow-up requirement), 4.1, 4.3, 4.6, 10 (slice Q5), 11, 12.1 (OQ-Q17) and 12; lib/letflow/design/gh2657-wms-stock-ledger-core.md section 17 (slice L7 and the pilot gate); decisions 0055, 0060. Relayed by letflow-4 via the supervisor 2026-10-19, recorded by letflow-2. The design facts above were read from origin/main; the facts about the read facade are relayed from the notes and were NOT re-read in code. Items marked [INFERENCE] are not stated by the design. gh: 0 is a placeholder until the issue is filed.
+    description: >
+      Follow-up to REQ-474 and REQ-507 (design GH #2660 / REQ-504 section 9, the
+      follow-up that note proposes for the supervisor to file). The quantity rules of
+      REQ-504 keep the unit scale, rounding and tolerance in the ledger registration in
+      L1-L4 (a static units table, hashed and validated by rule 12). This requirement
+      builds the MASTER side so that slice L7 can read them per unit and per item.
+
+      SCOPE (the master data only; no ledger code).
+      1. catalog_uom (REQ-474) gains decimal_scale (integer 0..9, the fractional digits a
+      quantity in this unit may have) and dimension (the unit's dimension, for example
+      count, mass, length, volume, pack as in the design starter table).
+      2. A new managed type catalog_item_uom (declared in manages_entity_types, owner path
+      only): item_id (string, queried, required; the record_id of a catalog_item) and
+      uom_id (string, queried, required; the record_id of a catalog_uom), the same
+      convention as base_uom_id in REQ-474 [INFERENCE: the design lists only factor and
+      active]; factor (decimal, strict, precision 30, scale 12, min "0.000000000001",
+      required, not queried); active (boolean, queried, required); unique over [item_id,
+      uom_id] [INFERENCE]; no external_ref pair [INFERENCE]. This requirement stores
+      factor and does not interpret it; its direction is for slice L7 [INFERENCE].
+      3. catalog_item (REQ-474) gains rounding_mode (enum, the closed set of REQ-504
+      design 4.3: half_up, half_even, half_down, up, down) and tolerance_abs (decimal,
+      strict, precision 30, scale 9, non-negative).
+      The four new fields on the existing types (decimal_scale, dimension, rounding_mode,
+      tolerance_abs) are not required and not queried [INFERENCE: records may already
+      exist]. A null rounding_mode means use the registration default; a null
+      tolerance_abs means no tolerance (design 4.1, starter table).
+      4. item_uom_valid?(prefix, item_id, uom_id) (REQ-507, base unit only) accepts a
+      unit for which an active catalog_item_uom row exists for the item, still false for
+      an inactive or unknown item or unit and for a value that is not a uuid (never a
+      raise).
+      5. Ledger slice L7 then replaces the registration's static units table by master
+      reads in the pre-validation step, NEVER in declare/2 (declare/2 stays pure). That
+      replacement is the ledger's L7 slice and is NOT part of this requirement.
+
+      HARD BLOCK (status pending; the work board label state:blocked carries it). Design
+      REQ-504 slice Q5 and ledger slice L7 list the OQ-R4 read facade (ledger section
+      14.6, owed at WMS slice 5) as a dependency [RELAYED, not re-read in code]. That
+      REQ-502 slices L1-L4 must also exist is an INFERENCE: L7 replaces the registration
+      table that L4 creates, and neither note lists L1-L4 in that cell. depends_on
+      REQ-502 records only the design requirement; no requirement id exists for the
+      facade or L1-L4. The master fields themselves do not technically need the facade;
+      the block is a sequencing rule. The design of the facade is excluded.
+
+      KNOWN LIMIT carried (OQ-Q17, confirmed by the supervisor 2026-10-19): in L1-L4
+      tolerance and rounding are PER UNIT (registration); they become per ITEM only with
+      this master (rounding_mode and tolerance_abs on catalog_item), read at L7, which
+      gates the pilot.
+
+      OUT OF SCOPE: the read facade, any ledger or Quantity code, percent tolerance,
+      chains of conversions, per-tenant unit tables in L1-L4, valuation and currency
+      rounding, and whether production rounding.allowed (one mode, design 4.3)
+      restricts item-level modes (decided in L7).
+
+      ROUTING. Owner: ELIXIR-DEV. Depends on: REQ-474, REQ-507, REQ-502. Prio 2. All
+      file:line references are re-read on main by the implementer. Sizing: not split; if it proves too large for one turn, split item_uom_valid? (AC 4) and the runbook line (AC 7) into a second PR; the rest stays here.
+    acceptance_criteria:
+      - "1. Definitions: priv/modules/catalog_items/entity_definitions/ holds exactly: catalog_uom.decimal_scale (integer, min 0, max 9) and dimension (string), both not required and not queried; catalog_item.rounding_mode (enum half_up, half_even, half_down, up, down) and tolerance_abs (decimal strict 30/9, non_negative), both not required and not queried; catalog_item_uom as in scope 2 (item_id and uom_id strings, queried, required; factor decimal strict 30/12 with min 0.000000000001, required, not queried; active boolean queried required; unique over [item_id, uom_id]; no external_ref pair); asserted by a test that reads the files."
+      - "2. Install on real Postgres as TENANT_ADMIN with a rationale activates the new type and the changed types; one promotion row per promoted column from DDL.promoted_columns/1, including the new columns; the manifest manages_entity_types equals the three names and Catalog.validate/1 accepts it."
+      - "3. Strict decimal bounds enforced on write (owner path) [INFERENCE from the stated bounds]: a catalog_item_uom factor with more than 12 fractional digits, one below 0.000000000001 and zero are each refused naming the field; tolerance_abs beyond 9 fractional digits and a negative value are refused; decimal_scale outside 0..9 or non-integer is refused; a rounding_mode outside the closed set is refused (assert the error path)."
+      - "4. item_uom_valid?: true for the base unit of an active item and for a unit with an active catalog_item_uom row; false for an inactive item, an inactive unit, an inactive catalog_item_uom, an unknown item, an unknown unit, a non-base unit with no catalog_item_uom row, and a non-uuid value (never a raise); two-tenant isolation test."
+      - "5. A generic POST /entities/records/catalog_item_uom is 403 entity_type_managed."
+      - "6. Permissions: the golden/permission checks (priv/permission_matrix/effective.golden, mix letflow.permission_matrix --check) are required ONLY if the manifest permissions change; if the manifest still declares no permissions the PR states that and quotes the check unchanged."
+      - "7. The registration-replacement part of slice L7 is NOT delivered here (the PR states so); a grep quoted proves a numbered item in the runbook section Catalog module limits names OQ-Q17: per unit in L1-L4, per item with this master."
+      - "8. SECURITY-REVIEWER and REVIEWER verdicts recorded; compile, format, scoped tests, mix letflow.check_boundaries and mix letflow.check_requirements_registration pass, real output quoted."
+      - "9. Existing-tenant upgrade (the module-upgrade path of decision 0055 is not built; decision 0060 section Obligation: module install on main is first-install only, so the test calls activate_definition/4 directly): on a tenant with catalog_item and catalog_uom records, activating the new catalog_uom definition (decimal_scale integer, dimension string; no strict decimal added) succeeds, and activating the new catalog_item definition (tolerance_abs strict decimal added) is refused with {:decimal_strict_change, [\"tolerance_abs\"]} (lib/letflow/entities/definitions.ex, activate_definition/4; decision 0060 item 4), the old active version stays active, and catalog_item_uom (a first activation) succeeds. The refusal is a known, asserted outcome, not a failure of this requirement: the PR states that adopting strict fields on a tenant that already has catalog_item records needs a CODE-DESIGNER upgrade design (design 4.1 expects strict declarations in the first definition files), and does not attempt it."
+      - "10. The literal assertions of REQ-474 AC 1 and AC 2 (and REQ-507 tests that name the field lists) are updated in the same PR; the PR states that it supersedes REQ-474 item 4 sentence No decimal field is introduced."
+    depends_on: [REQ-474, REQ-507, REQ-502]
