@@ -2260,6 +2260,42 @@ defmodule Letflow.Identity do
     _exception ->
       Logger.error("tenant platform-setting patch failed (tenant_id=#{tenant.id})")
       {:error, :audit_failed}
+  catch
+    # An exit from the checkout (DBConnection's holder) is not an exception, so the rescue above does not
+    # see it (GH #2483, INV-8). The outcome is unknown, so the stored mode is re-read, as in
+    # `bind_tenant_realm/3`. Only the exit tag is logged (INV-4).
+    :exit, reason ->
+      Logger.error(
+        "tenant platform-setting patch failed (tenant_id=#{tenant.id}, exit=#{inspect(bind_exit_tag(reason))})"
+      )
+
+      committed_mode_or_audit_failed(
+        tenant.id,
+        Ecto.Changeset.get_change(changeset, :login_disclosure_mode)
+      )
+  end
+
+  # An exit during COMMIT leaves the outcome unknown. The update and both audit entries commit together, so a
+  # stored mode equal to the requested one means all three are in place; anything else is a failure.
+  defp committed_mode_or_audit_failed(tenant_id, mode) do
+    case Repo.get(Tenant, tenant_id) do
+      %Tenant{login_disclosure_mode: ^mode} = tenant -> {:ok, tenant}
+      _other -> {:error, :audit_failed}
+    end
+  rescue
+    exception ->
+      Logger.error(
+        "tenant platform-setting re-read failed (tenant_id=#{tenant_id}, exception=#{inspect(exception.__struct__)})"
+      )
+
+      {:error, :audit_failed}
+  catch
+    :exit, reason ->
+      Logger.error(
+        "tenant platform-setting re-read failed (tenant_id=#{tenant_id}, exit=#{inspect(bind_exit_tag(reason))})"
+      )
+
+      {:error, :audit_failed}
   end
 
   @doc """
@@ -3442,6 +3478,8 @@ defmodule Letflow.Identity do
   end
 
   # The exit tag only. The reason can carry the pool and its options (INV-4).
+  # The holder wraps the cause as `{cause, {Holder, :checkout, args}}`, so a tuple cause is unwrapped first.
+  defp bind_exit_tag({{_, _} = cause, _detail}), do: bind_exit_tag(cause)
   defp bind_exit_tag({tag, _detail}) when is_atom(tag), do: tag
   defp bind_exit_tag(tag) when is_atom(tag), do: tag
   defp bind_exit_tag(_other), do: :other
