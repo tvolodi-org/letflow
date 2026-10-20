@@ -244,3 +244,19 @@ history:
       no stale statement that the catalog read API is not built was found in
       docs/guides/adding-an-application-module.md, docs/WMS or decision 0050, so none was edited.
       NOT run by this agent: mix letflow.check.test and the full suite (hosted CI covers them).
+
+  - req: REQ-519
+    event: revised
+    agent: DOC-UPDATER
+    at: "2026-10-19T19:22:45Z"
+    note: >
+      Slice 2f-b delivered: PR #2882 (878bc860), `on` settable only through the guarded
+      shadow -> on flip by an interactive tenant-wide TENANT_ADMIN; no tenant is `on`. 2f-a was PR
+      #2865. AC 13 text aligned to the built behaviour (design req519 F10, scope_enforcement.ex
+      flip/4): the pre-transaction check stays keyed on the target (off without a reason:
+      reason_required; a reason failing Audit.Reason: invalid_reason) plus one in-transaction
+      rule (previous on, target shadow, no reason: reason_required); not re-keyed on the
+      transition. Text only, no code change. Status stays pending: GH #2869 and GH #2883 are
+      merged (PR #2897, PR #2894 per the supervisor's relay, not re-verified here); the done flip
+      waits for RELEASE-VALIDATOR against this final text (audit #2874 R6). Known limitations are
+      AC 23 (seven LIMIT items, PR #2884). Follow-ups: GH #2870, #2896, type-safety GH #2890.
