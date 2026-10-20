@@ -515,7 +515,7 @@ defmodule Letflow.Routers.Promotions do
     do: Response.ok(conn, %{"assertion_run" => nil})
 
   defp render_assertion_run(conn, {:ok, run}),
-    do: Response.ok(conn, %{"assertion_run" => assertion_run_map(run)})
+    do: Response.ok(conn, %{"assertion_run" => assertion_run_map(run, tenant_view(conn))})
 
   # PROVENANCE (historical, not current decision authority):
   # Exactly 7 keys (design §7.4), ported from promotion_read.zig:102-149.
@@ -523,18 +523,41 @@ defmodule Letflow.Routers.Promotions do
   # it here would hand a reader of an assertion run the exact token needed
   # to approve or apply the review it belongs to.
   @doc false
-  @spec assertion_run_map(Definitions.PromotionAssertionRun.t()) :: map()
-  defp assertion_run_map(run) do
+  #
+  # INV-10 response shaping (GH #2494): the run is operator-authored, so its
+  # `teardown_error` (an exception message or release reason) and the author-chosen
+  # assertion ids may quote another tenant's data. The operator reads the stored
+  # values; any other named party gets a fixed per-status string (or null) and only
+  # ids of an opaque shape (`opaque_assertion_id?/1`), the rest as `redacted-N`.
+  @spec assertion_run_map(Definitions.PromotionAssertionRun.t(), tenant_view()) :: map()
+  defp assertion_run_map(run, view) do
     %{
       "run_id" => run.id,
       "status" => Atom.to_string(run.status),
       "sandbox_id" => run.sandbox_id,
-      "teardown_error" => run.teardown_error,
+      "teardown_error" => shape_teardown_error(run, view),
       "assertions_passed" => run.assertions_passed,
       "assertions_failed" => run.assertions_failed,
-      "failing_assertion_ids" => run.failing_assertion_ids
+      "failing_assertion_ids" => shape_failing_ids(run.failing_assertion_ids, view)
     }
   end
+
+  defp shape_teardown_error(run, :operator), do: run.teardown_error
+  defp shape_teardown_error(%{teardown_error: nil}, _view), do: nil
+  defp shape_teardown_error(%{status: :teardown_failed}, _view), do: "sandbox teardown failed"
+  defp shape_teardown_error(%{status: :failed}, _view), do: "assertion run failed"
+  defp shape_teardown_error(_run, _view), do: "assertion run error"
+
+  defp shape_failing_ids(ids, :operator), do: ids
+
+  defp shape_failing_ids(ids, _view) do
+    ids
+    |> Enum.with_index(1)
+    |> Enum.map(fn {id, n} -> if opaque_assertion_id?(id), do: id, else: "redacted-#{n}" end)
+  end
+
+  defp opaque_assertion_id?(id),
+    do: is_binary(id) and Regex.match?(~r/\A[A-Za-z0-9_-]{1,64}\z/, id)
 
   # ── GET /promotions/:id/context -- R4 (design §7.3) ──────────────────────
 

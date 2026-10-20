@@ -692,4 +692,59 @@ defmodule Letflow.Routers.PromotionReadStoredIdsTest do
       assert foreign.id in ids
     end
   end
+
+  # --- GH #2494: the operator-authored run text never reaches a non-operator -------------------
+
+  describe "GH #2494 GET /:id shapes teardown_error and failing_assertion_ids by reader" do
+    @foreign "SECRET row 42 of tenant-b: acme@example.com"
+
+    defp crashed_attrs(fixture_ids) do
+      %{
+        status: :failed,
+        teardown_error: "assertion rerun crashed: boom " <> @foreign,
+        failing_assertion_ids: fixture_ids
+      }
+    end
+
+    test "a party gets a fixed string and opaque ids; the operator reads the stored values",
+         ctx do
+      stored_ids = ["a-1", @foreign]
+      attrs = crashed_attrs(stored_ids)
+
+      %{review: review} = Scope.seed_review!(ctx.a, ctx.a.tenant_id, ctx.b.tenant_id)
+      insert_run!(ctx.a, review, attrs)
+
+      resp = get_resp(ctx.a, "/#{review.id}", @reader, ctx.caller)
+      assert resp.status == 200
+      refute resp.resp_body =~ "SECRET"
+      refute resp.resp_body =~ "acme@example.com"
+      refute resp.resp_body =~ "boom"
+
+      map = Jason.decode!(resp.resp_body)["assertion_run"]
+      assert map["teardown_error"] == "assertion run failed"
+      assert map["failing_assertion_ids"] == ["a-1", "redacted-2"]
+
+      %{review: op_review} = Scope.seed_review!(ctx.p, ctx.a.tenant_id, ctx.b.tenant_id)
+      insert_run!(ctx.p, op_review, attrs)
+
+      op = get_resp(ctx.p, "/#{op_review.id}", @operator, ctx.caller)
+      op_map = Jason.decode!(op.resp_body)["assertion_run"]
+      assert op_map["teardown_error"] == attrs.teardown_error
+      assert op_map["failing_assertion_ids"] == stored_ids
+    end
+
+    test "teardown_failed maps to its own fixed string", ctx do
+      %{review: review} = Scope.seed_review!(ctx.a, ctx.a.tenant_id, ctx.b.tenant_id)
+
+      insert_run!(ctx.a, review, %{
+        status: :teardown_failed,
+        teardown_error: "sandbox release failed: " <> @foreign
+      })
+
+      resp = get_resp(ctx.a, "/#{review.id}", @reader, ctx.caller)
+      refute resp.resp_body =~ "SECRET"
+      map = Jason.decode!(resp.resp_body)["assertion_run"]
+      assert map["teardown_error"] == "sandbox teardown failed"
+    end
+  end
 end
