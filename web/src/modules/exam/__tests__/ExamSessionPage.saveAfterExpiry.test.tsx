@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 expect.extend(jestDomMatchers)
@@ -145,5 +145,48 @@ describe('Q-1078 / GH 2435 -- a save after expiry shows the expired screen', () 
 
     expect(await screen.findByText('Could not save your answer. Please try again.')).toBeTruthy()
     expect(screen.queryByTestId('exam-expired')).toBeNull()
+  })
+
+  it('a failed save that resolves after the result screen keeps the result screen', async () => {
+    let rejectSave!: (e: unknown) => void
+    mockedExamApi.saveAnswer.mockReturnValue(new Promise((_, reject) => (rejectSave = reject)))
+    mockedExamApi.submitSession.mockResolvedValue({
+      status: 'submitted',
+      score_pct: 100,
+      passed: true,
+      session_id: OPEN_SESSION_ID,
+    } as never)
+
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByTestId('exam-session-page')
+    await user.click(screen.getByText('Option A'))
+    await user.click(await screen.findByTestId('exam-submit-action'))
+    await waitFor(() => expect(screen.queryByTestId('exam-session-page')).toBeNull())
+
+    await act(async () => {
+      rejectSave({
+        status: 422,
+        message: 'Unprocessable',
+        code: 'unprocessable',
+        details: { detail: 'session is not in progress' },
+      })
+    })
+
+    expect(screen.queryByTestId('exam-expired')).toBeNull()
+  })
+
+  it('the closed-session screen does not claim the time ran out', async () => {
+    mockedExamApi.saveAnswer.mockRejectedValue({
+      status: 422,
+      message: 'Unprocessable',
+      code: 'unprocessable',
+      details: { detail: 'session is not in progress' },
+    })
+
+    await openAndAnswer()
+
+    const body = await screen.findByTestId('exam-expired')
+    expect(body.textContent).not.toMatch(/time|run out|expired/i)
   })
 })
