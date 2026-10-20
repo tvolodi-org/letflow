@@ -522,6 +522,80 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
       assert stored_mode(t.tenant_id) == "redirect_single"
     end
 
+    # GH #2483. A pool checkout exit is not an exception, so `rescue` alone let it escape the router
+    # as a crash. An exit cannot be injected from a telemetry handler (telemetry detaches a handler
+    # that exits), so the handler instead points the calling process at a dynamic repo whose pool
+    # pid is dead: the next checkout is a GenServer call on it, which exits with :noproc. The
+    # handler fires after the registration lookup, so the exit hits the audit transaction.
+    test "a pool checkout exit on a mode change fails closed: 500 envelope, exit tag logged only, nothing written" do
+      t = TenantFixture.provisioned_tenant!(slug_prefix: "req442-exit")
+      set_mode!(t.tenant_id, "redirect_single")
+
+      dead_pool = spawn(fn -> :ok end)
+      ref = Process.monitor(dead_pool)
+      assert_receive {:DOWN, ^ref, :process, ^dead_pool, _}
+
+      stand_in = spawn(fn -> Process.sleep(:infinity) end)
+      on_exit(fn -> Process.exit(stand_in, :kill) end)
+
+      broken_meta = %{Ecto.Repo.Registry.lookup(Letflow.Repo) | pid: dead_pool}
+      :ok = Ecto.Repo.Registry.associate(stand_in, nil, broken_meta)
+
+      registration_source = TenantProvisioning.Registration.__schema__(:source)
+      handler_id = {__MODULE__, :checkout_exit, make_ref()}
+      test_pid = self()
+
+      :telemetry.attach(
+        handler_id,
+        [:letflow, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          # Runs in the calling process.
+          if metadata[:source] == registration_source do
+            :telemetry.detach(handler_id)
+            Letflow.Repo.put_dynamic_repo(stand_in)
+            send(test_pid, :checkout_exit_armed)
+          end
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          try do
+            resp =
+              admin_patch(
+                t.tenant.slug,
+                %{"login_disclosure_mode" => "uniform_plus_email"},
+                Ecto.UUID.generate()
+              )
+
+            assert resp.status == 500
+            body = Jason.decode!(resp.resp_body)
+            assert body["title"] == "Internal Server Error"
+            assert body["type"] =~ "internal-error"
+            refute resp.resp_body =~ "uniform_plus_email"
+            refute resp.resp_body =~ "noproc"
+          after
+            Letflow.Repo.put_dynamic_repo(Letflow.Repo)
+          end
+        end)
+
+      assert_received :checkout_exit_armed
+
+      assert log =~
+               "tenant platform-setting patch failed (tenant_id=#{t.tenant_id}, exit=:noproc)"
+
+      refute log =~ "Letflow.Repo"
+      refute log =~ "DBConnection"
+
+      # nothing partial: the mode and both audit chains agree
+      assert stored_mode(t.tenant_id) == "redirect_single"
+      assert mode_audit_entries(t.schema_name, t.tenant_id) == []
+      assert platform_entries(t.tenant_id) == []
+    end
+
     test "Identity.patch_tenant/3 is the only arity (no unaudited patch_tenant/2 bypass remains)" do
       assert function_exported?(Identity, :patch_tenant, 3)
       refute function_exported?(Identity, :patch_tenant, 2)
