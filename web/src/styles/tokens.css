@@ -136,7 +136,9 @@
   --space-12: 48px;
 
   /* Radius scale (REQ-272 addendum, subset of design-system.md §4) */
+  /* --radius-md added for GH #2470: already used by exam, entity-list and help UI */
   --radius-sm:   4px;
+  --radius-md:   8px;
   --radius-full: 9999px;
 
   /* Content layout (REQ-272 addendum, from design-system.md §4) */
