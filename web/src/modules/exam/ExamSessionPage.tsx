@@ -247,7 +247,8 @@ function ExamSessionPageInner() {
         })
         .catch((err: unknown) => {
           if (isDeadlinePassedError(err)) {
-            setPhase({ kind: 'expired' })
+            // A save that fails after submit / auto-submit already showed the result must not replace it.
+            setPhase((prev) => (prev.kind === 'result' ? prev : { kind: 'expired' }))
             return
           }
           setSaveStatus('error')
@@ -329,7 +330,7 @@ function ExamSessionPageInner() {
       })
       .catch((err: unknown) => {
         if (isDeadlinePassedError(err)) {
-          setPhase({ kind: 'expired' })
+          setPhase((prev) => (prev.kind === 'result' ? prev : { kind: 'expired' }))
           return
         }
         setSubmitError(true)
