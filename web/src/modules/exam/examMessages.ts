@@ -77,8 +77,8 @@ export const examMessages: Record<ExamUiLocale, Record<string, string>> = {
     'exam.session.submitAction': 'Submit exam',
     'exam.session.submitError': 'Your exam could not be submitted. Please try again.',
     'exam.session.questionOf': 'Question {current} of {total}',
-    'exam.session.expired.title': 'Your exam session has expired',
-    'exam.session.expired.body': 'The time allowed for this exam has run out. Your last saved answers were kept.',
+    'exam.session.expired.title': 'Your exam session is closed',
+    'exam.session.expired.body': 'This exam session is no longer open, so no more answers can be saved. Your last saved answers were kept.',
     'exam.session.autoSubmitted.warning':
       'A suspicious activity signal was detected and this session was automatically submitted.',
     'exam.session.shortTextPlaceholder': 'Type your answer here…',
@@ -132,8 +132,8 @@ export const examMessages: Record<ExamUiLocale, Record<string, string>> = {
     'exam.session.submitAction': 'Завершить экзамен',
     'exam.session.submitError': 'Не удалось отправить экзамен. Попробуйте снова.',
     'exam.session.questionOf': 'Вопрос {current} из {total}',
-    'exam.session.expired.title': 'Ваша экзаменационная сессия истекла',
-    'exam.session.expired.body': 'Время, отведённое на этот экзамен, закончилось. Ваши последние сохранённые ответы сохранены.',
+    'exam.session.expired.title': 'Ваша экзаменационная сессия закрыта',
+    'exam.session.expired.body': 'Эта экзаменационная сессия больше не открыта, поэтому новые ответы сохранить нельзя. Ваши последние сохранённые ответы сохранены.',
     'exam.session.autoSubmitted.warning':
       'Обнаружен сигнал подозрительной активности, и эта сессия была автоматически завершена.',
     'exam.session.shortTextPlaceholder': 'Введите ваш ответ здесь…',
@@ -182,8 +182,8 @@ export const examMessages: Record<ExamUiLocale, Record<string, string>> = {
     'exam.session.submitAction': 'Емтиханды аяқтау',
     'exam.session.submitError': 'Емтиханды жіберу мүмкін болмады. Қайталап көріңіз.',
     'exam.session.questionOf': '{total} сұрақтың {current}-і',
-    'exam.session.expired.title': 'Емтихан сессияңыздың уақыты аяқталды',
-    'exam.session.expired.body': 'Бұл емтиханға берілген уақыт аяқталды. Соңғы сақталған жауаптарыңыз сақталды.',
+    'exam.session.expired.title': 'Емтихан сессияңыз жабылды',
+    'exam.session.expired.body': 'Бұл емтихан сессиясы енді ашық емес, сондықтан жаңа жауаптарды сақтау мүмкін емес. Соңғы сақталған жауаптарыңыз сақталды.',
     'exam.session.autoSubmitted.warning':
       'Күдікті белсенділік сигналы анықталды, және бұл сессия автоматты түрде аяқталды.',
     'exam.session.shortTextPlaceholder': 'Жауабыңызды осында теріңіз…',

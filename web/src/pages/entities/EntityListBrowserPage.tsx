@@ -262,7 +262,7 @@ export function EntityListBrowserPage(): React.ReactElement {
     border: "1px solid var(--border-default)",
     borderRadius: "var(--radius-sm)",
     padding: "var(--space-1) var(--space-2)",
-    background: "var(--surface-input)",
+    background: "var(--surface-card)",
     color: "var(--text-primary)",
   };
 
@@ -277,11 +277,11 @@ export function EntityListBrowserPage(): React.ReactElement {
   };
 
   const errorBannerStyle: React.CSSProperties = {
-    color: "var(--text-error)",
+    color: "var(--color-error-dark)",
     padding: "var(--space-2) var(--space-3)",
     border: "1px solid var(--border-error)",
     borderRadius: "var(--radius-sm)",
-    background: "var(--surface-error)",
+    background: "var(--color-error-light)",
   };
 
   return (
@@ -366,7 +366,7 @@ export function EntityListBrowserPage(): React.ReactElement {
           </select>
           {pageSizeError && (
             <span
-              style={{ color: "var(--text-error)" }}
+              style={{ color: "var(--color-error-dark)" }}
               data-testid="page-size-error"
             >
               {pageSizeError}
@@ -382,8 +382,8 @@ export function EntityListBrowserPage(): React.ReactElement {
             data-testid="search-button"
             style={{
               padding: "var(--space-2) var(--space-4)",
-              background: "var(--color-primary)",
-              color: "var(--text-on-primary)",
+              background: "var(--interactive-primary)",
+              color: "var(--text-inverse)",
               border: "none",
               borderRadius: "var(--radius-sm)",
               cursor: recordsQuery.isLoading ? "not-allowed" : "pointer",
