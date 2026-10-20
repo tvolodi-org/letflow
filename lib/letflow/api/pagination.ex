@@ -408,6 +408,14 @@ defmodule Letflow.Api.Pagination do
   def valid_seek_string?(_other), do: false
 
   @doc """
+  True when `value` is an integer Postgres can bind as `bigint` (the int64 range). Shared with
+  the query cursor's component decoder (GH #2844) so both use one pair of bounds.
+  """
+  @spec int64?(term()) :: boolean()
+  def int64?(value) when is_integer(value), do: value >= @int64_min and value <= @int64_max
+  def int64?(_other), do: false
+
+  @doc """
   Decodes the domain slots of a `decode_cursor/4`-validated seek payload,
   `"<prefix><slot>:<slot>:...:<last slot>"`, without ever raising on a
   malformed tail (INV-8, GH 2747). `shape` lists one `t:seek_part/0` per
