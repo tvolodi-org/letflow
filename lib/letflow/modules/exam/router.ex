@@ -17,10 +17,13 @@ defmodule Letflow.Modules.Exam.Router do
   Reference source: `backend/internal/sessions/handler.go`
   (`CreateSession`/`SaveAnswer`/`ReportEvent`/`SubmitSession`/
   `GetSessionState`). `SaveAnswer`'s real registration is
-  `PUT /api/v1/portal/sessions/:id/answers/:questionId` -- re-verified
-  against that reference's own handler comment and `SessionOptionResponse`'s
-  shape (`ID`/`Text` only, confirming the redaction decision below), not
-  assumed from the POST this requirement's own description inferred.
+  `PUT .../sessions/:id/answers/:questionId` (the R-Co portal path; a
+  reference only, NOT mounted in Letflow) -- re-verified against that
+  reference's own handler comment and `SessionOptionResponse`'s shape
+  (`ID`/`Text` only, confirming the redaction decision below), not assumed
+  from the POST this requirement's own description inferred. The live
+  Letflow route is
+  `PUT /api/v1/modules/exam/exam-sessions/:id/answers/:question_id`.
 
   ## Route table
 
@@ -171,8 +174,10 @@ defmodule Letflow.Modules.Exam.Router do
 
   # ── Autosave ─────────────────────────────────────────────────────────────
   #
-  # PUT, matching backend/internal/sessions/handler.go's real registration
-  # (`PUT .../sessions/:id/answers/:questionId`) -- re-verified against that
+  # The live route is `PUT /api/v1/modules/exam/exam-sessions/:id/answers/:question_id`.
+  # PUT matches the R-Co reference's registration in
+  # backend/internal/sessions/handler.go (`PUT .../sessions/:id/answers/:questionId`,
+  # a reference path only, not mounted here) -- re-verified against that
   # reference, not the POST this requirement's own description inferred.
 
   authz_put "/exam-sessions/:id/answers/:question_id", :ExamSessionSave do
