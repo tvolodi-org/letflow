@@ -154,7 +154,7 @@ defmodule Letflow.Engine.ShippedDefinitionVariableSchemasEngineTest do
              |> where([d], d.instance_id == ^instance_id and d.node_id == "kyc-aml-check")
              |> Repo.all(prefix: schema)
 
-    row = row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: schema)
+    row = row |> Ecto.Changeset.change(%{status: :advanced}) |> Repo.update!(prefix: schema)
 
     assert {:ok, :advanced} =
              Engine.advance_after_service_task_outcome(

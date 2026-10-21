@@ -164,7 +164,7 @@ defmodule Letflow.Engine.ScriptRunRecordTest do
 
   # Runs this instance's due row (other instances of the tenant may also be due).
   defp run_instance_row!(t, instance_id) do
-    row = Enum.find(F.rows(t.schema_name, instance_id), &(&1.status == "pending"))
+    row = Enum.find(F.rows(t.schema_name, instance_id), &(&1.status == :pending))
     F.make_due!(t.schema_name, row)
 
     Stream.repeatedly(fn -> ScriptTaskDispatcher.claim_next(t.schema_name) end)
@@ -231,7 +231,7 @@ defmodule Letflow.Engine.ScriptRunRecordTest do
     refute log =~ "RuntimeError"
     refute log =~ "** ("
     # the row stays running for the lease sweep (never re-run)
-    assert F.reload(t.schema_name, b.row).status == "running"
+    assert F.reload(t.schema_name, b.row).status == :running
   end
 
   test "T4: the platform actor is stored as NULL triggering user", %{t: t} do

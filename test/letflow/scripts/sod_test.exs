@@ -168,15 +168,16 @@ defmodule Letflow.Scripts.SodTest do
   describe "AC1 defaults" do
     test "declared strict, solo forbidden; the DB refuses solo_audited while forbidden", ctx do
       p = policy(ctx.schema)
-      assert {p.sod, p.platform_solo_audited_allowed} == {"strict", false}
+      assert {p.sod, p.platform_solo_audited_allowed} == {:strict, false}
       assert Policy.effective_sod(ctx.schema) == {:strict, :declared_strict}
 
       assert_raise Postgrex.Error, ~r/script_policy_solo_requires_platform/, fn ->
-        Repo.update_all(ScriptPolicy, [set: [sod: "solo_audited"]], prefix: ctx.schema)
+        Repo.update_all(ScriptPolicy, [set: [sod: :solo_audited]], prefix: ctx.schema)
       end
 
       assert_raise Postgrex.Error, ~r/script_policy_sod_value/, fn ->
-        Repo.update_all(ScriptPolicy, [set: [sod: "lenient"]], prefix: ctx.schema)
+        # Schemaless source: the Ecto.Enum would refuse "lenient" before the DB sees it.
+        Repo.update_all("script_policy", [set: [sod: "lenient"]], prefix: ctx.schema)
       end
     end
   end
@@ -203,7 +204,7 @@ defmodule Letflow.Scripts.SodTest do
 
       assert entry.after_state["self_published"] == true
       assert entry.after_state["sod_excluded"] == [a]
-      assert policy(ctx.schema).sod == "solo_audited"
+      assert policy(ctx.schema).sod == :solo_audited
     end
 
     test "a contributor outside the admin set (count 1, someone else) is refused, no flip", ctx do
@@ -214,8 +215,8 @@ defmodule Letflow.Scripts.SodTest do
       rule = draft!(ctx.schema, key(), outsider)
       assert publish(ctx.schema, rule, outsider) == {:error, :publisher_is_contributor}
       refute row(ctx.schema, rule.key).self_published
-      assert row(ctx.schema, rule.key).status == "draft"
-      assert policy(ctx.schema).sod == "solo_audited"
+      assert row(ctx.schema, rule.key).status == :draft
+      assert policy(ctx.schema).sod == :solo_audited
       assert auto_strict_entries(ctx.schema) == []
     end
 
@@ -247,7 +248,7 @@ defmodule Letflow.Scripts.SodTest do
       p = policy(ctx.schema)
 
       assert {p.sod, p.sod_set_by_class, p.sod_set_by, p.sod_reason} ==
-               {"strict", "system", nil, "auto_strict"}
+               {:strict, "system", nil, "auto_strict"}
 
       assert [entry] = auto_strict_entries(ctx.schema)
       assert entry.actor_id == a
@@ -262,7 +263,7 @@ defmodule Letflow.Scripts.SodTest do
                "version" => 1
              }
 
-      assert row(ctx.schema, rule.key).status == "draft"
+      assert row(ctx.schema, rule.key).status == :draft
       assert Policy.effective_sod(ctx.schema) == {:strict, :declared_strict}
     end
 
@@ -274,7 +275,7 @@ defmodule Letflow.Scripts.SodTest do
 
       published = published!(ctx.schema, key(), b, a)
       refute published.self_published
-      assert policy(ctx.schema).sod == "solo_audited"
+      assert policy(ctx.schema).sod == :solo_audited
       assert auto_strict_entries(ctx.schema) == []
     end
 
@@ -298,10 +299,10 @@ defmodule Letflow.Scripts.SodTest do
                {:error, :publisher_is_contributor}
 
       assert_received {:in_transaction_during_tests, false}
-      assert policy(ctx.schema).sod == "strict"
+      assert policy(ctx.schema).sod == :strict
       assert [entry] = auto_strict_entries(ctx.schema)
       assert entry.after_state["admin_count"] == 2
-      assert row(ctx.schema, rule.key).status == "draft"
+      assert row(ctx.schema, rule.key).status == :draft
       refute row(ctx.schema, rule.key).self_published
     end
   end
@@ -323,7 +324,7 @@ defmodule Letflow.Scripts.SodTest do
 
       assert auto_strict_entries(ctx.schema) == []
       refute row(ctx.schema, rule.key).self_published
-      assert policy(ctx.schema).sod == "strict"
+      assert policy(ctx.schema).sod == :strict
     end
   end
 
@@ -336,7 +337,7 @@ defmodule Letflow.Scripts.SodTest do
       k = key()
       draft!(ctx.schema, k, author)
       now = DateTime.utc_now()
-      base = [status: "published", published_at: now]
+      base = [status: :published, published_at: now]
 
       for set <- [
             # TDV 1: a contributor publishing NOT self-published, sod_excluded valid
@@ -365,7 +366,7 @@ defmodule Letflow.Scripts.SodTest do
       # a draft never carries sod state
       assert_lf001(fn -> raw_update(ctx.schema, k, sod_excluded: [author]) end)
       assert_lf001(fn -> raw_update(ctx.schema, k, self_published: true) end)
-      assert row(ctx.schema, k).status == "draft"
+      assert row(ctx.schema, k).status == :draft
 
       # the well-formed non-solo publish passes the trigger
       assert {1, _} =
@@ -385,7 +386,7 @@ defmodule Letflow.Scripts.SodTest do
 
       assert_lf001(fn ->
         raw_update(ctx.schema, k,
-          status: "published",
+          status: :published,
           published_at: DateTime.utc_now(),
           publisher_id: a,
           self_published: false,
@@ -393,7 +394,7 @@ defmodule Letflow.Scripts.SodTest do
         )
       end)
 
-      assert row(ctx.schema, k).status == "draft"
+      assert row(ctx.schema, k).status == :draft
     end
 
     test "SECURITY F2: a raw INSERT must be a plain draft (status, self_published, sod_excluded, confirmed_*)",
@@ -405,7 +406,7 @@ defmodule Letflow.Scripts.SodTest do
         key: key(),
         version: 1,
         hook_kind: "service_task",
-        status: "draft",
+        status: :draft,
         source: "return {y = 1}",
         manifest: @manifest,
         test_cases: @passing,
@@ -414,8 +415,8 @@ defmodule Letflow.Scripts.SodTest do
       }
 
       for {label, rule} <- [
-            {"published", %{base | status: "published", publisher_id: who, published_at: now}},
-            {"retired", %{base | status: "retired"}},
+            {"published", %{base | status: :published, publisher_id: who, published_at: now}},
+            {"retired", %{base | status: :retired}},
             {"self_published", %{base | self_published: true}},
             {"sod_excluded", %{base | sod_excluded: [who]}},
             {"confirmed", %{base | confirmed_by: who, confirmed_at: now, confirmed_sha256: "x"}}
@@ -434,7 +435,7 @@ defmodule Letflow.Scripts.SodTest do
       a = SP.admin!(ctx.schema)
       k = key()
       draft!(ctx.schema, k, a)
-      set = [status: "published", published_at: DateTime.utc_now(), publisher_id: a]
+      set = [status: :published, published_at: DateTime.utc_now(), publisher_id: a]
       solo = set ++ [self_published: true, sod_excluded: [a]]
 
       SP.allow_solo!(ctx.schema, ctx.tenant_id)
@@ -491,7 +492,7 @@ defmodule Letflow.Scripts.SodTest do
       # retire keeps the confirmation; changing it on retire is refused
       assert_lf001(fn ->
         raw_update(ctx.schema, solo.key,
-          status: "retired",
+          status: :retired,
           retired_at: now,
           confirmed_by: Ecto.UUID.generate()
         )
@@ -515,7 +516,7 @@ defmodule Letflow.Scripts.SodTest do
         )
       end
 
-      assert row(ctx.schema, k).status == "draft"
+      assert row(ctx.schema, k).status == :draft
     end
   end
 
@@ -644,10 +645,10 @@ defmodule Letflow.Scripts.SodTest do
     test "TDV 2: a RETIRED self-published version is confirmable (S6) and leaves the list", ctx do
       {:ok, _} = Scripts.retire(ctx.schema, ctx.key, 2, "superseded", SP.actor(ctx.a))
       assert {[pending], false} = Policy.pending_review(ctx.schema)
-      assert {pending.key, pending.status} == {ctx.key, "retired"}
+      assert {pending.key, pending.status} == {ctx.key, :retired}
 
       assert {:ok, confirmed} = Scripts.confirm(ctx.schema, ctx.key, 2, ctx.sha, SP.actor(ctx.b))
-      assert {confirmed.status, confirmed.confirmed_by} == {"retired", ctx.b}
+      assert {confirmed.status, confirmed.confirmed_by} == {:retired, ctx.b}
       assert row(ctx.schema, ctx.key, 2).confirmed_sha256 == ctx.sha
       assert Policy.pending_review(ctx.schema) == {[], false}
     end
@@ -812,9 +813,9 @@ defmodule Letflow.Scripts.SodTest do
 
       Task.await(grant, 15_000)
       assert Task.await(publisher, 15_000) == {:error, :publisher_is_contributor}
-      assert policy(ctx.schema).sod == "strict"
+      assert policy(ctx.schema).sod == :strict
       assert [_] = auto_strict_entries(ctx.schema)
-      assert row(ctx.schema, ctx.rule.key).status == "draft"
+      assert row(ctx.schema, ctx.rule.key).status == :draft
     end
 
     test "publish commits first: self_published, then pending review once the grant lands", ctx do

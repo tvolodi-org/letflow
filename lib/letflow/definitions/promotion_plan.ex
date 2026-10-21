@@ -31,7 +31,10 @@ defmodule Letflow.Definitions.PromotionPlan do
   canonicalization sorts JSON object keys but does not reorder JSON arrays.
   """
 
+  import Ecto.Query, only: [from: 2]
+
   alias Letflow.Definitions.ProcessDefinition
+  alias Letflow.Identity.Tenant
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -165,14 +168,20 @@ defmodule Letflow.Definitions.PromotionPlan do
   end
 
   @doc """
-  Default `tenant_classifier` — classifies every tenant as `:test`. There is
-  no "production"/"test" column on `Letflow.Identity.Tenant` today (design
-  §9.2); this placeholder never rejects a promotion source under the
-  default, since no tenant can currently be proven `:production` under any
-  existing schema column.
+  Default `tenant_classifier` — reads `tenants.tenant_type` (REQ-469): `:production`
+  for a tenant set to `production`, `:test` for `test`, an unknown id, a malformed
+  id or `nil`. A primary-key lookup on the public `tenants` table that returns only
+  the type; a database error is not rescued here.
   """
   @spec default_tenant_classifier(Ecto.UUID.t()) :: :production | :test
-  def default_tenant_classifier(_tenant_id), do: :test
+  def default_tenant_classifier(tenant_id) do
+    with {:ok, id} <- Ecto.UUID.cast(tenant_id),
+         "production" <- Repo.one(from(t in Tenant, where: t.id == ^id, select: t.tenant_type)) do
+      :production
+    else
+      _test_unknown_or_malformed -> :test
+    end
+  end
 
   # Default `variable_schema_fetcher` — REQ-109 added a tenant-scoped
   # `variable_schemas` table (`Letflow.Engine.VariableSchema`), but this

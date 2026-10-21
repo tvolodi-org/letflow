@@ -149,10 +149,10 @@ defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
     assert [row] =
              ServiceTaskDispatch
              |> where([d], d.instance_id == ^instance_id and d.node_id == ^node_id)
-             |> where([d], d.status == "pending")
+             |> where([d], d.status == :pending)
              |> Repo.all(prefix: schema)
 
-    row = row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: schema)
+    row = row |> Ecto.Changeset.change(%{status: :advanced}) |> Repo.update!(prefix: schema)
 
     assert {:ok, :advanced} =
              Engine.advance_after_service_task_outcome(row.id, {:advance, outputs}, Repo, schema)
@@ -176,7 +176,7 @@ defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
              |> where([d], d.instance_id == ^id and d.node_id == "kyc-aml-check")
              |> Repo.all(prefix: schema)
 
-    row = row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: schema)
+    row = row |> Ecto.Changeset.change(%{status: :advanced}) |> Repo.update!(prefix: schema)
 
     assert {:ok, :advanced} =
              Engine.advance_after_service_task_outcome(

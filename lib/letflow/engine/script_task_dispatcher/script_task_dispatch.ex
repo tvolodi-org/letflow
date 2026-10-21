@@ -7,7 +7,9 @@ defmodule Letflow.Engine.ScriptTaskDispatcher.ScriptTaskDispatch do
   The only changeset is `arm_changeset/2` (the INSERT at activation). The claim, reschedule,
   finish, sweep and cancel writes are explicit `update_all` calls with full predicates in
   `Letflow.Engine.ScriptTaskDispatcher` / `Letflow.Engine`, each setting `updated_at`
-  (anti-pattern 4183). `status` and `attempt` are not castable. Every column is value-free.
+  (anti-pattern 4183). `status` and `attempt` are not castable. `status` is an `Ecto.Enum` over the `:string` column
+  (GH 2603; atoms equal the `script_task_dispatches_status` CHECK set, which stays the backstop).
+  Every column is value-free.
   """
 
   use Ecto.Schema
@@ -23,7 +25,12 @@ defmodule Letflow.Engine.ScriptTaskDispatcher.ScriptTaskDispatch do
     field(:script_key, :string)
     field(:script_version, :integer)
     field(:script_sha256, :string)
-    field(:status, :string, default: "pending")
+
+    field(:status, Ecto.Enum,
+      values: [:pending, :running, :applied, :failed, :cancelled],
+      default: :pending
+    )
+
     field(:attempt, :integer, default: 0)
     field(:busy_retries, :integer, default: 0)
     field(:sweep_failures, :integer, default: 0)
@@ -48,7 +55,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher.ScriptTaskDispatch do
           script_key: String.t(),
           script_version: pos_integer(),
           script_sha256: String.t(),
-          status: String.t(),
+          status: :pending | :running | :applied | :failed | :cancelled,
           attempt: non_neg_integer(),
           busy_retries: non_neg_integer(),
           sweep_failures: non_neg_integer(),

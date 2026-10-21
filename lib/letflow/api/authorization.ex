@@ -421,6 +421,7 @@ defmodule Letflow.Api.Authorization do
           | :ScriptsPublish
           | :ScriptRulesList
           | :ScriptRulesRead
+          | :ScriptRulesAuditRead
           | :ScriptPolicyRead
           | :ScriptPolicyManage
           | :ScriptRulesConfirm
@@ -1125,6 +1126,10 @@ defmodule Letflow.Api.Authorization do
   # need :ScriptsPublish.
   def endpoint_policy_key("GET", "/script-rules"), do: :ScriptRulesList
   def endpoint_policy_key("GET", "/script-rules/:key/versions/:version"), do: :ScriptRulesRead
+
+  def endpoint_policy_key("GET", "/script-rules/:key/versions/:version/audit"),
+    do: :ScriptRulesAuditRead
+
   def endpoint_policy_key("POST", "/script-rules/:key/versions"), do: :ScriptsWrite
   def endpoint_policy_key("PUT", "/script-rules/:key/versions/:version"), do: :ScriptsWrite
   def endpoint_policy_key("DELETE", "/script-rules/:key/versions/:version"), do: :ScriptsWrite
@@ -1423,8 +1428,9 @@ defmodule Letflow.Api.Authorization do
   # shape as HelpRead/MembershipsRead above.
   def required_permission(:ModulesManage), do: :ModulesManage
   # GH 2534 PR 7b-1: the two read policy keys need :ScriptsWrite (source is shown only to
-  # :ScriptsWrite holders; the auditor read is GH 2548).
+  # :ScriptsWrite holders; the auditor read is the separate :ScriptRulesAuditRead, GH 2548).
   def required_permission(key) when key in [:ScriptRulesList, :ScriptRulesRead], do: :ScriptsWrite
+  def required_permission(:ScriptRulesAuditRead), do: :AuditRead
   def required_permission(:ScriptsWrite), do: :ScriptsWrite
   def required_permission(:ScriptsPublish), do: :ScriptsPublish
   # GH 2534 PR 7b-2a (design P3): script policy route keys over the script permissions.

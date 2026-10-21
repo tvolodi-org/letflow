@@ -188,7 +188,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
       assert Fx.projection!(schema, ctx.instance_id).status == :error
       assert [entry] = Fx.dlq_entries(schema)
       assert entry.error_detail["code"] == "entity_write_contention"
-      assert Fx.dispatch!(schema, ctx.dispatch.id).status == "advanced"
+      assert Fx.dispatch!(schema, ctx.dispatch.id).status == :advanced
     end
   end
 
@@ -276,7 +276,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
         dispatch =
           from(d in ServiceTaskDispatch, where: d.instance_id == ^parent_id)
           |> Repo.one!(prefix: base.schema)
-          |> Ecto.Changeset.change(%{status: "advanced"})
+          |> Ecto.Changeset.change(%{status: :advanced})
           |> Repo.update!(prefix: base.schema)
 
         before = length(Fx.all_records(base.schema))
@@ -524,7 +524,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
       assert log =~ "landing failed"
       assert log =~ "reason=contention"
       assert Fx.projection!(base.schema, ctx.instance_id).status == :active
-      assert Fx.dispatch!(base.schema, ctx.dispatch.id).status == "advanced"
+      assert Fx.dispatch!(base.schema, ctx.dispatch.id).status == :advanced
       assert Fx.dlq_entries(base.schema) == []
     end
 

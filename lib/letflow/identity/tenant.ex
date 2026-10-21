@@ -93,6 +93,10 @@ defmodule Letflow.Identity.Tenant do
     # (PLATFORM_ADMIN); never in any pre-auth or tenant-admin-readable shape (INV-2).
     field(:login_disclosure_mode, :string)
 
+    # REQ-469: tenant type (`test` | `production`), read by the promotion classifier. A
+    # platform-security attribute: cast ONLY by create_changeset/3 and admin_patch_changeset/2.
+    field(:tenant_type, :string, default: "test")
+
     # REQ-497 PR 1b (decision 0051 D12): the per-tenant scope-enforcement flag, read per
     # request by both auth paths from this row. Cast ONLY by scope_enforcement_changeset/2
     # (written only by Letflow.ScopeEnforcement.flip/4). `on` is a stored value since REQ-517 2b;
@@ -110,6 +114,14 @@ defmodule Letflow.Identity.Tenant do
   """
   @spec login_disclosure_modes() :: [String.t()]
   def login_disclosure_modes, do: @login_disclosure_modes
+
+  @tenant_types ["test", "production"]
+
+  @doc """
+  The two values `tenant_type` may hold; mirrors the `tenants_tenant_type_check` CHECK.
+  """
+  @spec tenant_types() :: [String.t()]
+  def tenant_types, do: @tenant_types
 
   @default_tenant_slug "bpm-default"
 
@@ -130,8 +142,10 @@ defmodule Letflow.Identity.Tenant do
           Ecto.Changeset.t()
   def create_changeset(tenant, attrs, oidc_mode) when oidc_mode in [:enabled, :disabled] do
     tenant
-    |> cast(attrs, [:slug, :display_name, :status, :idp_realm_id])
+    |> cast(attrs, [:slug, :display_name, :status, :idp_realm_id, :tenant_type])
     |> validate_required([:slug, :display_name])
+    |> validate_inclusion(:tenant_type, @tenant_types)
+    |> check_constraint(:tenant_type, name: :tenants_tenant_type_check)
     |> validate_default_tenant_pinning()
     |> validate_idp_realm_id_required(oidc_mode)
     |> unique_constraint(:slug)
@@ -140,9 +154,11 @@ defmodule Letflow.Identity.Tenant do
 
   @doc """
   Changeset for `PATCH /tenants/:slug` (REQ-075) — casts **only**
-  `:display_name` and (REQ-442) `:login_disclosure_mode`, the latter validated
+  `:display_name`, (REQ-442) `:login_disclosure_mode`, the latter validated
   against `login_disclosure_modes/0` (`nil` is allowed: reset to the deployment
-  fallback). It is the only changeset that casts `:login_disclosure_mode`.
+  fallback), and (REQ-469) `:tenant_type`, validated against `tenant_types/0` (never
+  null). With `create_changeset/3` it is the only changeset that casts `:tenant_type`;
+  it is the only one that casts `:login_disclosure_mode`.
   `:status` is deliberately absent from this changeset's
   cast list (see
   `lib/letflow/design/req075-tenant-administration-routes.md` §6.4): this is
@@ -154,9 +170,12 @@ defmodule Letflow.Identity.Tenant do
   @spec admin_patch_changeset(t :: %__MODULE__{}, attrs :: map()) :: Ecto.Changeset.t()
   def admin_patch_changeset(tenant, attrs) do
     tenant
-    |> cast(attrs, [:display_name, :login_disclosure_mode])
+    |> cast(attrs, [:display_name, :login_disclosure_mode, :tenant_type])
     |> validate_inclusion(:login_disclosure_mode, @login_disclosure_modes)
+    |> validate_required([:tenant_type])
+    |> validate_inclusion(:tenant_type, @tenant_types)
     |> check_constraint(:login_disclosure_mode, name: :tenants_login_disclosure_mode_check)
+    |> check_constraint(:tenant_type, name: :tenants_tenant_type_check)
   end
 
   @doc """

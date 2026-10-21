@@ -145,7 +145,7 @@ defmodule Letflow.Entities.ScriptReadsTest do
   defp assert_rejected_before_any_record_query(t, b) do
     {row, result, queries} = run_capturing(t.schema_name)
     assert result == {:ok, :failed}
-    assert row.status == "failed"
+    assert row.status == :failed
     assert row.outcome == "script_rejected"
     assert row.outcome_detail == "reads_not_allowed"
     assert record_queries(queries) == []
@@ -582,7 +582,7 @@ defmodule Letflow.Entities.ScriptReadsTest do
           row = F.reload(ctx.schema, row)
 
           assert {row.status, row.outcome, row.outcome_detail} ==
-                   {"failed", "script_rejected", "reads_not_allowed"}
+                   {:failed, "script_rejected", "reads_not_allowed"}
         end)
 
       refute log =~ "not-a-number"

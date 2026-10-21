@@ -596,7 +596,7 @@ defmodule Letflow.EngineTest do
       dispatch_rows =
         Repo.all(Letflow.Engine.ServiceTaskDispatcher.ServiceTaskDispatch, prefix: schema_name)
 
-      assert [%{node_id: "svc", status: "pending", attempt_index: 0}] = dispatch_rows
+      assert [%{node_id: "svc", status: :pending, attempt_index: 0}] = dispatch_rows
     end
   end
 
