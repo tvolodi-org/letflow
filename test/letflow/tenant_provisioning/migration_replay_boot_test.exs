@@ -18,7 +18,9 @@ defmodule Letflow.TenantProvisioning.MigrationReplayBootTest do
 
   alias Letflow.Test.LoggerCollector
   alias Letflow.TenantFixture
+  alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.MigrationReplayBoot
+  alias Letflow.TenantProvisioning.Registration
 
   describe "start_link/1" do
     test "returns :ignore and logs the failing tenant even when a tenant's replay fails" do
@@ -87,6 +89,70 @@ defmodule Letflow.TenantProvisioning.MigrationReplayBootTest do
 
       assert log =~ ~r/error_count: 0/
       refute log =~ "tenant migration replay failed"
+    end
+
+    test "GH #2727: a failed replay leaves a value-free signal until a later replay succeeds" do
+      healthy = TenantFixture.provisioned_tenant!(slug_prefix: "gh2727-healthy")
+      broken = TenantFixture.provisioned_tenant!(slug_prefix: "gh2727-broken")
+
+      Repo.query!(~s(DROP SCHEMA IF EXISTS "#{broken.schema_name}" CASCADE))
+
+      # Boot still completes (AC 7) and records the failure (AC 2/4).
+      assert :ignore = MigrationReplayBoot.start_link(nil)
+
+      failures = TenantProvisioning.list_replay_failures()
+      assert [entry] = Enum.filter(failures, &(&1.tenant_id == broken.tenant_id))
+      assert Map.keys(entry) |> Enum.sort() == [:failed_at, :reason_code, :tenant_id]
+      assert entry.reason_code == "migration_failed"
+      assert %NaiveDateTime{} = entry.failed_at
+      refute Enum.any?(failures, &(&1.tenant_id == healthy.tenant_id))
+
+      # Still visible after a second failing boot.
+      assert :ignore = MigrationReplayBoot.start_link(nil)
+
+      assert Enum.any?(
+               TenantProvisioning.list_replay_failures(),
+               &(&1.tenant_id == broken.tenant_id)
+             )
+
+      # The tenant recovers: a later successful replay clears the signal (AC 2).
+      Repo.query!(~s(CREATE SCHEMA "#{broken.schema_name}"))
+      assert :ignore = MigrationReplayBoot.start_link(nil)
+
+      refute Enum.any?(
+               TenantProvisioning.list_replay_failures(),
+               &(&1.tenant_id == broken.tenant_id)
+             )
+
+      registration = Repo.get_by!(Registration, tenant_id: broken.tenant_id)
+      assert is_nil(registration.migration_replay_failed_at)
+      assert is_nil(registration.migration_replay_failure_code)
+    end
+
+    test "GH #2727: a clean replay leaves the signal clean" do
+      healthy = TenantFixture.provisioned_tenant!(slug_prefix: "gh2727-clean")
+
+      assert :ignore = MigrationReplayBoot.start_link(nil)
+
+      refute Enum.any?(
+               TenantProvisioning.list_replay_failures(),
+               &(&1.tenant_id == healthy.tenant_id)
+             )
+    end
+
+    test "GH #2727: the failed-tenant boot log line is at error level" do
+      broken = TenantFixture.provisioned_tenant!(slug_prefix: "gh2727-level")
+      Repo.query!(~s(DROP SCHEMA IF EXISTS "#{broken.schema_name}" CASCADE))
+
+      {_, entries} =
+        LoggerCollector.capture(fn -> assert :ignore = MigrationReplayBoot.start_link(nil) end,
+          attribute_to: self(),
+          raw: true
+        )
+
+      assert Enum.any?(entries, fn %{level: level, text: text} ->
+               level == :error and text =~ "tenant migration replay failed"
+             end)
     end
   end
 end

@@ -185,6 +185,8 @@ defmodule Letflow.TenantProvisioning do
 
   import Ecto.Query
 
+  require Logger
+
   alias Letflow.Entities.Definition.DDL
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
@@ -442,6 +444,10 @@ defmodule Letflow.TenantProvisioning do
   Idempotent: calling this any number of times against fully-migrated tenants
   is a safe no-op (design doc §3) -- it adds no new idempotency mechanism of
   its own, only composes `replay_migrations/2`'s existing guarantees.
+
+  GH #2727: each tenant's outcome is also persisted on its `tenant_schemas`
+  row (`migration_replay_failed_at` / `migration_replay_failure_code`) -- set
+  on failure, cleared on success -- and read back by `list_replay_failures/0`.
   """
   @spec replay_all_pending() :: %{
           ok: [tenant_id :: Ecto.UUID.t()],
@@ -453,18 +459,89 @@ defmodule Letflow.TenantProvisioning do
       try do
         case replay_migrations(tenant_id) do
           {:ok, _applied_versions} ->
+            clear_replay_failure(tenant_id)
             %{acc | ok: [tenant_id | acc.ok]}
 
           {:error, reason} ->
+            record_replay_failure(tenant_id, reason)
             %{acc | error: [{tenant_id, reason} | acc.error]}
         end
       rescue
         exception ->
-          %{acc | error: [{tenant_id, {:unexpected_exception, exception}} | acc.error]}
+          reason = {:unexpected_exception, exception}
+          record_replay_failure(tenant_id, reason)
+          %{acc | error: [{tenant_id, reason} | acc.error]}
       end
     end)
     |> then(fn %{ok: ok, error: error} -> %{ok: Enum.reverse(ok), error: Enum.reverse(error)} end)
   end
+
+  @doc """
+  GH #2727: tenants whose most recent `replay_all_pending/0` outcome was a
+  failure -- the queryable signal behind the boot-time replay, which itself
+  always completes. Value-free: tenant id, a fixed reason code
+  (`migration_failed`, `event_type_seed_failed`, `tenant_not_provisioned`,
+  `unexpected_exception`, `unknown`) and the time of the failure; never the
+  exception or its message. A later successful replay for the tenant clears
+  the entry; `[]` means every tenant's last replay succeeded.
+
+  Operator query: `bin/letflow rpc "Letflow.TenantProvisioning.list_replay_failures()"`.
+  """
+  @spec list_replay_failures() :: [
+          %{tenant_id: Ecto.UUID.t(), reason_code: String.t(), failed_at: NaiveDateTime.t()}
+        ]
+  def list_replay_failures do
+    Repo.all(
+      from(r in Registration,
+        where: not is_nil(r.migration_replay_failed_at),
+        order_by: [asc: r.migration_replay_failed_at, asc: r.tenant_id],
+        select: %{
+          tenant_id: r.tenant_id,
+          reason_code: coalesce(r.migration_replay_failure_code, "unknown"),
+          failed_at: r.migration_replay_failed_at
+        }
+      )
+    )
+  end
+
+  defp record_replay_failure(tenant_id, reason) do
+    failed_at = NaiveDateTime.truncate(NaiveDateTime.utc_now(), :second)
+
+    write_replay_status(tenant_id,
+      migration_replay_failed_at: failed_at,
+      migration_replay_failure_code: replay_failure_code(reason)
+    )
+  end
+
+  defp clear_replay_failure(tenant_id) do
+    write_replay_status(tenant_id,
+      migration_replay_failed_at: nil,
+      migration_replay_failure_code: nil
+    )
+  end
+
+  # Bookkeeping must never break replay_all_pending/0's never-raises contract
+  # (nor boot): a failed status write is logged and swallowed.
+  defp write_replay_status(tenant_id, set) do
+    from(r in Registration, where: r.tenant_id == ^tenant_id) |> Repo.update_all(set: set)
+    :ok
+  rescue
+    exception ->
+      Logger.error(
+        "tenant migration replay: could not record replay status",
+        tenant_id: tenant_id,
+        reason: Exception.format(:error, exception, __STACKTRACE__)
+      )
+
+      :ok
+  end
+
+  # Fixed strings only: the exception or its message is never stored.
+  defp replay_failure_code({:migration_failed, _}), do: "migration_failed"
+  defp replay_failure_code({:event_type_seed_failed, _}), do: "event_type_seed_failed"
+  defp replay_failure_code(:tenant_not_provisioned), do: "tenant_not_provisioned"
+  defp replay_failure_code({:unexpected_exception, _}), do: "unexpected_exception"
+  defp replay_failure_code(_), do: "unknown"
 
   # {version, module, filename} for every tenant-scoped migration, in ascending
   # version order. The third element exists only so tenant_scoped_migrations/0
