@@ -42,6 +42,16 @@ defmodule Letflow.Support.BpmDefaultRealmDisplacement do
   lost-update race between two repairing callers is possible (the advisory lock
   already serializes them).
 
+  ## Connection bound (GH #2656 — REQUIRED, do not remove)
+
+  The dedicated lock connection sits outside Ecto's pool, so every caller that holds
+  one adds a connection beyond `pool_size`. Before this bound, N callers that queued
+  on the advisory lock in one BEAM held N such connections at once (12 contenders on a
+  pool of 20 gave 32 open database sockets). `Letflow.Support.BpmDefaultRealmDisplacement.Gate`
+  lets one caller per BEAM at a time acquire a lock connection: other callers wait in
+  the BEAM holding no connection. The advisory lock still arbitrates across BEAMs. The
+  regression test is test/support/bpm_default_realm_displacement_gate_test.exs.
+
   ## Mutual exclusion (REQUIRED — do not remove)
 
   **Two escalating bugs fixed while building this, both reproduced live, neither
@@ -82,6 +92,7 @@ defmodule Letflow.Support.BpmDefaultRealmDisplacement do
 
   alias Letflow.Identity.Tenant
   alias Letflow.Repo
+  alias Letflow.Support.BpmDefaultRealmDisplacement.Gate
 
   # A fixed, arbitrary 63-bit-safe integer -- pg_advisory_lock's key, scoped to this
   # one purpose only (any other advisory-lock use elsewhere in this codebase must
@@ -121,10 +132,22 @@ defmodule Letflow.Support.BpmDefaultRealmDisplacement do
   @spec displace!() :: :ok
   def displace! do
     lock_conn = acquire_dedicated_lock!()
-    Ecto.Adapters.SQL.Sandbox.mode(Repo, :auto)
-    ensure_seeded!(lock_conn)
 
-    case Repo.get_by(Tenant, idp_realm_id: "bpm-default") do
+    # Until on_exit/1 is registered below, nothing else releases the lock; a failure
+    # here must release it (and the gate) itself, or every later caller in this BEAM
+    # would wait forever.
+    existing =
+      try do
+        Ecto.Adapters.SQL.Sandbox.mode(Repo, :auto)
+        ensure_seeded!(lock_conn)
+        Repo.get_by(Tenant, idp_realm_id: "bpm-default")
+      catch
+        kind, reason ->
+          release_dedicated_lock!(lock_conn)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+
+    case existing do
       nil ->
         # ISS-0766: ensure_seeded!/1 above just guaranteed this row exists (inserting
         # it if a prior caller's interrupted on_exit permanently lost it, a no-op
@@ -222,7 +245,22 @@ defmodule Letflow.Support.BpmDefaultRealmDisplacement do
     )
   end
 
+  # GH #2656: the gate is taken BEFORE the connection is opened, so a caller waiting
+  # for its turn in this BEAM holds no connection. release_dedicated_lock!/1 gives it back.
   defp acquire_dedicated_lock! do
+    Gate.start()
+    :ok = Gate.acquire()
+
+    try do
+      open_dedicated_lock!()
+    catch
+      kind, reason ->
+        Gate.release()
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  defp open_dedicated_lock! do
     opts = dedicated_connection_opts()
     {:ok, lock_conn} = Postgrex.start_link(opts)
     # Postgrex.start_link/1 is a plain GenServer.start_link/3, linked to the calling
@@ -247,10 +285,68 @@ defmodule Letflow.Support.BpmDefaultRealmDisplacement do
   end
 
   defp release_dedicated_lock!(lock_conn) do
-    Postgrex.query!(lock_conn, "SELECT pg_advisory_unlock($1)", [@lock_key],
-      timeout: @query_timeout_ms
-    )
+    try do
+      Postgrex.query!(lock_conn, "SELECT pg_advisory_unlock($1)", [@lock_key],
+        timeout: @query_timeout_ms
+      )
 
-    GenServer.stop(lock_conn)
+      GenServer.stop(lock_conn)
+    after
+      Gate.release()
+    end
+  end
+end
+
+defmodule Letflow.Support.BpmDefaultRealmDisplacement.Gate do
+  @moduledoc """
+  In-BEAM queue that lets one caller of `BpmDefaultRealmDisplacement` hold a dedicated
+  lock connection at a time (GH #2656). It is a plain GenServer, started unlinked and
+  named, so it outlives the test process that first used it. The waiting callers
+  block inside `acquire/0` and hold no connection.
+
+  There is no ownership check: `displace!/0` releases from its `on_exit/1` callback,
+  which runs in a different process than the one that acquired the gate. Waiting
+  is unbounded (`:infinity`), because a caller that times out here would leave a
+  stale entry in the queue; the advisory lock it waits for had the same unbounded
+  wait before this gate existed.
+  """
+
+  use GenServer
+
+  @spec start() :: :ok
+  def start do
+    case GenServer.start(__MODULE__, :ok, name: __MODULE__) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+    end
+  end
+
+  @spec acquire() :: :ok
+  def acquire, do: GenServer.call(__MODULE__, :acquire, :infinity)
+
+  @spec release() :: :ok
+  def release, do: GenServer.call(__MODULE__, :release, :infinity)
+
+  @impl true
+  def init(:ok), do: {:ok, %{held?: false, waiters: :queue.new()}}
+
+  @impl true
+  def handle_call(:acquire, _from, %{held?: false} = state) do
+    {:reply, :ok, %{state | held?: true}}
+  end
+
+  def handle_call(:acquire, from, state) do
+    {:noreply, %{state | waiters: :queue.in(from, state.waiters)}}
+  end
+
+  def handle_call(:release, _from, state) do
+    case :queue.out(state.waiters) do
+      {{:value, next}, rest} ->
+        GenServer.reply(next, :ok)
+        {:reply, :ok, %{state | waiters: rest}}
+
+      {:empty, _} ->
+        {:reply, :ok, %{state | held?: false}}
+    end
   end
 end
