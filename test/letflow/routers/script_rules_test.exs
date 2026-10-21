@@ -163,7 +163,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       create!(ctx.a, k, Ecto.UUID.generate())
 
       assert call(:delete, "/#{k}/versions/1", ctx.a, @designer, nil).status == 204
-      assert row(ctx.a, k, 1).status == "discarded"
+      assert row(ctx.a, k, 1).status == :discarded
       assert call(:get, "/#{k}/versions/1", ctx.a, @designer, nil).status == 404
       assert create!(ctx.a, k, Ecto.UUID.generate())["version"] == 2
     end
@@ -256,8 +256,8 @@ defmodule Letflow.Routers.ScriptRulesTest do
         assert {conn.status, detail(conn)} == {403, "api_token_not_allowed"}, path
       end
 
-      assert row(ctx.a, k, 1).status == "draft"
-      assert row(ctx.a, k2, 1).status == "published"
+      assert row(ctx.a, k, 1).status == :draft
+      assert row(ctx.a, k2, 1).status == :published
 
       # a token minted for a user who is NOT a contributor still cannot publish
       conn = publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate(), token)
@@ -353,8 +353,8 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert conn.status == 422
       assert detail(conn) == "test_case_failed"
       assert json(conn)["case"] == "wrong"
-      assert row(ctx.a, k2, 1).status == "draft"
-      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k2, 1).status == :draft
+      assert row(ctx.a, k, 1).status == :draft
     end
 
     test "no free script slot while the stored tests run is 503 script_busy, not a test failure",
@@ -366,7 +366,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       try do
         conn = publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate())
         assert {conn.status, detail(conn)} == {503, "script_busy"}
-        assert row(ctx.a, k, 1).status == "draft"
+        assert row(ctx.a, k, 1).status == :draft
       after
         release_script_slots!(holder, ctx.a.schema_name)
       end
@@ -404,15 +404,15 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert call(:delete, "/#{discarded}/versions/1", ctx.a, @designer, nil).status == 204
 
       for {k, status} <- [
-            {published, "published"},
-            {retired, "retired"},
-            {revoked, "revoked"},
-            {discarded, "discarded"}
+            {published, :published},
+            {retired, :retired},
+            {revoked, :revoked},
+            {discarded, :discarded}
           ],
           update <- [
             [source: "return {}"],
             [contributors: []],
-            [status: "draft"],
+            [status: :draft],
             [published_at: nil],
             [discarded_at: nil]
           ] do
@@ -445,21 +445,21 @@ defmodule Letflow.Routers.ScriptRulesTest do
       for set <- [
             # the contributor-publish rule (non-self-published publish by a contributor)
             [
-              status: "published",
+              status: :published,
               publisher_id: author,
               published_at: now,
               self_published: false,
               sod_excluded: [author]
             ],
             [
-              status: "published",
+              status: :published,
               publisher_id: nil,
               published_at: now,
               self_published: false,
               sod_excluded: [author, other]
             ],
             [
-              status: "published",
+              status: :published,
               publisher_id: other,
               published_at: nil,
               self_published: false,
@@ -473,7 +473,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
         end)
       end
 
-      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k, 1).status == :draft
 
       # control: the same shape with a non-contributor publisher passes the trigger
       assert {1, _} =
@@ -481,7 +481,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
                  from(r in ScriptRule, where: r.key == ^k),
                  [
                    set: [
-                     status: "published",
+                     status: :published,
                      publisher_id: other,
                      published_at: now,
                      self_published: false,
@@ -525,7 +525,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert call(:post, "/#{k}/versions/1/revoke", ctx.a, @admin, %{"reason" => "vulnerable"}).status ==
                200
 
-      assert row(ctx.a, k, 1).status == "revoked"
+      assert row(ctx.a, k, 1).status == :revoked
 
       assert call(:post, "/#{k}/versions/1/retire", ctx.a, @admin, %{"reason" => "again"}).status ==
                409
@@ -640,7 +640,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
                "#{inspect(roles)} #{method} #{path}"
       end
 
-      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k, 1).status == :draft
     end
   end
 
@@ -754,7 +754,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
 
       assert length(entries) == 2
       refute Enum.any?(entries, &(inspect(&1.after_state) =~ "seen"))
-      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k, 1).status == :draft
     end
 
     test "writes no event or entity record; a revoked version can still be dry-run", ctx do
@@ -774,7 +774,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert json(conn)["output"] == %{"y" => 8}
 
       assert data_row_counts(ctx.a.schema_name) == before
-      assert row(ctx.a, k, 1).status == "revoked"
+      assert row(ctx.a, k, 1).status == :revoked
     end
   end
 
@@ -884,7 +884,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert conn.status == 409
       assert detail(conn) == "version_in_use"
       # nothing written or audited
-      assert row(ctx.a, k, version).status == "published"
+      assert row(ctx.a, k, version).status == :published
       refute "script_rule.retired" in audit_actions(ctx.a, k, version)
     end
 
@@ -898,7 +898,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
         call(:post, "/#{k}/versions/#{version}/retire", ctx.a, @admin, %{"reason" => "superseded"})
 
       assert conn.status == 200, conn.resp_body
-      assert row(ctx.a, k, version).status == "retired"
+      assert row(ctx.a, k, version).status == :retired
     end
 
     test "revoke never blocked", ctx do
@@ -910,7 +910,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
         call(:post, "/#{k}/versions/#{version}/revoke", ctx.a, @admin, %{"reason" => "vulnerable"})
 
       assert conn.status == 200, conn.resp_body
-      assert row(ctx.a, k, version).status == "revoked"
+      assert row(ctx.a, k, version).status == :revoked
     end
   end
 
@@ -977,7 +977,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       conn = publish(ctx.a, k, 1, v["sha256"], Ecto.UUID.generate())
       assert conn.status == 422
       assert json(conn)["outcome"] == "output_invalid"
-      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k, 1).status == :draft
     end
   end
 end

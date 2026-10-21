@@ -322,7 +322,7 @@ defmodule Letflow.ISS0974JoinDispatchIdMapTest do
       # (not the join's own synthetic "<origin>/join/joined" string).
       assert [dispatch] = dispatches_for(schema_name, instance_id)
       assert dispatch.node_id == "svc"
-      assert dispatch.status == "pending"
+      assert dispatch.status == :pending
       assert {:ok, _} = Ecto.UUID.cast(dispatch.token_id)
 
       token_records = Repo.all(TokenRecord, prefix: schema_name)
@@ -573,7 +573,7 @@ defmodule Letflow.ISS0974JoinDispatchIdMapTest do
       # (not the join's own synthetic "<origin>/join/joined" string).
       assert [dispatch] = dispatches_for(schema_name, instance_id)
       assert dispatch.node_id == "svc"
-      assert dispatch.status == "pending"
+      assert dispatch.status == :pending
       assert {:ok, _} = Ecto.UUID.cast(dispatch.token_id)
 
       token_records = Repo.all(TokenRecord, prefix: schema_name)
@@ -637,7 +637,7 @@ defmodule Letflow.ISS0974JoinDispatchIdMapTest do
 
       assert [dispatch] = dispatches_for(schema_name, instance_id)
       assert dispatch.node_id == "svc"
-      assert dispatch.status == "pending"
+      assert dispatch.status == :pending
       assert {:ok, _} = Ecto.UUID.cast(dispatch.token_id)
 
       token_records = Repo.all(TokenRecord, prefix: schema_name)
@@ -682,7 +682,7 @@ defmodule Letflow.ISS0974JoinDispatchIdMapTest do
 
       assert [svc_a_dispatch] = dispatches_for(schema_name, instance_id)
       assert svc_a_dispatch.node_id == "svc_a"
-      assert svc_a_dispatch.status == "pending"
+      assert svc_a_dispatch.status == :pending
 
       # Second branch, phase 1: svc_a's own HTTP round trip resolves via the
       # real transport call (REQ-214, already-shipped), same as AC1's own
@@ -693,7 +693,7 @@ defmodule Letflow.ISS0974JoinDispatchIdMapTest do
       reloaded_svc_a_dispatch =
         Repo.get!(ServiceTaskDispatch, svc_a_dispatch.id, prefix: schema_name)
 
-      assert reloaded_svc_a_dispatch.status == "advanced"
+      assert reloaded_svc_a_dispatch.status == :advanced
 
       # Second branch, phase 2: Letflow.Engine.advance_after_service_task_outcome/4
       # (the exact call ServiceTaskDispatcher.poll_and_dispatch/1's own reduce
@@ -718,7 +718,7 @@ defmodule Letflow.ISS0974JoinDispatchIdMapTest do
 
       dispatches = dispatches_for(schema_name, instance_id)
       assert [svc_c_dispatch] = Enum.filter(dispatches, &(&1.node_id == "svc_c"))
-      assert svc_c_dispatch.status == "pending"
+      assert svc_c_dispatch.status == :pending
       assert {:ok, _} = Ecto.UUID.cast(svc_c_dispatch.token_id)
 
       token_records = Repo.all(TokenRecord, prefix: schema_name)

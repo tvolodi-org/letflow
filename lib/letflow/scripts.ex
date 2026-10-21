@@ -113,7 +113,7 @@ defmodule Letflow.Scripts do
   def get(prefix, key, version) do
     with {:ok, version} <- parse_version(version),
          true <- Validation.key?(key) || {:error, :not_found},
-         %ScriptRule{status: status} = rule when status != "discarded" <-
+         %ScriptRule{status: status} = rule when status != :discarded <-
            Repo.get_by(ScriptRule, [key: key, version: version], prefix: prefix) do
       {:ok, rule}
     else
@@ -145,7 +145,7 @@ defmodule Letflow.Scripts do
             key: key,
             version: version,
             hook_kind: content.hook_kind,
-            status: "draft",
+            status: :draft,
             source: content.source,
             manifest: content.manifest,
             test_cases: content.test_cases,
@@ -179,7 +179,7 @@ defmodule Letflow.Scripts do
          :ok <- Policy.check_reads(prefix, content.manifest) do
       transaction(prefix, fn ->
         rule = lock_row!(prefix, key, version)
-        if rule.status != "draft", do: Repo.rollback(:version_immutable)
+        if rule.status != :draft, do: Repo.rollback(:version_immutable)
         before_sha = rule.sha256
 
         rule
@@ -213,11 +213,11 @@ defmodule Letflow.Scripts do
          {:ok, version} <- parse_version(version) do
       transaction(prefix, fn ->
         rule = lock_row!(prefix, key, version)
-        if rule.status != "draft", do: Repo.rollback(:version_immutable)
+        if rule.status != :draft, do: Repo.rollback(:version_immutable)
         now = now()
 
         rule
-        |> Ecto.Changeset.change(status: "discarded", discarded_at: now)
+        |> Ecto.Changeset.change(status: :discarded, discarded_at: now)
         |> Repo.update!(prefix: prefix)
         |> tap(
           &audit!(&1, "script_rule.draft_discarded", nil, %{"discarded_at" => now}, actor, prefix)
@@ -303,7 +303,7 @@ defmodule Letflow.Scripts do
   # Step A's plain read of the declared value (no lock). A missing row reads as strict.
   defp declared_solo?(prefix) do
     case Policy.get(prefix) do
-      {:ok, %{sod: "solo_audited"}} -> true
+      {:ok, %{sod: :solo_audited}} -> true
       _strict_or_missing -> false
     end
   end
@@ -365,7 +365,7 @@ defmodule Letflow.Scripts do
 
     rule
     |> Ecto.Changeset.change(
-      status: "published",
+      status: :published,
       publisher_id: actor.user_id,
       published_at: now(),
       self_published: self_published,
@@ -397,7 +397,7 @@ defmodule Letflow.Scripts do
   # [CDV 2] SoD is NOT a clause here (section 5); see sod_precheck/3 and sod_decision/4.
   defp publishable(rule, reviewed_sha, may_publish_restricted?) do
     cond do
-      rule.status != "draft" ->
+      rule.status != :draft ->
         {:error, :version_immutable}
 
       reviewed_sha != rule.sha256 ->
@@ -560,7 +560,7 @@ defmodule Letflow.Scripts do
   @spec retire(String.t(), String.t(), term(), term(), actor()) ::
           {:ok, ScriptRule.t()} | {:error, error()}
   def retire(prefix, key, version, reason, actor),
-    do: transition(prefix, key, version, reason, actor, ["published"], "retired", :retired_at)
+    do: transition(prefix, key, version, reason, actor, [:published], :retired, :retired_at)
 
   @doc "published or retired -> revoked."
   @spec revoke(String.t(), String.t(), term(), term(), actor()) ::
@@ -573,8 +573,8 @@ defmodule Letflow.Scripts do
         version,
         reason,
         actor,
-        ["published", "retired"],
-        "revoked",
+        [:published, :retired],
+        :revoked,
         :revoked_at
       )
 
@@ -589,7 +589,7 @@ defmodule Letflow.Scripts do
         # GH 2534 PR 7c-1 (D3, C19): retiring a version an ACTIVE definition binds is blocked;
         # the row lock above serialises with activation's FOR SHARE read. Revoke (the incident
         # action) is never blocked.
-        if to == "retired" and
+        if to == :retired and
              Letflow.Scripts.Runtime.referenced_by_active_definition?(
                prefix,
                rule.key,
@@ -641,7 +641,7 @@ defmodule Letflow.Scripts do
         rule = lock_row!(prefix, key, version)
 
         cond do
-          rule.status not in ["published", "retired"] or rule.self_published != true or
+          rule.status not in [:published, :retired] or rule.self_published != true or
               not is_nil(rule.confirmed_at) ->
             Repo.rollback(:not_pending_review)
 
@@ -797,7 +797,7 @@ defmodule Letflow.Scripts do
   defp fetch(prefix, key, version) do
     case Validation.key?(key) &&
            Repo.get_by(ScriptRule, [key: key, version: version], prefix: prefix) do
-      %ScriptRule{status: status} = rule when status != "discarded" -> {:ok, rule}
+      %ScriptRule{status: status} = rule when status != :discarded -> {:ok, rule}
       _ -> {:error, :not_found}
     end
   end
@@ -812,7 +812,7 @@ defmodule Letflow.Scripts do
 
     # A discarded version answers 404 on every route, like the reads (INV-5 consistency).
     case Validation.key?(key) && Repo.one(query, prefix: prefix) do
-      %ScriptRule{status: status} = rule when status != "discarded" -> rule
+      %ScriptRule{status: status} = rule when status != :discarded -> rule
       _ -> Repo.rollback(:not_found)
     end
   end
@@ -858,7 +858,7 @@ defmodule Letflow.Scripts do
     base = %{
       "key" => rule.key,
       "version" => rule.version,
-      "status" => rule.status,
+      "status" => Atom.to_string(rule.status),
       "sha256" => rule.sha256
     }
 

@@ -465,8 +465,8 @@ defmodule Letflow.Scripts.PolicyTest do
 
       assert Policy.references(schema, "customer") ==
                {[
-                  %{key: "ref_0", version: 1, status: "published"},
-                  %{key: "ref_1", version: 1, status: "retired"}
+                  %{key: "ref_0", version: 1, status: :published},
+                  %{key: "ref_1", version: 1, status: :retired}
                 ], 2}
 
       for i <- 1..100 do
@@ -528,10 +528,10 @@ defmodule Letflow.Scripts.PolicyTest do
       assert Task.yield(clearer, 500) == nil
 
       send(publisher_pid, :probe_continue)
-      assert {:ok, %ScriptRule{status: "published"}} = Task.await(publisher, 15_000)
+      assert {:ok, %ScriptRule{status: :published}} = Task.await(publisher, 15_000)
 
       assert {:ok, %{referenced_by: refs, referenced_total: 1}} = Task.await(clearer, 10_000)
-      assert refs == [%{key: k, version: 1, status: "published"}]
+      assert refs == [%{key: k, version: 1, status: :published}]
 
       assert [entry] = SP.entries(schema, "script_policy.readable_master_cleared")
 
@@ -557,7 +557,7 @@ defmodule Letflow.Scripts.PolicyTest do
         key: key,
         version: 1,
         hook_kind: "service_task",
-        status: "draft",
+        status: :draft,
         source: @source,
         manifest: manifest,
         test_cases: @cases,
@@ -570,10 +570,10 @@ defmodule Letflow.Scripts.PolicyTest do
     steps =
       case status do
         "draft" -> []
-        "discarded" -> [[status: "discarded", discarded_at: now]]
+        "discarded" -> [[status: :discarded, discarded_at: now]]
         "published" -> [publish_set(publisher, author, now)]
-        "retired" -> [publish_set(publisher, author, now), [status: "retired", retired_at: now]]
-        "revoked" -> [publish_set(publisher, author, now), [status: "revoked", revoked_at: now]]
+        "retired" -> [publish_set(publisher, author, now), [status: :retired, retired_at: now]]
+        "revoked" -> [publish_set(publisher, author, now), [status: :revoked, revoked_at: now]]
       end
 
     for set <- steps do
@@ -586,7 +586,7 @@ defmodule Letflow.Scripts.PolicyTest do
 
   defp publish_set(publisher, author, now),
     do: [
-      status: "published",
+      status: :published,
       publisher_id: publisher,
       published_at: now,
       sod_excluded: [author, publisher]

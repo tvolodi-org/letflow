@@ -37,7 +37,7 @@ defmodule Letflow.Definitions.ScriptBindingsActivationTest do
         draft = F.draft!(schema, key, F.doubling_source(), manifest)
 
         draft
-        |> Ecto.Changeset.change(status: "discarded", discarded_at: DateTime.utc_now())
+        |> Ecto.Changeset.change(status: :discarded, discarded_at: DateTime.utc_now())
         |> Repo.update!(prefix: schema)
         |> Map.fetch!(:version)
 

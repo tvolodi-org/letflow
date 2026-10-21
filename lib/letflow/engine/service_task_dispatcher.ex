@@ -118,13 +118,16 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
     lives in many Postgres schemas — one per tenant — so every read and
     write must pass `prefix: schema_name` explicitly at call time.
 
-    ## `status` — plain `:string`, not `Ecto.Enum` (design §3.1)
+    ## `status` — `Ecto.Enum` over the `:string` column (GH 2603; design §3.1)
 
     DB-level CHECK constraint (`chk_service_task_dispatches_status`, the
     migration) restricts it to exactly `"pending"`/`"advanced"`/`"given_up"`
-    — the DB constraint is the acceptance-criterion-mandated backstop, so
-    this schema stays plain `:string` (mirrors `Timer.status`'s own
-    rationale).
+    and stays the backstop. The Elixir side is an `Ecto.Enum` with the same
+    three atoms over the unchanged `:string` column (no migration), so an
+    invalid value is a changeset error from `cast/3`, not a DB error, and
+    the stored/external form stays the string. (Earlier this was plain
+    `:string`, mirroring `Timer.status`; `Timer.status` is unchanged, see
+    its own moduledoc.)
 
     ## No `timestamps/1`
 
@@ -156,7 +159,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
       field(:attempt_index, :integer, default: 0)
       field(:next_attempt_at, :utc_datetime_usec)
 
-      field(:status, :string, default: "pending")
+      field(:status, Ecto.Enum, values: [:pending, :advanced, :given_up], default: :pending)
       field(:last_failure_kind, :string)
       field(:dispatched_at, :utc_datetime_usec)
 
@@ -176,13 +179,11 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
             config_snapshot: config_snapshot(),
             attempt_index: non_neg_integer(),
             next_attempt_at: DateTime.t(),
-            status: String.t(),
+            status: :pending | :advanced | :given_up,
             last_failure_kind: String.t() | nil,
             dispatched_at: DateTime.t() | nil,
             created_at: DateTime.t()
           }
-
-    @statuses ~w(pending advanced given_up)
 
     @doc """
     Structural changeset for the (REQ-215-owned) INSERT path — defined here,
@@ -230,15 +231,15 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
 
     @doc """
     Structural changeset for the `:advance`/`:give_up` terminal update
-    (design §5.6). `status` must be cast to exactly `"advanced"` or
-    `"given_up"` by the caller.
+    (design §5.6). `status` must be cast to exactly `:advanced` or
+    `:given_up` by the caller; any other value is a cast error (the former
+    `validate_inclusion` is redundant with the `Ecto.Enum`).
     """
     @spec terminal_changeset(t(), attrs :: map()) :: Ecto.Changeset.t()
     def terminal_changeset(dispatch, attrs) do
       dispatch
       |> cast(attrs, [:status, :last_failure_kind, :dispatched_at])
       |> validate_required([:status, :dispatched_at])
-      |> validate_inclusion(:status, @statuses)
     end
   end
 
@@ -425,7 +426,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
       |> join(:inner, [d], p in InstanceProjection, on: p.instance_id == d.instance_id)
       |> where(
         [d, p],
-        d.status == "pending" and d.next_attempt_at <= ^now and p.status == :active
+        d.status == :pending and d.next_attempt_at <= ^now and p.status == :active
       )
       |> order_by([d], asc: d.next_attempt_at)
       |> limit(^limit)
@@ -455,7 +456,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
   module, not the schema's own defining module" reason that precedent
   follows.
 
-  `status: "given_up"`, not `"cancelled"` — deliberate, not a typo.
+  `status: :given_up`, not `"cancelled"` — deliberate, not a typo.
   `service_task_dispatches.status`'s own CHECK constraint
   (`chk_service_task_dispatches_status`) admits only
   `"pending"`/`"advanced"`/`"given_up"`; no `"cancelled"` value exists in
@@ -465,7 +466,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
   established `cancelled_at`-reuse idiom, adapted to this table's own
   narrower status domain.
 
-  `claim_due_dispatch_ids/2`'s own `WHERE d.status == "pending"` filter
+  `claim_due_dispatch_ids/2`'s own `WHERE d.status == :pending` filter
   already excludes any row this function flips to `"given_up"` — REQ-214's
   dispatcher never dispatches a cancelled row, with zero change to that
   query needed (AC5).
@@ -479,11 +480,11 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
   def cancel_pending_dispatches(repo, instance_id, cancelled_at, prefix) do
     {count, _updated} =
       ServiceTaskDispatch
-      |> where([d], d.instance_id == ^instance_id and d.status == "pending")
+      |> where([d], d.instance_id == ^instance_id and d.status == :pending)
       |> repo.update_all(
         [
           set: [
-            status: "given_up",
+            status: :given_up,
             dispatched_at: cancelled_at,
             last_failure_kind: "instance_cancelled"
           ]
@@ -768,7 +769,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
           nil ->
             {:ok, {:already_final, nil}}
 
-          %ServiceTaskDispatch{status: status} when status != "pending" ->
+          %ServiceTaskDispatch{status: status} when status != :pending ->
             {:ok, {:already_final, nil}}
 
           %ServiceTaskDispatch{} = row ->
@@ -1231,7 +1232,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     row
-    |> ServiceTaskDispatch.terminal_changeset(%{status: "advanced", dispatched_at: now})
+    |> ServiceTaskDispatch.terminal_changeset(%{status: :advanced, dispatched_at: now})
     |> Repo.update(prefix: tenant_schema)
     |> case do
       {:ok, _updated} -> {:ok, {:advance, decoded_body}}
@@ -1307,7 +1308,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
     standalone_error_attrs = ServiceTask.build_service_task_give_up_error_attrs(give_up_context)
 
     terminal_attrs = %{
-      status: "given_up",
+      status: :given_up,
       dispatched_at: now,
       last_failure_kind: to_string(failure_kind)
     }

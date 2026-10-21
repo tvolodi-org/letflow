@@ -368,7 +368,7 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
       assert audit_rows(schema, "service_task.advance_failed") == []
 
       # at-most-once: the dispatch row stays "advanced"; the token stays parked
-      assert [%ServiceTaskDispatch{status: "advanced"}] =
+      assert [%ServiceTaskDispatch{status: :advanced}] =
                Repo.all(where(ServiceTaskDispatch, [d], d.instance_id == ^id), prefix: schema)
 
       assert [%TokenRecord{node_id: "svc", status: :active}] =

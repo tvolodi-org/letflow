@@ -214,7 +214,7 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
              |> where([d], d.instance_id == ^child_id)
              |> Repo.all(prefix: schema)
 
-    advanced = row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: schema)
+    advanced = row |> Ecto.Changeset.change(%{status: :advanced}) |> Repo.update!(prefix: schema)
     Engine.advance_after_service_task_outcome(advanced.id, {:advance, body}, Repo, schema)
   end
 
@@ -544,7 +544,7 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       assert snapshot(schema, parent_id) == parent_before
       assert snapshot(schema, child_id) == child_before
       assert Repo.get!(InstanceProjection, child_id, prefix: schema).status == :active
-      assert [%{status: "advanced"}] = dispatch_rows(schema, child_id)
+      assert [%{status: :advanced}] = dispatch_rows(schema, child_id)
 
       Repo.query!(~s(DROP TRIGGER gh2648_refuse ON "#{schema}".events))
 
@@ -592,7 +592,7 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
 
       # two attempts, no outbound call and no second dispatch row
       assert %{rows: [[2]]} = Repo.query!(~s(SELECT last_value FROM "#{schema}".gh2648_hits))
-      assert [%{status: "advanced"}] = dispatch_rows(schema, child_id)
+      assert [%{status: :advanced}] = dispatch_rows(schema, child_id)
 
       assert Repo.get!(InstanceProjection, child_id, prefix: schema).status == :completed
       parent = snapshot(schema, parent_id)

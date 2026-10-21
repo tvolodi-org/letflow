@@ -4869,7 +4869,7 @@ defmodule Letflow.Engine do
   defp advance_service_task_dispatch(dispatch_id, decoded_body, repo, prefix, plan) do
     completion_key = "service_task_dispatch:#{dispatch_id}"
 
-    with {:ok, %ServiceTaskDispatch{status: "advanced"} = dispatch} <-
+    with {:ok, %ServiceTaskDispatch{status: :advanced} = dispatch} <-
            fetch_and_lock_service_task_dispatch(dispatch_id, repo, prefix),
          {:ok, projection} <-
            lock_projection_for_service_apply(repo, dispatch, completion_key, plan, prefix),
@@ -5601,7 +5601,7 @@ defmodule Letflow.Engine do
 
   defp service_plan_row({:http, dispatch_id}, prefix) do
     with {:ok, uuid} <- Ecto.UUID.cast(dispatch_id),
-         %ServiceTaskDispatch{status: "advanced"} = row <-
+         %ServiceTaskDispatch{status: :advanced} = row <-
            Repo.get(ServiceTaskDispatch, uuid, prefix: prefix) do
       {:ok, row}
     else
@@ -6239,7 +6239,7 @@ defmodule Letflow.Engine do
     end)
     |> Multi.run(:landing_dispatch, fn repo, _changes ->
       case fetch_and_lock_service_task_dispatch(dispatch_id, repo, prefix) do
-        {:ok, %ServiceTaskDispatch{status: "advanced"} = dispatch} -> {:ok, dispatch}
+        {:ok, %ServiceTaskDispatch{status: :advanced} = dispatch} -> {:ok, dispatch}
         _gone_or_not_advanced -> {:error, :landing_already_final}
       end
     end)
@@ -6520,7 +6520,7 @@ defmodule Letflow.Engine do
                    finish_script_row(
                      repo,
                      row,
-                     "cancelled",
+                     :cancelled,
                      script_outcome_string(result),
                      "instance_not_active",
                      prefix
@@ -6627,7 +6627,7 @@ defmodule Letflow.Engine do
       on_advanced: fn multi ->
         multi
         |> append_script_run_record_step(row, record, prefix)
-        |> finish_script_row_step(row, "applied", "ok", nil, prefix)
+        |> finish_script_row_step(row, :applied, "ok", nil, prefix)
       end,
       on_no_matching_edge: fn multi ->
         multi
@@ -6636,7 +6636,7 @@ defmodule Letflow.Engine do
           %{record | "detail" => "no_matching_gateway_edge"},
           prefix
         )
-        |> finish_script_row_step(row, "failed", "ok", "no_matching_gateway_edge", prefix)
+        |> finish_script_row_step(row, :failed, "ok", "no_matching_gateway_edge", prefix)
       end
     }
   end
@@ -6670,7 +6670,7 @@ defmodule Letflow.Engine do
       Multi.new()
       |> ExecutionError.append_multi(error_args, prefix: prefix, locked_projection: projection)
       |> append_script_run_record_step(row, RunRecord.build(facts), prefix)
-      |> finish_script_row_step(row, "failed", Atom.to_string(code), detail_string, prefix)
+      |> finish_script_row_step(row, :failed, Atom.to_string(code), detail_string, prefix)
 
     case repo.transaction(multi) do
       {:ok, _changes} -> {:ok, :failed}
@@ -6732,7 +6732,7 @@ defmodule Letflow.Engine do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     ScriptTaskDispatch
-    |> where([d], d.id == ^row.id and d.attempt == ^row.attempt and d.status == "running")
+    |> where([d], d.id == ^row.id and d.attempt == ^row.attempt and d.status == :running)
     |> repo.update_all(
       [
         set: [

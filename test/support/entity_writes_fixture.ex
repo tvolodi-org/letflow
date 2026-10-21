@@ -370,7 +370,7 @@ defmodule Letflow.EntityWritesFixture do
 
     dispatch =
       pending.dispatch
-      |> Ecto.Changeset.change(%{status: "advanced"})
+      |> Ecto.Changeset.change(%{status: :advanced})
       |> Repo.update!(prefix: base.schema)
 
     %{pending | dispatch: dispatch}

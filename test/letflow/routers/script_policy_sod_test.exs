@@ -147,7 +147,7 @@ defmodule Letflow.Routers.ScriptPolicySodTest do
 
       conn = put_sod(ctx.a, a, solo, credential: :api_token)
       assert {conn.status, detail(conn)} == {403, "api_token_not_allowed"}
-      assert stored(ctx.a).sod == "strict"
+      assert stored(ctx.a).sod == :strict
       assert SP.entries(ctx.a.schema_name, "script_policy.sod_set") == []
 
       conn = put_sod(ctx.a, a, solo)
@@ -180,7 +180,7 @@ defmodule Letflow.Routers.ScriptPolicySodTest do
 
       conn = put_sod(ctx.a, a, %{"sod" => "solo_audited", "reason" => "r"})
       assert {conn.status, detail(conn)} == {409, "multiple_tenant_admins"}
-      assert stored(ctx.a).sod == "strict"
+      assert stored(ctx.a).sod == :strict
     end
 
     test "to solo is 409 multiple_tenant_admins with a second admin via an unexpired TENANT_ADMIN token of an active user",
@@ -336,7 +336,7 @@ defmodule Letflow.Routers.ScriptPolicySodTest do
         )
 
       assert {conn.status, detail(conn)} == {403, "publisher_is_contributor"}
-      assert stored(ctx.a).sod == "strict"
+      assert stored(ctx.a).sod == :strict
     end
   end
 
@@ -392,7 +392,7 @@ defmodule Letflow.Routers.ScriptPolicySodTest do
       end
 
       row = stored(ctx.a)
-      assert {row.platform_solo_audited_allowed, row.sod} == {false, "strict"}
+      assert {row.platform_solo_audited_allowed, row.sod} == {false, :strict}
 
       assert {row.sod_set_by, row.sod_set_by_class, row.sod_reason} ==
                {nil, "platform_operator", "audit"}
