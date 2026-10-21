@@ -936,7 +936,12 @@ while [ "$i" -le "$LAST" ]; do
   # partition finishes normally.
   (
     _watchdog_pid=${pids[$i]}
-    sleep "$partition_timeout_s"
+    # GH #2457: the sleep gets /dev/null for stdin/stdout/stderr so that, if the group
+    # kill ever misses it (seen as an orphan with PPID 1 on a git-bash host), it still
+    # cannot hold this script's stdout pipe open for partition_timeout_s. Delivery of
+    # the kill is then no longer what pipe release depends on. The WARNING echoes below
+    # run in the subshell itself, which the kill does reach, and keep stderr.
+    sleep "$partition_timeout_s" </dev/null >/dev/null 2>&1
     if kill -0 "$_watchdog_pid" 2>/dev/null; then
       echo "test_parallel: WARNING partition $i exceeded TEST_PARALLEL_PARTITION_TIMEOUT_S=${partition_timeout_s}s -- sending TERM to its process group" >&2
       test_parallel_watchdog_diag "$i" || true
