@@ -1,0 +1,6 @@
+{
+  "id": "fixture-ddl-failing",
+  "modules": [
+    {"module_id": "fixture_ddl_failing", "version": "0.1.0", "settings": {}}
+  ]
+}

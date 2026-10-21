@@ -63,6 +63,8 @@ defmodule Letflow.Modules.Installs do
 
   import Ecto.Query, only: [from: 2]
 
+  require Logger
+
   alias Letflow.Definitions.SolutionPack
   alias Letflow.Entities.ManagedTypes
   alias Letflow.EventStore.Registry.JsonSchema
@@ -81,6 +83,7 @@ defmodule Letflow.Modules.Installs do
              {:pack_install_failed,
               SolutionPack.install_error() | {:managed_type_not_in_pack, String.t()}}}
           | {:error, {:on_install_failed, term()}}
+          | {:error, :module_install_ddl_failed}
           | {:error, Ecto.Changeset.t()}
 
   @doc """
@@ -110,7 +113,7 @@ defmodule Letflow.Modules.Installs do
          {:ok, entry_module} <- fetch_module(module_id) do
       owner = ManagedTypes.module_owner(entry_module)
 
-      Repo.transaction(fn ->
+      install_transaction(module_id, fn ->
         with :ok <- check_not_already_installed(module_id, prefix),
              :ok <- check_dependencies_installed(entry_module, prefix),
              {:ok, pack_entity_definition_ids} <-
@@ -130,6 +133,36 @@ defmodule Letflow.Modules.Installs do
       end)
     end
   end
+
+  # GH #2540: a database error raised by DDL (column promotion, entity table creation)
+  # inside the install transaction, or reported by the promotion as `{:ddl_failed, _}`,
+  # becomes the typed `:module_install_ddl_failed`. The transaction has already rolled back
+  # every write. Logged once here, with the trace id from the Logger metadata, the module id
+  # and the SQLSTATE only: never the exception message (it can carry SQL, schema and
+  # table names) and never record values (INV-8).
+  defp install_transaction(module_id, fun) do
+    case Repo.transaction(fun) do
+      {:error, {:on_install_failed, {:promotion_failed, _type, _attribute, {:ddl_failed, error}}}} ->
+        ddl_failed(module_id, error)
+
+      result ->
+        result
+    end
+  rescue
+    error in Postgrex.Error -> ddl_failed(module_id, error)
+  end
+
+  defp ddl_failed(module_id, error) do
+    Logger.error(
+      "module install failed: database error during DDL " <>
+        "(trace_id=#{Logger.metadata()[:trace_id]} module_id=#{module_id} sqlstate=#{sqlstate(error)})"
+    )
+
+    {:error, :module_install_ddl_failed}
+  end
+
+  defp sqlstate(%Postgrex.Error{postgres: %{code: code}}), do: code
+  defp sqlstate(_other), do: :unknown
 
   @doc """
   Whether `module_id` is installed for the tenant identified by
