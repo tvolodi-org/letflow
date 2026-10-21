@@ -1089,7 +1089,7 @@ defmodule Letflow.Engine.Lua.ExecutorTest do
       script = "while true do end"
       huge_budget = 10_000_000_000
 
-      {short_elapsed_ms, short_result} =
+      {short_elapsed_us, short_result} =
         :timer.tc(fn ->
           Executor.execute_with_manifest(script, "h",
             max_instructions: huge_budget,
@@ -1098,7 +1098,7 @@ defmodule Letflow.Engine.Lua.ExecutorTest do
           )
         end)
 
-      {long_elapsed_ms, long_result} =
+      {long_elapsed_us, long_result} =
         :timer.tc(fn ->
           Executor.execute_with_manifest(script, "h",
             max_instructions: huge_budget,
@@ -1109,7 +1109,13 @@ defmodule Letflow.Engine.Lua.ExecutorTest do
 
       assert {:error, {:wallclock_timeout, 50}} = short_result
       assert {:error, {:wallclock_timeout, 200}} = long_result
-      assert short_elapsed_ms < long_elapsed_ms
+
+      # GH #2403: no raw `short < long` elapsed comparison -- under scheduler contention
+      # the short run can be descheduled past the long one. Each timeout is only a lower
+      # bound on its own elapsed time (the kill cannot fire early), which holds under any
+      # load; the 50 vs 200 ms ordering is carried by the distinct timeout reasons above.
+      assert short_elapsed_us >= 50 * 1_000
+      assert long_elapsed_us >= 200 * 1_000
     end
 
     # ISS-0426 design §2.2: race outcome (the timeout must still fire after the
