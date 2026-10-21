@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, useNavigate, Link } from 'react-router-dom'
-import { useAuth } from '@/auth/AuthContext'
+import { useAccess, AccessPending } from '@/auth/access'
 import { tenantsApi } from '@/api/tenants'
 import { queryKeys } from '@/api/queryKeys'
 import type { ApiError } from '@/types/api'
@@ -24,17 +24,17 @@ import type { Tenant } from '@/api/tenants'
 
 /**
  * TenantsPage
- * PLATFORM_ADMIN-only paginated list of all registered tenants. Displays slug,
+ * platform-admin role-only paginated list of all registered tenants. Displays slug,
  * display name, IDP realm, status, and creation date. Provides per-row Edit
  * navigation (TM-03) and a navigation button to the existing onboarding route
- * (TM-02). Non-PLATFORM_ADMIN users must be redirected to /instances on page
+ * (TM-02). Non-platform-admin role users must be redirected to /instances on page
  * load — enforce in the role-gate CUSTOM block.
  */
 
 const PAGE_SIZE = 20
 
 export default function TenantsPage() {
-  const { session } = useAuth()
+  const access = useAccess()
   const navigate = useNavigate()
   const qc = useQueryClient()
 
@@ -67,7 +67,8 @@ export default function TenantsPage() {
   })
 
   // CUSTOM: role-gate
-  if (!session?.roles.includes('PLATFORM_ADMIN')) {
+  if (!access.isReady) return <AccessPending access={access} />
+  if (!access.canManageTenants) {
     return <Navigate to="/instances" replace />
   }
 

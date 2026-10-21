@@ -43,7 +43,6 @@ vi.mock('@/auth/AuthContext', () => ({
     session: {
       token: 'tok',
       display_name: 'Test User',
-      roles: ['CANDIDATE'],
       loginSource: 'oidc',
       tenant_slug: 'fixture-tenant',
       tenant_display_name: 'Fixture Tenant',

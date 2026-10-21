@@ -1,6 +1,6 @@
 import { Navigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useAuth } from '@/auth/AuthContext'
+import { useAccess, AccessPending } from '@/auth/access'
 import { tenantsApi, type TenantListResponse } from '@/api/tenants'
 import { queryKeys } from '@/api/queryKeys'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
@@ -9,7 +9,7 @@ import type { ApiError } from '@/types/api'
 
 /**
  * PlatformDashboardPage (REQ-369) -- platform-wide landing page for
- * PLATFORM_ADMIN, reached from OidcCallbackPage's role-conditional redirect.
+ * platform-admin role, reached from OidcCallbackPage's role-conditional redirect.
  * Deliberately platform-scoped: no tenant context, no tenant-branded copy.
  * See lib/letflow/design/req369-platform-dashboard-page.md.
  *
@@ -20,15 +20,17 @@ import type { ApiError } from '@/types/api'
  * fixed separately), so no deploy was ever triggered for it directly.
  */
 export default function PlatformDashboardPage(): JSX.Element {
-  const { session } = useAuth()
   const tenantsQuery = useQuery<TenantListResponse, ApiError>({
     queryKey: queryKeys.admin.tenants({}),
     queryFn: () => tenantsApi.list(),
   })
 
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.canManageTenants
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 

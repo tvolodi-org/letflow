@@ -5,7 +5,7 @@ import '@xyflow/react/dist/style.css'
 import { useInstance, useCancelInstance, useInstanceTimeline } from '@/hooks/useInstances'
 import { useTasks } from '@/hooks/useTasks'
 import { useDefinition } from '@/hooks/useDefinitions'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess } from '@/auth/access'
 import { usePolling } from '@/hooks/usePolling'
 import { useHistoryScrubber } from '@/hooks/useHistoryScrubber'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -28,7 +28,6 @@ import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { formatDateTime as formatLocaleDateTime, formatTime as formatLocaleTime } from '@/i18n/format'
 
-const CANCEL_ROLES = ['PROCESS_OPERATOR', 'PROCESS_ADMIN', 'PLATFORM_ADMIN']
 
 interface DetailRow {
   key: string
@@ -94,7 +93,6 @@ function useReadonlyGraph(
 
 export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const { session } = useAuth()
   const tenantKeys = useTenantScopedQueryKeys()
 
   const { data: instance, isLoading, isError, error, refetch } = useInstance(id!)
@@ -126,7 +124,7 @@ export default function InstanceDetailPage() {
   const instanceVariables = instance?.variables && typeof instance.variables === 'object' ? instance.variables : {}
   const instanceGraph = instance?.definition_snapshot ?? definition?.graph
   const readonlyGraph = useReadonlyGraph(instanceGraph, currentNodes)
-  const canCancel = session?.roles.some((role) => CANCEL_ROLES.includes(role)) ?? false
+  const canCancel = useAccess().can(P.InstancesCancel)
 
   useEffect(() => {
     if (activeTab === 'timeline' && !timelineRequested) {

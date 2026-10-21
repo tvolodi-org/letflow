@@ -8,6 +8,7 @@
  */
 
 import type { Page, APIRequestContext } from '@playwright/test'
+import { ACCESS_FIXTURES, type AccessFixtureName } from '../../src/auth/access/fixtures'
 
 export function normalizeIdpBaseUrl(raw: string | undefined): string {
   const fallback = 'http://localhost:8082'
@@ -130,8 +131,18 @@ export async function getMasterAdminToken(request: APIRequestContext): Promise<s
 }
 
 /** Decode a JWT payload without verification. */
-function decodeJwtPayload(token: string): { sub: string; roles?: string[]; preferred_username?: string; name?: string; email?: string } {
+function decodeJwtPayload(token: string): { sub: string; preferred_username?: string; name?: string; email?: string } {
   return JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString('utf-8'))
+}
+
+/**
+ * Answer GET /api/v1/me/access with a fixture instead of the real server, so a spec can run as a
+ * given role without a token for it. Call BEFORE page.goto(). The default stays the real server.
+ */
+export async function mockMeAccess(page: Page, fixture: AccessFixtureName): Promise<void> {
+  await page.route('**/api/v1/me/access', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ACCESS_FIXTURES[fixture]) }),
+  )
 }
 
 /**
@@ -155,15 +166,14 @@ export async function loginWithToken(page: Page, token: string): Promise<void> {
     payload.sub
 
   // Set up a script that runs before any page JS to inject the session
-  await page.addInitScript((args: { token: string; displayName: string; roles: string[] }) => {
+  await page.addInitScript((args: { token: string; displayName: string }) => {
     const session = {
       token: args.token,
       display_name: args.displayName,
-      roles: args.roles,
       loginSource: 'oidc' as const,
     }
     sessionStorage.setItem('__e2e_session', JSON.stringify(session))
-  }, { token, displayName, roles: payload.roles ?? [] })
+  }, { token, displayName })
 
   // Navigate to the app root
   await page.goto('/', { waitUntil: 'domcontentloaded' })

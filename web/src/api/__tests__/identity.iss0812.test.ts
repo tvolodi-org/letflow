@@ -44,7 +44,7 @@ describe('ISS-0812/ISS-0813 — full identity.ts audit (ISS-0782 follow-up)', ()
       const spy = vi.fn().mockImplementation(() => jsonResponse({ id: 'r-1' }, { status: 201 }))
       window.fetch = spy as unknown as typeof window.fetch
 
-      await rolesApi.create({ name: 'PROCESS_OPERATOR' })
+      await rolesApi.create({ name: 'SOME_ROLE' })
 
       const [url, init] = spy.mock.calls[0] as [string, RequestInit]
       // Use exact pathname check so a suffix-corrupted path (e.g. /roles-WRONG)
@@ -73,7 +73,7 @@ describe('ISS-0812/ISS-0813 — full identity.ts audit (ISS-0782 follow-up)', ()
       )
       window.fetch = spy as unknown as typeof window.fetch
 
-      await tokensApi.create({ user_id: 'u-1', roles: ['PROCESS_OPERATOR'] })
+      await tokensApi.create({ user_id: 'u-1', roles: ['SOME_ROLE'] })
 
       const [url, init] = spy.mock.calls[0] as [string, RequestInit]
       expect(url).toContain('/api/v1/identity/tokens')

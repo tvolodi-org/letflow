@@ -26,7 +26,6 @@ function sessionWithTenant(tenantId: string | null) {
     session: tenantId === undefined ? null : {
       token: 'tok',
       display_name: 'Test User',
-      roles: ['PLATFORM_ADMIN'],
       loginSource: 'oidc' as const,
       tenant_slug: 'fixture-tenant',
       tenant_display_name: 'Fixture Tenant',

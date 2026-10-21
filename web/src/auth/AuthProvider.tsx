@@ -11,6 +11,8 @@ import { getOidcManager } from './OidcManager'
 import { attemptSilentSwitch } from './tenantOidcRegistry'
 import { tenantRoot } from '@/api/queryKeys'
 import { tenantsApi } from '@/api/tenants'
+import { meApi } from '@/api/me'
+import { canManageTenants } from './access/access'
 import { resetTenantConfigCache, resolveRealmFromUrl } from './tenantConfig'
 import { isEmailFirstLoginEnabled } from './emailFirstFlag'
 import { buildRedirectArgs } from './oidcRedirectArgs'
@@ -33,9 +35,15 @@ export async function buildSessionFromToken(token: string): Promise<UserSession>
   let tenantType: 'production' | 'test' | null = null
   let productionTenantDisplayName: string | null = null
   // Q-1074 / GH 2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
-  // Only a PLATFORM_ADMIN session asks for the record; every other session skips the
-  // call and shows the slug as its display name (same rule as OidcCallbackPage).
-  if (tenantSlug && payload.roles.includes('PLATFORM_ADMIN')) {
+  // Only a session whose /me/access (not the token) grants platform tenant management asks
+  // for the record; every other session skips the call and shows the slug as its display
+  // name (same rule as OidcCallbackPage). A failed access call counts as no access: the
+  // AccessProvider shows its own error state.
+  const access = await meApi
+    .getAccessWithToken(token)
+    .then(info => ({ status: 'ready' as const, info }))
+    .catch(() => ({ status: 'loading' as const }))
+  if (tenantSlug && canManageTenants(access)) {
     try {
       const tenant = await tenantsApi.getBySlug(tenantSlug)
       tenantDisplayName = tenant.display_name
@@ -51,7 +59,6 @@ export async function buildSessionFromToken(token: string): Promise<UserSession>
   return {
     token,
     display_name: resolveDisplayName(payload),
-    roles: payload.roles,
     loginSource: 'oidc',
     tenant_slug: tenantSlug,
     tenant_display_name: tenantDisplayName ?? tenantSlug,
@@ -70,7 +77,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return {
         token: e2e.token,
         display_name: e2e.display_name,
-        roles: e2e.roles,
         loginSource: 'oidc',
         tenant_slug: e2e.tenant_slug ?? null,
         tenant_display_name: e2e.tenant_display_name ?? null,

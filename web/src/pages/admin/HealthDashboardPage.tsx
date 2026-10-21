@@ -2,7 +2,7 @@ import { Navigate } from 'react-router-dom'
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { healthReady } from '@/api/health'
 import { queryKeys } from '@/api/queryKeys'
-import { useAuth } from '@/auth/AuthContext'
+import { useAccess, AccessPending } from '@/auth/access'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { classifyError, type RendererState } from '@/utils/classifyError'
@@ -26,11 +26,13 @@ export function useAdminHealthSnapshot(): UseQueryResult<boolean> {
 }
 
 export default function HealthDashboardPage() {
-  const { session } = useAuth()
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.canManageTenants
   const { data: isLive, isLoading, isFetching, isError, error, dataUpdatedAt, refetch } = useAdminHealthSnapshot()
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 

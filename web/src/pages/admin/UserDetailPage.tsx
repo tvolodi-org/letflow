@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess, AccessPending } from '@/auth/access'
 import { DeactivateUserDialog } from '@/components/admin/users/DeactivateUserDialog'
 import { useAdminGroups, useAdminRoles, useAdminUser, useDeactivateAdminUser, useUpdateAdminUser } from '@/hooks/useAdminUsers'
 import type { User } from '@/types/api'
@@ -21,8 +21,8 @@ function userStatus(user: User): 'ACTIVE' | 'INACTIVE' {
 export default function UserDetailPage() {
   const { userId: routeUserId = '' } = useParams()
   const navigate = useNavigate()
-  const { session } = useAuth()
-  const isPlatformAdmin = session?.roles?.includes('PLATFORM_ADMIN') === true
+  const access = useAccess()
+  const isAllowed = access.can(P.UsersGroupsRolesManage)
 
   const userQuery = useAdminUser(routeUserId)
   const rolesQuery = useAdminRoles()
@@ -54,7 +54,9 @@ export default function UserDetailPage() {
     return userId(userQuery.data) || routeUserId
   }, [routeUserId, userQuery.data])
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return (
       <div style={{ padding: '1.5rem' }}>
         <h2>User details</h2>

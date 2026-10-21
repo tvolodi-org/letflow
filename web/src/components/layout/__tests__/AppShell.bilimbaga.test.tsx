@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 /**
  * REQ-343 AC5 — the "Question Bank" nav entry (routing to
- * /admin/bilimbaga) is gated by real role checks matching
- * Letflow.Api.Authorization's :EntitiesRecordsWrite grant (REQ-309's role
- * matrix: PLATFORM_ADMIN and PROCESS_OPERATOR hold it; PROCESS_DESIGNER and
- * TASK_WORKER do not). A role lacking that permission must not see the nav
- * entry. Mirrors AppShell.branding.test.tsx's own mocking pattern
+ * /admin/bilimbaga) is gated by the caller's
+ * :EntitiesRecordsWrite permission from GET /me/access (REQ-309's role
+ * matrix: the platform admin and operator fixtures hold it; the designer and
+ * task-worker fixtures do not). A caller lacking that permission must not
+ * see the nav entry. Mirrors AppShell.branding.test.tsx's own mocking pattern
  * (useAuth/client.get mocked directly — DIRECTIVE T-2, no msw/raw-fetch).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -13,6 +13,7 @@ import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import type { UserSession } from '@/types/api'
+import type { AccessFixtureName } from '@/auth/access/fixtures'
 
 expect.extend(jestDomMatchers)
 
@@ -32,11 +33,10 @@ vi.mock('@/api/client', () => ({
   client: { get: vi.fn(() => Promise.resolve({ items: [] })) },
 }))
 
-function sessionWithRoles(roles: string[]): UserSession {
+function testSession(): UserSession {
   return {
     token: 'tok',
     display_name: 'Test User',
-    roles,
     loginSource: null,
     tenant_slug: 'acme',
     tenant_display_name: 'Acme Co',
@@ -51,13 +51,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function renderAppShellAs(roles: string[]) {
+async function renderAppShellAs(fixture: AccessFixtureName) {
   vi.resetModules()
 
   const { useAuth } = await import('@/auth/AuthContext')
   const { useInstalledModules } = await import('@/hooks/useInstalledModules')
   vi.mocked(useAuth).mockReturnValue({
-    session: sessionWithRoles(roles),
+    session: testSession(),
     isAuthenticated: true,
     isLoading: false,
     loginSource: null,
@@ -75,35 +75,39 @@ async function renderAppShellAs(roles: string[]) {
 
   const { BrandingProvider } = await import('@/theming/BrandingProvider')
   const { AppShell } = await import('../AppShell')
+  const { AccessStateProvider } = await import('@/auth/access/AccessContext')
+  const { accessState } = await import('@/auth/access/fixtures')
 
   render(
     <MemoryRouter initialEntries={['/instances']}>
       <BrandingProvider>
-        <AppShell />
+        <AccessStateProvider state={accessState(fixture)}>
+          <AppShell />
+        </AccessStateProvider>
       </BrandingProvider>
     </MemoryRouter>,
   )
 }
 
 describe('REQ-343 AC5 — Question Bank nav entry role gating', () => {
-  it('PLATFORM_ADMIN sees the nav entry', async () => {
-    await renderAppShellAs(['PLATFORM_ADMIN'])
+  it('platform admin sees the nav entry', async () => {
+    await renderAppShellAs('platformAdmin')
     await waitFor(() => expect(screen.getByText('Question Bank')).toBeInTheDocument())
   })
 
-  it('PROCESS_OPERATOR (holds :EntitiesRecordsWrite) sees the nav entry', async () => {
-    await renderAppShellAs(['PROCESS_OPERATOR'])
+  it('operator (holds :EntitiesRecordsWrite) sees the nav entry', async () => {
+    await renderAppShellAs('operator')
     await waitFor(() => expect(screen.getByText('Question Bank')).toBeInTheDocument())
   })
 
-  it('PROCESS_DESIGNER (no :EntitiesRecordsWrite) does NOT see the nav entry', async () => {
-    await renderAppShellAs(['PROCESS_DESIGNER'])
+  it('designer (no :EntitiesRecordsWrite) does NOT see the nav entry', async () => {
+    await renderAppShellAs('designer')
     await waitFor(() => expect(screen.getByText('Definitions')).toBeInTheDocument())
     expect(screen.queryByText('Question Bank')).not.toBeInTheDocument()
   })
 
-  it('TASK_WORKER does NOT see the nav entry', async () => {
-    await renderAppShellAs(['TASK_WORKER'])
+  it('task worker does NOT see the nav entry', async () => {
+    await renderAppShellAs('taskWorker')
     await waitFor(() => expect(screen.getByText('My Tasks')).toBeInTheDocument())
     expect(screen.queryByText('Question Bank')).not.toBeInTheDocument()
   })

@@ -12,7 +12,7 @@ was written.
 1. **Generic writes to the four types are refused.** `org_legal_entity`, `org_site`, `org_unit`
    and `org_unit_membership` are in `manages_entity_types`, so the generic entity routes answer
    403 `entity_type_managed` (GH #2530, PR #2568). The router maps
-   `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:529`, and
+   `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:536`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
    (`lib/letflow/entities/records.ex:1802`, delegating to `ManagedTypes.check_record_write/3`).
 2. **Writes go through the module's own Owner only, and nothing checks references.** Module
@@ -32,7 +32,7 @@ was written.
    `{:error, :reserved_idempotency_key}` (`reject_step_key/1`,
    `lib/letflow/entities/records.ex:1004`; prefix `@step_key_prefix`, line 330). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:724` and `lib/letflow/entities/handler_writes.ex:244`.
+   `lib/letflow/entities/step_writes.ex:754` and `lib/letflow/entities/handler_writes.ex:245`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:997`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -59,7 +59,7 @@ this section was written. It covers the types `catalog_uom` and `catalog_item`.
 
 1. **Generic writes to the two types are refused.** Both are in `manages_entity_types`, so the
    generic entity routes answer 403 `entity_type_managed` (GH #2530, PR #2568). The router maps
-   `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:529`, and
+   `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:536`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
    (`lib/letflow/entities/records.ex:1802`, delegating to `ManagedTypes.check_record_write/3`).
 2. **Writes go through the module's own Owner only.** Module code writes with the `/3` arity,
@@ -80,7 +80,7 @@ this section was written. It covers the types `catalog_uom` and `catalog_item`.
    `{:error, :reserved_idempotency_key}` (`reject_step_key/1`,
    `lib/letflow/entities/records.ex:1004`; prefix `@step_key_prefix`, line 330). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:724` and `lib/letflow/entities/handler_writes.ex:244`.
+   `lib/letflow/entities/step_writes.ex:754` and `lib/letflow/entities/handler_writes.ex:245`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:997`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).

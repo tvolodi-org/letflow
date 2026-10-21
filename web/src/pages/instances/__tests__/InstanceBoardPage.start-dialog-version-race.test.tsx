@@ -93,6 +93,8 @@ import { useStartInstance } from '@/hooks/useInstances'
 import { useDefinitions, useDefinition } from '@/hooks/useDefinitions'
 import { useAuth } from '@/auth/AuthContext'
 import InstanceBoardPage from '@/pages/instances/InstanceBoardPage'
+import { AccessStateProvider } from '@/auth/access/AccessContext'
+import { accessState } from '@/auth/access/fixtures'
 
 const mockUseDefinitions = vi.mocked(useDefinitions)
 const mockUseDefinition = vi.mocked(useDefinition)
@@ -104,7 +106,6 @@ const mockUseStartInstance = vi.mocked(useStartInstance)
 const TEST_SESSION = {
   token: 'tok',
   display_name: 'Alice',
-  roles: ['PROCESS_OPERATOR'],
   loginSource: null as null,
   tenant_slug: 'acme-test',
   tenant_display_name: 'Acme Test',
@@ -126,6 +127,10 @@ const AUTH_VALUE = {
 }
 
 const SAMPLE_ITEM = { id: 'def-1', name: 'sample-process', version: '2.0.0', status: 'ACTIVE' as const }
+
+const withAccess = (ui: React.ReactElement) => (
+  <AccessStateProvider state={accessState('operator')}>{ui}</AccessStateProvider>
+)
 
 afterEach(() => {
   cleanup()
@@ -152,7 +157,7 @@ describe('ISS-0911 — Start Instance dialog version-race fix', () => {
       typeof useStartInstance
     >)
 
-    const { rerender } = render(<InstanceBoardPage />)
+    const { rerender } = render(withAccess(<InstanceBoardPage />))
 
     clickAndFlush(screen.getByTestId('start-instance-button'))
 
@@ -176,7 +181,7 @@ describe('ISS-0911 — Start Instance dialog version-race fix', () => {
       isLoading: false,
     } as ReturnType<typeof useDefinitions>)
 
-    rerender(<InstanceBoardPage />)
+    rerender(withAccess(<InstanceBoardPage />))
 
     // AC1: field populates with no further interaction with the name input.
     const versionInputAfter = screen.getByTestId('start-definition-version') as HTMLInputElement
@@ -205,7 +210,7 @@ describe('ISS-0911 — Start Instance dialog version-race fix', () => {
       isPending: false,
     } as unknown as ReturnType<typeof useStartInstance>)
 
-    render(<InstanceBoardPage />)
+    render(withAccess(<InstanceBoardPage />))
 
     clickAndFlush(screen.getByTestId('start-instance-button'))
     fireEvent.change(screen.getByTestId('start-definition-name'), {
@@ -238,7 +243,7 @@ describe('ISS-0911 — Start Instance dialog version-race fix', () => {
       isPending: false,
     } as unknown as ReturnType<typeof useStartInstance>)
 
-    render(<InstanceBoardPage />)
+    render(withAccess(<InstanceBoardPage />))
 
     // Open the dialog without typing anything new.
     clickAndFlush(screen.getByTestId('start-instance-button'))
@@ -269,7 +274,7 @@ describe('ISS-0911 — Start Instance dialog version-race fix', () => {
       typeof useStartInstance
     >)
 
-    render(<InstanceBoardPage />)
+    render(withAccess(<InstanceBoardPage />))
 
     clickAndFlush(screen.getByTestId('start-instance-button'))
     // Type a name that matches a DIFFERENT id than the stale searchParams one.

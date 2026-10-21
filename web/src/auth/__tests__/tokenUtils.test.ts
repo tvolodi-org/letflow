@@ -24,11 +24,11 @@ function makeTestJwt(payload: object): string {
 
 describe('decodeTokenPayload', () => {
   it('TC-SH01-U01: decodes a well-formed JWT and returns the payload object', () => {
-    const jwt = makeTestJwt({ sub: 'user-1', roles: ['TASK_WORKER'], display_name: 'Alice' })
+    const jwt = makeTestJwt({ sub: 'user-1', roles: ['SOME_ROLE'], display_name: 'Alice' })
     const result = decodeTokenPayload(jwt)
     expect(result).not.toBeNull()
     expect(result?.sub).toBe('user-1')
-    expect(result?.roles).toEqual(['TASK_WORKER'])
+    expect(result?.roles).toEqual(['SOME_ROLE'])
     expect(result?.display_name).toBe('Alice')
   })
 
@@ -60,10 +60,10 @@ describe('decodeTokenPayload', () => {
 
   it('TC-SH01-U07: correctly handles a payload whose base64 length requires padding (length % 4 !== 0)', () => {
     // Use a payload whose JSON will produce a base64 string not divisible by 4
-    const jwt = makeTestJwt({ sub: 'u', roles: ['PLATFORM_ADMIN'] })
+    const jwt = makeTestJwt({ sub: 'u', roles: ['OTHER_ROLE'] })
     const result = decodeTokenPayload(jwt)
     expect(result).not.toBeNull()
-    expect(result?.roles).toEqual(['PLATFORM_ADMIN'])
+    expect(result?.roles).toEqual(['OTHER_ROLE'])
   })
 })
 

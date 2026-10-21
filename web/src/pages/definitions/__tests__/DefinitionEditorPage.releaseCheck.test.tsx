@@ -140,7 +140,6 @@ const DRAFT_DEFINITION = {
 const DESIGNER_SESSION = {
   token: 'tok',
   display_name: 'Alice',
-  roles: ['PROCESS_DESIGNER'],
   loginSource: null as null,
   tenant_slug: 'acme-test',
   tenant_display_name: 'Acme Test',

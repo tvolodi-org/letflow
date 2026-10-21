@@ -9,7 +9,7 @@
  *   TC-PD-05: no numbers matching /40[13]/ in rendered text
  */
 
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { render, screen, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -17,15 +17,8 @@ import React from 'react'
 expect.extend(jestDomMatchers)
 import { PermissionDenied } from '@/components/ui/PermissionDenied'
 
-// ISS-0728: PermissionDenied now reads useAuth() to pick its recovery link
-// target for a CANDIDATE session. These pre-existing cases exercise the
-// non-CANDIDATE (session: null) path, so the mock mirrors that — the
-// existing /tasks-link assertions below are otherwise byte-for-byte
-// unchanged, per lib/letflow/design/iss0728-candidate-exam-nav.md §3/§5.2
-// case 3's null-safety requirement.
-vi.mock('@/auth/AuthContext', () => ({
-  useAuth: () => ({ session: null }),
-}))
+// PermissionDenied reads the access state (default: loading, so the non-candidate link) and
+// no longer reads useAuth().
 
 afterEach(cleanup)
 

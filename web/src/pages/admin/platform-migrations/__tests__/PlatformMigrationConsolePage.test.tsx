@@ -9,9 +9,9 @@
  * convention for this exact page family — mock the hook boundary, not the
  * HTTP client underneath it), and `@/auth/AuthContext`/`react-router-dom`.
  *
- * TC-REQ375-10: AC4 — non-PLATFORM_ADMIN session redirects to /instances,
+ * TC-REQ375-10: AC4 — non-platform-admin session redirects to /instances,
  *   never rendering the screen.
- * TC-REQ375-11: AC4 — PLATFORM_ADMIN session renders the start form.
+ * TC-REQ375-11: AC4 — platform-admin session renders the start form.
  * TC-REQ375-12/13: AC2 — hasOutstandingCompanies visibility: the resume
  *   control is present when >=1 outcome is not 'succeeded', and ABSENT
  *   (not merely disabled) once every outcome is 'succeeded'.
@@ -36,7 +36,7 @@
  */
 
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RolloutResult } from '@/api/platformMigrations'
 expect.extend(jestDomMatchers)
@@ -65,13 +65,13 @@ vi.mock('react-router-dom', () => ({
 
 import { useAuth } from '@/auth/AuthContext'
 import PlatformMigrationConsolePage from '@/pages/admin/platform-migrations/PlatformMigrationConsolePage'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const mockUseAuth = vi.mocked(useAuth)
 
-const PLATFORM_ADMIN_SESSION = {
+const ADMIN_SESSION = {
   token: 'tok',
   display_name: 'Admin',
-  roles: ['PLATFORM_ADMIN'],
   loginSource: null as null,
   tenant_slug: null,
   tenant_display_name: null,
@@ -80,7 +80,7 @@ const PLATFORM_ADMIN_SESSION = {
   production_tenant_display_name: null,
 }
 
-const NON_ADMIN_SESSION = { ...PLATFORM_ADMIN_SESSION, roles: ['PROCESS_OPERATOR'] }
+const NON_ADMIN_SESSION = { ...ADMIN_SESSION }
 
 function outcome(overrides: Partial<RolloutResult['outcomes'][number]>): RolloutResult['outcomes'][number] {
   return {
@@ -131,19 +131,19 @@ afterEach(() => {
 })
 
 describe('REQ-375 — PlatformMigrationConsolePage — route guard (AC4)', () => {
-  it('TC-REQ375-10: a non-PLATFORM_ADMIN session redirects to /instances and never renders the screen', () => {
+  it('TC-REQ375-10: a non-platform-admin session redirects to /instances and never renders the screen', () => {
     mockUseAuth.mockReturnValue({ session: NON_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
 
-    render(<PlatformMigrationConsolePage />)
+    renderWithAccess(<PlatformMigrationConsolePage />, 'operator')
 
     expect(screen.getByTestId('navigate')).toHaveAttribute('data-to', '/instances')
     expect(screen.queryByTestId('rollout-start-btn')).not.toBeInTheDocument()
   })
 
-  it('TC-REQ375-11: a PLATFORM_ADMIN session renders the start form', () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+  it('TC-REQ375-11: a platform-admin session renders the start form', () => {
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
 
-    render(<PlatformMigrationConsolePage />)
+    renderWithAccess(<PlatformMigrationConsolePage />, 'platformAdmin')
 
     expect(screen.getByTestId('rollout-start-btn')).toBeInTheDocument()
     expect(screen.queryByTestId('navigate')).not.toBeInTheDocument()
@@ -152,8 +152,8 @@ describe('REQ-375 — PlatformMigrationConsolePage — route guard (AC4)', () =>
 
 describe('REQ-375 — resume-control visibility, hasOutstandingCompanies (AC2)', () => {
   it('TC-REQ375-12: at least one outstanding (non-succeeded) company shows the resume control', async () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
-    render(<PlatformMigrationConsolePage />)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    renderWithAccess(<PlatformMigrationConsolePage />, 'platformAdmin')
 
     startAndResolve(
       rolloutResult({
@@ -168,8 +168,8 @@ describe('REQ-375 — resume-control visibility, hasOutstandingCompanies (AC2)',
   })
 
   it('TC-REQ375-13: zero outstanding companies (every outcome succeeded) HIDES the resume control entirely (absent, not disabled)', async () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
-    render(<PlatformMigrationConsolePage />)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    renderWithAccess(<PlatformMigrationConsolePage />, 'platformAdmin')
 
     startAndResolve(
       rolloutResult({
@@ -185,8 +185,8 @@ describe('REQ-375 — resume-control visibility, hasOutstandingCompanies (AC2)',
   })
 
   it('TC-REQ375-14: invoking the resume control calls useResumeRollout().mutate with the active rollout id', async () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
-    render(<PlatformMigrationConsolePage />)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    renderWithAccess(<PlatformMigrationConsolePage />, 'platformAdmin')
 
     startAndResolve(
       rolloutResult({
@@ -217,8 +217,8 @@ describe('REQ-375 — resume-control visibility, hasOutstandingCompanies (AC2)',
 
 describe('REQ-375 — no-op re-run distinguishability, isNoOpResult (AC3)', () => {
   it('TC-REQ375-15: a fresh run (not every outcome already_current) renders the fresh-run banner, not the no-op banner', async () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
-    render(<PlatformMigrationConsolePage />)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    renderWithAccess(<PlatformMigrationConsolePage />, 'platformAdmin')
 
     startAndResolve(
       rolloutResult({
@@ -234,8 +234,8 @@ describe('REQ-375 — no-op re-run distinguishability, isNoOpResult (AC3)', () =
   })
 
   it('TC-REQ375-16: a no-op re-run (every outcome already_current: true) renders the no-op banner INSTEAD of the fresh-run banner', async () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
-    render(<PlatformMigrationConsolePage />)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    renderWithAccess(<PlatformMigrationConsolePage />, 'platformAdmin')
 
     startAndResolve(
       rolloutResult({
@@ -251,8 +251,8 @@ describe('REQ-375 — no-op re-run distinguishability, isNoOpResult (AC3)', () =
   })
 
   it('TC-REQ375-18: isNoOpResult is scoped to the START mutation response only — a resume response never triggers the no-op banner', async () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
-    render(<PlatformMigrationConsolePage />)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    renderWithAccess(<PlatformMigrationConsolePage />, 'platformAdmin')
 
     // First: a normal fresh start with an outstanding company.
     startAndResolve(
@@ -286,8 +286,8 @@ describe('REQ-375 — no-op re-run distinguishability, isNoOpResult (AC3)', () =
 
 describe('REQ-375 — RolloutOutcomeTable / Row field mapping (AC1/EO-003)', () => {
   it('TC-REQ375-17: renders one row per company with outcome, completion time, and reason for non-succeeded companies only', async () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
-    render(<PlatformMigrationConsolePage />)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    renderWithAccess(<PlatformMigrationConsolePage />, 'platformAdmin')
 
     startAndResolve(
       rolloutResult({
@@ -339,8 +339,8 @@ describe('REQ-375 — RolloutOutcomeTable / Row field mapping (AC1/EO-003)', () 
     // 'pending', for BOTH 'succeeded' and 'failed' -- so the em-dash must be
     // reserved for the genuinely-still-pending case only, never inferred
     // from status !== 'succeeded'.
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
-    render(<PlatformMigrationConsolePage />)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    renderWithAccess(<PlatformMigrationConsolePage />, 'platformAdmin')
 
     startAndResolve(
       rolloutResult({
