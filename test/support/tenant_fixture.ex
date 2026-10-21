@@ -1349,6 +1349,59 @@ defmodule Letflow.TenantFixture.Pool do
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.Registration
 
+  @typedoc "A tenant shape: the five `slot_spec` fields with defaults applied."
+  @type shape :: %{
+          slug_prefix: String.t(),
+          display_name: String.t(),
+          oidc_mode: :enabled | :disabled,
+          idp_realm_id: String.t() | nil,
+          expected_tables: [String.t()] | :default
+        }
+
+  @typedoc "Names a slot: the shape and the occurrence index of that shape within one test."
+  @type slot_key :: {shape(), non_neg_integer()}
+
+  @typedoc """
+  One pooled tenant. `baseline` and the two snapshots are `nil` until the slot's first
+  clone completes; the snapshots are the JSON text of the tenant / registration rows.
+  """
+  @type slot :: %{
+          key: slot_key(),
+          shape: shape(),
+          tenant: Tenant.t(),
+          tenant_id: Ecto.UUID.t(),
+          schema_name: String.t(),
+          baseline: TenantTemplate.clone_baseline() | nil,
+          tenant_snapshot: String.t() | nil,
+          registration_snapshot: String.t() | nil,
+          status: :creating | :clean | :handed_out,
+          generation: non_neg_integer()
+        }
+
+  @typedoc "The pool worker's `GenServer` state."
+  @type worker_state :: %{
+          module: module(),
+          hooks: [after_verify: (String.t() -> any()), after_guard: (String.t() -> any())],
+          parity_check: boolean(),
+          slots: %{optional(slot_key()) => slot()},
+          order: [slot_key()],
+          public_keyed: [{table :: String.t(), column :: String.t()}],
+          public_sql: String.t() | nil,
+          tenant_columns: [String.t()],
+          registration_columns: [String.t()],
+          stats: %{
+            clones: non_neg_integer(),
+            acquires: non_neg_integer(),
+            resets: non_neg_integer(),
+            rebuilds: non_neg_integer(),
+            final_guard_resets: non_neg_integer(),
+            fallback_reasons: [atom()],
+            dirty_tables_truncated: non_neg_integer(),
+            digest_ms_total: non_neg_integer(),
+            reset_ms_total: non_neg_integer()
+          }
+        }
+
   @marker "LETFLOW_TENANT_FIXTURE"
   @fence_a_budget_ms 250
   @fence_end_budget_ms 500
@@ -1358,6 +1411,12 @@ defmodule Letflow.TenantFixture.Pool do
   # -- GenServer ------------------------------------------------------------------------
 
   @impl true
+  @spec init(%{
+          required(:module) => module(),
+          optional(:hooks) => keyword(),
+          optional(:parity_check) => boolean(),
+          optional(:expected_database) => String.t() | nil
+        }) :: {:ok, worker_state()}
   def init(%{module: module} = init) do
     # ISS-1061: defense in depth for a direct GenServer.start of this public module; a
     # raise here makes start return {:error, {exception, stacktrace}} with nothing created.
@@ -1389,6 +1448,8 @@ defmodule Letflow.TenantFixture.Pool do
   end
 
   @impl true
+  @spec handle_call(term(), GenServer.from(), worker_state()) ::
+          {:reply, term(), worker_state()}
   def handle_call({:create_slots, shapes}, _from, state) do
     state = discover_public(state)
 
