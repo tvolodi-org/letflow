@@ -296,7 +296,7 @@ defmodule Letflow.ModuleWritesFixture do
       )
 
     dispatch =
-      row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: schema)
+      row |> Ecto.Changeset.change(%{status: :advanced}) |> Repo.update!(prefix: schema)
 
     Map.merge(base, %{instance_id: child_id, parent_id: parent_id, dispatch: dispatch})
   end
@@ -306,7 +306,7 @@ defmodule Letflow.ModuleWritesFixture do
 
     dispatch =
       pending.dispatch
-      |> Ecto.Changeset.change(%{status: "advanced"})
+      |> Ecto.Changeset.change(%{status: :advanced})
       |> Repo.update!(prefix: base.schema)
 
     %{pending | dispatch: dispatch}

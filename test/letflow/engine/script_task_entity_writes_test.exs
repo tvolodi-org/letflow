@@ -168,7 +168,7 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
       assert event.metadata["source.activator_id"] == activator.id
 
       done = F.reload(schema, row)
-      assert {done.status, done.outcome} == {"applied", "ok"}
+      assert {done.status, done.outcome} == {:applied, "ok"}
 
       assert [audit] = Fx.audit_rows(schema, "entity_write.process_step")
       assert audit.actor_id == EventStore.platform_actor_id()
@@ -213,7 +213,7 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
       done = F.reload(schema, row)
 
       assert {done.status, done.outcome, done.outcome_detail} ==
-               {"failed", "script_rejected", "entity_write_refused"}
+               {:failed, "script_rejected", "entity_write_refused"}
 
       assert records(schema) == []
       assert Fx.step_idempotency_count(schema) == 0
@@ -262,7 +262,7 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
 
       assert :counters.get(counter, 1) == 2
       assert length(records(schema)) == 1
-      assert F.reload(schema, row).status == "applied"
+      assert F.reload(schema, row).status == :applied
     end
 
     test "exhaustion lands the row failed with entity_write_contention", %{
@@ -440,7 +440,7 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
       assert result == {{:ok, :applied}, 2}
       assert :counters.get(counter, 1) == 2
       assert runner_calls() == 1
-      assert F.reload(schema, row).status == "applied"
+      assert F.reload(schema, row).status == :applied
     end
 
     test "a refusal landing: one run, ONE apply call (no follow-up), the row failed", %{

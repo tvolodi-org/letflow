@@ -104,7 +104,7 @@ defmodule Letflow.Scripts.ScriptsReadsAndKillSwitchTest do
     test "a script reading input.reads passes its stored tests (fixture and absent read)", ctx do
       rule = draft!(ctx.schema, [cust()])
       assert {:ok, published} = publish(ctx.schema, rule)
-      assert published.status == "published"
+      assert published.status == :published
       assert published.test_cases == @two_cases
     end
 
@@ -225,7 +225,7 @@ defmodule Letflow.Scripts.ScriptsReadsAndKillSwitchTest do
       assert {:ok, _} = Policy.clear_readable_master(ctx.schema, "customer", "narrow", SP.actor())
 
       assert publish(ctx.schema, rule) == {:error, :reads_not_allowed}
-      assert status(ctx.schema, rule) == "draft"
+      assert status(ctx.schema, rule) == :draft
     end
 
     test "a flag cleared while the stored tests run refuses the publish in its transaction",
@@ -242,7 +242,7 @@ defmodule Letflow.Scripts.ScriptsReadsAndKillSwitchTest do
       end
 
       assert publish(ctx.schema, rule, true, before_case: clear) == {:error, :reads_not_allowed}
-      assert status(ctx.schema, rule) == "draft"
+      assert status(ctx.schema, rule) == :draft
     end
   end
 
@@ -302,7 +302,7 @@ defmodule Letflow.Scripts.ScriptsReadsAndKillSwitchTest do
       end
 
       assert publish(schema, during, true, before_case: restrict) == {:error, :reads_not_allowed}
-      assert status(schema, during) == "draft"
+      assert status(schema, during) == :draft
 
       # after publish: the 7c run-time check refuses
       SP.active_definition!(schema, "order", ["name", "tier", "ssn"])
@@ -328,7 +328,7 @@ defmodule Letflow.Scripts.ScriptsReadsAndKillSwitchTest do
                {:error, :scripts_disabled}
 
       refute_received {:case, _}
-      assert status(ctx.schema, rule) == "draft"
+      assert status(ctx.schema, rule) == :draft
     end
 
     test "a switch turned on between two cases stops the publish before case 2", ctx do
@@ -355,7 +355,7 @@ defmodule Letflow.Scripts.ScriptsReadsAndKillSwitchTest do
 
       assert_received {:case, 1}
       assert_received {:case, 2}
-      assert status(ctx.schema, rule) == "draft"
+      assert status(ctx.schema, rule) == :draft
     end
 
     test "a switch committed after the stored tests, while the publish holds its row lock, is caught inside the publish transaction",
@@ -380,7 +380,7 @@ defmodule Letflow.Scripts.ScriptsReadsAndKillSwitchTest do
 
       send(publisher_pid, :probe_continue)
       assert Task.await(publisher, 15_000) == {:error, :scripts_disabled}
-      assert status(ctx.schema, rule) == "draft"
+      assert status(ctx.schema, rule) == :draft
     end
 
     test "the :before_case seam is ignored unless :scripts_test_hooks is true", ctx do
@@ -407,7 +407,7 @@ defmodule Letflow.Scripts.ScriptsReadsAndKillSwitchTest do
         assert {:ok, published} = publish(ctx.schema, rule, true, before_case: switch_on),
                inspect(value)
 
-        assert published.status == "published"
+        assert published.status == :published
         refute_received {:case, _}
         refute Policy.kill_switch_on?(ctx.schema)
       end

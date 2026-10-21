@@ -252,7 +252,7 @@ defmodule Letflow.EngineCatalogServiceTaskTest do
   # {:ok, :already_final} otherwise); reproduce that precondition directly.
   defp mark_advanced!(tenant, row) do
     row
-    |> Ecto.Changeset.change(%{status: "advanced"})
+    |> Ecto.Changeset.change(%{status: :advanced})
     |> Repo.update!(prefix: tenant.schema_name)
   end
 
@@ -331,7 +331,7 @@ defmodule Letflow.EngineCatalogServiceTaskTest do
       assert projection(tenant, instance_id).status == :active
 
       assert [row] = dispatches(tenant, instance_id)
-      assert row.status == "pending"
+      assert row.status == :pending
       assert row.node_id == "svc"
       assert row.config_snapshot["route_kind"] == "catalog_service"
       assert row.config_snapshot["service_id"] == entry.service_id
@@ -439,7 +439,7 @@ defmodule Letflow.EngineCatalogServiceTaskTest do
 
       assert result.status == :active
       assert [row] = dispatches(tenant, result.instance_id)
-      assert row.status == "pending"
+      assert row.status == :pending
       assert row.config_snapshot["rendered_url"] == @v1_url
       assert row.config_snapshot["catalog_version_id"] == entry.version_id
     end
@@ -703,7 +703,7 @@ defmodule Letflow.EngineCatalogServiceTaskTest do
 
       rows = dispatches(tenant, result.instance_id)
       assert [second] = Enum.filter(rows, &(&1.node_id == "svc2"))
-      assert second.status == "pending"
+      assert second.status == :pending
       assert second.config_snapshot["route_kind"] == "catalog_service"
       assert second.config_snapshot["rendered_url"] == @v1_url
       assert second.config_snapshot["catalog_version_id"] == entry.version_id

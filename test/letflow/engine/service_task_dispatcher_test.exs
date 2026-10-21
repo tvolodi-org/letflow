@@ -236,7 +236,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       refute ServiceTask.is_retriable_failure(:request_build_error)
 
       reloaded = reload!(schema_name, dispatch.id)
-      assert reloaded.status == "given_up"
+      assert reloaded.status == :given_up
       assert reloaded.attempt_index == 0
 
       refute_receive {:webhook_test_server_request, _request}, 200
@@ -255,7 +255,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
                ServiceTaskDispatcher.attempt_dispatch(dispatch.id, schema_name)
 
       assert error_attrs.details.last_failure_kind == :request_build_error
-      assert reload!(schema_name, dispatch.id).status == "given_up"
+      assert reload!(schema_name, dispatch.id).status == :given_up
     end
 
     test "gate bypassed by the test seam: a real 2xx JSON response advances the row" do
@@ -275,7 +275,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert {:ok, {:advance, %{"result" => "ok"}}} =
                ServiceTaskDispatcher.attempt_dispatch(dispatch.id, schema_name)
 
-      assert reload!(schema_name, dispatch.id).status == "advanced"
+      assert reload!(schema_name, dispatch.id).status == :advanced
       assert_receive {:webhook_test_server_request, _request}, 1_000
     end
 
@@ -300,7 +300,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
                  ServiceTaskDispatcher.attempt_dispatch(dispatch.id, schema_name)
 
         assert error_attrs.details.last_failure_kind == :request_build_error
-        assert reload!(schema_name, dispatch.id).status == "given_up"
+        assert reload!(schema_name, dispatch.id).status == :given_up
         refute_receive {:webhook_test_server_request, _request}, 200
       end
     end
@@ -338,7 +338,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert decoded_body == %{"result" => "ok"}
 
       reloaded = reload!(schema_name, dispatch.id)
-      assert reloaded.status == "advanced"
+      assert reloaded.status == :advanced
       assert reloaded.dispatched_at != nil
     end
 
@@ -359,7 +359,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
                ServiceTaskDispatcher.attempt_dispatch(dispatch.id, schema_name)
 
       reloaded = reload!(schema_name, dispatch.id)
-      assert reloaded.status == "pending"
+      assert reloaded.status == :pending
       assert reloaded.attempt_index == 1
       assert reloaded.last_failure_kind == "network"
 
@@ -402,7 +402,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert error_attrs.details.retry_limit == 0
 
       reloaded = reload!(schema_name, dispatch.id)
-      assert reloaded.status == "given_up"
+      assert reloaded.status == :given_up
       assert reloaded.last_failure_kind == "network"
     end
   end
@@ -601,7 +601,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       dispatch = insert_dispatch!(schema_name, instance_id)
 
       dispatch
-      |> ServiceTaskDispatch.terminal_changeset(%{status: "advanced", dispatched_at: now()})
+      |> ServiceTaskDispatch.terminal_changeset(%{status: :advanced, dispatched_at: now()})
       |> Repo.update!(prefix: schema_name)
 
       assert [] = ServiceTaskDispatcher.claim_due_dispatch_ids(schema_name, 64)
@@ -665,7 +665,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert error_attrs.details.last_failure_kind == :request_build_error
 
       reloaded = reload!(schema_name, dispatch.id)
-      assert reloaded.status == "given_up"
+      assert reloaded.status == :given_up
       assert reloaded.last_failure_kind == "request_build_error"
       assert reloaded.dispatched_at != nil
     end
@@ -736,7 +736,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       dispatch = insert_dispatch!(schema_name, instance_id)
 
       dispatch
-      |> ServiceTaskDispatch.terminal_changeset(%{status: "advanced", dispatched_at: now()})
+      |> ServiceTaskDispatch.terminal_changeset(%{status: :advanced, dispatched_at: now()})
       |> Repo.update!(prefix: schema_name)
 
       assert {:ok, :already_final} =
@@ -774,7 +774,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert error_attrs.details.last_failure_kind == :request_build_error
 
       reloaded = reload!(schema_name, dispatch.id)
-      assert reloaded.status == "given_up"
+      assert reloaded.status == :given_up
       assert reloaded.last_failure_kind == "request_build_error"
     end
 
@@ -830,7 +830,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert error_attrs.details.last_failure_kind == :request_build_error
 
       reloaded = reload!(schema_name, dispatch.id)
-      assert reloaded.status == "given_up"
+      assert reloaded.status == :given_up
       assert reloaded.last_failure_kind == "request_build_error"
     end
 
@@ -854,7 +854,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert error_attrs.details.last_failure_kind == :request_build_error
 
       reloaded = reload!(schema_name, dispatch.id)
-      assert reloaded.status == "given_up"
+      assert reloaded.status == :given_up
       assert reloaded.last_failure_kind == "request_build_error"
     end
 
@@ -881,7 +881,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert result.retried == 0
 
       reloaded_malformed = reload!(schema_name, malformed.id)
-      assert reloaded_malformed.status == "given_up"
+      assert reloaded_malformed.status == :given_up
       assert reloaded_malformed.last_failure_kind == "request_build_error"
     end
 
@@ -916,7 +916,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert result.retried == 0
 
       reloaded = reload!(schema_name, malformed_method.id)
-      assert reloaded.status == "given_up"
+      assert reloaded.status == :given_up
       assert reloaded.last_failure_kind == "request_build_error"
     end
 
@@ -953,11 +953,11 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert result.retried == 0
 
       reloaded_route_kind = reload!(schema_name, malformed_route_kind.id)
-      assert reloaded_route_kind.status == "given_up"
+      assert reloaded_route_kind.status == :given_up
       assert reloaded_route_kind.last_failure_kind == "request_build_error"
 
       reloaded_method = reload!(schema_name, malformed_method.id)
-      assert reloaded_method.status == "given_up"
+      assert reloaded_method.status == :given_up
       assert reloaded_method.last_failure_kind == "request_build_error"
     end
   end
@@ -1523,7 +1523,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcherTest do
       assert log =~ "service_task.outbound_request_sent"
 
       reloaded = reload!(schema_name, dispatch.id)
-      assert reloaded.status == "advanced"
+      assert reloaded.status == :advanced
       assert reloaded.dispatched_at != nil
     end
   end

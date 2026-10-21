@@ -80,16 +80,16 @@ defmodule Letflow.Engine.ScriptTaskCancelRaceTest do
     assert projection.status == :cancelled
     # the instance advanced (svc1's output merged) before it was cancelled
     assert projection.variables["total"] == 4
-    assert F.reload(t.schema_name, row).status == "applied"
+    assert F.reload(t.schema_name, row).status == :applied
 
     # R9: svc2's row, armed by the apply that committed while the cancel waited, may be left
     # `pending` on the cancelled instance. It is inert: the claim requires an active instance.
     leftover = Enum.reject(F.rows(t.schema_name, b.instance_id), &(&1.id == row.id))
     assert [%{node_id: "svc2"} = svc2] = leftover
-    assert svc2.status in ["pending", "cancelled"]
-    if svc2.status == "pending", do: F.make_due!(t.schema_name, svc2)
+    assert svc2.status in [:pending, :cancelled]
+    if svc2.status == :pending, do: F.make_due!(t.schema_name, svc2)
     assert ScriptTaskDispatcher.claim_next(t.schema_name) == :none
-    assert F.reload(t.schema_name, svc2).status != "running"
+    assert F.reload(t.schema_name, svc2).status != :running
   end
 
   test "cancel first: the apply waits, then is stale and writes nothing", %{t: t} do
@@ -116,7 +116,7 @@ defmodule Letflow.Engine.ScriptTaskCancelRaceTest do
 
     assert F.projection(t.schema_name, b.instance_id).status == :cancelled
     refute Map.has_key?(F.projection(t.schema_name, b.instance_id).variables, "total")
-    assert F.reload(t.schema_name, row).status == "cancelled"
+    assert F.reload(t.schema_name, row).status == :cancelled
 
     types = F.event_types(t.schema_name, b.instance_id)
     refute "SCRIPT_TASK_COMPLETED" in types

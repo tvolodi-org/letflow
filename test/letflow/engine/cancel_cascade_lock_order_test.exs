@@ -215,7 +215,7 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
               where: d.instance_id == ^child.instance_id
             )
             |> Repo.one!(prefix: base.schema)
-            |> Ecto.Changeset.change(%{status: "advanced"})
+            |> Ecto.Changeset.change(%{status: :advanced})
             |> Repo.update!(prefix: base.schema)
 
           {fn ->
@@ -399,7 +399,7 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
     assert [_one] = Fx.instance_events(schema, s.child_id, last_node_event)
 
     if s.dispatch_id do
-      assert Fx.dispatch!(schema, s.dispatch_id).status == "advanced"
+      assert Fx.dispatch!(schema, s.dispatch_id).status == :advanced
     end
 
     assert Fx.dlq_entries(schema) == []

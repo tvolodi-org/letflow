@@ -120,7 +120,7 @@ defmodule Letflow.Engine.RegulatoryReviewTimerPathTest do
 
   # Reproduce attempt_dispatch/2's precondition (status "advanced") -- no HTTP.
   defp mark_advanced!(schema, row) do
-    row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: schema)
+    row |> Ecto.Changeset.change(%{status: :advanced}) |> Repo.update!(prefix: schema)
   end
 
   # ---------------------------------------------------------------------------------
@@ -157,7 +157,7 @@ defmodule Letflow.Engine.RegulatoryReviewTimerPathTest do
 
     assert [row] = dispatches(schema, instance_id)
     assert row.node_id == "regulatory-auto-escalation"
-    assert row.status == "pending"
+    assert row.status == :pending
 
     assert row.config_snapshot["rendered_url"] ==
              "https://httpbin.org/anything/compliance/regulatory-notice"
@@ -191,7 +191,7 @@ defmodule Letflow.Engine.RegulatoryReviewTimerPathTest do
 
     refute Enum.any?(events, &(&1.event_type == "EXECUTION_ERROR"))
 
-    assert Enum.all?(dispatches(schema, instance_id), &(&1.status != "pending"))
+    assert Enum.all?(dispatches(schema, instance_id), &(&1.status != :pending))
 
     pending_timers =
       Timer

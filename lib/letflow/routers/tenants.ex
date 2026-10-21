@@ -148,8 +148,8 @@ defmodule Letflow.Routers.Tenants do
 
   ## Response allowlist (design §8)
 
-  `tenant_map/1` is a hand-built map with exactly the seven keys (six plus REQ-442's
-  PLATFORM_ADMIN-only `login_disclosure_mode`) named in its
+  `tenant_map/1` is a hand-built map with exactly the eight keys (six plus REQ-442's
+  PLATFORM_ADMIN-only `login_disclosure_mode` and REQ-469's `tenant_type`) named in its
   own @doc — never a `Jason.Encoder` derivation over `%Letflow.Identity.Tenant{}`.
   `idp_realm_id` is deliberately excluded (design's own OQ-6, ELIXIR-DEV's
   call, confirmed here: no confirmed precedent from R-Co's `serializeTenant`
@@ -284,6 +284,12 @@ defmodule Letflow.Routers.Tenants do
       reject_empty_string: true,
       min_length: 1,
       max_length: 255
+    },
+    %FieldConstraint{
+      name: "tenant_type",
+      required: false,
+      type: :string,
+      allowed_values: ["test", "production"]
     }
   ]
 
@@ -389,6 +395,12 @@ defmodule Letflow.Routers.Tenants do
       required: false,
       type: :string,
       allowed_values: ["uniform_plus_email", "redirect_single"]
+    },
+    %FieldConstraint{
+      name: "tenant_type",
+      required: false,
+      type: :string,
+      allowed_values: ["test", "production"]
     }
   ]
 
@@ -716,10 +728,11 @@ defmodule Letflow.Routers.Tenants do
   # ── Response allowlist (design §8) ──────────────────────────────────────
 
   @doc false
-  # Exactly 7 keys, hand-built -- never a Jason.Encoder derivation over the
+  # Exactly 8 keys, hand-built -- never a Jason.Encoder derivation over the
   # full %Tenant{} struct. `idp_realm_id` is deliberately excluded (OQ-6,
   # see moduledoc). `login_disclosure_mode` (REQ-442) is PLATFORM_ADMIN-only
-  # here; this is the one shaper allowed to carry it (INV-2).
+  # here; this is the one shaper allowed to carry it (INV-2). `tenant_type` (REQ-469) is
+  # a closed two-value enumeration.
   @spec tenant_map(Tenant.t()) :: map()
   defp tenant_map(%Tenant{} = tenant) do
     %{
@@ -728,6 +741,7 @@ defmodule Letflow.Routers.Tenants do
       "display_name" => tenant.display_name,
       "status" => Atom.to_string(tenant.status),
       "login_disclosure_mode" => tenant.login_disclosure_mode,
+      "tenant_type" => tenant.tenant_type,
       "inserted_at" => iso8601(tenant.inserted_at),
       "updated_at" => iso8601(tenant.updated_at)
     }

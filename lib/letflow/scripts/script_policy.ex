@@ -16,6 +16,10 @@ defmodule Letflow.Scripts.ScriptPolicy do
   only those columns, never a kill-switch column. A DB CHECK refuses a declared
   `solo_audited` while the platform forbids it.
 
+  `sod` is an `Ecto.Enum` over the `:string` column (GH 2603): its atoms equal the DB CHECK set
+  (`strict | solo_audited`), which stays the backstop, so an invalid value is a changeset error
+  from `cast/3`; external forms (JSON, audit entries) render it via `Atom.to_string/1`.
+
   The row is created by the migration and never deleted; the `script_policy_guard` trigger
   refuses a DELETE and any change of `id` or `inserted_at` (SQLSTATE `LF001`).
   """
@@ -58,7 +62,7 @@ defmodule Letflow.Scripts.ScriptPolicy do
     field(:platform_kill_switch_reason, :string)
     # GH 2534 PR 7b-2b (design gh2534-7b2b-script-sod.md 3.1): the DECLARED sod policy and the
     # platform flag allowing `solo_audited` (default forbidden, S2).
-    field(:sod, :string, default: "strict")
+    field(:sod, Ecto.Enum, values: [:strict, :solo_audited], default: :strict)
     field(:sod_set_by, :binary_id)
     field(:sod_set_by_class, :string)
     field(:sod_set_at, :utc_datetime_usec)

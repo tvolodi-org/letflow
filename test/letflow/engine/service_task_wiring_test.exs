@@ -302,7 +302,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       # the rendered_url (AC1's own "dispatched against" wording -- proven by
       # a real row existing with the real server's URL frozen into it).
       assert [dispatch] = dispatches_for(schema_name, instance_id)
-      assert dispatch.status == "pending"
+      assert dispatch.status == :pending
       assert dispatch.node_id == "svc"
       assert dispatch.config_snapshot["rendered_url"] == server_url
       assert dispatch.config_snapshot["route_kind"] == "inline_url"
@@ -315,7 +315,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       assert decoded_body == %{"approved" => true, "limit" => 5000}
 
       reloaded_dispatch = Repo.get!(ServiceTaskDispatch, dispatch.id, prefix: schema_name)
-      assert reloaded_dispatch.status == "advanced"
+      assert reloaded_dispatch.status == :advanced
 
       # This requirement's own re-entry function, called the same way
       # ServiceTaskDispatcher.poll_and_dispatch/1's reduce loop calls it
@@ -416,7 +416,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       assert {:ok, result} = Engine.create(base_attrs(definition), prefix: schema_name)
       instance_id = result.instance_id
       assert [dispatch] = dispatches_for(schema_name, instance_id)
-      assert dispatch.status == "pending"
+      assert dispatch.status == :pending
 
       # The real poller entry point (design doc §3.1's own reduce loop) --
       # claims, dispatches, and advances the token in one call, with no
@@ -430,7 +430,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
                ServiceTaskDispatcher.poll_and_dispatch(schema_name)
 
       reloaded_dispatch = Repo.get!(ServiceTaskDispatch, dispatch.id, prefix: schema_name)
-      assert reloaded_dispatch.status == "advanced"
+      assert reloaded_dispatch.status == :advanced
 
       final_projection = Repo.get!(InstanceProjection, instance_id, prefix: schema_name)
       assert final_projection.status == :completed
@@ -601,7 +601,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
 
   # ---------------------------------------------------------------------------------
   # AC5 -- cancelling an instance with a still-pending service_task_dispatches
-  # row marks that row status: "given_up", last_failure_kind:
+  # row marks that row status: :given_up, last_failure_kind:
   # "instance_cancelled" (the verified schema-shape-forced decision, design
   # doc §4 -- no "cancelled" status value exists in this table's own domain)
   # in the SAME transaction as the instance's own status flip, and REQ-214's
@@ -619,14 +619,14 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       assert {:ok, result} = Engine.create(base_attrs(definition), prefix: schema_name)
       instance_id = result.instance_id
 
-      assert [%ServiceTaskDispatch{status: "pending"} = dispatch] =
+      assert [%ServiceTaskDispatch{status: :pending} = dispatch] =
                dispatches_for(schema_name, instance_id)
 
       assert {:ok, _cancelled} =
                Engine.cancel_instance(instance_id, cancel_attrs(), prefix: schema_name)
 
       reloaded = Repo.get!(ServiceTaskDispatch, dispatch.id, prefix: schema_name)
-      assert reloaded.status == "given_up"
+      assert reloaded.status == :given_up
       assert reloaded.last_failure_kind == "instance_cancelled"
       assert reloaded.dispatched_at != nil
 
@@ -644,7 +644,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
 
     test "cancel_pending_dispatches/4 only touches PENDING rows -- an already-advanced row for the SAME instance is left untouched" do
       # Regression guard for the status filter itself
-      # (`d.status == "pending"` in ServiceTaskDispatcher.cancel_pending_dispatches/4)
+      # (`d.status == :pending` in ServiceTaskDispatcher.cancel_pending_dispatches/4)
       # -- mutation-confirmed this session: removing that filter clause (while
       # keeping the instance_id filter intact) left every other test in this
       # suite green, since none of them independently seed a SECOND,
@@ -715,7 +715,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       assert {:ok, already_advanced_dispatch} =
                already_advanced_dispatch
                |> ServiceTaskDispatch.terminal_changeset(%{
-                 status: "advanced",
+                 status: :advanced,
                  dispatched_at: now
                })
                |> Repo.update(prefix: schema_name)
@@ -731,7 +731,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
                )
 
       reloaded_pending = Repo.get!(ServiceTaskDispatch, pending_dispatch.id, prefix: schema_name)
-      assert reloaded_pending.status == "given_up"
+      assert reloaded_pending.status == :given_up
       assert reloaded_pending.last_failure_kind == "instance_cancelled"
 
       # The already-"advanced" row on the SAME instance is completely
@@ -739,7 +739,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       reloaded_advanced =
         Repo.get!(ServiceTaskDispatch, already_advanced_dispatch.id, prefix: schema_name)
 
-      assert reloaded_advanced.status == "advanced"
+      assert reloaded_advanced.status == :advanced
       assert reloaded_advanced.last_failure_kind == nil
       assert reloaded_advanced.dispatched_at != nil
     end
@@ -754,7 +754,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       assert {:ok, result} = Engine.create(base_attrs(definition), prefix: schema_name)
       instance_id = result.instance_id
 
-      assert [%ServiceTaskDispatch{status: "pending"} = dispatch] =
+      assert [%ServiceTaskDispatch{status: :pending} = dispatch] =
                dispatches_for(schema_name, instance_id)
 
       too_long_key = String.duplicate("x", 256)
@@ -770,7 +770,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       # everything else in run_cancel_instance/5's own Multi -- still
       # pending, not given_up.
       reloaded = Repo.get!(ServiceTaskDispatch, dispatch.id, prefix: schema_name)
-      assert reloaded.status == "pending"
+      assert reloaded.status == :pending
       assert reloaded.last_failure_kind == nil
 
       projection = Repo.get!(InstanceProjection, instance_id, prefix: schema_name)
@@ -820,7 +820,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
                ServiceTaskDispatcher.attempt_dispatch(claimed_id, schema_name)
 
       reloaded = Repo.get!(ServiceTaskDispatch, dispatch.id, prefix: schema_name)
-      assert reloaded.status == "given_up"
+      assert reloaded.status == :given_up
       assert reloaded.last_failure_kind == "instance_cancelled"
 
       # No real HTTP request was ever sent to the real server for this row --
@@ -1419,7 +1419,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       assert {:ok, result} = Engine.create(base_attrs(definition), prefix: schema_name)
       instance_id = result.instance_id
 
-      assert [%ServiceTaskDispatch{status: "pending"}] = dispatches_for(schema_name, instance_id)
+      assert [%ServiceTaskDispatch{status: :pending}] = dispatches_for(schema_name, instance_id)
 
       # ServiceTaskDispatcher.poll_and_dispatch/1 is the real entry point --
       # attempt_dispatch/2 (its own, already-committed transaction) resolves
@@ -1437,7 +1437,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       # rollback, matching do_persist_service_task_advance/10's own
       # moduledoc note that it never re-updates that status).
       refute Enum.any?(Repo.all(EngineTask, prefix: schema_name), &(&1.node_id == "task"))
-      assert [%ServiceTaskDispatch{status: "advanced"}] = dispatches_for(schema_name, instance_id)
+      assert [%ServiceTaskDispatch{status: :advanced}] = dispatches_for(schema_name, instance_id)
 
       assert [entry] =
                Enum.filter(
@@ -1635,7 +1635,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
     instance_id = result.instance_id
 
     assert [dispatch] = dispatches_for(schema_name, instance_id)
-    assert dispatch.status == "pending"
+    assert dispatch.status == :pending
     assert dispatch.node_id == "svc"
 
     assert {:ok, {:advance, decoded_body}} =
@@ -1683,7 +1683,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       assert service_task_completed_events_for(schema_name, instance_id) == []
 
       # at-most-once: the dispatch row stays "advanced", never re-armed.
-      assert [%ServiceTaskDispatch{status: "advanced"}] = dispatches_for(schema_name, instance_id)
+      assert [%ServiceTaskDispatch{status: :advanced}] = dispatches_for(schema_name, instance_id)
 
       # token stays parked at the SERVICE_TASK node.
       assert [%TokenRecord{node_id: "svc", status: :active}] =
@@ -1720,7 +1720,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       # Pins that dispatch itself was never the bug: the fork-branch dispatch row
       # is armed `pending` at create time and the sibling human task exists.
       assert [dispatch] = dispatches_for(schema_name, instance_id)
-      assert dispatch.status == "pending"
+      assert dispatch.status == :pending
       assert dispatch.node_id == "svc"
 
       assert [%EngineTask{node_id: "h1", status: :pending} = h1] =
@@ -1912,7 +1912,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       assert entry.after_state == %{"node_id" => "svc", "reason" => "unknown_token_id"}
 
       # dispatch row is deliberately NOT reverted (at-most-once HTTP dispatch).
-      assert [%ServiceTaskDispatch{status: "advanced"}] = dispatches_for(schema_name, instance_id)
+      assert [%ServiceTaskDispatch{status: :advanced}] = dispatches_for(schema_name, instance_id)
       assert Repo.get!(InstanceProjection, instance_id, prefix: schema_name).status == :active
     end
 
@@ -2059,7 +2059,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       assert {:ok, result} = Engine.create(base_attrs(definition), prefix: schema_name)
       instance_id = result.instance_id
 
-      assert [%ServiceTaskDispatch{status: "pending"}] = dispatches_for(schema_name, instance_id)
+      assert [%ServiceTaskDispatch{status: :pending}] = dispatches_for(schema_name, instance_id)
 
       Repo.query!(~s(DROP TABLE "#{schema_name}".audit_entries))
 
@@ -2101,7 +2101,7 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       # attempt_dispatch/2's own, separate, already-committed transaction --
       # untouched by this rollback).
       refute Enum.any?(Repo.all(EngineTask, prefix: schema_name), &(&1.node_id == "task"))
-      assert [%ServiceTaskDispatch{status: "advanced"}] = dispatches_for(schema_name, instance_id)
+      assert [%ServiceTaskDispatch{status: :advanced}] = dispatches_for(schema_name, instance_id)
     end
   end
 
