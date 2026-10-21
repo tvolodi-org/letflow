@@ -259,6 +259,29 @@ defmodule Letflow.Api.Error do
   end
 
   @doc """
+  HTTP 422 — Module Install DDL Failed (GH #2540).
+
+  Returned by `POST /tenant/modules` and `POST /tenant/solutions` when a database
+  error (a real DDL failure while promoting a column or creating an entity table)
+  aborts the install. The whole install was rolled back in one transaction, so
+  nothing is left behind and the call may be retried once the cause is fixed.
+  The body carries the constant `code` `"module_install_ddl_failed"` and a fixed
+  detail. Takes no argument, so no SQL text, schema or table name, module id or
+  stack trace can reach the body (INV-8).
+  """
+  @spec module_install_ddl_failed() :: t()
+  def module_install_ddl_failed do
+    %__MODULE__{
+      type: @problems_base <> "module-install-ddl-failed",
+      title: "Module Install DDL Failed",
+      status: 422,
+      detail:
+        "module installation failed because a database change could not be applied; nothing was installed",
+      extensions: %{"code" => "module_install_ddl_failed"}
+    }
+  end
+
+  @doc """
   HTTP 409 — Record Version Conflict (GH #2528).
 
   Returned when an entity record update or delete carried an

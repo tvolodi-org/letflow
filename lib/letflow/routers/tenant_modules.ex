@@ -84,6 +84,9 @@ defmodule Letflow.Routers.TenantModules do
       {:error, {:dependency_not_installed, dep_id}} ->
         Response.unprocessable(conn, "missing dependency: #{dep_id}")
 
+      {:error, :module_install_ddl_failed} ->
+        Response.module_install_ddl_failed(conn)
+
       {:error, {:pack_install_failed, _reason}} ->
         Response.unprocessable(conn, "module installation failed")
 
