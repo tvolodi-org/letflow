@@ -320,6 +320,17 @@ test.describe('Pipeline: platform-definition-promotion-conflict-rejected (PW-01)
 
     // ── Step 08: scenario step 5 — attempt to release with the now-stale approval ──
     await pl.step('08: EO-004 — the stale approval cannot release; refused with the same named-conflict shape', async (s) => {
+      // The rehearsal gate (assertion_run_missing) comes before the conflict re-check, so
+      // record a passing assertion run for the stale review first, as the happy-path helper does.
+      const assertResp = await request.post(`${API_BASE_URL}/api/v1/promotions/${s.reviewId}/run-assertions`, {
+        headers: authHeaders(adminToken),
+        data: {
+          plan_digest: s.planDigest,
+          artifact: { id: `${processKey}-rehearsal`, assertions: [], fixtures: [], rng_seed: 42, non_deterministic_fields: [], candidate_definitions: [] },
+        },
+      })
+      pl.gate(assertResp.ok(), `run-assertions failed: ${assertResp.status()} ${await assertResp.text()}`)
+
       const applyResp = await request.post(`${API_BASE_URL}/api/v1/promotions/${s.reviewId}/apply`, {
         headers: authHeaders(adminToken),
         data: { plan_digest: s.planDigest },
