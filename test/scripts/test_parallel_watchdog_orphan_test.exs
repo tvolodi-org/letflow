@@ -243,9 +243,11 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
     ArgumentError -> :ok
   end
 
-  # Secondary, portable-where-possible check: no surviving `sleep @timeout_s`. `ps -eo
-  # args` is procps (Linux CI); git-bash's ps does not support it, so the check is
-  # skipped there -- the EOF-timing assertion above is the primary one.
+  # Secondary check: no surviving `sleep @timeout_s`. The listing is a /proc scan run by
+  # bash itself (the same technique the stub uses), because `ps -eo args` is procps-only
+  # and git-bash's ps rejects it -- GH #2457: the check was silently skipped there, so the
+  # test could not see the orphan. If the scan cannot run, the test FAILS with the reason
+  # instead of skipping.
   #
   # ISS-1080: a group-killed `sleep` can still be LISTED for a few ms after the script
   # returned (it is being reaped), so the listing is polled every 100 ms for up to 5 s and
@@ -253,16 +255,18 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
   # for @timeout_s+) is still there, a reaped one is gone.
   defp assert_no_orphan_sleep(timeout_s) do
     case orphan_survivors(timeout_s, 50) do
-      :unsupported ->
-        :ok
+      {:error, reason} ->
+        flunk("cannot list processes to check for an orphaned watchdog sleep: #{reason}")
 
       survivors ->
         assert survivors == [], "orphaned watchdog sleep survived: #{inspect(survivors)}"
     end
   end
 
+  @proc_scan ~S{for d in /proc/[0-9]*; do tr '\0' ' ' <"$d/cmdline" 2>/dev/null; echo; done}
+
   defp orphan_survivors(timeout_s, attempts_left) do
-    case System.cmd("ps", ["-eo", "args"], stderr_to_stdout: true) do
+    case System.cmd(bash(), ["-c", @proc_scan], stderr_to_stdout: true) do
       {out, 0} ->
         survivors =
           out |> String.split("\n") |> Enum.filter(&(&1 =~ ~r/(^|\s|\/)sleep #{timeout_s}\s*$/))
@@ -274,11 +278,11 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
           orphan_survivors(timeout_s, attempts_left - 1)
         end
 
-      _ ->
-        :unsupported
+      {out, status} ->
+        {:error, "exit #{status}: #{out}"}
     end
   rescue
-    ErlangError -> :unsupported
+    e in ErlangError -> {:error, Exception.message(e)}
   end
 
   defp unique_timeout, do: @timeout_s + :rand.uniform(300)
