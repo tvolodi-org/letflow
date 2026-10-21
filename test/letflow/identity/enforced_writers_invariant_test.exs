@@ -112,7 +112,7 @@ defmodule Letflow.Identity.EnforcedWritersInvariantTest do
 
   # ===========================================================================================
   describe "T-I1 in an on tenant no writer increases the count of tenant_wide rows" do
-    property "random sequences over the writer set never add a tenant-wide row" do
+    test "random sequences over the writer set never add a tenant-wide row" do
       fx = seeded_tenant!("req519-i1", :on)
       s = fx.schema_name
       groups = groups!(fx)
