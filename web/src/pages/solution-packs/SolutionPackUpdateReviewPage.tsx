@@ -8,6 +8,7 @@
  */
 import React, { useMemo, useState } from 'react'
 import { Navigate, useLocation, useParams } from 'react-router-dom'
+import { P, useAccess, AccessPending } from '@/auth/access'
 import { useAuth } from '@/auth/AuthContext'
 import { PageLayout } from '@/components/ui/PageLayout'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
@@ -38,7 +39,8 @@ export default function SolutionPackUpdateReviewPage(): React.ReactElement {
   const { packId } = useParams<{ packId: string }>()
   const location = useLocation()
   const { session } = useAuth()
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.can(P.ModulesManage)
 
   const [resolutionDrafts, setResolutionDrafts] = useState<Map<string, ResolutionDraft>>(new Map())
   const [sessionAttribution, setSessionAttribution] = useState<Map<string, { resolvedBy: string; resolvedAt: string }>>(new Map())
@@ -85,7 +87,9 @@ export default function SolutionPackUpdateReviewPage(): React.ReactElement {
     [entries, resolutionDrafts],
   )
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 

@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useInstances, useStartInstance } from '@/hooks/useInstances'
 import { useDefinitions, useDefinition } from '@/hooks/useDefinitions'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess } from '@/auth/access'
 import { usePolling } from '@/hooks/usePolling'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import type { ProcessInstance, InstanceStatus } from '@/types/api'
@@ -18,7 +18,6 @@ import { formatDateTime, formatTime } from '@/i18n/format'
 import { deferClickState } from '@/utils/deferClickState'
 
 const STATUS_OPTIONS: InstanceStatus[] = ['ACTIVE', 'COMPLETED', 'CANCELLED', 'ERROR']
-const START_ROLES = ['PLATFORM_ADMIN', 'PROCESS_OPERATOR', 'PROCESS_DESIGNER']
 
 function toISODate(value: string | undefined): string {
   if (!value) return '—'
@@ -42,7 +41,6 @@ function parseStatusFilter(searchParams: URLSearchParams): InstanceStatus[] {
 export default function InstanceBoardPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { session } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const tenantKeys = useTenantScopedQueryKeys()
 
@@ -80,7 +78,7 @@ export default function InstanceBoardPage() {
   const [startError, setStartError] = useState<string | null>(null)
   const [startValidationError, setStartValidationError] = useState<string | null>(null)
 
-  const canStartInstance = session?.roles.some((role) => START_ROLES.includes(role)) ?? false
+  const canStartInstance = useAccess().can(P.InstancesStart)
 
   const { data: definitionTypeahead, isLoading: isLoadingDefinitionTypeahead } = useDefinitions({
     status: 'ACTIVE',

@@ -50,7 +50,6 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
       session: {
         token: 't',
         display_name: 'Admin',
-        roles: ['PLATFORM_ADMIN'],
         loginSource: 'oidc' as const,
         tenant_slug: null,
         tenant_display_name: null,

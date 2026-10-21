@@ -1,6 +1,6 @@
 /** PromotionReviewPage — ISS-0730: mounts the promotion-review GUI flow
  *  (PRM-04 state machine + PRM-05 non-skippable approval gate) behind a
- *  direct-URL-only route, gated on PLATFORM_ADMIN.
+ *  direct-URL-only route, gated on platform-admin role.
  *
  *  Reached only via a direct URL (definitions/:id/promotions/:reviewId)
  *  known to the reviewer out-of-band -- no nav entry, no contextual link.
@@ -10,6 +10,7 @@
 
 import React, { useMemo } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
+import { P, useAccess, AccessPending } from '@/auth/access'
 import { useAuth } from '@/auth/AuthContext'
 import { decodeTokenPayload } from '@/auth/tokenUtils'
 import {
@@ -29,7 +30,8 @@ export default function PromotionReviewPage(): React.ReactElement {
   // any query here.
   const { reviewId } = useParams<{ id: string; reviewId: string }>()
   const { session } = useAuth()
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.can(P.PromotionsRead)
 
   const currentUserId = useMemo(
     () => (session?.token ? decodeTokenPayload(session.token)?.sub ?? null : null),
@@ -44,7 +46,9 @@ export default function PromotionReviewPage(): React.ReactElement {
 
   const state: RendererState = isLoading ? 'loading' : isError ? classifyError(error) : 'success'
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 

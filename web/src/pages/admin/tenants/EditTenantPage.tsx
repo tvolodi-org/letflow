@@ -1,6 +1,6 @@
 /** EditTenantPage — TM-03
  *
- * Allows PLATFORM_ADMIN to edit mutable fields of an existing tenant:
+ * Allows platform-admin role to edit mutable fields of an existing tenant:
  * display_name, hostname, redirect_uris. Slug and idp_realm_id are read-only.
  * On save: PATCH /api/v1/tenants/:slug with only changed fields.
  * On success: toast message + navigate to /admin/tenants.
@@ -11,7 +11,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useAuth } from '@/auth/AuthContext'
+import { useAccess, AccessPending } from '@/auth/access'
 import { tenantsApi } from '@/api/tenants'
 import { queryKeys } from '@/api/queryKeys'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
@@ -57,7 +57,7 @@ const readOnlyValueStyle: React.CSSProperties = {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function EditTenantPage() {
-  const { session } = useAuth()
+  const access = useAccess()
   const navigate = useNavigate()
   const { slug } = useParams<{ slug: string }>()
   const qc = useQueryClient()
@@ -113,7 +113,8 @@ export default function EditTenantPage() {
   })
 
   // Role guard — after all hooks
-  if (!session?.roles.includes('PLATFORM_ADMIN')) {
+  if (!access.isReady) return <AccessPending access={access} />
+  if (!access.canManageTenants) {
     return <Navigate to="/instances" replace />
   }
 

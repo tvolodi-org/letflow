@@ -7,12 +7,12 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
+import { screen, cleanup, fireEvent, act } from '@testing-library/react'
 import React from 'react'
 expect.extend(jestDomMatchers)
 
 vi.mock('@/auth/AuthContext', () => ({
-  useAuth: vi.fn(() => ({ session: { roles: ['PLATFORM_ADMIN'], token: 't' } })),
+  useAuth: vi.fn(() => ({ session: { roles: ['platform-admin'], token: 't' } })),
 }))
 vi.mock('@/api/useTenantScopedQueryKeys', () => ({
   useTenantScopedQueryKeys: vi.fn(() => ({ admin: { services: () => ['services'] } })),
@@ -42,6 +42,7 @@ vi.mock('@tanstack/react-query', () => ({
 }))
 
 import ServicesPage from '../ServicesPage'
+import { renderWithAccess } from '@/auth/access/testing'
 
 afterEach(() => {
   cleanup()
@@ -51,7 +52,7 @@ afterEach(() => {
 describe('ISS-0916 — ServicesPage defers click-driven state', () => {
   it('Delete opens its confirm dialog only after a macrotask; Cancel closes it likewise', () => {
     vi.useFakeTimers()
-    render(React.createElement(ServicesPage))
+    renderWithAccess(React.createElement(ServicesPage))
 
     fireEvent.click(screen.getByRole('button', { name: /^delete$/i }))
     expect(screen.queryAllByRole('button', { name: /cancel/i })).toHaveLength(0)
@@ -68,7 +69,7 @@ describe('ISS-0916 — ServicesPage defers click-driven state', () => {
 
   it('Edit scope opens only after a macrotask', () => {
     vi.useFakeTimers()
-    render(React.createElement(ServicesPage))
+    renderWithAccess(React.createElement(ServicesPage))
 
     fireEvent.click(screen.getByRole('button', { name: /edit scope/i }))
     expect(screen.queryAllByRole('button', { name: /cancel/i })).toHaveLength(0)
