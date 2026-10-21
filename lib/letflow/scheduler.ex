@@ -390,8 +390,9 @@ defmodule Letflow.Scheduler do
   row locks are taken in the order of every other instance writer: the timer is PEEKED without a
   lock (its `instance_id`, `token_id`, `node_id` and `timer_type` never change), then
   `Letflow.Engine.lock_for_timer_fire/3` locks the pending tasks of an escalation's token, the
-  instance projection and, for a child, the parent group (`FOR KEY SHARE`), and only then is the
-  timer row locked. A timer that is no longer pending returns `{:ok, :already_final}`.
+  instance projection and, for a child, the parent group (`FOR KEY SHARE` on the immediate parent,
+  or `FOR UPDATE` on the ancestor chain when the fire completes the child and runs the sub-process
+  completion cascade, decision 0061 "Amended (GH #2829)"), and only then is the timer row locked. A timer that is no longer pending returns `{:ok, :already_final}`.
 
   GH #2707 (PR-3): the transaction's first statement is one bound-parameter, transaction-local
   `lock_timeout` setting (`Letflow.Engine.Contention.timer_fire_lock_timeout_ms/0`,

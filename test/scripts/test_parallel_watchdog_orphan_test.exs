@@ -142,6 +142,24 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
           exit 1
         fi
         sleep 600 ;;
+      fdcheck)
+        if [ "$part" = "1" ]; then
+          deadline=$((SECONDS + 25))
+          : > "$STUB_MARKER"
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            for d in /proc/[0-9]*; do
+              c=$(tr "\\0" " " <"$d/cmdline" 2>/dev/null)
+              case "$c" in
+                "sleep $TEST_PARALLEL_PARTITION_TIMEOUT_S "*)
+                  echo "fd1=$(readlink "$d/fd/1" 2>/dev/null) fd2=$(readlink "$d/fd/2" 2>/dev/null)" >> "$STUB_MARKER" ;;
+              esac
+            done
+            [ -s "$STUB_MARKER" ] && break
+            sleep 0.1
+          done
+        fi
+        echo "Result: 1 passed"
+        exit 0 ;;
       hang)
         if [ "$part" = "1" ]; then
           sleep 600
@@ -348,6 +366,38 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
 
       assert out =~ "exited during its own template build"
       assert_no_orphan_sleep(t)
+    end)
+  end
+
+  test "watchdog sleep holds no stdout/stderr pipe, so a missed group kill cannot stall the reader",
+       %{tmp_dir: tmp} do
+    # GH #2457 regression, independent of host load and of kill delivery: the EXIT-trap
+    # case flaked because the watchdog's `sleep` was orphaned (PPID 1) and kept the
+    # script's stdout pipe open. Here the stub inspects the live watchdog `sleep` and
+    # records where its fd 1 and fd 2 point; neither may be the inherited pipe.
+    t = unique_timeout()
+    marker = Path.join(tmp, "sleep_fds")
+
+    {status, out, _elapsed} =
+      run_script(
+        tmp,
+        [
+          {"STUB_MODE", "fdcheck"},
+          {"STUB_MARKER", marker},
+          {"TEST_PARALLEL_PARTITION_TIMEOUT_S", "#{t}"}
+        ],
+        @prompt_ms
+      )
+
+    TestParallelCapture.with_context(tmp, out, fn ->
+      assert status == 0, out
+      fds = marker |> File.read!() |> String.split("\n", trim: true)
+      assert fds != [], "stub never saw the watchdog sleep:\n#{out}"
+
+      for line <- fds do
+        assert line =~ ~r/^fd1=\/dev\/nul\w* fd2=\/dev\/nul\w*$/,
+               "watchdog sleep still holds an inherited fd: #{line}"
+      end
     end)
   end
 
