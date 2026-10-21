@@ -580,6 +580,8 @@ defmodule Letflow.Identity.Gh2547TaAuditPathsTest do
       assert entry.after_state == %{
                "reset_user_ids" => Enum.sort([m1.id, m2.id, never.id]),
                "reset_count" => 3,
+               "revocation_honored_user_ids" => [],
+               "revocation_honored_count" => 0,
                "source" => "role_backfill",
                "effect" => "next_login_resyncs_idp_role_claims"
              }
