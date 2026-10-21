@@ -41,6 +41,7 @@ GET /script-policy/pending-review ScriptPolicyRead
 GET /script-policy/readable-masters ScriptPolicyRead
 GET /script-rules ScriptRulesList
 GET /script-rules/:key/versions/:version ScriptRulesRead
+GET /script-rules/:key/versions/:version/audit ScriptRulesAuditRead
 GET /services ServicesRead
 GET /tenants TenantsManage
 GET /tenants/:slug TenantsManage
