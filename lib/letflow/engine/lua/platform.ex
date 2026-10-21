@@ -28,6 +28,14 @@ defmodule Letflow.Engine.Lua.Platform do
   "by symmetry" with the gating mechanism it introduces for the other six `platform.*`
   functions.
 
+  ## emit_event payload cap
+
+  The JSON-encoded `platform.emit_event` payload is capped at 65_536 bytes (64 KiB);
+  `Application.get_env(:letflow, :lua_emit_event_max_payload_bytes, ...)` overrides it,
+  read on every call (see `emit_event_max_payload_bytes/0`). Over the cap the script gets
+  `nil, {reason = "payload_too_large"}` and nothing is written. Like the other script
+  budgets (`max_string_bytes` in the sandbox, the 64 KiB output cap of decision 0053 D7).
+
   ## Time-source injection — behaviour + application-env resolution
 
   `now/0` never reads `DateTime.utc_now/0` directly. It resolves the configured
@@ -837,6 +845,25 @@ defmodule Letflow.Engine.Lua.Platform do
     encode_error(lua, "invalid_arguments")
   end
 
+  @default_emit_event_max_payload_bytes 65_536
+
+  @doc """
+  Maximum byte size of the JSON-encoded `platform.emit_event` payload (GH #2867).
+
+  Read fresh from `config :letflow, :lua_emit_event_max_payload_bytes` on every call;
+  default 65_536 (64 KiB, the same figure as the script output cap of decision 0053 D7).
+  A non-positive-integer value falls back to the default, so the cap can never be
+  disabled by configuration. A payload over the cap is refused with
+  `payload_too_large` before the append transaction opens.
+  """
+  @spec emit_event_max_payload_bytes() :: pos_integer()
+  def emit_event_max_payload_bytes do
+    case Application.get_env(:letflow, :lua_emit_event_max_payload_bytes) do
+      n when is_integer(n) and n > 0 -> n
+      _ -> @default_emit_event_max_payload_bytes
+    end
+  end
+
   defp emit_unfolded_event(event_type, payload, raw_key, execution_context, lua) do
     # GH #2550: the script's key is stored as `script:<actor>:<K>`, so a script
     # cannot claim a server or client key; an empty, non-string, over-199-byte,
@@ -859,6 +886,16 @@ defmodule Letflow.Engine.Lua.Platform do
 
     json_payload = Jason.encode!(decoded_payload || %{})
 
+    # GH #2867: refuse an over-cap payload before the append opens its transaction, so a
+    # big emit never writes an oversized-payload row while holding the instance row lock.
+    if byte_size(json_payload) > emit_event_max_payload_bytes() do
+      encode_error(lua, "payload_too_large")
+    else
+      append_event(event_type, json_payload, idempotency_key, execution_context, lua)
+    end
+  end
+
+  defp append_event(event_type, json_payload, idempotency_key, execution_context, lua) do
     attrs = %{
       instance_id: execution_context.instance_id,
       event_type: event_type,
