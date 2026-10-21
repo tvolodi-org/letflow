@@ -2851,6 +2851,10 @@ defmodule Letflow.TenantProvisioning do
   governs `Letflow.Entities.Query.Allowlist`/`Compiler`'s read-path
   `:typed_column` vs `:json_field` dispatch, REQ-299/300's concern) -- all
   three flags move independently off the same `ColumnPromotion` row.
+
+  Rows are returned ordered by `(attribute, id)`: `write_entity_table_row/3`
+  builds its INSERT column list in this order, so the statement text must not
+  depend on heap/insertion order (GH #2852).
   """
   @spec column_promotions_for_table_write(
           tenant_id :: Ecto.UUID.t(),
@@ -2861,7 +2865,8 @@ defmodule Letflow.TenantProvisioning do
       from(cp in ColumnPromotion,
         where:
           cp.tenant_id == ^tenant_id and cp.entity_type == ^entity_type and
-            cp.status in ["ddl_applied", "backfilling", "backfilled", "active"]
+            cp.status in ["ddl_applied", "backfilling", "backfilled", "active"],
+        order_by: [cp.attribute, cp.id]
       )
 
     Repo.all(query)

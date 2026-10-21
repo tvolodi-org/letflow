@@ -1267,4 +1267,41 @@ defmodule Letflow.TenantProvisioning.ColumnPromotionTest do
       assert Exception.message(exception) =~ "invalid column_name"
     end
   end
+
+  describe "GH #2852 -- column_promotions_for_table_write/2 returns a deterministic order" do
+    test "rows come back ordered by attribute regardless of insertion order, tenant filter intact" do
+      %{tenant_id: tenant_id} = provisioned_tenant()
+      %{tenant_id: other_tenant_id} = provisioned_tenant()
+
+      for {attribute, tid, status} <- [
+            {"zeta", tenant_id, "active"},
+            {"mid", tenant_id, "ddl_applied"},
+            {"alpha", tenant_id, "backfilled"},
+            {"pending_one", tenant_id, "pending"},
+            {"other_tenant_attr", other_tenant_id, "active"}
+          ] do
+        assert {:ok, _} =
+                 Repo.insert(
+                   ColumnPromotion.changeset(%ColumnPromotion{}, %{
+                     tenant_id: tid,
+                     entity_type: "invoice",
+                     attribute: attribute,
+                     column_name: attribute,
+                     pg_type: "text",
+                     status: status
+                   })
+                 )
+      end
+
+      # The (tenant_id, entity_type, attribute) unique index would otherwise hand
+      # the rows back in attribute order by planner luck; force a heap scan so
+      # the unordered query returns insertion order, as it can in production.
+      Repo.query!("SET LOCAL enable_indexscan = off")
+      Repo.query!("SET LOCAL enable_bitmapscan = off")
+
+      rows = TenantProvisioning.column_promotions_for_table_write(tenant_id, "invoice")
+
+      assert Enum.map(rows, & &1.attribute) == ["alpha", "mid", "zeta"]
+    end
+  end
 end
