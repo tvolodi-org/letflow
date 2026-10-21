@@ -84,10 +84,19 @@ defmodule Letflow.Routers.TenantConfig do
        has a non-nil `idp_realm_id`, that wins and the host branch is
        **skipped**.
     2. Otherwise `?host=<hostname>` — see below; today this always falls
-       through to the default realm.
-    3. Otherwise, or on any miss, or on **any** error — the default realm.
+       through to the default realm, with that realm's own tenant branding.
+    3. Otherwise, or on any miss, or on **any** error — the default realm
+       (branding of the default realm's tenant when it can be read, else the
+       platform default).
 
   ## `?host=` is accepted, and today always falls through to the default
+
+  GH #2936: "the default" means the default realm **and the branding saved by the
+  tenant that owns it** (`bpm-default`), not the platform default. A normal page
+  load calls `?host=` (the SPA has no realm slug yet), so without this a saved
+  brand colour was never applied after a reload. This adds no hostname binding: it
+  reads the one tenant the response already names via `oidc_authority`, so it
+  discloses nothing beyond what the `?realm=bpm-default` call already returns.
 
   PROVENANCE (historical, not current decision authority):
   R-Co resolves `?host=` by joining `tenant_hostnames` -> `tenant`
@@ -238,15 +247,22 @@ defmodule Letflow.Routers.TenantConfig do
     end
   end
 
-  # Step 2: ?host=<hostname>. Letflow has no host->tenant binding, so this
-  # always falls through to the default -- which is exactly what R-Co returns
-  # for an unbound hostname. See the moduledoc; do NOT add a table here.
-  # `tenant` is nil here, same as step 3 -- both routes must produce a
-  # provably identical "no tenant" branding input (design §4, cases 3/4).
-  defp resolve_realm(nil, host) when is_binary(host), do: {@default_realm, nil}
+  # Steps 2 and 3: ?host=<hostname>, or neither parameter. Letflow has no
+  # host->tenant binding, so both name the default realm -- and answer with the
+  # branding of the tenant that owns that realm (GH #2936), not the platform
+  # default, so a saved brand colour survives a normal page load. Both routes
+  # converge on default_realm_tenant/0, so they stay provably identical. See the
+  # moduledoc; do NOT add a hostname table here.
+  defp resolve_realm(nil, _host_or_absent), do: {@default_realm, default_realm_tenant()}
 
-  # Step 3: neither parameter.
-  defp resolve_realm(nil, _absent_host), do: {@default_realm, nil}
+  # The tenant whose idp_realm_id is the default realm, or nil on a miss, a nil
+  # realm or a lookup failure (then the branding is the platform default).
+  defp default_realm_tenant do
+    case Identity.safe_get_tenant_by_slug(@default_realm, "tenant-config") do
+      {:ok, %Tenant{idp_realm_id: @default_realm} = tenant} -> tenant
+      _miss_or_other_realm_or_error -> nil
+    end
+  end
 
   # The never-raise, INV-4-compliant lookup wrapper itself is shared with
   # Letflow.Routers.MobileTenantConfig via Letflow.Identity.safe_get_tenant_by_slug/2
