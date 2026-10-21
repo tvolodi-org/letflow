@@ -123,11 +123,6 @@ defmodule Letflow.EventStore.RetentionOperationsTest do
   # DIRECTIVE T-4, of PartitionMaintenance's own private month-boundary logic.
   # ===========================================================================
 
-  defp current_month do
-    today = Date.utc_today()
-    {today.year, today.month}
-  end
-
   defp shift_months({year, month}, offset) do
     total = year * 12 + (month - 1) + offset
     {div(total, 12), rem(total, 12) + 1}

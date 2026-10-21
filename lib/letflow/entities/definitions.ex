@@ -73,6 +73,7 @@ defmodule Letflow.Entities.Definitions do
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.ProcessWritable
   alias Letflow.Entities.TypeAccess
+  alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
   alias Letflow.Api.Pagination
   alias Letflow.EventStore
@@ -336,6 +337,26 @@ defmodule Letflow.Entities.Definitions do
             %EntityDefinition{} = entity_definition -> {:ok, entity_definition}
           end
       end
+    end
+  end
+
+  @doc """
+  The `decimal_strict` field specs of the active version of `entity_type`
+  (decision 0060), as `Decimals.render_field_values/2` consumes them.
+
+  `%{}` when the type has no active definition or declares no strict field,
+  which makes `render_field_values/2` a no-op. Shared by every router that
+  returns a stored `field_values` map to a caller (entities router, exam
+  list route), so they render a strict field identically.
+  """
+  @spec strict_specs(entity_type :: String.t(), prefix :: String.t()) :: Decimals.specs()
+  def strict_specs(entity_type, prefix) when is_binary(entity_type) and is_binary(prefix) do
+    case get_active_definition_by_name(entity_type, prefix) do
+      {:ok, %{definition_json: definition_json}} ->
+        Decimals.specs_from_definition_json(definition_json)
+
+      _no_active_definition ->
+        %{}
     end
   end
 

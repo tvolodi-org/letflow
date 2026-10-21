@@ -1527,4 +1527,103 @@ defmodule Letflow.Modules.Exam.RouterTest do
              "expected 404 for legacy path (old core-mount removed), got #{conn.status}: #{conn.resp_body}"
     end
   end
+
+  # ── GH #2775: GET available renders a tenant-added decimal_strict field ────
+
+  describe "GET /modules/exam/exam-sessions/available -- decimal_strict (GH #2775, decision 0060)" do
+    # `exam` is tenant-extensible: add a strict `fee` (10,2) in a new active version.
+    defp add_strict_fee_to_exam!(schema) do
+      {:ok, %{definition_json: json}} =
+        Letflow.Entities.Definitions.get_active_definition_by_name("exam", schema)
+
+      fields =
+        Enum.map(json["fields"], fn field ->
+          field
+          |> Map.new(fn {k, v} -> {String.to_atom(k), v} end)
+          |> Map.update!(:type, &String.to_atom/1)
+          |> then(fn f -> Map.update(f, :search_strategy, nil, &(&1 && String.to_atom(&1))) end)
+        end)
+
+      fee = %{
+        name: "fee",
+        type: :decimal,
+        required: false,
+        decimal_precision: 10,
+        decimal_scale: 2,
+        decimal_strict: true
+      }
+
+      definition = %{
+        name: "exam",
+        display_name: json["display_name"],
+        fields: fields ++ [fee],
+        indexes: [],
+        foreign_keys: [],
+        constraints: []
+      }
+
+      {:ok, _} =
+        Letflow.Entities.Definitions.create_definition(
+          %{definition: definition, created_by: Ecto.UUID.generate()},
+          schema
+        )
+
+      {:ok, _} =
+        Letflow.Entities.Definitions.activate_definition(
+          "exam",
+          Ecto.UUID.generate(),
+          "go",
+          schema
+        )
+    end
+
+    # The list may read a promoted per-type table whose own `field_values` copy must carry the number too.
+    defp force_promoted_fee!(schema, record_id, value) do
+      {:ok, table} = Letflow.TenantProvisioning.table_name_for_entity_type("exam")
+
+      if Letflow.TenantProvisioning.entity_table_exists?(schema, table) do
+        {:ok, row} = Letflow.Entities.Record.Latest.get(record_id, "exam", schema)
+
+        Repo.query!(
+          ~s(UPDATE "#{schema}"."#{table}" SET field_values = $1 WHERE record_id = $2),
+          [Map.put(row.field_values, "fee", value), Ecto.UUID.dump!(record_id)]
+        )
+      end
+
+      :ok
+    end
+
+    test "X1: a strict field is a scale-padded string, also when a legacy number is stored" do
+      tenant = tenant("gh2775-x1")
+      ctx = candidate_ctx(tenant)
+      add_strict_fee_to_exam!(tenant.schema_name)
+      exam = create_exam!(tenant.schema_name, %{"fee" => "2.5"})
+
+      item = fn ->
+        conn = request("GET", "/api/v1/modules/exam/exam-sessions/available", ctx)
+        assert conn.status == 200
+        Enum.find(json(conn)["items"], &(&1["record_id"] == exam.record_id))
+      end
+
+      assert item.()["field_values"]["fee"] == "2.50"
+
+      # A number can only be stored by bypassing the write path (the defensive decoder).
+      ExamFixtures.force_field!(tenant.schema_name, "exam", exam.record_id, "fee", {:put, 2.5})
+      force_promoted_fee!(tenant.schema_name, exam.record_id, 2.5)
+      assert item.()["field_values"]["fee"] == "2.50"
+    end
+
+    test "X2: a non-strict decimal pack field stays a JSON number" do
+      tenant = tenant("gh2775-x2")
+      ctx = candidate_ctx(tenant)
+      add_strict_fee_to_exam!(tenant.schema_name)
+      exam = create_exam!(tenant.schema_name, %{"passing_score_pct" => 66.67, "fee" => "1"})
+
+      conn = request("GET", "/api/v1/modules/exam/exam-sessions/available", ctx)
+      assert conn.status == 200
+      item = Enum.find(json(conn)["items"], &(&1["record_id"] == exam.record_id))
+      assert item["field_values"]["passing_score_pct"] == 66.67
+      assert item["field_values"]["fee"] == "1.00"
+    end
+  end
 end

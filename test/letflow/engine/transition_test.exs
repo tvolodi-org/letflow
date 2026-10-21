@@ -60,7 +60,7 @@ defmodule Letflow.Engine.TransitionTest do
   # ---------------------------------------------------------------------
 
   describe "transition/3 -- determinism (acceptance criterion 2, load-bearing)" do
-    property "calling transition/3 twice with the identical (snapshot, state, event) triple always returns == -equal results" do
+    test "calling transition/3 twice with the identical (snapshot, state, event) triple always returns == -equal results" do
       check all({graph, state, event} <- world_generator(), max_runs: 150) do
         result_a = Transition.transition(graph, state, event)
         result_b = Transition.transition(graph, state, event)

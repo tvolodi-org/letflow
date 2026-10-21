@@ -27,8 +27,6 @@ defmodule Letflow.Definitions.SearchTest do
 
   use Letflow.DataCase, async: false
 
-  import Ecto.Query
-
   alias Letflow.Definitions
   alias Letflow.TenantFixture
 
