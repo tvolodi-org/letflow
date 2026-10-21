@@ -291,6 +291,17 @@ defmodule Letflow.Test.TenantTemplate do
   # steps 7-8 copy them from the live template; a reset restores them the same way.
   @seed_tables ["event_type_registry", "schema_migrations", "script_policy"]
 
+  # REQ-500 / GH #2588 (PR A): the document tables carry BEFORE TRUNCATE triggers (decision
+  # 0056 D4), so a reset can never empty them. A clone where any of them is dirty is therefore
+  # unprovable and the caller rebuilds the schema, the same as any other drift.
+  @immutable_document_tables [
+    "document_external_registrations",
+    "document_sequences",
+    "document_types",
+    "document_versions",
+    "documents"
+  ]
+
   # Bounds for the reset transaction (design 3.5): a test that died holding a lock
   # must make the reset time out (-> unprovable -> rebuild), not hang the module.
   @reset_lock_timeout "3s"
@@ -651,10 +662,18 @@ defmodule Letflow.Test.TenantTemplate do
       {:ok, state} ->
         diff = diff_clone_state(state, baseline)
 
-        if diff.drift != [] do
-          {:error, {:unprovable, ["definition_drift" | diff.drift]}}
-        else
-          do_reset(schema_name, baseline, state, diff, extra, started)
+        immutable_dirt = Enum.filter(diff.dirty_tables, &(&1 in @immutable_document_tables))
+
+        cond do
+          diff.drift != [] ->
+            {:error, {:unprovable, ["definition_drift" | diff.drift]}}
+
+          immutable_dirt != [] ->
+            {:error,
+             {:unprovable, Enum.map(immutable_dirt, &"immutable_document_table_dirty #{&1}")}}
+
+          true ->
+            do_reset(schema_name, baseline, state, diff, extra, started)
         end
     end
   end
@@ -1589,7 +1608,8 @@ defmodule Letflow.Test.TenantTemplate do
     %{rows: trigger_rows} =
       Repo.query!(
         """
-        SELECT DISTINCT t.tgname, t.oid AS trigger_oid, p.oid AS func_oid
+        SELECT DISTINCT t.tgname, t.oid AS trigger_oid, p.oid AS func_oid,
+               rel.relname, t.tgenabled
         FROM pg_trigger t
         JOIN pg_class rel ON rel.oid = t.tgrelid
         JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
@@ -1602,7 +1622,7 @@ defmodule Letflow.Test.TenantTemplate do
     # All DISTINCT function OIDs first (a function backing more than one
     # trigger must be created exactly once), then all triggers.
     trigger_rows
-    |> Enum.map(fn [_tgname, _trigger_oid, func_oid] -> func_oid end)
+    |> Enum.map(fn [_tgname, _trigger_oid, func_oid, _table, _enabled] -> func_oid end)
     |> Enum.uniq()
     |> Enum.each(fn func_oid ->
       %{rows: [[def_sql]]} =
@@ -1612,13 +1632,34 @@ defmodule Letflow.Test.TenantTemplate do
       Repo.query!(rewritten)
     end)
 
-    Enum.each(trigger_rows, fn [_tgname, trigger_oid, _func_oid] ->
+    Enum.each(trigger_rows, fn [tgname, trigger_oid, _func_oid, table, enabled] ->
       %{rows: [[def_sql]]} =
         Repo.query!("SELECT pg_get_triggerdef($1)", [trigger_oid])
 
       rewritten = String.replace(def_sql, ~s(#{@template_schema}.), ~s(#{clone_schema}.))
       Repo.query!(rewritten)
+      restore_enable_mode!(clone_schema, table, tgname, enabled)
     end)
+  end
+
+  # REQ-500 / GH #2588 (decision 0056 D4): CREATE TRIGGER always leaves a trigger ENABLE ORIGIN,
+  # so a clone would silently drop the template's ENABLE ALWAYS. The template's mode (pg_trigger
+  # tgenabled) is replayed here: 'A' ALWAYS, 'R' REPLICA, 'D' DISABLE; 'O' is the default.
+  defp restore_enable_mode!(clone_schema, table, tgname, enabled) do
+    mode =
+      case enabled do
+        "A" -> "ALWAYS"
+        "R" -> "REPLICA"
+        "D" -> "DISABLE"
+        "O" -> nil
+      end
+
+    if mode do
+      Repo.query!(
+        "ALTER TABLE #{quote_ident(clone_schema)}.#{quote_ident(table)} " <>
+          "ENABLE #{mode} TRIGGER #{quote_ident(tgname)}"
+      )
+    end
   end
 
   # design §0.1 finding 3 (pg_get_serial_sequence is the robust primitive,

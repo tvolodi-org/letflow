@@ -212,6 +212,10 @@ defmodule Letflow.Supervisor.Infrastructure do
   def init(_init_arg) do
     children = [
       Letflow.Repo,
+      # REQ-500 / GH #2588 (decision 0056): refuses to start below PostgreSQL 15, which the
+      # NULLS NOT DISTINCT document index needs. One SHOW query, right after Repo; see
+      # Letflow.Documents.BootCheck's moduledoc.
+      Letflow.Documents.BootCheck,
       {Ecto.Migrator,
        repos: Application.fetch_env!(:letflow, :ecto_repos), skip: skip_migrations?()},
       # ISS-0771 (design iss0771-tenant-migration-replay-on-deploy.md §2.2/§2.3): a
