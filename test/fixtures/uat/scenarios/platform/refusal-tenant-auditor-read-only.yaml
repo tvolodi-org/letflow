@@ -1,0 +1,70 @@
+# REQ-457 residual (GH #2363, BA-PLATFORM): refusal scenario for the read-only auditor of a customer.
+# Authored new; not a port. The auditor is a NEW persona (actor-swiftroute-auditor).
+# STATUS: BLOCKED, not PASS, until the owner gives a written APPROVE for assigning the
+# TENANT_AUDITOR realm role to the auditor's QA account (UAT-class action). The role exists in the
+# QA realms (infra T-0214) but is assigned to nobody.
+# Every step below is expected to be REFUSED. A step the product lets through is a finding, not a
+# reason to rewrite the step.
+---
+id: platform-refusal-tenant-auditor-read-only
+scope: platform
+title: A customer's auditor can look but cannot change anything
+version: "1.0"
+tags: [access, refusal, regression, auditor, blocked]
+
+description: >
+  A customer may give a person the right to inspect its records without changing them,
+  for example an outside auditor. This scenario has SwiftRoute's auditor try to change
+  the data of their own company. The attempt must be turned down plainly, and nothing
+  may change. Blocked until the owner approves, in writing, giving the auditor role to
+  the test account.
+
+actors:
+  customer_auditor: actor-swiftroute-auditor
+
+preconditions:
+  - description: SwiftRoute is set up with its users and settings
+    check: system_seeded
+  - description: The auditor account holds the read-only auditor role of SwiftRoute and nothing else
+    check: custom
+    detail: >
+      Blocked until the owner's written approval for giving the auditor role to the test
+      account. The refusal only means something if the person really is a read-only auditor.
+
+steps:
+  - step: 1
+    actor: customer_auditor
+    action: >
+      The SwiftRoute auditor tries to add a new person to SwiftRoute's users and give
+      that person access.
+    expect_refusal: true
+    via: gui
+    input:
+      company: SwiftRoute
+      change: add a new user
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The auditor is turned down when they try to change SwiftRoute's data, and
+      SwiftRoute's users are exactly as they were before.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 ends in a plain refusal screen. SwiftRoute's list of users, as shown to the
+        company's administrator, is the same after the step as before.
+      evidence: >
+        Screenshot of the screen after step 1, and SwiftRoute's users before and after.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A person who was only meant to inspect the records could change the business.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing was created if the refusal held. If the step was not refused, remove the added
+    person and record it as a finding before anything else is run.

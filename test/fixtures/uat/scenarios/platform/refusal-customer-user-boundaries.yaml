@@ -6,8 +6,8 @@
 #   - approving, paying or releasing: the platform scope has none of its own
 #     (customer money flows belong to the customer verticals).
 # Not covered here, by design: a customer's own administrator reaching into another
-# customer (needs a customer administrator on the roster, which does not exist yet),
-# and the read-only auditor (the role is not built yet). ORCH adds those steps later.
+# customer (refusal-customer-administrator-boundaries.yaml) and the read-only auditor
+# (refusal-tenant-auditor-read-only.yaml); both have their own scenarios.
 # Every step below is expected to be REFUSED. A step the product lets through is a
 # finding, not a reason to rewrite the step.
 ---
