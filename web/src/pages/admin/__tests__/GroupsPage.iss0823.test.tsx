@@ -29,7 +29,6 @@ vi.mock('@/auth/AuthContext', () => ({
     session: {
       token: 'tok',
       display_name: 'Admin',
-      roles: ['PLATFORM_ADMIN'],
       loginSource: null,
       tenant_slug: 'demo-corp',
       tenant_display_name: 'Acme',

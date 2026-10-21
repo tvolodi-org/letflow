@@ -1,7 +1,5 @@
 import type { RouteObject } from 'react-router-dom'
 
-export type ModuleRole = 'PLATFORM_ADMIN' | 'PROCESS_DESIGNER' | 'PROCESS_OPERATOR' | 'TASK_WORKER' | 'CANDIDATE' | 'AGENT_RUNNER'
-
 export interface InstalledModule {
   module_id: string
   version: string
@@ -10,7 +8,10 @@ export interface InstalledModule {
 export interface ModuleNavItem {
   to: string
   label: string
-  roles: ModuleRole[]
+  /** A permission atom the server reports in /me/access. A plain string: module permissions are
+   *  not in the core permission set. */
+  permission: string
+  platformOnly?: boolean
 }
 
 /** A module's static definition. Each module's `web/src/modules/<id>/index.ts`

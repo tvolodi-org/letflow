@@ -33,7 +33,6 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
       session: {
         token: 't',
         display_name: 'User',
-        roles: ['TASK_WORKER'],
         loginSource: 'oidc' as const,
         tenant_slug: null,
         tenant_display_name: null,

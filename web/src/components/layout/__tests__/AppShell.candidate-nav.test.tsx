@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ISS-0728 — CANDIDATE navigation for the exam module.
+ * ISS-0728 — candidate navigation for the exam module.
  *
  * After REQ-412, "Exams" (/exam) and "Question Bank" (/admin/bilimbaga) come
  * from the exam module's navItems via getInstalledModuleNavItems — they are
@@ -8,17 +8,19 @@
  * still works correctly when the exam module is installed.
  *
  * Cases:
- *   1. CANDIDATE with exam installed sees the "Exams" nav entry, linking to /exam.
- *   2. CANDIDATE does NOT see any admin nav entry.
- *   3. No-regression: the other four roles (PLATFORM_ADMIN, PROCESS_DESIGNER,
- *      PROCESS_OPERATOR, TASK_WORKER) do NOT see "Exams", while each still
- *      sees its own already-established nav entry.
+ *   1. The candidate fixture with exam installed sees the "Exams" nav entry, linking to /exam.
+ *   2. The candidate fixture does NOT see any admin nav entry.
+ *   3. "Exams" follows the :ExamSessionStart permission from /me/access: the designer,
+ *      operator and task-worker fixtures do NOT see it, while each still sees its own
+ *      already-established nav entry. (The platform admin holds the permission, so it
+ *      now sees "Exams" too: the old hand-copied role list excluded it.)
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import type { UserSession } from '@/types/api'
+import type { AccessFixtureName } from '@/auth/access/fixtures'
 
 expect.extend(jestDomMatchers)
 
@@ -38,11 +40,10 @@ vi.mock('@/api/client', () => ({
   client: { get: vi.fn(() => Promise.resolve({ items: [] })) },
 }))
 
-function sessionWithRoles(roles: string[]): UserSession {
+function testSession(): UserSession {
   return {
     token: 'tok',
     display_name: 'Test User',
-    roles,
     loginSource: null,
     tenant_slug: 'acme',
     tenant_display_name: 'Acme Co',
@@ -58,13 +59,13 @@ afterEach(() => {
 })
 
 /** Render AppShell with the exam module installed so module nav items appear. */
-async function renderAppShellAs(roles: string[]) {
+async function renderAppShellAs(fixture: AccessFixtureName) {
   vi.resetModules()
 
   const { useAuth } = await import('@/auth/AuthContext')
   const { useInstalledModules } = await import('@/hooks/useInstalledModules')
   vi.mocked(useAuth).mockReturnValue({
-    session: sessionWithRoles(roles),
+    session: testSession(),
     isAuthenticated: true,
     isLoading: false,
     loginSource: null,
@@ -82,25 +83,29 @@ async function renderAppShellAs(roles: string[]) {
 
   const { BrandingProvider } = await import('@/theming/BrandingProvider')
   const { AppShell } = await import('../AppShell')
+  const { AccessStateProvider } = await import('@/auth/access/AccessContext')
+  const { accessState } = await import('@/auth/access/fixtures')
 
   render(
     <MemoryRouter initialEntries={['/instances']}>
       <BrandingProvider>
-        <AppShell />
+        <AccessStateProvider state={accessState(fixture)}>
+          <AppShell />
+        </AccessStateProvider>
       </BrandingProvider>
     </MemoryRouter>,
   )
 }
 
-describe('ISS-0728 — CANDIDATE Exams nav entry (module-driven after REQ-412)', () => {
-  it('CANDIDATE sees the "Exams" nav entry, linking to /exam', async () => {
-    await renderAppShellAs(['CANDIDATE'])
+describe('ISS-0728 — candidate Exams nav entry (module-driven after REQ-412)', () => {
+  it('candidate sees the "Exams" nav entry, linking to /exam', async () => {
+    await renderAppShellAs('candidate')
     await waitFor(() => expect(screen.getByText('Exams')).toBeInTheDocument())
     expect(screen.getByRole('link', { name: 'Exams' })).toHaveAttribute('href', '/exam')
   })
 
-  it('CANDIDATE does NOT see any admin nav entry', async () => {
-    await renderAppShellAs(['CANDIDATE'])
+  it('candidate does NOT see any admin nav entry', async () => {
+    await renderAppShellAs('candidate')
     await waitFor(() => expect(screen.getByText('Exams')).toBeInTheDocument())
     expect(screen.queryByText('Instances')).not.toBeInTheDocument()
     expect(screen.queryByText('My Tasks')).not.toBeInTheDocument()
@@ -111,26 +116,26 @@ describe('ISS-0728 — CANDIDATE Exams nav entry (module-driven after REQ-412)',
     expect(screen.queryByText('Question Bank')).not.toBeInTheDocument()
   })
 
-  it('PLATFORM_ADMIN does NOT see "Exams"', async () => {
-    await renderAppShellAs(['PLATFORM_ADMIN'])
+  it('platform admin (holds :ExamSessionStart) sees "Exams"', async () => {
+    await renderAppShellAs('platformAdmin')
     await waitFor(() => expect(screen.getByText('Question Bank')).toBeInTheDocument())
-    expect(screen.queryByText('Exams')).not.toBeInTheDocument()
+    expect(screen.getByText('Exams')).toBeInTheDocument()
   })
 
-  it('PROCESS_DESIGNER does NOT see "Exams"', async () => {
-    await renderAppShellAs(['PROCESS_DESIGNER'])
+  it('designer does NOT see "Exams"', async () => {
+    await renderAppShellAs('designer')
     await waitFor(() => expect(screen.getByText('Definitions')).toBeInTheDocument())
     expect(screen.queryByText('Exams')).not.toBeInTheDocument()
   })
 
-  it('PROCESS_OPERATOR does NOT see "Exams"', async () => {
-    await renderAppShellAs(['PROCESS_OPERATOR'])
+  it('operator does NOT see "Exams"', async () => {
+    await renderAppShellAs('operator')
     await waitFor(() => expect(screen.getByText('Question Bank')).toBeInTheDocument())
     expect(screen.queryByText('Exams')).not.toBeInTheDocument()
   })
 
-  it('TASK_WORKER does NOT see "Exams"', async () => {
-    await renderAppShellAs(['TASK_WORKER'])
+  it('task worker does NOT see "Exams"', async () => {
+    await renderAppShellAs('taskWorker')
     await waitFor(() => expect(screen.getByTestId('logout-button')).toBeInTheDocument())
     expect(screen.queryByText('Exams')).not.toBeInTheDocument()
   })

@@ -5,7 +5,7 @@ import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { auditApi, type AuditEntry, type AuditLogFilters } from '@/api/audit'
 import type { CursorPage } from '@/types/api'
 import { JsonDiffView } from '@/components/ui/JsonDiffView'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess, AccessPending } from '@/auth/access'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { PaginationControls } from '@/components/ui/PaginationControls'
@@ -42,9 +42,9 @@ export function useAuditLog(filters: AuditLogFilters): UseQueryResult<CursorPage
 }
 
 export default function AuditLogPage() {
-  const { session } = useAuth()
   const adminKeys = useTenantScopedQueryKeys().admin
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.can(P.AuditRead)
 
   const [actor, setActor] = useState('')
   const [resourceType, setResourceType] = useState('')
@@ -74,7 +74,9 @@ export default function AuditLogPage() {
 
   const rendererState: RendererState = isLoading ? 'loading' : isError ? classifyError(error) : 'success'
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 

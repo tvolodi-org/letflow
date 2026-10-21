@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * Unit tests — REQ-369: PlatformDashboardPage, the platform-wide landing page
- * for PLATFORM_ADMIN that replaces the tenant-branded TenantDashboardPage for
+ * for platform-admin that replaces the tenant-branded TenantDashboardPage for
  * that role. See lib/letflow/design/req369-platform-dashboard-page.md §1,
  * §6 (AC1-AC3 mapping) and docs/requirements.yaml's REQ-369 acceptance_criteria.
  *
@@ -18,14 +18,14 @@
  *   ISS-0711 names: REQ-369's original AC2 test mocked a fictional `total`
  *   field the real API never sends and so could not catch the component
  *   reading it. See lib/letflow/design/iss0711-tenant-count-field-mismatch.md.
- * TC-REQ369-04: AC3 — a non-PLATFORM_ADMIN session is redirected to
+ * TC-REQ369-04: AC3 — a non-platform-admin session is redirected to
  *   /instances instead of seeing platform content (mirrors
  *   HealthDashboardPage.test.tsx's TC-ISS0532-11 idiom exactly).
  */
 
 import type { ReactNode } from 'react'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup } from '@testing-library/react'
+import { screen, cleanup } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 expect.extend(jestDomMatchers)
 
@@ -60,14 +60,14 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import PlatformDashboardPage from '@/pages/dashboard/PlatformDashboardPage'
 import type { TenantListResponse } from '@/api/tenants'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const mockUseQuery = vi.mocked(useQuery)
 const mockUseAuth = vi.mocked(useAuth)
 
-const PLATFORM_ADMIN_SESSION = {
+const ADMIN_SESSION = {
   token: 'tok',
   display_name: 'Admin',
-  roles: ['PLATFORM_ADMIN'],
   loginSource: null as null,
   tenant_slug: null,
   tenant_display_name: null,
@@ -76,7 +76,7 @@ const PLATFORM_ADMIN_SESSION = {
   production_tenant_display_name: null,
 }
 
-const NON_ADMIN_SESSION = { ...PLATFORM_ADMIN_SESSION, roles: ['PROCESS_OPERATOR'] }
+const NON_ADMIN_SESSION = { ...ADMIN_SESSION }
 
 const TENANT_LIST: TenantListResponse = {
   items: [],
@@ -104,10 +104,10 @@ afterEach(() => {
 
 describe('REQ-369 — PlatformDashboardPage', () => {
   it('TC-REQ369-01: renders the fixed "Platform Overview" heading and never any tenant-branded copy', () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
     mockUseQuery.mockReturnValue(queryResult({ data: TENANT_LIST }) as unknown as ReturnType<typeof useQuery>)
 
-    render(<PlatformDashboardPage />)
+    renderWithAccess(<PlatformDashboardPage />, 'platformAdmin')
 
     // VERDICT: fixed literal heading, present verbatim.
     expect(screen.getByTestId('platform-dashboard-heading')).toHaveTextContent('Platform Overview')
@@ -134,16 +134,16 @@ describe('REQ-369 — PlatformDashboardPage', () => {
   })
 
   it('TC-REQ369-03: tenant-count tile renders the count sourced from tenantsApi.list()\'s mocked count', () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
     mockUseQuery.mockReturnValue(queryResult({ data: TENANT_LIST }) as unknown as ReturnType<typeof useQuery>)
 
-    render(<PlatformDashboardPage />)
+    renderWithAccess(<PlatformDashboardPage />, 'platformAdmin')
 
     expect(screen.getByTestId('tile-tenant-count')).toHaveTextContent('37')
   })
 
   it('TC-ISS0711-05: renders the real count from the actual backend envelope shape (no `total` key present)', () => {
-    mockUseAuth.mockReturnValue({ session: PLATFORM_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
+    mockUseAuth.mockReturnValue({ session: ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
     const realShapeResponse: TenantListResponse = {
       items: [],
       next_cursor: null,
@@ -151,16 +151,16 @@ describe('REQ-369 — PlatformDashboardPage', () => {
     }
     mockUseQuery.mockReturnValue(queryResult({ data: realShapeResponse }) as unknown as ReturnType<typeof useQuery>)
 
-    render(<PlatformDashboardPage />)
+    renderWithAccess(<PlatformDashboardPage />, 'platformAdmin')
 
     expect(screen.getByTestId('tile-tenant-count')).toHaveTextContent('2')
   })
 
-  it('TC-REQ369-04: a non-PLATFORM_ADMIN session is redirected to /instances instead of seeing platform content', () => {
+  it('TC-REQ369-04: a non-platform-admin session is redirected to /instances instead of seeing platform content', () => {
     mockUseAuth.mockReturnValue({ session: NON_ADMIN_SESSION } as unknown as ReturnType<typeof useAuth>)
     mockUseQuery.mockReturnValue(queryResult({ data: TENANT_LIST }) as unknown as ReturnType<typeof useQuery>)
 
-    render(<PlatformDashboardPage />)
+    renderWithAccess(<PlatformDashboardPage />, 'operator')
 
     expect(screen.getByTestId('navigate')).toHaveAttribute('data-to', '/instances')
     expect(screen.queryByTestId('platform-dashboard-heading')).not.toBeInTheDocument()

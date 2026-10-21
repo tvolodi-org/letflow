@@ -28,7 +28,6 @@ vi.mock('@/api/client', () => ({
   tryRestoreE2eSession: vi.fn(() => ({
     token: 'tok',
     display_name: 'U',
-    roles: ['PLATFORM_ADMIN'],
   })),
 }))
 

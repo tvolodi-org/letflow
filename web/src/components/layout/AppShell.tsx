@@ -1,6 +1,7 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess, type Permission } from '@/auth/access'
 import { ApiConnectivityBanner } from './ApiConnectivityBanner'
 import { TestEnvironmentBanner } from './TestEnvironmentBanner'
 import { TenantHeader } from './TenantHeader'
@@ -11,57 +12,59 @@ import { useBranding } from '@/theming/BrandingContext'
 import { useInstalledModules } from '@/hooks/useInstalledModules'
 import { getInstalledModuleNavItems } from '@/modules/registry'
 
-type Role = 'PLATFORM_ADMIN' | 'PROCESS_DESIGNER' | 'PROCESS_OPERATOR' | 'TASK_WORKER' | 'CANDIDATE'
-
 interface NavItem {
   to: string
   label: string
-  roles: Role[]
+  /** What the server enforces for the page's own calls (see the PR's element-to-permission table). */
+  permission: Permission
+  /** Also require the platform tenant (platform-only entries). */
+  platformOnly?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/instances',     label: 'Instances',   roles: ['PLATFORM_ADMIN', 'PROCESS_DESIGNER', 'PROCESS_OPERATOR'] },
-  { to: '/tasks',         label: 'My Tasks',    roles: ['PLATFORM_ADMIN', 'PROCESS_OPERATOR', 'TASK_WORKER'] },
-  { to: '/definitions',  label: 'Definitions', roles: ['PLATFORM_ADMIN', 'PROCESS_DESIGNER'] },
+  { to: '/instances',     label: 'Instances', permission: P.InstancesRead },
+  { to: '/tasks',         label: 'My Tasks', permission: P.TasksRead },
+  { to: '/definitions',  label: 'Definitions', permission: P.DefinitionsRead },
   // REQ-398: promotion-review list/queue page. Supersedes ISS-0730 §1's
   // "no nav entry, no contextual link -- direct URL only" decision for
   // PromotionReviewPage.tsx, now that REQ-397's list endpoint exists --
   // that decision's own stated rationale ("no list endpoint exists") no
   // longer holds, and this is a global nav entry to a list page, not the
   // contextual per-definition link ISS-0730 §1 separately declined. Same
-  // PLATFORM_ADMIN-only class as REQ-397's server-side authorization and
+  // platform-admin role-only class as REQ-397's server-side authorization and
   // this page's own client-side redirect (ISS-0730 §3.1 pattern, reused).
-  { to: '/promotions',   label: 'Promotion Reviews', roles: ['PLATFORM_ADMIN'] },
-  { to: '/dlq',           label: 'DLQ',         roles: ['PLATFORM_ADMIN', 'PROCESS_OPERATOR'] },
-  { to: '/webhooks',      label: 'Webhooks',    roles: ['PLATFORM_ADMIN', 'PROCESS_OPERATOR'] },
-  { to: '/admin/users',   label: 'Users',       roles: ['PLATFORM_ADMIN'] },
-  { to: '/admin/groups',  label: 'Groups',      roles: ['PLATFORM_ADMIN'] },
-  { to: '/admin/tokens',  label: 'Tokens',      roles: ['PLATFORM_ADMIN'] },
-  { to: '/admin/audit',   label: 'Audit',       roles: ['PLATFORM_ADMIN'] },
-  { to: '/admin/health',  label: 'Health',      roles: ['PLATFORM_ADMIN'] },
-  { to: '/admin/metrics', label: 'Metrics',     roles: ['PLATFORM_ADMIN'] },
-  { to: '/admin/onboarding/new', label: 'Register Tenant', roles: ['PLATFORM_ADMIN'] },
-  { to: '/admin/tenants',       label: 'Tenants',          roles: ['PLATFORM_ADMIN'] },
-  { to: '/admin/services',       label: 'Services',         roles: ['PLATFORM_ADMIN'] },
+  { to: '/promotions',   label: 'Promotion Reviews', permission: P.PromotionsRead },
+  { to: '/dlq',           label: 'DLQ', permission: P.DlqOperate },
+  { to: '/webhooks',      label: 'Webhooks', permission: P.WebhooksManage },
+  { to: '/admin/users',   label: 'Users', permission: P.UsersGroupsRolesManage },
+  { to: '/admin/groups',  label: 'Groups', permission: P.UsersGroupsRolesManage },
+  { to: '/admin/tokens',  label: 'Tokens', permission: P.TokensManage },
+  { to: '/admin/audit',   label: 'Audit', permission: P.AuditRead },
+  { to: '/admin/health',  label: 'Health', permission: P.TenantsManage, platformOnly: true },
+  { to: '/admin/metrics', label: 'Metrics', permission: P.MetricsRead },
+  { to: '/admin/onboarding/new', label: 'Register Tenant', permission: P.TenantsManage, platformOnly: true },
+  { to: '/admin/tenants',       label: 'Tenants', permission: P.TenantsManage, platformOnly: true },
+  { to: '/admin/services',       label: 'Services', permission: P.PlatformServicesManage, platformOnly: true },
   // REQ-375: operator-facing rollout-status screen for REQ-374's
   // platform-wide tenant-migration fanout runner. Same :TenantsManage
-  // (PLATFORM_ADMIN-only) risk class as admin/tenants, admin/onboarding.
-  { to: '/admin/platform-migrations', label: 'Platform Migrations', roles: ['PLATFORM_ADMIN'] },
+  // (platform-admin role-only) risk class as admin/tenants, admin/onboarding.
+  { to: '/admin/platform-migrations', label: 'Platform Migrations', permission: P.TenantsManage, platformOnly: true },
   // REQ-381: solution-pack update review screen. `/solution-packs` needs a
   // discoverable nav link (unlike PromotionReviewPage.tsx's deliberate
   // no-nav-entry choice) -- REQ-381's own text requires the review screen
   // be "reachable from the company's pack screen," and the launcher page
-  // serves that role (design §7). PLATFORM_ADMIN-only, same OQ-3 judgment
+  // serves that role (design §7). platform-admin role-only, same OQ-3 judgment
   // call as the launcher/review pages' own role gate (design §4.1).
-  { to: '/solution-packs', label: 'Solution Packs', roles: ['PLATFORM_ADMIN'] },
+  { to: '/solution-packs', label: 'Solution Packs', permission: P.ModulesManage },
   // REQ-377: operator-facing history-retirement screen for REQ-376's
   // whole-partition retirement mechanism. Same :TenantsManage
-  // (PLATFORM_ADMIN-only) risk class as admin/platform-migrations.
-  { to: '/admin/event-retention', label: 'Event Retention', roles: ['PLATFORM_ADMIN'] },
+  // (platform-admin role-only) risk class as admin/platform-migrations.
+  { to: '/admin/event-retention', label: 'Event Retention', permission: P.TenantsManage, platformOnly: true },
 ]
 
 export function AppShell() {
   const { session, logout } = useAuth()
+  const access = useAccess()
   const tenantKeys = useTenantScopedQueryKeys()
   const { appName, logoUrl } = useBranding()
   const { data: installedModules = [] } = useInstalledModules()
@@ -71,14 +74,16 @@ export function AppShell() {
     queryKey: tenantKeys.dlq.list({ status: 'pending', page_size: 101 }),
     queryFn: () => dlqApi.list({ status: 'pending', page_size: 101 }),
     refetchInterval: 15000,
+    enabled: access.can(P.DlqOperate),
   })
 
   const pendingDlqCount = dlqSummary?.items?.length ?? 0
   const dlqSeverity = pendingDlqCount <= 0 ? 'none' : (pendingDlqCount > dlqThreshold ? 'critical' : 'warning')
 
   const moduleNavItems = getInstalledModuleNavItems(installedModules)
-  const visibleNav = [...NAV_ITEMS, ...moduleNavItems].filter((n) =>
-    n.roles.some((r) => session?.roles.includes(r)),
+  // Nothing gated renders until /me/access is ready: can() is false while loading or failed.
+  const visibleNav = [...NAV_ITEMS, ...moduleNavItems].filter(
+    (n) => access.can(n.permission) && (!n.platformOnly || access.isPlatformTenant),
   )
 
   return (
@@ -156,7 +161,7 @@ export function AppShell() {
             data-testid="user-roles"
             style={{ marginBottom: '.5rem', color: 'var(--text-secondary)', fontSize: '.75rem' }}
           >
-            {session?.roles.join(', ')}
+            {access.roles.join(', ')}
           </div>
           <button
             data-testid="logout-button"
