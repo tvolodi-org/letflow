@@ -465,7 +465,9 @@ defmodule Letflow.Scheduler do
   Settling an `:error` instance's timers is IRREVERSIBLE: `:error` is not a terminal status but
   nothing resumes such an instance today, so its pending timers are cancelled for good (reason
   `instance_error`, kept greppable). A future resume / reconstruct feature must RE-ARM the
-  timers of the node the instance resumes at.
+  timers of the node the instance resumes at. Since GH #2830 the ExecutionError landing cancels
+  the instance's pending timers itself, so this settle covers only the timers armed after the
+  landing and the rows written before that change.
   """
   @spec fire_timer(timer_id :: Ecto.UUID.t(), tenant_schema :: String.t()) ::
           {:ok, :fired} | {:ok, :already_final} | {:error, :contention} | {:error, term()}
