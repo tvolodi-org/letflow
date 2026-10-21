@@ -6,7 +6,6 @@ export interface TenantContextValue {
   tenantDisplayName: string
   isUnknown: boolean
   tenantType: 'production' | 'test' | null
-  productionDisplayName: string | null
 }
 
 export function useTenantContext(): TenantContextValue {
@@ -20,6 +19,5 @@ export function useTenantContext(): TenantContextValue {
     tenantDisplayName: raw ?? 'Unknown workspace',
     isUnknown,
     tenantType: session?.tenant_type ?? null,
-    productionDisplayName: session?.production_tenant_display_name ?? null,
   }
 }

@@ -54,7 +54,6 @@ const ADMIN_SESSION = {
   tenant_display_name: 'Platform',
   tenant_id: 'tid-platform',
   tenant_type: 'production' as const,
-  production_tenant_display_name: null,
 }
 
 const TENANT_LIST: TenantListResponse = {
@@ -66,8 +65,6 @@ const TENANT_LIST: TenantListResponse = {
       status: 'ACTIVE',
       created_at: '2026-01-01T00:00:00Z',
       tenant_type: 'test',
-      production_tenant_id: 'tid-acme-prod',
-      production_tenant_display_name: 'Acme Production',
     },
     {
       slug: 'beta-prod',
@@ -76,8 +73,6 @@ const TENANT_LIST: TenantListResponse = {
       status: 'ACTIVE',
       created_at: '2026-01-02T00:00:00Z',
       tenant_type: 'production',
-      production_tenant_id: null,
-      production_tenant_display_name: null,
     },
   ],
   next_cursor: null,

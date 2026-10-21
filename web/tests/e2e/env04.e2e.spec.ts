@@ -703,7 +703,7 @@ test.describe('ENV-04-C: Banner and Promote button (TC-ENV-04-01/02/05/06/08/09/
 
   // ── TC-ENV-04-02 ──────────────────────────────────────────────────────────
 
-  test('TC-ENV-04-02: Banner shows paired production tenant name', async ({ page }) => {
+  test('TC-ENV-04-02: Banner shows no pairing text (REQ-470)', async ({ page }) => {
     if (!fixture) {
       throw new Error('TC-ENV-04-02: No test tenant fixture available.')
     }
@@ -719,8 +719,8 @@ test.describe('ENV-04-C: Banner and Promote button (TC-ENV-04-01/02/05/06/08/09/
     await expect(banner, 'Screen shows test-env-banner').toBeVisible({ timeout: 10_000 })
 
     const bannerText = await banner.textContent()
-    expect(bannerText ?? '', 'Screen shows paired production tenant name in banner').toContain(
-      fixture.prodTenantDisplayName,
+    expect(bannerText ?? '', 'Screen shows TEST ENVIRONMENT and no pairing text').not.toContain(
+      'Paired with production',
     )
   })
 

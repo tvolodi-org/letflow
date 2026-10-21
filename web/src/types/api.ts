@@ -461,7 +461,6 @@ export interface UserSession {
   tenant_display_name: string | null
   tenant_id: string | null
   tenant_type: 'production' | 'test' | null
-  production_tenant_display_name: string | null
 }
 
 // Wire shape matches user_map/1 in lib/letflow/routers/identity.ex (ISS-0815).

@@ -86,7 +86,7 @@ describe('token claims are not authority', () => {
   it('OidcCallbackPage: /me/access granting platform authority -> lookup and /platform-dashboard', async () => {
     vi.resetModules()
     mockGetAccess.mockResolvedValue(ACCESS_FIXTURES.platformAdmin)
-    mockGetBySlug.mockResolvedValue({ display_name: 'Fixture', tenant_id: 't-1', tenant_type: 'production', production_tenant_display_name: null })
+    mockGetBySlug.mockResolvedValue({ display_name: 'Fixture', tenant_id: 't-1', tenant_type: 'production'})
     mockSigninRedirectCallback.mockResolvedValue({ access_token: platformAdminClaimToken() })
 
     const { default: OidcCallbackPage } = await import('@/pages/OidcCallbackPage')
@@ -106,7 +106,6 @@ describe('token claims are not authority', () => {
       tenant_display_name: 'Fixture',
       tenant_id: 'tid',
       tenant_type: 'production',
-      production_tenant_display_name: null,
     }
 
     render(

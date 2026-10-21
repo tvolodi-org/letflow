@@ -26,10 +26,10 @@ No network calls are made; dependencies are mocked via `vi.mock`.
 
 | TC ID | Component | Input | Expected |
 |---|---|---|---|
-| TC-ENV04-01 | `TestEnvironmentBanner` | `tenantType='test'`, `productionDisplayName='Acme Production'` | Banner renders; "TEST ENVIRONMENT" and "Paired with production: Acme Production" visible |
+| TC-ENV04-01 | `TestEnvironmentBanner` | `tenantType='test'` | Banner renders; "TEST ENVIRONMENT" visible, no pairing text |
 | TC-ENV04-02 | `TestEnvironmentBanner` | `tenantType='production'` | Component returns null; banner absent from DOM |
-| TC-ENV04-03 | `TestEnvironmentBanner` | `tenantType='test'`, `productionDisplayName=null` | "Paired with production: (unknown)" visible |
-| TC-ENV04-04 | `ConfirmPromoteModal` | `definitionName='Onboarding Flow'`, `productionDisplayName='Acme Production'`, click Confirm | Heading and body match prescribed text exactly; `onConfirm` called once |
+| TC-ENV04-03 | `TestEnvironmentBanner` | `tenantType=null` | Component returns null; banner absent from DOM |
+| TC-ENV04-04 | `ConfirmPromoteModal` | `definitionName='Onboarding Flow'`, click Confirm | Heading and body match prescribed text exactly; `onConfirm` called once |
 | TC-ENV04-05 | `ConfirmPromoteModal` | Same props, click Cancel | `onCancel` called once; `onConfirm` not called |
 | TC-ENV04-06 | `DefinitionEditorPage` | `tenantType='test'`, `def.status='ACTIVE'`, designer role | `data-testid="promote-to-production-btn"` in DOM |
 | TC-ENV04-07 | `DefinitionEditorPage` | `tenantType='production'`, `def.status='ACTIVE'`, designer role | `promote-to-production-btn` absent from DOM |

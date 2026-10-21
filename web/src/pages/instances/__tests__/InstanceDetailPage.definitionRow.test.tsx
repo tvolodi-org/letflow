@@ -95,7 +95,7 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
   return {
     ...actual,
     useAuth: () => ({
-      session: { token: 't', display_name: 'Admin', loginSource: 'oidc' as const, tenant_slug: null, tenant_display_name: null, tenant_id: null, tenant_type: null, production_tenant_display_name: null },
+      session: { token: 't', display_name: 'Admin', loginSource: 'oidc' as const, tenant_slug: null, tenant_display_name: null, tenant_id: null, tenant_type: null},
       isAuthenticated: true,
       isLoading: false,
       loginSource: 'oidc' as const,
