@@ -1,7 +1,7 @@
 # REQ-457 (BA-PLATFORM): refusal scenario for the platform scope, part 2. Authored new; not a port.
 # The case of a customer's OWN administrator reaching into ANOTHER customer (the ISS-0993 / ISS-0994
 # case). Part 1 (refusal-customer-user-boundaries.yaml) covers ordinary staff. Not covered here: the
-# read-only auditor (the role is not built yet); ORCH adds that step when it lands.
+# read-only auditor, which has its own scenario (refusal-tenant-auditor-read-only.yaml).
 # Every step below is expected to be REFUSED. A step the product lets through is a finding, not a
 # reason to rewrite the step.
 ---
