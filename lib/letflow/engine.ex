@@ -3333,9 +3333,22 @@ defmodule Letflow.Engine do
   defp entity_write_skip?(%{transition: {:execution_error, _}}), do: true
   defp entity_write_skip?(_changes), do: false
 
-  # Only a completion with a plan maps contention; the post-commit stages and a completion
-  # without lines stay under the function-level blanket rescue (design 7.6, B-4).
-  defp run_transaction(multi, nil), do: Repo.transaction(multi)
+  # A completion with a plan maps every contention class (and a connection error); a plan-less
+  # completion (GH #2823) maps only a Postgres lock timeout or deadlock to the same result, so
+  # `complete_task/3` answers 503 instead of a generic 500. The post-commit stages and any
+  # other error stay under the function-level blanket rescue (design 7.6, B-4).
+  defp run_transaction(multi, nil) do
+    Repo.transaction(multi)
+  rescue
+    error in Postgrex.Error ->
+      case error do
+        %Postgrex.Error{postgres: %{code: code}} when code in @contention_error_codes ->
+          {:error, {:entity_write_refused, :contention, :entity_write_contention}}
+
+        _other ->
+          reraise error, __STACKTRACE__
+      end
+  end
 
   defp run_transaction(multi, _plan) do
     Repo.transaction(multi)
