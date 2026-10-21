@@ -156,6 +156,8 @@ resolution chain `realm → tenant.id → schema_name_for_tenant/1 → prefix` i
 therefore available at exactly the point D1 needs it, with no reordering of the
 pipeline. This was the primary risk to D1 and it is closed.
 
+Narrowed by `0048-pending-tenant-admin-grant.md` section 2: `idp_realm_id` may be set once, from NULL, through the audited bind-once route; it is never changed or cleared.
+
 ## 3. The `users` constraint semantics change — the load-bearing section
 
 D1 changes the meaning of two shipped unique indexes on `users`, because a unique
