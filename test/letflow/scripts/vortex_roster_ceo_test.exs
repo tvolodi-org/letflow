@@ -3,7 +3,7 @@ defmodule Letflow.Scripts.VortexRosterCeoTest do
   ISS-1006 / Q-988 (GH #2275, process-audit PA-VORTEX-006, checklist D3) regression guard.
 
   The vortex process definitions escalate human tasks to `role-ceo` (escalate-to-ceo,
-  escalate-budget-approval-to-ceo, escalate-severity-classification-to-ceo); the roster entry and seed
+  escalate-budget-approval-to-finance-director (role-finance-director since REQ-471), escalate-severity-classification-to-ceo); the roster entry and seed
   persona for the CEO, `actor-vortex-dirk`, landed in b65110b5 without a guard. The D3 question is: "is
   every role a vortex human task routes to held by some vortex actor in the roster?" -- asserted below
   for every vortex QA process definition (role and escalation_role), plus the roster shape and the seed
@@ -30,6 +30,11 @@ defmodule Letflow.Scripts.VortexRosterCeoTest do
     |> Map.new(fn [_, actor, roles] ->
       {actor, roles |> String.split(",", trim: true)}
     end)
+  end
+
+  defp script_persona_lines do
+    Regex.scan(~r/^\s*"actor-vortex-[a-z]+\|[^"]*"\s*$/m, File.read!(@script_path))
+    |> Enum.map(fn [line] -> line end)
   end
 
   defp script_roles do
@@ -67,6 +72,24 @@ defmodule Letflow.Scripts.VortexRosterCeoTest do
       for {id, a} <- vortex_actors(), "role-ceo" in (a["routing_roles"] || []), do: id
 
     assert holders == ["actor-vortex-dirk"]
+  end
+
+  test "REQ-471: exactly one vortex actor holds role-finance-director, seeded by one PERSONAS line" do
+    holders =
+      for {id, a} <- vortex_actors(),
+          "role-finance-director" in (a["routing_roles"] || []),
+          do: id
+
+    assert holders == ["actor-vortex-greta"]
+    assert "role-finance-director" in script_roles()
+
+    persona_lines = script_persona_lines()
+
+    assert Enum.count(persona_lines, &String.contains?(&1, "role-finance-director")) == 1
+    assert script_personas()["actor-vortex-greta"] == ["role-finance-director"]
+
+    assert Enum.count(persona_lines, &String.contains?(&1, "role-ceo")) == 1,
+           "no second role-ceo persona"
   end
 
   test "dirk is a resolved roster entry, not unresolved, with recorded access" do
@@ -119,7 +142,7 @@ defmodule Letflow.Scripts.VortexRosterCeoTest do
     assert walked != MapSet.new(), "guard: no routed roles walked"
 
     for role <-
-          ~w(role-ceo role-production-manager role-controller role-quality-manager role-procurement-manager) do
+          ~w(role-ceo role-finance-director role-production-manager role-controller role-quality-manager role-procurement-manager) do
       assert MapSet.member?(walked, role),
              "guard: #{role} is not routed to by any vortex definition"
     end
