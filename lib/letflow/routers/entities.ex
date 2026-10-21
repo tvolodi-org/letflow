@@ -42,14 +42,19 @@ defmodule Letflow.Routers.Entities do
   REQ-496 (decision 0050 D7, design
   `lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §3.1-§3.2):
   `activate_definition` refuses a module-managed entity type as its FIRST step
-  (`guard_tenant_write/3`, before the body, path id or query string is read),
+  (`DefinitionAccess.activate/3`, before the body, path id or query string is read),
   and `create_definition` right after the body parse; every refusal is the one
   constant 403 `Letflow.Api.Error.entity_type_managed/0`.
+
+  GH #2808: `create_definition` (TypeAccess on the body `name`, constant 403), `activate_definition`
+  (`Letflow.Entities.DefinitionAccess.activate/3`: a denied name is the absent 404) and
+  `import_restrictions` (TypeAccess over every named type, constant 403, nothing written) apply
+  TypeAccess; `Definitions` and `Restrictions` stay ungated for system callers.
 
   GH #2784 (design `lib/letflow/design/gh2784-write-routes-typeaccess.md`): the four generic
   record WRITE routes (`create_record`, `update_record`, `delete_record`, `import_records`) go
   through ONE gate, `Letflow.Entities.RecordAccess.write/3`, which replaced their
-  `guard_tenant_write/3` call. It makes four reads unconditionally (managed stamp, TypeAccess,
+  former `guard_tenant_write/3` call. It makes four reads unconditionally (managed stamp, TypeAccess,
   active definition, field restrictions) and returns `:hidden` (denied, absent, or a failed
   read), `:managed` or `{:open, restricted}`. The decision is computed FIRST and applied LAST:
 
@@ -268,6 +273,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Api.Validation.FieldConstraint
   alias Letflow.Api.Validation.FieldError
   alias Letflow.Entities.Definition.Validator.Violation, as: DefinitionViolation
+  alias Letflow.Entities.DefinitionAccess
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.ImportUpsert
@@ -508,6 +514,7 @@ defmodule Letflow.Routers.Entities do
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
+         :ok <- check_definition_type_access(body, actor_id, prefix),
          :ok <- check_definition_body_unmanaged(body, prefix),
          {:ok, _attrs} <- validate_schema(@create_definition_schema, body),
          {:ok, document} <- build_definition_document(body) do
@@ -525,10 +532,26 @@ defmodule Letflow.Routers.Entities do
       {:error, :entity_type_managed} ->
         Response.send_problem(conn, Error.entity_type_managed())
 
+      {:error, :type_denied} ->
+        Response.forbidden(conn, "insufficient permissions")
+
       {:error, :invalid_schema_name} ->
         Response.internal_error(conn)
     end
   end
+
+  # GH #2808: a name TypeAccess hides from the caller is refused with the constant
+  # route-level 403 (the bytes of the permission plug), before the managed check and the
+  # schema validation. An absent name answers 201, so "denied == absent" cannot hold here.
+  # A non-binary or absent `name` skips the check; the existing 422 path answers.
+  defp check_definition_type_access(%{"name" => name}, user_id, prefix) when is_binary(name) do
+    case DefinitionAccess.create(user_id, name, prefix) do
+      :open -> :ok
+      :denied -> {:error, :type_denied}
+    end
+  end
+
+  defp check_definition_type_access(_body, _user_id, _prefix), do: :ok
 
   # REQ-496 (design §3.2, Revision 1 B1): decided before schema validation, so a
   # managed name gets the uniform 403 whatever else the body holds. A body
@@ -814,21 +837,36 @@ defmodule Letflow.Routers.Entities do
   # `FieldError` is the same struct `Letflow.Api.Validation` itself returns,
   # so it serialises through the identical `Validation.problem/1` path and a
   # caller cannot tell which of the two produced it.
+  #
+  # GH #2808: `DefinitionAccess.activate/3` is computed FIRST and applied LAST. `:managed` is the
+  # constant 403 before the body (visible types only); `:hidden` (denied by TypeAccess) runs the
+  # same body validation an absent name runs and then answers the absent 404 instead of calling
+  # `Definitions.activate_definition/4`.
   defp handle_activate_definition(conn, name) do
-    guard_tenant_write(conn, name, fn -> activate_definition_unmanaged(conn, name) end)
+    case DefinitionAccess.activate(
+           conn.assigns.auth_context.user_id,
+           name,
+           prefix!(conn)
+         ) do
+      :managed -> Response.send_problem(conn, Error.entity_type_managed())
+      decision -> activate_definition_with_access(conn, name, decision)
+    end
   end
 
-  defp activate_definition_unmanaged(conn, name) do
+  defp activate_definition_with_access(conn, name, decision) do
     prefix = prefix!(conn)
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
          {:ok, attrs} <- validate_schema(@activate_definition_schema, body),
          {:ok, rationale} <- non_blank_rationale(Map.fetch!(attrs, "rationale")) do
-      render_activate_definition(
-        conn,
-        Definitions.activate_definition(name, actor_id, rationale, prefix)
-      )
+      result =
+        case decision do
+          :hidden -> {:error, :not_found}
+          :open -> Definitions.activate_definition(name, actor_id, rationale, prefix)
+        end
+
+      render_activate_definition(conn, result)
     else
       {:error, :malformed_json} ->
         Response.bad_request(conn, "request body must be a JSON object")
@@ -1869,9 +1907,10 @@ defmodule Letflow.Routers.Entities do
   # Body carries up to four optional arrays -- `field_restrictions`,
   # `field_grants`, `type_restrictions`, `type_grants`
   # (`Letflow.Entities.Restrictions.import_restrictions/2`'s own moduledoc
-  # has the full per-row shape/validation contract). 403 is handled entirely
-  # by the route-level :EntitiesRestrictionsManage check above (the
-  # `authz_post` macro) -- this handler never emits its own 403. `actor_id`
+  # has the full per-row shape/validation contract). The route-level
+  # :EntitiesRestrictionsManage check (the `authz_post` macro) is the permission 403;
+  # since GH #2808 this handler also emits the SAME constant 403 when any row names an
+  # entity type TypeAccess hides from the caller (nothing is written). `actor_id`
   # is read from conn.assigns but not forwarded to the delegate: these rows
   # carry no "created_by" column (design §1.3's table shapes), matching
   # entity_field_restrictions/user_entity_grants' own already-shipped,
@@ -1879,18 +1918,31 @@ defmodule Letflow.Routers.Entities do
 
   defp handle_import_restrictions(conn) do
     prefix = prefix!(conn)
+    user_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn) do
-      case Restrictions.import_restrictions(body, prefix) do
-        {:ok, counts} ->
-          Response.ok(conn, %{"inserted" => restrictions_counts_json(counts)})
+      # GH #2808: any named type TypeAccess hides from the caller (or a failed read) refuses the
+      # whole request with the constant 403, before row validation and before any write.
+      case TypeAccess.denied_types(user_id, Restrictions.entity_types(body), prefix) do
+        {:ok, denied} when map_size(denied.map) == 0 ->
+          import_restrictions_rows(conn, body, prefix)
 
-        {:error, {:invalid_rows, errors}} ->
-          Response.unprocessable(conn, restriction_rows_error_detail(errors))
+        _denied_or_failed ->
+          Response.forbidden(conn, "insufficient permissions")
       end
     else
       {:error, :malformed_json} ->
         Response.bad_request(conn, "request body must be a JSON object")
+    end
+  end
+
+  defp import_restrictions_rows(conn, body, prefix) do
+    case Restrictions.import_restrictions(body, prefix) do
+      {:ok, counts} ->
+        Response.ok(conn, %{"inserted" => restrictions_counts_json(counts)})
+
+      {:error, {:invalid_rows, errors}} ->
+        Response.unprocessable(conn, restriction_rows_error_detail(errors))
     end
   end
 
@@ -2016,7 +2068,7 @@ defmodule Letflow.Routers.Entities do
   defp render_record_command(conn, {:error, {:definition_changed, _entity_type}}, _status),
     do: Response.conflict(conn, "entity definition changed during the write; retry")
 
-  # GH #2583: reachable only when `guard_tenant_write/3`'s read and the row
+  # GH #2583: reachable only when the managed-type read and the row
   # `Records` resolved disagree (a race); answers the guard's constant 403.
   defp render_record_command(conn, {:error, :entity_type_managed}, _status),
     do: Response.send_problem(conn, Error.entity_type_managed())
@@ -3455,20 +3507,6 @@ defmodule Letflow.Routers.Entities do
   # silent default would be a tenant-scoping bug, not a recoverable one.
   @spec prefix!(Plug.Conn.t()) :: String.t()
   defp prefix!(conn), do: Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
-
-  # REQ-496 (design D6, §3.1-§3.2): the managed-type refusal, run as the FIRST step
-  # of every guarded write handler, before the body, path id or query string is
-  # read. A managed type gets the constant 403 (`Error.entity_type_managed/0`), so
-  # the answer cannot depend on the record id, body or record state, and `Records`
-  # (with its append-only 422) is never reached. Any future entity-definition or
-  # generic record write route MUST go through this too.
-  defp guard_tenant_write(conn, entity_type, handler) do
-    case ManagedTypes.check_tenant_write(entity_type, prefix!(conn)) do
-      :ok -> handler.()
-      {:error, :entity_type_managed} -> Response.send_problem(conn, Error.entity_type_managed())
-      {:error, :invalid_schema_name} -> Response.internal_error(conn)
-    end
-  end
 
   defp object_body(conn) do
     case conn.body_params do

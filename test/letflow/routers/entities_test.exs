@@ -2960,10 +2960,17 @@ defmodule Letflow.Routers.EntitiesTest do
 
     test "a second, byte-identical call reports all-zero counts" do
       ctx = tenant_ctx("iss0935-restrictions-idem")
-      body = %{"type_restrictions" => [%{"entity_type" => "shipment_manifest"}]}
+      # GH #2808: the caller is granted in the same request (the seed pattern), so the
+      # byte-identical re-run still passes the TypeAccess gate on the now-restricted type.
+      body = %{
+        "type_restrictions" => [%{"entity_type" => "shipment_manifest"}],
+        "type_grants" => [%{"user_id" => ctx.user_id, "entity_type" => "shipment_manifest"}]
+      }
 
       assert body_of(import_restrictions(ctx, body))["inserted"]["type_restrictions"] == 1
-      assert body_of(import_restrictions(ctx, body))["inserted"]["type_restrictions"] == 0
+      second = body_of(import_restrictions(ctx, body))["inserted"]
+      assert second["type_restrictions"] == 0
+      assert second["type_grants"] == 0
     end
 
     test "an absent key for a table inserts nothing for that table, not an error" do
