@@ -10,9 +10,9 @@ defmodule Letflow.Routers.Instances do
 
   | Handler     | Method/path                        | Delegate                                                              | Permission | Response |
   |-------------|-------------------------------------|-------------------------------------------------------------------------|------------|----------|
-  | rebind      | `POST /instances/:id/rebind-pins`  | `Letflow.Engine.PinRebind.rebind_pins/3`                                | none in REQ-078 (REQ-131) | 200, `{instance_id, changes, rebound_at}`; 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
-  | create      | `POST /instances`                  | `Letflow.Engine.create/2`                                               | `InstancesStart` | 201, `{instance_id, status, created_at}`; 422 `max_length` if the `idempotency-key` header is over 199 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
-  | cancel      | `POST /instances/:id/cancel`       | `Letflow.Engine.cancel_instance/3`                                      | `InstancesCancel` | 200, `{instance_id, status}`; 409 if already `COMPLETED` or already `CANCELLED`; 503 if the cancel could not settle against a concurrent writer (`{:error, :cancel_contention}`, constant detail, nothing committed, GH #2706); 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
+  | rebind      | `POST /instances/:id/rebind-pins`  | `Letflow.Engine.PinRebind.rebind_pins/3`                                | none in REQ-078 (REQ-131) | 200, `{instance_id, changes, rebound_at}` (a same-key replay answers the original result, GH #2577); 422 `idempotency_key_reuse` when the key was claimed by a different request; 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
+  | create      | `POST /instances`                  | `Letflow.Engine.create/2`                                               | `InstancesStart` | 201, `{instance_id, status, created_at}` (a same-key replay answers the original instance, GH #2577); 422 `idempotency_key_reuse` when the key was claimed by a different request; 422 `max_length` if the `idempotency-key` header is over 199 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
+  | cancel      | `POST /instances/:id/cancel`       | `Letflow.Engine.cancel_instance/3`                                      | `InstancesCancel` | 200, `{instance_id, status}` (a same-key replay answers the original result, GH #2577); 422 `idempotency_key_reuse` when the key was claimed by a different request; 409 if already `COMPLETED` or already `CANCELLED`; 503 if the cancel could not settle against a concurrent writer (`{:error, :cancel_contention}`, constant detail, nothing committed, GH #2706); 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
   | reconstruct | `POST /instances/:id/reconstruct`  | `Letflow.Engine.Reconstruction.reconstruct_instance/2` (`write_back: true`, not caller-controllable) | none (REQ-079 — same precedent as rebind, a future policy decision) | 200, `{instance_id, status, tokens: [{node_id, branch_id}], variables}` |
   | advance-timer | `POST /instances/:id/advance-timer` | `Letflow.Scheduler.resolve_advance_target/3` (new) then `Letflow.Scheduler.fire_timer/2` (existing; GH #2707 adds `{:error, :contention}`) | `InstancesAdvanceTimer` (ISS-0389 — a real permission, fully wired, not the rebind-pins/reconstruct ad-hoc pattern) | 200, `{instance_id, timer_id, node_id, timer_status}`; 400 ambiguous pending timers (`code: ambiguous_pending_timers`); 404 no matching pending timer; 503 if the fire hit a lock timeout (`{:error, :contention}`, constant detail, nothing committed, GH #2707) |
 
@@ -548,6 +548,11 @@ defmodule Letflow.Routers.Instances do
         "a requested entry is not present in the instance's current effective pin set"
       )
 
+  # GH #2577 (binding rule of GH #2543): the key was claimed by a different request. Constant
+  # body, nothing of the original is echoed.
+  defp render_rebind(conn, {:error, :idempotency_key_reuse}),
+    do: Response.send_problem(conn, Error.idempotency_key_reuse())
+
   defp render_rebind(conn, {:error, :invalid_instance_id}),
     do: Response.unprocessable(conn, "instance_id is not a valid UUID")
 
@@ -644,6 +649,9 @@ defmodule Letflow.Routers.Instances do
        when reason in [:tenant_id_not_accepted, :invalid_initial_variables],
        do: Response.unprocessable(conn, "request body failed validation")
 
+  defp render_create(conn, {:error, :idempotency_key_reuse}),
+    do: Response.send_problem(conn, Error.idempotency_key_reuse())
+
   defp render_create(conn, {:error, :definition_not_found}), do: Response.not_found(conn)
 
   defp render_create(conn, {:error, :definition_not_active}),
@@ -702,6 +710,9 @@ defmodule Letflow.Routers.Instances do
     do: Response.unprocessable(conn, "instance_id is not a valid UUID")
 
   defp render_cancel(conn, {:error, :instance_not_found}), do: Response.not_found(conn)
+
+  defp render_cancel(conn, {:error, :idempotency_key_reuse}),
+    do: Response.send_problem(conn, Error.idempotency_key_reuse())
 
   # Distinct detail strings per terminal status (AC6) -- both states are
   # equally caller-meaningful, unlike render_rebind/2's constant-detail

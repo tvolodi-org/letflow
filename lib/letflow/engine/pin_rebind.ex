@@ -82,6 +82,7 @@ defmodule Letflow.Engine.PinRebind do
   alias Ecto.Multi
   alias Letflow.Definitions.InstanceDefinitionSnapshot
   alias Letflow.Definitions.ProcessDefinition
+  alias Letflow.Engine.IdempotentReplay
   alias Letflow.Engine.PinResolver
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
@@ -118,13 +119,15 @@ defmodule Letflow.Engine.PinRebind do
         }
 
   @type rebind_result :: %{
-          instance_id: Ecto.UUID.t(),
-          changed: [changed_entry()],
-          rebound_at: DateTime.t()
+          required(:instance_id) => Ecto.UUID.t(),
+          required(:changed) => [changed_entry()],
+          required(:rebound_at) => DateTime.t(),
+          optional(:replayed) => true
         }
 
   @type rebind_error ::
           {:error, :invalid_instance_id}
+          | {:error, :idempotency_key_reuse}
           | {:error, :invalid_schema_name}
           | {:error, :missing_actor_id}
           | {:error, :missing_idempotency_key}
@@ -343,6 +346,19 @@ defmodule Letflow.Engine.PinRebind do
     |> Multi.run(:instance_projection, fn repo, _changes ->
       lock_projection_nowait(repo, instance_id, prefix)
     end)
+    |> Multi.run(:replay_check, fn repo, _changes ->
+      # GH #2577 -- under the projection lock, ahead of :eligibility (a replay of an applied
+      # rebind answers the original result even after the instance became terminal).
+      replay_check(
+        repo,
+        instance_id,
+        normalized_entries,
+        actor_id,
+        reason,
+        idempotency_key,
+        prefix
+      )
+    end)
     |> Multi.run(:eligibility, fn _repo, %{instance_projection: projection} ->
       check_rebind_eligibility(projection)
     end)
@@ -526,9 +542,69 @@ defmodule Letflow.Engine.PinRebind do
       idempotency_key: idempotency_key
     }
 
-    case EventStore.append(event_attrs, prefix: prefix) do
+    # GH #2577 -- last expression of the Multi step (see IdempotentReplay).
+    case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
+      {:error, {:idempotent_replay, _original}} = replay -> replay
       {:error, append_error} -> {:error, {:event_append_failed, append_error}}
+    end
+  end
+
+  # GH #2577 -- is `idempotency_key` already claimed? Same request = the INSTANCE_PINS_REBOUND
+  # of this instance by this actor with this reason whose stored (changed) entries are consistent
+  # with the requested entries. The payload keeps only the CHANGED entries, so the binding is
+  # best-effort: every stored entry must be requested at its `new_version`, and a requested
+  # entry that is not stored must not be a stored {kind, ref} (it was a no-op). Anything else is
+  # `:idempotency_key_reuse` and writes nothing.
+  defp replay_check(repo, instance_id, entries, actor_id, reason, idempotency_key, prefix) do
+    case IdempotentReplay.lookup(repo, idempotency_key, prefix) do
+      :none ->
+        {:ok, nil}
+
+      {:ok, %EventStore.Event{} = original} ->
+        if same_rebind_request?(original, instance_id, entries, actor_id, reason) do
+          {:error, {:idempotent_replay, original}}
+        else
+          {:error, :idempotency_key_reuse}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp same_rebind_request?(
+         %EventStore.Event{payload: payload} = original,
+         instance_id,
+         entries,
+         actor_id,
+         reason
+       )
+       when is_map(payload) do
+    stored = Map.get(payload, "entries", [])
+
+    original.event_type == "INSTANCE_PINS_REBOUND" and original.instance_id == instance_id and
+      IdempotentReplay.same_uuid?(original.actor_id, actor_id) and
+      Map.get(payload, "reason") == reason and is_list(stored) and
+      Enum.all?(stored, &stored_entry_requested?(&1, entries)) and
+      Enum.all?(entries, &request_entry_consistent?(&1, stored))
+  end
+
+  defp same_rebind_request?(_original, _instance_id, _entries, _actor_id, _reason), do: false
+
+  defp stored_entry_requested?(stored, entries) do
+    Enum.any?(entries, fn entry ->
+      Atom.to_string(entry.kind) == stored["kind"] and entry.ref == stored["ref"] and
+        entry.version == stored["new_version"]
+    end)
+  end
+
+  # A requested entry is either one of the stored (changed) entries, or a no-op whose
+  # {kind, ref} is absent from them.
+  defp request_entry_consistent?(entry, stored) do
+    case Enum.find(stored, &(&1["kind"] == Atom.to_string(entry.kind) and &1["ref"] == entry.ref)) do
+      nil -> true
+      match -> match["new_version"] == entry.version
     end
   end
 
@@ -536,12 +612,42 @@ defmodule Letflow.Engine.PinRebind do
   # Result assembly (design doc §4's rebind_result()).
   # ---------------------------------------------------------------------
 
+  # GH #2577: `rebound_at` is the appended event's own timestamp, so a same-key replay (which
+  # answers the stored event's `created_at`) returns the identical value.
   defp interpret_rebind_result(
-         {:ok, %{changed_entries: changed_entries}},
+         {:ok, %{changed_entries: changed_entries, event: %{event: %{created_at: created_at}}}},
          instance_id,
-         rebound_at
+         _rebound_at
        ) do
-    {:ok, %{instance_id: instance_id, changed: changed_entries, rebound_at: rebound_at}}
+    {:ok, %{instance_id: instance_id, changed: changed_entries, rebound_at: created_at}}
+  end
+
+  # GH #2577 -- a same-key replay of an applied rebind: the stored (changed) entries and the
+  # original event's timestamp, nothing written.
+  defp interpret_rebind_result(
+         {:error, :replay_check, {:idempotent_replay, original}, _changes},
+         instance_id,
+         _rebound_at
+       ) do
+    changed =
+      original.payload
+      |> Map.get("entries", [])
+      |> Enum.map(fn entry ->
+        %{
+          kind: String.to_existing_atom(entry["kind"]),
+          ref: entry["ref"],
+          prior_version: entry["prior_version"],
+          new_version: entry["new_version"]
+        }
+      end)
+
+    {:ok,
+     %{
+       instance_id: instance_id,
+       changed: changed,
+       rebound_at: original.created_at,
+       replayed: true
+     }}
   end
 
   # Catch-all -- every Multi step's own callback above already maps its
