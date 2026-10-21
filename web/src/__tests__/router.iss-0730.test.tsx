@@ -8,16 +8,16 @@
  * TC-ISS0730-01: router.routes maps definitions/:id/promotions/:reviewId to
  *   PromotionReviewPage, and the parent definitions/:id path is untouched
  *   (still DefinitionEditorPage).
- * TC-ISS0730-02: navigating to the review URL as a non-PLATFORM_ADMIN user
+ * TC-ISS0730-02: navigating to the review URL as a non-platform-admin user
  *   redirects to /instances (client-side role gate), matching the pattern
  *   used by AuditLogPage/HealthDashboardPage/MetricsPage -- per
  *   lib/letflow/design/iss0730-promotion-review-page-routing.md §3.1.
- * TC-ISS0730-03: navigating to the review URL as a PLATFORM_ADMIN user is
+ * TC-ISS0730-03: navigating to the review URL as a platform-admin user is
  *   NOT redirected -- the role gate lets the actual reviewer through. Without
  *   this, an inverted role check (`if (isPlatformAdmin) return <Navigate .../>`)
  *   would still pass TC-ISS0730-02 (a non-admin who is also never let in
  *   trivially "isn't redirected to the wrong place" in some readings) while
- *   locking every real PLATFORM_ADMIN out -- this test targets that failure
+ *   locking every real platform-admin out -- this test targets that failure
  *   mode directly, from the opposite session.
  * TC-ISS0730-04: none of the plausible wrong/guessed paths the original
  *   issue's live investigation tried (/admin/promotions, /promotions,
@@ -29,7 +29,7 @@
 import type { ReactElement } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup } from '@testing-library/react'
+import { screen, cleanup } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, matchRoutes } from 'react-router-dom'
 expect.extend(jestDomMatchers)
 
@@ -47,6 +47,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { router } from '@/router'
 import DefinitionEditorPage from '@/pages/definitions/DefinitionEditorPage'
 import PromotionReviewPage from '@/pages/definitions/PromotionReviewPage'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const mockUseAuth = vi.mocked(useAuth)
 
@@ -55,7 +56,6 @@ const mockUseAuth = vi.mocked(useAuth)
 const NON_ADMIN_SESSION = {
   token: 'tok',
   display_name: 'Regular User',
-  roles: ['TASK_WORKER'],
   loginSource: null as null,
   tenant_slug: 'demo-co',
   tenant_display_name: 'Demo Co',
@@ -67,7 +67,6 @@ const NON_ADMIN_SESSION = {
 const ADMIN_SESSION = {
   ...NON_ADMIN_SESSION,
   display_name: 'Platform Admin',
-  roles: ['PLATFORM_ADMIN'],
 }
 
 afterEach(() => {
@@ -97,7 +96,7 @@ describe('ISS-0730 regression — promotion review route wiring', () => {
     expect((reviewRoute!.element as ReactElement).type).not.toBe(DefinitionEditorPage)
   })
 
-  it('TC-ISS0730-02: navigating to a review URL as a non-PLATFORM_ADMIN user redirects to /instances', () => {
+  it('TC-ISS0730-02: navigating to a review URL as a non-platform-admin user redirects to /instances', () => {
     mockUseAuth.mockReturnValue({
       session: NON_ADMIN_SESSION,
       isAuthenticated: true,
@@ -115,20 +114,21 @@ describe('ISS-0730 regression — promotion review route wiring', () => {
     expect(matches).not.toBeNull()
     const leaf = matches![matches!.length - 1]
 
-    render(
+    renderWithAccess(
       <MemoryRouter initialEntries={[targetUrl]}>
         <Routes>
           <Route path={leaf.route.path} element={leaf.route.element as ReactElement} />
           <Route path="/instances" element={<div data-testid="instances-redirect-target" />} />
         </Routes>
       </MemoryRouter>,
+      'taskWorker',
     )
 
     expect(screen.getByTestId('instances-redirect-target')).toBeInTheDocument()
     expect(screen.queryByTestId('non-skippable-approval-gate')).not.toBeInTheDocument()
   })
 
-  it('TC-ISS0730-03: navigating to a review URL as a PLATFORM_ADMIN user is NOT redirected to /instances', () => {
+  it('TC-ISS0730-03: navigating to a review URL as a platform-admin user is NOT redirected to /instances', () => {
     mockUseAuth.mockReturnValue({
       session: ADMIN_SESSION,
       isAuthenticated: true,
@@ -146,13 +146,14 @@ describe('ISS-0730 regression — promotion review route wiring', () => {
     expect(matches).not.toBeNull()
     const leaf = matches![matches!.length - 1]
 
-    render(
+    renderWithAccess(
       <MemoryRouter initialEntries={[targetUrl]}>
         <Routes>
           <Route path={leaf.route.path} element={leaf.route.element as ReactElement} />
           <Route path="/instances" element={<div data-testid="instances-redirect-target" />} />
         </Routes>
       </MemoryRouter>,
+      'platformAdmin',
     )
 
     expect(screen.queryByTestId('instances-redirect-target')).not.toBeInTheDocument()

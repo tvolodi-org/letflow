@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -93,7 +93,6 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
       session: {
         token: 't',
         display_name: 'Admin',
-        roles: ['PLATFORM_ADMIN'],
         loginSource: 'oidc' as const,
         tenant_slug: null,
         tenant_display_name: null,
@@ -112,6 +111,7 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
 })
 
 import InstanceDetailPage from '@/pages/instances/InstanceDetailPage'
+import { renderWithAccess } from '@/auth/access/testing'
 
 afterEach(() => {
   cleanup()
@@ -123,7 +123,7 @@ describe('InstanceDetailPage — Cancel dialog instanceName (ISS-0824)', () => {
     const user = userEvent.setup()
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
-    render(
+    renderWithAccess(
       <QueryClientProvider client={qc}>
         <MemoryRouter initialEntries={[`/instances/${INSTANCE_ID}`]}>
           <Routes>
@@ -131,9 +131,10 @@ describe('InstanceDetailPage — Cancel dialog instanceName (ISS-0824)', () => {
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
+      'platformAdmin',
     )
 
-    // Wait for the Cancel button to be rendered (ACTIVE instance + PLATFORM_ADMIN role)
+    // Wait for the Cancel button to be rendered (ACTIVE instance + platform-admin role)
     const cancelButton = await screen.findByRole('button', { name: /cancel/i })
     await user.click(cancelButton)
 

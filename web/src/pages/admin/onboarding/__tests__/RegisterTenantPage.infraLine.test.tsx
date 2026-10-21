@@ -7,14 +7,14 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 expect.extend(jestDomMatchers)
 
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: vi.fn(() => ({
-    session: { token: 'tok', display_name: 'Op', roles: ['PLATFORM_ADMIN'] },
+    session: { token: 'tok', display_name: 'Op' },
   })),
 }))
 
@@ -27,6 +27,7 @@ vi.mock('@/api/client', () => ({
 }))
 
 import RegisterTenantPage from '../RegisterTenantPage'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const RECORD = {
   id: 'ob-1',
@@ -40,13 +41,14 @@ const RECORD = {
 }
 
 function renderRegister() {
-  return render(
+  return renderWithAccess(
     <MemoryRouter initialEntries={['/admin/onboarding/new']}>
       <Routes>
         <Route path="/admin/onboarding/new" element={<RegisterTenantPage />} />
         <Route path="/admin/onboarding/:onboardingId/result" element={<div>result page</div>} />
       </Routes>
     </MemoryRouter>,
+    'platformAdmin',
   )
 }
 

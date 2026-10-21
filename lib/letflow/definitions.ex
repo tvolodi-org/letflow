@@ -2560,6 +2560,7 @@ defmodule Letflow.Definitions do
 
   defp check_declared_writes(definition, prefix, activator, declared, module_declared, nodes) do
     activator_codes = activator_codes(activator, prefix)
+    activator_user_id = if activator_codes == [], do: activator.user_id, else: nil
 
     preseeded =
       MapSet.union(
@@ -2575,6 +2576,7 @@ defmodule Letflow.Definitions do
           declared,
           preseeded,
           activator_codes,
+          activator_user_id,
           prefix
         )
       end)
@@ -2735,6 +2737,7 @@ defmodule Letflow.Definitions do
          declared,
          preseeded,
          activator_codes,
+         activator_user_id,
          prefix
        ) do
     node_codes =
@@ -2760,7 +2763,9 @@ defmodule Letflow.Definitions do
           prefix: prefix,
           node_id: node_id,
           node_type: node_type,
-          graph_output_vars: other_vars
+          graph_output_vars: other_vars,
+          # GH #2808: a type TypeAccess hides from the activator validates as an absent type.
+          activator_user_id: activator_user_id
         }
 
         preseeded_violations =

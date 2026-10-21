@@ -7,7 +7,7 @@ import { definitionsApi } from '@/api/definitions'
 import { useDebounce } from '@/hooks/useDebounce'
 import { highlightText } from '@/utils/highlightText'
 import { deferClickState } from '@/utils/deferClickState'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess } from '@/auth/access'
 import type { DefinitionStatus, ProcessDefinition, DefinitionGraph } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
@@ -19,13 +19,11 @@ import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 
-const DESIGNER_ROLES = ['PROCESS_DESIGNER', 'PLATFORM_ADMIN']
 
 export default function DefinitionListPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
-  const { session } = useAuth()
   const [status, setStatus] = useState<DefinitionStatus | undefined>()
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -44,12 +42,11 @@ export default function DefinitionListPage() {
   // coalescing is necessary, not just `deferClickState` called directly.
   const pendingSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const hasDesignerRole = session?.roles?.some((r) => DESIGNER_ROLES.includes(r)) ?? false
-  // REQ-371 §6: rollback is gated on PLATFORM_ADMIN alone, not DESIGNER_ROLES
-  // above — POST .../rollback is `:Unknown`-gated (PLATFORM_ADMIN-only), a
-  // narrower permission than DefinitionsWrite. See
-  // lib/letflow/design/req371-rollback-withdrawal-screen.md §6.
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const hasDesignerRole = access.can(P.DefinitionsWrite)
+  // REQ-371 §6: rollback has its own permission (DefinitionsRollback), narrower than
+  // DefinitionsWrite. See lib/letflow/design/req371-rollback-withdrawal-screen.md §6.
+  const canRollback = access.can(P.DefinitionsRollback)
 
   // Debounce search query (300ms)
   const debouncedSearch = useDebounce(search, 300)
@@ -228,7 +225,7 @@ export default function DefinitionListPage() {
               Archive
             </Button>
           )}
-          {def.status === 'ACTIVE' && isPlatformAdmin && (
+          {def.status === 'ACTIVE' && canRollback && (
             <Button
               variant="danger"
               size="sm"

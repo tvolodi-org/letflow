@@ -9,13 +9,13 @@
  * 2. GET /api/v1/onboarding?hostname=<h> (page-reload restore via URL search param)
  * 3. "Could not restore" fallback (no state, no hostname, or 404)
  *
- * Role guard: redirects to /instances if session does not include PLATFORM_ADMIN.
+ * Role guard: redirects to /instances if session does not include platform-admin role.
  * All hooks are called before the early return per React rules.
  */
 
 import { useEffect, useState } from 'react'
 import { Navigate, useNavigate, useParams, useLocation, Link } from 'react-router-dom'
-import { useAuth } from '@/auth/AuthContext'
+import { useAccess, AccessPending } from '@/auth/access'
 import { Button } from '@/components/ui/Button'
 import {
   bindRealm,
@@ -55,7 +55,7 @@ const tdValueStyle: React.CSSProperties = {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function OnboardingResultPage() {
-  const { session } = useAuth()
+  const access = useAccess()
   const { onboardingId } = useParams<{ onboardingId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -102,7 +102,8 @@ export default function OnboardingResultPage() {
   }, [])
 
   // Role guard — after all hooks
-  if (!session?.roles.includes('PLATFORM_ADMIN')) {
+  if (!access.isReady) return <AccessPending access={access} />
+  if (!access.canManageTenants) {
     return <Navigate to="/instances" replace />
   }
 

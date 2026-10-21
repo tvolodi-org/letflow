@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * Unit tests — REQ-371 AC1: rollback/withdraw action reachable from
- * DefinitionListPage.tsx, gated to PLATFORM_ADMIN + ACTIVE-status rows only.
+ * DefinitionListPage.tsx, gated to platform-admin + ACTIVE-status rows only.
  *
  * See lib/letflow/design/req371-rollback-withdrawal-screen.md §6 and
  * DefinitionListPage.tsx:211 — the exact gating condition under test is
@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup } from '@testing-library/react'
+import { screen, cleanup } from '@testing-library/react'
 expect.extend(jestDomMatchers)
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -61,6 +61,7 @@ vi.mock('@/api/definitions', () => ({
 import { useAuth } from '@/auth/AuthContext'
 import { useDefinitions } from '@/hooks/useDefinitions'
 import DefinitionListPage from '@/pages/definitions/DefinitionListPage'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const ACTIVE_DEF = {
   id: 'def-active-1',
@@ -76,12 +77,11 @@ const ACTIVE_DEF = {
 
 const DRAFT_DEF = { ...ACTIVE_DEF, id: 'def-draft-1', status: 'DRAFT' as const }
 
-function mockAuth(roles: string[]) {
+function mockAuth() {
   vi.mocked(useAuth).mockReturnValue({
     session: {
       token: 't',
       display_name: 'op-1',
-      roles,
       loginSource: null,
       tenant_slug: null,
       tenant_display_name: null,
@@ -116,39 +116,39 @@ afterEach(() => {
 })
 
 describe('DefinitionListPage — rollback button gating (REQ-371 AC1)', () => {
-  it('TC-REQ371-07a: btn-rollback renders for an ACTIVE-status row when the session has PLATFORM_ADMIN', () => {
-    mockAuth(['PLATFORM_ADMIN'])
+  it('TC-REQ371-07a: btn-rollback renders for an ACTIVE-status row when the session has platform-admin', () => {
+    mockAuth()
     mockDefinitions([ACTIVE_DEF])
 
-    render(<DefinitionListPage />)
+    renderWithAccess(<DefinitionListPage />, 'platformAdmin')
 
     expect(screen.getByTestId(`btn-rollback-${ACTIVE_DEF.id}`)).toBeInTheDocument()
     expect(screen.getByTestId(`btn-rollback-${ACTIVE_DEF.id}`)).toHaveTextContent('Rollback…')
   })
 
-  it('TC-REQ371-07b: btn-rollback is absent for a non-ACTIVE row, even as PLATFORM_ADMIN', () => {
-    mockAuth(['PLATFORM_ADMIN'])
+  it('TC-REQ371-07b: btn-rollback is absent for a non-ACTIVE row, even as platform-admin', () => {
+    mockAuth()
     mockDefinitions([DRAFT_DEF])
 
-    render(<DefinitionListPage />)
+    renderWithAccess(<DefinitionListPage />, 'platformAdmin')
 
     expect(screen.queryByTestId(`btn-rollback-${DRAFT_DEF.id}`)).not.toBeInTheDocument()
   })
 
-  it('TC-REQ371-07c: btn-rollback is absent for a non-PLATFORM_ADMIN session, even on an ACTIVE row', () => {
-    mockAuth(['PROCESS_DESIGNER'])
+  it('TC-REQ371-07c: btn-rollback is absent for a non-platform-admin session, even on an ACTIVE row', () => {
+    mockAuth()
     mockDefinitions([ACTIVE_DEF])
 
-    render(<DefinitionListPage />)
+    renderWithAccess(<DefinitionListPage />, 'designer')
 
     expect(screen.queryByTestId(`btn-rollback-${ACTIVE_DEF.id}`)).not.toBeInTheDocument()
   })
 
   it('TC-REQ371-07d: clicking btn-rollback navigates to /definitions/:id/rollback', () => {
-    mockAuth(['PLATFORM_ADMIN'])
+    mockAuth()
     mockDefinitions([ACTIVE_DEF])
 
-    render(<DefinitionListPage />)
+    renderWithAccess(<DefinitionListPage />, 'platformAdmin')
 
     screen.getByTestId(`btn-rollback-${ACTIVE_DEF.id}`).click()
 

@@ -1,6 +1,6 @@
 /** PromotionReviewListPage — REQ-398: the promotion-review list/queue page,
  *  reached via the new `/promotions` nav entry (AppShell.tsx). Reads
- *  REQ-397's `GET /api/v1/promotions`, PLATFORM_ADMIN-only, and links each
+ *  REQ-397's `GET /api/v1/promotions`, platform-admin role-only, and links each
  *  row to the existing `definitions/:id/promotions/:reviewId` detail route
  *  (ISS-0730, PromotionReviewPage.tsx).
  *
@@ -25,7 +25,7 @@
 
 import React, { useMemo, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess, AccessPending } from '@/auth/access'
 import { usePromotionReviewList } from '@/hooks/usePromotions'
 import type { PromotionReviewListFilters, ReviewStatus } from '@/api/promotions'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
@@ -44,8 +44,8 @@ const REVIEW_STATUSES: ReviewStatus[] = [
 ]
 
 export default function PromotionReviewListPage(): React.ReactElement {
-  const { session } = useAuth()
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.can(P.PromotionsRead)
 
   const [statusFilter, setStatusFilter] = useState<ReviewStatus | ''>('')
   const [cursorStack, setCursorStack] = useState<string[]>([])
@@ -65,7 +65,9 @@ export default function PromotionReviewListPage(): React.ReactElement {
 
   const state: RendererState = isLoading ? 'loading' : isError ? classifyError(error) : 'success'
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 

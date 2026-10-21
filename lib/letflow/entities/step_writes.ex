@@ -40,6 +40,14 @@ defmodule Letflow.Entities.StepWrites do
   capped at `service_size_caps/0` (64 KiB per value, 256 KiB per line, JSON encoding; refusal
   `:validation_failed` with no field name). `ctx.guard_budget_ms` can only tighten the 10 s guard: the engine passes `min(10 s, remaining deadline - 8 s)`, where 8 s is the pre-guard bound of an attempt (`prepare/2` <= 4 s plus the dispatch/CAS-row and projection lock waits <= 4 s; the guard clock starts after both, at `:entity_writes_started`).
 
+  ## TypeAccess (GH #2808)
+
+  `check_type_access/2` runs just before the field-restriction check of every declarative line
+  and of every handler write, for the same restriction subject. A type denied to the subject
+  refuses the line as a type that is not writable by process (`write_not_permitted`, detail
+  `:not_writable`), and activation validation (`validate_lines/2`, ctx key `:activator_user_id`)
+  reports such a type as `:entity_type_not_found`: denied and absent are one answer.
+
   ## `module_writes` (GH #2590 / REQ-501 R4b; design 4.5, 6.1)
 
   `prepare/2` and `multi/3` also take the node's `module_writes` lines from the context
@@ -101,6 +109,7 @@ defmodule Letflow.Entities.StepWrites do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Entities.StepSource
+  alias Letflow.Entities.TypeAccess
   alias Letflow.Repo
 
   @max_lines 20
@@ -261,7 +270,7 @@ defmodule Letflow.Entities.StepWrites do
         codes =
           line_codes(line) ++
             if(duplicate?, do: [:entity_write_output_var_duplicate], else: []) ++
-            semantic_codes(line, prefix)
+            semantic_codes(line, prefix, Map.get(ctx, :activator_user_id))
 
         seen = if is_binary(output_var), do: MapSet.put(seen, output_var), else: seen
         {Enum.map(Enum.uniq(codes), &%{index: index, code: &1}), seen}
@@ -397,18 +406,38 @@ defmodule Letflow.Entities.StepWrites do
   defp output_var_codes(_line), do: []
 
   # Semantic (database-reading) codes: only for a line whose type name is well formed.
-  defp semantic_codes(%{"entity_type" => type} = line, prefix) when is_binary(type) do
+  #
+  # GH #2808: with an activator id, TypeAccess is read for every well-formed line whether or
+  # not the type exists; a type denied to the activator (or a failed read) gets exactly the
+  # list an absent type gets, so the codes are no existence oracle for a hidden type.
+  defp semantic_codes(%{"entity_type" => type} = line, prefix, activator_user_id)
+       when is_binary(type) do
     if Regex.match?(@entity_type_pattern, type) do
-      case Definitions.get_active_definition_by_name(type, prefix) do
-        {:ok, %EntityDefinition{} = row} -> type_codes(row) ++ field_name_codes(row, line)
-        {:error, _not_found} -> [:entity_type_not_found]
+      access = activator_access(activator_user_id, type, prefix)
+      definition = Definitions.get_active_definition_by_name(type, prefix)
+
+      case {access, definition} do
+        {:allowed, {:ok, %EntityDefinition{} = row}} ->
+          type_codes(row) ++ field_name_codes(row, line)
+
+        _absent_or_denied ->
+          [:entity_type_not_found]
       end
     else
       []
     end
   end
 
-  defp semantic_codes(_line, _prefix), do: []
+  defp semantic_codes(_line, _prefix, _activator_user_id), do: []
+
+  defp activator_access(user_id, type, prefix) when is_binary(user_id) do
+    case TypeAccess.authorized?(user_id, type, prefix) do
+      {:ok, :allowed} -> :allowed
+      _denied_or_failed -> :denied
+    end
+  end
+
+  defp activator_access(_no_activator, _type, _prefix), do: :allowed
 
   defp type_codes(%EntityDefinition{} = row) do
     managed = if is_nil(row.managed_by), do: [], else: [:entity_type_managed]
@@ -698,6 +727,7 @@ defmodule Letflow.Entities.StepWrites do
 
     with {:ok, normalized} <- run_time_line(line),
          :ok <- check_authorized(normalized.entity_type, ctx.authorized),
+         :ok <- check_type_access(normalized.entity_type, ctx),
          :ok <- check_restrictions(normalized.fields, normalized.entity_type, ctx),
          values = resolve_values(normalized.fields, variables),
          :ok <- check_service_sizes(values, origin),
@@ -811,6 +841,18 @@ defmodule Letflow.Entities.StepWrites do
   # origin, where no human completes and the event actor is the platform sentinel.
   defp subject_id(%{subject_id: subject_id}) when is_binary(subject_id), do: subject_id
   defp subject_id(%{actor_id: actor_id}), do: actor_id
+
+  @doc false
+  # GH #2808: TypeAccess for the restriction subject (the same subject FieldGrants uses). A
+  # denied type or a failed read refuses the line; `interpret_line/4` maps it to the refusal of
+  # a type that is not writable by process, so denied and absent are one answer.
+  @spec check_type_access(String.t(), map()) :: :ok | {:error, :type_denied}
+  def check_type_access(entity_type, ctx) do
+    case TypeAccess.authorized?(subject_id(ctx), entity_type, ctx.prefix) do
+      {:ok, :allowed} -> :ok
+      _denied_or_failed -> {:error, :type_denied}
+    end
+  end
 
   defp check_restrictions(fields, entity_type, ctx) do
     case FieldGrants.load_restrictions(subject_id(ctx), entity_type, ctx.prefix) do
@@ -993,6 +1035,8 @@ defmodule Letflow.Entities.StepWrites do
       # PR C2 (D-C.7): a service-origin value over the byte cap. No field name (INV-2).
       :value_too_large -> {:refused, i, :validation_failed, :value_too_large}
       :entity_type_managed -> {:refused, i, :write_not_permitted, :managed}
+      # GH #2808: a type TypeAccess hides from the subject answers as a non-writable type.
+      :type_denied -> {:refused, i, :write_not_permitted, :not_writable}
       # GH #2590 R4b, handler call build failures (design 8): a handler that is no longer
       # registered or said "not permitted" is the uniform 403; bad arguments are a 422; a
       # contract violation or a raise is an internal failure (the body carries no detail).

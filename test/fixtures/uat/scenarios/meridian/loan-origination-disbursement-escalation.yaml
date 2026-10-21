@@ -1,0 +1,146 @@
+# Authored by BA-MERIDIAN (GH #2330, process-audit PA-MERIDIAN-004, checklist D2).
+# Written against test/fixtures/qa/meridian_loan_origination_process_definition.json on main.
+# Covers the human task escalate-disburse-loan-to-loan-ops-lead (role-loan-ops-lead); first level disburse-loan (P1D).
+# NOTE: GH #2330 calls this node escalate-disburse-loan-to-credit-director; it was renamed on main
+# (GH #2390 / Q-1048) and actor-meridian-hannah (role-loan-ops-lead) is on the roster for it.
+# Timers are forced with POST /api/v1/instances/{instance_id}/advance-timer (ISS-0389): the step input
+# advance_timer_node names the node whose timer UAT-RUNNER advances. If the timer is not armed on that node the
+# scenario is BLOCKED there, not passed.
+---
+id: meridian-loan-origination-disbursement-escalation
+company_id: meridian
+process_id: proc-meridian-loan-origination
+title: A disbursement loan operations does not make is escalated to the loan operations lead, and when she stays silent the loan is held
+version: "1.0"
+tags: [escalation, timeout, fail_closed]
+
+description: >
+  A EUR 50,000 loan is approved at L1 and L2 and the facility is created, but loan operations does
+  not disburse it. The disbursement timer fires and the task is escalated to the loan operations
+  lead, who does not act either. Her escalation timer fires, a hold notice is filed and the
+  process ends with the loan held undisbursed (fail-closed): no money moves without a person
+  completing the disbursement.
+
+actors:
+  analyst: actor-meridian-sophie
+  credit_manager: actor-meridian-ben
+  risk_manager: actor-meridian-miriam
+  l1_approver: actor-meridian-lars
+  credit_director: actor-meridian-julia
+  loan_ops: actor-meridian-marcus
+  loan_ops_lead: actor-meridian-hannah
+
+preconditions:
+  - description: Loan origination process definition is active
+    check: process_definition_active
+  - description: No pending loan origination instances for Meridian
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: analyst
+    action: >
+      Submits a loan application for EUR 50,000 (below the 500,000 committee threshold)
+      for a corporate borrower, term loan with 36-month tenor
+    via: api
+    input:
+      application_id: sim-meridian-loan-esc-004
+      applicant_id: borrower-corp-esc-004
+      requested_amount_eur: 50000
+      product_type: term_loan
+      tenor_months: 36
+      analyst_actor_id: actor-meridian-sophie
+      purpose: "Equipment financing"
+    produces:
+      instance_id: "the process instance ID for this loan application"
+
+  - step: 2
+    actor: credit_manager
+    action: Reviews the credit memo and passes it
+    via: api
+    input:
+      credit_decision: pass
+      recommended_rate_bps: 425
+      credit_notes: "Strong collateral."
+
+  - step: 3
+    actor: risk_manager
+    action: Completes the risk assessment and rates the borrower low risk
+    via: api
+    input:
+      risk_rating: low
+      pd_percent: 1.2
+      risk_notes: "Acceptable risk."
+
+  - step: 4
+    actor: l1_approver
+    action: Approves the application at L1
+    via: api
+    input:
+      l1_decision: approve
+
+  - step: 5
+    actor: credit_director
+    action: Approves the application at L2
+    via: api
+    input:
+      l2_decision: approve
+
+  - step: 6
+    actor: loan_ops
+    action: >
+      Does not disburse the loan. The task stays open until its time limit is reached.
+    via: api
+    note: >
+      No action is taken on purpose. UAT-RUNNER advances the disburse-loan timer with
+      advance-timer rather than waiting 1 day.
+    input:
+      advance_timer_node: disburse-loan
+
+  - step: 7
+    actor: loan_ops_lead
+    action: >
+      Receives the escalated disbursement and does not act. The task stays open until its
+      escalation time limit is reached.
+    via: api
+    note: >
+      No action is taken on purpose. UAT-RUNNER advances the escalation timer of
+      escalate-disburse-loan-to-loan-ops-lead with advance-timer rather than waiting a further day.
+    input:
+      advance_timer_node: escalate-disburse-loan-to-loan-ops-lead
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      When loan operations does not disburse in time, the disbursement is escalated to the loan
+      operations lead and the first-level task is no longer open
+    verification:
+      method: task_assigned
+      detail: >
+        after advancing disburse-loan: task 'escalate-disburse-loan-to-loan-ops-lead' assigned to
+        role-loan-ops-lead (actor-meridian-hannah); 'disburse-loan' no longer open
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An approved loan sits undisbursed and nobody senior is told.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      When the lead does not act either, the loan is held: a hold notice is filed and the process
+      ends held, not disbursed
+    verification:
+      method: instance_state
+      detail: >
+        after advancing escalate-disburse-loan-to-loan-ops-lead: instance status == COMPLETED, end
+        node is 'end-disbursement-held', disbursement-held-notice executed, 'end-disbursed' not reached
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A stalled disbursement could be reported as paid out, or vanish without a hold notice, so
+        the borrower and the bank disagree about the money.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel instance sim-meridian-loan-esc-004 if not already completed

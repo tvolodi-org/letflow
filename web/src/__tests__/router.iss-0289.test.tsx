@@ -3,7 +3,7 @@
  * Regression test — ISS-0289: web/src/pages/admin/UserDetailPage.tsx existed in
  * the tree but was not reachable from the router. Navigating to
  * /admin/users/:id rendered UsersPage.tsx's partial inline edit branch, which
- * had (a) no PLATFORM_ADMIN role gate and (b) no group-membership editing,
+ * had (a) no platform-admin role gate and (b) no group-membership editing,
  * instead of the dedicated UserDetailPage.tsx.
  *
  * TC-ISS0289-01: router.routes maps the parameterized detail path to
@@ -11,7 +11,7 @@
  *   This directly encodes the bug: pre-fix, router.tsx registered only
  *   `admin/users/:id` -> <UsersPage />, so no route both carried a param and
  *   pointed at UserDetailPage.
- * TC-ISS0289-02: navigating to /admin/users/<id> as a non-PLATFORM_ADMIN user
+ * TC-ISS0289-02: navigating to /admin/users/<id> as a non-platform-admin user
  *   renders the "You do not have permission to manage users." gate, not an
  *   editable form -- the concrete authorization regression SECURITY-REVIEWER
  *   flagged as previously absent (UsersPage's inline branch had no role
@@ -26,7 +26,7 @@
 import type { ReactElement } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup } from '@testing-library/react'
+import { screen, cleanup } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, matchRoutes } from 'react-router-dom'
 expect.extend(jestDomMatchers)
 
@@ -44,6 +44,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { router } from '@/router'
 import UserDetailPage from '@/pages/admin/UserDetailPage'
 import UsersPage from '@/pages/admin/UsersPage'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const mockUseAuth = vi.mocked(useAuth)
 
@@ -52,7 +53,6 @@ const mockUseAuth = vi.mocked(useAuth)
 const NON_ADMIN_SESSION = {
   token: 'tok',
   display_name: 'Regular User',
-  roles: ['TASK_WORKER'],
   loginSource: null as null,
   tenant_slug: 'demo-co',
   tenant_display_name: 'Demo Co',
@@ -92,7 +92,7 @@ describe('ISS-0289 regression — admin/users detail route wiring', () => {
     expect((detailRoute!.element as ReactElement).type).not.toBe(UsersPage)
   })
 
-  it('TC-ISS0289-02: navigating to /admin/users/<id> as a non-PLATFORM_ADMIN user shows the permission gate, not an editable form', () => {
+  it('TC-ISS0289-02: navigating to /admin/users/<id> as a non-platform-admin user shows the permission gate, not an editable form', () => {
     mockUseAuth.mockReturnValue({
       session: NON_ADMIN_SESSION,
       isAuthenticated: true,
@@ -110,17 +110,18 @@ describe('ISS-0289 regression — admin/users detail route wiring', () => {
     expect(matches).not.toBeNull()
     const leaf = matches![matches!.length - 1]
 
-    render(
+    renderWithAccess(
       <MemoryRouter initialEntries={[targetUrl]}>
         <Routes>
           <Route path={leaf.route.path} element={leaf.route.element as ReactElement} />
         </Routes>
       </MemoryRouter>,
+      'taskWorker',
     )
 
     // VERDICT: permission-denied message is shown for a non-admin user.
     // Pre-fix, this URL resolved to UsersPage.tsx's inline branch, which had NO
-    // PLATFORM_ADMIN gate at all -- it rendered an editable admin-user-detail-form
+    // platform-admin gate at all -- it rendered an editable admin-user-detail-form
     // for ANY authenticated user regardless of role. That is the regression
     // SECURITY-REVIEWER flagged as previously absent.
     expect(screen.getByText('You do not have permission to manage users.')).toBeInTheDocument()

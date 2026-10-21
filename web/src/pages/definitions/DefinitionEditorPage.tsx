@@ -15,7 +15,7 @@ import { useDefinition, useCreateDefinition, useValidateDefinition, useActivateD
 import { definitionsApi } from '@/api/definitions'
 import type { GraphValidationViolation } from '@/api/definitions'
 import { mapSemanticViolationsToValidationErrors } from '@/utils/canvas/semanticViolationMapping'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess } from '@/auth/access'
 import { useTenantContext } from '@/auth/useTenantContext'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import type { DefinitionGraph } from '@/types/api'
@@ -43,7 +43,6 @@ import type { ValidationError } from '@/components/canvas/ValidationSummaryBar'
 import ReleaseCheckPanel from '@/components/canvas/ReleaseCheckPanel'
 import type { ReleaseCheckState } from '@/components/canvas/ReleaseCheckPanel'
 
-const DESIGNER_ROLES = ['PROCESS_DESIGNER', 'PLATFORM_ADMIN']
 
 // ── Empty starter graph ───────────────────────────────────────────────────────
 
@@ -83,7 +82,6 @@ export default function DefinitionEditorPage() {
   const create = useCreateDefinition()
   const validateDefinition = useValidateDefinition()
   const activateMutation = useActivateDefinition()
-  const { session } = useAuth()
   const { tenantType, productionDisplayName, tenantId } = useTenantContext()
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
@@ -101,7 +99,7 @@ export default function DefinitionEditorPage() {
   const [promoteMessage, setPromoteMessage] = useState<string | null>(null)
   const [promoteError, setPromoteError] = useState<string | null>(null)
 
-  const hasDesignerRole = session?.roles?.some((r) => DESIGNER_ROLES.includes(r)) ?? false
+  const hasDesignerRole = useAccess().can(P.DefinitionsWrite)
 
   // ── Canvas state ────────────────────────────────────────────────────────────
 

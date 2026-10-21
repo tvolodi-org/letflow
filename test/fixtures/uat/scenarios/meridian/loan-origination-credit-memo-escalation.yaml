@@ -1,0 +1,121 @@
+# Authored by BA-MERIDIAN (GH #2330, process-audit PA-MERIDIAN-004, checklist D2).
+# Written against test/fixtures/qa/meridian_loan_origination_process_definition.json on main.
+# Covers the human task credit-memo-escalation-review (role-credit-director); first level credit-memo-review (P2D).
+# Timers are forced with POST /api/v1/instances/{instance_id}/advance-timer (ISS-0389): the step input
+# advance_timer_node names the node whose timer UAT-RUNNER advances. If the timer is not armed on that node the
+# scenario is BLOCKED there, not passed.
+---
+id: meridian-loan-origination-credit-memo-escalation
+company_id: meridian
+process_id: proc-meridian-loan-origination
+title: An unanswered credit memo is escalated to the credit director, and when she also stays silent the application is declined
+version: "1.0"
+tags: [escalation, timeout, fail_closed]
+
+description: >
+  A EUR 50,000 loan application starts the parallel assessments. The risk manager completes
+  the risk assessment and KYC screening clears, but the credit manager does not review the
+  credit memo. The memo timer fires and the memo is escalated to the credit director, who does
+  not act either. Her escalation timer fires and the process continues with no credit decision.
+  The eligibility gate requires a recorded pass, so the application is declined (fail-closed)
+  and never reaches approval or disbursement.
+
+actors:
+  analyst: actor-meridian-sophie
+  credit_manager: actor-meridian-ben
+  risk_manager: actor-meridian-miriam
+  credit_director: actor-meridian-julia
+
+preconditions:
+  - description: Loan origination process definition is active
+    check: process_definition_active
+  - description: No pending loan origination instances for Meridian
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: analyst
+    action: >
+      Submits a loan application for EUR 50,000 (below the 500,000 committee threshold)
+      for a corporate borrower, term loan with 36-month tenor
+    via: api
+    input:
+      application_id: sim-meridian-loan-esc-001
+      applicant_id: borrower-corp-esc-001
+      requested_amount_eur: 50000
+      product_type: term_loan
+      tenor_months: 36
+      analyst_actor_id: actor-meridian-sophie
+      purpose: "Equipment financing"
+    produces:
+      instance_id: "the process instance ID for this loan application"
+
+  - step: 2
+    actor: risk_manager
+    action: Completes the risk assessment and rates the borrower low risk
+    via: api
+    input:
+      risk_rating: low
+      pd_percent: 1.5
+      risk_notes: "Stable cash flow."
+
+  - step: 3
+    actor: credit_manager
+    action: >
+      Does not review the credit memo. The task stays open until its time limit is reached.
+    via: api
+    note: >
+      No action is taken on purpose. UAT-RUNNER advances the credit-memo-review timer with
+      advance-timer rather than waiting 2 days.
+    input:
+      advance_timer_node: credit-memo-review
+
+  - step: 4
+    actor: credit_director
+    action: >
+      Receives the escalated credit memo review and does not act. The task stays open until its
+      escalation time limit is reached.
+    via: api
+    note: >
+      No action is taken on purpose. UAT-RUNNER advances the escalation timer of
+      credit-memo-escalation-review with advance-timer rather than waiting a further 2 days.
+    input:
+      advance_timer_node: credit-memo-escalation-review
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      When the credit manager does not review the memo, the memo is escalated to the credit
+      director and the credit manager's task is no longer open
+    verification:
+      method: task_assigned
+      detail: >
+        after advancing credit-memo-review: task 'credit-memo-escalation-review' assigned to
+        role-credit-director (actor-meridian-julia); 'credit-memo-review' no longer open
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A credit memo nobody reviews stalls the application silently and no senior person is
+        asked to decide.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      When the credit director does not act either, no credit decision is recorded and the
+      application is declined, never approved by default
+    verification:
+      method: instance_state
+      detail: >
+        after advancing credit-memo-escalation-review: instance status == COMPLETED, end node is
+        'end-declined', decline-application executed, no 'l1-approval', 'l2-approval' or
+        committee task created, disburse-loan not executed
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A stalled credit review could let an application through without a credit decision,
+        which breaks the bank's fail-closed credit policy.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel instance sim-meridian-loan-esc-001 if not already completed
