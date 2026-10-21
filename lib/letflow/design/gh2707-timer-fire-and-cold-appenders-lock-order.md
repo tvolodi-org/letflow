@@ -830,3 +830,6 @@ block quoted in section 10 as listed in item 6.
     case waiting on the real blocked backend instead of a sleep; the census self-test of `assert_p_first!/3` on
     synthetic statement lists (it raises when `A` or an `E` row precedes `P_x`), a static pin that ignores comment
     and doc lines, and an S1 control that asserts the synthetic projection exists before probing.
+
+## As built (GH #2829)
+F-1 is closed: a child completed by a timer fire (regular or escalation) now resumes its parent. `lock_for_timer_fire/3` decides `:completing | :continuing` from the pure hop chain after `P_x` and before the group and timer-row locks (decision 0061, "Amended (GH #2829)"); `persist_timer_fired_advance/7` and `persist_escalation_timer_fired_advance/7` append the completion cascade after the `:projection` step. Sections 5.2 and 12 above are left as written (history).

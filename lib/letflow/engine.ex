@@ -412,8 +412,10 @@ defmodule Letflow.Engine do
       accepted, a script task in a sub-process child is not reachable end to end until GH #2694).
     * `Scheduler.fire_timer/2` (GH #2707, through `lock_for_timer_fire/3`): for an escalation timer the
       pending `tasks` rows of its token, then the projection (any status), then, for an active
-      child, the immediate parent group `FOR KEY SHARE` (a timer fire never completes the child
-      through the cascade), then the timer row, then the TIMER_FIRED append and the advance. A timer
+      child, the parent group (GH #2829: `FOR KEY SHARE` on the immediate parent when the pure hop
+      chain leaves the child running, `FOR UPDATE` on the ancestor chain when it completes the child
+      and the fire runs the completion cascade), then the timer row, then the TIMER_FIRED append and
+      the advance. A timer
       whose instance is not active is settled: all pending timers of that instance are cancelled
       with reason `instance_<status>` and the transaction commits.
     * `cancel_instance/3`: `tasks`, dispatch rows, the projection, `:lock_ancestors` (the
@@ -3980,6 +3982,13 @@ defmodule Letflow.Engine do
               |> Multi.run(:projection, fn inner_repo, _changes ->
                 reconcile_projection(inner_repo, projection, final_instance_state, now, prefix)
               end)
+              |> append_sub_process_completion_cascade_multi(
+                timer.instance_id,
+                final_instance_state,
+                actor_id,
+                idempotency_key,
+                prefix
+              )
 
             case repo.transaction(multi) do
               {:ok, changes} ->
@@ -4134,9 +4143,10 @@ defmodule Letflow.Engine do
   # the pending `tasks` rows of the timer's token (the same relative order as `complete_task/3` and
   # `cancel_instance/3`: the task row before `P_x`); (2) `P_x` `FOR UPDATE` with NO status filter, so
   # the scheduler learns the status of a dead instance and can settle its timers; (3) only for an
-  # `:active` instance, the immediate parent group `FOR KEY SHARE` (a timer fire never runs the
-  # sub-process completion cascade, so the `:continuing` intent is the right one; no-op for an
-  # instance that is not a waiting child). After this the second UPDATE of a child's projection
+  # `:active` instance, the parent group, in the mode the fire's pure hop chain decides
+  # (`timer_fire_lock_intent/4`, GH #2829: `:completing` when the fire completes the child and so
+  # runs the sub-process completion cascade, else `:continuing`; no-op for an instance that is not
+  # a waiting child). After this the second UPDATE of a child's projection
   # (`reconcile_projection`) finds its foreign-key locks already held (GH #2708/#2709 mechanism).
   # Writes nothing. `advance_after_*` keep their own `P_x` lock (now a no-op re-lock).
   @spec lock_for_timer_fire(Timer.t(), Ecto.Repo.t() | module(), prefix :: String.t()) ::
@@ -4160,12 +4170,88 @@ defmodule Letflow.Engine do
 
       %InstanceProjection{status: :active} = projection ->
         with {:ok, _tokens} <-
-               lock_parent_group(repo, timer.instance_id, :continuing, prefix) do
+               lock_parent_group(
+                 repo,
+                 timer.instance_id,
+                 timer_fire_lock_intent(timer, projection, repo, prefix),
+                 prefix
+               ) do
           {:ok, projection}
         end
 
       %InstanceProjection{} = projection ->
         {:ok, projection}
+    end
+  end
+
+  # GH #2829: the group mode of a timer fire, decided BEFORE the group is locked (decision 0061
+  # rule 2) from the same pure hop chain the fire itself runs, under the `P_x` the caller holds
+  # (graph, tokens, pending tasks and variables cannot change meanwhile). A fire that completes a
+  # child runs the completion cascade, so it needs the ancestor chain `FOR UPDATE`. Not a child, a
+  # reminder, a stale escalation or any error -> `:continuing`: the fire then reports the error as
+  # it always did, and persists nothing, so no cascade follows. Reads only.
+  @spec timer_fire_lock_intent(
+          Timer.t(),
+          InstanceProjection.t(),
+          Ecto.Repo.t() | module(),
+          String.t()
+        ) :: :completing | :continuing
+  defp timer_fire_lock_intent(
+         _timer,
+         %InstanceProjection{parent_instance_id: nil},
+         _repo,
+         _prefix
+       ),
+       do: :continuing
+
+  defp timer_fire_lock_intent(%Timer{timer_type: "reminder"}, _projection, _repo, _prefix),
+    do: :continuing
+
+  defp timer_fire_lock_intent(%Timer{} = timer, projection, repo, prefix) do
+    with {:ok, snapshot_and_state} <-
+           build_snapshot_and_state_for_timer(repo, timer, projection, prefix),
+         {:ok, _snapshot_and_state, %InstanceState{} = advanced_state, _pending_events} <-
+           timer_fire_hop_chain(timer, snapshot_and_state) do
+      lock_intent(advanced_state)
+    else
+      _stale_or_error -> :continuing
+    end
+  end
+
+  # The pure part of a timer fire, shared by the lock prelude and the fire itself so the two
+  # cannot drift: `{:ok, snapshot_and_state, advanced_state, pending_events}`, `:stale` (an
+  # escalation timer whose token has moved on: the fire is a no-op) or `{:error, _}`.
+  defp timer_fire_hop_chain(%Timer{timer_type: "escalation"} = timer, snapshot_and_state) do
+    if escalation_timer_stale?(timer, snapshot_and_state) do
+      # ISS-0925: the token is no longer at the node this timer was armed for
+      # (its HUMAN_TASK completed and the token moved on). Never act on a
+      # different node -- the timer is simply consumed as a no-op.
+      :stale
+    else
+      # GH #2359: the original task is cancelled in this same transaction, so
+      # its {token, node} entry must not mask a same-node re-entry. Replace
+      # the seed in place (no error-snapshot reader exists on this path).
+      snapshot_and_state = %{
+        snapshot_and_state
+        | seed_instance_state:
+            TaskActivation.consume_completed_position(
+              snapshot_and_state.seed_instance_state,
+              snapshot_and_state.own_token_id,
+              timer.node_id
+            )
+      }
+
+      with {:ok, advanced_state, pending_events} <-
+             dispatch_escalation_timer_fired_hop_chain(snapshot_and_state) do
+        {:ok, snapshot_and_state, advanced_state, pending_events}
+      end
+    end
+  end
+
+  defp timer_fire_hop_chain(%Timer{}, snapshot_and_state) do
+    with {:ok, advanced_state, pending_events} <-
+           dispatch_timer_fired_hop_chain(snapshot_and_state) do
+      {:ok, snapshot_and_state, advanced_state, pending_events}
     end
   end
 
@@ -4182,39 +4268,26 @@ defmodule Letflow.Engine do
     with {:ok, projection} <- fetch_and_lock_instance_projection(repo, timer.instance_id, prefix),
          {:ok, snapshot_and_state} <-
            build_snapshot_and_state_for_timer(repo, timer, projection, prefix) do
-      if escalation_timer_stale?(timer, snapshot_and_state) do
-        # ISS-0925: the token is no longer at the node this timer was armed for
-        # (its HUMAN_TASK completed and the token moved on). Never act on a
-        # different node -- the timer is simply consumed as a no-op.
-        {:ok, :advanced}
-      else
-        # GH #2359: the original task is cancelled in this same transaction, so
-        # its {token, node} entry must not mask a same-node re-entry. Replace
-        # the seed in place (no error-snapshot reader exists on this path).
-        snapshot_and_state = %{
-          snapshot_and_state
-          | seed_instance_state:
-              TaskActivation.consume_completed_position(
-                snapshot_and_state.seed_instance_state,
-                snapshot_and_state.own_token_id,
-                timer.node_id
-              )
-        }
-
-        with {:ok, advanced_state, pending_events} <-
-               dispatch_escalation_timer_fired_hop_chain(snapshot_and_state),
-             {:ok, _changes} <-
-               persist_escalation_timer_fired_advance(
-                 repo,
-                 timer,
-                 projection,
-                 snapshot_and_state,
-                 advanced_state,
-                 pending_events,
-                 prefix
-               ) do
+      case timer_fire_hop_chain(timer, snapshot_and_state) do
+        :stale ->
           {:ok, :advanced}
-        end
+
+        {:ok, snapshot_and_state, advanced_state, pending_events} ->
+          with {:ok, _changes} <-
+                 persist_escalation_timer_fired_advance(
+                   repo,
+                   timer,
+                   projection,
+                   snapshot_and_state,
+                   advanced_state,
+                   pending_events,
+                   prefix
+                 ) do
+            {:ok, :advanced}
+          end
+
+        {:error, _reason} = error ->
+          error
       end
     end
   end
@@ -4454,6 +4527,13 @@ defmodule Letflow.Engine do
               |> Multi.run(:projection, fn inner_repo, _changes ->
                 reconcile_projection(inner_repo, projection, final_instance_state, now, prefix)
               end)
+              |> append_sub_process_completion_cascade_multi(
+                timer.instance_id,
+                final_instance_state,
+                actor_id,
+                idempotency_key,
+                prefix
+              )
 
             case repo.transaction(multi) do
               {:ok, changes} ->
