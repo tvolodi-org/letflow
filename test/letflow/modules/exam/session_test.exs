@@ -1894,6 +1894,76 @@ defmodule Letflow.Modules.Exam.SessionTest do
     end
   end
 
+  describe "GH #2779 -- soft-deleted question rules and manual picks are skipped at START" do
+    test "a soft-deleted random rule is not drawn; its live sibling rule still is" do
+      %{schema_name: schema} = tenant("gh2779-rule-deleted")
+      exam = create_exam!(schema, %{})
+      live_pool = Ecto.UUID.generate()
+      dead_pool = Ecto.UUID.generate()
+      {live_q, _, _} = build_single_choice_question!(schema, live_pool)
+      {dead_q, _, _} = build_single_choice_question!(schema, dead_pool)
+      create_rule!(schema, exam.record_id, live_pool, 1, 0)
+      dead_rule = create_rule!(schema, exam.record_id, dead_pool, 1, 1)
+      ExamFixtures.delete_record!(schema, "exam_question_rule", dead_rule.record_id)
+
+      assert {:ok, view} = Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+      drawn = Enum.map(session_question_rows(schema, view.id), & &1["question_id"])
+
+      assert drawn == [live_q]
+      refute dead_q in drawn
+    end
+
+    test "a soft-deleted manual pick is not drawn; its live sibling pick still is" do
+      %{schema_name: schema} = tenant("gh2779-pick-deleted")
+      exam = create_exam!(schema, %{})
+      category_id = Ecto.UUID.generate()
+      rule = create_rule!(schema, exam.record_id, category_id, 1, 0, "manual")
+      {live_q, _, _} = build_single_choice_question!(schema, category_id)
+      {dead_q, _, _} = build_single_choice_question!(schema, category_id)
+      create_manual_question!(schema, rule.record_id, live_q, 0)
+      dead_pick = create_manual_question!(schema, rule.record_id, dead_q, 1)
+      ExamFixtures.delete_record!(schema, "exam_manual_question", dead_pick.record_id)
+
+      assert {:ok, view} = Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+      drawn = Enum.map(session_question_rows(schema, view.id), & &1["question_id"])
+
+      assert drawn == [live_q]
+      refute dead_q in drawn
+    end
+
+    test "an exam whose rules are all soft-deleted is refused with :no_question_rules, nothing written" do
+      %{schema_name: schema} = tenant("gh2779-all-rules-deleted")
+      exam = create_exam!(schema, %{})
+      category_id = Ecto.UUID.generate()
+      build_single_choice_question!(schema, category_id)
+      rule_a = create_rule!(schema, exam.record_id, category_id, 1, 0)
+      rule_b = create_rule!(schema, exam.record_id, category_id, 1, 1)
+      ExamFixtures.delete_record!(schema, "exam_question_rule", rule_a.record_id)
+      ExamFixtures.delete_record!(schema, "exam_question_rule", rule_b.record_id)
+
+      assert {:error, :no_question_rules} =
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      assert count_rows(schema, "session") == 0
+      assert count_rows(schema, "session_question") == 0
+    end
+
+    test "a manual rule whose only pick is soft-deleted is refused with :manual_rule_empty" do
+      %{schema_name: schema} = tenant("gh2779-only-pick-deleted")
+      exam = create_exam!(schema, %{})
+      category_id = Ecto.UUID.generate()
+      rule = create_rule!(schema, exam.record_id, category_id, 1, 0, "manual")
+      {question_id, _, _} = build_single_choice_question!(schema, category_id)
+      pick = create_manual_question!(schema, rule.record_id, question_id, 0)
+      ExamFixtures.delete_record!(schema, "exam_manual_question", pick.record_id)
+
+      assert {:error, :manual_rule_empty} =
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      assert count_rows(schema, "session") == 0
+    end
+  end
+
   # ---------------------------------------------------------------------
   # GH #2762 -- a soft-deleted answer option is excluded from the START snapshot and from the
   # options shown to a NEW session; a start is refused only when a DRAWN question is left without

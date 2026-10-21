@@ -948,7 +948,15 @@ defmodule Letflow.Modules.Exam.Session do
   end
 
   defp fetch_question_pools(exam_id, prefix) do
-    with {:ok, rule_records} <- query_all("exam_question_rule", [eq("exam_id", exam_id)], prefix) do
+    # GH #2779: a soft-deleted rule is never read; an exam left with no live rule is refused
+    # (an empty session is never valid).
+    with {:ok, rule_records} <-
+           query_all(
+             "exam_question_rule",
+             [eq("exam_id", exam_id), eq("deleted", false)],
+             prefix
+           ),
+         :ok <- require_live_rules(rule_records) do
       random_rules =
         rule_records
         |> Enum.filter(&(fv(&1, "mode") == "random"))
@@ -970,6 +978,9 @@ defmodule Letflow.Modules.Exam.Session do
       end
     end
   end
+
+  defp require_live_rules([]), do: {:error, :no_question_rules}
+  defp require_live_rules(_rule_records), do: :ok
 
   defp fetch_pools(pool_ids, prefix) do
     pool_ids
@@ -1064,8 +1075,13 @@ defmodule Letflow.Modules.Exam.Session do
   @spec fetch_manual_questions(rule_id :: String.t(), prefix :: String.t()) ::
           {:ok, [session_row()]} | {:error, :manual_rule_empty | term()}
   defp fetch_manual_questions(rule_id, prefix) do
+    # GH #2779: a soft-deleted pick is never read.
     with {:ok, pins} <-
-           query_all("exam_manual_question", [eq("rule_id", rule_id)], prefix) do
+           query_all(
+             "exam_manual_question",
+             [eq("rule_id", rule_id), eq("deleted", false)],
+             prefix
+           ) do
       if pins == [] do
         {:error, :manual_rule_empty}
       else
