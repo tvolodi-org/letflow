@@ -65,7 +65,7 @@ defmodule Letflow.Routers.TenantConfig do
   byte-identical (INV-5). It is the same bounded inference as a non-default
   realm id, and it is never a name, slug, display name or id (INV-2).
 
-  It returns exactly three values an OIDC authority URL (which embeds a realm
+  It returns exactly three values: an OIDC authority URL (which embeds a realm
   id), a public client id, and a `branding` block. Both of the first two are
   values the browser must learn *before* authenticating; the third is display
   information the login page renders before authentication as well. All three
@@ -292,7 +292,8 @@ defmodule Letflow.Routers.TenantConfig do
 
   # ── Response allowlist (INV-2) ────────────────────────────────────────────
 
-  # EXACTLY three keys here (tenant_type is added by the caller), hand-built, never derived from %Tenant{} as a whole.
+  # EXACTLY three keys here (tenant_type is added by the caller), hand-built,
+  # never derived from %Tenant{} as a whole.
   # `tenant` is passed through only to read its :settings field via the
   # explicit-key branding helper below -- it is never `Map.from_struct/1`'d or
   # otherwise merged wholesale into the response. Adding a fourth top-level
