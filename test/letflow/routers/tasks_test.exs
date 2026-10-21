@@ -564,6 +564,82 @@ defmodule Letflow.Routers.TasksTest do
     end
   end
 
+  describe "GET /tasks/:id applies the inbox principal scope to a task-worker-only caller (INV-2/INV-5)" do
+    setup do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "t0038-byid-scope")
+      %{tenant: tenant, user_x: insert_user!(tenant, %{username: "user-x"}).id}
+    end
+
+    test "a ROLE task assigned to a role the caller does not hold answers 404, identical to a nonexistent id",
+         %{tenant: tenant, user_x: user_x} do
+      other_group = insert_group!(tenant, name: "others")
+      insert_role!(tenant, "other-role", other_group.id)
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "other-role"})
+
+      hidden =
+        build_conn(:get, "/#{task.id}", tenant, roles: ["TASK_WORKER"], user_id: user_x)
+        |> dispatch()
+
+      missing =
+        build_conn(:get, "/#{Ecto.UUID.generate()}", tenant,
+          roles: ["TASK_WORKER"],
+          user_id: user_x
+        )
+        |> dispatch()
+
+      assert hidden.status == 404
+      assert hidden.resp_body == missing.resp_body
+      refute hidden.resp_body =~ "other-role"
+    end
+
+    test "tasks assigned to the caller, to their group or to a role they hold answer 200",
+         %{tenant: tenant, user_x: user_x} do
+      group = insert_group!(tenant, name: "reviewers")
+      insert_group_member!(tenant, group.id, user_x)
+      insert_role!(tenant, "approver", group.id)
+
+      tasks = [
+        insert_task!(tenant, %{assignee_type: "USER", assignee_ref: user_x}),
+        insert_task!(tenant, %{assignee_type: "GROUP", assignee_ref: group.id}),
+        insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "approver"})
+      ]
+
+      for task <- tasks do
+        conn =
+          build_conn(:get, "/#{task.id}", tenant, roles: ["TASK_WORKER"], user_id: user_x)
+          |> dispatch()
+
+        assert conn.status == 200
+        assert Jason.decode!(conn.resp_body)["id"] == task.id
+      end
+    end
+
+    test "a caller who is not task-worker-only still reads another role's task",
+         %{tenant: tenant, user_x: user_x} do
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "other-role"})
+
+      conn =
+        build_conn(:get, "/#{task.id}", tenant, roles: ["TENANT_ADMIN"], user_id: user_x)
+        |> dispatch()
+
+      assert conn.status == 200
+    end
+
+    test "a task of tenant B requested by a tenant A task worker answers 404", %{
+      tenant: tenant_a,
+      user_x: user_x
+    } do
+      tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "t0038-byid-scope-b")
+      task_b = insert_task!(tenant_b, %{assignee_type: "USER", assignee_ref: user_x})
+
+      conn =
+        build_conn(:get, "/#{task_b.id}", tenant_a, roles: ["TASK_WORKER"], user_id: user_x)
+        |> dispatch()
+
+      assert conn.status == 404
+    end
+  end
+
   # ══════════════════════════════════════════════════════════════════════
   # AC4/INV-1 -- tenant isolation on GET /tasks, identically-named nodes
   # ══════════════════════════════════════════════════════════════════════

@@ -252,6 +252,134 @@ defmodule Letflow.Routers.InstancesTest do
     end
   end
 
+  # ── GH #2577 -- a same-key replay answers the original and writes nothing ──
+
+  describe "GH #2577 -- same-key replay" do
+    defp keyed(conn, key), do: put_req_header(conn, "idempotency-key", key)
+
+    test "POST /instances: replay returns the same 201 body, a new key starts a new instance" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2577-start")
+      definition = active_definition!(tenant.schema_name)
+      user_id = Ecto.UUID.generate()
+      body = %{"definition_id" => definition.id, "initial_variables" => %{"a" => 1}}
+
+      post = fn key, body ->
+        build_conn("POST", "/", tenant, %{
+          roles: ["PROCESS_OPERATOR"],
+          user_id: user_id,
+          body: body
+        })
+        |> keyed(key)
+        |> dispatch()
+      end
+
+      first = post.("gh2577-key", body)
+      assert first.status == 201
+      assert instance_count(tenant.schema_name) == 1
+
+      replay = post.("gh2577-key", body)
+      assert replay.status == 201
+      assert Jason.decode!(replay.resp_body) == Jason.decode!(first.resp_body)
+      assert instance_count(tenant.schema_name) == 1
+
+      other = post.("gh2577-other-key", body)
+      assert other.status == 201
+
+      assert Jason.decode!(other.resp_body)["instance_id"] !=
+               Jason.decode!(first.resp_body)["instance_id"]
+
+      assert instance_count(tenant.schema_name) == 2
+
+      reused = post.("gh2577-key", %{body | "initial_variables" => %{"a" => 2}})
+      assert reused.status == 422
+      assert Jason.decode!(reused.resp_body)["code"] == "idempotency_key_reuse"
+      refute reused.resp_body =~ Jason.decode!(first.resp_body)["instance_id"]
+      assert instance_count(tenant.schema_name) == 2
+    end
+
+    test "POST /instances: tenant B replaying tenant A's key starts its own instance (INV-10)" do
+      tenant_a = TenantFixture.provisioned_tenant!(slug_prefix: "gh2577-xa")
+      tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "gh2577-xb")
+      definition_a = active_definition!(tenant_a.schema_name)
+      definition_b = active_definition!(tenant_b.schema_name)
+      user_id = Ecto.UUID.generate()
+
+      post = fn tenant, definition ->
+        build_conn("POST", "/", tenant, %{
+          roles: ["PROCESS_OPERATOR"],
+          user_id: user_id,
+          body: %{"definition_id" => definition.id, "initial_variables" => %{}}
+        })
+        |> keyed("gh2577-shared")
+        |> dispatch()
+      end
+
+      a = post.(tenant_a, definition_a)
+      b = post.(tenant_b, definition_b)
+      assert {a.status, b.status} == {201, 201}
+
+      assert Jason.decode!(a.resp_body)["instance_id"] !=
+               Jason.decode!(b.resp_body)["instance_id"]
+
+      assert instance_count(tenant_a.schema_name) == 1
+      assert instance_count(tenant_b.schema_name) == 1
+    end
+
+    test "POST /:id/cancel: replay returns 200 again, a second key is the terminal 409" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2577-cancel")
+      {instance_id, _def} = start_instance!(tenant.schema_name)
+      user_id = Ecto.UUID.generate()
+
+      cancel = fn key ->
+        build_conn("POST", "/#{instance_id}/cancel", tenant, %{
+          roles: ["PROCESS_OPERATOR"],
+          user_id: user_id
+        })
+        |> keyed(key)
+        |> dispatch()
+      end
+
+      first = cancel.("gh2577-cancel-key")
+      assert first.status == 200
+      replay = cancel.("gh2577-cancel-key")
+      assert replay.status == 200
+      assert Jason.decode!(replay.resp_body) == Jason.decode!(first.resp_body)
+      assert instance_status(tenant.schema_name, instance_id) == :cancelled
+      assert cancel.("gh2577-cancel-other").status == 409
+    end
+
+    test "POST /:id/rebind-pins: replay returns the original 200 body; another reason is 422" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2577-rebind")
+      {instance_id, definition} = start_instance!(tenant.schema_name)
+      user_id = Ecto.UUID.generate()
+
+      rebind = fn key, reason ->
+        build_conn("POST", "/#{instance_id}/rebind-pins", tenant, %{
+          roles: ["PROCESS_OPERATOR", "ADMIN"],
+          user_id: user_id,
+          body: %{
+            "reason" => reason,
+            "entries" => [
+              %{"kind" => "variable_schema", "ref" => definition.name, "version" => "v9"}
+            ]
+          }
+        })
+        |> keyed(key)
+        |> dispatch()
+      end
+
+      first = rebind.("gh2577-rebind-key", "bump")
+      assert first.status == 200
+      replay = rebind.("gh2577-rebind-key", "bump")
+      assert replay.status == 200
+      assert Jason.decode!(replay.resp_body) == Jason.decode!(first.resp_body)
+
+      reused = rebind.("gh2577-rebind-key", "another reason")
+      assert reused.status == 422
+      assert Jason.decode!(reused.resp_body)["code"] == "idempotency_key_reuse"
+    end
+  end
+
   # ── AC2 -- correlation-key uniqueness (INV-8) ──────────────────────────────
 
   describe "AC2 -- correlation_key uniqueness" do

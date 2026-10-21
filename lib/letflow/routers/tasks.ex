@@ -69,8 +69,9 @@ defmodule Letflow.Routers.Tasks do
   ## Inbox scoping — per-principal, not merely per-tenant
 
   For a task-worker-only caller (`Authorization.is_task_worker_only?/1`),
-  both `GET /tasks` (via `evaluate_access/2`'s own `AllowWithRowFilter`
-  decision) and `GET /tasks/inbox` force `assignee_scope` to
+  `GET /tasks` (via `evaluate_access/2`'s own `AllowWithRowFilter`
+  decision), `GET /tasks/inbox` and `GET /tasks/:id` (a task outside the
+  scope answers the 404 of a nonexistent id) force `assignee_scope` to
   `{:principal, Letflow.Tasks.resolve_principal_scope(user_id, opts)}` —
   never a caller-supplied filter (INV-2: a task-worker's row scope can never
   be widened by a request-supplied `assignee_id`/`status`/`instance_id`
@@ -311,7 +312,13 @@ defmodule Letflow.Routers.Tasks do
   defp handle_get_by_id(conn, id, opts) do
     {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksGetById, "TASK_WORKER")
 
-    case Tasks.get_task(id, Keyword.put(opts, :scope, scope)) do
+    # Same per-principal row scope as GET /tasks/inbox: a task-worker-only caller reads only
+    # tasks assigned to them, their groups or their roles; anything else answers 404 (INV-2/5).
+    assignee_scope = build_inbox_assignee_scope(conn, conn.assigns.auth_context.user_id, opts)
+
+    get_opts = opts |> Keyword.put(:scope, scope) |> Keyword.put(:assignee_scope, assignee_scope)
+
+    case Tasks.get_task(id, get_opts) do
       {:ok, {task, correlation_key, form_version}} ->
         Response.ok(conn, task_detail_map(task, correlation_key, form_version))
 

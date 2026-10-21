@@ -745,7 +745,9 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
     tree(scalar, fn child ->
       one_of([
         list_of(child, max_length: 3),
-        map_of(string(:alphanumeric), child, max_length: 3),
+        # min_length: 1 — the empty string is a single-element key space at size 0, and
+        # uniq_list_of raises StreamData.TooManyDuplicatesError when it cannot find a second key.
+        map_of(string(:alphanumeric, min_length: 1), child, max_length: 3),
         tuple({child, child}),
         tuple({child, child, child})
       ])
