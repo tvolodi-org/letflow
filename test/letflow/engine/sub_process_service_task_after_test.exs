@@ -289,7 +289,7 @@ defmodule Letflow.Engine.SubProcessServiceTaskAfterTest do
 
   # Reproduce attempt_dispatch/2's precondition (status "advanced") -- no HTTP.
   defp mark_advanced!(schema, row) do
-    row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: schema)
+    row |> Ecto.Changeset.change(%{status: :advanced}) |> Repo.update!(prefix: schema)
   end
 
   defp stub_advance!(schema, row) do
@@ -318,13 +318,13 @@ defmodule Letflow.Engine.SubProcessServiceTaskAfterTest do
 
     assert [row] = dispatches(schema, parent_id)
     assert row.node_id == "after"
-    assert row.status == "pending"
+    assert row.status == :pending
     assert row.config_snapshot["rendered_url"] == "https://example.test/close/dev-1"
 
     stub_advance!(schema, row)
 
     assert projection(schema, parent_id).status == :completed
-    assert Enum.all?(dispatches(schema, parent_id), &(&1.status != "pending"))
+    assert Enum.all?(dispatches(schema, parent_id), &(&1.status != :pending))
 
     types = event_types(schema, parent_id)
     assert "SUB_PROCESS_COMPLETED" in types
@@ -419,7 +419,7 @@ defmodule Letflow.Engine.SubProcessServiceTaskAfterTest do
         prefix: schema
       )
 
-    assert Enum.all?(dispatches(schema, parent_id), &(&1.status != "pending"))
+    assert Enum.all?(dispatches(schema, parent_id), &(&1.status != :pending))
     assert projection(schema, parent_id).status == :error
     assert "EXECUTION_ERROR" in event_types(schema, parent_id)
   end
@@ -461,7 +461,7 @@ defmodule Letflow.Engine.SubProcessServiceTaskAfterTest do
 
     # The ISS-0929 fix: close-deviation dispatch exists (pre-fix: parent hung with none).
     assert projection(schema, parent_id).current_nodes == ["close-deviation"]
-    pending = Enum.filter(dispatches(schema, parent_id), &(&1.status == "pending"))
+    pending = Enum.filter(dispatches(schema, parent_id), &(&1.status == :pending))
     assert [close] = pending
     assert close.node_id == "close-deviation"
 
@@ -586,7 +586,7 @@ defmodule Letflow.Engine.SubProcessServiceTaskAfterTest do
     # join's own synthetic "<origin>/join/joined" string.
     assert [dispatch] = dispatches(schema, parent_id)
     assert dispatch.node_id == "after"
-    assert dispatch.status == "pending"
+    assert dispatch.status == :pending
     assert {:ok, _} = Ecto.UUID.cast(dispatch.token_id)
 
     records = token_records(schema, parent_id)

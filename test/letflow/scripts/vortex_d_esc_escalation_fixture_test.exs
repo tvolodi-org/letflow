@@ -23,7 +23,8 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
        (`escalation_role == role`) or an allowlisted direct fail-closed node.
 
   Every HUMAN_TASK carries the pair XOR an E6 waiver (`Waiver: <reason>` in its description; ONLY
-  that prefix with a non-empty reason counts). Pure file I/O + `Graph` validation, no DB.
+  that prefix with a non-empty reason counts) XOR a non-cancelling reminder (`reminder_timer_duration`
+  + `reminder_role`, REQ-494 / GH #2553 / GH #2325 AC3) for long-running tasks. Pure file I/O + `Graph` validation, no DB.
   """
 
   use ExUnit.Case, async: true
@@ -113,6 +114,19 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
     end
   end
 
+  # REQ-494: the alternative to a waiver for long-running tasks -- a well-formed reminder pair.
+  defp reminder?(n) do
+    a = attrs(n)
+
+    with d when is_binary(d) <- a["reminder_timer_duration"],
+         {:ok, secs} when secs > 0 <- Graph.parse_iso8601_duration(d),
+         r when is_binary(r) <- a["reminder_role"] do
+      String.trim(r) != ""
+    else
+      _ -> false
+    end
+  end
+
   # Same partition the engine uses (Transition.really_conditioned?/1): an edge with no real,
   # non-empty condition, or explicitly is_default: true, is a default/fallback candidate.
   defp default_edge?(e),
@@ -176,14 +190,15 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
     describe "D-ESC on #{def_.label}" do
       @describetag def: def_
 
-      test "every HUMAN_TASK carries the escalation pair or an E6 waiver, never both", %{
-        def: def_
-      } do
+      test "every HUMAN_TASK carries the escalation pair, an E6 waiver or a reminder, exactly one",
+           %{
+             def: def_
+           } do
         d = load(def_)
 
         for n <- human(d) do
-          assert pair?(n) != waiver?(n),
-                 "#{n["id"]}: must carry the escalation_timer_duration + escalation_role pair XOR a 'Waiver: <reason>' description"
+          assert Enum.count([pair?(n), waiver?(n), reminder?(n)], & &1) == 1,
+                 "#{n["id"]}: must carry exactly one of the escalation_timer_duration + escalation_role pair, a 'Waiver: <reason>' description, or a reminder_timer_duration + reminder_role pair"
         end
 
         assert human(d) != []
@@ -352,14 +367,17 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
       end
     end
 
-    test "8D corrective action: the human task carries the exact E6 waiver, no timer pair", %{
-      d8: d
-    } do
+    test "8D corrective action: the human task carries the P14D reminder, no waiver, no timer pair",
+         %{d8: d} do
       assert [n] = human(d)
       assert n["id"] == "corrective-action-8d"
-      assert attrs(n)["description"] =~ ~r/^Waiver: long-running remediation work/
-      assert waiver?(n)
+      assert attrs(n)["reminder_timer_duration"] == "P14D"
+      assert attrs(n)["reminder_role"] == "role-procurement-manager"
+      assert reminder?(n)
+      refute waiver?(n)
       refute pair?(n)
+      refute attrs(n)["description"] =~ "Waiver"
+      assert d["version"] == "1.2"
     end
 
     test "every definition description states the D-ESC line", %{order: o, dev: v, d8: e} do
@@ -374,7 +392,8 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
       declared = declared_roles()
 
       for def_ <- Enum.take(@defs, 3), n <- human(load(def_)) do
-        for role <- [attrs(n)["role"], attrs(n)["escalation_role"]], role != nil do
+        for role <- [attrs(n)["role"], attrs(n)["escalation_role"], attrs(n)["reminder_role"]],
+            role != nil do
           assert role in declared, "#{n["id"]}: #{role} is not held by any actor in actors.yaml"
         end
       end
@@ -418,6 +437,16 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
       refute waiver?(%{"description" => "Waiver without colon"})
       refute waiver?(%{"description" => "see Waiver: later"})
       refute waiver?(%{})
+    end
+
+    test "reminder? accepts only a valid positive duration with a non-blank role (GH #2325 AC3)" do
+      n = fn a -> %{"attributes" => a} end
+      assert reminder?(n.(%{"reminder_timer_duration" => "P14D", "reminder_role" => "r"}))
+      refute reminder?(n.(%{"reminder_timer_duration" => "P14D"}))
+      refute reminder?(n.(%{"reminder_role" => "r"}))
+      refute reminder?(n.(%{"reminder_timer_duration" => "P14D", "reminder_role" => " "}))
+      refute reminder?(n.(%{"reminder_timer_duration" => "bogus", "reminder_role" => "r"}))
+      refute reminder?(n.(%{"reminder_timer_duration" => "PT0S", "reminder_role" => "r"}))
     end
 
     test "dropping a pair, or removing the 'true' on a normal edge, is detected" do

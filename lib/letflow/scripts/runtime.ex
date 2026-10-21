@@ -96,7 +96,7 @@ defmodule Letflow.Scripts.Runtime do
   def pin_lookup(prefix) when is_binary(prefix) do
     fn key, version ->
       with true <- Validation.key?(key) and is_integer(version) and version > 0,
-           %ScriptRule{status: "published", hook_kind: @hook_kind} = rule <-
+           %ScriptRule{status: :published, hook_kind: @hook_kind} = rule <-
              Repo.get_by(ScriptRule, [key: key, version: version], prefix: prefix) do
         {:ok,
          %{resolved_id: rule.id, version: Integer.to_string(rule.version), sha256: rule.sha256}}
@@ -187,7 +187,7 @@ defmodule Letflow.Scripts.Runtime do
       end
 
     case rule do
-      %ScriptRule{status: "published", hook_kind: @hook_kind, manifest: manifest} ->
+      %ScriptRule{status: :published, hook_kind: @hook_kind, manifest: manifest} ->
         cond do
           not closed_output_schema?(manifest) -> {:error, :script_output_schema_open}
           restricted_opt_in?(manifest) -> {:error, :script_restricted_opt_in_unsupported}
@@ -314,10 +314,10 @@ defmodule Letflow.Scripts.Runtime do
         do: Repo.get_by(ScriptRule, [key: key, version: version], prefix: prefix)
 
     case rule do
-      %ScriptRule{status: "revoked"} ->
+      %ScriptRule{status: :revoked} ->
         {:rejected, :script_revoked}
 
-      %ScriptRule{status: status} = rule when status in ["published", "retired"] ->
+      %ScriptRule{status: status} = rule when status in [:published, :retired] ->
         if rule.sha256 == sha and rule.hook_kind == @hook_kind,
           do: {:ok, rule},
           else: {:rejected, :pin_mismatch}

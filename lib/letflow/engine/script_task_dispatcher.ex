@@ -344,7 +344,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
       |> join(:inner, [d], p in InstanceProjection, on: p.instance_id == d.instance_id)
       |> where(
         [d, p],
-        d.status == "pending" and d.next_attempt_at <= ^now and p.status == :active
+        d.status == :pending and d.next_attempt_at <= ^now and p.status == :active
       )
       |> order_by([d], asc: d.next_attempt_at, asc: d.id)
       |> limit(8)
@@ -361,7 +361,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
     Repo.transaction(fn ->
       locked =
         ScriptTaskDispatch
-        |> where([d], d.id in ^ids and d.status == "pending")
+        |> where([d], d.id in ^ids and d.status == :pending)
         |> order_by([d], asc: d.next_attempt_at, asc: d.id)
         |> limit(1)
         |> lock("FOR UPDATE SKIP LOCKED")
@@ -377,12 +377,12 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
 
           {1, [row]} =
             ScriptTaskDispatch
-            |> where([d], d.id == ^id and d.status == "pending")
+            |> where([d], d.id == ^id and d.status == :pending)
             |> select([d], d)
             |> Repo.update_all(
               [
                 set: [
-                  status: "running",
+                  status: :running,
                   claimed_at: now,
                   lease_expires_at: DateTime.add(now, lease_ms(), :millisecond),
                   claimed_by: String.slice(Atom.to_string(node()), 0, 255),
@@ -666,7 +666,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
               |> Repo.update_all(
                 [
                   set: [
-                    status: "pending",
+                    status: :pending,
                     busy_retries: retries + 1,
                     next_attempt_at: DateTime.add(now, busy_backoff_ms(retries), :millisecond),
                     lease_expires_at: nil,
@@ -716,7 +716,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
     from(d in queryable,
       where:
         d.id == ^id and d.instance_id == ^instance_id and d.node_id == ^node_id and
-          d.attempt == ^attempt and d.status == "running"
+          d.attempt == ^attempt and d.status == :running
     )
   end
 
@@ -742,7 +742,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
       ScriptTaskDispatch
       |> where(
         [d],
-        d.status == "running" and d.lease_expires_at < ^now and d.sweep_failures < ^failure_limit
+        d.status == :running and d.lease_expires_at < ^now and d.sweep_failures < ^failure_limit
       )
       |> order_by([d], asc: d.lease_expires_at, asc: d.id)
       |> limit(^limit)
@@ -811,7 +811,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
   defp record_sweep_failure(row, prefix, failure_limit) do
     {count, rows} =
       ScriptTaskDispatch
-      |> where([d], d.id == ^row.id and d.status == "running" and d.attempt == ^row.attempt)
+      |> where([d], d.id == ^row.id and d.status == :running and d.attempt == ^row.attempt)
       |> select([d], d.sweep_failures)
       |> Repo.update_all([inc: [sweep_failures: 1], set: [updated_at: now()]], prefix: prefix)
 
@@ -853,11 +853,11 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
   def cancel_open_dispatches(repo, instance_id, at, prefix) do
     {count, _} =
       ScriptTaskDispatch
-      |> where([d], d.instance_id == ^instance_id and d.status in ["pending", "running"])
+      |> where([d], d.instance_id == ^instance_id and d.status in [:pending, :running])
       |> repo.update_all(
         [
           set: [
-            status: "cancelled",
+            status: :cancelled,
             finished_at: at,
             outcome_detail: "instance_cancelled",
             updated_at: at

@@ -216,7 +216,7 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
     dispatch =
       from(d in ServiceTaskDispatch, where: d.instance_id == ^child_id)
       |> Repo.one!(prefix: base.schema)
-      |> Ecto.Changeset.change(%{status: "advanced"})
+      |> Ecto.Changeset.change(%{status: :advanced})
       |> Repo.update!(prefix: base.schema)
 
     fn ->
@@ -637,7 +637,7 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
 
       dispatch =
         pending.dispatch
-        |> Ecto.Changeset.change(%{status: "advanced"})
+        |> Ecto.Changeset.change(%{status: :advanced})
         |> Repo.update!(prefix: schema)
 
       service = %{pending | dispatch: dispatch}

@@ -58,7 +58,11 @@ defmodule Letflow.Scripts.Policy do
           required(:platform_prefix) => String.t() | nil
         }
 
-  @type script_reference :: %{key: String.t(), version: pos_integer(), status: String.t()}
+  @type script_reference :: %{
+          key: String.t(),
+          version: pos_integer(),
+          status: :published | :retired
+        }
 
   @type error ::
           :not_found
@@ -266,7 +270,7 @@ defmodule Letflow.Scripts.Policy do
     base =
       from(r in ScriptRule,
         where:
-          r.status in ["published", "retired"] and
+          r.status in [:published, :retired] and
             fragment("? @> ?", r.manifest, type(^pattern, :map))
       )
 
@@ -512,7 +516,11 @@ defmodule Letflow.Scripts.Policy do
             "reason" => reason,
             "referenced_by" =>
               Enum.map(referenced_by, fn ref ->
-                %{"key" => ref.key, "version" => ref.version, "status" => ref.status}
+                %{
+                  "key" => ref.key,
+                  "version" => ref.version,
+                  "status" => Atom.to_string(ref.status)
+                }
               end),
             "referenced_total" => referenced_total
           }
@@ -550,7 +558,7 @@ defmodule Letflow.Scripts.Policy do
   values describe the same row); `nil` (a missing row) is `{:strict, :declared_strict}`.
   """
   @spec effective_sod(String.t(), ScriptPolicy.t() | nil) :: {sod(), sod_reason()}
-  def effective_sod(prefix, %ScriptPolicy{sod: "solo_audited"}) do
+  def effective_sod(prefix, %ScriptPolicy{sod: :solo_audited}) do
     if Identity.count_tenant_wide_admins(prefix) >= 2,
       do: {:strict, :multiple_admins},
       else: {:solo_audited, :solo_allowed}
@@ -582,7 +590,7 @@ defmodule Letflow.Scripts.Policy do
 
     policy = lock_policy!(prefix)
 
-    if policy.sod == "solo_audited" do
+    if policy.sod == :solo_audited do
       count = Identity.count_tenant_wide_admins(prefix)
 
       cond do
@@ -604,7 +612,7 @@ defmodule Letflow.Scripts.Policy do
   defp auto_strict!(prefix, policy, actor, count, opts) do
     policy
     |> ScriptPolicy.sod_changeset(%{
-      sod: "strict",
+      sod: :strict,
       sod_set_by: nil,
       sod_set_by_class: "system",
       sod_set_at: now(),
@@ -649,7 +657,7 @@ defmodule Letflow.Scripts.Policy do
         Identity.lock_tenant_admins!(prefix)
         policy = lock_policy!(prefix)
 
-        if policy.sod == sod do
+        if Atom.to_string(policy.sod) == sod do
           policy
         else
           if sod == "solo_audited", do: solo_switch_allowed!(prefix, policy, actor)
@@ -657,7 +665,7 @@ defmodule Letflow.Scripts.Policy do
           updated =
             policy
             |> ScriptPolicy.sod_changeset(%{
-              sod: sod,
+              sod: String.to_existing_atom(sod),
               sod_set_by: actor.user_id,
               sod_set_by_class: "tenant_admin",
               sod_set_at: now(),
@@ -671,7 +679,7 @@ defmodule Letflow.Scripts.Policy do
             resource_type: "script_policy",
             resource_id: "1",
             trace_id: Map.get(actor, :trace_id),
-            before_state: %{"sod" => policy.sod},
+            before_state: %{"sod" => Atom.to_string(policy.sod)},
             after_state: %{"sod" => sod, "reason" => reason}
           })
 
@@ -725,9 +733,9 @@ defmodule Letflow.Scripts.Policy do
           now = now()
 
           reset =
-            if allowed == false and policy.sod == "solo_audited",
+            if allowed == false and policy.sod == :solo_audited,
               do: %{
-                sod: "strict",
+                sod: :strict,
                 sod_set_by: nil,
                 sod_set_by_class: "platform_operator",
                 sod_set_at: now,
@@ -758,12 +766,12 @@ defmodule Letflow.Scripts.Policy do
             trace_id: nil,
             before_state: %{
               "platform_solo_audited_allowed" => policy.platform_solo_audited_allowed,
-              "sod" => policy.sod
+              "sod" => Atom.to_string(policy.sod)
             },
             after_state: %{
               "platform_solo_audited_allowed" => allowed,
               "reason" => reason,
-              "sod" => updated.sod,
+              "sod" => Atom.to_string(updated.sod),
               "actor_class" => "platform_operator"
             }
           })
@@ -802,7 +810,7 @@ defmodule Letflow.Scripts.Policy do
           from(r in ScriptRule,
             where:
               r.self_published and is_nil(r.confirmed_at) and
-                r.status in ["published", "retired"],
+                r.status in [:published, :retired],
             order_by: [asc: r.key, asc: r.version],
             limit: ^(@pending_review_cap + 1)
           ),

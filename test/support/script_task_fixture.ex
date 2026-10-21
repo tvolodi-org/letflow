@@ -88,7 +88,7 @@ defmodule Letflow.Support.ScriptTaskFixture do
         key: key,
         version: version,
         hook_kind: "service_task",
-        status: "draft",
+        status: :draft,
         source: source,
         manifest: manifest,
         test_cases: test_cases,
@@ -120,7 +120,7 @@ defmodule Letflow.Support.ScriptTaskFixture do
 
     draft
     |> Ecto.Changeset.change(
-      status: "published",
+      status: :published,
       publisher_id: publisher,
       published_at: DateTime.utc_now(),
       sod_excluded: draft.contributors ++ [publisher]
@@ -132,7 +132,7 @@ defmodule Letflow.Support.ScriptTaskFixture do
   @spec retire_raw!(String.t(), ScriptRule.t()) :: ScriptRule.t()
   def retire_raw!(schema, %ScriptRule{} = rule) do
     rule
-    |> Ecto.Changeset.change(status: "retired", retired_at: DateTime.utc_now())
+    |> Ecto.Changeset.change(status: :retired, retired_at: DateTime.utc_now())
     |> Repo.update!(prefix: schema)
   end
 
@@ -140,7 +140,7 @@ defmodule Letflow.Support.ScriptTaskFixture do
   @spec revoke_raw!(String.t(), ScriptRule.t()) :: ScriptRule.t()
   def revoke_raw!(schema, %ScriptRule{} = rule) do
     rule
-    |> Ecto.Changeset.change(status: "revoked", revoked_at: DateTime.utc_now())
+    |> Ecto.Changeset.change(status: :revoked, revoked_at: DateTime.utc_now())
     |> Repo.update!(prefix: schema)
   end
 
@@ -366,7 +366,7 @@ defmodule Letflow.Support.ScriptTaskFixture do
   def expire_lease!(schema, %ScriptTaskDispatch{id: id}) do
     {1, _} =
       ScriptTaskDispatch
-      |> where([d], d.id == ^id and d.status == "running")
+      |> where([d], d.id == ^id and d.status == :running)
       |> Repo.update_all(
         [set: [lease_expires_at: DateTime.add(DateTime.utc_now(), -60, :second)]],
         prefix: schema
@@ -380,7 +380,7 @@ defmodule Letflow.Support.ScriptTaskFixture do
   def make_due!(schema, %ScriptTaskDispatch{id: id}) do
     {1, _} =
       ScriptTaskDispatch
-      |> where([d], d.id == ^id and d.status == "pending")
+      |> where([d], d.id == ^id and d.status == :pending)
       |> Repo.update_all([set: [next_attempt_at: DateTime.add(DateTime.utc_now(), -1, :second)]],
         prefix: schema
       )

@@ -59,6 +59,11 @@ defmodule Letflow.Routers.ScriptRulesTest do
         credential: credential
       })
 
+    conn =
+      if Keyword.has_key?(opts, :trace_id),
+        do: Plug.Conn.assign(conn, :trace_id, opts[:trace_id]),
+        else: conn
+
     Letflow.Routers.ScriptRules.call(conn, Letflow.Routers.ScriptRules.init([]))
   end
 
@@ -163,7 +168,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       create!(ctx.a, k, Ecto.UUID.generate())
 
       assert call(:delete, "/#{k}/versions/1", ctx.a, @designer, nil).status == 204
-      assert row(ctx.a, k, 1).status == "discarded"
+      assert row(ctx.a, k, 1).status == :discarded
       assert call(:get, "/#{k}/versions/1", ctx.a, @designer, nil).status == 404
       assert create!(ctx.a, k, Ecto.UUID.generate())["version"] == 2
     end
@@ -256,8 +261,8 @@ defmodule Letflow.Routers.ScriptRulesTest do
         assert {conn.status, detail(conn)} == {403, "api_token_not_allowed"}, path
       end
 
-      assert row(ctx.a, k, 1).status == "draft"
-      assert row(ctx.a, k2, 1).status == "published"
+      assert row(ctx.a, k, 1).status == :draft
+      assert row(ctx.a, k2, 1).status == :published
 
       # a token minted for a user who is NOT a contributor still cannot publish
       conn = publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate(), token)
@@ -353,8 +358,8 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert conn.status == 422
       assert detail(conn) == "test_case_failed"
       assert json(conn)["case"] == "wrong"
-      assert row(ctx.a, k2, 1).status == "draft"
-      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k2, 1).status == :draft
+      assert row(ctx.a, k, 1).status == :draft
     end
 
     test "no free script slot while the stored tests run is 503 script_busy, not a test failure",
@@ -366,7 +371,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       try do
         conn = publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate())
         assert {conn.status, detail(conn)} == {503, "script_busy"}
-        assert row(ctx.a, k, 1).status == "draft"
+        assert row(ctx.a, k, 1).status == :draft
       after
         release_script_slots!(holder, ctx.a.schema_name)
       end
@@ -404,15 +409,15 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert call(:delete, "/#{discarded}/versions/1", ctx.a, @designer, nil).status == 204
 
       for {k, status} <- [
-            {published, "published"},
-            {retired, "retired"},
-            {revoked, "revoked"},
-            {discarded, "discarded"}
+            {published, :published},
+            {retired, :retired},
+            {revoked, :revoked},
+            {discarded, :discarded}
           ],
           update <- [
             [source: "return {}"],
             [contributors: []],
-            [status: "draft"],
+            [status: :draft],
             [published_at: nil],
             [discarded_at: nil]
           ] do
@@ -445,21 +450,21 @@ defmodule Letflow.Routers.ScriptRulesTest do
       for set <- [
             # the contributor-publish rule (non-self-published publish by a contributor)
             [
-              status: "published",
+              status: :published,
               publisher_id: author,
               published_at: now,
               self_published: false,
               sod_excluded: [author]
             ],
             [
-              status: "published",
+              status: :published,
               publisher_id: nil,
               published_at: now,
               self_published: false,
               sod_excluded: [author, other]
             ],
             [
-              status: "published",
+              status: :published,
               publisher_id: other,
               published_at: nil,
               self_published: false,
@@ -473,7 +478,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
         end)
       end
 
-      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k, 1).status == :draft
 
       # control: the same shape with a non-contributor publisher passes the trigger
       assert {1, _} =
@@ -481,7 +486,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
                  from(r in ScriptRule, where: r.key == ^k),
                  [
                    set: [
-                     status: "published",
+                     status: :published,
                      publisher_id: other,
                      published_at: now,
                      self_published: false,
@@ -525,7 +530,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert call(:post, "/#{k}/versions/1/revoke", ctx.a, @admin, %{"reason" => "vulnerable"}).status ==
                200
 
-      assert row(ctx.a, k, 1).status == "revoked"
+      assert row(ctx.a, k, 1).status == :revoked
 
       assert call(:post, "/#{k}/versions/1/retire", ctx.a, @admin, %{"reason" => "again"}).status ==
                409
@@ -640,7 +645,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
                "#{inspect(roles)} #{method} #{path}"
       end
 
-      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k, 1).status == :draft
     end
   end
 
@@ -707,6 +712,163 @@ defmodule Letflow.Routers.ScriptRulesTest do
     end
   end
 
+  describe "GH 2548: the auditor source read" do
+    @auditor ["TENANT_AUDITOR"]
+
+    defp source_read_entries(fixture, rule_id) do
+      Entry
+      |> where([e], e.action == "script_rule.source_read" and e.resource_id == ^rule_id)
+      |> Repo.all(prefix: fixture.schema_name)
+    end
+
+    test "an AuditRead holder reads source, manifest, tests, contributors, publisher and sha256",
+         ctx do
+      k = key()
+      author = Ecto.UUID.generate()
+      created = create!(ctx.a, k, author)
+
+      for roles <- [@auditor, @admin, ["PROCESS_OPERATOR"]] do
+        resp = call(:get, "/#{k}/versions/1/audit", ctx.a, roles, nil)
+        assert resp.status == 200, resp.resp_body
+        full = json(resp)
+        db = row(ctx.a, k, 1)
+        assert full["source"] == @source
+        assert full["manifest"] == @manifest
+        assert full["test_cases"] == @test_cases
+        assert full["contributors"] == db.contributors
+        assert full["sha256"] == db.sha256 and full["sha256"] == created["sha256"]
+        assert Map.has_key?(full, "publisher_id")
+      end
+    end
+
+    test "a published version is readable and a discarded one is the plain 404", ctx do
+      k = key()
+      author = Ecto.UUID.generate()
+      v1 = create!(ctx.a, k, author)
+      assert publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate()).status == 200
+      assert call(:get, "/#{k}/versions/1/audit", ctx.a, @auditor, nil).status == 200
+
+      gone = key()
+      create!(ctx.a, gone, author)
+      assert call(:delete, "/#{gone}/versions/1", ctx.a, @designer, nil).status == 204
+      assert call(:get, "/#{gone}/versions/1/audit", ctx.a, @auditor, nil).status == 404
+    end
+
+    test "an auditor opens no write path", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+
+      for {method, path, body} <- [
+            {:post, "/#{k}/versions", body()},
+            {:put, "/#{k}/versions/1", body()},
+            {:delete, "/#{k}/versions/1", nil},
+            {:post, "/#{k}/versions/1/publish", %{"sha256" => "x"}},
+            {:post, "/#{k}/versions/1/retire", %{}},
+            {:post, "/#{k}/versions/1/revoke", %{}},
+            {:post, "/#{k}/dry-run", %{}},
+            {:get, "/#{k}/versions/1", nil},
+            {:get, "/", nil}
+          ] do
+        assert call(method, path, ctx.a, @auditor, body).status == 403, "#{method} #{path}"
+      end
+    end
+
+    test "lists never carry source, for an auditor, an admin or a designer", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+      create!(ctx.a, k, Ecto.UUID.generate())
+
+      for roles <- [@designer, @admin] do
+        resp = call(:get, "/", ctx.a, roles, nil)
+        items = json(resp)["items"]
+        assert items != []
+
+        for item <- items,
+            field <- ["source", "manifest", "test_cases", "contributors"],
+            do: refute(Map.has_key?(item, field))
+
+        refute resp.resp_body =~ "ctx.input.x"
+      end
+
+      # the auditor holds no list permission at all
+      assert call(:get, "/", ctx.a, @auditor, nil).status == 403
+    end
+
+    test "each read is audited with actor, key, version, sha256 and trace id, and no source",
+         ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+      rule = row(ctx.a, k, 1)
+      auditor = Ecto.UUID.generate()
+
+      assert call(:get, "/#{k}/versions/1/audit", ctx.a, @auditor, nil, user_id: auditor).status ==
+               200
+
+      assert [entry] = source_read_entries(ctx.a, rule.id)
+      assert entry.actor_id == auditor
+      assert entry.trace_id == "platform-scope-test-trace-id"
+      assert entry.after_state["key"] == k
+      assert entry.after_state["version"] == 1
+      assert entry.after_state["sha256"] == rule.sha256
+      assert entry.after_state["credential"] == "oidc"
+      dump = inspect(entry)
+      refute dump =~ "ctx.input"
+      refute dump =~ "too_big"
+      refute dump =~ "doubles"
+
+      assert call(:get, "/#{k}/versions/9/audit", ctx.a, @auditor, nil).status == 404
+      assert length(source_read_entries(ctx.a, rule.id)) == 1
+    end
+
+    test "if the audit entry cannot be written, no source is returned", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+
+      # An unwritable entry (here a trace id the hash chain cannot encode) never yields the
+      # rule: the insert error or raise propagates instead of an {:ok, rule}.
+      outcome =
+        try do
+          Letflow.Scripts.audit_read(ctx.a.schema_name, k, 1, %{
+            user_id: Ecto.UUID.generate(),
+            credential: :oidc,
+            trace_id: 12_345
+          })
+        rescue
+          _ -> :raised
+        end
+
+      assert outcome == :raised or match?({:error, :audit_failed}, outcome)
+    end
+
+    test "a holder without AuditRead gets the same body as for a nonexistent version", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+      rule = row(ctx.a, k, 1)
+
+      missing = call(:get, "/#{key()}/versions/1/audit", ctx.a, @auditor, nil)
+      assert missing.status == 404
+
+      for roles <- [@designer, ["TASK_WORKER"]] do
+        denied = call(:get, "/#{k}/versions/1/audit", ctx.a, roles, nil)
+        assert denied.status == missing.status
+        assert denied.resp_body == missing.resp_body
+      end
+
+      assert source_read_entries(ctx.a, rule.id) == []
+    end
+
+    test "another tenant's version is the same 404 for tenant A's auditor", ctx do
+      k = key()
+      create!(ctx.b, k, Ecto.UUID.generate())
+
+      foreign = call(:get, "/#{k}/versions/1/audit", ctx.a, @auditor, nil)
+      missing = call(:get, "/#{key()}/versions/1/audit", ctx.a, @auditor, nil)
+      assert foreign.status == 404
+      assert foreign.resp_body == missing.resp_body
+      assert call(:get, "/#{k}/versions/1/audit", ctx.b, @auditor, nil).status == 200
+    end
+  end
+
   describe "dry-run" do
     test "returns output, stats and the print buffer; an error outcome carries the author detail; audited without values",
          ctx do
@@ -754,7 +916,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
 
       assert length(entries) == 2
       refute Enum.any?(entries, &(inspect(&1.after_state) =~ "seen"))
-      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k, 1).status == :draft
     end
 
     test "writes no event or entity record; a revoked version can still be dry-run", ctx do
@@ -774,7 +936,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert json(conn)["output"] == %{"y" => 8}
 
       assert data_row_counts(ctx.a.schema_name) == before
-      assert row(ctx.a, k, 1).status == "revoked"
+      assert row(ctx.a, k, 1).status == :revoked
     end
   end
 
@@ -884,7 +1046,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert conn.status == 409
       assert detail(conn) == "version_in_use"
       # nothing written or audited
-      assert row(ctx.a, k, version).status == "published"
+      assert row(ctx.a, k, version).status == :published
       refute "script_rule.retired" in audit_actions(ctx.a, k, version)
     end
 
@@ -898,7 +1060,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
         call(:post, "/#{k}/versions/#{version}/retire", ctx.a, @admin, %{"reason" => "superseded"})
 
       assert conn.status == 200, conn.resp_body
-      assert row(ctx.a, k, version).status == "retired"
+      assert row(ctx.a, k, version).status == :retired
     end
 
     test "revoke never blocked", ctx do
@@ -910,7 +1072,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
         call(:post, "/#{k}/versions/#{version}/revoke", ctx.a, @admin, %{"reason" => "vulnerable"})
 
       assert conn.status == 200, conn.resp_body
-      assert row(ctx.a, k, version).status == "revoked"
+      assert row(ctx.a, k, version).status == :revoked
     end
   end
 
@@ -977,7 +1139,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
       conn = publish(ctx.a, k, 1, v["sha256"], Ecto.UUID.generate())
       assert conn.status == 422
       assert json(conn)["outcome"] == "output_invalid"
-      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k, 1).status == :draft
     end
   end
 end

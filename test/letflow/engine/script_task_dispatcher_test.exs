@@ -65,12 +65,12 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       F.count_runner_calls!()
       ScriptPolicyFixture.attach_probe!()
       b = bound(t, F.doubling_source())
-      assert b.row.status == "pending" and b.row.attempt == 0
+      assert b.row.status == :pending and b.row.attempt == 0
       assert b.row.triggering_user_id == b.actor_id
 
       assert {:ok, row} = ScriptTaskDispatcher.claim_next(t.schema_name)
       assert row.id == b.row.id
-      assert row.status == "running" and row.attempt == 1
+      assert row.status == :running and row.attempt == 1
 
       assert DateTime.diff(row.lease_expires_at, row.claimed_at, :millisecond) ==
                ScriptTaskDispatcher.lease_ms()
@@ -96,13 +96,13 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       assert F.payloads(t.schema_name, b.instance_id, "SCRIPT_TASK_COMPLETED") == []
       assert F.payloads(t.schema_name, b.instance_id, "SCRIPT_RUN_RECORDED") == []
       assert F.projection(t.schema_name, b.instance_id).status == :active
-      assert F.reload(t.schema_name, row).status == "running"
+      assert F.reload(t.schema_name, row).status == :running
 
       send(runner, :probe_continue)
       assert_receive {:done, {:ok, :applied}}, 10_000
 
       done = F.reload(t.schema_name, row)
-      assert done.status == "applied" and done.outcome == "ok" and done.finished_at
+      assert done.status == :applied and done.outcome == "ok" and done.finished_at
       projection = F.projection(t.schema_name, b.instance_id)
       assert projection.variables["total"] == 42
       assert projection.status == :completed
@@ -150,7 +150,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       refute_received {:done, _}
 
       # no apply happened
-      assert F.reload(t.schema_name, row).status == "running"
+      assert F.reload(t.schema_name, row).status == :running
       assert F.payloads(t.schema_name, b.instance_id, "SCRIPT_RUN_RECORDED") == []
 
       F.expire_lease!(t.schema_name, row)
@@ -159,7 +159,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       swept = F.reload(t.schema_name, row)
 
       assert {swept.status, swept.outcome, swept.outcome_detail} ==
-               {"failed", "timeout", "lease_expired"}
+               {:failed, "timeout", "lease_expired"}
 
       assert F.projection(t.schema_name, b.instance_id).status == :error
       assert F.dlq_count(t.schema_name) == dlq_before + 1
@@ -198,7 +198,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       assert F.eventually(fn -> F.slots_in_use(t.schema_name) == 0 end, 100)
 
       done = F.reload(t.schema_name, row)
-      assert {done.status, done.outcome} == {"failed", "script_error"}
+      assert {done.status, done.outcome} == {:failed, "script_error"}
 
       assert [%{"phase" => "ran", "outcome" => "script_error"}] =
                F.payloads(t.schema_name, b.instance_id, "SCRIPT_RUN_RECORDED")
@@ -220,7 +220,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       assert result == {:ok, :rescheduled}
 
       pending = F.reload(t.schema_name, row)
-      assert pending.status == "pending" and pending.busy_retries == 1
+      assert pending.status == :pending and pending.busy_retries == 1
       assert pending.lease_expires_at == nil
       assert DateTime.diff(pending.next_attempt_at, pending.updated_at, :millisecond) == 500
       assert F.event_types(t.schema_name, b.instance_id) == ["INSTANCE_STARTED"]
@@ -248,7 +248,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       done = F.reload(t.schema_name, row)
 
       assert {done.status, done.outcome, done.outcome_detail} ==
-               {"failed", "script_busy", "busy_retries_exhausted"}
+               {:failed, "script_busy", "busy_retries_exhausted"}
 
       assert F.projection(t.schema_name, b.instance_id).status == :error
       assert ScriptTaskDispatcher.claim_next(t.schema_name) == :none
@@ -284,7 +284,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
         refute_received {:script_runner_called, _, _}
 
         done = F.reload(t.schema_name, row)
-        assert {done.status, done.outcome} == {"failed", unquote(code)}
+        assert {done.status, done.outcome} == {:failed, unquote(code)}
         assert F.projection(t.schema_name, b.instance_id).status == :error
         assert F.dlq_count(t.schema_name) == dlq_before + 1
 
@@ -308,7 +308,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       done = F.reload(t.schema_name, row)
 
       assert {done.status, done.outcome, done.outcome_detail} ==
-               {"failed", "script_rejected", "scripts_disabled"}
+               {:failed, "script_rejected", "scripts_disabled"}
 
       assert F.projection(t.schema_name, b.instance_id).status == :error
       assert ScriptTaskDispatcher.claim_next(t.schema_name) == :none
@@ -331,7 +331,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
     done = F.reload(t.schema_name, row)
 
     assert {done.status, done.outcome, done.outcome_detail} ==
-             {"failed", "script_rejected", detail}
+             {:failed, "script_rejected", detail}
 
     assert F.projection(t.schema_name, b.instance_id).status == :error
     assert F.dlq_count(t.schema_name) == dlq_before + 1
@@ -390,7 +390,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
 
       for instance_id <- [claimed_instance, other.instance_id] do
         row = F.row!(t.schema_name, instance_id)
-        assert {row.status, row.outcome_detail} == {"cancelled", "instance_cancelled"}
+        assert {row.status, row.outcome_detail} == {:cancelled, "instance_cancelled"}
         assert row.finished_at
       end
     end
@@ -403,7 +403,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
 
       assert ScriptTaskDispatcher.run_claimed(row, t.schema_name) == {:ok, :stale}
       assert F.event_types(t.schema_name, b.instance_id) == events_before
-      assert F.reload(t.schema_name, row).status == "cancelled"
+      assert F.reload(t.schema_name, row).status == :cancelled
       refute Map.has_key?(F.projection(t.schema_name, b.instance_id).variables, "total")
     end
   end
@@ -525,7 +525,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       assert Enum.at(logs, 0) =~ "script task sweep failures"
 
       left = F.reload(t.schema_name, row)
-      assert {left.status, left.sweep_failures} == {"running", 3}
+      assert {left.status, left.sweep_failures} == {:running, 3}
       assert F.projection(t.schema_name, b.instance_id).status == :active
     end
 

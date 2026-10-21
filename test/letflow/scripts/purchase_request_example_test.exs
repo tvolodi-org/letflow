@@ -70,7 +70,7 @@ defmodule Letflow.Scripts.PurchaseRequestExampleTest do
 
   test "publishes", %{t: t} do
     published = publish!(t.schema_name)
-    assert published.status == "published"
+    assert published.status == :published
     assert published.version == 1
     assert length(published.test_cases) == 6
   end

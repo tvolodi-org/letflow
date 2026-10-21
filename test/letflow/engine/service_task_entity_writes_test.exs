@@ -61,7 +61,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
     assert Fx.step_idempotency_count(ctx.schema) == 0
     assert Fx.audit_rows(ctx.schema, "entity_write.process_step") == []
     refute "SERVICE_TASK_COMPLETED" in event_types(ctx)
-    assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == "advanced"
+    assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == :advanced
   end
 
   describe "C-2: success composes everything in one transaction" do
@@ -133,7 +133,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert {:ok, :valid} = Audit.verify_chain(ctx.schema)
 
       # the dispatch row is untouched by the apply ("advanced" was written before it)
-      assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == "advanced"
+      assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == :advanced
     end
 
     test "a node without lines applies exactly as before: no entity step, no entity event" do
@@ -252,7 +252,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
 
       dispatch =
         pending.dispatch
-        |> Ecto.Changeset.change(%{status: "advanced"})
+        |> Ecto.Changeset.change(%{status: :advanced})
         |> Repo.update!(prefix: base.schema)
 
       ctx = %{pending | dispatch: dispatch}
@@ -703,7 +703,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
         )
 
       dispatch =
-        row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: base.schema)
+        row |> Ecto.Changeset.change(%{status: :advanced}) |> Repo.update!(prefix: base.schema)
 
       Map.merge(base, %{
         definition: definition,
@@ -882,7 +882,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert Fx.projection!(ctx.schema, ctx.instance_id).status == :error
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "entity_write_contention"
-      assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == "advanced"
+      assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == :advanced
     end
 
     test "a non-contention database error is not retried and is not an entity-write class" do
