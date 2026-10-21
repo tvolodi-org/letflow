@@ -48,8 +48,11 @@ defmodule Letflow.Entities.TypeAccess do
   already uses) and `user_entity_type_grants` (`user_id` FK to `users`).
   Neither has a schema module -- same deliberate choice `FieldGrants` made
   for its own two tables: this module's own scope is the read-side
-  loader/checker only; a future write-path requirement owns authoring
-  these rows.
+  loader/checker only; `Letflow.Entities.Restrictions` owns authoring
+  these rows. Since GH #2808 the entity-definition write routes
+  (`Letflow.Entities.DefinitionAccess`), the restrictions import route and the
+  engine/handler entity writes (`StepWrites.check_type_access/2`, for the restriction subject)
+  also consult this module.
   """
 
   import Ecto.Query

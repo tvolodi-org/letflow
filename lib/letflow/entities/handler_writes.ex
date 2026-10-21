@@ -223,7 +223,8 @@ defmodule Letflow.Entities.HandlerWrites do
     origin_attrs =
       if origin_tag == :task, do: %{task_id: origin_id}, else: %{dispatch_id: origin_id}
 
-    with :ok <- check_restrictions(ctx, entity_type, field_values),
+    with :ok <- check_type_access(ctx, entity_type),
+         :ok <- check_restrictions(ctx, entity_type, field_values),
          # GH #2590 R5: values that may come from a service response or a script output are
          # byte-capped on the service origin, exactly as a declarative line's are (D-C.7).
          :ok <- StepWrites.check_service_sizes(field_values, ctx.origin),
@@ -262,6 +263,15 @@ defmodule Letflow.Entities.HandlerWrites do
     else
       {:error, reason} -> Multi.error(multi, {:line, key, :build}, reason)
     end
+  end
+
+  # GH #2808: the same TypeAccess check, subject and refusal as a declarative line.
+  defp check_type_access(ctx, entity_type) do
+    StepWrites.check_type_access(entity_type, %{
+      subject_id: Map.get(ctx, :subject_id) || ctx.actor_id,
+      actor_id: ctx.actor_id,
+      prefix: ctx.prefix
+    })
   end
 
   defp check_restrictions(ctx, entity_type, field_values) do

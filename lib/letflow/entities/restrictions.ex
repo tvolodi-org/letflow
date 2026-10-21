@@ -10,7 +10,11 @@ defmodule Letflow.Entities.Restrictions do
   not a full admin CRUD/listing API (design §1.3's explicit "no `GET`/
   `DELETE`" scope cut).
 
-  One public function, `import_restrictions/2`: a per-table upsert
+  GH #2808: the HTTP route gates the whole request with `TypeAccess` before calling this
+  module (any named type the caller is denied is a constant 403 and nothing is written); this
+  module itself stays ungated for system callers. `entity_types/1` names the types a body carries.
+
+  Public functions: `import_restrictions/2`: a per-table upsert
   (`on_conflict: :nothing` against each table's existing unique index) for
   up to four caller-supplied row lists -- `field_restrictions`,
   `field_grants`, `type_restrictions`, `type_grants`. An absent (or empty)
@@ -66,6 +70,28 @@ defmodule Letflow.Entities.Restrictions do
           type_restrictions: non_neg_integer(),
           type_grants: non_neg_integer()
         }
+
+  @doc """
+  The distinct binary `"entity_type"` values named by the entries of the four row lists of
+  `attrs` (GH #2808: the route gates the request on these via `TypeAccess.denied_types/3`). A
+  non-list list value, a non-map entry or a non-binary `entity_type` contributes nothing; the row
+  validation of `import_restrictions/2` answers those with 422.
+  """
+  @spec entity_types(attrs :: map()) :: [String.t()]
+  def entity_types(attrs) when is_map(attrs) do
+    ["field_restrictions", "field_grants", "type_restrictions", "type_grants"]
+    |> Enum.flat_map(fn key ->
+      case Map.get(attrs, key) do
+        rows when is_list(rows) -> rows
+        _not_a_list -> []
+      end
+    end)
+    |> Enum.flat_map(fn
+      %{"entity_type" => entity_type} when is_binary(entity_type) -> [entity_type]
+      _other -> []
+    end)
+    |> Enum.uniq()
+  end
 
   @doc """
   Upserts up to four row lists from `attrs` (string keys
