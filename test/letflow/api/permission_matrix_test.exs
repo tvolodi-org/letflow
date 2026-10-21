@@ -153,6 +153,7 @@ defmodule Letflow.Api.PermissionMatrixTest do
 
       for role <- golden.roles do
         assert golden.rows[{role, "MyModulesRead"}] == %{allowed: true, owner: :core, via: :core}
+        assert golden.rows[{role, "MyAccessRead"}] == %{allowed: true, owner: :core, via: :core}
       end
     end
   end

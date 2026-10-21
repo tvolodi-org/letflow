@@ -652,7 +652,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
             "/api/v1/audit",
             "/api/v1/services",
             "/api/v1/me/memberships",
-            "/api/v1/me/modules"
+            "/api/v1/me/modules",
+            "/api/v1/me/access"
           ] do
         conn = api(:get, path, ctx.a, token, nil)
         assert conn.status == 200, "GET #{path}: #{conn.status} #{conn.resp_body}"
