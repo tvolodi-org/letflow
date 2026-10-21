@@ -429,6 +429,34 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
     assert PendingAdminGrant.state(H.grant(w, again.id)) == :open
   end
 
+  test "a user who already holds TENANT_ADMIN: the bind creates no second membership and consumes the grant exactly once",
+       %{w: w} do
+    group_id = H.admin_group_id!(w)
+    user = H.insert_user!(w, email: "owner@example.com")
+
+    # The user is already a TENANT_ADMIN through the group, before the grant is consumed.
+    assert {:ok, _member} =
+             Identity.add_group_member(group_id, user.id, prefix: w.tenant.schema_name)
+
+    assert "TENANT_ADMIN" in H.roles(w, user.id)
+    assert H.member_count(w) == 1
+
+    grant = H.create_grant!(w, "owner@example.com")
+
+    assert :bound = bind_raw(w, user, email: "owner@example.com", verified: true)
+    assert_bound(w, grant, user.id)
+
+    # One membership (the pre-existing one), one consumption, one audit entry.
+    assert H.member_count(w) == 1
+    assert H.memberships(w, user.id) == ["TENANT_ADMIN"]
+    assert [_one] = H.entries(w.tenant.schema_name, "tenant.admin_grant.bound")
+
+    # A repeat of the same login (fresh user row) binds nothing more.
+    assert :noop = bind_raw(w, user!(w, user.id), email: "owner@example.com", verified: true)
+    assert H.member_count(w) == 1
+    assert [_one] = H.entries(w.tenant.schema_name, "tenant.admin_grant.bound")
+  end
+
   test "removing the TENANT_ADMIN membership after binding is permanent: a later login does not re-apply the grant",
        %{w: w} do
     grant = H.create_grant!(w, "owner@example.com")

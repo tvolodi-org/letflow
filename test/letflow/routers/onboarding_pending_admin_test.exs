@@ -539,6 +539,101 @@ defmodule Letflow.Routers.OnboardingPendingAdminTest do
     assert still.email_key == "owner@example.com"
   end
 
+  test "DELETE with a grant id that belongs to another tenant's onboarding answers the same 404 bytes as a nonexistent grant id and revokes nothing",
+       ctx do
+    mine = onboard!(ctx, %{"admin_email" => "mine@example.com"})
+    theirs = onboard!(ctx, %{"admin_email" => "theirs@example.com"})
+    [my_grant] = grants_of(mine["tenant_id"])
+    [their_grant] = grants_of(theirs["tenant_id"])
+    refute my_grant.id == their_grant.id
+
+    nonexistent =
+      call(
+        ctx,
+        :delete,
+        "/api/v1/onboarding/#{mine["id"]}/pending-admins/#{Ecto.UUID.generate()}",
+        nil
+      )
+
+    cross_tenant =
+      call(
+        ctx,
+        :delete,
+        "/api/v1/onboarding/#{mine["id"]}/pending-admins/#{their_grant.id}",
+        nil
+      )
+
+    assert nonexistent.status == 404, nonexistent.resp_body
+    assert cross_tenant.status == 404, cross_tenant.resp_body
+    assert stable_body(cross_tenant) == stable_body(nonexistent)
+    refute cross_tenant.resp_body =~ their_grant.id
+    refute cross_tenant.resp_body =~ theirs["tenant_id"]
+
+    # Neither tenant's grant was touched, and no revoke was audited anywhere.
+    for {resp, grant, email} <- [
+          {mine, my_grant, "mine@example.com"},
+          {theirs, their_grant, "theirs@example.com"}
+        ] do
+      assert [still] = grants_of(resp["tenant_id"])
+      assert still.id == grant.id
+      assert PendingAdminGrant.state(still) == :open
+      assert still.email_key == email
+      assert entries(schema_of(resp["tenant_id"]), "tenant.admin_grant.revoked") == []
+    end
+
+    assert entries(ctx.platform.schema_name, "platform.tenant_admin_grant.revoked") == []
+  end
+
+  test "the operator routes answer a byte-identical 401 without a token and a byte-identical 403 to a non-platform caller",
+       ctx do
+    resp = onboard!(ctx, %{"admin_email" => "owner@example.com"})
+    [grant] = grants_of(resp["tenant_id"])
+
+    paths = [
+      {:get, "/api/v1/onboarding/#{resp["id"]}/pending-admins"},
+      {:delete, "/api/v1/onboarding/#{resp["id"]}/pending-admins/#{grant.id}"},
+      {:get, "/api/v1/onboarding/#{Ecto.UUID.generate()}/pending-admins"},
+      {:delete,
+       "/api/v1/onboarding/#{Ecto.UUID.generate()}/pending-admins/#{Ecto.UUID.generate()}"}
+    ]
+
+    # 401: no Authorization header at all.
+    unauthenticated =
+      for {method, path} <- paths do
+        method |> Plug.Test.conn(path) |> Fixture.dispatch_api()
+      end
+
+    for conn <- unauthenticated, do: assert(conn.status == 401, conn.resp_body)
+    [first_401 | rest_401] = unauthenticated
+    for conn <- rest_401, do: assert(stable_body(conn) == stable_body(first_401))
+    refute first_401.resp_body =~ resp["tenant_id"]
+    refute first_401.resp_body =~ grant.id
+
+    # 403: an authenticated caller that holds no platform scope.
+    outsider = TenantFixture.provisioned_tenant!(slug_prefix: "iss1030pa-noplat")
+    outsider_token = Fixture.mint_token!(outsider, ["TENANT_ADMIN"])
+
+    forbidden =
+      for {method, path} <- paths do
+        method
+        |> Fixture.api_conn(path, outsider_token, outsider.tenant.slug, nil)
+        |> Fixture.dispatch_api()
+      end
+
+    for conn <- forbidden, do: assert(conn.status == 403, conn.resp_body)
+    [first_403 | rest_403] = forbidden
+    for conn <- rest_403, do: assert(stable_body(conn) == stable_body(first_403))
+    refute first_403.resp_body =~ resp["tenant_id"]
+    refute first_403.resp_body =~ grant.id
+    refute stable_body(first_403) == stable_body(first_401)
+
+    # Nothing was revoked or audited by either.
+    assert [still] = grants_of(resp["tenant_id"])
+    assert PendingAdminGrant.state(still) == :open
+    assert entries(schema_of(resp["tenant_id"]), "tenant.admin_grant.revoked") == []
+    assert entries(ctx.platform.schema_name, "platform.tenant_admin_grant.revoked") == []
+  end
+
   test "DELETE of a bound grant answers 409", ctx do
     email = "owner@example.com"
     resp = onboard!(ctx, %{"admin_email" => email, "idp_realm_id" => realm()})

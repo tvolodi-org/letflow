@@ -27,6 +27,7 @@ defmodule Letflow.Plugs.PendingAdminLoginResponseTest do
   alias Letflow.Plugs.AuthPipeline
   alias Letflow.Support.PendingAdminHelper, as: H
   alias Letflow.Support.PendingAdminTokenVerifierDouble, as: Double
+  alias Letflow.Support.PlatformTenantFixture, as: Fixture
 
   setup do
     H.use_double!()
@@ -119,6 +120,42 @@ defmodule Letflow.Plugs.PendingAdminLoginResponseTest do
     assert PendingAdminGrant.state(stored) == :open
     assert stored.email_key == "owner@example.com"
     assert H.member_count(a) == 0
+    assert H.entries(a.platform.schema_name, "platform.tenant_admin_grant.bound") == []
+  end
+
+  test "an lf_tok_ API token of a user whose stored e-mail equals the pending key never binds the grant",
+       %{a: a} do
+    grant = H.create_grant!(a, "owner@example.com")
+
+    token = Fixture.mint_token!(a.tenant, ["TASK_WORKER"])
+
+    # The token's user carries exactly the pending e-mail, active, never role-synced: every
+    # precondition of a bind except that an API token is not a login.
+    {1, _rows} =
+      Repo.update_all(
+        from(u in Letflow.Identity.User, update: [set: [email: "owner@example.com"]]),
+        [],
+        prefix: a.tenant.schema_name
+      )
+
+    assert "lf_tok_" <> _hex = token
+
+    for _request <- 1..2 do
+      conn =
+        :get
+        |> Fixture.api_conn("/api/v1/identity/users", token, a.tenant.tenant.slug, nil)
+        |> Fixture.dispatch_api()
+
+      # Not a bind: the caller keeps exactly its own role and is refused the admin route.
+      assert conn.status == 403, conn.resp_body
+    end
+
+    stored = H.grant(a, grant.id)
+    assert PendingAdminGrant.state(stored) == :open
+    assert stored.email_key == "owner@example.com"
+    assert stored.consumed_by_user_id == nil
+    assert H.member_count(a) == 0
+    assert H.entries(a.tenant.schema_name, "tenant.admin_grant.bound") == []
     assert H.entries(a.platform.schema_name, "platform.tenant_admin_grant.bound") == []
   end
 
