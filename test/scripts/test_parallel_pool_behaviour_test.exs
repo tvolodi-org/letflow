@@ -248,9 +248,11 @@ defmodule Letflow.Scripts.TestParallelPoolBehaviourTest do
       }
 
       for {n, pool} <- expected do
-        {_status, out, _} =
+        {status, out, _} =
           run_script(Path.join(tmp, "n#{n}"), [{"TEST_PARALLEL_N", "#{n}"} | @fast])
 
+        assert status == 1, out
+        assert out =~ "ecto.create/ecto.migrate failed", out
         assert_pool(out, pool, "N=#{n},")
         refute out =~ "WARN N=", "N=#{n}: " <> out
       end
@@ -275,12 +277,14 @@ defmodule Letflow.Scripts.TestParallelPoolBehaviourTest do
       }
 
       for {n, pool} <- expected do
-        {_status, out, _} =
+        {status, out, _} =
           run_script(Path.join(tmp, "n#{n}"), [
             {"TEST_PARALLEL_N", "#{n}"},
             {"TEST_PER_PARTITION_HEADROOM", "1"} | @fast
           ])
 
+        assert status == 1, out
+        assert out =~ "ecto.create/ecto.migrate failed", out
         assert_pool(out, pool, "per_partition_headroom=1")
 
         if n == 32 do
