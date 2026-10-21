@@ -36,7 +36,8 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :HelpRead,
     :MembershipsRead,
     :PromotionsRead,
-    :MyModulesRead
+    :MyModulesRead,
+    :MyAccessRead
   ]
 
   # The 27 core permissions the auditor does NOT hold (41 core permissions minus the 14 above).
@@ -99,7 +100,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
   end
 
   describe "AC1: the grant rule" do
-    test "for every p in permissions/0, role_allows?(:TENANT_AUDITOR, p) is true exactly for the 14 literal atoms and false for every other core and Catalog permission" do
+    test "for every p in permissions/0, role_allows?(:TENANT_AUDITOR, p) is true exactly for the 15 literal atoms and false for every other core and Catalog permission" do
       permissions = Authorization.permissions()
       assert length(permissions) > length(Authorization.core_permissions())
 
@@ -112,7 +113,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
 
       granted = Enum.filter(permissions, &Authorization.role_allows?(:TENANT_AUDITOR, &1))
       assert Enum.sort(granted) == Enum.sort(@auditor_granted)
-      assert length(granted) == 14
+      assert length(granted) == 15
     end
 
     test "the refused core set is the literal 29, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
@@ -216,7 +217,8 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
               :HelpRead,
               :MembershipsRead,
               :PromotionsRead,
-              :MyModulesRead
+              :MyModulesRead,
+              :MyAccessRead
             ] do
           assert Authorization.evaluate_access(ctx([:TENANT_AUDITOR], flag), key).kind == :Allow,
                  "#{inspect(key)} platform_tenant?=#{flag}"

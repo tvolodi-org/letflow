@@ -153,6 +153,7 @@ defmodule Letflow.Api.PermissionMatrixTest do
 
       for role <- golden.roles do
         assert golden.rows[{role, "MyModulesRead"}] == %{allowed: true, owner: :core, via: :core}
+        assert golden.rows[{role, "MyAccessRead"}] == %{allowed: true, owner: :core, via: :core}
       end
     end
   end
@@ -769,7 +770,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
 
   describe "T24 AC9: the CI step" do
     test "backend_static runs the dev-env check with the marker greps; shared caches keep _build/dev" do
-      ci = File.read!(".github/workflows/ci.yml")
+      ci = ".github/workflows/ci.yml" |> File.read!() |> String.replace("\r\n", "\n")
+
       [_, static_job] = String.split(ci, "\n  backend_static:\n", parts: 2)
       [static_job, shard_job] = String.split(static_job, "\n  backend_shard:\n", parts: 2)
 
@@ -1090,11 +1092,13 @@ defmodule Letflow.Api.PermissionMatrixTest do
       assert PermissionMatrix.baseline_anchor(1) == "HEAD"
     end
 
-    @tag :tmp_dir
-    test "in a real --no-ff merge the task rejects HEAD^2 (the PR tip) and HEAD, accepts HEAD^1",
-         %{
-           tmp_dir: dir
-         } do
+    test "in a real --no-ff merge the task rejects HEAD^2 (the PR tip) and HEAD, accepts HEAD^1" do
+      # Short path: the generated tmp_dir embeds the whole test name and overflows
+      # git's path limit on Windows checkouts.
+      dir = Path.join(System.tmp_dir!(), "pm_merge_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf(dir) end)
+
       git = fn args ->
         {out, 0} =
           System.cmd("git", args,

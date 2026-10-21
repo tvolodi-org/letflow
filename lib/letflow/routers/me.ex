@@ -13,6 +13,7 @@ defmodule Letflow.Routers.Me do
   |---|---|---|---|---|
   | handle_list_memberships | `GET /me/memberships` | `Letflow.Identity.list_memberships_for_subject/1` | `:MembershipsRead` | 200 |
   | handle_list_modules | `GET /me/modules` | `Letflow.Modules.Installs.list_installed/1` | `:MyModulesRead` | 200 |
+  | handle_get_access | `GET /me/access` | `Letflow.Api.Authorization` (pure, per request) | `:MyAccessRead` | 200 |
 
   ## `GET /me/modules` (REQ-403)
 
@@ -28,6 +29,18 @@ defmodule Letflow.Routers.Me do
   header value is read for tenant selection. Response body:
   `{"installed_modules": [{"module_id", "version"}, ...]}` — exactly those
   two keys per entry, no `installed_at`, no `settings`, no `id`.
+
+  ## `GET /me/access` (REQ-449)
+
+  The caller's own effective roles (as the server resolved them for this
+  request, `PLATFORM_ADMIN` already dropped outside the platform tenant),
+  every permission those roles hold in this tenant, and whether this is the
+  platform tenant. Granted to every role via the role-agnostic
+  `:MyAccessRead`. Computed from `conn.assigns.auth_context` on every request
+  (no cache); the platform flag is recomputed from the authenticated tenant
+  id, never read from the context. Hand-built body (INV-2) with exactly
+  three keys, `roles`, `permissions`, `platform_tenant`; no user id, no
+  tenant id, no path/query/header value is read.
 
   ## `:MembershipsRead` permission — CANDIDATE deliberately excluded
 
@@ -63,6 +76,7 @@ defmodule Letflow.Routers.Me do
 
   require Logger
 
+  alias Letflow.Api.Authorization
   alias Letflow.Api.Response
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
@@ -70,6 +84,7 @@ defmodule Letflow.Routers.Me do
   alias Letflow.Identity.User
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
+  alias Letflow.PlatformTenant
 
   authz_get "/memberships", :MembershipsRead, scope: :self_service do
     handle_list_memberships(conn)
@@ -77,6 +92,10 @@ defmodule Letflow.Routers.Me do
 
   authz_get "/modules", :MyModulesRead, scope: :self_service do
     handle_list_modules(conn)
+  end
+
+  authz_get "/access", :MyAccessRead, scope: :self_service do
+    handle_get_access(conn)
   end
 
   authz_unmatched(:ordinary)
@@ -152,6 +171,36 @@ defmodule Letflow.Routers.Me do
       |> Enum.map(&installed_module_json/1)
 
     Response.ok(conn, %{"installed_modules" => installed_modules})
+  end
+
+  # ── GET /me/access (REQ-449) ────────────────────────────────────────────
+
+  @spec handle_get_access(Plug.Conn.t()) :: Plug.Conn.t()
+  defp handle_get_access(conn) do
+    auth_context = conn.assigns.auth_context
+    platform_tenant? = PlatformTenant.platform_tenant?(Map.get(auth_context, :tenant_id))
+    roles = Authorization.effective_roles(Map.get(auth_context, :roles), platform_tenant?)
+
+    permissions =
+      for permission <- Authorization.permissions(),
+          Authorization.has_permission_in_scope?(roles, permission, platform_tenant?) or
+            role_agnostic?(permission),
+          do: Atom.to_string(permission)
+
+    Response.ok(conn, %{
+      "roles" => roles |> Enum.map(&Atom.to_string/1) |> Enum.uniq() |> Enum.sort(),
+      "permissions" => permissions |> Enum.uniq() |> Enum.sort(),
+      "platform_tenant" => platform_tenant?
+    })
+  end
+
+  # Held by every role (:MyModulesRead, :MyAccessRead): shown even when the caller's effective
+  # role list is empty. Derived from the grant matrix, not a list kept here. Tenant scope only,
+  # so a platform-scope permission is never reported through it.
+  @spec role_agnostic?(atom()) :: boolean()
+  defp role_agnostic?(permission) do
+    Authorization.permission_scope(permission) == :tenant and
+      Enum.all?(Authorization.roles(), &Authorization.role_allows?(&1, permission))
   end
 
   @spec installed_module_json(TenantModule.t()) :: map()
