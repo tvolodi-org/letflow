@@ -35,7 +35,7 @@ defmodule Letflow.Scripts.SwiftrouteIncidentQaFixtureTest do
   @script Path.join(@root, "scripts/seed_swiftroute_incident_definition.sh")
 
   @escalation_nodes ~w(ops-assessment escalate-ops-assessment-to-ceo finance-estimate
-                       escalate-finance-estimate-to-ceo ops-escalation-timer)
+                       escalate-finance-estimate-to-ceo)
   @notice_nodes ~w(ops-auto-close finance-auto-close)
 
   defp json, do: @json |> File.read!() |> Jason.decode!()
@@ -46,16 +46,30 @@ defmodule Letflow.Scripts.SwiftrouteIncidentQaFixtureTest do
   defp edge_shape(e),
     do: {e["id"], e["source"], e["target"], e["condition"], e["is_default"] == true}
 
-  test "the QA fixture is Driver Incident Report v1.0 and matches the simulation copy and alias" do
+  test "the QA fixture is Driver Incident Report v1.1 and matches the simulation copy and alias" do
     j = json()
     y = yaml()
     {:ok, a} = YamlElixir.read_from_file(@alias_file)
 
     assert j["name"] == "Driver Incident Report"
-    assert j["version"] == "1.0"
+    assert j["version"] == "1.1"
     assert j["name"] == y["name"]
     assert j["version"] == y["version"]
     assert j["name"] == a["definition_name"], "preflight resolves the alias by this exact name"
+  end
+
+  test "the ops-escalation-timer branch is gone: nothing but the task branches feeds parallel-join" do
+    for d <- [json(), yaml()] do
+      refute node(d, "ops-escalation-timer")
+      refute Enum.any?(d["graph"]["nodes"], &(&1["node_type"] == "TIMER"))
+
+      assert d["graph"]["edges"]
+             |> Enum.filter(&(&1["target"] == "parallel-join"))
+             |> Enum.map(& &1["source"])
+             |> Enum.sort() ==
+               ~w(escalate-finance-estimate-to-ceo escalate-ops-assessment-to-ceo finance-auto-close
+                  finance-estimate ops-assessment ops-auto-close)
+    end
   end
 
   test "node ids, node types and edge shapes are identical to the simulation graph" do
@@ -223,18 +237,18 @@ defmodule Letflow.Scripts.SwiftrouteIncidentQaFixtureTest do
     end
 
     test "ACTIVE at the fixture version: idempotent no-op (no POST at all)" do
-      {calls, out} = seed_calls("1.0")
+      {calls, out} = seed_calls("1.1")
       assert Enum.reject(calls, &String.starts_with?(&1, "GET ")) == [], inspect(calls)
       assert out =~ "skipping creation"
     end
 
     test "ACTIVE newer than the fixture: never downgrades (no POST)" do
-      {calls, _} = seed_calls("1.1")
+      {calls, _} = seed_calls("1.2")
       assert Enum.reject(calls, &String.starts_with?(&1, "GET ")) == [], inspect(calls)
     end
 
     test "ACTIVE older than the fixture: creates and activates the fixture version" do
-      {calls, _} = seed_calls("0.9")
+      {calls, _} = seed_calls("1.0")
       assert Enum.count(calls, &String.starts_with?(&1, "POST ")) == 2, inspect(calls)
     end
   end
