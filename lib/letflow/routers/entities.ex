@@ -3481,15 +3481,7 @@ defmodule Letflow.Routers.Entities do
   end
 
   @spec strict_specs_for(String.t(), String.t()) :: Decimals.specs()
-  defp strict_specs_for(entity_type, prefix) do
-    case Definitions.get_active_definition_by_name(entity_type, prefix) do
-      {:ok, %{definition_json: definition_json}} ->
-        Decimals.specs_from_definition_json(definition_json)
-
-      _no_active_definition ->
-        %{}
-    end
-  end
+  defp strict_specs_for(entity_type, prefix), do: Definitions.strict_specs(entity_type, prefix)
 
   defp joined_key_string(:primary), do: "primary"
   defp joined_key_string(entity_type) when is_binary(entity_type), do: entity_type

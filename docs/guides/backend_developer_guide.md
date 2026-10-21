@@ -257,6 +257,11 @@ For quantities and money that must stay exact, declare the field with
 Fields without the flag behave exactly as before. Ledger-style modules (WMS REQ-504) set it
 from their first definition.
 
+**Readers (GH #2775):** every route that returns a stored `field_values` map renders it with
+`Decimals.render_field_values/2` and the specs of `Definitions.strict_specs/2`: the entities router,
+script reads and the exam list route `GET /modules/exam/exam-sessions/available` (`exam` is
+tenant-extensible). A new route returning a stored map must do the same.
+
 **Write contract of a strict field (PR 1 of GH #2654):**
 
 - Accepts a canonical decimal string (`"2.50"`) or a JSON integer (`3`). Every JSON float
