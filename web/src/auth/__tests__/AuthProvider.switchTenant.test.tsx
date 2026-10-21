@@ -54,7 +54,6 @@ vi.mock('@/api/client', () => ({
     tenant_display_name: 'Tenant A',
     tenant_id: 'tid-a',
     tenant_type: 'production',
-    production_tenant_display_name: null,
   })),
 }))
 
@@ -149,7 +148,6 @@ describe('AuthProvider.switchTenant — REQ-384 §5.3/§7.3.1 cache-clear mechan
       tenant_id: 'tid-b',
       display_name: 'Tenant B',
       tenant_type: 'production',
-      production_tenant_display_name: null,
     })
 
     const getCaptured = renderAuthProvider(queryClient)
@@ -246,7 +244,6 @@ describe('AuthProvider.switchTenant — REQ-384 §5.3/§7.3.1 cache-clear mechan
       tenant_id: 'tid-b',
       display_name: 'Tenant B',
       tenant_type: 'production',
-      production_tenant_display_name: null,
     })
 
     const getCaptured = renderAuthProvider(queryClient)
@@ -389,7 +386,6 @@ describe('AuthProvider.switchTenant — switchingToTenantSlug lifecycle (REVIEWE
       tenant_id: string
       display_name: string
       tenant_type: string
-      production_tenant_display_name: string | null
     }>()
     mockAttemptSilentSwitch.mockReturnValue(attempt.promise)
     mockGetBySlug.mockReturnValue(getBySlug.promise)
@@ -429,7 +425,6 @@ describe('AuthProvider.switchTenant — switchingToTenantSlug lifecycle (REVIEWE
         tenant_id: 'tid-b',
         display_name: 'Tenant B',
         tenant_type: 'production',
-        production_tenant_display_name: null,
       })
       outcome = await switchPromise
     })

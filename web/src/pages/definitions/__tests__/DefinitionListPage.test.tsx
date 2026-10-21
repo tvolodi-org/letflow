@@ -87,7 +87,6 @@ function mockAuth() {
       tenant_display_name: null,
       tenant_id: null,
       tenant_type: null,
-      production_tenant_display_name: null,
     },
     isAuthenticated: true,
     isLoading: false,

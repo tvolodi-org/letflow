@@ -34,7 +34,6 @@ vi.mock('@/auth/AuthContext', () => ({
       tenant_display_name: 'Acme',
       tenant_id: 'tid-1',
       tenant_type: 'production',
-      production_tenant_display_name: null,
     },
   })),
 }))

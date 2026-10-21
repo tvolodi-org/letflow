@@ -55,7 +55,6 @@ const ADMIN_SESSION = {
   tenant_display_name: 'Platform',
   tenant_id: 'tid-platform',
   tenant_type: 'production' as const,
-  production_tenant_display_name: null,
 }
 
 function tenant(slug: string): Tenant {
@@ -66,8 +65,6 @@ function tenant(slug: string): Tenant {
     status: 'ACTIVE',
     created_at: '2026-01-01T00:00:00Z',
     tenant_type: 'production',
-    production_tenant_id: null,
-    production_tenant_display_name: null,
   }
 }
 

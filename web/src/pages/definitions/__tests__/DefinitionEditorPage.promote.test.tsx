@@ -113,7 +113,6 @@ const DESIGNER_SESSION = {
   tenant_display_name: 'Acme Test',
   tenant_id: 'tid-001',
   tenant_type: 'test' as const,
-  production_tenant_display_name: 'Acme Production',
 }
 
 const AUTH_VALUE_BASE = {
@@ -141,19 +140,38 @@ describe('ENV-04 — DefinitionEditorPage promote button', () => {
     mockUseAuth.mockReturnValue({ ...AUTH_VALUE_BASE, session: DESIGNER_SESSION })
     mockUseTenantContext.mockReturnValue({
       tenantType: 'test',
-      productionDisplayName: 'Acme Production',
       tenantSlug: 'acme-test',
       tenantId: 'tid-001',
       tenantDisplayName: 'Acme Test',
       isUnknown: false,
     })
 
-    renderWithAccess(<DefinitionEditorPage />, 'designer')
+    renderWithAccess(<DefinitionEditorPage />, 'platformAdmin')
 
     // VERDICT: Screen shows Promote to Production button for test tenant with ACTIVE definition
     expect(screen.getByTestId('promote-to-production-btn')).toBeInTheDocument()
     expect(screen.getByTestId('promote-to-production-btn')).toHaveTextContent('Promote to Production')
   })
+
+  it.each(['designer', 'tenantAdmin'] as const)(
+    'TC-ENV04-06b: no Promote button for a %s session without platform-admin access on a test tenant (REQ-470)',
+    access => {
+      mockUseParams.mockReturnValue({ id: 'def-123' })
+      mockUseDefinition.mockReturnValue({ data: ACTIVE_DEFINITION, isLoading: false } as unknown as ReturnType<typeof useDefinition>)
+      mockUseAuth.mockReturnValue({ ...AUTH_VALUE_BASE, session: DESIGNER_SESSION })
+      mockUseTenantContext.mockReturnValue({
+        tenantType: 'test',
+        tenantSlug: 'acme-test',
+        tenantId: 'tid-001',
+        tenantDisplayName: 'Acme Test',
+        isUnknown: false,
+      })
+
+      renderWithAccess(<DefinitionEditorPage />, access)
+
+      expect(screen.queryByTestId('promote-to-production-btn')).not.toBeInTheDocument()
+    },
+  )
 
   it('TC-ENV04-07: Promote to Production button absent when tenantType is production', () => {
     mockUseParams.mockReturnValue({ id: 'def-123' })
@@ -163,19 +181,17 @@ describe('ENV-04 — DefinitionEditorPage promote button', () => {
       session: {
         ...DESIGNER_SESSION,
         tenant_type: 'production' as const,
-        production_tenant_display_name: null,
       },
     })
     mockUseTenantContext.mockReturnValue({
       tenantType: 'production',
-      productionDisplayName: null,
       tenantSlug: 'acme-prod',
       tenantId: 'tid-002',
       tenantDisplayName: 'Acme Production',
       isUnknown: false,
     })
 
-    renderWithAccess(<DefinitionEditorPage />, 'designer')
+    renderWithAccess(<DefinitionEditorPage />, 'platformAdmin')
 
     // VERDICT: Promote to Production button is absent for production tenant
     expect(screen.queryByTestId('promote-to-production-btn')).not.toBeInTheDocument()
@@ -188,7 +204,6 @@ describe('ENV-04 — DefinitionEditorPage promote button', () => {
     mockUseAuth.mockReturnValue({ ...AUTH_VALUE_BASE, session: DESIGNER_SESSION })
     mockUseTenantContext.mockReturnValue({
       tenantType: 'test',
-      productionDisplayName: 'Acme Production',
       tenantSlug: 'acme-test',
       tenantId: 'tid-001',
       tenantDisplayName: 'Acme Test',

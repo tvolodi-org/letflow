@@ -82,7 +82,7 @@ export default function DefinitionEditorPage() {
   const create = useCreateDefinition()
   const validateDefinition = useValidateDefinition()
   const activateMutation = useActivateDefinition()
-  const { tenantType, productionDisplayName, tenantId } = useTenantContext()
+  const { tenantType, tenantId } = useTenantContext()
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
 
@@ -99,7 +99,11 @@ export default function DefinitionEditorPage() {
   const [promoteMessage, setPromoteMessage] = useState<string | null>(null)
   const [promoteError, setPromoteError] = useState<string | null>(null)
 
-  const hasDesignerRole = useAccess().can(P.DefinitionsWrite)
+  const access = useAccess()
+  const hasDesignerRole = access.can(P.DefinitionsWrite)
+  // REQ-470: every session now has a tenant_type, so the promote action keeps its
+  // platform-only reach explicitly instead of through a null tenant_type.
+  const canPromote = hasDesignerRole && access.canManageTenants
 
   // ── Canvas state ────────────────────────────────────────────────────────────
 
@@ -272,7 +276,7 @@ export default function DefinitionEditorPage() {
       const err = e as { code?: string; message?: string }
       const codeMap: Record<string, string> = {
         not_a_test_tenant: 'This operation requires a test tenant.',
-        production_tenant_inactive: 'The paired production tenant is inactive. Contact your platform administrator.',
+        production_tenant_inactive: 'The production tenant is inactive. Contact your platform administrator.',
         forbidden: 'You do not have the required role on both tenants.',
       }
       setPromoteError(err.code ? (codeMap[err.code] ?? 'Promotion failed. Please try again.') : 'Promotion failed. Please try again.')
@@ -726,7 +730,7 @@ export default function DefinitionEditorPage() {
               {exporting ? 'Exporting…' : 'Export'}
             </Button>
           )}
-          {hasDesignerRole && !isNew && tenantType === 'test' && def?.status === 'ACTIVE' && (
+          {canPromote && !isNew && tenantType === 'test' && def?.status === 'ACTIVE' && (
             <Button
               variant="secondary"
               size="sm"
@@ -1090,7 +1094,6 @@ export default function DefinitionEditorPage() {
       {showPromoteModal && def && (
         <ConfirmPromoteModal
           definitionName={def.name}
-          productionDisplayName={productionDisplayName ?? '(unknown)'}
           onConfirm={() => void handlePromoteConfirm()}
           onCancel={() => setShowPromoteModal(false)}
           isLoading={promoting}

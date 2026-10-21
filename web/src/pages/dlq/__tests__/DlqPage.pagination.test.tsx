@@ -57,7 +57,6 @@ const SESSION = {
   tenant_display_name: 'Test Tenant',
   tenant_id: 'tid-test-tenant',
   tenant_type: 'production' as const,
-  production_tenant_display_name: null,
 }
 
 function entry(id: string): DlqEntry {

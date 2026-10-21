@@ -111,7 +111,6 @@ describe('Q-1074 / GH 2431 — OidcCallbackPage tenant lookup', () => {
       display_name: 'Bilimbaga Tenant',
       tenant_id: 't-1',
       tenant_type: 'production',
-      production_tenant_display_name: null,
     } as never)
 
     const { default: OidcCallbackPage } = await import('@/pages/OidcCallbackPage')

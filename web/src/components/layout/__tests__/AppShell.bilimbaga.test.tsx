@@ -42,7 +42,6 @@ function testSession(): UserSession {
     tenant_display_name: 'Acme Co',
     tenant_id: 'tid-acme',
     tenant_type: 'production',
-    production_tenant_display_name: null,
   }
 }
 

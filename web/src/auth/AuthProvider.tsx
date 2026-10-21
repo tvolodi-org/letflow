@@ -14,6 +14,7 @@ import { tenantsApi } from '@/api/tenants'
 import { meApi } from '@/api/me'
 import { canManageTenants } from './access/access'
 import { resetTenantConfigCache, resolveRealmFromUrl } from './tenantConfig'
+import { fetchTenantTypeForSlug } from './tenantType'
 import { isEmailFirstLoginEnabled } from './emailFirstFlag'
 import { buildRedirectArgs } from './oidcRedirectArgs'
 
@@ -32,8 +33,6 @@ export async function buildSessionFromToken(token: string): Promise<UserSession>
   const tenantSlug = resolveTenantSlug(payload)
   let tenantDisplayName: string | null = null
   let tenantId: string | null = null
-  let tenantType: 'production' | 'test' | null = null
-  let productionTenantDisplayName: string | null = null
   // Q-1074 / GH 2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
   // Only a session whose /me/access (not the token) grants platform tenant management asks
   // for the record; every other session skips the call and shows the slug as its display
@@ -48,13 +47,14 @@ export async function buildSessionFromToken(token: string): Promise<UserSession>
       const tenant = await tenantsApi.getBySlug(tenantSlug)
       tenantDisplayName = tenant.display_name
       tenantId = tenant.tenant_id ?? null
-      tenantType = tenant.tenant_type ?? null
-      productionTenantDisplayName = tenant.production_tenant_display_name ?? null
     } catch {
       console.error('[AuthProvider] Could not resolve tenant display name', tenantSlug)
       // a failed lookup leaves tenantDisplayName null, so the slug is shown below
     }
   }
+
+  // REQ-470: tenant_type comes from the public tenant-config for every session.
+  const tenantType = await fetchTenantTypeForSlug(tenantSlug)
 
   return {
     token,
@@ -64,7 +64,6 @@ export async function buildSessionFromToken(token: string): Promise<UserSession>
     tenant_display_name: tenantDisplayName ?? tenantSlug,
     tenant_id: tenantId,
     tenant_type: tenantType,
-    production_tenant_display_name: productionTenantDisplayName,
   }
 }
 
@@ -82,7 +81,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         tenant_display_name: e2e.tenant_display_name ?? null,
         tenant_id: (e2e as Record<string, unknown>).tenant_id as string | null ?? null,
         tenant_type: (e2e as Record<string, unknown>).tenant_type as 'production' | 'test' | null ?? null,
-        production_tenant_display_name: (e2e as Record<string, unknown>).production_tenant_display_name as string | null ?? null,
       }
     }
     return null
