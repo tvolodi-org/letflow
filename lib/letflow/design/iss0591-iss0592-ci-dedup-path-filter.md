@@ -3,6 +3,22 @@
 Status: design, not yet implemented. Target file: `.github/workflows/ci.yml`.
 Branch: `fix/ISS0592-20260911`.
 
+> **Addendum 2026-10-21, GH #2412 (supersedes the job-level-`if:` rule below).** Everything
+> in this document that forbids a job-level path-filter `if:` on a required context
+> (§0/§3 "step-level, never job-level", "this rule is unchanged and still holds", the
+> REVIEWER check "(b) is never skipped via job-level `if:`") is **superseded for job-level
+> `if:`** and kept below as history. `frontend` (required context "Frontend gate (npm run
+> check)") and `mobile` now use `if: ${{ !cancelled() && needs.changes.outputs.<x> != 'false' }}`
+> at job level, so a docs-only PR starts no runner for them. GitHub documents: "If a job in a
+> workflow is skipped due to a conditional, it will report its status as "Success"", so the
+> check name is still reported and satisfied. This is unlike a `paths:`-filtered workflow,
+> whose checks never report; the ban on `paths:`/`paths-ignore:` in `on:` still holds. The
+> fail-open rule is kept (an empty output from a failed `changes` job is `!= 'false'`, so
+> the jobs run) and the `backend` aggregator does not depend on either job. **Open risk:**
+> that the merge queue / `main-queue` ruleset accepts a skipped "Frontend gate" has not been
+> verified. A docs-only PR after merge must show it; if the queue does not accept it, revert
+> only the `frontend` job's `if:`. REVIEWER check (b) now applies to `backend` only.
+
 ## 0. Scope and risk framing (read this first)
 
 This is infrastructure-as-config, not `lib/letflow/` or `web/` code, so per

@@ -48,10 +48,12 @@
 #      legs are NOT required contexts; they gate the merge only through the aggregator.
 #      Do not rename the aggregator, and do not make a shard leg a required context (its
 #      name changes with M and it is skipped on docs-only changes).
-#    - The old contract "the job runs, its steps skip" still holds for the REQUIRED
-#      context: `backend` always runs (`if: always()`, deliberate on this job only) and
-#      reports success on a docs-only change. The static job and the shards are skipped
-#      at JOB level in that case (job `if:` = `!cancelled() && backend != 'false'`).
+#    - The old contract "the job runs, its steps skip" now holds only for the aggregator
+#      `backend`: it always runs (`if: always()`, deliberate on this job only) and reports
+#      success on a docs-only change. The static job and the shards are skipped at JOB level
+#      in that case (job `if:` = `!cancelled() && backend != 'false'`). Since GH #2412 the
+#      `frontend` job (REQUIRED context "Frontend gate (npm run check)") and `mobile` are
+#      skipped at JOB level too when their filter is `false` (see the header below).
 #    - Aggregator semantics (fail closed): FILTER=needs.changes.outputs.backend,
 #      CHANGES/STATIC/SHARDS=needs.<job>.result. Green only if CHANGES=success and
 #      either FILTER=false with STATIC=SHARDS=skipped, or FILTER!=false with
@@ -145,11 +147,20 @@ name: CI
 # see lib/letflow/design/iss0591-iss0592-ci-dedup-path-filter.md for the full
 # reasoning. Do not "simplify" any of the following without re-reading that
 # design in full -- several of these choices (job-level `if: ${{ !cancelled() }}`
-# instead of `always()`, step-level rather than job-level path-filter `if:`,
-# fail-open `!= 'false'` step conditions) were deliberately chosen over an
-# obvious-looking alternative that was tried and rejected during that design's
-# review, specifically because the obvious alternative silently breaks
-# 0018's required-status-check contexts.
+# instead of `always()`, fail-open `!= 'false'` conditions) were deliberately chosen over
+# an obvious-looking alternative that was tried and rejected during that design's review.
+#
+# GH #2412 SUPERSEDES one of those choices: the original design said path-filter skipping
+# must be step-level, never a job-level `if:`, because that "silently breaks 0018's
+# required-status-check contexts". That claim is superseded for job-level `if:`.
+# `frontend` and `mobile` now deliberately use job-level path-filter `if:`s. GitHub
+# reports a job skipped by its own `if:` with conclusion `skipped`, and a skipped job
+# counts as a passing check under its name ("If a job in a workflow is skipped due to a
+# conditional, it will report its status as "Success""), so the required context is
+# satisfied. A `paths:`-filtered WORKFLOW is different: its checks never report at all,
+# so the prohibition on `paths:`/`paths-ignore:` in `on:` still holds. Check names are
+# unchanged. Still open: the merge queue accepting a skipped "Frontend gate" has to be
+# shown by a docs-only PR run; if it is not accepted, revert only the `frontend` `if:`.
 #
 # Q-1037 amendment: that reasoning governs the REQUIRED contexts. The sharded backend's
 # NON-required legs (`backend_static`, `backend_shard`) use job-level path-filter `if:`s
@@ -195,7 +206,7 @@ concurrency:
 jobs:
   # Not a required status check. Computes whether backend-relevant /
   # frontend-relevant paths changed so the backend legs (skipped at job level) and
-  # `frontend` (steps skipped) below can avoid their expensive work on a docs-only change -- see the design doc §3.
+  # `frontend` and `mobile` (skipped at job level when this says `false`, GH #2412) below can avoid their expensive work on a docs-only change -- see the design doc §3.
   # Hand-rolled git diff rather than a third-party paths-filter action, so
   # every edge case (zero-SHA new branch, non-push/PR triggers, force-push,
   # the script's own failure) is auditable directly in this file; the path RULES
@@ -821,14 +832,15 @@ jobs:
 
   # REQ-420: Mobile gate job, appended alongside `backend`/`frontend` as a sibling under
   # the same `on:` triggers, touching none of their keys. Structurally parallel to
-  # `frontend` (needs: changes; `if: ${{ !cancelled() }}`; step-level fail-open
-  # `if:` on the expensive steps only) per ISS-0591/ISS-0592's design
+  # `frontend` (needs: changes; `if: ${{ !cancelled() && ... != 'false' }}` at job level,
+  # GH #2412; the step-level fail-open `if:`s are now redundant belt-and-braces) per ISS-0591/ISS-0592's design
   # (lib/letflow/design/iss0591-iss0592-ci-dedup-path-filter.md) even though this job is
   # NOT (yet) a required-status-check context.
   #
-  # GH #2412 supersedes the "always runs" wording below: the job is now skipped at job level on a
-  # `false` mobile filter (a skipped job reports as passing, so a future required context would
-  # not be missing). The text below is the pre-#2412 reasoning.
+  # GH #2412 supersedes the "always runs" / "never a job-level path condition" wording below:
+  # the job is now skipped at job level on a `false` mobile filter (a skipped job reports as
+  # passing, so a future required context would not be missing). The paragraph below is the
+  # pre-#2412 reasoning, kept for history.
   #
   # OPEN QUESTION (not resolved by this requirement): whether "Mobile gate (flutter
   # analyze + test + build)" becomes a third required status-check context on `main` per

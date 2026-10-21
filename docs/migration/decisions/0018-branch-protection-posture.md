@@ -530,3 +530,10 @@ Full reasoning, the exact verbatim text, and the acceptance-criteria mapping are
   states its reasoning for, not a mechanical count/pattern match; automating it would
   reintroduce exactly the count-matching failure mode that discipline was written to
   forbid.
+
+**GH #2412 addendum (2026-10-21).** The required contexts are unchanged. `frontend` is now
+skipped at job level on docs-only PRs (a job skipped by its own `if:` reports as passing under
+the same name); the older "never a job-level path-filter `if:`" rule is superseded for
+job-level `if:` only. See `lib/letflow/design/iss0591-iss0592-ci-dedup-path-filter.md`
+(addendum at the top) and the `.github/workflows/ci.yml` header. Merge-queue acceptance of a
+skipped "Frontend gate" is still to be shown by a docs-only PR run.
