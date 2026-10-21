@@ -582,7 +582,7 @@ defmodule Letflow.Entities.ScriptReadsTest do
           row = F.reload(ctx.schema, row)
 
           assert {row.status, row.outcome, row.outcome_detail} ==
-                   {"failed", "script_rejected", "reads_not_allowed"}
+                   {:failed, "script_rejected", "reads_not_allowed"}
         end)
 
       refute log =~ "not-a-number"
