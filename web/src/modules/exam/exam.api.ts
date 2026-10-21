@@ -28,11 +28,11 @@
  *
  *  ISS-0718: `listAvailableExams` below replaces this requirement's original
  *  `queryExamRecords` call onto the generic `POST /entities/query` route.
- *  CANDIDATE cannot reach that route — `:EntitiesQuery` is outside
- *  CANDIDATE's ISS-0646 closed permission set, so every CANDIDATE call was a
+ *  candidate role cannot reach that route — `:EntitiesQuery` is outside
+ *  candidate role's ISS-0646 closed permission set, so every candidate role call was a
  *  guaranteed 403. `listAvailableExams` instead calls the new, dedicated
  *  `GET /modules/exam/exam-sessions/available` route (added by ISS-0718's fix, gated on
- *  CANDIDATE's existing `:ExamSessionStart` permission — no new grant), which
+ *  candidate role's existing `:ExamSessionStart` permission — no new grant), which
  *  hardcodes `entity_type: "exam"` and `status: active` server-side rather
  *  than accepting caller-supplied filters. See
  *  `lib/letflow/design/iss0718-candidate-exam-list-route.md` for the full
@@ -98,13 +98,13 @@ export const examApi = {
   reportEvent: (sessionId: string, type: AntiCheatSignalType) =>
     client.post<AntiCheatSignalOutcome>(`${BASE}/${encodeURIComponent(sessionId)}/events`, { type }),
 
-  /** `GET /modules/exam/exam-sessions/available` — lists exams a CANDIDATE may currently
+  /** `GET /modules/exam/exam-sessions/available` — lists exams a candidate role may currently
    *  start a session against (status=active, exam_id filtering is
    *  server-side and NOT caller-controlled — see
    *  lib/letflow/design/iss0718-candidate-exam-list-route.md §1). Replaces
    *  this file's prior `queryExamRecords`/`POST /entities/query` call, which
-   *  CANDIDATE cannot reach (ISS-0718 — `:EntitiesQuery` is outside
-   *  CANDIDATE's ISS-0646 closed set). */
+   *  candidate role cannot reach (ISS-0718 — `:EntitiesQuery` is outside
+   *  candidate role's ISS-0646 closed set). */
   listAvailableExams: (opts: { cursor?: string; page_size?: number } = {}) =>
     client.get<ExamRecordsPage>(`${BASE}/available`, opts),
 }

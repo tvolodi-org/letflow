@@ -1,13 +1,13 @@
 /** RegisterTenantPage — ONB-UI-02
  *
  * Collects onboarding inputs for a new tenant and submits to POST /api/v1/onboarding.
- * Role guard: redirects to /instances if session does not include PLATFORM_ADMIN.
+ * Role guard: redirects to /instances if session does not include platform-admin role.
  * On success navigates to OnboardingResultPage with the created record in router state.
  */
 
 import { useState, useEffect, useRef } from 'react'
 import { Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { useAuth } from '@/auth/AuthContext'
+import { useAccess, AccessPending } from '@/auth/access'
 import { Button } from '@/components/ui/Button'
 import {
   submitOnboarding,
@@ -178,7 +178,7 @@ const fieldGroupStyle: React.CSSProperties = {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function RegisterTenantPage() {
-  const { session } = useAuth()
+  const access = useAccess()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -199,7 +199,8 @@ export default function RegisterTenantPage() {
   }, [form])
 
   // Role guard — after all hooks
-  if (!session?.roles.includes('PLATFORM_ADMIN')) {
+  if (!access.isReady) return <AccessPending access={access} />
+  if (!access.canManageTenants) {
     return <Navigate to="/instances" replace />
   }
 
@@ -325,7 +326,7 @@ export default function RegisterTenantPage() {
             id="admin_email_hint"
             style={{ fontSize: '.8rem', color: 'var(--text-secondary)', marginTop: '.2rem' }}
           >
-            Stored as a pending TENANT_ADMIN. The person becomes the active administrator at
+            Stored as a pending tenant administrator. The person becomes the active administrator at
             their first sign-in with this e-mail VERIFIED through the tenant&apos;s realm.
           </div>
           {errors.admin_email && <div style={errorStyle}>{errors.admin_email}</div>}

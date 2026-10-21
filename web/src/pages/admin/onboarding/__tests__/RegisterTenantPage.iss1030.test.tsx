@@ -10,14 +10,14 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 expect.extend(jestDomMatchers)
 
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: vi.fn(() => ({
-    session: { token: 'tok', display_name: 'Op', roles: ['PLATFORM_ADMIN'] },
+    session: { token: 'tok', display_name: 'Op' },
   })),
 }))
 
@@ -35,6 +35,7 @@ vi.mock('@/api/client', () => ({
 import RegisterTenantPage from '../RegisterTenantPage'
 import OnboardingResultPage from '../OnboardingResultPage'
 import type { OnboardingRecord } from '@/api/onboarding'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const RECORD = {
   id: 'ob-1',
@@ -53,13 +54,14 @@ const RECORD = {
 }
 
 function renderRegister() {
-  return render(
+  return renderWithAccess(
     <MemoryRouter initialEntries={['/admin/onboarding/new']}>
       <Routes>
         <Route path="/admin/onboarding/new" element={<RegisterTenantPage />} />
         <Route path="/admin/onboarding/:onboardingId/result" element={<OnboardingResultPage />} />
       </Routes>
     </MemoryRouter>,
+    'platformAdmin',
   )
 }
 
@@ -154,7 +156,7 @@ describe('RegisterTenantPage ISS-1030 PR 2 form', () => {
     expect(document.getElementById('admin_display_name')).toBeNull()
     const email = screen.getByLabelText('Admin Email (optional)')
     expect(email).toHaveAccessibleDescription(
-      "Stored as a pending TENANT_ADMIN. The person becomes the active administrator at their first sign-in with this e-mail VERIFIED through the tenant's realm.",
+      "Stored as a pending tenant administrator. The person becomes the active administrator at their first sign-in with this e-mail VERIFIED through the tenant's realm.",
     )
   })
 
@@ -174,7 +176,7 @@ describe('RegisterTenantPage ISS-1030 PR 2 form', () => {
 
 describe('OnboardingResultPage ISS-1030', () => {
   function renderResult(record: OnboardingRecord) {
-    return render(
+    return renderWithAccess(
       <MemoryRouter
         initialEntries={[{ pathname: '/admin/onboarding/ob-1/result', state: { record } }]}
       >
@@ -182,6 +184,7 @@ describe('OnboardingResultPage ISS-1030', () => {
           <Route path="/admin/onboarding/:onboardingId/result" element={<OnboardingResultPage />} />
         </Routes>
       </MemoryRouter>,
+      'platformAdmin',
     )
   }
 
@@ -235,7 +238,7 @@ describe('OnboardingResultPage ISS-1030', () => {
       administrator: {
         state: 'pending',
         grant_id: 'grant-123',
-        message: 'The named administrator is stored as a pending TENANT_ADMIN.',
+        message: 'The named administrator is stored as a pending tenant administrator.',
         not_provisioned: [],
         next_steps: ['Ask the person to sign in.'],
       },
@@ -245,7 +248,7 @@ describe('OnboardingResultPage ISS-1030', () => {
     )
     expect(screen.getByText('grant-123')).toBeInTheDocument()
     expect(
-      screen.getByText('The named administrator is stored as a pending TENANT_ADMIN.'),
+      screen.getByText('The named administrator is stored as a pending tenant administrator.'),
     ).toBeInTheDocument()
     expect(screen.getByText('Ask the person to sign in.')).toBeInTheDocument()
   })

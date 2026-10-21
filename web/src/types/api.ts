@@ -456,7 +456,6 @@ export interface JwtPayload {
 export interface UserSession {
   token: string
   display_name: string
-  roles: string[]
   loginSource: 'oidc' | null
   tenant_slug: string | null
   tenant_display_name: string | null

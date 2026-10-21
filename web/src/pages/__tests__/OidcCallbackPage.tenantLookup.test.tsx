@@ -2,18 +2,16 @@
 /**
  * Q-1074 / GH 2431 (S1, MAJOR): a non-platform login must not call
  * GET /api/v1/tenants/:slug. That route is gated by TENANTS_MANAGE (a
- * PLATFORM_ADMIN permission), so every candidate or tenant-user login got a
+ * platform-admin permission), so every candidate or tenant-user login got a
  * 403 on it, swallowed by the page's catch.
  *
  * Pinned here:
  *   - a candidate login makes NO tenants/:slug request, and the session's
  *     tenant display name is the slug (the header then shows the slug);
- *   - a PLATFORM_ADMIN login still makes the request and uses the record.
+ *   - a platform-admin login still makes the request and uses the record.
  *
- * "Platform" is decided from the roles already in the decoded token, the same
- * `roles.includes('PLATFORM_ADMIN')` check the page uses for its redirect. The
- * backend still enforces the real permission; this only decides whether to
- * ask.
+ * "Platform" is decided from GET /me/access (mocked here), never from the role claims in
+ * the token. The backend still enforces the real permission; this only decides whether to ask.
  */
 
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
@@ -23,6 +21,7 @@ expect.extend(jestDomMatchers)
 
 const mockNavigate = vi.fn()
 const mockSetSession = vi.fn()
+const mockGetAccess = vi.fn()
 const mockSigninRedirectCallback = vi.fn()
 
 vi.mock('react-router-dom', () => ({
@@ -50,6 +49,10 @@ vi.mock('@/auth/tenantConfig', () => ({
   resolveRealmFromUrl: vi.fn(() => null),
 }))
 
+vi.mock('@/api/me', () => ({
+  meApi: { getAccessWithToken: (...args: unknown[]) => mockGetAccess(...args) },
+}))
+
 vi.mock('@/api/tenants', () => ({
   tenantsApi: {
     getBySlug: vi.fn(),
@@ -58,10 +61,11 @@ vi.mock('@/api/tenants', () => ({
 
 import { tenantsApi } from '@/api/tenants'
 import { resolveRealmFromUrl } from '@/auth/tenantConfig'
+import { ACCESS_FIXTURES } from '@/auth/access/fixtures'
 
-function fakeToken(roles: string[]): string {
+function fakeToken(): string {
   const header = { alg: 'none', typ: 'JWT' }
-  const payload = { roles, sub: 'user-1', preferred_username: 'tester' }
+  const payload = { roles: ['claimed'], sub: 'user-1', preferred_username: 'tester' }
   const b64 = (obj: unknown) => btoa(JSON.stringify(obj)).replace(/=+$/, '')
   return `${b64(header)}.${b64(payload)}.sig`
 }
@@ -81,7 +85,8 @@ afterEach(() => {
 describe('Q-1074 / GH 2431 — OidcCallbackPage tenant lookup', () => {
   it('candidate login: makes no tenants/:slug request and the header shows the slug', async () => {
     vi.resetModules()
-    const token = fakeToken(['CANDIDATE'])
+    const token = fakeToken()
+    mockGetAccess.mockResolvedValue(ACCESS_FIXTURES.candidate)
     mockSigninRedirectCallback.mockResolvedValue({ access_token: token })
 
     const { default: OidcCallbackPage } = await import('@/pages/OidcCallbackPage')
@@ -96,9 +101,10 @@ describe('Q-1074 / GH 2431 — OidcCallbackPage tenant lookup', () => {
     expect(session.tenant_display_name).toBe(SLUG)
   })
 
-  it('PLATFORM_ADMIN login: still looks up the tenant and uses the record', async () => {
+  it('platform-admin login: still looks up the tenant and uses the record', async () => {
     vi.resetModules()
-    const token = fakeToken(['PLATFORM_ADMIN'])
+    const token = fakeToken()
+    mockGetAccess.mockResolvedValue(ACCESS_FIXTURES.platformAdmin)
     mockSigninRedirectCallback.mockResolvedValue({ access_token: token })
     vi.mocked(tenantsApi.getBySlug).mockResolvedValue({
       slug: SLUG,

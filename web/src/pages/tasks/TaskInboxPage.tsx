@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTaskInbox, useCompleteTask, useTask, useClaimTask } from '@/hooks/useTasks'
 import { useTaskCompletionAttachments } from '@/hooks/useAttachments'
+import { P, useAccess } from '@/auth/access'
 import { useAuth } from '@/auth/AuthContext'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
@@ -60,7 +61,7 @@ export default function TaskInboxPage() {
     return payload.sub || null
   }, [session?.token])
 
-  const isOperatorRole = !!(session?.roles?.includes('PROCESS_OPERATOR') || session?.roles?.includes('PLATFORM_ADMIN'))
+  const isOperatorRole = useAccess().can(P.TasksAssign)
 
   // Filter and sort tasks
   const filteredTasks = useMemo(() => {

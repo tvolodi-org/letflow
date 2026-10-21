@@ -244,7 +244,7 @@ export const promotionsApi = {
     client.post<void>(`/api/v1/promotions/${reviewId}/apply`, body),
 
   /**
-   * GET /api/v1/promotions (REQ-397, PLATFORM_ADMIN-only)
+   * GET /api/v1/promotions (REQ-397, platform-admin role-only)
    * Lists promotion-review rows, filterable by status/def_id/def_type,
    * cursor-paginated. REQ-397's envelope is exactly `{items, next_cursor}`
    * (design doc §2.2, hand-built response — no `count` field emitted).

@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { OnboardingRecord } from '@/api/onboarding'
@@ -17,7 +17,7 @@ expect.extend(jestDomMatchers)
 
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: vi.fn(() => ({
-    session: { token: 'tok', display_name: 'Op', roles: ['PLATFORM_ADMIN'] },
+    session: { token: 'tok', display_name: 'Op' },
   })),
 }))
 
@@ -34,6 +34,7 @@ vi.mock('@/api/client', () => ({
 
 import RegisterTenantPage from '../RegisterTenantPage'
 import OnboardingResultPage from '../OnboardingResultPage'
+import { renderWithAccess } from '@/auth/access/testing'
 
 // The 201 body as the backend returns it (lib/letflow/routers/onboarding.ex onboarding_map: "id").
 const BACKEND_RECORD: OnboardingRecord = {
@@ -59,7 +60,7 @@ function LocationSpy() {
 }
 
 function renderRegister() {
-  return render(
+  return renderWithAccess(
     <MemoryRouter initialEntries={['/admin/onboarding/new']}>
       <LocationSpy />
       <Routes>
@@ -67,6 +68,7 @@ function renderRegister() {
         <Route path="/admin/onboarding/:onboardingId/result" element={<OnboardingResultPage />} />
       </Routes>
     </MemoryRouter>,
+    'platformAdmin',
   )
 }
 

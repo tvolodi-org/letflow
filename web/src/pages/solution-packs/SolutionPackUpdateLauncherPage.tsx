@@ -13,7 +13,7 @@
  */
 import React, { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess, AccessPending } from '@/auth/access'
 import { PageLayout } from '@/components/ui/PageLayout'
 import { Button } from '@/components/ui/Button'
 import { JsonEditor } from '@/components/ui/JsonEditor'
@@ -68,8 +68,8 @@ function parsePackDocument(raw: string): { ok: true; document: ParsedPackDocumen
 }
 
 export default function SolutionPackUpdateLauncherPage(): React.ReactElement {
-  const { session } = useAuth()
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.can(P.ModulesManage)
   const navigate = useNavigate()
 
   const [packId, setPackId] = useState('')
@@ -78,7 +78,9 @@ export default function SolutionPackUpdateLauncherPage(): React.ReactElement {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 

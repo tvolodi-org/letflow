@@ -2,7 +2,7 @@ import { Navigate } from 'react-router-dom'
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { queryKeys } from '@/api/queryKeys'
 import { metricsApi, parsePrometheusText, type PrometheusMetricFamily, type PrometheusMetricSample } from '@/api/metrics'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess, AccessPending } from '@/auth/access'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
 import { classifyError, type RendererState } from '@/utils/classifyError'
@@ -35,11 +35,13 @@ export function usePrometheusMetrics(): UseQueryResult<PrometheusMetricFamily[]>
 }
 
 export default function MetricsPage() {
-  const { session } = useAuth()
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.can(P.MetricsRead)
   const { data, isLoading, isError, error, isFetching, refetch } = usePrometheusMetrics()
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 

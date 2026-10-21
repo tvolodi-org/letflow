@@ -17,7 +17,7 @@
  *   AC2 -> 'renders rows ...'
  *   AC3 -> 'status filter re-queries ...' (+ mutation fail-then-pass below)
  *   AC4 -> 'each row links to ...'
- *   AC5 -> 'non-PLATFORM_ADMIN session is redirected ...' (+ mutation fail-then-pass below)
+ *   AC5 -> 'non-platform-admin session is redirected ...' (+ mutation fail-then-pass below)
  *   AC6 -> 'empty result set renders a distinct "no reviews" state ...'
  *   AC7 -> nav-entry test using the real AppShell NAV_ITEMS, mirroring
  *       AppShell.candidate-nav.test.tsx's render-and-assert-link pattern.
@@ -26,7 +26,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, within } from '@testing-library/react'
+import { screen, cleanup, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 expect.extend(jestDomMatchers)
 
@@ -62,7 +62,6 @@ const FIXTURE_TENANT_SLUG = 'gui-review-fixture-tenant'
 const ADMIN_SESSION = {
   token: 'tok',
   display_name: 'Admin',
-  roles: ['PLATFORM_ADMIN'],
   loginSource: null as null,
   tenant_slug: FIXTURE_TENANT_SLUG,
   tenant_display_name: 'GUI Review Fixture Tenant',
@@ -71,7 +70,7 @@ const ADMIN_SESSION = {
   production_tenant_display_name: null,
 }
 
-const NON_ADMIN_SESSION = { ...ADMIN_SESSION, roles: ['PROCESS_OPERATOR'] }
+const NON_ADMIN_SESSION = { ...ADMIN_SESSION }
 
 function reviewItem(overrides: Partial<PromotionReviewListItem>): PromotionReviewListItem {
   return {
@@ -127,10 +126,11 @@ function installUseQueryMock(items: PromotionReviewListItem[]): void {
 }
 
 function renderPage() {
-  return render(
+  return renderWithAccess(
     <MemoryRouter>
       <PromotionReviewListPage />
     </MemoryRouter>,
+    'platformAdmin',
   )
 }
 
@@ -197,17 +197,18 @@ describe('REQ-398 AC4 — row links to definitions/:id/promotions/:reviewId', ()
   })
 })
 
-// ── AC5: non-PLATFORM_ADMIN is redirected ───────────────────────────────────
+// ── AC5: non-platform-admin is redirected ───────────────────────────────────
 
-describe('REQ-398 AC5 — non-PLATFORM_ADMIN redirect', () => {
-  it('a PROCESS_OPERATOR session is redirected to /instances, same target as PromotionReviewPage.tsx', () => {
+describe('REQ-398 AC5 — non-platform-admin redirect', () => {
+  it('a operator session is redirected to /instances, same target as PromotionReviewPage.tsx', () => {
     mockAuth(NON_ADMIN_SESSION)
     installUseQueryMock([ROW_A])
 
-    render(
+    renderWithAccess(
       <MemoryRouter initialEntries={['/promotions']}>
         <PromotionReviewListPage />
       </MemoryRouter>,
+      'operator',
     )
 
     // Navigate renders nothing itself in this router context; assert the
@@ -218,7 +219,7 @@ describe('REQ-398 AC5 — non-PLATFORM_ADMIN redirect', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
-  it('a PLATFORM_ADMIN session is NOT redirected -- page content renders', () => {
+  it('a platform-admin session is NOT redirected -- page content renders', () => {
     mockAuth(ADMIN_SESSION)
     installUseQueryMock([ROW_A])
 
@@ -265,6 +266,7 @@ describe('REQ-398 AC6 — empty vs fetch-failure state', () => {
 // ── AC7: nav entry reaches the route ────────────────────────────────────────
 
 import { AppShell } from '@/components/layout/AppShell'
+import { renderWithAccess } from '@/auth/access/testing'
 
 vi.mock('@/api/dlq', () => ({
   dlqApi: { list: vi.fn(() => Promise.resolve({ items: [], next_cursor: null, count: 0 })) },
@@ -275,28 +277,30 @@ vi.mock('@/theming/BrandingContext', () => ({
 }))
 
 describe('REQ-398 AC7 — nav entry reaches /promotions', () => {
-  it('PLATFORM_ADMIN sees a "Promotion Reviews" nav entry linking to /promotions', () => {
+  it('platform-admin sees a "Promotion Reviews" nav entry linking to /promotions', () => {
     mockAuth(ADMIN_SESSION)
     mockUseQuery.mockReturnValue({ data: undefined, isLoading: false, isError: false, error: null } as unknown as ReturnType<typeof useQuery>)
 
-    render(
+    renderWithAccess(
       <MemoryRouter initialEntries={['/instances']}>
         <AppShell />
       </MemoryRouter>,
+      'platformAdmin',
     )
 
     const link = screen.getByText('Promotion Reviews').closest('a')
     expect(link).toHaveAttribute('href', '/promotions')
   })
 
-  it('a role without PLATFORM_ADMIN does NOT see the "Promotion Reviews" nav entry', () => {
+  it('a role without platform-admin does NOT see the "Promotion Reviews" nav entry', () => {
     mockAuth(NON_ADMIN_SESSION)
     mockUseQuery.mockReturnValue({ data: undefined, isLoading: false, isError: false, error: null } as unknown as ReturnType<typeof useQuery>)
 
-    render(
+    renderWithAccess(
       <MemoryRouter initialEntries={['/instances']}>
         <AppShell />
       </MemoryRouter>,
+      'operator',
     )
 
     expect(screen.queryByText('Promotion Reviews')).not.toBeInTheDocument()

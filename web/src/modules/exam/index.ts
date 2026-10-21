@@ -5,8 +5,8 @@
  *
  *  - Five route objects (actual React Router RouteObjects, no guard wrapper —
  *    registry.ts wraps them in ModuleGuard when building the router's list)
- *  - Two nav items: /exam for CANDIDATE, /admin/bilimbaga for
- *    PLATFORM_ADMIN and PROCESS_OPERATOR
+ *  - Two nav items: /exam for whoever may start an exam session, /admin/bilimbaga for
+ *    whoever may write entity records (the question bank is an entity CRUD page; REQ-343 AC5)
  *
  *  SPA paths (unchanged per ISS-0844 / REQ-412):
  *    exam
@@ -16,6 +16,7 @@
  *    admin/bilimbaga/:entityType
  */
 import type { ModuleDefinition } from '@/modules/types'
+import { P } from '@/auth/access/types'
 import { examRouteObjects } from './examRoutes'
 
 export const examModuleDefinition: ModuleDefinition = {
@@ -23,7 +24,7 @@ export const examModuleDefinition: ModuleDefinition = {
   depends_on: [],
   routeObjects: examRouteObjects,
   navItems: [
-    { to: '/exam', label: 'Exams', roles: ['CANDIDATE'] },
-    { to: '/admin/bilimbaga', label: 'Question Bank', roles: ['PLATFORM_ADMIN', 'PROCESS_OPERATOR'] },
+    { to: '/exam', label: 'Exams', permission: 'ExamSessionStart' },
+    { to: '/admin/bilimbaga', label: 'Question Bank', permission: P.EntitiesRecordsWrite },
   ],
 }

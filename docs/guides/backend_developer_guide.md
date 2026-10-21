@@ -389,6 +389,16 @@ handlers write through it with their own authority).
 - **A module-managed type**: visible to the caller it is the constant 403 before the body is read;
   denied to the caller it is the 404 path (never a 403 that would reveal it). A managed type with
   no active definition is the 404 path for everyone.
+- **Definition writes, restrictions import and engine writes (GH #2808).** `POST
+  /entities/definitions/:name/activate` goes through `Letflow.Entities.DefinitionAccess.activate/3`:
+  a denied name is the absent 404 (after the same body validation); `POST /entities/definitions`
+  answers a denied `name` the constant `insufficient permissions` 403 (an absent name answers 201,
+  so denied == absent cannot hold) and writes nothing; `POST /entities/restrictions/import` is that
+  same 403, with zero rows written, if ANY row names a type denied to the caller (a Manage holder
+  cannot grant themselves a hidden type). Engine and module-handler writes check TypeAccess for the
+  restriction subject (completer / activator) via `StepWrites.check_type_access/2`; a denied type is
+  the `write_not_permitted` / `not_writable` refusal, and activation validation reports a type
+  denied to the activator as `entity_type_not_found`.
 - **Restricted fields** (the caller lacks the grant of an `entity_field_restrictions` field):
   `POST` naming a restricted key, and ANY `PUT` by an actor holding any restricted field on the
   type (PUT replaces `field_values` wholesale, so such an actor cannot send the whole document),

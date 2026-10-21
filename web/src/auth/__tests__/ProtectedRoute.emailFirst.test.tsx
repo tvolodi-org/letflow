@@ -206,7 +206,7 @@ describe('E2E pre-restored session', () => {
     vi.stubEnv('VITE_EMAIL_FIRST_LOGIN', 'true')
     sessionStorage.setItem(
       '__e2e_session',
-      JSON.stringify({ token: 'tok', display_name: 'E2E', roles: ['PLATFORM_ADMIN'] }),
+      JSON.stringify({ token: 'tok', display_name: 'E2E' }),
     )
     renderAt('/', 'provider')
     expect(await screen.findByTestId('protected-content')).toBeInTheDocument()

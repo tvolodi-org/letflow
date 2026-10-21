@@ -1,10 +1,9 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { useAuth } from '@/auth/AuthContext'
+import { useAccess } from '@/auth/access/useAccess'
 
 export function PermissionDenied(): React.ReactElement {
-  const { session } = useAuth()
-  const isCandidate = session?.roles.includes('CANDIDATE') ?? false
+  const { isCandidate } = useAccess()
 
   return (
     <div style={{ padding: '1.5rem' }}>

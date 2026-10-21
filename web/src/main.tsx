@@ -8,6 +8,7 @@ import { fetchTenantConfig } from './auth/tenantConfig'
 import { registerBuiltinWidgets } from './components/forms/widgets'
 import { BrandingProvider } from './theming/BrandingProvider'
 import { AuthProvider } from './auth/AuthProvider'
+import { AccessProvider } from './auth/access'
 
 // Pre-warm tenant config cache so OIDC config is ready before the first auth redirect.
 void fetchTenantConfig(window.location.hostname)
@@ -29,9 +30,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <BrandingProvider>
-          <RouterProvider router={router} />
-        </BrandingProvider>
+        <AccessProvider>
+          <BrandingProvider>
+            <RouterProvider router={router} />
+          </BrandingProvider>
+        </AccessProvider>
       </AuthProvider>
     </QueryClientProvider>
   </React.StrictMode>,
