@@ -93,6 +93,7 @@ defmodule Letflow.Engine.ExecutionError do
   alias Ecto.Multi
   alias Letflow.Dlq
   alias Letflow.Engine.SubProcess
+  alias Letflow.Engine.TaskActivation
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
 
@@ -173,6 +174,12 @@ defmodule Letflow.Engine.ExecutionError do
       held in the global order (parent projection, then token) beforehand
       or a parent cancel can deadlock against the landing. Key share
       because an `ERROR` landing never completes the child.
+    * `:execution_error_cancel_timers` (GH #2830, decision 0061 rule 1) — cancels every `pending`
+      timer of the instance (`TaskActivation.cancel_pending_timers/5`, reason `"instance_error"`,
+      the same status-guarded statement the #2707 settle uses). Runs under the `P_x` lock held
+      above, after the group lock and before the EXECUTION_ERROR append, so the timer class sits
+      where `cancel_instance/3` takes it. The settle in `Letflow.Scheduler.fire_timer/2` stays for
+      a timer armed after the landing.
     * `:execution_error_event` — `Letflow.EventStore.append/2`, one
       `EXECUTION_ERROR` event built from `error_args`. Runs **before** the
       projection update, matching `req052`'s own M6-before-M7 ordering
@@ -230,6 +237,9 @@ defmodule Letflow.Engine.ExecutionError do
     |> Multi.run(:execution_error_lock_ancestors, fn repo, _changes ->
       SubProcess.lock_waiting_parent(repo, error_args.instance_id, prefix, :key_share)
     end)
+    |> Multi.run(:execution_error_cancel_timers, fn repo, _changes ->
+      cancel_pending_timers(repo, error_args.instance_id, prefix)
+    end)
     |> Multi.run(:execution_error_event, fn _repo, _changes ->
       append_execution_error_event(error_args, prefix)
     end)
@@ -237,6 +247,18 @@ defmodule Letflow.Engine.ExecutionError do
     |> Multi.run(:execution_error_projection_update, fn repo, changes ->
       update_projection_to_error(repo, changes.execution_error_eligibility, error_args, prefix)
     end)
+  end
+
+  # GH #2830 (decision 0061 rule 1): the landing cancels the instance's pending timers inside its own
+  # transaction, under the P_x lock taken above. Same reason and statement as the #2707 settle.
+  defp cancel_pending_timers(repo, instance_id, prefix) do
+    TaskActivation.cancel_pending_timers(
+      repo,
+      instance_id,
+      DateTime.utc_now(),
+      "instance_error",
+      prefix
+    )
   end
 
   defp maybe_land_dlq_entry(%Multi{} = multi, _error_args, _prefix, true), do: multi
