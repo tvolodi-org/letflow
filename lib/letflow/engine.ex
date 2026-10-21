@@ -390,7 +390,10 @@ defmodule Letflow.Engine do
       `entity_writes` runs under `SET LOCAL lock_timeout` 2 s / `statement_timeout` 5 s as the FIRST
       statements, which bound the whole transaction including these waits; a deadlock or timeout is
       reported as `entity_write_contention` (503, retryable, nothing committed). A completion
-      without lines has no timeout and surfaces a deadlock as `{:transaction_failed, _}`.
+      without lines still has no `SET LOCAL` timeout, but since GH #2823 a deadlock, lock timeout
+      or statement cancel raised from its `Repo.transaction` is reported the same way
+      (`entity_write_contention`, 503, retryable, nothing committed). Post-commit failures stay
+      `{:transaction_failed, _}`.
     * GH #2590 / REQ-501 R4b: a node that also declares `module_writes` takes, after
       `:entity_writes_started` and before any write, one `{:type_lock, type}` per type in the
       ascending union of the line types and the handlers' registered targets
@@ -3333,9 +3336,22 @@ defmodule Letflow.Engine do
   defp entity_write_skip?(%{transition: {:execution_error, _}}), do: true
   defp entity_write_skip?(_changes), do: false
 
-  # Only a completion with a plan maps contention; the post-commit stages and a completion
-  # without lines stay under the function-level blanket rescue (design 7.6, B-4).
-  defp run_transaction(multi, nil), do: Repo.transaction(multi)
+  # A completion with a plan maps every contention class (and a connection error); a plan-less
+  # completion (GH #2823) maps only a Postgres lock timeout or deadlock to the same result, so
+  # `complete_task/3` answers 503 instead of a generic 500. The post-commit stages and any
+  # other error stay under the function-level blanket rescue (design 7.6, B-4).
+  defp run_transaction(multi, nil) do
+    Repo.transaction(multi)
+  rescue
+    error in Postgrex.Error ->
+      case error do
+        %Postgrex.Error{postgres: %{code: code}} when code in @contention_error_codes ->
+          {:error, {:entity_write_refused, :contention, :entity_write_contention}}
+
+        _other ->
+          reraise error, __STACKTRACE__
+      end
+  end
 
   defp run_transaction(multi, _plan) do
     Repo.transaction(multi)

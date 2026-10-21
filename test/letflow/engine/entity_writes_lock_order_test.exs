@@ -415,4 +415,50 @@ defmodule Letflow.Engine.EntityWritesLockOrderTest do
       assert record_total(base.schema) == before + 1
     end
   end
+
+  describe "GH #2823 plan-less completion, real 55P03" do
+    test "a second connection holding the task row gives the same contention result",
+         %{base: base} do
+      definition = Fx.activate!(base.schema, base.user, Fx.graph([]))
+      ctx = start(base, definition)
+      schema = base.schema
+      task_id = Ecto.UUID.dump!(ctx.task.id)
+      test_pid = self()
+
+      holder =
+        Task.async(fn ->
+          Repo.transaction(fn ->
+            Repo.query!(~s(SELECT 1 FROM "#{schema}"."tasks" WHERE id = $1 FOR UPDATE), [task_id])
+            send(test_pid, :held)
+
+            receive do
+              :release -> :ok
+            after
+              20_000 -> :ok
+            end
+          end)
+        end)
+
+      assert_receive :held, 10_000
+
+      # the plan-less path sets no SET LOCAL of its own: bound the wait on this connection
+      result =
+        Repo.checkout(fn ->
+          Repo.query!("SET lock_timeout = '300ms'")
+
+          try do
+            Fx.complete(ctx, %{})
+          after
+            Repo.query!("RESET lock_timeout")
+          end
+        end)
+
+      send(holder.pid, :release)
+      Task.await(holder, 30_000)
+
+      assert result == @contention
+      assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+      assert {:ok, _} = Fx.complete(ctx, %{})
+    end
+  end
 end
