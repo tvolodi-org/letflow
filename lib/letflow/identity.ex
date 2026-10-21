@@ -70,6 +70,7 @@ defmodule Letflow.Identity do
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.MembershipScope
   alias Letflow.Identity.OnboardingRecord
+  alias Letflow.Identity.RoleRevocations
   alias Letflow.Identity.RoleScopeGrant
   alias Letflow.Identity.RoleScopeGrants
   alias Letflow.Identity.ServicePrincipal
@@ -1630,6 +1631,12 @@ defmodule Letflow.Identity do
   needlessly re-run the sync (harmless, since step 2 below is idempotent, but
   wasteful and not this function's job to guard against).
 
+  GH 2558: a group whose explicit revocation is in force for the user (the latest
+  `group_member.added`/`removed` entry is a removal and the user is not a member, see
+  `Letflow.Identity.RoleRevocations`) is not re-granted, also after a `RoleBackfill` marker
+  reset. One `grant.sync_revocation_honored` audit entry per sync names the withheld groups and
+  roles; the marker is still stamped, so the user is not re-synced on every login.
+
   The sync never removes a membership: a claim that disappears from a later token has
   no effect (GH 2547 design section 5, consistent with 0051 M3); revocation is the
   explicit, audited `remove_group_member/3`.
@@ -1732,7 +1739,14 @@ defmodule Letflow.Identity do
         # [:group_id, :user_id] — idempotent, safe even if called twice.
         # GH 2547: every result is checked and every inserted row audited; the
         # first failure halts and aborts the whole Multi.
-        insert_synced_memberships(group_ids, user.id, prefix, ctx)
+        # GH 2558: a group whose explicit revocation is in force is withheld (read after
+        # lock A, so a concurrent remove_group_member/3 is serialised and visible).
+        {withheld, allowed} = split_revoked(group_ids, user.id, prefix)
+
+        with {:ok, summary} <- insert_synced_memberships(allowed, user.id, prefix, ctx),
+             :ok <- audit_withheld_groups(withheld, user.id, prefix, ctx) do
+          {:ok, summary}
+        end
       end)
 
     # ISS-0773: only stamp role_claims_synced_at when >=1 grant was actually
@@ -1800,6 +1814,45 @@ defmodule Letflow.Identity do
         )
 
         {:ok, user}
+    end
+  end
+
+  defp split_revoked([], _user_id, _prefix), do: {[], []}
+
+  defp split_revoked(group_ids, user_id, prefix) do
+    revoked = RoleRevocations.revoked_group_ids(user_id, prefix)
+    Enum.split_with(group_ids, &MapSet.member?(revoked, &1))
+  end
+
+  # GH 2558: one `grant.sync_revocation_honored` entry per sync that withheld at least one
+  # group. Ids and role names only (INV-4); audit failure aborts the sync like the others.
+  defp audit_withheld_groups([], _user_id, _prefix, _ctx), do: :ok
+
+  defp audit_withheld_groups(group_ids, user_id, prefix, ctx) do
+    role_names =
+      group_ids
+      |> Enum.flat_map(&group_roles(&1, prefix))
+      |> Enum.map(& &1["name"])
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    attrs = %{
+      actor_id: ctx.actor_id,
+      action: "grant.sync_revocation_honored",
+      resource_type: "group_member",
+      resource_id: user_id,
+      before_state: %{},
+      after_state: %{
+        "withheld_group_ids" => Enum.sort(group_ids),
+        "withheld_roles" => role_names,
+        "source" => ctx.source
+      },
+      trace_id: ctx.trace_id
+    }
+
+    case Audit.insert_entry(Repo, attrs, prefix) do
+      {:ok, _entry} -> :ok
+      {:error, reason} -> {:error, {:audit_failed, reason}}
     end
   end
 

@@ -82,6 +82,11 @@ defmodule Letflow.Identity.RoleBackfill do
   explicit `Letflow.Identity.add_group_member/3` call to actually gain a
   grant.
 
+  GH 2558: the reset never re-opens an explicit revocation. The next IdP sync withholds a group
+  whose revocation is in force (`Letflow.Identity.RoleRevocations`), so a user an admin removed
+  from TENANT_ADMIN does not regain it, while still receiving newly seeded roles. The
+  `role_claims_sync.reset` audit row lists those users in `revocation_honored_user_ids`.
+
   GH 2547 (FU-1, known limitation): the marker reset runs in its own transaction after
   the seed committed. If it fails (now also on an audit failure), a re-run classifies
   the tenant `:unchanged` (its bindings exist) and never resets its markers. Same shape
@@ -92,6 +97,7 @@ defmodule Letflow.Identity.RoleBackfill do
 
   alias Letflow.Audit
   alias Letflow.Identity.AuditContext
+  alias Letflow.Identity.RoleRevocations
   alias Letflow.Identity.RoleRegistry
   alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
@@ -255,6 +261,14 @@ defmodule Letflow.Identity.RoleBackfill do
 
         reset_ids = Enum.sort(reset_ids)
 
+        # GH 2558: informational only. The reset set is unchanged (every user re-syncs, so newly
+        # seeded roles still arrive); the next sync withholds a group whose explicit revocation
+        # is in force, so these users do not regain it.
+        honored_ids =
+          reset_ids
+          |> RoleRevocations.users_with_revocation(schema_name)
+          |> Enum.sort()
+
         attrs = %{
           actor_id: nil,
           action: "role_claims_sync.reset",
@@ -265,6 +279,8 @@ defmodule Letflow.Identity.RoleBackfill do
           after_state: %{
             "reset_user_ids" => reset_ids,
             "reset_count" => reset_count,
+            "revocation_honored_user_ids" => honored_ids,
+            "revocation_honored_count" => length(honored_ids),
             "source" => "role_backfill",
             "effect" => "next_login_resyncs_idp_role_claims"
           }

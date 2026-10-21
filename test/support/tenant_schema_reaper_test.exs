@@ -347,6 +347,22 @@ defmodule Letflow.TenantSchemaReaperTest do
     end
   end
 
+  describe "sweep_orphans/2 guard-read diagnostics (GH #2441)" do
+    import ExUnit.CaptureLog
+
+    test "logs the guard read with the database-side transaction state" do
+      # The test process holds its DataCase sandbox checkout, so the guard read runs inside
+      # a DB-level transaction that Repo.in_transaction?/0 cannot see.
+      log =
+        capture_log([level: :warning], fn ->
+          assert {:ok, _} = TenantSchemaReaper.sweep_orphans(Repo, 1)
+        end)
+
+      assert log =~ "TenantSchemaReaper guard read (GH #2441)"
+      assert log =~ "in_transaction=true"
+    end
+  end
+
   describe "sweep_orphans/2 return-shape contract" do
     test "returns {:ok, %{reclaimed: _, skipped_invalid_format: _}} with no orphans present" do
       assert {:ok, %{reclaimed: reclaimed, skipped_invalid_format: skipped}} =

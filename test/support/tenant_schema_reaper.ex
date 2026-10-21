@@ -468,6 +468,10 @@ defmodule Letflow.TenantSchemaReaper do
   defp concurrent_invocation_present?(repo, own_tag) do
     own_group = group_tag_of(own_tag)
 
+    # Asked of the database on the same connection BEFORE the pg_stat_activity read:
+    # Ecto's repo.in_transaction?/0 cannot see the Ecto SQL sandbox's own BEGIN.
+    in_tx? = in_db_transaction?(repo)
+
     %{rows: rows} =
       repo.query!(
         "SELECT application_name FROM pg_stat_activity " <>
@@ -475,7 +479,39 @@ defmodule Letflow.TenantSchemaReaper do
         [own_tag]
       )
 
-    Enum.any?(rows, fn [name] -> is_nil(own_group) or group_tag_of(name) != own_group end)
+    concurrent? =
+      Enum.any?(rows, fn [name] -> is_nil(own_group) or group_tag_of(name) != own_group end)
+
+    log_guard_read(own_tag, rows, in_tx?, concurrent?)
+    concurrent?
+  end
+
+  # now() is the transaction's start, statement_timestamp() the current statement's:
+  # they differ exactly when the connection is inside a DB-level transaction.
+  defp in_db_transaction?(repo) do
+    %{rows: [[in_tx?]]} = repo.query!("SELECT now() <> statement_timestamp()", [])
+    in_tx?
+  end
+
+  # GH #2441 diagnostics: a CI sweep once reclaimed rows although another invocation's
+  # connection was alive, i.e. this read returned no foreign tag. The log is the
+  # evidence the issue asks for: what the read returned and whether the connection was
+  # inside a database transaction (Postgres serves pg_stat_activity from a
+  # per-transaction cached snapshot, which would explain a stale view). It is written
+  # whenever the connection is in a transaction or a foreign tag was read, so a sweep
+  # in a transaction that read nothing is still on record; only a plain read outside
+  # any transaction that found nothing stays silent. A sweep from a sandboxed test
+  # process is always in a transaction, so those log every time.
+  defp log_guard_read(own_tag, rows, in_tx?, concurrent?) do
+    if in_tx? or rows != [] do
+      Logger.warning(
+        "TenantSchemaReaper guard read (GH #2441): own_tag=#{inspect(own_tag)} " <>
+          "foreign_tags=#{inspect(List.flatten(rows))} in_transaction=#{in_tx?} " <>
+          "concurrent=#{concurrent?}"
+      )
+    end
+
+    :ok
   end
 
   # Extracts the trailing "_grp<id>" suffix an application_name may carry (ISS-0217),
