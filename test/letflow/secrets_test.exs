@@ -104,7 +104,7 @@ defmodule Letflow.SecretsTest do
 
     defp reload_by_ref(%Secret{id: id}), do: Repo.get!(Secret, id)
 
-    property "property round trip: put/2 -> resolve/2 returns arbitrary binary plaintext unchanged, never stored verbatim in ciphertext" do
+    test "property round trip: put/2 -> resolve/2 returns arbitrary binary plaintext unchanged, never stored verbatim in ciphertext" do
       %{tenant_id: tenant_id} = provisioned_tenant("req190-secrets-prop")
 
       check all(plaintext <- StreamData.binary(min_length: 0, max_length: 512), max_runs: 25) do
@@ -153,7 +153,7 @@ defmodule Letflow.SecretsTest do
         %{reference: reference} =
           put!(tenant_id, %{name: unique_segment("iss0403"), plaintext: plaintext})
 
-        stored =
+        _stored =
           Repo.get_by!(Secret,
             tenant_id: tenant_id,
             namespace: "webhook",

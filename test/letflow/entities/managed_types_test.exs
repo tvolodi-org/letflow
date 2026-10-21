@@ -220,16 +220,17 @@ defmodule Letflow.Entities.ManagedTypesTest do
     test "check_create/3 raises FunctionClauseError for an owner that is not :tenant or %Owner{}" do
       %{schema_name: schema} = tenant!("req496-owner-shape")
 
+      # apply/3 keeps the compiler's type checker from flagging the deliberate misuse.
       assert_raise FunctionClauseError, fn ->
-        ManagedTypes.check_create(
+        apply(ManagedTypes, :check_create, [
           "fxm_unit",
           %{module_id: "fixture_managed", manages: MapSet.new(["fxm_unit"])},
           schema
-        )
+        ])
       end
 
       assert_raise FunctionClauseError, fn ->
-        ManagedTypes.check_create("fxm_unit", "fixture_managed", schema)
+        apply(ManagedTypes, :check_create, ["fxm_unit", "fixture_managed", schema])
       end
     end
 
@@ -465,7 +466,9 @@ defmodule Letflow.Entities.ManagedTypesTest do
         ManagedTypes.owner_for!(Letflow.Entities.Records)
       end
 
-      assert_raise FunctionClauseError, fn -> ManagedTypes.owner_for!("fixture_managed") end
+      assert_raise FunctionClauseError, fn ->
+        apply(ManagedTypes, :owner_for!, ["fixture_managed"])
+      end
     end
   end
 

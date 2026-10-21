@@ -42,8 +42,6 @@ defmodule Letflow.Definitions.PromotionPlanTest do
 
   use Letflow.DataCase, async: false
 
-  import Ecto.Query
-
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.PromotionPlan
   alias Letflow.TenantFixture
