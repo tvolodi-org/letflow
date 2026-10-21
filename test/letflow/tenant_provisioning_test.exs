@@ -640,5 +640,24 @@ defmodule Letflow.TenantProvisioningTest do
       assert users_role_claims_synced_at_column_exists?(schema_name)
       assert migration_recorded?(schema_name)
     end
+
+    test "GH #2727: the stored reason code is a fixed string, never the exception text" do
+      broken = TenantFixture.provisioned_tenant!(slug_prefix: "gh2727-code")
+      Repo.query!(~s(DROP SCHEMA IF EXISTS "#{broken.schema_name}" CASCADE))
+
+      TenantProvisioning.replay_all_pending()
+
+      registration = Repo.get_by!(Registration, tenant_id: broken.tenant_id)
+      assert registration.migration_replay_failure_code == "migration_failed"
+      assert %NaiveDateTime{} = registration.migration_replay_failed_at
+
+      assert [%{reason_code: "migration_failed", tenant_id: tenant_id}] =
+               Enum.filter(
+                 TenantProvisioning.list_replay_failures(),
+                 &(&1.tenant_id == broken.tenant_id)
+               )
+
+      assert tenant_id == broken.tenant_id
+    end
   end
 end

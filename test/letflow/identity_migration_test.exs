@@ -238,8 +238,9 @@ defmodule Letflow.IdentityMigrationTest do
   # row must carry its protection with it. NO ACTION (no ON DELETE clause) is
   # deliberate: byte-for-byte the same semantics tenant_schemas_tenant_id_fkey
   # already has (ISS-0229 section 2.2 rules out CASCADE -- which would silently
-  # vaporise the parked row -- and SET NULL/RESTRICT). Column list, order and
-  # types are UNCHANGED, so this stays the exact structural mirror of
+  # vaporise the parked row -- and SET NULL/RESTRICT). The two replay-status
+  # columns were appended after provisioned_at with GH #2727 (same order and
+  # types as that migration), so this stays the exact structural mirror of
   # public.tenant_schemas that the `SELECT *` restore depends on; a named table
   # constraint adds no column.
   #
@@ -257,10 +258,39 @@ defmodule Letflow.IdentityMigrationTest do
       schema_name text NOT NULL,
       migrations_applied_at timestamp,
       provisioned_at timestamp NOT NULL,
+      migration_replay_failed_at timestamp(0),
+      migration_replay_failure_code varchar(255),
       CONSTRAINT iss060_tenant_schemas_guard_backup_tenant_id_fkey
         FOREIGN KEY (tenant_id) REFERENCES public.tenants (id)
     )
     """)
+
+    # GH #2727: databases whose backup table predates the two replay-status
+    # columns keep the old five-column shape (the CREATE above is a no-op), which
+    # would break the positional `SELECT *` moves. Pre-checked so the common path
+    # runs no DDL; ADD COLUMN IF NOT EXISTS so a race cannot fail on a duplicate.
+    for column <- [
+          "migration_replay_failed_at timestamp(0)",
+          "migration_replay_failure_code varchar(255)"
+        ] do
+      [name | _] = String.split(column, " ")
+
+      Repo.query!("""
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+             SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'iss060_tenant_schemas_guard_backup'
+               AND column_name = '#{name}'
+           ) THEN
+          ALTER TABLE public.iss060_tenant_schemas_guard_backup
+            ADD COLUMN IF NOT EXISTS #{column};
+        END IF;
+      END
+      $$
+      """)
+    end
 
     :ok
   end
