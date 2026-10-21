@@ -136,6 +136,10 @@ function ExamSessionPageInner() {
   // second click in the same tick is refused); the state only drives the busy rendering.
   const [submitting, setSubmitting] = useState(false)
   const submitInFlightRef = useRef(false)
+  // GH 2941: every save started by `saveAnswer` is tracked until it settles, so Submit can wait for them.
+  // Each promise resolves true when the save landed (or was refused as past the deadline, which has its
+  // own screen) and false when it failed.
+  const pendingSavesRef = useRef(new Set<Promise<boolean>>())
   const [warning, setWarning] = useState<{ eventCount: number } | null>(null)
   const [questionIndex, setQuestionIndex] = useState(0)
 
@@ -224,7 +228,7 @@ function ExamSessionPageInner() {
         answers[question.question_id]?.time_spent_seconds ?? 0,
         Date.now(),
       )
-      return examApi
+      const tracked: Promise<boolean> = examApi
         .saveAnswer(session.session.id, question.question_id, {
           selected_option_ids: selectedOptionIds,
           time_spent_seconds: timeSpentSeconds,
@@ -244,15 +248,22 @@ function ExamSessionPageInner() {
             },
           }))
           setSaveStatus('saved')
+          return true
         })
         .catch((err: unknown) => {
           if (isDeadlinePassedError(err)) {
             // A save that fails after submit / auto-submit already showed the result must not replace it.
             setPhase((prev) => (prev.kind === 'result' ? prev : { kind: 'expired' }))
-            return
+            return true
           }
           setSaveStatus('error')
+          return false
         })
+        .finally(() => {
+          pendingSavesRef.current.delete(tracked)
+        })
+      pendingSavesRef.current.add(tracked)
+      return tracked.then(() => undefined)
     },
     [session, answers, dwell],
   )
@@ -323,11 +334,27 @@ function ExamSessionPageInner() {
     submitInFlightRef.current = true
     setSubmitting(true)
     setSubmitError(false)
-    examApi
-      .submitSession(session.session.id)
-      .then((outcome) => {
+    // GH 2941: the last answer's autosave may still be in flight; submitting before it lands would leave
+    // that answer out of grading. Flush an uncommitted short_text draft, then wait for every pending save.
+    // With nothing pending the submit goes out synchronously, as before.
+    void flushTextDraftBeforeAntiCheatReport()
+    const pending = [...pendingSavesRef.current]
+    const submit = (): Promise<void> =>
+      examApi.submitSession(session.session.id).then((outcome) => {
         setPhase({ kind: 'result', outcome })
       })
+    const run: Promise<void> =
+      pending.length === 0
+        ? submit()
+        : Promise.all(pending).then((results) => {
+            // A failed save keeps the page open with the save error; a submit now would drop that answer.
+            if (!results.every(Boolean)) {
+              setSubmitError(true)
+              return undefined
+            }
+            return submit()
+          })
+    run
       .catch((err: unknown) => {
         if (isDeadlinePassedError(err)) {
           setPhase((prev) => (prev.kind === 'result' ? prev : { kind: 'expired' }))
