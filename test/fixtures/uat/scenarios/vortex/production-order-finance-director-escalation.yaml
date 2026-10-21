@@ -1,0 +1,178 @@
+# Authored by BA-VORTEX (REQ-471 / GH #2479).
+# Covers the human task escalate-budget-approval-to-finance-director of
+# test/fixtures/qa/vortex_production_order_release_process_definition.json v1.8 (nodes capacity-review,
+# escalate-to-ceo, budget-gate, budget-approval, escalate-budget-approval-to-finance-director, assign-line,
+# notify-planner; edges timeout-capacity-review, e3, e5, timeout-budget-approval, e7-escalated).
+# Depends on the roster entry for actor-vortex-greta (finance director, role-finance-director). The Keycloak
+# account for greta is UAT-class infrastructure and has NOT been requested by this change: this scenario is
+# added but not run, and is blocked until that account exists.
+# The same-user separation refusal (the person who decided an earlier step may not decide the budget
+# escalation) is covered by the engine test test/letflow/engine/req466_vortex_distinct_from_test.exs; here the
+# CEO is refused because he does not hold the finance director role.
+---
+id: vortex-production-order-finance-director-escalation
+company_id: vortex
+process_id: proc-vortex-production-order-release
+title: "Unanswered budget approval is escalated to the finance director, not to the CEO, and the order is released"
+version: "1.0"
+tags: [escalation, timeout, separation-of-duties]
+
+description: >
+  A production order of EUR 15,000 waits for the Production Manager's capacity
+  review and she does not act, so it goes to the CEO, who approves the capacity.
+  The order is above EUR 10,000, so the Financial Controller must approve the
+  budget, and he does not act either. The budget approval then goes to the
+  finance director, not back to the CEO. The CEO tries to decide it and is
+  refused. The finance director approves the budget and the order is released.
+  This checks that the person who already decided one step of an order cannot
+  also decide its budget escalation.
+
+actors:
+  planner: actor-vortex-anna
+  production_manager: actor-vortex-sabine
+  controller: actor-vortex-stefan
+  ceo: actor-vortex-dirk
+  finance_director: actor-vortex-greta
+
+preconditions:
+  - description: Production order release process definition v1.8 is active
+    check: process_definition_active
+  - description: No open production order instances for Vortex
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: planner
+    action: >
+      Creates a production order for product code VX-TURBO-2000, quantity
+      40 units, order value EUR 15000, requested start date 2026-06-15
+    via: api
+    input:
+      order_id: sim-order-fd-001
+      product_code: VX-TURBO-2000
+      quantity: 40
+      order_value_eur: 15000
+      requested_start: "2026-06-15"
+      planner_actor_id: actor-vortex-anna
+    produces:
+      instance_id: "the process instance ID for this production order"
+    sla_context:
+      expected_within_hours: 1
+
+  - step: 2
+    actor: production_manager
+    action: >
+      Does not review the order. The capacity review stays open and the
+      Production Manager takes no action on it.
+    via: api
+    note: >
+      No action is taken on purpose so the escalation path is the only way forward.
+
+  - step: 3
+    actor: system
+    action: >
+      The capacity review timer fires. UAT-RUNNER advances the timer by
+      injecting a timer-fire event rather than waiting for real time.
+    via: api
+    input:
+      timer_node_id: capacity-review
+    note: >
+      Requires POST /api/v1/instances/:id/advance-timer. If not available,
+      this scenario is marked SKIP with severity MINOR.
+
+  - step: 4
+    actor: ceo
+    action: >
+      Receives the escalated review task and approves the capacity
+    via: gui
+    input:
+      capacity_decision: approve
+      ceo_notes: "Capacity approved on escalation."
+
+  - step: 5
+    actor: controller
+    action: >
+      Does not act on the budget approval. The task stays open.
+    via: api
+
+  - step: 6
+    actor: system
+    action: >
+      The budget approval timer (two days) fires. UAT-RUNNER advances it the
+      same way as in step 3.
+    via: api
+    input:
+      timer_node_id: budget-approval
+
+  - step: 7
+    actor: ceo
+    action: >
+      Tries to decide the escalated budget approval and approves it
+    via: api
+    input:
+      budget_decision: approve
+    note: >
+      Expected to be refused: the CEO does not hold the finance director role.
+      The task stays open.
+
+  - step: 8
+    actor: finance_director
+    action: >
+      Receives the escalated budget approval and approves it
+    via: gui
+    input:
+      budget_decision: approve
+      finance_notes: "Budget approved on escalation."
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      When the Financial Controller does not act, the budget approval is handed
+      to the finance director (escalate-budget-approval-to-finance-director),
+      not to the CEO, and the controller's own task is no longer actionable.
+    verification:
+      method: task_assigned
+      detail: >
+        After the budget timer fires: an escalate-budget-approval-to-finance-director
+        task is assigned to role-finance-director (actor-vortex-greta); no
+        budget-approval task remains open for role-controller.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A budget above the limit is decided by the same person who already
+        decided the capacity question, so one person approves the whole order.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      The CEO cannot decide the budget escalation, and the task stays open for
+      the finance director.
+    verification:
+      method: http_status
+      detail: >
+        Step 7 is refused with HTTP 403; the escalate-budget-approval-to-finance-director
+        task is still pending afterwards.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        The one person who can decide two steps of an order can release a large
+        order alone.
+      suggested_action: route_to_wf03
+
+  - id: EO-003
+    description: >
+      After the finance director approves, the order is released.
+    verification:
+      method: instance_state
+      detail: >
+        instance status == COMPLETED and end node is 'end-released'; audit log
+        shows assign-line executed.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An approved order never reaches production.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the sim-order-fd-001 instance if not already completed

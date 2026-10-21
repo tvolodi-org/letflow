@@ -150,6 +150,11 @@ actors:
     builtin_roles: [TASK_WORKER]
     routing_roles: [role-ceo]
     note: "seed_vortex_persona_actors.sh PERSONAS line (actor-vortex-dirk|role-ceo); TASK_WORKER implicit per script header. Same entry as ISS-1006 / Q-988 (vortex D3); added here so the CEO-escalation scenarios pass SCHEMA-7"
+  actor-vortex-greta:
+    tenant: vortex
+    builtin_roles: [TASK_WORKER]
+    routing_roles: [role-finance-director]
+    note: "seed_vortex_persona_actors.sh PERSONAS line (actor-vortex-greta|role-finance-director); TASK_WORKER implicit per script header. REQ-471 / GH #2479: decides escalate-budget-approval-to-finance-director. Persona name proposed by the requirement, BA-VORTEX confirms. UAT-class: the Keycloak account is unrequested, so scenarios using this actor are blocked until it exists"
   actor-vortex-max:
     tenant: vortex
     builtin_roles: [TASK_WORKER]

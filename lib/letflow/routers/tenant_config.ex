@@ -7,7 +7,7 @@ defmodule Letflow.Routers.TenantConfig do
 
   | Handler | Method/path            | Delegate                                | Auth     | Response |
   |---------|------------------------|-----------------------------------------|----------|----------|
-  | config  | `GET /api/tenant-config` | `Letflow.Identity.get_tenant_by_slug/1` | **none** | always 200, `{oidc_authority, client_id, branding}` |
+  | config  | `GET /api/tenant-config` | `Letflow.Identity.get_tenant_by_slug/1` | **none** | always 200, `{oidc_authority, client_id, branding, tenant_type}` |
 
   ## Why this is mounted on `Letflow.Router`, NOT in `Letflow.Plugs.ApiPipeline`
 
@@ -57,6 +57,14 @@ defmodule Letflow.Routers.TenantConfig do
 
   ## What this endpoint discloses, and what it must never disclose
 
+  The body has four top-level keys: `oidc_authority`, `client_id`, `branding`
+  and `tenant_type` (REQ-472). `tenant_type` is `"test"`, `"production"` or
+  `null`; it is non-null only on the branch that resolved a real realm through
+  `?realm=<slug>`, and `null` on every default branch (unknown slug, nil or
+  empty realm, lookup failure, `?host=`, no parameter), so those bodies stay
+  byte-identical (INV-5). It is the same bounded inference as a non-default
+  realm id, and it is never a name, slug, display name or id (INV-2).
+
   It returns exactly three values: an OIDC authority URL (which embeds a realm
   id), a public client id, and a `branding` block. Both of the first two are
   values the browser must learn *before* authenticating; the third is display
@@ -68,7 +76,7 @@ defmodule Letflow.Routers.TenantConfig do
   a platform-default value per sub-key where not. It must **never** return a
   tenant id, slug, display name, status, user count, locale/language
   configuration, or any other tenant attribute — the response map is
-  hand-built with exactly these three top-level keys, and the `branding` block
+  hand-built with exactly these three values plus `tenant_type`, and the `branding` block
   is hand-built with exactly its three sub-keys, both **never** derived from
   `%Letflow.Identity.Tenant{}` (INV-2) or from that struct's `:settings` field
   by anything other than an explicit, named-key read. A non-default `branding`
@@ -224,14 +232,14 @@ defmodule Letflow.Routers.TenantConfig do
     conn = fetch_query_params(conn)
     query = conn.query_params
 
-    {realm_id, tenant} =
+    {realm_id, tenant, tenant_type} =
       resolve_realm(non_empty(Map.get(query, "realm")), non_empty(Map.get(query, "host")))
 
-    Response.ok(conn, config_map(realm_id, tenant))
+    Response.ok(conn, Map.put(config_map(realm_id, tenant), "tenant_type", tenant_type))
   end
 
   # Step 1: ?realm=<slug>. A hit with a non-nil idp_realm_id wins outright and
-  # the host branch is skipped. Returns {realm_id, tenant_or_nil} -- OQ-1
+  # the host branch is skipped. Returns {realm_id, tenant_or_nil, tenant_type} -- OQ-1
   # (design §4): the matched %Tenant{} (and therefore its already-loaded
   # :settings field) is threaded straight through to config_map/2 so the
   # branding helper never performs a second, independent DB lookup for the
@@ -240,7 +248,7 @@ defmodule Letflow.Routers.TenantConfig do
     case Identity.safe_get_tenant_by_slug(slug, "tenant-config") do
       {:ok, %Tenant{idp_realm_id: realm_id} = tenant}
       when is_binary(realm_id) and realm_id != "" ->
-        {realm_id, tenant}
+        {realm_id, tenant, tenant_type_value(tenant)}
 
       _miss_or_nil_realm_or_error ->
         resolve_realm(nil, host)
@@ -253,7 +261,16 @@ defmodule Letflow.Routers.TenantConfig do
   # default, so a saved brand colour survives a normal page load. Both routes
   # converge on default_realm_tenant/0, so they stay provably identical. See the
   # moduledoc; do NOT add a hostname table here.
-  defp resolve_realm(nil, _host_or_absent), do: {@default_realm, default_realm_tenant()}
+  #
+  # tenant_type is nil here even though the default tenant is non-nil: only the
+  # slug-resolved branch above may disclose a type (REQ-472, INV-5).
+  defp resolve_realm(nil, _host_or_absent), do: {@default_realm, default_realm_tenant(), nil}
+
+  # Explicit named-key read, closed to the two known values (INV-2).
+  defp tenant_type_value(%Tenant{tenant_type: type}) when type in ["test", "production"],
+    do: type
+
+  defp tenant_type_value(_other), do: nil
 
   # The tenant whose idp_realm_id is the default realm, or nil on a miss, a nil
   # realm or a lookup failure (then the branding is the platform default).
@@ -275,7 +292,8 @@ defmodule Letflow.Routers.TenantConfig do
 
   # ── Response allowlist (INV-2) ────────────────────────────────────────────
 
-  # EXACTLY three keys, hand-built, never derived from %Tenant{} as a whole.
+  # EXACTLY three keys here (tenant_type is added by the caller), hand-built,
+  # never derived from %Tenant{} as a whole.
   # `tenant` is passed through only to read its :settings field via the
   # explicit-key branding helper below -- it is never `Map.from_struct/1`'d or
   # otherwise merged wholesale into the response. Adding a fourth top-level

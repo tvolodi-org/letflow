@@ -58,8 +58,8 @@ defmodule Letflow.Definitions.VortexProductionOrderReleaseFixtureTest do
     Enum.filter(ids, &(by_id[&1]["node_type"] == "END"))
   end
 
-  test "fixture version is 1.7 (1.7 = REQ-466 distinct_from; 1.6 = REQ-462 required_outputs; 1.4 = ISS-1027 variable_schemas; 1.5 = ISS-1002 D-ESC timers; forces QA re-seed)" do
-    assert qa_doc()["version"] == "1.7"
+  test "fixture version is 1.8 (1.8 = REQ-471 finance-director escalation; 1.7 = REQ-466 distinct_from; 1.6 = REQ-462 required_outputs; 1.4 = ISS-1027 variable_schemas; 1.5 = ISS-1002 D-ESC timers; forces QA re-seed)" do
+    assert qa_doc()["version"] == "1.8"
   end
 
   for {label, key} <- [{"qa fixture", :qa}, {"simulation copy", :sim}] do
@@ -187,5 +187,74 @@ defmodule Letflow.Definitions.VortexProductionOrderReleaseFixtureTest do
 
       assert violations == [], "#{label}: #{inspect(violations)}"
     end
+  end
+
+  # --- REQ-471 / GH #2479: budget escalation to role-finance-director ---------------------------
+
+  @escalation "escalate-budget-approval-to-finance-director"
+
+  test "REQ-471: the budget escalation node routes to role-finance-director and no node still escalates the budget to role-ceo" do
+    for {label, doc} <- docs() do
+      by_id = nodes(doc)
+      attrs = by_id[@escalation]["attributes"]
+
+      refute Map.has_key?(by_id, "escalate-budget-approval-to-ceo"), label
+      assert attrs["role"] == "role-finance-director", label
+      assert attrs["escalation_role"] == "role-finance-director", label
+      assert attrs["escalation_timer_duration"] == "P2D", label
+
+      assert attrs["distinct_from"] == ["capacity-review", "escalate-to-ceo", "budget-approval"],
+             label
+
+      budget = by_id["budget-approval"]["attributes"]
+      assert budget["escalation_role"] == "role-finance-director", label
+      assert budget["distinct_from"] == ["capacity-review", "escalate-to-ceo"], label
+
+      assert [%{"target" => "auto-reject-order"}] =
+               Enum.filter(
+                 edges(doc),
+                 &(&1["source"] == @escalation and not Map.has_key?(&1, "condition"))
+               ),
+             label
+
+      assert Enum.any?(
+               edges(doc),
+               &(&1["source"] == "budget-approval" and &1["target"] == @escalation)
+             ),
+             label
+    end
+  end
+
+  test "REQ-471: the simulation copy matches the QA definition on version and, node by node, on id, type, role, escalation_role, timer and distinct_from; edges match too" do
+    qa = qa_doc()
+    sim = sim_doc()
+
+    assert sim["version"] == qa["version"]
+    assert qa["version"] == "1.8"
+    assert qa["description"] =~ "REQ-471 / GH #2479"
+
+    project = fn doc ->
+      for n <- doc["graph"]["nodes"] do
+        a = n["attributes"] || %{}
+
+        {n["id"], n["node_type"],
+         Map.take(a, ["role", "escalation_role", "escalation_timer_duration", "distinct_from"])}
+      end
+      |> Enum.sort()
+    end
+
+    # SERVICE_TASK endpoints legitimately differ (the simulation copy keeps its own); everything
+    # the escalation chain and separation of duties depend on must be identical.
+    assert project.(qa) == project.(sim)
+
+    edge_key = fn doc ->
+      doc["graph"]["edges"]
+      |> Enum.map(
+        &{&1["id"], &1["source"], &1["target"], &1["condition"], &1["is_default"] || false}
+      )
+      |> Enum.sort()
+    end
+
+    assert edge_key.(qa) == edge_key.(sim)
   end
 end
