@@ -652,6 +652,16 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
          {:entity_write_refused, 5, :record_version_conflict}},
         {{:line, 1, :dual_write_promoted_columns}, {:record_payload_invalid, [:v]},
          {:entity_write_refused, 1, :validation_failed}},
+        # GH #2832: a tenant-wide dangling reference (a :reference violation) is the same refusal
+        {{:line, 1, :dual_write_promoted_columns},
+         {:record_payload_invalid,
+          [
+            %Letflow.Entities.Definition.Validator.Violation{
+              rule: :reference,
+              path: ["item_id"],
+              message: "referenced record does not exist"
+            }
+          ]}, {:entity_write_refused, 1, :validation_failed}},
         {{:line, 1, :insert_event}, changeset, {:entity_write_failed, 1, :insert_event}},
         {{:line, 1, :idempotency}, {:idempotency_lookup_failed, :sidecar_row_missing},
          {:entity_write_failed, 1, :idempotency}},

@@ -21,8 +21,9 @@ defmodule Letflow.Entities.Records do
   A scoped write also resolves every reference (`foreign_keys` field) of the NEW document through
   the scope of the referenced type (before the transaction and again inside it), with no
   exemption for an unchanged stored reference on an update (fail closed). A foreign-key violation
-  of a scoped write is `{:error, :scope_refused}`, never a 500; a tenant-wide write is a 422 naming the field (GH #2832). Residual: the referenced row's scope can change between the check and the commit (no
-  lock is taken on it).
+  of a scoped write is `{:error, :scope_refused}`, never a 500; a tenant-wide write is a 422
+  naming the field (GH #2832). Residual: the referenced row's scope can change between the check
+  and the commit (no lock is taken on it).
 
   ## The inner/outer validation split (AC7)
 

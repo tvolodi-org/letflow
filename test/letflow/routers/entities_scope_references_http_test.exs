@@ -211,6 +211,107 @@ defmodule Letflow.Routers.EntitiesScopeReferencesHttpTest do
   end
 
   # ===========================================================================================
+  describe "T-W8 (b) a tenant-wide caller: PUT, idempotency key, import and upsert (issue #2832)" do
+    defp wide(fx, method, path, body), do: W.admin_request(fx, method, path, body)
+
+    defp assert_constant_422(conn, absent) do
+      assert conn.status == 422, conn.resp_body
+      refute conn.resp_body =~ absent
+
+      assert [%{"code" => "reference", "path" => ["item_id"], "message" => msg}] =
+               Jason.decode!(conn.resp_body)["errors"]
+
+      assert msg == "referenced record does not exist"
+    end
+
+    defp assert_entry_reference_error(entry, absent) do
+      assert %{"status" => "error", "reason" => reason} = entry
+      assert reason["type"] == "record_payload_invalid"
+      assert [%{"code" => "reference", "path" => ["item_id"]}] = reason["violations"]
+      refute Jason.encode!(entry) =~ absent
+    end
+
+    test "T-2: a PUT with a nonexistent reference is a constant 422 and changes nothing", %{
+      fx: fx
+    } do
+      created = wide(fx, :post, W.records_path(@child, nil), child_body(fx.items.a.record_id))
+      assert created.status == 201
+      id = W.json(created)["record_id"]
+      before = W.counts(fx)
+      absent = absent_id()
+
+      conn = wide(fx, :put, W.records_path(@child, id), child_body(absent))
+      assert_constant_422(conn, absent)
+
+      assert W.counts(fx) == before
+      assert W.stored_values(fx, @child, id)["item_id"] == fx.items.a.record_id
+    end
+
+    test "T-5: a failing POST with an idempotency key writes no event and no idempotency row; the key stays usable",
+         %{fx: fx} do
+      before = W.counts(fx)
+      absent = absent_id()
+
+      conn =
+        wide(fx, :post, W.records_path(@child, nil), child_body(absent, "ref-422-key"))
+
+      assert_constant_422(conn, absent)
+      assert W.counts(fx) == before, "events and event_idempotency unchanged"
+
+      ok =
+        wide(
+          fx,
+          :post,
+          W.records_path(@child, nil),
+          child_body(fx.items.a.record_id, "ref-422-key")
+        )
+
+      assert ok.status == 201, ok.resp_body
+    end
+
+    test "T-6: import: the bad-reference entry is a reference error, the good entry lands", %{
+      fx: fx
+    } do
+      absent = absent_id()
+
+      conn =
+        wide(fx, :post, W.import_path(@child), import_children([absent, fx.items.a.record_id]))
+
+      assert conn.status == 200, conn.resp_body
+      assert [bad, good] = W.json(conn)["results"]
+      assert_entry_reference_error(bad, absent)
+      assert good["status"] == "ok"
+    end
+
+    test "T-7: upsert_by external_ref: the create branch and the update branch", %{fx: fx} do
+      absent = absent_id()
+
+      upsert = fn ref_id, item_id ->
+        body =
+          import_children([item_id])
+          |> Map.put("upsert_by", "external_ref")
+          |> Map.update!("records", fn [r] ->
+            [Map.put(r, "external_ref", %{"system" => "sap", "id" => ref_id})]
+          end)
+
+        conn = wide(fx, :post, W.import_path(@child), body)
+        assert conn.status == 200, conn.resp_body
+        assert [entry] = W.json(conn)["results"]
+        entry
+      end
+
+      # create branch
+      assert_entry_reference_error(upsert.("e1", absent), absent)
+
+      # update branch: the ref exists with a valid reference, then is pointed at a missing one
+      assert %{"status" => "ok"} = upsert.("e2", fx.items.a.record_id)
+      before = W.counts(fx)
+      assert_entry_reference_error(upsert.("e2", absent), absent)
+      assert W.counts(fx) == before
+    end
+  end
+
+  # ===========================================================================================
   describe "T-W8 (c) null, omitted and malformed references" do
     test "an omitted reference succeeds; an explicit JSON null fails the type validation (422, same bytes as a tenant-wide caller, independent of any record: no oracle)",
          %{fx: fx} do
