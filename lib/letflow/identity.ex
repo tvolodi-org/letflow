@@ -2223,20 +2223,22 @@ defmodule Letflow.Identity do
         ]
 
   @doc """
-  Partial-update of a tenant's `display_name` and (REQ-442)
-  `login_disclosure_mode`, via `Tenant.admin_patch_changeset/2` — see that
+  Partial-update of a tenant's `display_name`, (REQ-442)
+  `login_disclosure_mode` and (REQ-469) `tenant_type`, via `Tenant.admin_patch_changeset/2` — see that
   changeset's own @doc for why `:status` is structurally excluded from this path.
 
   A `display_name`-only patch is a plain `Repo.update/1` (unaudited, as before).
   When `login_disclosure_mode` or (REQ-469) `tenant_type` actually changes, the update and two audit
-  entries (value-free payloads, INV-2) are written in a single transaction, so
+  entries are written in a single transaction, so
   all three commit or all three roll back (ISS-1032 / GH 2351): a TARGET-tenant
   chain entry `tenant.platform_setting.updated` with a NIL actor and the constant
   actor class `platform_operator` (tenant administrators read that chain and must
   not learn which operator acted), then a PLATFORM-chain entry
   `platform.tenant_platform_setting.updated` carrying the operator's user id.
+  Only the tenant-chain payload is value-free (INV-2); the operator-only platform
+  chain may carry the `tenant_type` old/new values.
   Lock order: tenant row, tenant chain, platform chain (as `bind_tenant_realm/3`).
-  `opts[:platform_prefix]` must be verified by the caller. A mode change with no
+  `opts[:platform_prefix]` must be verified by the caller. A mode or type change with no
   binary `actor_id` or `platform_prefix` in `opts`, a tenant with no provisioned
   schema registration, or any audit/transaction failure returns
   `{:error, :audit_failed}` with nothing written.
