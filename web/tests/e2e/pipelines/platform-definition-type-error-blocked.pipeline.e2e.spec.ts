@@ -112,7 +112,7 @@ test.describe('Pipeline: platform-definition-type-error-blocked (PW-02)', () => 
             edges: [
               { id: 'e1', source: 'start', target: 'gw' },
               { id: 'e2', source: 'gw', target: 'branch_a', condition: 'amount > 0' },
-              { id: 'e3', source: 'gw', target: 'branch_b', condition: 'amount > 0' },
+              { id: 'e3', source: 'gw', target: 'branch_b', condition: 'amount > 0', is_default: true },
             ],
           },
           variable_schemas: [
@@ -121,8 +121,11 @@ test.describe('Pipeline: platform-definition-type-error-blocked (PW-02)', () => 
           ],
         },
       })
-      pl.gate(createResp.ok(), `definition create failed: ${createResp.status()} ${await createResp.text()}`)
-      const created = await createResp.json() as { id: string; status: string }
+      const createBody = await createResp.text()
+      // gw carries an is_default edge (e3), so CHK-24 must not fire.
+      pl.gate(!createBody.includes('no_default_route'), `definition create hit no_default_route: ${createBody}`)
+      pl.gate(createResp.ok(), `definition create failed: ${createResp.status()} ${createBody}`)
+      const created = JSON.parse(createBody) as { id: string; status: string }
       s.definitionId = created.id
       pl.gate(created.status === 'DRAFT', `expected DRAFT status after create, got ${created.status}`)
     })
@@ -280,7 +283,7 @@ test.describe('Pipeline: platform-definition-type-error-blocked (PW-02)', () => 
             edges: [
               { id: 'e1', source: 'start', target: 'gw' },
               { id: 'e2', source: 'gw', target: 'branch_a', condition: 'amount > 0' },
-              { id: 'e3', source: 'gw', target: 'branch_b', condition: 'amount <= 0' },
+              { id: 'e3', source: 'gw', target: 'branch_b', condition: 'amount <= 0', is_default: true },
             ],
           },
           variable_schemas: [
