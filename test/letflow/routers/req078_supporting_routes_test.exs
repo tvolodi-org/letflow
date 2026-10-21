@@ -278,7 +278,13 @@ defmodule Letflow.Routers.Req078SupportingRoutesTest do
       # REQ-281 added a third top-level key, `branding` -- see
       # test/letflow/routers/tenant_config_test.exs for its own dedicated
       # coverage of the branding block's shape/fallback/allowlist behavior.
-      assert Map.keys(body) |> Enum.sort() == ["branding", "client_id", "oidc_authority"]
+      assert Map.keys(body) |> Enum.sort() == [
+               "branding",
+               "client_id",
+               "oidc_authority",
+               "tenant_type"
+             ]
+
       assert is_binary(body["oidc_authority"])
       assert is_binary(body["client_id"])
       assert is_map(body["branding"])

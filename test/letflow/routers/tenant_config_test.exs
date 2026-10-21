@@ -37,7 +37,7 @@ defmodule Letflow.Routers.TenantConfigTest do
 
   @router_opts Letflow.Router.init([])
 
-  @expected_keys ["branding", "client_id", "oidc_authority"]
+  @expected_keys ["branding", "client_id", "oidc_authority", "tenant_type"]
   @expected_branding_keys ["app_name", "brand_colors", "logo_url"]
 
   @default_app_name "Letflow"

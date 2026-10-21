@@ -54,7 +54,7 @@ defmodule Letflow.Oidc.ClaimMappingPropertyTest do
     StreamData.string(:alphanumeric, min_length: 1, max_length: 20)
   end
 
-  property "for any claims map and any non-empty string sub, map_verified_claims/3 never raises and always returns a well-shaped {:ok, %IdentityContext{}}" do
+  test "for any claims map and any non-empty string sub, map_verified_claims/3 never raises and always returns a well-shaped {:ok, %IdentityContext{}}" do
     check all(
             subject <- non_empty_subject_generator(),
             claims <- claims_generator(),
@@ -81,7 +81,7 @@ defmodule Letflow.Oidc.ClaimMappingPropertyTest do
     end
   end
 
-  property "for any claims map, an empty-string subject always returns {:error, :sub_claim_missing}, never raises" do
+  test "for any claims map, an empty-string subject always returns {:error, :sub_claim_missing}, never raises" do
     check all(
             claims <- claims_generator(),
             realm <- StreamData.string(:alphanumeric, min_length: 1, max_length: 12)
