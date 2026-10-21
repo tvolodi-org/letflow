@@ -1,0 +1,104 @@
+# Authored by BA-MERIDIAN (GH #2330, process-audit PA-MERIDIAN-004, checklist D2).
+# Written against test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json on main.
+# Covers the stalled remediation-subprocess (role-compliance-officer) fail-closed path (closed-unresolved);
+# its resolved path is regulatory-compliance-review-remediation.yaml;
+# regulatory-compliance-review-cro-signoff.yaml only expects it NOT to be started.
+# evidence-collection -> risk-evaluation -> severity-routing (critical) -> remediation-subprocess (timer P30D) ->
+# remediation-unresolved-escalation -> end-closed. Timers are forced with POST /api/v1/instances/{instance_id}/advance-timer.
+---
+id: meridian-regulatory-compliance-review-remediation-unresolved
+company_id: meridian
+process_id: proc-meridian-regulatory-compliance-review
+title: A critical finding is not remediated in time, the unresolved remediation is reported to the regulator and the review is closed without sign-off
+version: "1.0"
+tags: [escalation, timeout, fail_closed, regulatory]
+
+description: >
+  A periodic compliance review is run. The risk manager rates the highest finding critical and the
+  remediation task is created for the compliance officer, who does not complete it. When the
+  remediation time limit is reached the unresolved remediation is escalated: a regulatory notice
+  is filed (reason remediation_unresolved) and the review is closed. The CRO never signs the
+  findings off and the review is not archived as resolved.
+
+actors:
+  compliance_officer: actor-meridian-claudia
+  risk_manager: actor-meridian-miriam
+  cro: actor-meridian-thomas
+
+preconditions:
+  - description: Regulatory compliance review process definition is active
+    check: process_definition_active
+  - description: No pending compliance review instances for Meridian
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: compliance_officer
+    action: Initiates a periodic compliance review for the 2026 Q4 loan portfolio and completes the evidence collection
+    via: api
+    input:
+      review_id: sim-meridian-review-005
+      review_type: periodic
+      portfolio_ref: "MER-PORTFOLIO-2026-Q4"
+      review_period: "2026-Q4"
+      initiator_actor_id: actor-meridian-claudia
+      documents_uploaded: true
+    produces:
+      instance_id: "the process instance ID for this compliance review"
+
+  - step: 2
+    actor: risk_manager
+    action: Completes the risk evaluation and rates the highest finding critical
+    via: api
+    input:
+      highest_severity: critical
+      risk_notes: "Systemic gaps in income verification."
+
+  - step: 3
+    actor: compliance_officer
+    action: >
+      Does not complete the remediation task. It stays open until its time limit is reached.
+    via: api
+    note: >
+      No action is taken on purpose. UAT-RUNNER advances the remediation-subprocess timer (P30D)
+      with advance-timer rather than waiting 30 days. If the timer is not armed on that node the
+      scenario is BLOCKED there, not passed.
+    input:
+      advance_timer_node: remediation-subprocess
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      A critical finding creates the remediation task for the compliance officer and does not go
+      straight to the CRO
+    verification:
+      method: task_assigned
+      detail: >
+        task 'remediation-subprocess' assigned to role-compliance-officer (actor-meridian-claudia)
+        after risk-evaluation; 'findings-sign-off' not created
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Critical findings reach CRO sign-off without anyone remediating them.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      When remediation stalls, the unresolved remediation is reported and the review is closed
+      without CRO sign-off or archiving as resolved
+    verification:
+      method: instance_state
+      detail: >
+        after advancing remediation-subprocess: remediation-unresolved-escalation executed with
+        reason 'remediation_unresolved', 'findings-sign-off' never created, archive-review not
+        executed, instance status == COMPLETED, end node is 'end-closed'
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An unremediated critical finding could be signed off or archived as resolved, or never
+        reported to the regulator.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel instance sim-meridian-review-005 if not already completed

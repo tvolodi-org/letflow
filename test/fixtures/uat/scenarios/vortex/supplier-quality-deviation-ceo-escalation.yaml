@@ -110,8 +110,8 @@ expected_outcomes:
       method: instance_state
       detail: >
         after advancing escalate-severity-classification-to-ceo: default-to-critical executed
-        (severity == 'critical'), corrective-action-subprocess started and assigned to
-        role-procurement-manager, final instance status == COMPLETED, end node is 'end-closed',
+        (severity == 'critical'), corrective-action-subprocess started; its corrective-action-8d
+        task assigned to role-procurement-manager, final instance status == COMPLETED, end node is 'end-closed',
         release-quarantine not executed
     on_fail:
       severity: BLOCKER
