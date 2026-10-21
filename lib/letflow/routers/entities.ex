@@ -67,8 +67,12 @@ defmodule Letflow.Routers.Entities do
   **Inheritance rule:** any future generic record write route MUST call
   `Letflow.Entities.RecordAccess.write/3` first and apply its decision as above; any future
   entity-definition write route MUST call `Letflow.Entities.ManagedTypes.check_tenant_write/2`
-  first. The four record ATTACHMENT routes use the lighter `RecordAccess.attachment/3` (one
-  TypeAccess read, no managed or field check; GH #2784 PR B): a denied type runs the same code
+  first. The list and content GET attachment routes use the lighter `RecordAccess.attachment/3`
+  (one TypeAccess read, no managed or field check; GH #2784 PR B). The upload and delete routes
+  use `RecordAccess.attachment_write/3`, which adds the managed stamp (GH #2582): a visible
+  managed type gets the constant 403 `entity_type_managed` before the record id is read, and a
+  hidden type still takes the fresh-UUID absent path. Any future attachment WRITE route MUST call
+  `attachment_write/3`. For the four routes, a denied type runs the same code
   with freshly generated UUIDs for `record_id` (and `attachment_id` on content GET and delete),
   so it answers exactly like an absent record (upload 404, list the empty 200 page, content GET
   and delete 404) and nothing persists (a denied upload still attempts its write inside a transaction that rolls back at COMMIT).
@@ -2053,18 +2057,10 @@ defmodule Letflow.Routers.Entities do
   # GH #2582: the WRITE routes (upload, delete) add the managed stamp; `:managed` is the same
   # constant 403 as the record routes, decided before the record id is read.
   @spec record_attachment_write_access(Plug.Conn.t(), String.t()) ::
-          :managed | RecordAccess.attachment_decision()
-  defp record_attachment_write_access(conn, entity_type) do
-    case RecordAccess.attachment_write(
-           conn.assigns.auth_context.user_id,
-           entity_type,
-           prefix!(conn)
-         ) do
-      :managed -> :managed
-      :open -> :open
-      :hidden -> :hidden
-    end
-  end
+          RecordAccess.attachment_write_decision()
+  defp record_attachment_write_access(conn, entity_type),
+    do:
+      RecordAccess.attachment_write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn))
 
   defp hide_if_denied(:open, id), do: id
   defp hide_if_denied(:hidden, _id), do: Ecto.UUID.generate()

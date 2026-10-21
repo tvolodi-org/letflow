@@ -208,6 +208,49 @@ defmodule Letflow.Routers.EntitiesAttachmentsManagedByTest do
     end
   end
 
+  describe "a type hidden from the caller takes the absent path, not the managed 403 (INV-5)" do
+    test "upload and delete answer 404 for a caller denied by TypeAccess on a managed type",
+         ctx do
+      record = owner_record!(ctx, @managed)
+      attachment = owner_attach!(ctx, @managed, record.record_id)
+
+      Repo.insert_all(
+        "entity_type_restrictions",
+        [
+          %{
+            id: Ecto.UUID.bingenerate(),
+            entity_type: @managed,
+            inserted_at: NaiveDateTime.utc_now(),
+            updated_at: NaiveDateTime.utc_now()
+          }
+        ],
+        prefix: ctx.schema
+      )
+
+      upload =
+        call_entities(
+          ctx,
+          @operator,
+          :post,
+          attachments_path(@managed, record.record_id),
+          upload_body()
+        )
+
+      assert upload.status == 404, "#{upload.status} #{upload.resp_body}"
+
+      delete =
+        call_entities(
+          ctx,
+          @operator,
+          :delete,
+          attachments_path(@managed, record.record_id) <> "/#{attachment.id}"
+        )
+
+      assert delete.status == 404, "#{delete.status} #{delete.resp_body}"
+      assert {:ok, _} = EntityAttachments.get(attachment.id, prefix: ctx.schema)
+    end
+  end
+
   describe "reads are unchanged on a managed type" do
     test "list and content GET still answer 200", ctx do
       record = owner_record!(ctx, @managed)

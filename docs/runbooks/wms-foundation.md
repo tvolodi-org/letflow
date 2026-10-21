@@ -22,10 +22,10 @@ was written.
    types (`legal_entity_id`, `site_id`, `parent`, `org_unit_id`) are declarative strings with no
    foreign keys and no reference check: a record can name a legal entity, site or unit that does
    not exist (decision 0050 D3.6; `priv/modules/org/entity_definitions/`).
-3. **Record attachment routes are not covered by the managed-type write lock.** GH #2582 is
-   still open: the attachment routes on a module-managed type (the four org types included) are
-   not refused with `entity_type_managed` (attachment routes in `lib/letflow/routers/entities.ex`, access check
-   `Letflow.Entities.RecordAccess.attachment/3`, `lib/letflow/entities/record_access.ex`).
+3. **Record attachment upload and delete on a managed type are refused.** A non-owner caller
+   gets the 403 `entity_type_managed` (the org types included) via
+   `Letflow.Entities.RecordAccess.attachment_write/3` (GH #2582); list and content reads are
+   unchanged.
 4. **Client idempotency keys cannot use the reserved server-derived prefix.** The single-command
    entry points (`create_record`, `update_record`, `delete_record`) refuse, before any query, an
    `idempotency_key` that starts with the exact bytes `sys:step:` and return
@@ -70,11 +70,10 @@ this section was written. It covers the types `catalog_uom` and `catalog_item`.
    foreign key (decision 0050 D3.6;
    `priv/modules/catalog_items/entity_definitions/catalog_item.json`). `item_uom_valid?/3` is
    where an unknown or inactive unit shows up, as `false`.
-4. **Record attachment routes are not covered by the managed-type write lock.** GH #2582 is
-   still open: the attachment routes on a module-managed type (both catalog types included) are
-   not refused with `entity_type_managed` (attachment routes in
-   `lib/letflow/routers/entities.ex`, access check `Letflow.Entities.RecordAccess.attachment/3`,
-   `lib/letflow/entities/record_access.ex`).
+4. **Record attachment upload and delete on a managed type are refused.** A non-owner caller
+   gets the 403 `entity_type_managed` (both catalog types included) via
+   `Letflow.Entities.RecordAccess.attachment_write/3` (GH #2582); list and content reads are
+   unchanged.
 5. **Client idempotency keys cannot use the reserved server-derived prefix.** The single-command
    entry points (`create_record`, `update_record`, `delete_record`) refuse, before any query, an
    `idempotency_key` that starts with the exact bytes `sys:step:` and return
