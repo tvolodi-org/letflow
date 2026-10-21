@@ -770,9 +770,16 @@ defmodule Letflow.Api.PermissionMatrixTest do
 
   describe "T24 AC9: the CI step" do
     test "backend_static runs the dev-env check with the marker greps; shared caches keep _build/dev" do
-      ci = ".github/workflows/ci.yml" |> File.read!() |> String.replace("
-", "
-")
+      ci =
+        ".github/workflows/ci.yml"
+        |> File.read!()
+        |> String.replace(
+          "
+",
+          "
+"
+        )
+
       [_, static_job] = String.split(ci, "\n  backend_static:\n", parts: 2)
       [static_job, shard_job] = String.split(static_job, "\n  backend_shard:\n", parts: 2)
 
