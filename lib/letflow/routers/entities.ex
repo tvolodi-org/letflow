@@ -1991,6 +1991,8 @@ defmodule Letflow.Routers.Entities do
   #   {:definition_changed, _}       -> 409 (GH #2654; write overlapped an activation)
   #   :entity_type_managed           -> 403 (race only; same body as the guard,
   #                                     GH #2583)
+  #   :preserved_value_invalid       -> 403  (constant restricted-field detail,
+  #                                     GH #2812)
   #   :tenant_not_provisioned        -> 500  (unreachable, INV-1)
   #   :invalid_schema_name           -> 500  (unreachable, INV-1)
   #   any other term()               -> 500  (INV-8 catch-all, no detail)

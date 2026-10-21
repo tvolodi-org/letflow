@@ -400,11 +400,13 @@ handlers write through it with their own authority).
   the `write_not_permitted` / `not_writable` refusal, and activation validation reports a type
   denied to the activator as `entity_type_not_found`.
 - **Restricted fields** (the caller lacks the grant of an `entity_field_restrictions` field):
-  `POST` naming a restricted key, and ANY `PUT` by an actor holding any restricted field on the
-  type (PUT replaces `field_values` wholesale, so such an actor cannot send the whole document),
-  are the constant 403 `one or more requested fields are restricted for this caller`. An import
-  entry naming a restricted key is `field_restricted`, the other entries proceed. The remedy for
-  an operator who must write the type is a field grant.
+  A `POST` or `PUT` whose body names a restricted key (with any value, including the redaction
+  sentinel or null) is the constant 403 `one or more requested fields are restricted for this
+  caller`. A `PUT` naming none keeps the stored restricted values server-side (GH #2812); the
+  write is conditional on `expected_last_event_global_seq`, or else on the version the merge
+  read, so a concurrent write is a 409. A stored restricted value that no longer validates is
+  also the constant 403. An import entry naming a restricted key is `field_restricted`, the other
+  entries proceed. A field grant is needed only to change a restricted field.
 - **Responses are redacted.** The `field_values` of a `POST`/`PUT`/`DELETE` response (the first
   delete and a repeat of it) show `__field_redacted__` for every restricted field, as the read
   routes do (`render_record_command/4`). `DELETE` stays allowed for such an actor.
