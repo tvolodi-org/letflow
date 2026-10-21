@@ -251,6 +251,10 @@ defmodule Letflow.Api.Response do
   @spec module_owned_pack(Plug.Conn.t()) :: Plug.Conn.t()
   def module_owned_pack(conn), do: send_problem(conn, Error.module_owned_pack())
 
+  @doc "HTTP 422 — Module Install DDL Failed (GH #2540). See `Letflow.Api.Error.module_install_ddl_failed/0`."
+  @spec module_install_ddl_failed(Plug.Conn.t()) :: Plug.Conn.t()
+  def module_install_ddl_failed(conn), do: send_problem(conn, Error.module_install_ddl_failed())
+
   @doc """
   HTTP 413 — Content Too Large. See `Letflow.Api.Error.payload_too_large/1`
   (REQ-068) for why this has no R-Co source counterpart.

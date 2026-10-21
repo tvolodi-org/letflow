@@ -64,7 +64,9 @@ defmodule Letflow.Modules.CatalogTest do
                Letflow.Modules.FixtureLedgerOther,
                Letflow.Modules.FixtureLedgerRogue,
                # REQ-518: scope declarations fixture
-               Letflow.Modules.FixtureScoped
+               Letflow.Modules.FixtureScoped,
+               # GH #2540
+               Letflow.Modules.FixtureDdlFailing
              ]
     end
 
