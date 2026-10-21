@@ -8,7 +8,7 @@ defmodule Letflow.Engine.VortexEscalationTimerTest do
 
     * capacity-review's timer escalates to `escalate-to-ceo` (role-ceo): the original task is
       CANCELLED; the CEO level's own timer fails closed to `auto-reject-order`, NEVER `assign-line`;
-    * budget-approval's timer escalates to the new `escalate-budget-approval-to-ceo` (role-ceo, same
+    * budget-approval's timer escalates to `escalate-budget-approval-to-finance-director` (role-finance-director, same
       budget_decision); its own timer fails closed to `auto-reject-order`;
     * severity-classification's timer escalates to `escalate-severity-classification-to-ceo`; its
       own timer reaches `default-to-critical` (severity critical, 8D), never a quarantine release.
@@ -224,7 +224,7 @@ defmodule Letflow.Engine.VortexEscalationTimerTest do
 
   # --- budget-approval -> CEO -> fail closed ---------------------------------------------------
 
-  test "budget-approval timer: the controller's task is cancelled and a role-ceo task is created at escalate-budget-approval-to-ceo" do
+  test "budget-approval timer: the controller's task is cancelled and a role-finance-director task is created at escalate-budget-approval-to-finance-director" do
     {schema, id} = at_budget_approval!()
     original = task!(schema, id, "budget-approval")
     assert original.assignee_ref == "role-controller"
@@ -234,20 +234,24 @@ defmodule Letflow.Engine.VortexEscalationTimerTest do
     assert_duration!(timer, 2 * 86_400)
 
     assert Repo.get!(EngineTask, original.id, prefix: schema).status == :cancelled
-    esc = task!(schema, id, "escalate-budget-approval-to-ceo")
+    esc = task!(schema, id, "escalate-budget-approval-to-finance-director")
     assert esc.status == :pending
-    assert esc.assignee_ref == "role-ceo"
-    assert projection(schema, id).current_nodes == ["escalate-budget-approval-to-ceo"]
+    assert esc.assignee_ref == "role-finance-director"
+
+    assert projection(schema, id).current_nodes == [
+             "escalate-budget-approval-to-finance-director"
+           ]
+
     assert dispatched_nodes(schema, id) == []
   end
 
   test "a stalled budget escalation fails closed: auto-reject-order, never assign-line" do
     {schema, id} = at_budget_approval!()
     fire_escalation!(schema, id)
-    esc = task!(schema, id, "escalate-budget-approval-to-ceo")
+    esc = task!(schema, id, "escalate-budget-approval-to-finance-director")
 
     timer = fire_escalation!(schema, id)
-    assert timer.node_id == "escalate-budget-approval-to-ceo"
+    assert timer.node_id == "escalate-budget-approval-to-finance-director"
     assert_duration!(timer, 2 * 86_400)
 
     assert Repo.get!(EngineTask, esc.id, prefix: schema).status == :cancelled
@@ -261,7 +265,7 @@ defmodule Letflow.Engine.VortexEscalationTimerTest do
     {schema, id} = at_budget_approval!()
     fire_escalation!(schema, id)
 
-    complete!(schema, task!(schema, id, "escalate-budget-approval-to-ceo"), %{
+    complete!(schema, task!(schema, id, "escalate-budget-approval-to-finance-director"), %{
       "budget_decision" => "approve"
     })
 
@@ -270,7 +274,7 @@ defmodule Letflow.Engine.VortexEscalationTimerTest do
     {schema2, id2} = at_budget_approval!()
     fire_escalation!(schema2, id2)
 
-    complete!(schema2, task!(schema2, id2, "escalate-budget-approval-to-ceo"), %{
+    complete!(schema2, task!(schema2, id2, "escalate-budget-approval-to-finance-director"), %{
       "budget_decision" => "reject"
     })
 
