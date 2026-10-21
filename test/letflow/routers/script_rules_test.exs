@@ -59,6 +59,11 @@ defmodule Letflow.Routers.ScriptRulesTest do
         credential: credential
       })
 
+    conn =
+      if Keyword.has_key?(opts, :trace_id),
+        do: Plug.Conn.assign(conn, :trace_id, opts[:trace_id]),
+        else: conn
+
     Letflow.Routers.ScriptRules.call(conn, Letflow.Routers.ScriptRules.init([]))
   end
 
@@ -704,6 +709,163 @@ defmodule Letflow.Routers.ScriptRulesTest do
 
       unicode = list_with(ctx, crafted("ключ", "1"))
       assert unicode.status == 200, unicode.resp_body
+    end
+  end
+
+  describe "GH 2548: the auditor source read" do
+    @auditor ["TENANT_AUDITOR"]
+
+    defp source_read_entries(fixture, rule_id) do
+      Entry
+      |> where([e], e.action == "script_rule.source_read" and e.resource_id == ^rule_id)
+      |> Repo.all(prefix: fixture.schema_name)
+    end
+
+    test "an AuditRead holder reads source, manifest, tests, contributors, publisher and sha256",
+         ctx do
+      k = key()
+      author = Ecto.UUID.generate()
+      created = create!(ctx.a, k, author)
+
+      for roles <- [@auditor, @admin, ["PROCESS_OPERATOR"]] do
+        resp = call(:get, "/#{k}/versions/1/audit", ctx.a, roles, nil)
+        assert resp.status == 200, resp.resp_body
+        full = json(resp)
+        db = row(ctx.a, k, 1)
+        assert full["source"] == @source
+        assert full["manifest"] == @manifest
+        assert full["test_cases"] == @test_cases
+        assert full["contributors"] == db.contributors
+        assert full["sha256"] == db.sha256 and full["sha256"] == created["sha256"]
+        assert Map.has_key?(full, "publisher_id")
+      end
+    end
+
+    test "a published version is readable and a discarded one is the plain 404", ctx do
+      k = key()
+      author = Ecto.UUID.generate()
+      v1 = create!(ctx.a, k, author)
+      assert publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate()).status == 200
+      assert call(:get, "/#{k}/versions/1/audit", ctx.a, @auditor, nil).status == 200
+
+      gone = key()
+      create!(ctx.a, gone, author)
+      assert call(:delete, "/#{gone}/versions/1", ctx.a, @designer, nil).status == 204
+      assert call(:get, "/#{gone}/versions/1/audit", ctx.a, @auditor, nil).status == 404
+    end
+
+    test "an auditor opens no write path", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+
+      for {method, path, body} <- [
+            {:post, "/#{k}/versions", body()},
+            {:put, "/#{k}/versions/1", body()},
+            {:delete, "/#{k}/versions/1", nil},
+            {:post, "/#{k}/versions/1/publish", %{"sha256" => "x"}},
+            {:post, "/#{k}/versions/1/retire", %{}},
+            {:post, "/#{k}/versions/1/revoke", %{}},
+            {:post, "/#{k}/dry-run", %{}},
+            {:get, "/#{k}/versions/1", nil},
+            {:get, "/", nil}
+          ] do
+        assert call(method, path, ctx.a, @auditor, body).status == 403, "#{method} #{path}"
+      end
+    end
+
+    test "lists never carry source, for an auditor, an admin or a designer", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+      create!(ctx.a, k, Ecto.UUID.generate())
+
+      for roles <- [@designer, @admin] do
+        resp = call(:get, "/", ctx.a, roles, nil)
+        items = json(resp)["items"]
+        assert items != []
+
+        for item <- items,
+            field <- ["source", "manifest", "test_cases", "contributors"],
+            do: refute(Map.has_key?(item, field))
+
+        refute resp.resp_body =~ "ctx.input.x"
+      end
+
+      # the auditor holds no list permission at all
+      assert call(:get, "/", ctx.a, @auditor, nil).status == 403
+    end
+
+    test "each read is audited with actor, key, version, sha256 and trace id, and no source",
+         ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+      rule = row(ctx.a, k, 1)
+      auditor = Ecto.UUID.generate()
+
+      assert call(:get, "/#{k}/versions/1/audit", ctx.a, @auditor, nil, user_id: auditor).status ==
+               200
+
+      assert [entry] = source_read_entries(ctx.a, rule.id)
+      assert entry.actor_id == auditor
+      assert entry.trace_id == "platform-scope-test-trace-id"
+      assert entry.after_state["key"] == k
+      assert entry.after_state["version"] == 1
+      assert entry.after_state["sha256"] == rule.sha256
+      assert entry.after_state["credential"] == "oidc"
+      dump = inspect(entry)
+      refute dump =~ "ctx.input"
+      refute dump =~ "too_big"
+      refute dump =~ "doubles"
+
+      assert call(:get, "/#{k}/versions/9/audit", ctx.a, @auditor, nil).status == 404
+      assert length(source_read_entries(ctx.a, rule.id)) == 1
+    end
+
+    test "if the audit entry cannot be written, no source is returned", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+
+      # An unwritable entry (here a trace id the hash chain cannot encode) never yields the
+      # rule: the insert error or raise propagates instead of an {:ok, rule}.
+      outcome =
+        try do
+          Letflow.Scripts.audit_read(ctx.a.schema_name, k, 1, %{
+            user_id: Ecto.UUID.generate(),
+            credential: :oidc,
+            trace_id: 12_345
+          })
+        rescue
+          _ -> :raised
+        end
+
+      assert outcome == :raised or match?({:error, :audit_failed}, outcome)
+    end
+
+    test "a holder without AuditRead gets the same body as for a nonexistent version", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+      rule = row(ctx.a, k, 1)
+
+      missing = call(:get, "/#{key()}/versions/1/audit", ctx.a, @auditor, nil)
+      assert missing.status == 404
+
+      for roles <- [@designer, ["TASK_WORKER"]] do
+        denied = call(:get, "/#{k}/versions/1/audit", ctx.a, roles, nil)
+        assert denied.status == missing.status
+        assert denied.resp_body == missing.resp_body
+      end
+
+      assert source_read_entries(ctx.a, rule.id) == []
+    end
+
+    test "another tenant's version is the same 404 for tenant A's auditor", ctx do
+      k = key()
+      create!(ctx.b, k, Ecto.UUID.generate())
+
+      foreign = call(:get, "/#{k}/versions/1/audit", ctx.a, @auditor, nil)
+      missing = call(:get, "/#{key()}/versions/1/audit", ctx.a, @auditor, nil)
+      assert foreign.status == 404
+      assert foreign.resp_body == missing.resp_body
+      assert call(:get, "/#{k}/versions/1/audit", ctx.b, @auditor, nil).status == 200
     end
   end
 

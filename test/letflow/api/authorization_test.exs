@@ -980,6 +980,7 @@ defmodule Letflow.Api.AuthorizationTest do
         {"PUT", "/script-policy/sod", :ScriptPolicyManage},
         {"GET", "/script-policy/pending-review", :ScriptPolicyRead},
         {"POST", "/script-rules/:key/versions/:version/confirm", :ScriptRulesConfirm},
+        {"GET", "/script-rules/:key/versions/:version/audit", :ScriptRulesAuditRead},
         {"PUT", "/tenants/:slug/script-policy/solo-audited", :TenantsManage},
         {"POST", "/onboarding", :TenantsManage},
         {"GET", "/onboarding", :TenantsManage},
