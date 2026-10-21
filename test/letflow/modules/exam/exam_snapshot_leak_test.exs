@@ -435,13 +435,21 @@ defmodule Letflow.Modules.Exam.ExamSnapshotLeakTest do
       path = "/api/v1/entities/records/session/#{flow.session_id}"
       stored = flow.schema |> session_values(flow.session_id) |> Map.delete("exam_snapshot")
 
-      # GH #2784: an actor holding no grant for the restricted `exam_snapshot` is refused every PUT
-      # of a `session` outright (PUT replaces `field_values` wholesale): one constant 403, so no
-      # response of any shape can carry the prior snapshot.
-      refused =
+      # GH #2812: an actor holding no grant for the restricted `exam_snapshot` may PUT a `session`
+      # that names no restricted key; the stored snapshot is kept server-side and never echoed. A
+      # stale version token is the constant 409; a body naming the snapshot is the constant 403.
+      stale =
         request(flow.tokens.admin, flow.slug, "PUT", path, %{
           "field_values" => stored,
           "expected_last_event_global_seq" => 0
+        })
+
+      assert stale.status == 409
+      assert_no_snapshot_content!(:put_ungranted_stale, stale, flow.secrets)
+
+      refused =
+        request(flow.tokens.admin, flow.slug, "PUT", path, %{
+          "field_values" => Map.put(stored, "exam_snapshot", %{"v" => 1})
         })
 
       assert refused.status == 403
