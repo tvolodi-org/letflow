@@ -186,12 +186,13 @@ defmodule Letflow.Engine.EntityWritesLockOrderTest do
     task
   end
 
-  # Polls pg_locks (<= 30 x 50 ms, under the 2 s lock_timeout) for a waiting row-lock request.
+  # Polls pg_stat_activity of this database (<= 30 x 50 ms, under the 2 s lock_timeout) for a
+  # session waiting on a lock; scoped so sibling sessions on a shared cluster are not counted.
   defp release_when_waiting(holder) do
     Enum.reduce_while(1..30, nil, fn _, _ ->
       %{rows: [[waiting]]} =
         Repo.query!(
-          "SELECT count(*) FROM pg_locks WHERE NOT granted AND locktype IN ('transactionid', 'tuple')"
+          "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
         )
 
       if waiting >= 1 do
@@ -226,7 +227,7 @@ defmodule Letflow.Engine.EntityWritesLockOrderTest do
         before = record_total(base.schema)
 
         # round 1: make the overlap deterministic. A second connection holds the first type's
-        # sequence row; both completions are started, and the holder releases only once pg_locks
+        # sequence row; both completions are started, and the holder releases only once pg_stat_activity
         # shows a waiting request (bounded poll, no busy loop).
         holder = if round == 1, do: hold_first_type_row(base), else: nil
 
