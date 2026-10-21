@@ -2547,6 +2547,7 @@ defmodule Letflow.Identity do
           | :platform_admin_token_expiry
           | :roles_not_held
           | Ecto.Changeset.t()
+          | {:audit_failed, term()}
           | {:transaction_failed, Exception.t()}
 
   @doc """
@@ -2911,7 +2912,8 @@ defmodule Letflow.Identity do
         {:ok, %{token: token}} -> {:ok, %{token: token, plaintext: plaintext}}
         {:error, :mint_checks, reason, _changes} -> {:error, reason}
         {:error, :token, %Ecto.Changeset{} = changeset, _changes} -> {:error, changeset}
-        {:error, :audit, reason, _changes} -> {:error, reason}
+        {:error, :audit, %Ecto.Changeset{} = changeset, _changes} -> {:error, changeset}
+        {:error, :audit, reason, _changes} -> {:error, {:audit_failed, reason}}
       end
     rescue
       exception -> {:error, {:transaction_failed, exception}}
@@ -3089,8 +3091,8 @@ defmodule Letflow.Identity do
   # GH 2547 (design 3.9, 6.6, SEC-A5): the tenant admin lock first (always, whatever
   # the roles), then the token row re-read FOR UPDATE, so before_state is the row as it
   # is under the lock, not the unlocked read above. A token revoked concurrently in
-  # between is returned unchanged, as the idempotent path does. Same error shapes as
-  # before: a changeset or audit failure comes back as a bare {:error, reason} (FU-2).
+  # between is returned unchanged, as the idempotent path does. A changeset stays a
+  # changeset; any other audit failure is {:audit_failed, reason} (GH 2573).
   # REQ-195's actor_id: nil remains the fallback when no audit context is passed.
   # before_state/after_state come from token_audit_state/1: no token_hash and no name
   # (INV-4), plus issuer_user_id and scope (GH 2552).

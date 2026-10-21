@@ -67,6 +67,46 @@ defmodule Letflow.Routers.Gh2573RevokeTokenErrorsTest do
     end
   end
 
+  describe "Identity.mint_token/4 (POST /tokens)" do
+    test "a non-raising audit failure is {:error, {:audit_failed, reason}} and no row is inserted",
+         %{a: a} do
+      issuer = Mint.role_holder!(a.schema_name, ["TENANT_ADMIN", "TASK_WORKER"])
+      target = Mint.role_holder!(a.schema_name, ["TASK_WORKER"])
+      before_count = Repo.aggregate(ApiToken, :count, :id, prefix: a.schema_name)
+
+      result =
+        with_renamed_schema(a.schema_name, fn renamed ->
+          Identity.mint_token(
+            issuer.id,
+            target.id,
+            %{roles: ["TASK_WORKER"], expires_at: nil},
+            prefix: renamed
+          )
+        end)
+
+      assert result == {:error, {:audit_failed, :invalid_schema_name}}
+      assert Repo.aggregate(ApiToken, :count, :id, prefix: a.schema_name) == before_count
+    end
+
+    test "render_mint_result: {:audit_failed, _} -> 500, reason not leaked", %{a: a} do
+      log =
+        capture_log(fn ->
+          conn = IdentityRouter.render_mint_result(conn(a), {:error, {:audit_failed, :secret}})
+          assert conn.status == 500
+          refute conn.resp_body =~ "secret"
+        end)
+
+      refute log =~ "CaseClauseError"
+    end
+
+    test "render_mint_result: changeset -> 422 validation failed", %{a: a} do
+      changeset = ApiToken.revoke_changeset(%ApiToken{}, %{revoked_at: "not a date"})
+      conn = IdentityRouter.render_mint_result(conn(a), {:error, changeset})
+      assert conn.status == 422
+      assert Jason.decode!(conn.resp_body)["detail"] == "validation failed"
+    end
+  end
+
   describe "DELETE /tokens/:id handler, one case per return shape" do
     test "{:ok, token} -> 200", %{a: a} do
       {:ok, revoked} = Identity.revoke_token(token!(a).id, prefix: a.schema_name)
