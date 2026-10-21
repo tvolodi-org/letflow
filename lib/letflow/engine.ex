@@ -390,7 +390,10 @@ defmodule Letflow.Engine do
       `entity_writes` runs under `SET LOCAL lock_timeout` 2 s / `statement_timeout` 5 s as the FIRST
       statements, which bound the whole transaction including these waits; a deadlock or timeout is
       reported as `entity_write_contention` (503, retryable, nothing committed). A completion
-      without lines has no timeout and surfaces a deadlock as `{:transaction_failed, _}`.
+      without lines still has no `SET LOCAL` timeout, but since GH #2823 a deadlock, lock timeout
+      or statement cancel raised from its `Repo.transaction` is reported the same way
+      (`entity_write_contention`, 503, retryable, nothing committed). Post-commit failures stay
+      `{:transaction_failed, _}`.
     * GH #2590 / REQ-501 R4b: a node that also declares `module_writes` takes, after
       `:entity_writes_started` and before any write, one `{:type_lock, type}` per type in the
       ascending union of the line types and the handlers' registered targets
