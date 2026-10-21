@@ -3032,7 +3032,9 @@ defmodule Letflow.Identity do
   later timestamp: the first revocation timestamp is the historically
   accurate one, and a second call must not erase it. Returns
   `{:error, :not_found}` if no token with that id exists in
-  `opts[:prefix]`'s schema.
+  `opts[:prefix]`'s schema. GH 2573: a changeset error comes back as `{:error, changeset}`
+  and a non-raising audit failure as `{:error, {:audit_failed, reason}}`, the write rolled
+  back; a raise is `{:error, {:transaction_failed, exception}}`.
 
   GH 2547 (design `gh2547-tenant-admin-audit-and-count.md` sections 3.9, 6.6, SEC-A5):
   the transaction first takes `lock_tenant_admins!/1` (always, whatever the roles), then
@@ -3053,6 +3055,8 @@ defmodule Letflow.Identity do
           {:ok, ApiToken.t()}
           | {:error, :not_found}
           | {:error, :last_tenant_wide_admin}
+          | {:error, Ecto.Changeset.t()}
+          | {:error, {:audit_failed, term()}}
           | {:error, {:transaction_failed, Exception.t()}}
   def revoke_token(token_id, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
@@ -3116,8 +3120,13 @@ defmodule Letflow.Identity do
 
             updated
 
+          # GH 2573: a changeset stays a changeset (422 at the router); any other reason is a
+          # non-raising audit failure, tagged like add_group_member/3 and friends (500).
+          {:error, %Ecto.Changeset{} = changeset} ->
+            Repo.rollback(changeset)
+
           {:error, reason} ->
-            Repo.rollback(reason)
+            Repo.rollback({:audit_failed, reason})
         end
     end
   end

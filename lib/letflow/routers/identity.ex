@@ -992,15 +992,26 @@ defmodule Letflow.Routers.Identity do
       if not platform_scope?(conn) and Identity.token_carries_platform_admin?(id, opts) do
         forbid_insufficient(conn)
       else
-        case Identity.revoke_token(id, audit_opts(conn, opts)) do
-          {:ok, token} -> Response.ok(conn, revoked_token_map(token))
-          {:error, :not_found} -> Response.not_found(conn)
-          # REQ-497 PR 1b N1 (Option A): the owner is the last counted admin through tokens.
-          {:error, :last_tenant_wide_admin} -> last_admin_conflict(conn)
-          {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
-        end
+        render_revoke_result(conn, Identity.revoke_token(id, audit_opts(conn, opts)))
       end
     end)
+  end
+
+  # GH 2573: one clause per return shape of Identity.revoke_token/2; no catch-all, so a new
+  # shape is a compile-visible gap in the spec, not a CaseClauseError. `@doc false` public
+  # only so the changeset shape (no HTTP trigger) is testable.
+  @doc false
+  @spec render_revoke_result(Plug.Conn.t(), term()) :: Plug.Conn.t()
+  def render_revoke_result(conn, result) do
+    case result do
+      {:ok, token} -> Response.ok(conn, revoked_token_map(token))
+      {:error, :not_found} -> Response.not_found(conn)
+      # REQ-497 PR 1b N1 (Option A): the owner is the last counted admin through tokens.
+      {:error, :last_tenant_wide_admin} -> last_admin_conflict(conn)
+      {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
+      {:error, {:audit_failed, _reason}} -> Response.internal_error(conn)
+      {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
+    end
   end
 
   # ── GET /pending-admin-grants (ISS-1030 PR 2, design 5.3) ────────────────
