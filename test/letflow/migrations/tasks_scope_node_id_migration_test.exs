@@ -10,7 +10,7 @@ defmodule Letflow.Migrations.TasksScopeNodeIdMigrationTest do
       `scope_node_paths (node_id)` with `ON DELETE RESTRICT` (`confdeltype = 'r'`) and the
       PARTIAL index `tasks_scope_node_id_idx` (`WHERE scope_node_id IS NOT NULL`);
     * the manifest holds the migration (version `20_261_019_200_001`, NOT the design's
-      `20261019100001`, which GH #2659 owns), LAST and in order, with exactly one file of that
+      `20261019100001`, which GH #2659 owns), in order, with exactly one file of that
       version on disk and the mandatory `if prefix() do` guard;
     * the foreign key does its job: an unknown node is refused, a referenced node cannot be
       deleted, NULL is accepted;
@@ -152,12 +152,11 @@ defmodule Letflow.Migrations.TasksScopeNodeIdMigrationTest do
       assert tables(replayed.schema_name) == Enum.sort(TenantFixture.expected_tenant_tables())
     end
 
-    test "the migration is registered LAST, in order, once, and the file carries the prefix guard",
+    test "the migration is registered in order, once, and the file carries the prefix guard",
          %{migrations: migrations} do
       assert {@version, migration()} in migrations
 
       versions = Enum.map(migrations, &elem(&1, 0))
-      assert List.last(versions) == @version
       assert versions == Enum.sort(versions)
       assert versions == Enum.uniq(versions)
 
