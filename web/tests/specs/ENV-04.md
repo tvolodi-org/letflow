@@ -31,9 +31,10 @@ No network calls are made; dependencies are mocked via `vi.mock`.
 | TC-ENV04-03 | `TestEnvironmentBanner` | `tenantType=null` | Component returns null; banner absent from DOM |
 | TC-ENV04-04 | `ConfirmPromoteModal` | `definitionName='Onboarding Flow'`, click Confirm | Heading and body match prescribed text exactly; `onConfirm` called once |
 | TC-ENV04-05 | `ConfirmPromoteModal` | Same props, click Cancel | `onCancel` called once; `onConfirm` not called |
-| TC-ENV04-06 | `DefinitionEditorPage` | `tenantType='test'`, `def.status='ACTIVE'`, designer role | `data-testid="promote-to-production-btn"` in DOM |
-| TC-ENV04-07 | `DefinitionEditorPage` | `tenantType='production'`, `def.status='ACTIVE'`, designer role | `promote-to-production-btn` absent from DOM |
-| TC-ENV04-07b | `DefinitionEditorPage` | `tenantType='test'`, `def.status='DRAFT'`, designer role | `promote-to-production-btn` absent from DOM |
+| TC-ENV04-06 | `DefinitionEditorPage` | `tenantType='test'`, `def.status='ACTIVE'`, platform-admin access (PLATFORM_ADMIN + DefinitionsWrite) | `data-testid="promote-to-production-btn"` in DOM |
+| TC-ENV04-06b | `DefinitionEditorPage` | `tenantType='test'`, `def.status='ACTIVE'`, designer or tenant-admin access (no PLATFORM_ADMIN) | `promote-to-production-btn` absent from DOM |
+| TC-ENV04-07 | `DefinitionEditorPage` | `tenantType='production'`, `def.status='ACTIVE'`, platform-admin access | `promote-to-production-btn` absent from DOM |
+| TC-ENV04-07b | `DefinitionEditorPage` | `tenantType='test'`, `def.status='DRAFT'`, platform-admin access | `promote-to-production-btn` absent from DOM |
 | TC-ENV04-08 | `TenantsPage` | List with one test and one production tenant | `[TEST]` badge present for test tenant, absent for production tenant |
 | TC-ENV04-09 | `InstanceBoardPage` | test tenant session, `useInstances` mocked to return one row | component renders row; `useInstances` called without `tenant_id` prop (backend-enforced isolation) |
 
@@ -41,7 +42,7 @@ No network calls are made; dependencies are mocked via `vi.mock`.
 
 ## Coverage
 
-All 10 test cases map 1-to-1 to TC-ENV04-01 through TC-ENV04-09 (TC-ENV04-07b is a sub-case of TC-ENV04-07).  
+All 11 test cases map 1-to-1 to TC-ENV04-01 through TC-ENV04-09 (TC-ENV04-06b and TC-ENV04-07b are sub-cases of TC-ENV04-06 and TC-ENV04-07).  
 Each `test "..."` block in the implementation files corresponds to exactly one row above.
 
 ---
@@ -52,6 +53,6 @@ Each `test "..."` block in the implementation files corresponds to exactly one r
 |---|---|
 | `web/src/components/layout/__tests__/TestEnvironmentBanner.test.tsx` | TC-ENV04-01, TC-ENV04-02, TC-ENV04-03 |
 | `web/src/components/ui/__tests__/ConfirmPromoteModal.test.tsx` | TC-ENV04-04, TC-ENV04-05 |
-| `web/src/pages/definitions/__tests__/DefinitionEditorPage.promote.test.tsx` | TC-ENV04-06, TC-ENV04-07, TC-ENV04-07b |
+| `web/src/pages/definitions/__tests__/DefinitionEditorPage.promote.test.tsx` | TC-ENV04-06, TC-ENV04-06b, TC-ENV04-07, TC-ENV04-07b |
 | `web/src/pages/admin/tenants/__tests__/TenantsPage.test.tsx` | TC-ENV04-08 |
 | `web/src/pages/instances/__tests__/InstanceBoardPage.tenant-isolation.test.tsx` | TC-ENV04-09 |
