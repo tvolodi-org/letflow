@@ -725,7 +725,11 @@ defmodule Letflow.TenantProvisioning do
     # GH #2535 / REQ-518 PR 2d (design C.1, AC 12): the nullable `tasks.scope_node_id` with its
     # foreign key to scope_node_paths (ON DELETE RESTRICT) and a partial index. No production writer.
     {20_261_019_200_001, Letflow.Repo.Migrations.AddScopeNodeIdToTasks,
-     "20261019200001_add_scope_node_id_to_tasks.exs"}
+     "20261019200001_add_scope_node_id_to_tasks.exs"},
+    # GH #2502: drops the partial index pending_tenant_admin_grants_open_idx, redundant with the
+    # unique email_key index because the state CHECK makes every non-NULL email_key an open row.
+    {20_261_021_000_001, Letflow.Repo.Migrations.DropPendingTenantAdminGrantsOpenIdx,
+     "20261021000001_drop_pending_tenant_admin_grants_open_idx.exs"}
   ]
 
   @doc """
@@ -786,7 +790,8 @@ defmodule Letflow.TenantProvisioning do
   `entity_record_latest` `external_ref` columns + CHECK and its partial unique index
   (`lib/letflow/design/gh2659-external-ref-idempotent-import.md` §2.1), and REQ-518 PR 2d one
   more: the nullable `tasks.scope_node_id` with its foreign key and partial index
-  (`lib/letflow/design/req518-compiler-scope-filter.md` C.1) —
+  (`lib/letflow/design/req518-compiler-scope-filter.md` C.1), and GH #2502 one more:
+  `DropPendingTenantAdminGrantsOpenIdx`, dropping a redundant partial index —
   entries in total (see `@tenant_scoped_migration_manifest` itself for the
   authoritative, up-to-date count), ordered by version. Every future tenant-scoped migration must append its
   own entry to `@tenant_scoped_migration_manifest`, in addition to following the
