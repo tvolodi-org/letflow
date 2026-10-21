@@ -13,8 +13,13 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
   The fix kills the watchdog's whole process group (`kill -- -$pid`, falling back to
   `kill $pid`) at the post-`wait` site (Step 3) and in the EXIT trap. GH #2457: on a
   git-bash host that group kill was seen to miss the sleep (orphan, PPID 1), reason
-  unexplained, so the sleep is now a tracked background child killed by its own pid from
-  the subshell's TERM trap; cleanup needs only the TERM to reach the subshell. Orphans are
+  explained below, so the sleep is now a tracked background child killed by its own pid
+  from the subshell's TERM trap; cleanup needs only the TERM to reach the subshell.
+  Root cause: the abort path signals the watchdog within milliseconds of starting it,
+  while the subshell is still forking `sleep` (slow on git-bash/Cygwin, slower under
+  load); the old subshell had no trap, died, and the sleep was left with PPID 1. The
+  trap now only records the TERM and the code after `sleep &` kills the sleep once its
+  pid is assigned, so a TERM during the fork is not lost. Orphans are
   listed with a bash `/proc` scan (git-bash's `ps` rejects `-eo args`); an unusable listing
   fails the test. Linux behaviour of the original flake is unverified.
 
@@ -476,6 +481,33 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
                "#{String.trim(File.read!(marker))}
 #{out}"
 
+      assert_no_orphan_sleep(t)
+    end)
+  end
+
+  test "a TERM arriving as the watchdog forks its sleep still kills that sleep",
+       %{tmp_dir: tmp} do
+    # GH #2457 root cause: the abort path signals the watchdog within milliseconds of its
+    # start, while the subshell is still forking `sleep`. The old trap read a pid assigned
+    # only after the fork and exited with the sleep orphaned. The `sleep` shim TERMs its
+    # parent the moment it starts. The exact interleaving (before or after `$!` is
+    # assigned) is the kernel's, so this cannot pin one order; the script now handles both,
+    # and the EXIT-trap test above is the end-to-end check under a bounded repeat run.
+    t = unique_timeout()
+
+    {status, out, _elapsed} =
+      run_script(
+        tmp,
+        [
+          {"STUB_MODE", "pass"},
+          {"STUB_FORK_TERM", "1"},
+          {"TEST_PARALLEL_PARTITION_TIMEOUT_S", "#{t}"}
+        ],
+        @prompt_ms
+      )
+
+    TestParallelCapture.with_context(tmp, out, fn ->
+      refute status == :timeout, out
       assert_no_orphan_sleep(t)
     end)
   end

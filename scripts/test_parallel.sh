@@ -531,7 +531,11 @@ cleanup_tmp_dir() {
   while [ "$_wd_polls" -lt 50 ]; do
     _wd_alive=0
     for _idx in "${!watchdog_pids[@]}"; do
-      kill -0 "${watchdog_pids[$_idx]}" 2>/dev/null && _wd_alive=1
+      # re-send TERM: the first one can be lost or leave a subshell stuck in a fork
+      if kill -0 "${watchdog_pids[$_idx]}" 2>/dev/null; then
+        _wd_alive=1
+        kill "${watchdog_pids[$_idx]}" 2>/dev/null
+      fi
     done
     [ "$_wd_alive" -eq 0 ] && break
     sleep 0.1
@@ -961,13 +965,30 @@ while [ "$i" -le "$LAST" ]; do
     # The sleep also runs as a tracked child: a TERM that reaches this subshell (group or
     # plain pid kill) kills the sleep by its own pid, so cleanup does not depend on the
     # group kill reaching the sleep, which a git-bash host was seen to miss.
-    # The trap is set before the sleep starts (guarded for an empty pid), so a TERM landing
-    # between the fork and the trap cannot kill the subshell and orphan the sleep.
+    # Root cause of GH #2457 (orphaned sleep, PPID 1): the abort path signals the watchdog
+    # within milliseconds of starting it, while the subshell may still be forking the sleep
+    # (slow on git-bash/Cygwin, slower under load). A group signal sent then does not reach
+    # the child that is not yet running, and the old subshell died with no trap, leaving the
+    # sleep behind. The trap therefore only records the TERM (and kills the sleep if its pid
+    # is already known); the code after `&` handles a TERM that landed during the fork, so
+    # the pid is never read while still unassigned and `$!` (inherited from the parent
+    # shell before the first async command) is never used.
+    _term=
     _sleep_pid=
-    trap '[ -n "$_sleep_pid" ] && kill "$_sleep_pid" 2>/dev/null; exit 0' TERM
+    trap '_term=1; [ -n "$_sleep_pid" ] && kill "$_sleep_pid" 2>/dev/null' TERM
     sleep "$partition_timeout_s" </dev/null >/dev/null 2>&1 &
     _sleep_pid=$!
-    wait "$_sleep_pid" 2>/dev/null
+    # Measured with --repeat-until-failure: the group TERM can also hit a subshell while it
+    # is itself in a fork (the group kill reaches the forkee, and the parent then blocks in
+    # fork() on git-bash), so the subshell lives on holding the pipe until a further TERM
+    # arrives. The subshell therefore forks nothing after the sleep (`wait` is a builtin),
+    # and cleanup_tmp_dir re-sends the plain TERM while it waits for the watchdogs.
+    [ -z "$_term" ] && wait "$_sleep_pid" 2>/dev/null
+    if [ -n "$_term" ]; then
+      kill "$_sleep_pid" 2>/dev/null
+      wait "$_sleep_pid" 2>/dev/null
+      exit 0
+    fi
     trap - TERM
     if kill -0 "$_watchdog_pid" 2>/dev/null; then
       echo "test_parallel: WARNING partition $i exceeded TEST_PARALLEL_PARTITION_TIMEOUT_S=${partition_timeout_s}s -- sending TERM to its process group" >&2
@@ -1000,7 +1021,7 @@ while [ "$i" -le "$LAST" ]; do
   # outlive it, holding this script's stdout/stderr pipe open for the rest
   # of partition_timeout_s (a pipe reader sees no EOF until then -- an
   # ~8-minute stall of the CI gate after the partitions finish). The plain
-  # pid kill is the fallback if the group signal is unavailable.
+  # pid kill is sent unconditionally after it (GH #2457): the group signal can miss.
   if [ -n "${watchdog_pids[$i]:-}" ]; then
     kill -- "-${watchdog_pids[$i]}" 2>/dev/null
     kill "${watchdog_pids[$i]}" 2>/dev/null
