@@ -401,8 +401,8 @@ handlers write through it with their own authority).
 - The shared 403 detail lives in one module attribute of the router; do not restate the string.
 - **Record attachment routes** (`POST`/`GET .../records/:type/:id/attachments`, `GET`/`DELETE
   .../attachments/:attachment_id`) call `RecordAccess.attachment/3` (one `TypeAccess` read; no
-  managed or field check, attachments are outside managed scope). A denied type runs the same
-  handler code with freshly generated UUIDs for the record id (and the attachment id on content
+  field check; the write routes, upload and delete, add the managed check, GH #2582). A denied
+  type runs the same handler code with freshly generated UUIDs for the record id (and the attachment id on content
   GET and delete), so it answers exactly like an absent record: upload 404, list the empty 200
   page, content GET and delete 404; nothing is stored, deleted or loaded. The substitution is
   applied after `cast_record_id/1`, so a malformed id is still the same 404.

@@ -67,8 +67,12 @@ defmodule Letflow.Routers.Entities do
   **Inheritance rule:** any future generic record write route MUST call
   `Letflow.Entities.RecordAccess.write/3` first and apply its decision as above; any future
   entity-definition write route MUST call `Letflow.Entities.ManagedTypes.check_tenant_write/2`
-  first. The four record ATTACHMENT routes use the lighter `RecordAccess.attachment/3` (one
-  TypeAccess read, no managed or field check; GH #2784 PR B): a denied type runs the same code
+  first. The list and content GET attachment routes use the lighter `RecordAccess.attachment/3`
+  (one TypeAccess read, no managed or field check; GH #2784 PR B). The upload and delete routes
+  use `RecordAccess.attachment_write/3`, which adds the managed stamp (GH #2582): a visible
+  managed type gets the constant 403 `entity_type_managed` before the record id is read, and a
+  hidden type still takes the fresh-UUID absent path. Any future attachment WRITE route MUST call
+  `attachment_write/3`. For the four routes, a denied type runs the same code
   with freshly generated UUIDs for `record_id` (and `attachment_id` on content GET and delete),
   so it answers exactly like an absent record (upload 404, list the empty 200 page, content GET
   and delete 404) and nothing persists (a denied upload still attempts its write inside a transaction that rolls back at COMMIT).
@@ -2044,11 +2048,19 @@ defmodule Letflow.Routers.Entities do
   # absent path (upload: FK failure -> 404 after the same 413/422/503 pre-checks; list: the empty
   # page; content GET and delete: `:not_found` -> 404 with no artifact bytes loaded). Substitution
   # happens AFTER `cast_record_id/1`, so a malformed id is still the same 404 as for an absent
-  # type. No managed check (attachments are outside managed scope, #2582) and no field
+  # type. The write routes also refuse a managed type (GH #2582); no field
   # restriction (an attachment is not a `field_values` document).
   @spec record_attachment_access(Plug.Conn.t(), String.t()) :: RecordAccess.attachment_decision()
   defp record_attachment_access(conn, entity_type),
     do: RecordAccess.attachment(conn.assigns.auth_context.user_id, entity_type, prefix!(conn))
+
+  # GH #2582: the WRITE routes (upload, delete) add the managed stamp; `:managed` is the same
+  # constant 403 as the record routes, decided before the record id is read.
+  @spec record_attachment_write_access(Plug.Conn.t(), String.t()) ::
+          RecordAccess.attachment_write_decision()
+  defp record_attachment_write_access(conn, entity_type),
+    do:
+      RecordAccess.attachment_write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn))
 
   defp hide_if_denied(:open, id), do: id
   defp hide_if_denied(:hidden, _id), do: Ecto.UUID.generate()
@@ -2101,8 +2113,24 @@ defmodule Letflow.Routers.Entities do
   defp handle_create_record_attachment(conn, entity_type, raw_record_id) do
     {conn, scope} = ScopeGate.scope_set(conn, :EntitiesAttachmentsManage)
     opts = conn.assigns.scoped_opts
-    access = record_attachment_access(conn, entity_type)
 
+    case record_attachment_write_access(conn, entity_type) do
+      :managed ->
+        Response.send_problem(conn, Error.entity_type_managed())
+
+      access ->
+        create_record_attachment_with_access(
+          conn,
+          entity_type,
+          raw_record_id,
+          access,
+          scope,
+          opts
+        )
+    end
+  end
+
+  defp create_record_attachment_with_access(conn, entity_type, raw_record_id, access, scope, opts) do
     # REQ-518 (2c-ii): for a scoped caller the parent gate runs BEFORE the multipart part is read,
     # so an out-of-scope and a nonexistent parent both answer 404 without examining the upload.
     with {:ok, record_id} <- cast_record_id(raw_record_id),
@@ -2384,8 +2412,29 @@ defmodule Letflow.Routers.Entities do
   defp handle_delete_record_attachment(conn, entity_type, raw_record_id, raw_attachment_id) do
     {conn, scope} = ScopeGate.scope_set(conn, :EntitiesAttachmentsManage)
     opts = conn.assigns.scoped_opts
-    access = record_attachment_access(conn, entity_type)
 
+    case record_attachment_write_access(conn, entity_type) do
+      :managed ->
+        Response.send_problem(conn, Error.entity_type_managed())
+
+      access ->
+        delete_record_attachment_with_access(
+          conn,
+          {entity_type, raw_record_id, raw_attachment_id},
+          access,
+          scope,
+          opts
+        )
+    end
+  end
+
+  defp delete_record_attachment_with_access(
+         conn,
+         {entity_type, raw_record_id, raw_attachment_id},
+         access,
+         scope,
+         opts
+       ) do
     with {:ok, record_id} <- cast_record_id(raw_record_id),
          visible? =
            parent_visible?(
