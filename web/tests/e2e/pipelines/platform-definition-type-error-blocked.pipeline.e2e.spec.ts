@@ -23,8 +23,9 @@
  *   → login as author (admin-user, PLATFORM_ADMIN — has designer access)
  *   → 01: create a DRAFT definition (API) with a declared variable schema
  *         (a money-amount field + a customer-name field) and a minimal valid
- *         graph: START -> EXCLUSIVE_GATEWAY -> two branches -> END, both
- *         gateway edges holding an initially-VALID condition
+ *         graph: START -> EXCLUSIVE_GATEWAY -> two conditional branches
+ *         (each holding an initially-VALID condition) plus an unconditional
+ *         is_default edge to its own END (CHK-24/CHK-15)
  *   → 02 (GUI): open the definition in the editor
  *   → 03 (GUI): edit edge e2's condition to reference an undeclared field
  *         close to the real declared field (Levenshtein suggestion, AC2/EO-003)
@@ -108,11 +109,13 @@ test.describe('Pipeline: platform-definition-type-error-blocked (PW-02)', () => 
               { id: 'gw', node_type: 'EXCLUSIVE_GATEWAY', label: 'Routing Decision', attributes: null },
               { id: 'branch_a', node_type: 'END', label: 'Route A', attributes: null },
               { id: 'branch_b', node_type: 'END', label: 'Route B', attributes: null },
+              { id: 'branch_default', node_type: 'END', label: 'Default Route', attributes: null },
             ],
             edges: [
               { id: 'e1', source: 'start', target: 'gw' },
               { id: 'e2', source: 'gw', target: 'branch_a', condition: 'amount > 0' },
               { id: 'e3', source: 'gw', target: 'branch_b', condition: 'amount > 0' },
+              { id: 'e4', source: 'gw', target: 'branch_default', is_default: true },
             ],
           },
           variable_schemas: [
@@ -121,8 +124,12 @@ test.describe('Pipeline: platform-definition-type-error-blocked (PW-02)', () => 
           ],
         },
       })
-      pl.gate(createResp.ok(), `definition create failed: ${createResp.status()} ${await createResp.text()}`)
-      const created = await createResp.json() as { id: string; status: string }
+      const createBody = await createResp.text()
+      // gw carries an unconditional is_default edge (e4), so CHK-24 must not fire
+      // (CHK-15 forbids a condition on the default edge, hence a separate edge).
+      pl.gate(!createBody.includes('no_default_route'), `definition create hit no_default_route: ${createBody}`)
+      pl.gate(createResp.ok(), `definition create failed: ${createResp.status()} ${createBody}`)
+      const created = JSON.parse(createBody) as { id: string; status: string }
       s.definitionId = created.id
       pl.gate(created.status === 'DRAFT', `expected DRAFT status after create, got ${created.status}`)
     })
@@ -132,7 +139,7 @@ test.describe('Pipeline: platform-definition-type-error-blocked (PW-02)', () => 
       await navigateSpa(page, `/definitions/${s.definitionId}`)
       await page.getByTestId('btn-save-definition').waitFor({ timeout: 15_000 })
       const edgeCount = await page.locator('.react-flow__edge').count()
-      pl.gate(edgeCount === 3, `expected 3 edges rendered, got ${edgeCount}`)
+      pl.gate(edgeCount === 4, `expected 4 edges rendered, got ${edgeCount}`)
 
       // Auto-layout so the two END nodes (branch_a/branch_b) aren't stacked
       // on top of each other at their default fallback position -- an
@@ -276,11 +283,13 @@ test.describe('Pipeline: platform-definition-type-error-blocked (PW-02)', () => 
               { id: 'gw', node_type: 'EXCLUSIVE_GATEWAY', label: 'Routing Decision', attributes: null },
               { id: 'branch_a', node_type: 'END', label: 'Route A', attributes: null },
               { id: 'branch_b', node_type: 'END', label: 'Route B', attributes: null },
+              { id: 'branch_default', node_type: 'END', label: 'Default Route', attributes: null },
             ],
             edges: [
               { id: 'e1', source: 'start', target: 'gw' },
               { id: 'e2', source: 'gw', target: 'branch_a', condition: 'amount > 0' },
               { id: 'e3', source: 'gw', target: 'branch_b', condition: 'amount <= 0' },
+              { id: 'e4', source: 'gw', target: 'branch_default', is_default: true },
             ],
           },
           variable_schemas: [

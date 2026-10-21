@@ -365,13 +365,14 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
     task
   end
 
-  # Polls pg_locks (bounded: <= 30 x 50 ms, under the 2 s lock_timeout) until at least `n` lock
-  # requests are waiting; returns the last observed count.
+  # Polls pg_stat_activity of this database (bounded: <= 30 x 50 ms, under the 2 s lock_timeout)
+  # until at least `n` sessions wait on a lock; returns the last observed count. Scoped to the
+  # current database so sibling sessions on a shared cluster are not counted.
   defp wait_for_blocked(n) do
     Enum.reduce_while(1..30, 0, fn _, _ ->
       %{rows: [[waiting]]} =
         Repo.query!(
-          "SELECT count(*) FROM pg_locks WHERE NOT granted AND locktype IN ('transactionid', 'tuple')"
+          "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
         )
 
       if waiting >= n do

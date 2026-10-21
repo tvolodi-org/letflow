@@ -194,6 +194,26 @@ defmodule Letflow.SchedulerFireContentionTest do
     :ok
   end
 
+  # GH #2864: these tests re-poll the same contended timer and expect it to be re-claimed at
+  # once, which is the behaviour with the postponement off.
+  defp no_contended_backoff(_context) do
+    previous = Application.get_env(:letflow, :scheduler)
+
+    Application.put_env(
+      :letflow,
+      :scheduler,
+      Keyword.put(previous || [], :contended_backoff_ms, 0)
+    )
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:letflow, :scheduler, previous),
+        else: Application.delete_env(:letflow, :scheduler)
+    end)
+
+    :ok
+  end
+
   # ---- C-L1 -------------------------------------------------------------------------------------
 
   describe "C-L1: a fire blocked on a held row times out as {:error, :contention}" do
@@ -254,6 +274,8 @@ defmodule Letflow.SchedulerFireContentionTest do
   # ---- C-L2 / C-L3 ------------------------------------------------------------------------------
 
   describe "C-L2: poll_and_fire reports contended" do
+    setup :no_contended_backoff
+
     test "counter, telemetry, warning without exception text, fires after the release", %{
       base: base
     } do
@@ -305,6 +327,8 @@ defmodule Letflow.SchedulerFireContentionTest do
   end
 
   describe "C-L3: repeated lock timeouts never exhaust the timer" do
+    setup :no_contended_backoff
+
     test "three polls, then the timer is still pending and no DLQ row exists", %{base: base} do
       x = instance!(base, timer_graph())
       timer = make_due!(base, hd(timers_of(base, x)), 10)

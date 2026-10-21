@@ -152,6 +152,12 @@ defmodule Letflow.Api.RouteScope do
       ruling: "SEC-518-R2-modules"
     },
     %{
+      route: "GET /me/access",
+      key: :MyAccessRead,
+      class: :self_service,
+      ruling: "SEC-REQ-449-access"
+    },
+    %{
       route: "GET /help/resolved",
       key: :HelpRead,
       class: :self_service,
