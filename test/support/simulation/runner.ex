@@ -173,6 +173,7 @@ defmodule Letflow.Simulation.Runner do
     `assignee_ref` when `assignee_type == "user"`.
   """
 
+  import Ecto.Query, only: [from: 2]
   import Plug.Test
   import Plug.Conn
 
@@ -401,22 +402,54 @@ defmodule Letflow.Simulation.Runner do
   # answers 400 "specify timer_id" otherwise). A scenario step may instead name the node
   # (`params: {timer_node_id: <node>}`, the same input name the narrative UAT scenarios use); the
   # Runner turns it into the pending timer's id. Any other step is untouched.
-  defp resolve_timer_node(action, %{"timer_node_id" => node_id}, scenario)
-       when is_binary(node_id) do
+  #
+  # Since REQ-494 a HUMAN_TASK node can carry a reminder and an escalation timer at once, so a node
+  # id alone may match two pending timers. The step may then add `timer_type: <type>` (e.g.
+  # "reminder" or "escalation") to pick one. There is no default: a node with several pending timers
+  # and no (or a non-selecting) `timer_type` is `{:error, {:ambiguous_timer_for_node, node_id,
+  # timer_types}}`, never a raise.
+  @doc false
+  def resolve_timer_node(action, %{"timer_node_id" => node_id} = params, scenario)
+      when is_binary(node_id) do
     with [_all, instance_id] <- Regex.run(~r{/instances/([^/]+)/advance-timer$}, action),
-         %Letflow.Scheduler.Timer{id: timer_id} <-
-           Letflow.Repo.get_by(
-             Letflow.Scheduler.Timer,
-             [instance_id: instance_id, node_id: node_id, status: "pending"],
-             prefix: tenant_prefix!(scenario)
+         {:ok, timer_id} <-
+           pick_pending_timer(
+             instance_id,
+             node_id,
+             params["timer_type"],
+             tenant_prefix!(scenario)
            ) do
       {:ok, %{"timer_id" => timer_id}}
     else
+      {:error, _reason} = error -> error
       _ -> {:error, {:no_pending_timer_for_node, node_id}}
     end
   end
 
-  defp resolve_timer_node(_action, params, _scenario), do: {:ok, params}
+  def resolve_timer_node(_action, params, _scenario), do: {:ok, params}
+
+  defp pick_pending_timer(instance_id, node_id, timer_type, prefix) do
+    pending =
+      Letflow.Repo.all(
+        from(t in Letflow.Scheduler.Timer,
+          where:
+            t.instance_id == ^instance_id and t.node_id == ^node_id and t.status == "pending",
+          order_by: t.timer_type
+        ),
+        prefix: prefix
+      )
+
+    candidates =
+      if is_binary(timer_type),
+        do: Enum.filter(pending, &(&1.timer_type == timer_type)),
+        else: pending
+
+    case candidates do
+      [%Letflow.Scheduler.Timer{id: timer_id}] -> {:ok, timer_id}
+      [] -> {:error, {:no_pending_timer_for_node, node_id}}
+      many -> {:error, {:ambiguous_timer_for_node, node_id, Enum.map(many, & &1.timer_type)}}
+    end
+  end
 
   defp resolve_actor(%{actor: actor_key}, scenario) when is_binary(actor_key) do
     case Map.fetch(scenario.actors, actor_key) do
