@@ -1683,6 +1683,119 @@ defmodule Letflow.Engine.Lua.PlatformTest do
     end
   end
 
+  describe "GH #2867: platform.emit_event payload size cap" do
+    setup do
+      %{tenant_id: tenant_id, schema_name: schema_name} = provisioned_tenant()
+      event_type = register_event_type!(tenant_id)
+      instance_id = Ecto.UUID.generate()
+      actor_id = Ecto.UUID.generate()
+
+      seed_projection!(schema_name, instance_id)
+
+      lua =
+        Platform.install(
+          Sandbox.new(),
+          Capabilities.new(["event:emit"]),
+          execution_context(%{instance_id: instance_id, prefix: schema_name, actor_id: actor_id})
+        )
+
+      %{
+        lua: lua,
+        schema_name: schema_name,
+        instance_id: instance_id,
+        event_type: event_type,
+        cap: Platform.emit_event_max_payload_bytes()
+      }
+    end
+
+    # `{"blob":""}` is 11 bytes of JSON; the blob fills the rest up to `total` bytes.
+    defp emit_blob_script(event_type, total, key) do
+      """
+      local ok, err = platform.emit_event('#{event_type}', {blob = string.rep('a', #{total - 11})}, '#{key}')
+      return ok, err and err.reason
+      """
+    end
+
+    test "an encoded payload over the cap is refused with payload_too_large and writes nothing",
+         %{
+           lua: lua,
+           schema_name: schema_name,
+           instance_id: instance_id,
+           event_type: event_type,
+           cap: cap
+         } do
+      script = emit_blob_script(event_type, cap + 1000, "idem-2867-over")
+
+      assert {[nil, "payload_too_large"], _lua} = Lua.eval!(lua, script)
+
+      assert {:error, :instance_not_found} =
+               Letflow.EventStore.read(instance_id, prefix: schema_name)
+
+      assert Letflow.Repo.aggregate(Letflow.EventStore.StoredPayload, :count, prefix: schema_name) ==
+               0
+
+      assert Letflow.Repo.aggregate(Letflow.EventStore.IdempotencyRecord, :count,
+               prefix: schema_name
+             ) == 0
+    end
+
+    test "a payload of exactly the cap is accepted", %{
+      lua: lua,
+      schema_name: schema_name,
+      instance_id: instance_id,
+      event_type: event_type,
+      cap: cap
+    } do
+      script = emit_blob_script(event_type, cap, "idem-2867-at")
+
+      assert {[true, nil], _lua} = Lua.eval!(lua, script)
+
+      assert {:ok, [event]} = Letflow.EventStore.read(instance_id, prefix: schema_name)
+      assert event.event_type == event_type
+      assert byte_size(Jason.encode!(event.payload)) == cap
+
+      assert Letflow.Repo.aggregate(Letflow.EventStore.StoredPayload, :count, prefix: schema_name) ==
+               1
+    end
+
+    test "a payload one byte over the cap is refused (strict greater-than)", %{
+      lua: lua,
+      schema_name: schema_name,
+      instance_id: instance_id,
+      event_type: event_type,
+      cap: cap
+    } do
+      script = emit_blob_script(event_type, cap + 1, "idem-2867-plus1")
+
+      assert {[nil, "payload_too_large"], _lua} = Lua.eval!(lua, script)
+
+      assert {:error, :instance_not_found} =
+               Letflow.EventStore.read(instance_id, prefix: schema_name)
+    end
+
+    test "emit_event_max_payload_bytes/0 defaults to 64 KiB and ignores invalid config" do
+      previous = Application.fetch_env(:letflow, :lua_emit_event_max_payload_bytes)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, v} -> Application.put_env(:letflow, :lua_emit_event_max_payload_bytes, v)
+          :error -> Application.delete_env(:letflow, :lua_emit_event_max_payload_bytes)
+        end
+      end)
+
+      Application.delete_env(:letflow, :lua_emit_event_max_payload_bytes)
+      assert Platform.emit_event_max_payload_bytes() == 65_536
+
+      Application.put_env(:letflow, :lua_emit_event_max_payload_bytes, 1000)
+      assert Platform.emit_event_max_payload_bytes() == 1000
+
+      for bad <- [0, -5, "big", nil, 1.5] do
+        Application.put_env(:letflow, :lua_emit_event_max_payload_bytes, bad)
+        assert Platform.emit_event_max_payload_bytes() == 65_536
+      end
+    end
+  end
+
   describe "REQ-160: platform.emit_event -- missing execution context fields (AC5-adjacent)" do
     test "nil actor_id (populated context otherwise) returns no_execution_context, no EventStore call attempted" do
       %{schema_name: schema_name} = provisioned_tenant()
