@@ -115,7 +115,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesDispatcherTest do
     assert [entry] = Fx.dlq_entries(ctx.schema)
     assert entry.error_detail["code"] == "validation_failed"
     refute inspect(entry) =~ "L1"
-    assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == "advanced"
+    assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == :advanced
   end
 
   # GH #2587 PR C1 (fence-open condition 2, design D-C.8 d): the residual. When the ERROR landing
@@ -144,7 +144,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesDispatcherTest do
     assert Fx.all_records(ctx.schema) == []
     assert Fx.dlq_entries(ctx.schema) == []
     assert Fx.projection!(ctx.schema, ctx.instance_id).status == :active
-    assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == "advanced"
+    assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == :advanced
     refute "SERVICE_TASK_COMPLETED" in Fx.instance_event_types(ctx.schema, ctx.instance_id)
 
     # the engine logs the landing failure and the dispatcher logs + audits it, tags only

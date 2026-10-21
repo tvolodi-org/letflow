@@ -1170,7 +1170,7 @@ defmodule Letflow.Simulation.Req208MeridianTest do
                "(ISS-0974's fix) rather than failing the Ecto.UUID cast as it did before"
 
       assert dispatch.node_id == "create-facility"
-      assert dispatch.status == "pending"
+      assert dispatch.status == :pending
       assert dispatch.instance_id == instance_id
       assert {:ok, _} = Ecto.UUID.cast(dispatch.token_id)
     end
@@ -1522,7 +1522,7 @@ defmodule Letflow.Simulation.Req208MeridianTest do
                |> Ecto.Query.where([d], d.instance_id == ^instance_id)
                |> Repo.all(prefix: schema_name)
 
-      assert dispatch.status == "pending"
+      assert dispatch.status == :pending
       assert dispatch.node_id == "create-facility"
 
       # REQ-214's already-shipped transport call resolves it -- a real 2xx

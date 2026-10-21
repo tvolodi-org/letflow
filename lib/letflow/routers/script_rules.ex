@@ -260,7 +260,7 @@ defmodule Letflow.Routers.ScriptRules do
     %{
       "key" => rule.key,
       "version" => rule.version,
-      "status" => rule.status,
+      "status" => Atom.to_string(rule.status),
       "hook_kind" => rule.hook_kind,
       "sha256" => rule.sha256,
       "publisher_id" => rule.publisher_id,
