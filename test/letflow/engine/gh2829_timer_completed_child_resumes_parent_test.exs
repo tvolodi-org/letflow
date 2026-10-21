@@ -361,7 +361,7 @@ defmodule Letflow.Engine.Gh2829TimerCompletedChildResumesParentTest do
       assert Fx.projection!(base.schema, child_id).status == :completed
     end
 
-    test "two sibling children completing by timer both succeed", %{base: base} do
+    test "two concurrent completing fires of different parents both succeed", %{base: base} do
       c_def = activate!(base, child_graph())
 
       pairs =
