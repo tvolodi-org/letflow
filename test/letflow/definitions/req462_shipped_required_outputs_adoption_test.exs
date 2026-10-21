@@ -48,12 +48,12 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
     },
     vortex_release: {
       "vortex_production_order_release_process_definition.json",
-      "1.7",
+      "1.8",
       %{
         "capacity-review" => ["capacity_decision"],
         "escalate-to-ceo" => ["capacity_decision"],
         "budget-approval" => ["budget_decision"],
-        "escalate-budget-approval-to-ceo" => ["budget_decision"]
+        "escalate-budget-approval-to-finance-director" => ["budget_decision"]
       }
     },
     vortex_deviation: {
@@ -79,7 +79,7 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
     {:vortex_release, "capacity-review", "capacity_decision"},
     {:vortex_release, "escalate-to-ceo", "capacity_decision"},
     {:vortex_release, "budget-approval", "budget_decision"},
-    {:vortex_release, "escalate-budget-approval-to-ceo", "budget_decision"},
+    {:vortex_release, "escalate-budget-approval-to-finance-director", "budget_decision"},
     {:vortex_deviation, "severity-classification", "severity"},
     {:vortex_deviation, "escalate-severity-classification-to-ceo", "severity"}
   ]
@@ -316,7 +316,7 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
   # --- (4) versions ----------------------------------------------------------------------------------
 
   describe "versions" do
-    test "swiftroute 1.7, meridian 1.16, vortex release 1.7, vortex deviation 1.7" do
+    test "swiftroute 1.7, meridian 1.16, vortex release 1.8, vortex deviation 1.7" do
       for {name, {_file, version, _adopted}} <- @definitions do
         assert doc!(name)["version"] == version, "#{name} version"
       end

@@ -38,7 +38,7 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
 
   # Per definition: where it lives, the END nodes a stalled path may close at, the node ids no
   # timeout path may ever visit, and the nodes that fail closed DIRECTLY (no higher-role task).
-  @order_direct ["escalate-to-ceo", "escalate-budget-approval-to-ceo"]
+  @order_direct ["escalate-to-ceo", "escalate-budget-approval-to-finance-director"]
   @order_forbidden ["assign-line", "notify-planner", "end-released"]
   @deviation_direct ["escalate-severity-classification-to-ceo"]
   @deviation_forbidden [
@@ -292,8 +292,10 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
       expected = %{
         "capacity-review" => {"PT4H", "role-ceo", "escalate-to-ceo"},
         "escalate-to-ceo" => {"PT4H", "role-ceo", "auto-reject-order"},
-        "budget-approval" => {"P2D", "role-ceo", "escalate-budget-approval-to-ceo"},
-        "escalate-budget-approval-to-ceo" => {"P2D", "role-ceo", "auto-reject-order"}
+        "budget-approval" =>
+          {"P2D", "role-finance-director", "escalate-budget-approval-to-finance-director"},
+        "escalate-budget-approval-to-finance-director" =>
+          {"P2D", "role-finance-director", "auto-reject-order"}
       }
 
       for {id, {dur, role, target}} <- expected do
@@ -304,7 +306,10 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
 
       assert attrs(node(d, "capacity-review"))["role"] == "role-production-manager"
       assert attrs(node(d, "budget-approval"))["role"] == "role-controller"
-      assert attrs(node(d, "escalate-budget-approval-to-ceo"))["role"] == "role-ceo"
+
+      assert attrs(node(d, "escalate-budget-approval-to-finance-director"))["role"] ==
+               "role-finance-director"
+
       # the stalled escalations reject; neither the CEO level nor the stall can assign a line
       assert [%{"target" => "end-rejected"}] = edges_from(d, "auto-reject-order")
     end
@@ -320,7 +325,10 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
       end
 
       assert conditions.("escalate-to-ceo") == conditions.("capacity-review")
-      assert conditions.("escalate-budget-approval-to-ceo") == conditions.("budget-approval")
+
+      assert conditions.("escalate-budget-approval-to-finance-director") ==
+               conditions.("budget-approval")
+
       assert conditions.("budget-approval") != []
 
       # an explicit approve by the CEO level lands exactly where the original's approve does
@@ -329,13 +337,13 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
       end
 
       assert target_of.(
-               "escalate-budget-approval-to-ceo",
+               "escalate-budget-approval-to-finance-director",
                "variables.budget_decision == 'approve'"
              ) ==
                target_of.("budget-approval", "variables.budget_decision == 'approve'")
 
       assert target_of.(
-               "escalate-budget-approval-to-ceo",
+               "escalate-budget-approval-to-finance-director",
                "variables.budget_decision == 'reject'"
              ) ==
                ["auto-reject-order"]
@@ -486,13 +494,16 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
 
     test "retargeting a stalled escalation to a release path, or the wrong escalation_role, is detected" do
       d = load(Enum.at(@defs, 0))
-      assert {:end, "end-rejected", clean} = walk(d, "escalate-budget-approval-to-ceo")
+
+      assert {:end, "end-rejected", clean} =
+               walk(d, "escalate-budget-approval-to-finance-director")
+
       refute "assign-line" in clean
 
       bad_target =
         update_in(d, ["graph", "edges"], fn es ->
           Enum.map(es, fn
-            %{"id" => "timeout-escalate-budget-approval-to-ceo"} = e ->
+            %{"id" => "timeout-escalate-budget-approval-to-finance-director"} = e ->
               %{e | "target" => "assign-line"}
 
             e ->
@@ -500,7 +511,9 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
           end)
         end)
 
-      assert {:end, "end-released", visited} = walk(bad_target, "escalate-budget-approval-to-ceo")
+      assert {:end, "end-released", visited} =
+               walk(bad_target, "escalate-budget-approval-to-finance-director")
+
       assert "assign-line" in visited
 
       wrong_role =
