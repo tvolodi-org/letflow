@@ -1,0 +1,125 @@
+# Authored by BA-VORTEX (GH #2330, process-audit PA-VORTEX-001, checklist D2).
+# Written against test/fixtures/qa/vortex_supplier_quality_deviation_process_definition.json on main.
+# Covers the human task escalate-severity-classification-to-ceo (role-ceo); first level
+# severity-classification (PT4H). The vortex budget-approval escalation is NOT covered here:
+# REQ-471 / GH #2479 owns that path.
+# Timers are forced with POST /api/v1/instances/{instance_id}/advance-timer (ISS-0389): the step input
+# advance_timer_node names the node whose timer UAT-RUNNER advances. If the timer is not armed on that node the
+# scenario is BLOCKED there, not passed.
+---
+id: vortex-supplier-quality-deviation-ceo-escalation
+company_id: vortex
+process_id: proc-vortex-supplier-quality-deviation
+title: An unclassified supplier deviation is escalated to the CEO, and when the CEO stays silent it is treated as critical
+version: "1.0"
+tags: [escalation, timeout, fail_closed]
+
+description: >
+  A quality engineer logs a supplier deviation and the batch is quarantined. The quality manager
+  does not classify the severity, so the timer fires and the classification moves to the CEO. The
+  CEO does not classify it either. The CEO's escalation timer fires and the process defaults the
+  severity to critical (fail-closed), starts the 8D corrective action, and the deviation is closed
+  once the procurement manager completes it. The batch is never released on a stalled
+  classification.
+
+actors:
+  quality_engineer: actor-vortex-nina
+  quality_manager: actor-vortex-karl
+  ceo: actor-vortex-dirk
+  procurement_manager: actor-vortex-felix
+
+preconditions:
+  - description: Supplier quality deviation process definition is active
+    check: process_definition_active
+  - description: No open deviation instances for Vortex
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: quality_engineer
+    action: >
+      Logs a quality deviation for defective parts from supplier VX-442, part number PN-8831,
+      batch B-2026-07, quantity affected 80 units
+    via: api
+    input:
+      deviation_id: sim-dev-esc-001
+      supplier_id: VX-442
+      part_number: PN-8831
+      batch_ref: B-2026-07
+      quantity_affected: 80
+      defect_description: "Dimensional drift outside tolerance"
+      reporter_actor_id: actor-vortex-nina
+    produces:
+      instance_id: "the process instance ID for this deviation"
+
+  - step: 2
+    actor: quality_manager
+    action: >
+      Does not classify the deviation. The task stays open until its time limit is reached.
+    via: api
+    note: >
+      No action is taken on purpose. UAT-RUNNER advances the severity-classification timer with
+      advance-timer rather than waiting 4 hours.
+    input:
+      advance_timer_node: severity-classification
+
+  - step: 3
+    actor: ceo
+    action: >
+      Receives the escalated classification and does not act. The task stays open until its
+      escalation time limit is reached.
+    via: api
+    note: >
+      No action is taken on purpose. UAT-RUNNER advances the escalation timer of
+      escalate-severity-classification-to-ceo with advance-timer rather than waiting a further
+      4 hours.
+    input:
+      advance_timer_node: escalate-severity-classification-to-ceo
+
+  - step: 4
+    actor: procurement_manager
+    action: >
+      As the 8D corrective action was started by the default critical severity, completes it
+    via: api
+    input:
+      corrective_action_result: completed
+      resolution_status: closed
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      When the quality manager does not classify, the classification is escalated to the CEO and
+      the batch stays quarantined
+    verification:
+      method: task_assigned
+      detail: >
+        after advancing severity-classification: task 'escalate-severity-classification-to-ceo'
+        assigned to role-ceo (actor-vortex-dirk); 'severity-classification' no longer open;
+        release-quarantine not executed
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An unclassified deviation stalls and the suspect batch is neither escalated nor held.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      When the CEO does not classify either, the severity defaults to critical, the 8D corrective
+      action starts and the deviation closes
+    verification:
+      method: instance_state
+      detail: >
+        after advancing escalate-severity-classification-to-ceo: default-to-critical executed
+        (severity == 'critical'), corrective-action-subprocess started and assigned to
+        role-procurement-manager, final instance status == COMPLETED, end node is 'end-closed',
+        release-quarantine not executed
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A stalled classification could downgrade a quality deviation or release a suspect batch
+        (ISO 9001).
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel instance sim-dev-esc-001 if not already completed
