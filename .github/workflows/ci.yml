@@ -154,7 +154,8 @@ name: CI
 # Q-1037 amendment: that reasoning governs the REQUIRED contexts. The sharded backend's
 # NON-required legs (`backend_static`, `backend_shard`) use job-level path-filter `if:`s
 # (skipped on docs-only changes), and the required aggregator `backend` uses `always()`
-# on purpose, so it is never skipped; see item 4 above. `frontend`/`mobile` are unchanged.
+# on purpose, so it is never skipped; see item 4 above. GH #2412: `frontend`/`mobile` are now
+# also skipped at job level on a `false` filter (the aggregator does not depend on them).
 on:
   push:
     branches: [main]
@@ -789,7 +790,12 @@ jobs:
     timeout-minutes: 30
     needs: changes
     # NOT `always()` (unlike the aggregator `backend`, which needs it; see its note).
-    if: ${{ !cancelled() }}
+    # GH #2412: skipped at JOB level when the path filter says `false` (docs-only PR), so no
+    # runner is started. GitHub reports a job skipped by its own `if:` as a passing check
+    # under the same name, so the required context is satisfied. `!cancelled()` keeps the
+    # fail-open rule: a failed `changes` job leaves the output empty (!= 'false'), so the
+    # job runs; a cancelled run still stops. A failed or cancelled gate stays red.
+    if: ${{ !cancelled() && needs.changes.outputs.frontend != 'false' }}
     defaults:
       run:
         working-directory: web
@@ -820,6 +826,10 @@ jobs:
   # (lib/letflow/design/iss0591-iss0592-ci-dedup-path-filter.md) even though this job is
   # NOT (yet) a required-status-check context.
   #
+  # GH #2412 supersedes the "always runs" wording below: the job is now skipped at job level on a
+  # `false` mobile filter (a skipped job reports as passing, so a future required context would
+  # not be missing). The text below is the pre-#2412 reasoning.
+  #
   # OPEN QUESTION (not resolved by this requirement): whether "Mobile gate (flutter
   # analyze + test + build)" becomes a third required status-check context on `main` per
   # docs/migration/decisions/0018-branch-protection-posture.md. That is a 0018 amendment
@@ -838,7 +848,8 @@ jobs:
     # the ISS-0591/ISS-0592 design doc's job-block note): `!cancelled()` keeps this job
     # running when `changes` merely *fails* (fail open), while still letting a genuinely
     # cancelled/superseded run (this workflow's own `cancel-in-progress`) actually stop.
-    if: ${{ !cancelled() }}
+    # GH #2412: also skipped at job level when the mobile filter is `false` (see `frontend`).
+    if: ${{ !cancelled() && needs.changes.outputs.mobile != 'false' }}
     defaults:
       run:
         working-directory: apps/mobile
