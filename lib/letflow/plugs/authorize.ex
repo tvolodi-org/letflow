@@ -107,6 +107,18 @@ defmodule Letflow.Plugs.Authorize do
   alias Letflow.Api.Response
   alias Letflow.PlatformTenant
 
+  # GH 2548: routes whose coarse 403 would reveal that a resource exists (the caller's role
+  # decides, the resource does not) answer the plain 404 of a missing resource instead (INV-5).
+  # Scope.Enforce refusals stay 403: they reach only callers who already hold the permission and
+  # depend on the caller's grant, never on the resource.
+  @concealed_keys [:ScriptRulesAuditRead]
+
+  defp deny(conn, policy_key) when policy_key in @concealed_keys,
+    do: conn |> Response.not_found() |> halt()
+
+  defp deny(conn, _policy_key),
+    do: conn |> Response.forbidden("insufficient permissions") |> halt()
+
   @impl Plug
   def init(opts), do: opts
 
@@ -140,7 +152,7 @@ defmodule Letflow.Plugs.Authorize do
         case decision.kind do
           :Deny403 ->
             AuthzDenyLog.log_denial(conn, ctx, policy_key)
-            conn |> Response.forbidden("insufficient permissions") |> halt()
+            deny(conn, policy_key)
 
           _allow_or_allow_with_row_filter ->
             {:ok, opts} = ok

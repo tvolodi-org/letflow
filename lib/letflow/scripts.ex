@@ -121,6 +121,30 @@ defmodule Letflow.Scripts do
     end
   end
 
+  @doc """
+  GH 2548 (decision 0053 D9): the auditor source read. Returns the version like `get/3`, but
+  writes a `script_rule.source_read` audit entry first (actor, key, version, sha256, credential
+  kind, trace id; never source, manifest, test cases or contributors). If the entry cannot be
+  written the rule is not returned (`:audit_failed`, fail closed). Read-only otherwise.
+  """
+  @spec audit_read(String.t(), term(), term(), actor()) ::
+          {:ok, ScriptRule.t()} | {:error, :not_found | :audit_failed}
+  def audit_read(prefix, key, version, actor) do
+    with {:ok, rule} <- get(prefix, key, version) do
+      credential = Map.get(actor, :credential)
+      extra = %{"credential" => credential && to_string(credential)}
+
+      case Audit.insert_entry(
+             Repo,
+             audit_attrs(rule, "script_rule.source_read", nil, extra, actor),
+             prefix
+           ) do
+        {:ok, _entry} -> {:ok, rule}
+        {:error, _reason} -> {:error, :audit_failed}
+      end
+    end
+  end
+
   # ── drafts (section 6.2) ───────────────────────────────────────────────────
 
   @doc "Creates draft `max(version) + 1` of `key` (discarded versions included)."
@@ -869,7 +893,7 @@ defmodule Letflow.Scripts do
       resource_id: rule.id,
       before_state: before_extra && Map.merge(base, before_extra),
       after_state: Map.merge(base, after_extra || %{}),
-      trace_id: nil
+      trace_id: Map.get(actor, :trace_id)
     }
   end
 
