@@ -188,7 +188,7 @@ defmodule Letflow.ServiceCatalog.EndpointUrlDbGuardParityTest do
       end
     end
 
-    property "Elixir verdict equals DB verdict over generated placeholder-like templates" do
+    test "Elixir verdict equals DB verdict over generated placeholder-like templates" do
       pattern = live_pattern()
 
       ws_chars = [?\s, ?\t, ?\n, 11, 12, ?\r, 0x2003]

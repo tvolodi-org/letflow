@@ -127,6 +127,8 @@ defmodule Letflow.Modules.Exam.Router do
   alias Letflow.Api.Response
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
+  alias Letflow.Entities.Definitions
+  alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.Exam.AntiCheat
   alias Letflow.Modules.Exam.Certificate
@@ -409,16 +411,30 @@ defmodule Letflow.Modules.Exam.Router do
       {:ok, page_size} ->
         # scope-all: exam routes are :tenant_wide until reclassified (walk guard :exam_route_reclassified)
         opts = [cursor: Map.get(query, "cursor"), page_size: page_size, scope: :all]
-        render_list_available_exams(conn, Session.list_available_exams(prefix, opts))
+
+        render_list_available_exams(
+          conn,
+          Session.list_available_exams(prefix, opts),
+          prefix
+        )
 
       {:error, :invalid_page_size} ->
         Response.bad_request(conn, "invalid page_size")
     end
   end
 
-  defp render_list_available_exams(conn, {:ok, %{items: items, next_cursor: next_cursor}}) do
+  defp render_list_available_exams(
+         conn,
+         {:ok, %{items: items, next_cursor: next_cursor}},
+         prefix
+       ) do
+    # `exam` is tenant-extensible: a tenant may add a decimal_strict field
+    # (decision 0060), which must be a string on the wire exactly as on the
+    # entities router. `%{}` (the pack default) is a no-op.
+    specs = Definitions.strict_specs("exam", prefix)
+
     Response.ok(conn, %{
-      "items" => Enum.map(items, &exam_row_json/1),
+      "items" => Enum.map(items, &exam_row_json(&1, specs)),
       "next_cursor" => next_cursor
     })
   end
@@ -431,19 +447,19 @@ defmodule Letflow.Modules.Exam.Router do
   # request can actually surface are handled explicitly; anything else logs
   # and falls through to a detail-free 500, same as every other unexpected
   # branch in this router.
-  defp render_list_available_exams(conn, {:error, :page_size_too_large}),
+  defp render_list_available_exams(conn, {:error, :page_size_too_large}, _prefix),
     do: Response.bad_request(conn, "page_size out of range")
 
-  defp render_list_available_exams(conn, {:error, :invalid_cursor}),
+  defp render_list_available_exams(conn, {:error, :invalid_cursor}, _prefix),
     do: Response.bad_request(conn, "invalid cursor")
 
-  defp render_list_available_exams(conn, {:error, :wrong_endpoint}),
+  defp render_list_available_exams(conn, {:error, :wrong_endpoint}, _prefix),
     do: Response.bad_request(conn, "cursor is not valid for this endpoint")
 
-  defp render_list_available_exams(conn, {:error, :resume_key_arity_mismatch}),
+  defp render_list_available_exams(conn, {:error, :resume_key_arity_mismatch}, _prefix),
     do: Response.bad_request(conn, "cursor does not match this request's sort clause")
 
-  defp render_list_available_exams(conn, {:error, reason}) do
+  defp render_list_available_exams(conn, {:error, reason}, _prefix) do
     Logger.warning("available-exams list failed: #{inspect(reason)}")
     Response.internal_error(conn)
   end
@@ -1006,20 +1022,20 @@ defmodule Letflow.Modules.Exam.Router do
   # or a promoted plain-map `entity_row()`, depending on whether "exam" has
   # a per-type table today -- both clauses are needed for that reason, not
   # for defensiveness.
-  defp exam_row_json(%Latest{} = record) do
+  defp exam_row_json(%Latest{} = record, specs) do
     %{
       "record_id" => record.record_id,
-      "field_values" => record.field_values,
+      "field_values" => Decimals.render_field_values(record.field_values, specs),
       "deleted" => record.deleted,
       "entity_def_version" => encode_entity_def_version(record.entity_def_version),
       "last_event_global_seq" => record.last_event_global_seq
     }
   end
 
-  defp exam_row_json(%{field_values: _field_values} = entity_row) do
+  defp exam_row_json(%{field_values: _field_values} = entity_row, specs) do
     %{
       "record_id" => entity_row.record_id,
-      "field_values" => entity_row.field_values,
+      "field_values" => Decimals.render_field_values(entity_row.field_values, specs),
       "deleted" => entity_row.deleted,
       "entity_def_version" => encode_entity_def_version(entity_row.entity_def_version),
       "last_event_global_seq" => entity_row.last_event_global_seq

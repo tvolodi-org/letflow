@@ -89,7 +89,7 @@ defmodule Letflow.IdempotencyTest do
       end
     end
 
-    property "a client key never starts with a server or script family" do
+    test "a client key never starts with a server or script family" do
       check all(
               route <- member_of([:rec, :inst_start, :inst_cancel, :inst_rebind]),
               # 40 codepoints <= 160 bytes, inside every route's raw_max/1.
