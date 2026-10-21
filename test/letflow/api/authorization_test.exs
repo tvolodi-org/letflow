@@ -70,6 +70,7 @@ defmodule Letflow.Api.AuthorizationTest do
       :MembershipsRead,
       :ModulesManage,
       :MyModulesRead,
+      :MyAccessRead,
       :EntitiesRestrictionsManage,
       :PlatformServicesManage,
       :TenantSettingsManage,
@@ -463,7 +464,8 @@ defmodule Letflow.Api.AuthorizationTest do
           40 => "forty",
           41 => "forty-one",
           42 => "forty-two",
-          43 => "forty-three"
+          43 => "forty-three",
+          44 => "forty-four"
         }
         |> Map.get(actual_count)
 
@@ -1049,7 +1051,8 @@ defmodule Letflow.Api.AuthorizationTest do
           40 => "forty",
           41 => "forty-one",
           42 => "forty-two",
-          43 => "forty-three"
+          43 => "forty-three",
+          44 => "forty-four"
         }
         |> Map.get(actual_count)
 
@@ -1542,7 +1545,8 @@ defmodule Letflow.Api.AuthorizationTest do
           40 => "forty",
           41 => "forty-one",
           42 => "forty-two",
-          43 => "forty-three"
+          43 => "forty-three",
+          44 => "forty-four"
         }
         |> Map.get(actual_count)
 
@@ -2044,6 +2048,40 @@ defmodule Letflow.Api.AuthorizationTest do
     end
   end
 
+  describe "REQ-449 — :MyAccessRead grant and me/access policy" do
+    test "role_allows?(role, :MyAccessRead) is true for every role, CANDIDATE included" do
+      for role <- Authorization.roles() do
+        assert Authorization.role_allows?(role, :MyAccessRead),
+               "expected #{inspect(role)} to hold :MyAccessRead"
+
+        assert Authorization.role_allows_without_module_grants?(role, :MyAccessRead)
+      end
+    end
+
+    test "GET /me/access resolves to :MyAccessRead, a tenant-scope core permission" do
+      assert Authorization.endpoint_policy_key("GET", "/me/access") == :MyAccessRead
+      assert Authorization.required_permission(:MyAccessRead) == :MyAccessRead
+      assert Authorization.permission_scope(:MyAccessRead) == :tenant
+      assert :MyAccessRead in Authorization.core_permissions()
+    end
+
+    test "evaluate_access/2 allows :MyAccessRead for a caller with no effective roles" do
+      ctx = %Authorization.AccessContext{user_id: "u", roles: [], platform_tenant?: false}
+      assert Authorization.evaluate_access(ctx, :MyAccessRead).kind == :Allow
+    end
+
+    test "the grant is a role-agnostic clause: no per-role clause names :MyAccessRead" do
+      source = File.read!(Path.expand("../../../lib/letflow/api/authorization.ex", __DIR__))
+
+      per_role =
+        source
+        |> String.split(~r/\R/)
+        |> Enum.filter(&(&1 =~ "def role_allows?(:" and &1 =~ ":MyAccessRead"))
+
+      assert per_role == []
+    end
+  end
+
   describe "REQ-403 — :MyModulesRead grant and me/modules policy" do
     test "role_allows?(role, :MyModulesRead) is true for every role" do
       for role <- Authorization.roles() do
@@ -2343,6 +2381,7 @@ defmodule Letflow.Api.AuthorizationTest do
                  [
                    :ModulesManage,
                    :MyModulesRead,
+                   :MyAccessRead,
                    :EntitiesRestrictionsManage,
                    # ISS-0993: appended core permissions
                    :PlatformServicesManage,
@@ -2394,7 +2433,7 @@ defmodule Letflow.Api.AuthorizationTest do
   # EntitiesAggregate, AttachmentsRead, EntitiesDefinitionsRead).
   # ==========================================================================
 
-  describe "ISS-0646 — CANDIDATE denied every permission outside its seven grants" do
+  describe "ISS-0646 — CANDIDATE denied every permission outside its eight grants" do
     @candidate_permissions [
       :ExamSessionStart,
       :ExamSessionRead,
@@ -2406,13 +2445,15 @@ defmodule Letflow.Api.AuthorizationTest do
       # decided by ORCH 2026-09-24, granted via the role-agnostic
       # `def role_allows?(_role, :MyModulesRead), do: true` clause (never a
       # CANDIDATE-specific one).
-      :MyModulesRead
+      :MyModulesRead,
+      # REQ-449 — second role-agnostic grant, same mechanism.
+      :MyAccessRead
     ]
 
-    test "role_allows?/2 grants CANDIDATE exactly its seven permissions, denying every other live permission" do
+    test "role_allows?/2 grants CANDIDATE exactly its eight permissions, denying every other live permission" do
       all_permissions = Authorization.permissions()
 
-      # Sanity: the seven atoms are themselves real, live permissions -- if
+      # Sanity: the eight atoms are themselves real, live permissions -- if
       # this ever failed, the denial loop below would be vacuously true for
       # them.
       for permission <- @candidate_permissions do
@@ -2426,10 +2467,10 @@ defmodule Letflow.Api.AuthorizationTest do
 
         assert actual == expected,
                "role_allows?(:CANDIDATE, #{inspect(permission)}) returned #{inspect(actual)}, " <>
-                 "expected #{inspect(expected)} -- CANDIDATE must hold exactly its seven " <>
-                 "ExamSession*/ExamCertificateIssue/MyModulesRead permissions and nothing else " <>
+                 "expected #{inspect(expected)} -- CANDIDATE must hold exactly its eight " <>
+                 "ExamSession*/ExamCertificateIssue/MyModulesRead/MyAccessRead permissions and nothing else " <>
                  "(ISS-0646, decision 0013 addendum; REQ-355 added :ExamCertificateIssue, " <>
-                 "REQ-403 added :MyModulesRead to this set)"
+                 "REQ-403 added :MyModulesRead, REQ-449 added :MyAccessRead to this set)"
       end
     end
 

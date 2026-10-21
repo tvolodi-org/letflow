@@ -158,7 +158,7 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
           &(String.starts_with?(&1.path, "/me") or String.starts_with?(&1.path, "/help"))
         )
 
-      assert length(self_service) == 3
+      assert length(self_service) == 4
       assert Enum.all?(self_service, &(&1.class == :self_service and &1.source == :declared))
       assert Enum.all?(RouteScope.self_service_routes(), &is_binary(&1.ruling))
     end

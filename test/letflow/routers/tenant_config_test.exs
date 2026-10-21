@@ -155,6 +155,90 @@ defmodule Letflow.Routers.TenantConfigTest do
   end
 
   # ═══════════════════════════════════════════════════════════════════════════
+  # GH #2936 — a normal page load (?host= or no parameter) names the default
+  # realm; it must carry that realm's tenant's saved branding.
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  describe "GH #2936: the host/no-parameter branch returns the default realm's own saved branding" do
+    defp get_config_by_host(host),
+      do: get_config_path("/api/tenant-config?host=#{URI.encode_www_form(host)}")
+
+    defp get_config_path(path) do
+      conn = call(conn(:get, path))
+      {conn, Jason.decode!(conn.resp_body)}
+    end
+
+    defp save_default_tenant_colour!(colour) do
+      assert {:ok, _} =
+               Identity.update_tenant_settings("bpm-default", %{
+                 "settings" => %{"brand_colors" => %{"primary" => colour}}
+               })
+    end
+
+    test "?host= and no parameter return the saved colour of the default tenant" do
+      save_default_tenant_colour!("#1864ab")
+
+      {conn_host, body_host} = get_config_by_host("qa.example.invalid")
+      {conn_none, body_none} = get_config()
+
+      assert conn_host.status == 200 and conn_none.status == 200
+      assert body_host["branding"]["brand_colors"] == %{"primary" => "#1864ab"}
+      assert body_none["branding"]["brand_colors"] == %{"primary" => "#1864ab"}
+      assert body_host["oidc_authority"] =~ "/realms/bpm-default"
+      assert Map.keys(body_host) |> Enum.sort() == @expected_keys
+    end
+
+    test "an unknown ?realm= slug falls through to the same answer as no parameter" do
+      save_default_tenant_colour!("#1864ab")
+
+      {_, body_unknown} = get_config(unique_slug("gh2936-unknown"))
+      {_, body_none} = get_config()
+
+      assert body_unknown == body_none
+    end
+
+    test "cross-tenant: another tenant's saved branding is not exposed through the host branch" do
+      other =
+        insert_tenant!(%{
+          slug: unique_slug("gh2936-other"),
+          display_name: "GH 2936 Other Tenant",
+          idp_realm_id: unique_realm("gh2936-other")
+        })
+
+      assert {:ok, _} =
+               Identity.update_tenant_settings(other.slug, %{
+                 "settings" => %{
+                   "app_name" => "Other Co",
+                   "brand_colors" => %{"primary" => "#c92a2a"}
+                 }
+               })
+
+      {_, body_host} = get_config_by_host("qa.example.invalid")
+      {_, body_none} = get_config()
+
+      for body <- [body_host, body_none] do
+        refute body["branding"]["app_name"] == "Other Co"
+        refute body["branding"]["brand_colors"] == %{"primary" => "#c92a2a"}
+        refute body["oidc_authority"] =~ other.idp_realm_id
+      end
+
+      # the other tenant's branding is still reachable only through its own slug
+      {_, body_own} = get_config(other.slug)
+      assert body_own["branding"]["app_name"] == "Other Co"
+    end
+
+    test "default tenant with no saved settings still answers the platform default branding" do
+      {_, body} = get_config_by_host("qa.example.invalid")
+
+      assert body["branding"] == %{
+               "app_name" => @default_app_name,
+               "logo_url" => @default_logo_url,
+               "brand_colors" => @default_brand_colors
+             }
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # AC3 — a tenant WITH stored branding gets its own values (per-sub-key
   # fallback), a tenant WITHOUT gets platform defaults -- proves the store is
   # actually read

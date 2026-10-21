@@ -38,7 +38,8 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
   @removed_lines [
     "GET /help/resolved HelpRead",
     "GET /me/memberships MembershipsRead",
-    "GET /me/modules MyModulesRead"
+    "GET /me/modules MyModulesRead",
+    "GET /me/access MyAccessRead"
     | @filter_lines
   ]
 
@@ -326,27 +327,35 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       assert RouteScope.audit_routes(routes, snapshot) == []
     end
 
-    test "the self-service list is exactly M1, M2 and H1, each ruled, none pending (T-S8)" do
-      assert Enum.sort_by(RouteScope.self_service_routes(), & &1.route) == [
-               %{
-                 route: "GET /help/resolved",
-                 key: :HelpRead,
-                 class: :self_service,
-                 ruling: "SEC-518-R2-help"
-               },
-               %{
-                 route: "GET /me/memberships",
-                 key: :MembershipsRead,
-                 class: :self_service,
-                 ruling: "0051-A7"
-               },
-               %{
-                 route: "GET /me/modules",
-                 key: :MyModulesRead,
-                 class: :self_service,
-                 ruling: "SEC-518-R2-modules"
-               }
-             ]
+    test "the self-service list is exactly M1, M2, the REQ-449 access route and H1, each ruled, none pending (T-S8)" do
+      assert Enum.sort_by(RouteScope.self_service_routes(), & &1.route) ==
+               [
+                 %{
+                   route: "GET /help/resolved",
+                   key: :HelpRead,
+                   class: :self_service,
+                   ruling: "SEC-518-R2-help"
+                 },
+                 %{
+                   route: "GET /me/memberships",
+                   key: :MembershipsRead,
+                   class: :self_service,
+                   ruling: "0051-A7"
+                 },
+                 %{
+                   route: "GET /me/modules",
+                   key: :MyModulesRead,
+                   class: :self_service,
+                   ruling: "SEC-518-R2-modules"
+                 },
+                 %{
+                   route: "GET /me/access",
+                   key: :MyAccessRead,
+                   class: :self_service,
+                   ruling: "SEC-REQ-449-access"
+                 }
+               ]
+               |> Enum.sort_by(& &1.route)
 
       refute Enum.any?(RouteScope.self_service_routes(), &(&1.ruling == :pending_sec_ruling))
     end

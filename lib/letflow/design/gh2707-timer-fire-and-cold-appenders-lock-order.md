@@ -710,6 +710,8 @@ disagree, this section describes what shipped. Commit `168d8409` plus its review
    `create/2` and which runs on a projection row inserted by the same transaction (no other transaction can
    see it). `record_fire_failure/2` (own transaction, timer row alone, plus its DLQ insert) and
    `claim_due_timer_ids/2` are the exceptions the amendment already names.
+   GH #2864 adds a third: `Scheduler.postpone_contended/2` (item 9), timer rows only, `FOR UPDATE SKIP LOCKED`,
+   no other lock; see 0061 "Amended (GH #2864)".
 7. **Irreversibility of the `:error` settle** (SECURITY F2) is documented on `Scheduler.fire_timer/2`: the
    reason string `instance_error` is greppable, and a future resume / reconstruct feature must re-arm the
    timers.
@@ -717,8 +719,9 @@ disagree, this section describes what shipped. Commit `168d8409` plus its review
 ## 15. As built (PR-3)
 
 Written by ELIXIR-DEV after the build. Where this section and sections 8.4 and 9 disagree, this section
-describes what shipped. Decision 0061 is NOT amended by PR-3 (section 10 lists only the PR-1 and PR-2
-blocks; PR-3 adds no lock, no order and no writer).
+describes what shipped. Decision 0061 is not amended by PR-3 itself (section 10 lists only the PR-1 and PR-2
+blocks; PR-3 adds no lock, no order and no writer); the follow-up GH #2864 (item 9) adds a third non-`P_x`
+timer statement, recorded in 0061 "Amended (GH #2864)".
 
 1. **Timeout source.** `Letflow.Engine.Contention.timer_fire_lock_timeout_ms/0` reads
    `config :letflow, :timer_fire_lock_timeout_ms` (default 2000, no config entry added). The test value
@@ -758,11 +761,28 @@ blocks; PR-3 adds no lock, no order and no writer).
    the accepted backstop: the timer stays pending, nothing is counted), exposed through the `@doc false`
    `Scheduler.default_cycle_budget_ms/0`. A `:engine_test_seams` key `:timer_peek_failure` makes the
    post-fire peek raise, to pin the peek failure path.
-9. **Accepted residual: starvation by uncounted contention.** Because 55P03 is never counted, a timer stuck
-   behind a permanently held lock keeps its slot in the claim window (`max_timers_per_cycle`, ordered by
-   `fire_at`); enough of them could starve other due timers of the tenant. Follow-up issue (to be filed by
-   the supervisor / letflow-2): a retry count or a `fire_at` backoff on `:contended`. The telemetry event
-   `[:letflow, :scheduler, :timer_contended]` is the alerting signal meanwhile.
+9. **Starvation by uncounted contention: resolved by GH #2864 (T-0043).** Because 55P03 is never counted, a
+   timer stuck behind a permanently held lock used to keep its slot in the claim window
+   (`max_timers_per_cycle`, ordered by `fire_at`) on every cycle; enough of them starved the other due timers of
+   the tenant. Now `tally_fire(:contended, ...)` calls `Scheduler.postpone_contended/2`: ONE statement in its
+   own transaction (explicit tenant prefix, bound parameters) sets `fire_at = now + contended_backoff_ms` on
+   every due `pending` timer of the contended instance (the other same-instance timers are the ones the loop
+   skips and would keep their slots), selected by a `FOR UPDATE SKIP LOCKED` subquery. It waits on no lock,
+   touches timer rows only and takes no `P_x`/`S_x`, so it cannot join a lock cycle (0061 "Amended
+   (GH #2864)"). It runs before the telemetry event, which gains `postponed` (rows pushed back; 0 when the peek
+   failed) and `backoff_ms`; the event and its existing metadata stay.
+   **Outcome: retry, then what.** A contended timer is retried once per backoff interval for as long as the
+   contention lasts, then fires. It is never counted as a failure, never reaches `fire_error_count`, the DLQ or
+   `failed` (the 3-failures-then-DLQ rule for real errors is untouched); what is bounded is the claim-slot
+   cost (one slot per interval instead of one per cycle), and the next cycle claims a later-due timer. No retry
+   counter column (it would need a migration of every tenant `timers` table and a terminal state that treats a
+   transient lock as a timer defect). Config `config :letflow, :scheduler, contended_backoff_ms:` (default
+   30000; `0` disables the postponement and runs no statement; a negative or non-integer value falls back to
+   the default). The `advance-timer` route does not postpone.
+   **Accepted consequences of moving `fire_at`** (no other due-time column exists): `fired_late` under-reports
+   the lateness of a postponed timer; the `TIMER_FIRED` payload's `scheduled_fire_at` carries the postponed
+   `fire_at`; and a recurring timer's REQ-188 series, anchored on `fire_at + repeat_interval_us`, shifts by the
+   total delay of the contended episode (pinned by test B-7). Tests: `scheduler_contended_backoff_test.exs`.
 10. **Accepted gaps.** A `>=` versus `>` pin on the budget comparison is not deterministic (the elapsed time of
     the first fire is never exactly the budget), so it is not tested. Also accepted (TDV survivors): the log `schema:`
     metadata is not asserted; the `:timer_fire_lock_timeout_ms` config read is not tested (only the default and the override); a nested call whose 55P03 leaves the outer transaction aborted is documented, not tested.
