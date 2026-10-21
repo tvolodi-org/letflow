@@ -1,13 +1,12 @@
 defmodule Letflow.Engine.Req466VortexDistinctFromTest do
   @moduledoc """
-  REQ-466 (vortex half) -- the shipped Vortex "Production Order Release" fixture (v1.7) adopts
+  REQ-466 (vortex half) -- the shipped Vortex "Production Order Release" fixture (v1.8) adopts
   `distinct_from` (REQ-459 rule A, enforced by REQ-463) on its two budget approval nodes:
 
     * `budget-approval` (role-controller) names `capacity-review` and `escalate-to-ceo`.
-    * `escalate-budget-approval-to-ceo` (role-ceo) names `capacity-review` only. It does not name
-      `escalate-to-ceo`: both nodes route to role-ceo, and the shipped-definition guard forbids
-      same-role pairs. This narrows the REQ-466 candidate list; Q-1044 supports only keeping the
-      guard unchanged, not this narrowing (see the Q-1029 PR residual).
+    * `escalate-budget-approval-to-finance-director` (role-finance-director, REQ-471 / GH #2479)
+      names `capacity-review`, `escalate-to-ceo` and `budget-approval`. Its role differs from every
+      node it names, so the shipped-definition guard (same-role pairs) stays unchanged.
 
   Refusals are asserted on the HTTP surface (`Letflow.Routers.Tasks.call/2`): 403
   `application/problem+json` with the body exactly `{"detail":"separation of duties","status":403}`,
@@ -154,40 +153,143 @@ defmodule Letflow.Engine.Req466VortexDistinctFromTest do
     release!(ctx)
   end
 
-  # -- escalate-budget-approval-to-ceo -------------------------------------------------------
+  # -- escalate-budget-approval-to-finance-director ------------------------------------------
 
-  test "escalate-budget-approval-to-ceo: a user holding role-production-manager and role-ceo who completed capacity-review is refused at the CEO escalation of budget-approval (403, fixed body), nothing changes; a different CEO is accepted and the order is released" do
-    ctx = case!(15_000)
-    u = S.insert_user!(ctx.schema_name, "u")
-    c = S.insert_user!(ctx.schema_name, "c")
-    S.grant_role!(ctx.schema_name, "role-production-manager", [u.id])
-    S.grant_role!(ctx.schema_name, "role-ceo", [u.id, c.id])
+  @escalation "escalate-budget-approval-to-finance-director"
 
+  # Drive the order to the budget escalation node: capacity-review approved by `reviewer`, then
+  # budget-approval's P2D timer fires (the real timer path, no wall clock).
+  defp to_budget_escalation!(ctx, reviewer) do
     assert_accepted!(
-      complete_http(ctx, u, "capacity-review", %{"capacity_decision" => "approve"})
+      complete_http(ctx, reviewer, "capacity-review", %{"capacity_decision" => "approve"})
     )
 
     assert current_nodes(ctx) == ["budget-approval"]
-
-    # budget-approval's P2D escalation timer fires (the real timer path, no wall clock).
     assert A.fire_escalation!(ctx.schema_name, ctx.instance_id).node_id == "budget-approval"
-    assert current_nodes(ctx) == ["escalate-budget-approval-to-ceo"]
+    assert current_nodes(ctx) == [@escalation]
+  end
 
-    escalation = S.pending_task!(ctx, "escalate-budget-approval-to-ceo")
+  test "T1 escalation: a user holding role-ceo and role-finance-director who completed escalate-to-ceo is refused at the budget escalation (403, fixed body), nothing changes; a different finance director is accepted and the order is released" do
+    ctx = case!(15_000)
+    u = S.insert_user!(ctx.schema_name, "u")
+    f = S.insert_user!(ctx.schema_name, "f")
+    S.grant_role!(ctx.schema_name, "role-ceo", [u.id])
+    S.grant_role!(ctx.schema_name, "role-finance-director", [u.id, f.id])
+
+    # capacity-review's PT4H timer fires; u decides escalate-to-ceo; budget-approval's P2D timer fires.
+    assert A.fire_escalation!(ctx.schema_name, ctx.instance_id).node_id == "capacity-review"
+    assert current_nodes(ctx) == ["escalate-to-ceo"]
+
+    assert_accepted!(
+      complete_http(ctx, u, "escalate-to-ceo", %{"capacity_decision" => "approve"})
+    )
+
+    assert current_nodes(ctx) == ["budget-approval"]
+    assert A.fire_escalation!(ctx.schema_name, ctx.instance_id).node_id == "budget-approval"
+    assert current_nodes(ctx) == [@escalation]
+
+    escalation = S.pending_task!(ctx, @escalation)
     before = S.rows(ctx)
 
-    assert_separation!(
-      complete_http(ctx, u, "escalate-budget-approval-to-ceo", %{"budget_decision" => "approve"})
-    )
+    assert_separation!(complete_http(ctx, u, @escalation, %{"budget_decision" => "approve"}))
 
     assert S.rows(ctx) == before
     assert S.reload_task!(ctx, escalation).status == :pending
 
-    assert_accepted!(
-      complete_http(ctx, c, "escalate-budget-approval-to-ceo", %{"budget_decision" => "approve"})
-    )
-
+    assert_accepted!(complete_http(ctx, f, @escalation, %{"budget_decision" => "approve"}))
     release!(ctx)
+  end
+
+  test "T2 escalation: a user holding role-production-manager and role-finance-director who completed capacity-review is refused at the budget escalation (403, fixed body), nothing changes" do
+    ctx = case!(15_000)
+    u = S.insert_user!(ctx.schema_name, "u")
+    f = S.insert_user!(ctx.schema_name, "f")
+    S.grant_role!(ctx.schema_name, "role-production-manager", [u.id])
+    S.grant_role!(ctx.schema_name, "role-finance-director", [u.id, f.id])
+
+    to_budget_escalation!(ctx, u)
+
+    escalation = S.pending_task!(ctx, @escalation)
+    before = S.rows(ctx)
+
+    assert_separation!(complete_http(ctx, u, @escalation, %{"budget_decision" => "approve"}))
+
+    assert S.rows(ctx) == before
+    assert S.reload_task!(ctx, escalation).status == :pending
+
+    assert_accepted!(complete_http(ctx, f, @escalation, %{"budget_decision" => "approve"}))
+    release!(ctx)
+  end
+
+  test "T3 escalation: a user holding only role-ceo is refused at the budget escalation by the role check, not by the separation body" do
+    ctx = case!(15_000)
+    p = S.insert_user!(ctx.schema_name, "p")
+    c = S.insert_user!(ctx.schema_name, "c")
+    S.grant_role!(ctx.schema_name, "role-production-manager", [p.id])
+    S.grant_role!(ctx.schema_name, "role-ceo", [c.id])
+
+    to_budget_escalation!(ctx, p)
+
+    escalation = S.pending_task!(ctx, @escalation)
+    before = S.rows(ctx)
+
+    conn = complete_http(ctx, c, @escalation, %{"budget_decision" => "approve"})
+
+    assert conn.status == 403
+    refute conn.resp_body == @sod_body
+    assert conn.resp_body =~ "caller does not hold the assigned role"
+    assert S.rows(ctx) == before
+    assert S.reload_task!(ctx, escalation).status == :pending
+  end
+
+  test "T4 escalation: with no action, the budget escalation's P2D timer fails closed to auto-reject-order and end-rejected, never to assign-line" do
+    ctx = case!(15_000)
+    p = S.insert_user!(ctx.schema_name, "p")
+    S.grant_role!(ctx.schema_name, "role-production-manager", [p.id])
+
+    to_budget_escalation!(ctx, p)
+
+    assert A.fire_escalation!(ctx.schema_name, ctx.instance_id).node_id == @escalation
+    assert current_nodes(ctx) == ["auto-reject-order"]
+    A.advance_service_task!(ctx.schema_name, ctx.instance_id, "auto-reject-order", %{})
+
+    assert A.projection(ctx.schema_name, ctx.instance_id).status == :completed
+    assert reached_ends(ctx) == ["end-rejected"]
+  end
+
+  test "T5 escalation: the refusal body is constant -- identical for both separation refusals and free of node ids and user ids" do
+    bodies =
+      for reviewer_role <- ["role-ceo", "role-production-manager"] do
+        # which earlier step u completed: escalate-to-ceo, or capacity-review
+        ctx = case!(15_000)
+        u = S.insert_user!(ctx.schema_name, "u")
+        f = S.insert_user!(ctx.schema_name, "f")
+        S.grant_role!(ctx.schema_name, "role-production-manager", [u.id])
+        S.grant_role!(ctx.schema_name, "role-finance-director", [u.id, f.id])
+        if reviewer_role == "role-ceo", do: S.grant_role!(ctx.schema_name, "role-ceo", [u.id])
+
+        if reviewer_role == "role-ceo" do
+          A.fire_escalation!(ctx.schema_name, ctx.instance_id)
+
+          assert_accepted!(
+            complete_http(ctx, u, "escalate-to-ceo", %{"capacity_decision" => "approve"})
+          )
+
+          A.fire_escalation!(ctx.schema_name, ctx.instance_id)
+        else
+          to_budget_escalation!(ctx, u)
+        end
+
+        conn = complete_http(ctx, u, @escalation, %{"budget_decision" => "approve"})
+        assert_separation!(conn)
+        refute conn.resp_body =~ @escalation
+        refute conn.resp_body =~ "capacity-review"
+        refute conn.resp_body =~ "escalate-to-ceo"
+        refute conn.resp_body =~ u.id
+        conn.resp_body
+      end
+
+    assert bodies == [@sod_body, @sod_body]
   end
 
   # -- REQ-464 validator on the live, activated definition -----------------------------------

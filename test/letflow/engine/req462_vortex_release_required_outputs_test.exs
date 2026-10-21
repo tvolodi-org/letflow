@@ -2,7 +2,7 @@ defmodule Letflow.Engine.Req462VortexReleaseRequiredOutputsTest do
   @moduledoc """
   REQ-462 (g, h, i, j) -- the Vortex "Production Order Release" QA fixture (v1.6) declares
   `required_outputs` on `capacity-review` (capacity_decision), `escalate-to-ceo`
-  (capacity_decision), `budget-approval` (budget_decision) and `escalate-budget-approval-to-ceo`
+  (capacity_decision), `budget-approval` (budget_decision) and `escalate-budget-approval-to-finance-director`
   (budget_decision). These nodes have no `form_schema`, so REQ-461 check 3 is vacuous for them:
   these tests are the evidence.
 
@@ -50,7 +50,11 @@ defmodule Letflow.Engine.Req462VortexReleaseRequiredOutputsTest do
   defp at_escalated_budget! do
     {schema, id} = at_budget_approval!()
     assert A.fire_escalation!(schema, id).node_id == "budget-approval"
-    assert A.projection(schema, id).current_nodes == ["escalate-budget-approval-to-ceo"]
+
+    assert A.projection(schema, id).current_nodes == [
+             "escalate-budget-approval-to-finance-director"
+           ]
+
     {schema, id}
   end
 
@@ -116,21 +120,24 @@ defmodule Letflow.Engine.Req462VortexReleaseRequiredOutputsTest do
     assert A.projection(schema2, id2).current_nodes == ["auto-reject-order"]
   end
 
-  test "escalate-budget-approval-to-ceo: the D-ESC task inherits nothing; omitting budget_decision is refused, task open, instance unchanged; a valid decision routes" do
+  test "escalate-budget-approval-to-finance-director: the D-ESC task inherits nothing; omitting budget_decision is refused, task open, instance unchanged; a valid decision routes" do
     {schema, id} = at_escalated_budget!()
 
     A.assert_omitted_refused!(
       schema,
       id,
-      "escalate-budget-approval-to-ceo",
+      "escalate-budget-approval-to-finance-director",
       "budget_decision",
       @extra
     )
 
-    assert A.projection(schema, id).current_nodes == ["escalate-budget-approval-to-ceo"]
+    assert A.projection(schema, id).current_nodes == [
+             "escalate-budget-approval-to-finance-director"
+           ]
+
     refute "assign-line" in A.dispatched_nodes(schema, id)
 
-    A.complete!(schema, A.task!(schema, id, "escalate-budget-approval-to-ceo"), %{
+    A.complete!(schema, A.task!(schema, id, "escalate-budget-approval-to-finance-director"), %{
       "budget_decision" => "approve"
     })
 
@@ -141,12 +148,12 @@ defmodule Letflow.Engine.Req462VortexReleaseRequiredOutputsTest do
     A.assert_omitted_refused!(
       schema2,
       id2,
-      "escalate-budget-approval-to-ceo",
+      "escalate-budget-approval-to-finance-director",
       "budget_decision",
       @extra
     )
 
-    A.complete!(schema2, A.task!(schema2, id2, "escalate-budget-approval-to-ceo"), %{
+    A.complete!(schema2, A.task!(schema2, id2, "escalate-budget-approval-to-finance-director"), %{
       "budget_decision" => "reject"
     })
 
