@@ -111,12 +111,12 @@ defmodule Letflow.Routers.TasksScopeHttpTest do
 
   # ===========================================================================================
   describe "T-F5 (c): outside the routing role with a covering grant" do
-    test "the EXISTING routing errors apply (claim 409, complete 403), never a 404; get is allowed; the task is not in the worker's own list",
+    test "the EXISTING routing errors apply (claim 409, complete 403), never a 404; get is a 404 (GH #2934); not in the worker's list",
          %{fx: fx} do
       caller = T.caller!(fx, grants: [{@tw, :a}], routing: false)
       task = T.start_task!(fx, :a1)
 
-      assert get(fx, caller, task).status == 200
+      assert get(fx, caller, task).status == 404
 
       claimed = claim(fx, caller, task)
       assert claimed.status == 409

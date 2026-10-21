@@ -9,7 +9,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-01",
-        "cost_figure": "1037.50",
+        "cost_figure": 1037.50,
         "internal_notes": "Quarantine review pending for B-NM-001; deviation logged by quality team."
       }
     },
@@ -20,7 +20,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-03",
-        "cost_figure": "1074.50",
+        "cost_figure": 1074.50,
         "internal_notes": "Quarantine review pending for B-NM-002; deviation logged by quality team."
       }
     },
@@ -31,7 +31,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-05",
-        "cost_figure": "1111.50",
+        "cost_figure": 1111.50,
         "internal_notes": "Quarantine review pending for B-NM-003; deviation logged by quality team."
       }
     },
@@ -42,7 +42,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-07",
-        "cost_figure": "1148.50",
+        "cost_figure": 1148.50,
         "internal_notes": "Quarantine review pending for B-NM-004; deviation logged by quality team."
       }
     },
@@ -53,7 +53,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-09",
-        "cost_figure": "1185.50",
+        "cost_figure": 1185.50,
         "internal_notes": "Quarantine review pending for B-NM-005; deviation logged by quality team."
       }
     },
@@ -64,7 +64,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-11",
-        "cost_figure": "1222.50",
+        "cost_figure": 1222.50,
         "internal_notes": "Quarantine review pending for B-NM-006; deviation logged by quality team."
       }
     },
@@ -75,7 +75,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-13",
-        "cost_figure": "1259.50",
+        "cost_figure": 1259.50,
         "internal_notes": "Quarantine review pending for B-NM-007; deviation logged by quality team."
       }
     },
@@ -86,7 +86,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-15",
-        "cost_figure": "1296.50",
+        "cost_figure": 1296.50,
         "internal_notes": "Quarantine review pending for B-NM-008; deviation logged by quality team."
       }
     },
@@ -97,7 +97,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-17",
-        "cost_figure": "1333.50",
+        "cost_figure": 1333.50,
         "internal_notes": "Quarantine review pending for B-NM-009; deviation logged by quality team."
       }
     },
@@ -108,7 +108,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-19",
-        "cost_figure": "1370.50",
+        "cost_figure": 1370.50,
         "internal_notes": "Quarantine review pending for B-NM-010; deviation logged by quality team."
       }
     },
@@ -119,7 +119,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-21",
-        "cost_figure": "1407.50",
+        "cost_figure": 1407.50,
         "internal_notes": "Quarantine review pending for B-NM-011; deviation logged by quality team."
       }
     },
@@ -130,7 +130,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-23",
-        "cost_figure": "1444.50",
+        "cost_figure": 1444.50,
         "internal_notes": "Quarantine review pending for B-NM-012; deviation logged by quality team."
       }
     },
@@ -141,7 +141,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-25",
-        "cost_figure": "1481.50",
+        "cost_figure": 1481.50,
         "internal_notes": "Quarantine review pending for B-NM-013; deviation logged by quality team."
       }
     },
@@ -152,7 +152,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-27",
-        "cost_figure": "1518.50",
+        "cost_figure": 1518.50,
         "internal_notes": "Quarantine review pending for B-NM-014; deviation logged by quality team."
       }
     },
@@ -163,7 +163,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-29",
-        "cost_figure": "1555.50",
+        "cost_figure": 1555.50,
         "internal_notes": "Quarantine review pending for B-NM-015; deviation logged by quality team."
       }
     },
@@ -174,7 +174,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-03-31",
-        "cost_figure": "1592.50",
+        "cost_figure": 1592.50,
         "internal_notes": "Quarantine review pending for B-NM-016; deviation logged by quality team."
       }
     },
@@ -185,7 +185,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-02",
-        "cost_figure": "1629.50",
+        "cost_figure": 1629.50,
         "internal_notes": "Quarantine review pending for B-NM-017; deviation logged by quality team."
       }
     },
@@ -196,7 +196,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-04",
-        "cost_figure": "1666.50",
+        "cost_figure": 1666.50,
         "internal_notes": "Quarantine review pending for B-NM-018; deviation logged by quality team."
       }
     },
@@ -207,7 +207,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-06",
-        "cost_figure": "1703.50",
+        "cost_figure": 1703.50,
         "internal_notes": "Quarantine review pending for B-NM-019; deviation logged by quality team."
       }
     },
@@ -218,7 +218,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-08",
-        "cost_figure": "1740.50",
+        "cost_figure": 1740.50,
         "internal_notes": "Quarantine review pending for B-NM-020; deviation logged by quality team."
       }
     },
@@ -229,7 +229,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-10",
-        "cost_figure": "1777.50",
+        "cost_figure": 1777.50,
         "internal_notes": "Quarantine review pending for B-NM-021; deviation logged by quality team."
       }
     },
@@ -240,7 +240,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-12",
-        "cost_figure": "1814.50",
+        "cost_figure": 1814.50,
         "internal_notes": "Quarantine review pending for B-NM-022; deviation logged by quality team."
       }
     },
@@ -251,7 +251,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-14",
-        "cost_figure": "1851.50",
+        "cost_figure": 1851.50,
         "internal_notes": "Quarantine review pending for B-NM-023; deviation logged by quality team."
       }
     },
@@ -262,7 +262,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-16",
-        "cost_figure": "1888.50",
+        "cost_figure": 1888.50,
         "internal_notes": "Quarantine review pending for B-NM-024; deviation logged by quality team."
       }
     },
@@ -273,7 +273,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-18",
-        "cost_figure": "1925.50",
+        "cost_figure": 1925.50,
         "internal_notes": "Quarantine review pending for B-NM-025; deviation logged by quality team."
       }
     },
@@ -284,7 +284,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-20",
-        "cost_figure": "1962.50",
+        "cost_figure": 1962.50,
         "internal_notes": "Quarantine review pending for B-NM-026; deviation logged by quality team."
       }
     },
@@ -295,7 +295,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-22",
-        "cost_figure": "1999.50",
+        "cost_figure": 1999.50,
         "internal_notes": "Quarantine review pending for B-NM-027; deviation logged by quality team."
       }
     },
@@ -306,7 +306,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-24",
-        "cost_figure": "2036.50",
+        "cost_figure": 2036.50,
         "internal_notes": "Quarantine review pending for B-NM-028; deviation logged by quality team."
       }
     },
@@ -317,7 +317,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-26",
-        "cost_figure": "2073.50",
+        "cost_figure": 2073.50,
         "internal_notes": "Quarantine review pending for B-NM-029; deviation logged by quality team."
       }
     },
@@ -328,7 +328,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-28",
-        "cost_figure": "2110.50",
+        "cost_figure": 2110.50,
         "internal_notes": "Quarantine review pending for B-NM-030; deviation logged by quality team."
       }
     },
@@ -339,7 +339,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-04-30",
-        "cost_figure": "2147.50",
+        "cost_figure": 2147.50,
         "internal_notes": "Quarantine review pending for B-NM-031; deviation logged by quality team."
       }
     },
@@ -350,7 +350,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-02",
-        "cost_figure": "2184.50",
+        "cost_figure": 2184.50,
         "internal_notes": "Quarantine review pending for B-NM-032; deviation logged by quality team."
       }
     },
@@ -361,7 +361,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-04",
-        "cost_figure": "2221.50",
+        "cost_figure": 2221.50,
         "internal_notes": "Quarantine review pending for B-NM-033; deviation logged by quality team."
       }
     },
@@ -372,7 +372,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-06",
-        "cost_figure": "2258.50",
+        "cost_figure": 2258.50,
         "internal_notes": "Quarantine review pending for B-NM-034; deviation logged by quality team."
       }
     },
@@ -383,7 +383,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-08",
-        "cost_figure": "2295.50",
+        "cost_figure": 2295.50,
         "internal_notes": "Quarantine review pending for B-NM-035; deviation logged by quality team."
       }
     },
@@ -394,7 +394,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-10",
-        "cost_figure": "2332.50",
+        "cost_figure": 2332.50,
         "internal_notes": "Quarantine review pending for B-NM-036; deviation logged by quality team."
       }
     },
@@ -405,7 +405,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-12",
-        "cost_figure": "2369.50",
+        "cost_figure": 2369.50,
         "internal_notes": "Quarantine review pending for B-NM-037; deviation logged by quality team."
       }
     },
@@ -416,7 +416,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-14",
-        "cost_figure": "2406.50",
+        "cost_figure": 2406.50,
         "internal_notes": "Quarantine review pending for B-NM-038; deviation logged by quality team."
       }
     },
@@ -427,7 +427,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-16",
-        "cost_figure": "2443.50",
+        "cost_figure": 2443.50,
         "internal_notes": "Quarantine review pending for B-NM-039; deviation logged by quality team."
       }
     },
@@ -438,7 +438,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-18",
-        "cost_figure": "2480.50",
+        "cost_figure": 2480.50,
         "internal_notes": "Quarantine review pending for B-NM-040; deviation logged by quality team."
       }
     },
@@ -449,7 +449,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-20",
-        "cost_figure": "2517.50",
+        "cost_figure": 2517.50,
         "internal_notes": "Quarantine review pending for B-NM-041; deviation logged by quality team."
       }
     },
@@ -460,7 +460,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-22",
-        "cost_figure": "2554.50",
+        "cost_figure": 2554.50,
         "internal_notes": "Quarantine review pending for B-NM-042; deviation logged by quality team."
       }
     },
@@ -471,7 +471,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-24",
-        "cost_figure": "2591.50",
+        "cost_figure": 2591.50,
         "internal_notes": "Quarantine review pending for B-NM-043; deviation logged by quality team."
       }
     },
@@ -482,7 +482,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-26",
-        "cost_figure": "2628.50",
+        "cost_figure": 2628.50,
         "internal_notes": "Quarantine review pending for B-NM-044; deviation logged by quality team."
       }
     },
@@ -493,7 +493,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-28",
-        "cost_figure": "2665.50",
+        "cost_figure": 2665.50,
         "internal_notes": "Quarantine review pending for B-NM-045; deviation logged by quality team."
       }
     },
@@ -504,7 +504,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-05-30",
-        "cost_figure": "2702.50",
+        "cost_figure": 2702.50,
         "internal_notes": "Quarantine review pending for B-NM-046; deviation logged by quality team."
       }
     },
@@ -515,7 +515,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-01",
-        "cost_figure": "2739.50",
+        "cost_figure": 2739.50,
         "internal_notes": "Quarantine review pending for B-NM-047; deviation logged by quality team."
       }
     },
@@ -526,7 +526,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-03",
-        "cost_figure": "2776.50",
+        "cost_figure": 2776.50,
         "internal_notes": "Quarantine review pending for B-NM-048; deviation logged by quality team."
       }
     },
@@ -537,7 +537,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-05",
-        "cost_figure": "2813.50",
+        "cost_figure": 2813.50,
         "internal_notes": "Quarantine review pending for B-NM-049; deviation logged by quality team."
       }
     },
@@ -548,7 +548,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-07",
-        "cost_figure": "2850.50",
+        "cost_figure": 2850.50,
         "internal_notes": "Quarantine review pending for B-NM-050; deviation logged by quality team."
       }
     },
@@ -559,7 +559,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-09",
-        "cost_figure": "2887.50",
+        "cost_figure": 2887.50,
         "internal_notes": "Quarantine review pending for B-NM-051; deviation logged by quality team."
       }
     },
@@ -570,7 +570,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-11",
-        "cost_figure": "2924.50",
+        "cost_figure": 2924.50,
         "internal_notes": "Quarantine review pending for B-NM-052; deviation logged by quality team."
       }
     },
@@ -581,7 +581,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-13",
-        "cost_figure": "2961.50",
+        "cost_figure": 2961.50,
         "internal_notes": "Quarantine review pending for B-NM-053; deviation logged by quality team."
       }
     },
@@ -592,7 +592,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-15",
-        "cost_figure": "2998.50",
+        "cost_figure": 2998.50,
         "internal_notes": "Quarantine review pending for B-NM-054; deviation logged by quality team."
       }
     },
@@ -603,7 +603,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-17",
-        "cost_figure": "3035.50",
+        "cost_figure": 3035.50,
         "internal_notes": "Quarantine review pending for B-NM-055; deviation logged by quality team."
       }
     },
@@ -614,7 +614,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-19",
-        "cost_figure": "3072.50",
+        "cost_figure": 3072.50,
         "internal_notes": "Quarantine review pending for B-NM-056; deviation logged by quality team."
       }
     },
@@ -625,7 +625,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-21",
-        "cost_figure": "3109.50",
+        "cost_figure": 3109.50,
         "internal_notes": "Quarantine review pending for B-NM-057; deviation logged by quality team."
       }
     },
@@ -636,7 +636,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-23",
-        "cost_figure": "3146.50",
+        "cost_figure": 3146.50,
         "internal_notes": "Quarantine review pending for B-NM-058; deviation logged by quality team."
       }
     },
@@ -647,7 +647,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-25",
-        "cost_figure": "3183.50",
+        "cost_figure": 3183.50,
         "internal_notes": "Quarantine review pending for B-NM-059; deviation logged by quality team."
       }
     },
@@ -658,7 +658,7 @@
         "supplier": "Nordmetall",
         "status": "quarantined",
         "deviation_raised_at": "2026-06-27",
-        "cost_figure": "3220.50",
+        "cost_figure": 3220.50,
         "internal_notes": "Quarantine review pending for B-NM-060; deviation logged by quality team."
       }
     },
@@ -669,7 +669,7 @@
         "supplier": "Baltic Alloys",
         "status": "quarantined",
         "deviation_raised_at": "2026-09-18",
-        "cost_figure": "2041.25",
+        "cost_figure": 2041.25,
         "internal_notes": "Quarantine review pending for B-BA-001; separate supplier, must be excluded by supplier filter."
       }
     },
@@ -680,7 +680,7 @@
         "supplier": "Baltic Alloys",
         "status": "quarantined",
         "deviation_raised_at": "2026-09-19",
-        "cost_figure": "2082.25",
+        "cost_figure": 2082.25,
         "internal_notes": "Quarantine review pending for B-BA-002; separate supplier, must be excluded by supplier filter."
       }
     },
@@ -691,7 +691,7 @@
         "supplier": "Baltic Alloys",
         "status": "quarantined",
         "deviation_raised_at": "2026-09-20",
-        "cost_figure": "2123.25",
+        "cost_figure": 2123.25,
         "internal_notes": "Quarantine review pending for B-BA-003; separate supplier, must be excluded by supplier filter."
       }
     },
@@ -702,7 +702,7 @@
         "supplier": "Baltic Alloys",
         "status": "quarantined",
         "deviation_raised_at": "2026-09-21",
-        "cost_figure": "2164.25",
+        "cost_figure": 2164.25,
         "internal_notes": "Quarantine review pending for B-BA-004; separate supplier, must be excluded by supplier filter."
       }
     },
@@ -713,7 +713,7 @@
         "supplier": "Baltic Alloys",
         "status": "quarantined",
         "deviation_raised_at": "2026-09-22",
-        "cost_figure": "2205.25",
+        "cost_figure": 2205.25,
         "internal_notes": "Quarantine review pending for B-BA-005; separate supplier, must be excluded by supplier filter."
       }
     },
@@ -724,7 +724,7 @@
         "supplier": "Baltic Alloys",
         "status": "quarantined",
         "deviation_raised_at": "2026-09-23",
-        "cost_figure": "2246.25",
+        "cost_figure": 2246.25,
         "internal_notes": "Quarantine review pending for B-BA-006; separate supplier, must be excluded by supplier filter."
       }
     },
@@ -735,7 +735,7 @@
         "supplier": "Baltic Alloys",
         "status": "quarantined",
         "deviation_raised_at": "2026-09-24",
-        "cost_figure": "2287.25",
+        "cost_figure": 2287.25,
         "internal_notes": "Quarantine review pending for B-BA-007; separate supplier, must be excluded by supplier filter."
       }
     },
@@ -746,7 +746,7 @@
         "supplier": "Baltic Alloys",
         "status": "quarantined",
         "deviation_raised_at": "2026-09-25",
-        "cost_figure": "2328.25",
+        "cost_figure": 2328.25,
         "internal_notes": "Quarantine review pending for B-BA-008; separate supplier, must be excluded by supplier filter."
       }
     },
@@ -756,7 +756,7 @@
         "batch_ref": "B-NM-OTH-PEN-01",
         "supplier": "Nordmetall",
         "status": "pending_review",
-        "cost_figure": "3023.75",
+        "cost_figure": 3023.75,
         "internal_notes": "pending_review batch B-NM-OTH-PEN-01; no active deviation.",
         "deviation_raised_at": "2026-12-27"
       }
@@ -767,7 +767,7 @@
         "batch_ref": "B-NM-OTH-PEN-02",
         "supplier": "Nordmetall",
         "status": "pending_review",
-        "cost_figure": "3046.75",
+        "cost_figure": 3046.75,
         "internal_notes": "pending_review batch B-NM-OTH-PEN-02; no active deviation.",
         "deviation_raised_at": "2026-12-28"
       }
@@ -778,7 +778,7 @@
         "batch_ref": "B-NM-OTH-PEN-03",
         "supplier": "Nordmetall",
         "status": "pending_review",
-        "cost_figure": "3069.75",
+        "cost_figure": 3069.75,
         "internal_notes": "pending_review batch B-NM-OTH-PEN-03; no active deviation.",
         "deviation_raised_at": "2026-12-29"
       }
@@ -789,7 +789,7 @@
         "batch_ref": "B-NM-OTH-PEN-04",
         "supplier": "Nordmetall",
         "status": "pending_review",
-        "cost_figure": "3092.75",
+        "cost_figure": 3092.75,
         "internal_notes": "pending_review batch B-NM-OTH-PEN-04; no active deviation.",
         "deviation_raised_at": "2026-12-30"
       }
@@ -800,7 +800,7 @@
         "batch_ref": "B-NM-OTH-PEN-05",
         "supplier": "Nordmetall",
         "status": "pending_review",
-        "cost_figure": "3115.75",
+        "cost_figure": 3115.75,
         "internal_notes": "pending_review batch B-NM-OTH-PEN-05; no active deviation.",
         "deviation_raised_at": "2026-12-31"
       }
@@ -811,7 +811,7 @@
         "batch_ref": "B-NM-OTH-REL-01",
         "supplier": "Nordmetall",
         "status": "released",
-        "cost_figure": "3138.75",
+        "cost_figure": 3138.75,
         "internal_notes": "released batch B-NM-OTH-REL-01; no active deviation."
       }
     },
@@ -821,7 +821,7 @@
         "batch_ref": "B-NM-OTH-REL-02",
         "supplier": "Nordmetall",
         "status": "released",
-        "cost_figure": "3161.75",
+        "cost_figure": 3161.75,
         "internal_notes": "released batch B-NM-OTH-REL-02; no active deviation."
       }
     },
@@ -831,7 +831,7 @@
         "batch_ref": "B-NM-OTH-REL-03",
         "supplier": "Nordmetall",
         "status": "released",
-        "cost_figure": "3184.75",
+        "cost_figure": 3184.75,
         "internal_notes": "released batch B-NM-OTH-REL-03; no active deviation."
       }
     },
@@ -841,7 +841,7 @@
         "batch_ref": "B-NM-OTH-REL-04",
         "supplier": "Nordmetall",
         "status": "released",
-        "cost_figure": "3207.75",
+        "cost_figure": 3207.75,
         "internal_notes": "released batch B-NM-OTH-REL-04; no active deviation."
       }
     },
@@ -851,7 +851,7 @@
         "batch_ref": "B-NM-OTH-REL-05",
         "supplier": "Nordmetall",
         "status": "released",
-        "cost_figure": "3230.75",
+        "cost_figure": 3230.75,
         "internal_notes": "released batch B-NM-OTH-REL-05; no active deviation."
       }
     },
@@ -861,7 +861,7 @@
         "batch_ref": "B-NM-OTH-REJ-01",
         "supplier": "Nordmetall",
         "status": "rejected",
-        "cost_figure": "3253.75",
+        "cost_figure": 3253.75,
         "internal_notes": "rejected batch B-NM-OTH-REJ-01; no active deviation."
       }
     },
@@ -871,7 +871,7 @@
         "batch_ref": "B-NM-OTH-REJ-02",
         "supplier": "Nordmetall",
         "status": "rejected",
-        "cost_figure": "3276.75",
+        "cost_figure": 3276.75,
         "internal_notes": "rejected batch B-NM-OTH-REJ-02; no active deviation."
       }
     },
@@ -881,7 +881,7 @@
         "batch_ref": "B-NM-OTH-REJ-03",
         "supplier": "Nordmetall",
         "status": "rejected",
-        "cost_figure": "3299.75",
+        "cost_figure": 3299.75,
         "internal_notes": "rejected batch B-NM-OTH-REJ-03; no active deviation."
       }
     },
@@ -891,7 +891,7 @@
         "batch_ref": "B-NM-OTH-REJ-04",
         "supplier": "Nordmetall",
         "status": "rejected",
-        "cost_figure": "3322.75",
+        "cost_figure": 3322.75,
         "internal_notes": "rejected batch B-NM-OTH-REJ-04; no active deviation."
       }
     },
@@ -901,7 +901,7 @@
         "batch_ref": "B-NM-OTH-REJ-05",
         "supplier": "Nordmetall",
         "status": "rejected",
-        "cost_figure": "3345.75",
+        "cost_figure": 3345.75,
         "internal_notes": "rejected batch B-NM-OTH-REJ-05; no active deviation."
       }
     }

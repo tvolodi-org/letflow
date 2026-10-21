@@ -318,7 +318,10 @@ config :letflow, :modules, [
   Letflow.Modules.FixtureLedgerRogue,
   # REQ-518 / GH #2535: scope declarations (test/support/modules/fixture_scoped/). Its id is on
   # :scope_declaration_unmanaged_modules below, so it alone may declare UNMANAGED types.
-  Letflow.Modules.FixtureScoped
+  Letflow.Modules.FixtureScoped,
+  # GH #2540: on_install/3 raises a real Postgrex.Error from DDL after activating a pack
+  # (test/support/modules/fixture_ddl_failing/).
+  Letflow.Modules.FixtureDdlFailing
 ]
 
 # REQ-518 (SEC ruling R-3): the ONLY place this key may be set. Catalog rule 11 and
