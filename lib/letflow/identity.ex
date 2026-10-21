@@ -1700,10 +1700,12 @@ defmodule Letflow.Identity do
     group_ids = resolve_group_ids_for_role_names(identity_context.roles, opts)
 
     if identity_context.roles != [] and group_ids == [] do
+      # Counts only: IdP claim values are never logged (decision 0051 N3, INV-4 spirit).
       Logger.warning(
         "sync_role_claims_from_token/3: zero group_ids resolved for a non-empty claimed-role " <>
           "list -- user will read roles: [] and gain no grants (tenant=#{inspect(prefix)}, " <>
-          "user_id=#{user.id}, claimed_roles=#{inspect(identity_context.roles)})"
+          "user_id=#{user.id}, claimed_role_count=#{length(identity_context.roles)}, " <>
+          "resolved_group_count=#{length(group_ids)})"
       )
     end
 

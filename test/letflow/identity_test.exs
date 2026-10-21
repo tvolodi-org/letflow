@@ -1466,7 +1466,7 @@ defmodule Letflow.IdentityTest do
       claimed_ctx = identity_context(%{roles: ["UNMAPPED_ROLE_A", "UNMAPPED_ROLE_B"]})
 
       log =
-        ExUnit.CaptureLog.capture_log(fn ->
+        ExUnit.CaptureLog.capture_log([level: :warning], fn ->
           Identity.sync_role_claims_from_token(user_a, claimed_ctx, prefix: schema_name)
         end)
 
@@ -1474,8 +1474,13 @@ defmodule Letflow.IdentityTest do
       assert log =~ "zero group_ids resolved"
       assert log =~ schema_name
       assert log =~ user_a.id
-      assert log =~ "UNMAPPED_ROLE_A"
-      assert log =~ "UNMAPPED_ROLE_B"
+      # GH 2574 (decision 0051 N3): counts only, never the IdP claim values. Captured at
+      # :warning so the Ecto debug query log (which echoes bound params) is out of scope.
+      assert log =~ "claimed_role_count=2"
+      assert log =~ "resolved_group_count=0"
+      refute log =~ "UNMAPPED_ROLE_A"
+      refute log =~ "UNMAPPED_ROLE_B"
+      refute log =~ "claimed_roles"
 
       # ── (b) claims zero roles at all -- must NOT log (distinct from (a): a
       # genuinely empty claim list is not a mapping failure) ────────────────────
@@ -1551,7 +1556,7 @@ defmodule Letflow.IdentityTest do
       claimed_ctx = identity_context(%{roles: ["role-ops-manager"]})
 
       log =
-        ExUnit.CaptureLog.capture_log(fn ->
+        ExUnit.CaptureLog.capture_log([level: :warning], fn ->
           synced = Identity.sync_role_claims_from_token(user, claimed_ctx, prefix: schema_name)
           assert synced.role_claims_synced_at == nil
         end)
@@ -1564,7 +1569,8 @@ defmodule Letflow.IdentityTest do
       # kind-mismatch input shape rather than assumed).
       assert log =~ "sync_role_claims_from_token/3"
       assert log =~ "zero group_ids resolved"
-      assert log =~ "role-ops-manager"
+      assert log =~ "claimed_role_count=1"
+      refute log =~ "role-ops-manager"
 
       user_after = Repo.get!(User, user.id, prefix: schema_name)
       assert user_after.role_claims_synced_at == nil
