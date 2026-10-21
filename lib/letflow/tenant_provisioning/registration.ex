@@ -12,6 +12,11 @@ defmodule Letflow.TenantProvisioning.Registration do
   `migrations_applied_at` is `nil` until `Letflow.TenantProvisioning.replay_migrations/2`
   succeeds at least once for this tenant.
 
+  GH #2727: `migration_replay_failed_at` / `migration_replay_failure_code` are
+  both `nil` while the tenant's last `replay_all_pending/0` outcome was a
+  success, and both set (time, fixed reason code) after a failure. They are not
+  in `changeset/2`'s cast list; only `Letflow.TenantProvisioning` writes them.
+
   No `belongs_to :tenant` association is declared on `tenant_id`, matching
   this codebase's existing convention of a plain `field :tenant_id, Ecto.UUID`
   even where a DB-level foreign key exists (see
@@ -26,6 +31,8 @@ defmodule Letflow.TenantProvisioning.Registration do
     field(:tenant_id, Ecto.UUID)
     field(:schema_name, :string)
     field(:migrations_applied_at, :naive_datetime)
+    field(:migration_replay_failed_at, :naive_datetime)
+    field(:migration_replay_failure_code, :string)
 
     timestamps(inserted_at: :provisioned_at, updated_at: false)
   end

@@ -28,7 +28,9 @@ defmodule Letflow.TenantProvisioning.MigrationReplayBoot do
   idempotent (design doc §3): a boot against already-migrated tenants is a
   fast, safe no-op every time.
 
-  Logs one line per failing tenant (`tenant_id`, `schema_name`, `reason`)
+  Logs one error-level line per failing tenant (GH #2727 raised it from
+  warning; the log is the alarm, the queryable signal is
+  `Letflow.TenantProvisioning.list_replay_failures/0`) (`tenant_id`, `schema_name`, `reason`)
   plus one always-logged summary line after the loop completes (ok/error
   counts), including the healthy `0 failed` case -- a boot-time step this
   significant logging nothing on the healthy path is exactly the kind of gap
@@ -100,7 +102,7 @@ defmodule Letflow.TenantProvisioning.MigrationReplayBoot do
       # ISS-0772: tenant_id/schema_name/reason passed as Logger metadata (not
       # string-interpolated) so `Letflow.Secrets.LogFilter`'s existing
       # metadata-redaction mechanism genuinely covers this call site.
-      Logger.warning(
+      Logger.error(
         "tenant migration replay failed",
         tenant_id: tenant_id,
         schema_name: schema_name,
