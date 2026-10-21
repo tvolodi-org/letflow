@@ -153,7 +153,7 @@ defmodule Letflow.Routers.ScriptPolicy do
 
     %{
       "sod" => %{
-        "declared" => policy.sod,
+        "declared" => Atom.to_string(policy.sod),
         "effective" => Atom.to_string(effective),
         "effective_reason" => Atom.to_string(effective_reason),
         "set_by" => policy.sod_set_by,
@@ -190,7 +190,10 @@ defmodule Letflow.Routers.ScriptPolicy do
     %{
       "entity_type" => entity_type,
       "referenced_by" =>
-        Enum.map(refs, &%{"key" => &1.key, "version" => &1.version, "status" => &1.status}),
+        Enum.map(
+          refs,
+          &%{"key" => &1.key, "version" => &1.version, "status" => Atom.to_string(&1.status)}
+        ),
       "referenced_total" => total
     }
   end

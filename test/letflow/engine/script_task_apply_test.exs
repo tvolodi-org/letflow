@@ -317,7 +317,7 @@ defmodule Letflow.Engine.ScriptTaskApplyTest do
       done = F.reload(t.schema_name, row)
 
       assert {done.status, done.outcome, done.outcome_detail} ==
-               {"failed", "ok", "no_matching_gateway_edge"}
+               {:failed, "ok", "no_matching_gateway_edge"}
 
       assert [%{"variables" => %{"amount" => 21} = error_variables}] =
                F.payloads(t.schema_name, instance_id, "EXECUTION_ERROR")

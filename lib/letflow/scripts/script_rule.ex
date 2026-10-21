@@ -7,6 +7,10 @@ defmodule Letflow.Scripts.ScriptRule do
   (`draft -> published | discarded`, `published -> retired | revoked`, `retired -> revoked`)
   and the immutability of non-draft content are enforced by the `script_rules_guard` trigger
   (SQLSTATE `LF001`), not only by `Letflow.Scripts`.
+
+  `status` is an `Ecto.Enum` over the `:string` column (GH 2603): the atoms equal the
+  `script_rules_status` CHECK set exactly, the CHECK stays the backstop, and every external
+  form (JSON, audit entries) renders the string via `Atom.to_string/1`.
   """
 
   use Ecto.Schema
@@ -18,7 +22,7 @@ defmodule Letflow.Scripts.ScriptRule do
     field(:key, :string)
     field(:version, :integer)
     field(:hook_kind, :string)
-    field(:status, :string)
+    field(:status, Ecto.Enum, values: [:draft, :discarded, :published, :retired, :revoked])
     field(:source, :string)
     field(:manifest, :map)
     field(:test_cases, {:array, :map})

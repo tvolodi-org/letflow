@@ -1027,7 +1027,7 @@ defmodule Letflow.EngineDistinctFromTest do
       |> Repo.all(prefix: ctx.schema_name)
 
     row =
-      row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: ctx.schema_name)
+      row |> Ecto.Changeset.change(%{status: :advanced}) |> Repo.update!(prefix: ctx.schema_name)
 
     {:ok, :advanced} =
       Engine.advance_after_service_task_outcome(

@@ -129,7 +129,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
     assert Fx.audit_rows(ctx.schema, "entity_write.process_step") == []
     refute "SERVICE_TASK_COMPLETED" in event_types(ctx)
     refute "TASK_ENTITY_WRITES_APPLIED" in event_types(ctx)
-    assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == "advanced"
+    assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == :advanced
   end
 
   # The apply landed in ERROR + ONE value-free DLQ entry with `code` at `index`; the closed
@@ -621,7 +621,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
 
       dispatch =
         ctx.dispatch
-        |> Ecto.Changeset.change(%{status: "advanced"})
+        |> Ecto.Changeset.change(%{status: :advanced})
         |> Repo.update!(prefix: base.schema)
 
       ctx = %{ctx | dispatch: dispatch}
@@ -1021,7 +1021,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       done = F.reload(schema, row)
 
       assert {done.status, done.outcome, done.outcome_detail} ==
-               {"failed", "script_rejected", "entity_write_refused"}
+               {:failed, "script_rejected", "entity_write_refused"}
 
       assert Fx.all_records(schema) == []
       assert Fx.step_idempotency_count(schema) == 0
@@ -1181,7 +1181,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
 
         assert {row, {:ok, :failed}} = F.run_next!(schema), label
         done = F.reload(schema, row)
-        assert done.status == "failed", label
+        assert done.status == :failed, label
         assert done.outcome == "output_invalid", label
         assert F.projection(schema, instance_id).status == :error, label
       end

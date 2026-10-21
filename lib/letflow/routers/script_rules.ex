@@ -8,6 +8,7 @@ defmodule Letflow.Routers.ScriptRules do
   |---|---|
   | `GET /` (summaries, no source) | `:ScriptsWrite` |
   | `GET /:key/versions/:version` | `:ScriptsWrite` |
+  | `GET /:key/versions/:version/audit` (GH 2548) | `:ScriptRulesAuditRead` -> `:AuditRead` |
   | `POST /:key/versions` (new draft) | `:ScriptsWrite` |
   | `PUT /:key/versions/:version` (save draft) | `:ScriptsWrite` |
   | `DELETE /:key/versions/:version` (discard draft) | `:ScriptsWrite` |
@@ -23,7 +24,17 @@ defmodule Letflow.Routers.ScriptRules do
   version (path or body), another tenant's key and a discarded version on read routes all
   answer the same plain 404 (INV-5). Responses are built by the allowlist functions
   `summary_map/1` and `version_map/1` (INV-2); bodies never echo submitted values.
-  Deferred: the auditor source read (`:AuditRead`, D9) is GH 2548.
+
+  GH 2548 (D9): `GET /:key/versions/:version/audit` is the read-only auditor path: an
+  `:AuditRead` holder reads one version's source, manifest, test cases, contributors, publisher
+  and sha256 by id. Each read first writes a `script_rule.source_read` audit entry (actor, key,
+  version, sha256, credential kind, trace id; no source text) and fails closed with 500 if it
+  cannot, so these GETs are serialised per tenant on the audit hash-chain lock; acceptable for a
+  low-volume audited read. A caller without `:AuditRead` gets the plain 404 of a missing version
+  (`Letflow.Plugs.Authorize` conceals this key's 403). Script versions carry no entity fields,
+  so `entity_field_restrictions` do not apply; the `version_map/1` allowlist is the INV-2
+  control. 0051 scope enforcement applies as a normal `:tenant_wide` route. Lists never carry
+  source, for anyone.
 
   7b-2a (`lib/letflow/design/gh2534-7b2a-script-policy.md` sections 5, 10): dry-run takes an
   optional `reads` fixture; while the tenant's script kill switch is on, dry-run and publish
@@ -55,6 +66,22 @@ defmodule Letflow.Routers.ScriptRules do
     reply(
       conn,
       Scripts.get(prefix(conn), conn.params["key"], conn.params["version"]),
+      &version_map/1
+    )
+  end
+
+  authz_get "/:key/versions/:version/audit", :ScriptRulesAuditRead do
+    context = conn.assigns.auth_context
+
+    actor = %{
+      user_id: context.user_id,
+      credential: Map.get(context, :credential),
+      trace_id: conn.assigns[:trace_id]
+    }
+
+    reply(
+      conn,
+      Scripts.audit_read(prefix(conn), conn.params["key"], conn.params["version"], actor),
       &version_map/1
     )
   end
@@ -260,7 +287,7 @@ defmodule Letflow.Routers.ScriptRules do
     %{
       "key" => rule.key,
       "version" => rule.version,
-      "status" => rule.status,
+      "status" => Atom.to_string(rule.status),
       "hook_kind" => rule.hook_kind,
       "sha256" => rule.sha256,
       "publisher_id" => rule.publisher_id,

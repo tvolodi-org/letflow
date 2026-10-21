@@ -102,7 +102,7 @@ defmodule Letflow.Engine.Req466VortexDistinctFromTest do
 
     advanced =
       ServiceTaskDispatch
-      |> where([d], d.instance_id == ^ctx.instance_id and d.status == "advanced")
+      |> where([d], d.instance_id == ^ctx.instance_id and d.status == :advanced)
       |> select([d], d.node_id)
       |> Repo.all(prefix: ctx.schema_name)
 
