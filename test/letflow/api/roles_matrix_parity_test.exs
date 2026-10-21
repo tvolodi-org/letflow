@@ -24,9 +24,9 @@ defmodule Letflow.Api.RolesMatrixParityTest do
 
   @roles_md Path.expand("../../../docs/roles.md", __DIR__)
 
-  # Decision 0046 D6: exactly 14 atoms plus REQ-449's role-agnostic :MyAccessRead. :PromotionsRead was withheld by REQ-448 until Q-1011's
-  # stored-tenant check merged and was granted by ISS-1109 / GH #2489. :MyModulesRead is the
-  # role-agnostic grant every role holds.
+  # Decision 0046 D6: exactly 14 atoms plus REQ-449's role-agnostic :MyAccessRead.
+  # :PromotionsRead was withheld by REQ-448 until Q-1011's stored-tenant check merged and was
+  # granted by ISS-1109 / GH #2489. :MyModulesRead is the role-agnostic grant every role holds.
   @auditor_yes_literal [
     :DefinitionsRead,
     :InstancesRead,
