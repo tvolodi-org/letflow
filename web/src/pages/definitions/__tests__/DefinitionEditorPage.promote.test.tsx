@@ -154,7 +154,7 @@ describe('ENV-04 — DefinitionEditorPage promote button', () => {
   })
 
   it.each(['designer', 'tenantAdmin'] as const)(
-    'TC-ENV04-06b: no Promote button for a %s session without PLATFORM_ADMIN on a test tenant (REQ-470)',
+    'TC-ENV04-06b: no Promote button for a %s session without platform-admin access on a test tenant (REQ-470)',
     access => {
       mockUseParams.mockReturnValue({ id: 'def-123' })
       mockUseDefinition.mockReturnValue({ data: ACTIVE_DEFINITION, isLoading: false } as unknown as ReturnType<typeof useDefinition>)

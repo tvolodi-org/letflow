@@ -33,7 +33,7 @@ import { tenantsApi } from '@/api/tenants'
 import { fetchTenantConfigForSlug, resolveRealmFromUrl } from '@/auth/tenantConfig'
 import { ACCESS_FIXTURES } from '@/auth/access/fixtures'
 
-const SLUG = 'acme-test'
+const SLUG = 'zeta-test'
 
 function fakeToken(): string {
   const b64 = (obj: unknown) => btoa(JSON.stringify(obj)).replace(/=+$/, '')
@@ -65,8 +65,8 @@ afterEach(() => {
 
 describe('REQ-470 — OidcCallbackPage tenant_type from tenant-config', () => {
   it.each([
-    ['TENANT_ADMIN', ACCESS_FIXTURES.tenantAdmin],
-    ['TASK_WORKER', ACCESS_FIXTURES.taskWorker],
+    ['tenantAdmin', ACCESS_FIXTURES.tenantAdmin],
+    ['taskWorker', ACCESS_FIXTURES.taskWorker],
   ])('%s login: tenant_type test lands in the session, no tenants request', async (_role, access) => {
     vi.mocked(fetchTenantConfigForSlug).mockResolvedValue(config({ tenant_type: 'test' }))
 

@@ -29,7 +29,7 @@ import { meApi } from '@/api/me'
 import { fetchTenantConfigForSlug } from '@/auth/tenantConfig'
 import { ACCESS_FIXTURES } from '@/auth/access/fixtures'
 
-const SLUG = 'acme-test'
+const SLUG = 'zeta-test'
 
 function fakeToken(): string {
   const b64 = (obj: unknown) => btoa(JSON.stringify(obj)).replace(/=+$/, '')
