@@ -1473,8 +1473,8 @@ defmodule Letflow.Support.TenantFixturePoolTest do
       :seq_only
     ]
 
-    property "any set of row writers is invisible after the boundary, and never rebuilds",
-             %{tenant_pool: pool} do
+    test "any set of row writers is invisible after the boundary, and never rebuilds",
+         %{tenant_pool: pool} do
       rebuilds = TenantFixture.pool_stats(pool).rebuilds
 
       check all(

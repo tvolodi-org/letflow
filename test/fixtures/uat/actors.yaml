@@ -85,6 +85,12 @@ actors:
     builtin_roles: [TASK_WORKER, TENANT_ADMIN]
     routing_roles: [role-ceo]
     note: "seed_swiftroute_persona_actors.sh: CEO, TASK_WORKER + role-ceo. Holds TENANT_ADMIN in realm swiftroute (ai-dala-infra T-0177 live re-check 2026-10-07: TASK_WORKER + TENANT_ADMIN, no PLATFORM_ADMIN). Scenario swiftroute/tenant-onboarding-happy.yaml names her alias tenant_admin"
+  actor-swiftroute-auditor:
+    tenant: swiftroute
+    builtin_roles: [TENANT_AUDITOR]
+    routing_roles: []
+    note: "GH #2363 / REQ-457: read-only auditor persona, new (no existing persona reused). The TENANT_AUDITOR realm role exists in the QA realms (infra T-0214) and is assigned to nobody; assigning it to this account is UAT-class and BLOCKED until the owner gives a written APPROVE to infra. No seed script creates this account yet"
+
   actor-swiftroute-tobias:
     tenant: swiftroute
     builtin_roles: [TASK_WORKER]
@@ -144,6 +150,11 @@ actors:
     builtin_roles: [TASK_WORKER]
     routing_roles: [role-ceo]
     note: "seed_vortex_persona_actors.sh PERSONAS line (actor-vortex-dirk|role-ceo); TASK_WORKER implicit per script header. Same entry as ISS-1006 / Q-988 (vortex D3); added here so the CEO-escalation scenarios pass SCHEMA-7"
+  actor-vortex-greta:
+    tenant: vortex
+    builtin_roles: [TASK_WORKER]
+    routing_roles: [role-finance-director]
+    note: "seed_vortex_persona_actors.sh PERSONAS line (actor-vortex-greta|role-finance-director); TASK_WORKER implicit per script header. REQ-471 / GH #2479: decides escalate-budget-approval-to-finance-director. Persona name proposed by the requirement, BA-VORTEX confirms. UAT-class: the Keycloak account is unrequested, so scenarios using this actor are blocked until it exists"
   actor-vortex-max:
     tenant: vortex
     builtin_roles: [TASK_WORKER]

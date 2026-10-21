@@ -90,7 +90,13 @@ defmodule Letflow.Scripts.SwiftrouteRosterAccountantTest do
   test "the seed script's personas agree with the roster's swiftroute routing roles" do
     personas = script_personas()
 
-    for {id, a} <- swiftroute_actors() do
+    # The read-only auditor (GH #2363) has no seeded account: assigning the TENANT_AUDITOR realm role
+    # is blocked on the owner's written APPROVE. It must stay free of routing roles meanwhile.
+    auditor = swiftroute_actors()["actor-swiftroute-auditor"]
+    assert auditor["builtin_roles"] == ["TENANT_AUDITOR"]
+    assert auditor["routing_roles"] == []
+
+    for {id, a} <- Map.delete(swiftroute_actors(), "actor-swiftroute-auditor") do
       assert Map.has_key?(personas, id), "#{id} is in actors.yaml but not in the seed PERSONAS"
       assert Enum.sort(personas[id]) == Enum.sort(a["routing_roles"] || []), id
     end

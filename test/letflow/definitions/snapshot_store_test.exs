@@ -211,7 +211,12 @@ defmodule Letflow.Definitions.SnapshotStoreTest do
 
       never_created_instance_id = Ecto.UUID.generate()
 
-      result = SnapshotStore.get_by_instance_id(never_created_instance_id, prefix: schema_name)
+      # apply/3 keeps the compiler's type checker from flagging the deliberate nil comparison.
+      result =
+        apply(SnapshotStore, :get_by_instance_id, [
+          never_created_instance_id,
+          [prefix: schema_name]
+        ])
 
       assert result == {:error, :snapshot_not_found}
       refute is_nil(result)

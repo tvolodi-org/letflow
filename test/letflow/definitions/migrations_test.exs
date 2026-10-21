@@ -36,8 +36,6 @@ defmodule Letflow.Definitions.MigrationsTest do
 
   use Letflow.DataCase, async: false
 
-  import Ecto.Query
-
   alias Letflow.Definitions.InstanceDefinitionSnapshot
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.TenantFixture

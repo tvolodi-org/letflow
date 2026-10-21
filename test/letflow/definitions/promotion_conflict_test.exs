@@ -39,8 +39,6 @@ defmodule Letflow.Definitions.PromotionConflictTest do
 
   use Letflow.DataCase, async: false
 
-  import Ecto.Query
-
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.PromotionConflict
   alias Letflow.TenantFixture

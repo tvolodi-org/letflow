@@ -25,6 +25,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
   alias Letflow.Engine
   alias Letflow.Entities.EntityTypeInstance
   alias Letflow.EntityWritesFixture, as: Fx
+  alias Letflow.LockOrderHelpers, as: H
   alias Letflow.Repo
   alias Letflow.Support.PlatformTenantFixture
   alias Letflow.Test.SandboxAutoMode
@@ -154,27 +155,13 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
       :ok = Letflow.Entities.StepWrites.prepare([line("stock_move")], %{prefix: base.schema})
       type_instance = type_instance_ids(base.schema)["stock_move"]
       schema = base.schema
-      test_pid = self()
 
-      holder =
-        Task.async(fn ->
-          Repo.transaction(fn ->
-            Repo.query!(
-              ~s(SELECT 1 FROM "#{schema}"."instance_sequence" WHERE instance_id = $1 FOR UPDATE),
-              [Ecto.UUID.dump!(type_instance)]
-            )
-
-            send(test_pid, :held)
-
-            receive do
-              :release -> :ok
-            after
-              30_000 -> :ok
-            end
-          end)
-        end)
-
-      assert_receive :held, 10_000
+      {holder, _holder_pid} =
+        hold_row(
+          ~s(SELECT 1 FROM "#{schema}"."instance_sequence" WHERE instance_id = $1 FOR UPDATE),
+          [Ecto.UUID.dump!(type_instance)],
+          self()
+        )
 
       # 3 attempts x the 2 s lock timeout, zero backoff under the test seam
       assert {:ok, :error_set} = Fx.apply_http(ctx, %{})
@@ -295,7 +282,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
         # child with the parent's projection wanted by its cascade, the service apply holding
         # it), then the row is released. Without the hold the two could finish one after the
         # other and the test would prove nothing.
-        holder =
+        {holder, holder_pid} =
           hold_row(
             ~s(SELECT 1 FROM "#{base.schema}"."instance_sequence" WHERE instance_id = $1 FOR UPDATE),
             [Ecto.UUID.dump!(type_instance)],
@@ -307,7 +294,9 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
           Task.async(fn -> {:service, apply_service.()} end)
         ]
 
-        assert wait_for_blocked(2) >= 2, "both transactions must be blocked on the held row"
+        assert wait_for_blocked_by(holder_pid, 2) >= 2,
+               "both transactions must be blocked on the held row"
+
         send(holder.pid, :release)
         Task.await(holder, 30_000)
 
@@ -346,12 +335,14 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
     assert {:ok, :advanced} = Fx.apply_http(warm, %{})
   end
 
+  # Holds the row on a connection of its own; returns `{task, holder_backend_pid}`.
   defp hold_row(sql, params, test_pid) do
     task =
       Task.async(fn ->
         Repo.transaction(fn ->
           Repo.query!(sql, params)
-          send(test_pid, :held)
+          %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+          send(test_pid, {:held, backend})
 
           receive do
             :release -> :ok
@@ -361,19 +352,30 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
         end)
       end)
 
-    assert_receive :held, 10_000
-    task
+    assert_receive {:held, backend}, 10_000
+    {task, backend}
   end
 
-  # Polls pg_stat_activity of this database (bounded: <= 30 x 50 ms, under the 2 s lock_timeout)
-  # until at least `n` sessions wait on a lock; returns the last observed count. Scoped to the
-  # current database so sibling sessions on a shared cluster are not counted.
-  defp wait_for_blocked(n) do
+  # Polls (bounded: <= 30 x 50 ms, under the 2 s lock_timeout) until at least `n` sessions wait
+  # on a lock held by THIS test's holder backend; returns the last observed count. Counts the
+  # sessions blocked by `holder_pid` directly or through a queued waiter (a second waiter on the
+  # same row is blocked by the first one, not by the holder), so sibling sessions on a shared
+  # cluster are never counted (GH #2717).
+  defp wait_for_blocked_by(holder_pid, n) do
+    sql = """
+    WITH RECURSIVE waiting AS (
+      SELECT pid FROM pg_stat_activity
+      WHERE wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))
+      UNION
+      SELECT a.pid FROM pg_stat_activity a
+      JOIN waiting w ON w.pid = ANY(pg_blocking_pids(a.pid))
+      WHERE a.wait_event_type = 'Lock'
+    )
+    SELECT count(*) FROM waiting
+    """
+
     Enum.reduce_while(1..30, 0, fn _, _ ->
-      %{rows: [[waiting]]} =
-        Repo.query!(
-          "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
-        )
+      %{rows: [[waiting]]} = Repo.query!(sql, [holder_pid])
 
       if waiting >= n do
         {:halt, waiting}
@@ -420,10 +422,11 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
         ]
 
         if holder do
+          {holder_task, holder_pid} = holder
           # both blocked at the held type row: the overlap really happened
-          assert wait_for_blocked(2) >= 2
-          send(holder.pid, :release)
-          Task.await(holder, 30_000)
+          assert wait_for_blocked_by(holder_pid, 2) >= 2
+          send(holder_task.pid, :release)
+          Task.await(holder_task, 30_000)
         end
 
         for async <- asyncs do
@@ -477,7 +480,11 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
 
     test "a contention in the landing transaction is re-run and then lands", %{base: base} do
       ctx = Fx.attach_service!(base, Fx.service_graph([line("stock_move")]))
-      holder = hold_row(dispatch_row_sql(base.schema), [Ecto.UUID.dump!(ctx.dispatch.id)], self())
+
+      {holder, _holder_pid} =
+        hold_row(dispatch_row_sql(base.schema), [Ecto.UUID.dump!(ctx.dispatch.id)], self())
+
+      H.attach_error_handler(__MODULE__)
 
       landing =
         Task.async(fn ->
@@ -489,8 +496,12 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
           )
         end)
 
-      # attempt 1 waits out the 2 s lock timeout (55P03) and is re-run; release during attempt 2
-      Process.sleep(2_600)
+      # attempt 1 parks on the held row until its own 2 s lock timeout fires (55P03): that signal
+      # is the wait, not a sleep. Release then, so the re-run (attempt 2) takes the row.
+      assert_receive {:deadlock_detected,
+                      %Postgrex.Error{postgres: %{code: :lock_not_available}}},
+                     10_000
+
       send(holder.pid, :release)
       Task.await(holder, 30_000)
 
@@ -502,7 +513,9 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
     test "residual (d): a landing that exhausts its budget leaves the instance active and says so",
          %{base: base} do
       ctx = Fx.attach_service!(base, Fx.service_graph([line("stock_move")]))
-      holder = hold_row(dispatch_row_sql(base.schema), [Ecto.UUID.dump!(ctx.dispatch.id)], self())
+
+      {holder, _holder_pid} =
+        hold_row(dispatch_row_sql(base.schema), [Ecto.UUID.dump!(ctx.dispatch.id)], self())
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
