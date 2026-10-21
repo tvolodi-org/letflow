@@ -1923,12 +1923,12 @@ defmodule Letflow.Routers.Entities do
     with {:ok, body} <- object_body(conn) do
       # GH #2808: any named type TypeAccess hides from the caller (or a failed read) refuses the
       # whole request with the constant 403, before row validation and before any write.
-      case TypeAccess.denied_types(user_id, Restrictions.entity_types(body), prefix) do
-        {:ok, denied} when map_size(denied.map) == 0 ->
-          import_restrictions_rows(conn, body, prefix)
-
-        _denied_or_failed ->
-          Response.forbidden(conn, "insufficient permissions")
+      with {:ok, denied} <-
+             TypeAccess.denied_types(user_id, Restrictions.entity_types(body), prefix),
+           true <- MapSet.size(denied) == 0 do
+        import_restrictions_rows(conn, body, prefix)
+      else
+        _denied_or_failed -> Response.forbidden(conn, "insufficient permissions")
       end
     else
       {:error, :malformed_json} ->

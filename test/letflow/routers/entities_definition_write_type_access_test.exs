@@ -22,6 +22,7 @@ defmodule Letflow.Routers.EntitiesDefinitionWriteTypeAccessTest do
   alias Letflow.Entities.DefinitionAccess
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EventTypes
+  alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.Entities.Restrictions
   alias Letflow.Identity
   alias Letflow.Identity.User
@@ -151,7 +152,9 @@ defmodule Letflow.Routers.EntitiesDefinitionWriteTypeAccessTest do
   end
 
   defp def_counts(ctx) do
-    for table <- ~w(entity_definitions artifact_versions repository_artifacts), into: %{} do
+    for table <-
+          ~w(entity_definitions artifact_versions repository_artifacts events audit_entries),
+        into: %{} do
       {table, Repo.aggregate(table, :count, prefix: ctx.schema_name)}
     end
   end
@@ -242,6 +245,28 @@ defmodule Letflow.Routers.EntitiesDefinitionWriteTypeAccessTest do
       assert DefinitionAccess.activate(ctx.user_id, "dx", "not_a_tenant_schema") == :hidden
       grant!(ctx, "dx")
       assert DefinitionAccess.activate(ctx.user_id, "dx", ctx.schema_name) == :open
+    end
+
+    test "INV-5 precedence: a denied managed type is the absent 404, an allowed caller gets the managed 403" do
+      ctx = tenant_ctx("gh2808-r1m")
+      Fx.install_managed_fixture!(ctx.schema_name)
+      restrict!(ctx, "fxm_ledger")
+
+      assert DefinitionAccess.activate(ctx.user_id, "fxm_ledger", ctx.schema_name) == :hidden
+      before = def_counts(ctx)
+
+      for body <- [%{"rationale" => "because"}, {:raw, "[1,2]"}, %{}, %{"rationale" => "  "}] do
+        assert norm(activate(ctx, "fxm_ledger", body)) ==
+                 norm(activate(ctx, "never_existed", body))
+      end
+
+      assert {404, _, _} = norm(activate(ctx, "fxm_ledger"))
+      assert def_counts(ctx) == before
+
+      grant!(ctx, "fxm_ledger")
+      assert DefinitionAccess.activate(ctx.user_id, "fxm_ledger", ctx.schema_name) == :managed
+      assert {403, _, body} = norm(activate(ctx, "fxm_ledger"))
+      assert inspect(body) =~ "managed"
     end
   end
 
