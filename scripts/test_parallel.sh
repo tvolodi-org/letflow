@@ -517,9 +517,12 @@ cleanup_tmp_dir() {
   # orphan that keeps this script's inherited stdout/stderr pipe open for
   # up to partition_timeout_s, and a reader of that pipe (the Elixir
   # `mix letflow.check.test` Port) does not see EOF / the exit status
-  # until the orphan exits. Falls back to a plain pid kill.
+  # until the orphan exits. A plain pid kill follows the group kill unconditionally (GH #2457):
+  # the group signal can report success yet miss the subshell on git-bash, and the
+  # subshell's TERM trap is what kills its sleep.
   for _idx in "${!watchdog_pids[@]}"; do
-    kill -- "-${watchdog_pids[$_idx]}" 2>/dev/null || kill "${watchdog_pids[$_idx]}" 2>/dev/null
+    kill -- "-${watchdog_pids[$_idx]}" 2>/dev/null
+    kill "${watchdog_pids[$_idx]}" 2>/dev/null
   done
 
   if [ "$exit_code" -eq 0 ] && [ -z "${TEST_PARALLEL_KEEP_LOGS:-}" ]; then
@@ -986,7 +989,8 @@ while [ "$i" -le "$LAST" ]; do
   # ~8-minute stall of the CI gate after the partitions finish). The plain
   # pid kill is the fallback if the group signal is unavailable.
   if [ -n "${watchdog_pids[$i]:-}" ]; then
-    kill -- "-${watchdog_pids[$i]}" 2>/dev/null || kill "${watchdog_pids[$i]}" 2>/dev/null
+    kill -- "-${watchdog_pids[$i]}" 2>/dev/null
+    kill "${watchdog_pids[$i]}" 2>/dev/null
     wait "${watchdog_pids[$i]}" 2>/dev/null
   fi
   i=$((i + 1))
