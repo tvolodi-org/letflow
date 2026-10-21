@@ -945,9 +945,12 @@ while [ "$i" -le "$LAST" ]; do
     # The sleep also runs as a tracked child: a TERM that reaches this subshell (group or
     # plain pid kill) kills the sleep by its own pid, so cleanup does not depend on the
     # group kill reaching the sleep, which a git-bash host was seen to miss.
+    # The trap is set before the sleep starts (guarded for an empty pid), so a TERM landing
+    # between the fork and the trap cannot kill the subshell and orphan the sleep.
+    _sleep_pid=
+    trap '[ -n "$_sleep_pid" ] && kill "$_sleep_pid" 2>/dev/null; exit 0' TERM
     sleep "$partition_timeout_s" </dev/null >/dev/null 2>&1 &
     _sleep_pid=$!
-    trap 'kill "$_sleep_pid" 2>/dev/null; exit 0' TERM
     wait "$_sleep_pid" 2>/dev/null
     trap - TERM
     if kill -0 "$_watchdog_pid" 2>/dev/null; then

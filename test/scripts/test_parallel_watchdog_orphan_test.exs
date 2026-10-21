@@ -11,7 +11,12 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
   15:35:36 = 8m07s, i.e. watchdog start + 1800 s).
 
   The fix kills the watchdog's whole process group (`kill -- -$pid`, falling back to
-  `kill $pid`) at the post-`wait` site (Step 3) and in the EXIT trap.
+  `kill $pid`) at the post-`wait` site (Step 3) and in the EXIT trap. GH #2457: on a
+  git-bash host that group kill was seen to miss the sleep (orphan, PPID 1), reason
+  unexplained, so the sleep is now a tracked background child killed by its own pid from
+  the subshell's TERM trap; cleanup needs only the TERM to reach the subshell. Orphans are
+  listed with a bash `/proc` scan (git-bash's `ps` rejects `-eo args`); an unusable listing
+  fails the test. Linux behaviour of the original flake is unverified.
 
   ## What is driven
 
@@ -41,6 +46,8 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
        partition is still running (the trap would only reap it at exit)
     5. hung partition: the watchdog must still TERM the partition group after
        `TEST_PARALLEL_PARTITION_TIMEOUT_S` -> script exits non-zero within seconds
+    6. plain TERM to the watchdog subshell only (simulated missed group kill, GH #2457):
+       its sleep must die too -- deterministic, fails on the old script everywhere
 
   Needs a real `bash`; on Windows set `UAT_PF_BASH` (or `TEST_PARALLEL_BASH`) to git-bash.
   `async: false`: the cases spawn process trees and are timing-sensitive.
@@ -157,6 +164,40 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
             [ -s "$STUB_MARKER" ] && break
             sleep 0.1
           done
+        fi
+        echo "Result: 1 passed"
+        exit 0 ;;
+      termsub)
+        if [ "$part" = "1" ]; then
+          # GH #2457: simulate "the group kill missed the sleep": plain-TERM only the
+          # watchdog subshell (the sleep's parent) and record whether the sleep dies with it.
+          deadline=$((SECONDS + 25))
+          : > "$STUB_MARKER"
+          spid=
+          while [ "$SECONDS" -lt "$deadline" ] && [ -z "$spid" ]; do
+            for d in /proc/[0-9]*; do
+              c=$(tr "\\0" " " <"$d/cmdline" 2>/dev/null)
+              case "$c" in
+                "sleep $TEST_PARALLEL_PARTITION_TIMEOUT_S "*) spid=${d#/proc/}; spdir=$d; break ;;
+              esac
+            done
+            [ -z "$spid" ] && sleep 0.1
+          done
+          if [ -z "$spid" ]; then echo "no-sleep" > "$STUB_MARKER"; else
+            if [ -r "$spdir/ppid" ]; then
+              ppid=$(cat "$spdir/ppid")
+            else
+              stat=$(cat "$spdir/stat"); rest=${stat##*) }; set -- $rest; ppid=$2
+            fi
+            kill -TERM "$ppid"
+            res=alive
+            while [ "$SECONDS" -lt "$deadline" ]; do
+              c=$(tr "\\0" " " <"$spdir/cmdline" 2>/dev/null)
+              case "$c" in "sleep $TEST_PARALLEL_PARTITION_TIMEOUT_S "*) ;; *) res=gone; break ;; esac
+              sleep 0.1
+            done
+            echo "$res" > "$STUB_MARKER"
+          fi
         fi
         echo "Result: 1 passed"
         exit 0 ;;
@@ -402,6 +443,40 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
         assert line =~ ~r/^fd1=\/dev\/nul\w* fd2=\/dev\/nul\w*$/,
                "watchdog sleep still holds an inherited fd: #{line}"
       end
+    end)
+  end
+
+  test "a plain TERM to the watchdog subshell (group kill missed) also kills its sleep",
+       %{tmp_dir: tmp} do
+    # GH #2457 deterministic regression: the trap's `kill -- -pgid` was seen to miss the
+    # watchdog's sleep on git-bash, leaving it orphaned (PPID 1). The stub sends a plain
+    # (non-group) TERM to the sleep's parent only. On the old script a foreground sleep
+    # survives that on every platform; with the TERM trap it dies with its subshell.
+    t = unique_timeout()
+    marker = Path.join(tmp, "sleep_after_term")
+
+    {status, out, _elapsed} =
+      run_script(
+        tmp,
+        [
+          {"STUB_MODE", "termsub"},
+          {"STUB_MARKER", marker},
+          {"TEST_PARALLEL_PARTITION_TIMEOUT_S", "#{t}"}
+        ],
+        @prompt_ms
+      )
+
+    TestParallelCapture.with_context(tmp, out, fn ->
+      assert status == 0, out
+      assert File.exists?(marker), "stub did not record a result:
+#{out}"
+
+      assert marker |> File.read!() |> String.trim() == "gone",
+             "watchdog sleep survived a plain TERM to its subshell: " <>
+               "#{String.trim(File.read!(marker))}
+#{out}"
+
+      assert_no_orphan_sleep(t)
     end)
   end
 
