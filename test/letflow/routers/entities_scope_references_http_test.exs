@@ -13,7 +13,7 @@ defmodule Letflow.Routers.EntitiesScopeReferencesHttpTest do
       status, headers, body, ordered SQL statement sequence and telemetry (`policy`, `kind`);
       nothing written, no idempotency row; a PUT with an unchanged in-scope reference succeeds;
     * (b) a tenant-wide caller: in-scope and out-of-scope references are 2xx; the nonexistent
-      reference is a pinned PRE-EXISTING 500 (issue #2832, the fix must keep the scoped 404);
+      reference is a constant 422 naming the field (issue #2832; the scoped answer stays the 404);
     * (c) null / omitted reference succeeds; non-string, malformed and empty references are one
       answer with no lookup statement;
     * (d) idempotency replay with a reference that is out of scope (or has LEFT the scope since):
@@ -188,7 +188,7 @@ defmodule Letflow.Routers.EntitiesScopeReferencesHttpTest do
 
   # ===========================================================================================
   describe "T-W8 (b) a tenant-wide caller" do
-    test "in-scope and out-of-scope references are 2xx; the nonexistent reference is a PINNED pre-existing 500 (issue #2832)",
+    test "in-scope and out-of-scope references are 2xx; the nonexistent reference is a constant 422 (issue #2832)",
          %{fx: fx} do
       wide = fn ref ->
         W.admin_request(fx, :post, W.records_path(@child, nil), child_body(ref))
@@ -198,10 +198,15 @@ defmodule Letflow.Routers.EntitiesScopeReferencesHttpTest do
       assert wide.(fx.items.b.record_id).status == 201
       assert wide.(fx.items.none.record_id).status == 201
 
-      # PINNED PRE-EXISTING DEFECT (issue #2832, INV-8 not INV-5): a bare 500 for a nonexistent
-      # promoted reference. NOT an assertion that tenant-wide gets 404. The fix (a 422 on the FK
-      # field) MUST keep the SCOPED answer the generic 404, never 422 (an oracle otherwise).
-      assert wide.(absent_id()).status == 500
+      # GH #2832 (INV-8): a constant 422 on the FK field, no value echo. The SCOPED answer stays
+      # the generic 404, never a 422 (an oracle otherwise).
+      absent = absent_id()
+      conn = wide.(absent)
+      assert conn.status == 422
+      refute conn.resp_body =~ absent
+
+      assert [%{"code" => "reference", "path" => ["item_id"]}] =
+               Jason.decode!(conn.resp_body)["errors"]
     end
   end
 

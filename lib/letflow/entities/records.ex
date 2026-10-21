@@ -21,8 +21,7 @@ defmodule Letflow.Entities.Records do
   A scoped write also resolves every reference (`foreign_keys` field) of the NEW document through
   the scope of the referenced type (before the transaction and again inside it), with no
   exemption for an unchanged stored reference on an update (fail closed). A foreign-key violation
-  of a scoped write is `{:error, :scope_refused}`, never a 500; a tenant-wide write keeps today's
-  answer. Residual: the referenced row's scope can change between the check and the commit (no
+  of a scoped write is `{:error, :scope_refused}`, never a 500; a tenant-wide write is a 422 naming the field (GH #2832). Residual: the referenced row's scope can change between the check and the commit (no
   lock is taken on it).
 
   ## The inner/outer validation split (AC7)
@@ -1385,10 +1384,16 @@ defmodule Letflow.Entities.Records do
 
         # BUG-1 backstop: a scoped caller never sees a 500 (nor a constraint name) from a
         # foreign-key violation; the pre-checks refuse an unresolvable reference first, this
-        # covers the race. Scope `:all` keeps today's answer.
-        {:error, %Postgrex.Error{postgres: %{code: :foreign_key_violation}} = error} ->
+        # covers the race. A tenant-wide caller (scope `:all`, GH #2832) gets a 422 naming the
+        # field with a constant message; a scoped caller keeps the generic refusal (404), because
+        # a 422 for them would tell whether an id exists outside their scope.
+        {:error,
+         %Postgrex.Error{postgres: %{code: :foreign_key_violation, constraint: constraint_name}}} ->
           if Map.get(ctx, :scope, :all) == :all,
-            do: {:error, error},
+            do:
+              {:error,
+               {:record_payload_invalid,
+                fk_violation_from_constraint(promotions, table_name, constraint_name)}},
             else: {:error, :scope_refused}
 
         {:error, reason} ->
@@ -1396,6 +1401,32 @@ defmodule Letflow.Entities.Records do
       end
     end
   end
+
+  # GH #2832: the violation of a tenant-wide write whose promoted reference column points at a
+  # record that does not exist. The column-level REFERENCES carries no explicit name, so Postgres
+  # names it `<table>_<column>_fkey` (long names are shortened part by part, so the match can
+  # miss); a miss with exactly one reference promotion still names that field, otherwise the
+  # path is empty. The message is constant: no value, constraint or table name is echoed.
+  defp fk_violation_from_constraint(promotions, table_name, constraint_name) do
+    fk_promotions = Enum.filter(promotions, &(&1.references_entity != nil))
+
+    attribute =
+      case Enum.find(fk_promotions, &(constraint_name == "#{table_name}_#{&1.column_name}_fkey")) do
+        %{attribute: attribute} -> attribute
+        nil -> single_fk_attribute(fk_promotions)
+      end
+
+    [
+      %Violation{
+        rule: :reference,
+        path: List.wrap(attribute),
+        message: "referenced record does not exist"
+      }
+    ]
+  end
+
+  defp single_fk_attribute([%{attribute: attribute}]), do: attribute
+  defp single_fk_attribute(_), do: nil
 
   # REVIEWER finding (re-verifying REQ-336 AC4 after ISS-0648): a genuine
   # duplicate-value write to a promoted-column entity table (e.g. two "tag"

@@ -425,16 +425,14 @@ defmodule Letflow.Routers.EntitiesScopeWritesHttpTest do
                "#{nonexistent.status}: the caller learns that a record outside its scope exists"
     end
 
-    test "the in-scope reference works; the tenant-wide caller sees the same split as today (pre-existing, for the report)",
+    test "the in-scope reference works; the tenant-wide caller gets a 422 for a nonexistent one (issue #2832)",
          %{fx: fx} do
       assert child(fx, :scoped, fx.items.a.record_id).status == 201
       assert child(fx, :wide, fx.items.b.record_id).status == 201
-      # PINNED PRE-EXISTING DEFECT (issue #2832, SEC step-20 ruling c): a tenant-wide caller
-      # writing a nonexistent reference gets a bare 500 (INV-8, not an INV-5 leak). Whoever fixes
-      # it (a 422 on the FK field) MUST keep the scoped answer the generic 404, NEVER a 422: 422
-      # for nonexistent vs 404 for out-of-scope would be an oracle. The scoped side is pinned in
-      # entities_scope_references_http_test.exs.
-      assert child(fx, :wide, absent_id()).status == 500
+      # GH #2832: a tenant-wide caller writing a nonexistent reference gets a constant 422 on the
+      # FK field. The scoped answer stays the generic 404, NEVER a 422 (that would be an oracle);
+      # it is pinned in entities_scope_references_http_test.exs.
+      assert child(fx, :wide, absent_id()).status == 422
     end
   end
 
