@@ -475,7 +475,31 @@ defmodule Letflow.TenantSchemaReaper do
         [own_tag]
       )
 
-    Enum.any?(rows, fn [name] -> is_nil(own_group) or group_tag_of(name) != own_group end)
+    concurrent? =
+      Enum.any?(rows, fn [name] -> is_nil(own_group) or group_tag_of(name) != own_group end)
+
+    log_guard_read(repo, own_tag, rows, concurrent?)
+    concurrent?
+  end
+
+  # GH #2441 diagnostics: a CI sweep once reclaimed rows although another invocation's
+  # connection was alive, i.e. this read returned no foreign tag. The log is the
+  # evidence the issue asks for: what the read returned and whether the Repo
+  # connection was inside a transaction (a per-transaction snapshot would explain a
+  # stale pg_stat_activity view). Quiet in the ordinary case -- no foreign tag read
+  # and no transaction -- so only the interesting reads reach the CI log.
+  defp log_guard_read(repo, own_tag, rows, concurrent?) do
+    in_tx? = repo.in_transaction?()
+
+    if in_tx? or rows != [] do
+      Logger.warning(
+        "TenantSchemaReaper guard read (GH #2441): own_tag=#{inspect(own_tag)} " <>
+          "foreign_tags=#{inspect(List.flatten(rows))} in_transaction=#{in_tx?} " <>
+          "concurrent=#{concurrent?}"
+      )
+    end
+
+    :ok
   end
 
   # Extracts the trailing "_grp<id>" suffix an application_name may carry (ISS-0217),
