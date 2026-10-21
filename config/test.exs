@@ -55,6 +55,12 @@ config :letflow, start_http: false
 # its own instance explicitly.
 config :letflow, start_scheduler: false
 
+# REQ-500 / GH #2588: the PostgreSQL version boot check (Letflow.Documents.BootCheck) runs one
+# `SHOW` query at application start, from a process no test is an ancestor of, which under the
+# manual sandbox raises DBConnection.OwnershipError. Its floor is tested directly by
+# test/letflow/documents/boot_precondition_test.exs (pure function plus the live version).
+config :letflow, document_boot_check: false
+
 # REQ-214: don't start Letflow.Engine.ServiceTaskDispatcher.Poller under
 # test either -- identical DBConnection.OwnershipError hazard as
 # start_scheduler above (its own first tick runs with zero delay and

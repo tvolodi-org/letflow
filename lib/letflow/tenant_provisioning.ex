@@ -806,7 +806,13 @@ defmodule Letflow.TenantProvisioning do
     # GH #2502: drops the partial index pending_tenant_admin_grants_open_idx, redundant with the
     # unique email_key index because the state CHECK makes every non-NULL email_key an open row.
     {20_261_021_000_001, Letflow.Repo.Migrations.DropPendingTenantAdminGrantsOpenIdx,
-     "20261021000001_drop_pending_tenant_admin_grants_open_idx.exs"}
+     "20261021000001_drop_pending_tenant_admin_grants_open_idx.exs"},
+    # REQ-500 / GH #2588 (PR A, decision 0056): the versioned-document tables, then their
+    # immutability triggers (the triggers need the tables). Both are tenant-scoped.
+    {20_261_022_100_001, Letflow.Repo.Migrations.CreateDocumentTables,
+     "20261022100001_create_document_tables.exs"},
+    {20_261_022_100_002, Letflow.Repo.Migrations.CreateDocumentImmutabilityTriggers,
+     "20261022100002_create_document_immutability_triggers.exs"}
   ]
 
   @doc """
