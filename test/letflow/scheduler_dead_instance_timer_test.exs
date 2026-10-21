@@ -8,7 +8,8 @@ defmodule Letflow.SchedulerDeadInstanceTimerTest do
   or being re-claimed on every tick forever (errored).
 
     * P1 / P2 / P3: a timer on a cancelled / completed / errored instance is settled by the first
-      tick; the second tick claims nothing;
+      tick; the second tick claims nothing (for an errored instance, the landing cancels the rows
+      it finds, GH #2830, and the tick settles only the rows armed after the landing);
     * P4: head of line -- three timers of an errored instance older than a live due timer, with
       the claim limit at 3, no longer starve the live timer;
     * P5: settle is instance-wide (one attempt clears every pending timer of the instance);
@@ -225,22 +226,24 @@ defmodule Letflow.SchedulerDeadInstanceTimerTest do
   end
 
   describe "P3: a timer on an errored instance (formerly re-claimed on every tick forever)" do
-    test "is settled with reason instance_error; every pending timer of the instance goes with it" do
+    test "the landing cancels every pending timer of the instance (GH #2830); a timer armed after it is settled" do
       %{schema_name: schema} = setup_tenant()
       x = start_instance!(schema, timer_graph())
       engine_timer = hd(Repo.all(from(t in Timer, where: t.instance_id == ^x), prefix: schema))
-      due = arm!(schema, x, 60)
+      _due = arm!(schema, x, 60)
       error!(schema, x)
 
-      assert reload(schema, engine_timer).status == "pending"
+      # the landing cancelled both rows in its own transaction: the tick has nothing to claim
+      assert_settled!(schema, engine_timer, "instance_error")
+      assert %{claimed: 0} = Scheduler.poll_and_fire(schema)
 
       attach_settled_handler()
 
-      assert_settled_once!(schema, x, due, "instance_error")
-      assert_settled!(schema, engine_timer, "instance_error")
+      # a row armed after the landing still goes through the settle path (#2707)
+      late = arm!(schema, x, 60, "late")
+      assert_settled_once!(schema, x, late, "instance_error")
 
-      # instance-wide: ONE settle announcement counting both timers
-      assert_receive {:settled, %{count: 2}, %{reason: "instance_error"}}
+      assert_receive {:settled, %{count: 1}, %{reason: "instance_error"}}
       refute_receive {:settled, _, _}, 50
     end
   end

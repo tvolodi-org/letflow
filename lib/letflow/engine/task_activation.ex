@@ -520,10 +520,10 @@ defmodule Letflow.Engine.TaskActivation do
   `SELECT ... FOR UPDATE` pass, no extra lock beyond the one `update_all/3`
   itself takes (design doc §5.1, SCH-03).
 
-  Two known call sites, two `cancel_reason` values: `"instance_completed"`
-  (from `Letflow.Engine`'s `finalize_instance_projection/5`) and
-  `"instance_cancelled"` (from `Letflow.Engine.cancel_instance/3`'s own
-  `run_cancel_instance/5`).
+  Three known call sites, three `cancel_reason` values: `"instance_completed"`
+  (from `Letflow.Engine`'s `finalize_instance_projection/5`), `"instance_cancelled"`
+  (from `Letflow.Engine.cancel_instance/3`'s own `run_cancel_instance/5`) and
+  `"instance_error"` (from `Letflow.Engine.ExecutionError.append_multi/3`, GH #2830).
   """
   @spec cancel_pending_timers(
           repo :: Ecto.Repo.t(),
