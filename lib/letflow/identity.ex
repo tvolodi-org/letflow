@@ -2228,7 +2228,7 @@ defmodule Letflow.Identity do
   changeset's own @doc for why `:status` is structurally excluded from this path.
 
   A `display_name`-only patch is a plain `Repo.update/1` (unaudited, as before).
-  When `login_disclosure_mode` actually changes, the update and two audit
+  When `login_disclosure_mode` or (REQ-469) `tenant_type` actually changes, the update and two audit
   entries (value-free payloads, INV-2) are written in a single transaction, so
   all three commit or all three roll back (ISS-1032 / GH 2351): a TARGET-tenant
   chain entry `tenant.platform_setting.updated` with a NIL actor and the constant
@@ -2258,7 +2258,8 @@ defmodule Letflow.Identity do
           not changeset.valid? ->
             {:error, changeset}
 
-          Map.has_key?(changeset.changes, :login_disclosure_mode) ->
+          Map.has_key?(changeset.changes, :login_disclosure_mode) or
+              Map.has_key?(changeset.changes, :tenant_type) ->
             patch_tenant_with_audit(changeset, tenant, opts)
 
           true ->
@@ -2287,14 +2288,16 @@ defmodule Letflow.Identity do
         after_state: %{"changed" => true, "actor_class" => "platform_operator"}
       }
 
+      {platform_before_state, platform_after_state} = platform_entry_states(changeset, tenant)
+
       platform_entry = %{
         actor_id: actor_id,
         action: "platform.tenant_platform_setting.updated",
         resource_type: "tenant",
         resource_id: tenant.id,
         trace_id: Keyword.get(opts, :trace_id),
-        before_state: nil,
-        after_state: %{"tenant_id" => tenant.id, "changed" => true}
+        before_state: platform_before_state,
+        after_state: platform_after_state
       }
 
       Multi.new()
@@ -2324,18 +2327,33 @@ defmodule Letflow.Identity do
         "tenant platform-setting patch failed (tenant_id=#{tenant.id}, exit=#{inspect(bind_exit_tag(reason))})"
       )
 
-      committed_mode_or_audit_failed(
-        tenant.id,
-        Ecto.Changeset.get_change(changeset, :login_disclosure_mode)
-      )
+      committed_or_audit_failed(tenant.id, changeset.changes)
   end
 
-  # An exit during COMMIT leaves the outcome unknown. The update and both audit entries commit together, so a
-  # stored mode equal to the requested one means all three are in place; anything else is a failure.
-  defp committed_mode_or_audit_failed(tenant_id, mode) do
+  # The platform chain is operator-only, so it may carry the (closed, non-sensitive) tenant_type
+  # old/new values; `login_disclosure_mode` is never in a payload (REQ-469, INV-2).
+  defp platform_entry_states(%Ecto.Changeset{changes: %{tenant_type: new}}, %Tenant{} = tenant) do
+    {%{"tenant_type" => tenant.tenant_type},
+     %{"tenant_id" => tenant.id, "changed" => true, "tenant_type" => new}}
+  end
+
+  defp platform_entry_states(_changeset, %Tenant{} = tenant),
+    do: {nil, %{"tenant_id" => tenant.id, "changed" => true}}
+
+  # An exit during COMMIT leaves the outcome unknown. The update and both audit entries commit together, so
+  # every audited field equal to the requested value means all three are in place; anything else is a failure.
+  defp committed_or_audit_failed(tenant_id, changes) do
     case Repo.get(Tenant, tenant_id) do
-      %Tenant{login_disclosure_mode: ^mode} = tenant -> {:ok, tenant}
-      _other -> {:error, :audit_failed}
+      %Tenant{} = tenant ->
+        if Enum.all?([:login_disclosure_mode, :tenant_type], fn field ->
+             not Map.has_key?(changes, field) or
+               Map.get(tenant, field) == Map.fetch!(changes, field)
+           end),
+           do: {:ok, tenant},
+           else: {:error, :audit_failed}
+
+      _other ->
+        {:error, :audit_failed}
     end
   rescue
     exception ->

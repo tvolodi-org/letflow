@@ -195,3 +195,10 @@ This repository does not edit the infra repository; ORCH copies the line into
   If the same slug or hostname is submitted again, the answer is 409 with the specific reason (for example
   "slug already exists") and nothing is created twice. If the first answer was lost, look the tenant up
   (`GET /api/v1/onboarding?hostname=...`) instead of retrying the create.
+
+## Tenant type (REQ-469)
+
+Every tenant has a `tenant_type`, `test` or `production`. A tenant created through onboarding is `test`, and so is every
+tenant that existed before the column was added. After onboarding a real production tenant, a platform administrator
+sets it with `PATCH /tenants/:slug` and `{"tenant_type": "production"}`; only a `PLATFORM_ADMIN` of the platform tenant
+may change it, and each change is audited. The promotion classifier refuses a `production` tenant as a promotion source.

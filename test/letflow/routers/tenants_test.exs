@@ -218,7 +218,7 @@ defmodule Letflow.Routers.TenantsTest do
   # ── GET /tenants/:slug, PATCH /tenants/:slug — PLATFORM_ADMIN happy paths ──
 
   describe "GET /tenants/:slug as PLATFORM_ADMIN" do
-    test "returns the allowlisted 6-key shape" do
+    test "returns the allowlisted 8-key shape" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req075-get")
 
       resp =
@@ -235,6 +235,7 @@ defmodule Letflow.Routers.TenantsTest do
                  "display_name",
                  "status",
                  "login_disclosure_mode",
+                 "tenant_type",
                  "inserted_at",
                  "updated_at"
                ])
