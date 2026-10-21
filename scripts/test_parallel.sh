@@ -524,6 +524,19 @@ cleanup_tmp_dir() {
     kill -- "-${watchdog_pids[$_idx]}" 2>/dev/null
     kill "${watchdog_pids[$_idx]}" 2>/dev/null
   done
+  # Signal delivery is asynchronous: the subshell's TERM trap (which kills its sleep) runs
+  # only after we return. Give the watchdogs up to ~5 s to finish so the sleeps are gone
+  # before this script exits (GH #2457); bounded, never waits on a watchdog that ignored it.
+  _wd_polls=0
+  while [ "$_wd_polls" -lt 50 ]; do
+    _wd_alive=0
+    for _idx in "${!watchdog_pids[@]}"; do
+      kill -0 "${watchdog_pids[$_idx]}" 2>/dev/null && _wd_alive=1
+    done
+    [ "$_wd_alive" -eq 0 ] && break
+    sleep 0.1
+    _wd_polls=$((_wd_polls + 1))
+  done
 
   if [ "$exit_code" -eq 0 ] && [ -z "${TEST_PARALLEL_KEEP_LOGS:-}" ]; then
     rm -rf "$tmp_dir"
