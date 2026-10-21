@@ -270,6 +270,11 @@ defmodule Letflow.Tasks do
   nonexistent one. `list_tasks/2` takes the same set as `params[:scope]` and ANDs it with the
   assignee scope (intersection).
 
+  The optional `opts[:assignee_scope]` (default `:unfiltered`) is the same
+  `t:assignee_scope/0` `list_tasks/2` takes: a task outside it resolves to
+  `{:error, :not_found}` in the same single statement, indistinguishable from
+  a nonexistent id (INV-2/INV-5).
+
   This function does not itself decide tenant scope or authorization —
   `prefix` is supplied by the caller.
   """
@@ -279,6 +284,7 @@ defmodule Letflow.Tasks do
   def get_task(id, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
     scope = Keyword.get(opts, :scope, :all)
+    assignee_scope = Keyword.get(opts, :assignee_scope, :unfiltered)
 
     case Ecto.UUID.cast(id) do
       :error ->
@@ -295,6 +301,7 @@ defmodule Letflow.Tasks do
             select: {t, ip.correlation_key, s.definition_ver}
           )
           |> filter_by_scope(scope)
+          |> filter_by_assignee_scope(assignee_scope)
 
         case Repo.one(query, prefix: prefix) do
           nil -> {:error, :not_found}
