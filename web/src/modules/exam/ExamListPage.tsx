@@ -21,10 +21,10 @@
  *
  *  ISS-0718: this screen now reads via the dedicated
  *  `GET /modules/exam/exam-sessions/available` route (`examApi.listAvailableExams`),
- *  gated by CANDIDATE's existing `:ExamSessionStart`
+ *  gated by candidate role's existing `:ExamSessionStart`
  *  permission. Added specifically because the generic `POST /entities/query`
  *  route this screen previously called (via `examApi.queryExamRecords`) is
- *  outside CANDIDATE's ISS-0646 closed permission set — every CANDIDATE call
+ *  outside candidate role's ISS-0646 closed permission set — every candidate role call
  *  onto it was a guaranteed 403. See
  *  `lib/letflow/design/iss0718-candidate-exam-list-route.md` for the full
  *  design; status=active filtering is now hardcoded server-side rather than

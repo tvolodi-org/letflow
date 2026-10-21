@@ -71,7 +71,6 @@ const mockUseAuth = vi.mocked(useAuth)
 const TEST_SESSION = {
   token: 'tok',
   display_name: 'Alice',
-  roles: ['PROCESS_OPERATOR'],
   loginSource: null as null,
   tenant_slug: 'acme-test',
   tenant_display_name: 'Acme Test',

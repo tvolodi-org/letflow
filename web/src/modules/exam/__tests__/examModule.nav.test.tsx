@@ -3,8 +3,8 @@
  * REQ-412 AC4 — exam module nav items and route guard.
  *
  * With `GET /api/v1/me/modules` returning exam in installed_modules:
- *   - A CANDIDATE sees the /exam nav item.
- *   - A PROCESS_OPERATOR sees the /admin/bilimbaga nav item.
+ *   - A the candidate fixture sees the /exam nav item.
+ *   - A the process operator fixture sees the /admin/bilimbaga nav item.
  *
  * With installed_modules: []:
  *   - Neither nav item renders.
@@ -16,6 +16,7 @@ import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import type { UserSession } from '@/types/api'
+import type { AccessFixtureName } from '@/auth/access/fixtures'
 
 expect.extend(jestDomMatchers)
 
@@ -35,11 +36,10 @@ vi.mock('@/api/client', () => ({
   client: { get: vi.fn(() => Promise.resolve({ items: [] })) },
 }))
 
-function sessionWithRoles(roles: string[]): UserSession {
+function testSession(): UserSession {
   return {
     token: 'tok',
     display_name: 'Test User',
-    roles,
     loginSource: null,
     tenant_slug: 'fixture-tenant',
     tenant_display_name: 'Fixture Tenant',
@@ -57,7 +57,7 @@ afterEach(() => {
 type InstalledModule = { module_id: string; version: string }
 
 async function renderAppShellAt(
-  roles: string[],
+  fixture: AccessFixtureName,
   installedModules: InstalledModule[],
   initialPath = '/instances',
 ) {
@@ -66,7 +66,7 @@ async function renderAppShellAt(
   const { useAuth } = await import('@/auth/AuthContext')
   const { useInstalledModules } = await import('@/hooks/useInstalledModules')
   vi.mocked(useAuth).mockReturnValue({
-    session: sessionWithRoles(roles),
+    session: testSession(),
     isAuthenticated: true,
     isLoading: false,
     loginSource: null,
@@ -83,37 +83,41 @@ async function renderAppShellAt(
 
   const { BrandingProvider } = await import('@/theming/BrandingProvider')
   const { AppShell } = await import('@/components/layout/AppShell')
+  const { AccessStateProvider } = await import('@/auth/access/AccessContext')
+  const { accessState } = await import('@/auth/access/fixtures')
 
   render(
     <MemoryRouter initialEntries={[initialPath]}>
       <BrandingProvider>
-        <AppShell />
+        <AccessStateProvider state={accessState(fixture)}>
+          <AppShell />
+        </AccessStateProvider>
       </BrandingProvider>
     </MemoryRouter>,
   )
 }
 
 describe('REQ-412 AC4 — exam module nav items', () => {
-  it('CANDIDATE sees the /exam nav item when exam module is installed', async () => {
-    await renderAppShellAt(['CANDIDATE'], [{ module_id: 'exam', version: '1.0.0' }])
+  it('the candidate fixture sees the /exam nav item when exam module is installed', async () => {
+    await renderAppShellAt('candidate', [{ module_id: 'exam', version: '1.0.0' }])
     await waitFor(() => expect(screen.getByText('Exams')).toBeInTheDocument())
     expect(screen.getByRole('link', { name: 'Exams' })).toHaveAttribute('href', '/exam')
   })
 
-  it('PROCESS_OPERATOR sees the /admin/bilimbaga nav item when exam module is installed', async () => {
-    await renderAppShellAt(['PROCESS_OPERATOR'], [{ module_id: 'exam', version: '1.0.0' }])
+  it('the process operator fixture sees the /admin/bilimbaga nav item when exam module is installed', async () => {
+    await renderAppShellAt('operator', [{ module_id: 'exam', version: '1.0.0' }])
     await waitFor(() => expect(screen.getByText('Question Bank')).toBeInTheDocument())
     expect(screen.getByRole('link', { name: 'Question Bank' })).toHaveAttribute('href', '/admin/bilimbaga')
   })
 
-  it('with installed_modules:[], CANDIDATE does not see the /exam nav item', async () => {
-    await renderAppShellAt(['CANDIDATE'], [])
+  it('with installed_modules:[], the candidate fixture does not see the /exam nav item', async () => {
+    await renderAppShellAt('candidate', [])
     await waitFor(() => expect(screen.getByTestId('logout-button')).toBeInTheDocument())
     expect(screen.queryByText('Exams')).not.toBeInTheDocument()
   })
 
-  it('with installed_modules:[], PROCESS_OPERATOR does not see the /admin/bilimbaga nav item', async () => {
-    await renderAppShellAt(['PROCESS_OPERATOR'], [])
+  it('with installed_modules:[], the process operator fixture does not see the /admin/bilimbaga nav item', async () => {
+    await renderAppShellAt('operator', [])
     await waitFor(() => expect(screen.getByTestId('logout-button')).toBeInTheDocument())
     expect(screen.queryByText('Question Bank')).not.toBeInTheDocument()
   })

@@ -11,7 +11,7 @@ const fixtureDefinitions: ModuleDefinition[] = [
     id: 'sample',
     depends_on: [],
     routeObjects: fixtureRouteObjects,
-    navItems: [{ to: '/sample', label: 'Sample', roles: ['CANDIDATE'] }],
+    navItems: [{ to: '/sample', label: 'Sample', permission: 'ExamSessionStart' }],
   },
 ]
 

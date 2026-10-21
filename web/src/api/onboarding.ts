@@ -52,7 +52,7 @@ export interface OnboardingAdministratorField {
 
 /**
  * `none`: no administrator e-mail was sent; `pending`: the e-mail is stored as
- * a pending TENANT_ADMIN grant (`grant_id` present); `not_stored`: the e-mail
+ * a pending tenant administrator grant (`grant_id` present); `not_stored`: the e-mail
  * was sent but the grant could not be stored; `not_provisioned`: legacy state
  * of the first PR, still rendered when received.
  */

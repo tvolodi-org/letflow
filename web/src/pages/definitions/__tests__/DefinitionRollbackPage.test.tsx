@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import type { ApiError } from '@/types/api'
 
 expect.extend(jestDomMatchers)
@@ -43,6 +43,7 @@ import { useParams, Navigate } from 'react-router-dom'
 import { useDefinition, useDefinitionVersions } from '@/hooks/useDefinitions'
 import { useAuth } from '@/auth/AuthContext'
 import DefinitionRollbackPage, { classifyRollbackError } from '@/pages/definitions/DefinitionRollbackPage'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const ACTIVE_DEF = {
   id: 'def-active-id',
@@ -66,7 +67,7 @@ const VERSIONS = {
 
 function setupAdmin() {
   vi.mocked(useAuth).mockReturnValue({
-    session: { token: 't', display_name: 'op-1', roles: ['PLATFORM_ADMIN'], loginSource: null, tenant_slug: null, tenant_display_name: null, tenant_id: null, tenant_type: null, production_tenant_display_name: null },
+    session: { token: 't', display_name: 'op-1', loginSource: null, tenant_slug: null, tenant_display_name: null, tenant_id: null, tenant_type: null, production_tenant_display_name: null },
     isAuthenticated: true,
     isLoading: false,
     loginSource: null,
@@ -95,10 +96,10 @@ afterEach(() => {
 })
 
 describe('DefinitionRollbackPage — role gating', () => {
-  it('TC-REQ371-01: non-PLATFORM_ADMIN session redirects to /instances', () => {
+  it('TC-REQ371-01: non-platform-admin session redirects to /instances', () => {
     vi.mocked(useParams).mockReturnValue({ id: 'def-active-id' })
     vi.mocked(useAuth).mockReturnValue({
-      session: { token: 't', display_name: 'designer-1', roles: ['PROCESS_DESIGNER'], loginSource: null, tenant_slug: null, tenant_display_name: null, tenant_id: null, tenant_type: null, production_tenant_display_name: null },
+      session: { token: 't', display_name: 'designer-1', loginSource: null, tenant_slug: null, tenant_display_name: null, tenant_id: null, tenant_type: null, production_tenant_display_name: null },
       isAuthenticated: true,
       isLoading: false,
       loginSource: null,
@@ -111,7 +112,7 @@ describe('DefinitionRollbackPage — role gating', () => {
     vi.mocked(useDefinition).mockReturnValue({ data: undefined, isLoading: false, isError: false, error: null, refetch: vi.fn() } as unknown as ReturnType<typeof useDefinition>)
     vi.mocked(useDefinitionVersions).mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<typeof useDefinitionVersions>)
 
-    render(<DefinitionRollbackPage />)
+    renderWithAccess(<DefinitionRollbackPage />, 'designer')
 
     expect(Navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/instances', replace: true }), expect.anything())
     expect(screen.getByTestId('navigate-mock')).toHaveTextContent('/instances')
@@ -119,9 +120,9 @@ describe('DefinitionRollbackPage — role gating', () => {
 })
 
 describe('DefinitionRollbackPage — version picker', () => {
-  it('TC-REQ371-02: PLATFORM_ADMIN session renders the version picker excluding the ACTIVE row', () => {
+  it('TC-REQ371-02: platform-admin session renders the version picker excluding the ACTIVE row', () => {
     setupAdmin()
-    render(<DefinitionRollbackPage />)
+    renderWithAccess(<DefinitionRollbackPage />, 'platformAdmin')
 
     const select = screen.getByTestId('rollback-target-version-select') as HTMLSelectElement
     const optionValues = Array.from(select.options).map((o) => o.value)
@@ -135,7 +136,7 @@ describe('DefinitionRollbackPage — version picker', () => {
 describe('DefinitionRollbackPage — reason gating + confirmation flow', () => {
   it('TC-REQ371-03: empty reason keeps Continue disabled; filling it enables progression to the confirmation panel', () => {
     setupAdmin()
-    render(<DefinitionRollbackPage />)
+    renderWithAccess(<DefinitionRollbackPage />, 'platformAdmin')
 
     const select = screen.getByTestId('rollback-target-version-select')
     fireEvent.change(select, { target: { value: '1.0.0' } })
@@ -162,7 +163,7 @@ describe('DefinitionRollbackPage — reason gating + confirmation flow', () => {
       event_id: 'evt-123',
     })
 
-    render(<DefinitionRollbackPage />)
+    renderWithAccess(<DefinitionRollbackPage />, 'platformAdmin')
 
     fireEvent.change(screen.getByTestId('rollback-target-version-select'), { target: { value: '1.0.0' } })
     fireEvent.change(screen.getByTestId('rollback-reason-input'), { target: { value: 'Wrong reviewer routing.' } })
@@ -190,7 +191,7 @@ describe('DefinitionRollbackPage — error rendering (§5)', () => {
     setupAdmin()
     mockMutateAsync.mockRejectedValueOnce(apiError)
 
-    render(<DefinitionRollbackPage />)
+    renderWithAccess(<DefinitionRollbackPage />, 'platformAdmin')
 
     fireEvent.change(screen.getByTestId('rollback-target-version-select'), { target: { value: '1.0.0' } })
     fireEvent.change(screen.getByTestId('rollback-reason-input'), { target: { value: 'reason' } })
@@ -233,7 +234,7 @@ describe('DefinitionRollbackPage — error rendering (§5)', () => {
 describe('DefinitionRollbackPage — "Other version…" manual-entry branch (§4 step 2)', () => {
   it('TC-REQ371-07: selecting "Other version…" switches to a manual text input', () => {
     setupAdmin()
-    render(<DefinitionRollbackPage />)
+    renderWithAccess(<DefinitionRollbackPage />, 'platformAdmin')
 
     expect(screen.queryByTestId('rollback-target-version-manual')).not.toBeInTheDocument()
 
@@ -245,7 +246,7 @@ describe('DefinitionRollbackPage — "Other version…" manual-entry branch (§4
 
   it('TC-REQ371-08: typing a version into the manual input updates state and enables Continue once reason is set', () => {
     setupAdmin()
-    render(<DefinitionRollbackPage />)
+    renderWithAccess(<DefinitionRollbackPage />, 'platformAdmin')
 
     fireEvent.change(screen.getByTestId('rollback-target-version-select'), { target: { value: '__other__' } })
     fireEvent.change(screen.getByTestId('rollback-target-version-manual'), { target: { value: '9.9.9' } })
@@ -262,7 +263,7 @@ describe('DefinitionRollbackPage — "Other version…" manual-entry branch (§4
 
   it('TC-REQ371-09: "Choose from the list instead" cancels the manual entry and reverts to the dropdown, clearing the typed value', () => {
     setupAdmin()
-    render(<DefinitionRollbackPage />)
+    renderWithAccess(<DefinitionRollbackPage />, 'platformAdmin')
 
     fireEvent.change(screen.getByTestId('rollback-target-version-select'), { target: { value: '__other__' } })
     fireEvent.change(screen.getByTestId('rollback-target-version-manual'), { target: { value: '9.9.9' } })

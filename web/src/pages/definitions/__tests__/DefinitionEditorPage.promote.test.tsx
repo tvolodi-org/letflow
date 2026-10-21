@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup } from '@testing-library/react'
+import { screen, cleanup } from '@testing-library/react'
 import React from 'react'
 expect.extend(jestDomMatchers)
 
@@ -81,6 +81,7 @@ import { useDefinition } from '@/hooks/useDefinitions'
 import { useAuth } from '@/auth/AuthContext'
 import { useTenantContext } from '@/auth/useTenantContext'
 import DefinitionEditorPage from '@/pages/definitions/DefinitionEditorPage'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const mockUseParams = vi.mocked(useParams)
 const mockUseDefinition = vi.mocked(useDefinition)
@@ -107,7 +108,6 @@ const ACTIVE_DEFINITION = {
 const DESIGNER_SESSION = {
   token: 'tok',
   display_name: 'Alice',
-  roles: ['PROCESS_DESIGNER'],
   loginSource: null as null,
   tenant_slug: 'acme-test',
   tenant_display_name: 'Acme Test',
@@ -148,7 +148,7 @@ describe('ENV-04 — DefinitionEditorPage promote button', () => {
       isUnknown: false,
     })
 
-    render(<DefinitionEditorPage />)
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
 
     // VERDICT: Screen shows Promote to Production button for test tenant with ACTIVE definition
     expect(screen.getByTestId('promote-to-production-btn')).toBeInTheDocument()
@@ -175,7 +175,7 @@ describe('ENV-04 — DefinitionEditorPage promote button', () => {
       isUnknown: false,
     })
 
-    render(<DefinitionEditorPage />)
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
 
     // VERDICT: Promote to Production button is absent for production tenant
     expect(screen.queryByTestId('promote-to-production-btn')).not.toBeInTheDocument()
@@ -195,7 +195,7 @@ describe('ENV-04 — DefinitionEditorPage promote button', () => {
       isUnknown: false,
     })
 
-    render(<DefinitionEditorPage />)
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
 
     // VERDICT: DRAFT definitions must not show the Promote button even on a test tenant
     expect(screen.queryByTestId('promote-to-production-btn')).not.toBeInTheDocument()

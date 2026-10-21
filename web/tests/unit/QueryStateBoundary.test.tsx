@@ -21,8 +21,8 @@ import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import type { RendererState } from '@/utils/classifyError'
 
 // ISS-0728: the permission-denied renderer path (PermissionDenied) now
-// reads useAuth() to pick its recovery link target for a CANDIDATE
-// session. TC-QSB-04 below exercises the non-CANDIDATE (session: null)
+// reads useAuth() to pick its recovery link target for a candidate role
+// session. TC-QSB-04 below exercises the non-candidate (session: null)
 // path, so the mock mirrors that — its assertion is otherwise
 // byte-for-byte unchanged, per
 // lib/letflow/design/iss0728-candidate-exam-nav.md §3/§5.2 case 3's

@@ -1,6 +1,6 @@
 /** AppearanceSettingsPage — REQ-383
  *
- * Lets a tenant admin (PLATFORM_ADMIN, same guard as EditTenantPage.tsx)
+ * Lets a tenant admin (platform-admin role, same guard as EditTenantPage.tsx)
  * submit a new `brand_colors.primary` value through
  * `PATCH /api/v1/tenant/settings` (REQ-382). On success: shows a
  * confirmation and applies the colour immediately, same screen, no reload
@@ -19,7 +19,7 @@
 import { useRef, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess, AccessPending } from '@/auth/access'
 import { tenantSettingsApi } from '@/api/tenantSettings'
 import { applyBrandingColors } from '@/theming/applyBranding'
 import { BRAND_COLOR_CSS_PROPERTY } from '@/theming/brandingDefaults'
@@ -64,7 +64,7 @@ function readCurrentAppliedPrimary(): string {
 }
 
 export default function AppearanceSettingsPage() {
-  const { session } = useAuth()
+  const access = useAccess()
   const toast = useToast()
   const formRef = useRef<HTMLFormElement>(null)
 
@@ -98,7 +98,8 @@ export default function AppearanceSettingsPage() {
   })
 
   // Role guard — after all hooks, matches EditTenantPage.tsx.
-  if (!session?.roles.includes('PLATFORM_ADMIN')) {
+  if (!access.isReady) return <AccessPending access={access} />
+  if (!access.can(P.TenantSettingsManage)) {
     return <Navigate to="/instances" replace />
   }
 

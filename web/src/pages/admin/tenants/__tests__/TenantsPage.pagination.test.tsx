@@ -40,6 +40,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import TenantsPage from '@/pages/admin/tenants/TenantsPage'
 import type { Tenant, TenantListResponse } from '@/api/tenants'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const mockUseQuery = vi.mocked(useQuery)
 const mockUseAuth = vi.mocked(useAuth)
@@ -49,7 +50,6 @@ const mockUseAuth = vi.mocked(useAuth)
 const ADMIN_SESSION = {
   token: 'tok',
   display_name: 'Admin',
-  roles: ['PLATFORM_ADMIN'],
   loginSource: null as null,
   tenant_slug: 'platform',
   tenant_display_name: 'Platform',
@@ -100,10 +100,11 @@ function installUseQueryMock(): void {
 }
 
 function renderTenantsPage(): ReturnType<typeof render> {
-  return render(
+  return renderWithAccess(
     <MemoryRouter>
       <TenantsPage />
     </MemoryRouter>,
+    'platformAdmin',
   )
 }
 
