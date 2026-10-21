@@ -499,11 +499,13 @@ defmodule Letflow.Engine do
   alias Letflow.Audit
   alias Letflow.Definitions
   alias Letflow.Definitions.Graph
+  alias Letflow.Definitions.InstanceDefinitionSnapshot
   alias Letflow.Definitions.SnapshotStore
   alias Letflow.Engine.Contention
   alias Letflow.Engine.EntityPort
   alias Letflow.Engine.ExecutionError
   alias Letflow.Engine.FormExpressionReevaluation
+  alias Letflow.Engine.IdempotentReplay
   alias Letflow.Engine.InstanceState
   alias Letflow.Engine.PinResolver
   alias Letflow.Engine.Reconstruction
@@ -552,6 +554,7 @@ defmodule Letflow.Engine do
 
   @type create_error ::
           {:error, :tenant_id_not_accepted}
+          | {:error, :idempotency_key_reuse}
           | {:error, :invalid_schema_name}
           | {:error, :missing_definition_reference}
           | {:error, :both_definition_id_and_name}
@@ -572,13 +575,16 @@ defmodule Letflow.Engine do
           | {:error, Ecto.Changeset.t()}
           | {:error, term()}
 
+  # `replayed: true` (GH #2577) marks the answer to a same-key replay: the original instance, with
+  # the CURRENT projection status (so any of the four) and current nodes.
   @type create_result :: %{
-          instance_id: Ecto.UUID.t(),
-          definition_id: Ecto.UUID.t(),
-          status: :active | :completed,
-          current_nodes: [String.t()],
-          variables: map(),
-          started_at: DateTime.t()
+          required(:instance_id) => Ecto.UUID.t(),
+          required(:definition_id) => Ecto.UUID.t(),
+          required(:status) => :active | :completed | :cancelled | :error,
+          required(:current_nodes) => [String.t()],
+          required(:variables) => map(),
+          required(:started_at) => DateTime.t(),
+          optional(:replayed) => true
         }
 
   @doc """
@@ -608,6 +614,7 @@ defmodule Letflow.Engine do
          :ok <- check_definition_reference(attrs),
          {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, initial_variables} <- fetch_initial_variables(attrs),
+         :continue <- start_replay_check(attrs, initial_variables, prefix),
          {:ok, definition} <- resolve_definition(attrs, opts) do
       correlation_key = Map.get(attrs, :correlation_key)
       start_instance(definition, initial_variables, correlation_key, attrs, tenant_id, prefix)
@@ -643,6 +650,97 @@ defmodule Letflow.Engine do
       _other -> {:error, :invalid_initial_variables}
     end
   end
+
+  # GH #2577 -- a key already claimed by an INSTANCE_STARTED of this request answers the
+  # original result; a key claimed by anything else answers `:idempotency_key_reuse`.
+  # Runs before `resolve_definition/2` (a replay must survive the definition being archived)
+  # and before any write, so a replay leaves no snapshot behind. A non-binary key keeps
+  # today's typed errors from `EventStore.append/2`.
+  defp start_replay_check(%{idempotency_key: key} = attrs, initial_variables, prefix)
+       when is_binary(key) do
+    case IdempotentReplay.lookup(key, prefix) do
+      :none -> :continue
+      {:ok, original} -> start_replay(original, attrs, initial_variables, prefix)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp start_replay_check(_attrs, _initial_variables, _prefix), do: :continue
+
+  defp start_replay(%EventStore.Event{} = original, attrs, initial_variables, prefix) do
+    if same_start_request?(original, attrs, initial_variables, prefix) do
+      replay_start_result(original, prefix)
+    else
+      {:error, :idempotency_key_reuse}
+    end
+  end
+
+  defp same_start_request?(%EventStore.Event{payload: payload} = original, attrs, vars, prefix)
+       when is_map(payload) do
+    original.event_type == "INSTANCE_STARTED" and
+      IdempotentReplay.same_uuid?(original.actor_id, Map.get(attrs, :actor_id)) and
+      Map.get(payload, "initial_variables") == IdempotentReplay.canonical_json(vars) and
+      Map.get(payload, "correlation_key") == Map.get(attrs, :correlation_key) and
+      same_start_definition?(payload, attrs, prefix)
+  end
+
+  defp same_start_request?(_original, _attrs, _vars, _prefix), do: false
+
+  defp same_start_definition?(payload, %{definition_id: definition_id}, _prefix),
+    do: IdempotentReplay.same_uuid?(Map.get(payload, "definition_id"), definition_id)
+
+  defp same_start_definition?(payload, %{definition_name: name}, prefix) do
+    case Definitions.get_by_id(Map.get(payload, "definition_id"), prefix: prefix) do
+      {:ok, definition} -> definition.name == name
+      _other -> false
+    end
+  end
+
+  defp replay_start_result(%EventStore.Event{} = original, prefix) do
+    query =
+      from(p in InstanceProjection, where: p.instance_id == ^original.instance_id)
+
+    case Repo.one(query, prefix: prefix) do
+      %InstanceProjection{} = projection ->
+        {:ok,
+         %{
+           instance_id: projection.instance_id,
+           definition_id: projection.definition_id,
+           status: projection.status,
+           current_nodes: projection.current_nodes,
+           variables: Map.get(original.payload, "initial_variables"),
+           started_at: projection.started_at,
+           replayed: true
+         }}
+
+      nil ->
+        {:error, {:idempotency_lookup_failed, :projection_missing}}
+    end
+  end
+
+  # GH #2577 -- two same-key starts that both passed `start_replay_check/3`: the loser's
+  # INSTANCE_STARTED append finds the key claimed, its Multi rolls back (projection, tokens,
+  # timers, audit), and it answers the winner's result. The loser's snapshot row was written
+  # outside the Multi (design OQ-4), so it is deleted here.
+  defp resolve_start_race(
+         {:error, {:idempotent_replay, %EventStore.Event{}}},
+         instance_id,
+         attrs,
+         initial_variables,
+         prefix
+       ) do
+    Repo.delete_all(
+      from(s in InstanceDefinitionSnapshot, where: s.instance_id == ^instance_id),
+      prefix: prefix
+    )
+
+    case IdempotentReplay.lookup(Map.fetch!(attrs, :idempotency_key), prefix) do
+      {:ok, original} -> start_replay(original, attrs, initial_variables, prefix)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp resolve_start_race(result, _instance_id, _attrs, _initial_variables, _prefix), do: result
 
   defp resolve_definition(%{definition_id: definition_id}, opts) do
     definition_id
@@ -2111,6 +2209,7 @@ defmodule Letflow.Engine do
         Map.get(attrs, :actor_id),
         prefix
       )
+      |> resolve_start_race(instance_id, attrs, initial_variables, prefix)
     rescue
       exception -> {:error, {:transaction_failed, exception}}
     end
@@ -2360,8 +2459,10 @@ defmodule Letflow.Engine do
       idempotency_key: Map.get(attrs, :idempotency_key)
     }
 
-    case EventStore.append(event_attrs, prefix: prefix) do
+    # GH #2577 -- must stay the last expression of the Multi step (see IdempotentReplay).
+    case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
+      {:error, {:idempotent_replay, _original}} = replay -> replay
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end
@@ -3403,7 +3504,8 @@ defmodule Letflow.Engine do
                  idempotency_key: idempotency_key <> "::sys_vars"
                },
                prefix: prefix
-             ) do
+             )
+             |> IdempotentReplay.fresh() do
         {:ok, result}
       else
         {:error, _reason} -> {:error, {:entity_write_failed, 0, :sys_value}}
@@ -3449,7 +3551,8 @@ defmodule Letflow.Engine do
                idempotency_key: idempotency_key <> "::entity_writes"
              },
              prefix: prefix
-           ) do
+           )
+           |> IdempotentReplay.fresh() do
         {:ok, result} -> {:ok, result}
         {:error, _reason} -> {:error, {:entity_write_failed, 0, :applied_event}}
       end
@@ -5405,7 +5508,7 @@ defmodule Letflow.Engine do
       idempotency_key: completion.idempotency_key
     }
 
-    case EventStore.append(event_attrs, prefix: prefix) do
+    case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
@@ -5946,7 +6049,8 @@ defmodule Letflow.Engine do
                idempotency_key: completion_key <> "::entity_writes"
              },
              prefix: prefix
-           ) do
+           )
+           |> IdempotentReplay.fresh() do
         {:ok, result} -> {:ok, result}
         {:error, _reason} -> {:error, {:entity_write_failed, 0, :applied_event}}
       end
@@ -6608,6 +6712,7 @@ defmodule Letflow.Engine do
         },
         prefix: prefix
       )
+      |> IdempotentReplay.fresh()
       |> case do
         {:ok, appended} -> {:ok, appended}
         {:error, reason} -> {:error, {:event_append_failed, reason}}
@@ -8316,7 +8421,7 @@ defmodule Letflow.Engine do
       idempotency_key: idempotency_key
     }
 
-    case EventStore.append(event_attrs, prefix: prefix) do
+    case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
@@ -8648,6 +8753,7 @@ defmodule Letflow.Engine do
 
   @type cancel_error ::
           {:error, :invalid_instance_id}
+          | {:error, :idempotency_key_reuse}
           | {:error, :invalid_schema_name}
           | {:error, :missing_actor_id}
           | {:error, :missing_idempotency_key}
@@ -8660,10 +8766,11 @@ defmodule Letflow.Engine do
           | {:error, term()}
 
   @type cancel_result :: %{
-          instance_id: Ecto.UUID.t(),
-          status: :cancelled,
-          cancelled_task_ids: [Ecto.UUID.t()],
-          cancelled_at: DateTime.t()
+          required(:instance_id) => Ecto.UUID.t(),
+          required(:status) => :cancelled,
+          required(:cancelled_task_ids) => [Ecto.UUID.t()],
+          required(:cancelled_at) => DateTime.t(),
+          optional(:replayed) => true
         }
 
   @doc """
@@ -8701,6 +8808,11 @@ defmodule Letflow.Engine do
   `:error`-status instance is treated the same as an `:active` one --
   cancellable -- since `terminal?/1` only returns `true` for
   `:completed`/`:cancelled` (design doc §6).
+
+  GH #2577: a same-key replay of a cancel that was applied (the key was claimed by this
+  instance's INSTANCE_CANCELLED, by the same actor) returns the original result with
+  `replayed: true` and changes nothing, even though the instance is now terminal; a key
+  claimed by anything else is `{:error, :idempotency_key_reuse}`.
 
   `attrs[:actor_id]`/`attrs[:idempotency_key]` are pre-validated here, before
   the transaction opens, since this function has no other caller-supplied
@@ -8913,6 +9025,13 @@ defmodule Letflow.Engine do
       # GH #2695: parent-side order: P then T, same as the cascade.
       fetch_and_lock_instance_projection_for_cancel(repo, instance_id, prefix)
     end)
+    |> Multi.run(:replay_check, fn repo, _changes ->
+      # GH #2577 -- with the projection lock held, a key already claimed by this instance's
+      # INSTANCE_CANCELLED answers the original result (ahead of :eligibility, which would say
+      # "already cancelled"); any other claim is :idempotency_key_reuse. Aborts the Multi, so no
+      # cancel side effect of the steps above commits.
+      cancel_replay_check(repo, instance_id, actor_id, idempotency_key, prefix)
+    end)
     |> Multi.run(:eligibility, fn _repo, %{instance_projection: projection} ->
       check_cancel_eligibility(projection)
     end)
@@ -8975,6 +9094,24 @@ defmodule Letflow.Engine do
       record_instance_cancel_audit(changes, instance_id, actor_id, prefix)
     end)
     |> Repo.transaction()
+  end
+
+  defp cancel_replay_check(repo, instance_id, actor_id, idempotency_key, prefix) do
+    case IdempotentReplay.lookup(repo, idempotency_key, prefix) do
+      :none ->
+        {:ok, nil}
+
+      {:ok, %EventStore.Event{} = original} ->
+        if original.event_type == "INSTANCE_CANCELLED" and original.instance_id == instance_id and
+             IdempotentReplay.same_uuid?(original.actor_id, actor_id) do
+          {:error, {:idempotent_replay, original}}
+        else
+          {:error, :idempotency_key_reuse}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   # REQ-195 -- cancel_instance/3's own actor_id (attrs[:actor_id], already an
@@ -9186,8 +9323,10 @@ defmodule Letflow.Engine do
       idempotency_key: idempotency_key
     }
 
-    case EventStore.append(event_attrs, prefix: prefix) do
+    # GH #2577 -- last expression of the Multi step (see IdempotentReplay).
+    case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
+      {:error, {:idempotent_replay, _original}} = replay -> replay
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end
@@ -9219,6 +9358,26 @@ defmodule Letflow.Engine do
        status: :cancelled,
        cancelled_task_ids: Enum.map(open_tasks, & &1.id),
        cancelled_at: cancelled_at
+     }}
+  end
+
+  # GH #2577 -- a same-key replay of an applied cancel: the original answer, rebuilt from the
+  # stored INSTANCE_CANCELLED event and the (already cancelled) projection read under the lock.
+  defp interpret_cancel_result(
+         {:error, :replay_check, {:idempotent_replay, original}, changes},
+         instance_id,
+         cancelled_at
+       ) do
+    cancelled_task_ids = Map.get(original.payload || %{}, "cancelled_task_ids", [])
+    projection = Map.get(changes, :instance_projection)
+
+    {:ok,
+     %{
+       instance_id: instance_id,
+       status: :cancelled,
+       cancelled_task_ids: cancelled_task_ids,
+       cancelled_at: (projection && projection.cancelled_at) || cancelled_at,
+       replayed: true
      }}
   end
 
