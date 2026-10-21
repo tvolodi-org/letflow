@@ -64,8 +64,8 @@ defmodule Letflow.Routers.Entities do
       `Records` would be called, substitutes `RecordAccess.hidden_result/1` (the result `Records`
       gives an absent type), so a denied type answers byte-identically to an absent one and
       writes nothing;
-    * `{:open, restricted}`: POST naming a restricted key, and any PUT by an actor holding any
-      restricted field (PUT replaces `field_values` wholesale), is the constant 403 of GH #2697;
+    * `{:open, restricted}`: POST or PUT naming a restricted key is the constant 403 of GH #2697
+      (GH #2812: a PUT naming none keeps the stored restricted values server-side);
       each import entry naming a restricted key is `field_restricted`; the POST/PUT/DELETE
       response `field_values` are redacted for such an actor (`render_record_command/4`).
 
@@ -1311,10 +1311,13 @@ defmodule Letflow.Routers.Entities do
         }
         |> put_legacy_original(resolved, actor_id, prefix)
 
-      # PUT replaces `field_values` wholesale, so an actor holding ANY restricted field on the
-      # type is refused whatever the body (GH #2784 section 4; fail closed, no record lookup).
-      case update_write_point(access) do
+      # GH #2812: PUT replaces `field_values` wholesale, so a body naming a restricted key is
+      # refused (as POST); otherwise the server carries the stored values of the actor's restricted
+      # keys into the written document under a version check (`preserve_keys`).
+      case update_write_point(access, Map.fetch!(attrs, "field_values")) do
         {:run, restricted} ->
+          command_attrs = put_preserve_keys(command_attrs, restricted)
+
           render_record_command(
             conn,
             Records.update_record(command_attrs, prefix),
@@ -1371,13 +1374,13 @@ defmodule Letflow.Routers.Entities do
       else: {:run, restricted}
   end
 
-  # The write point of PUT: any restricted field on the type refuses, whatever the body.
-  defp update_write_point(:hidden), do: {:refuse, :hidden}
+  # The write point of PUT (GH #2812): as POST, a body naming a restricted key refuses.
+  defp update_write_point(access, field_values), do: write_point(access, field_values)
 
-  defp update_write_point({:open, restricted}) do
+  defp put_preserve_keys(command_attrs, restricted) do
     if MapSet.size(restricted) > 0,
-      do: {:refuse, :restricted_field},
-      else: {:run, restricted}
+      do: Map.put(command_attrs, :preserve_keys, restricted),
+      else: command_attrs
   end
 
   # GH #2550 (design D3), removed by GH #2578: a supplied key that passes the
@@ -2059,6 +2062,11 @@ defmodule Letflow.Routers.Entities do
 
   defp render_record_command(conn, {:error, :record_version_conflict}, _status),
     do: Response.send_problem(conn, Error.record_version_conflict())
+
+  # GH #2812: a stored restricted value no longer validates; the same constant 403 as a body that
+  # names a restricted key, so no restricted field name or value reaches the actor.
+  defp render_record_command(conn, {:error, :preserved_value_invalid}, _status),
+    do: restricted_fields_refusal(conn)
 
   defp render_record_command(conn, {:error, {:entity_append_only, _entity_type}}, _status),
     do: Response.send_problem(conn, Error.entity_append_only())
