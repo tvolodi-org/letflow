@@ -65,7 +65,7 @@ defmodule Letflow.Routers.Req442ModeExposureTest do
 
   describe "pre-authentication endpoints" do
     for state <- @states do
-      test "GET /api/tenant-config?realm=<slug> with mode #{inspect(state)}: exactly the three keys, no mode bytes" do
+      test "GET /api/tenant-config?realm=<slug> with mode #{inspect(state)}: exactly the four keys, no mode bytes" do
         tenant = insert_bound_tenant!("req442-tc")
         set_mode!(tenant.id, unquote(state))
 
@@ -74,7 +74,7 @@ defmodule Letflow.Routers.Req442ModeExposureTest do
         assert conn.status == 200
 
         assert Jason.decode!(conn.resp_body) |> Map.keys() |> Enum.sort() ==
-                 ["branding", "client_id", "oidc_authority"]
+                 ["branding", "client_id", "oidc_authority", "tenant_type"]
 
         assert_no_mode_bytes(conn.resp_body, "tenant-config")
       end

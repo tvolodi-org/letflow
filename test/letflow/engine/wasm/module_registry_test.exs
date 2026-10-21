@@ -363,11 +363,15 @@ defmodule Letflow.Engine.Wasm.ModuleRegistryTest do
 
   describe "register/1 rejects non-binary input via its documented FunctionClauseError guard" do
     test "nil raises FunctionClauseError" do
-      assert_raise FunctionClauseError, fn -> ModuleRegistry.register(nil) end
+      assert_raise FunctionClauseError, fn ->
+        apply(ModuleRegistry, :register, [nil])
+      end
     end
 
     test "an integer raises FunctionClauseError" do
-      assert_raise FunctionClauseError, fn -> ModuleRegistry.register(42) end
+      assert_raise FunctionClauseError, fn ->
+        apply(ModuleRegistry, :register, [42])
+      end
     end
   end
 

@@ -121,7 +121,7 @@ defmodule Letflow.TenantSlugFixtureTest do
   describe "unique_slug/1 property coverage" do
     # Generating thousands of slugs from arbitrary prefixes never produces a
     # duplicate.
-    property "no duplicates across thousands of calls" do
+    test "no duplicates across thousands of calls" do
       check all(
               prefixes <-
                 StreamData.list_of(
@@ -138,7 +138,7 @@ defmodule Letflow.TenantSlugFixtureTest do
 
     # unique_slug/1 always returns "<prefix>-<36-char UUID>", regardless of
     # call order or repetition count.
-    property "stable \"<prefix>-<uuid>\" format regardless of call order/count" do
+    test "stable \"<prefix>-<uuid>\" format regardless of call order/count" do
       check all(
               prefix <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
               repeat_count <- StreamData.integer(1..25),
@@ -279,7 +279,7 @@ defmodule Letflow.TenantSlugFixtureTest do
     # A test module calling unique_realm/1 hundreds of times per run (e.g.
     # provider_registry_multi_realm_test.exs's 12 call sites) needs this
     # in-process guarantee too, even though it alone doesn't prove the fix.
-    property "no duplicates across a thousand calls in the same process" do
+    test "no duplicates across a thousand calls in the same process" do
       check all(
               prefixes <-
                 StreamData.list_of(
@@ -302,7 +302,7 @@ defmodule Letflow.TenantSlugFixtureTest do
     # mechanism `unique_slug/1` replaced) produces bare decimal digits and
     # can never match this regex -- see the mutation proof in this run's
     # handoff for a direct demonstration against unique_realm/1 itself.
-    property "the generated suffix matches the Ecto.UUID.generate/0 format" do
+    test "the generated suffix matches the Ecto.UUID.generate/0 format" do
       check all(
               prefix <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
               repeat_count <- StreamData.integer(1..25),

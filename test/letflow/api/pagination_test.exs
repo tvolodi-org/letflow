@@ -543,7 +543,7 @@ defmodule Letflow.Api.PaginationTest do
       assert seek("1:nope:5", [:skip, :uuid, :int]) == {:error, :invalid_cursor}
     end
 
-    property "never raises: any binary tail yields {:ok, _} or {:error, :invalid_cursor}" do
+    test "never raises: any binary tail yields {:ok, _} or {:error, :invalid_cursor}" do
       check all(
               tail <- StreamData.binary(max_length: 80),
               shape <-
