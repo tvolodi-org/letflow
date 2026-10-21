@@ -150,18 +150,20 @@ describe('Q-1078 / GH 2435 -- a save after expiry shows the expired screen', () 
   it('a failed save that resolves after the result screen keeps the result screen', async () => {
     let rejectSave!: (e: unknown) => void
     mockedExamApi.saveAnswer.mockReturnValue(new Promise((_, reject) => (rejectSave = reject)))
-    mockedExamApi.submitSession.mockResolvedValue({
-      status: 'submitted',
-      score_pct: 100,
-      passed: true,
-      session_id: OPEN_SESSION_ID,
-    } as never)
+    // GH 2941: Submit now waits for the pending save, so the result screen comes from a forced
+    // (anti-cheat) submit that does not wait for it.
+    mockedExamApi.reportEvent.mockResolvedValue({
+      action_taken: 'submit',
+      event_count: 1,
+      warning: false,
+      submission: { status: 'submitted', total_score: 0, total_max_score: 10, percentage: 0, passed: false },
+    })
 
     const user = userEvent.setup()
     renderPage()
     await screen.findByTestId('exam-session-page')
     await user.click(screen.getByText('Option A'))
-    await user.click(await screen.findByTestId('exam-submit-action'))
+    window.dispatchEvent(new Event('blur'))
     await waitFor(() => expect(screen.queryByTestId('exam-session-page')).toBeNull())
 
     await act(async () => {
