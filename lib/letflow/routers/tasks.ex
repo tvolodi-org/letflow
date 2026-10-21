@@ -69,8 +69,9 @@ defmodule Letflow.Routers.Tasks do
   ## Inbox scoping — per-principal, not merely per-tenant
 
   For a task-worker-only caller (`Authorization.is_task_worker_only?/1`),
-  both `GET /tasks` (via `evaluate_access/2`'s own `AllowWithRowFilter`
-  decision) and `GET /tasks/inbox` force `assignee_scope` to
+  `GET /tasks` (via `evaluate_access/2`'s own `AllowWithRowFilter`
+  decision), `GET /tasks/inbox` and `GET /tasks/:id` (a task outside the
+  scope answers the 404 of a nonexistent id) force `assignee_scope` to
   `{:principal, Letflow.Tasks.resolve_principal_scope(user_id, opts)}` —
   never a caller-supplied filter (INV-2: a task-worker's row scope can never
   be widened by a request-supplied `assignee_id`/`status`/`instance_id`
