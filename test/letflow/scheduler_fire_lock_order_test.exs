@@ -713,4 +713,146 @@ defmodule Letflow.SchedulerFireLockOrderTest do
       assert_margin!(overlap, "F9b")
     end
   end
+
+  # ---- F10: recurring reminder re-arm (GH #2554) ------------------------------------------------
+
+  describe "F10: a recurring reminder is re-armed only for an open instance and task" do
+    setup :tenant
+
+    defp recurring_reminder_attrs,
+      do:
+        Map.merge(reminder_attrs(), %{
+          "reminder_repeat_interval" => "PT1H",
+          "reminder_repeat_count" => 3
+        })
+
+    defp pending_reminders(base, x),
+      do:
+        base
+        |> timers_of(x)
+        |> Enum.filter(&(&1.timer_type == "reminder" and &1.status == "pending"))
+
+    test "re-arm after the instance was cancelled creates no successor", %{base: base} do
+      x = instance!(base, orig_graph(recurring_reminder_attrs()))
+      reminder = timer!(base, x, "reminder")
+      assert {:ok, _} = cancel_fn(base, x).()
+
+      assert {:ok, :not_rearmed_closed} =
+               Scheduler.maybe_rearm_timer(
+                 reload_timer(base, reminder),
+                 DateTime.utc_now(),
+                 base.schema
+               )
+
+      assert pending_reminders(base, x) == []
+      assert length(timers_of(base, x)) == 1
+    end
+
+    test "re-arm after the task was completed creates no successor", %{base: base} do
+      x = instance!(base, orig_graph(recurring_reminder_attrs()))
+      reminder = timer!(base, x, "reminder")
+      task = pending_task!(base, x, "orig")
+      assert {:ok, _} = complete_fn(base, task.id).()
+      assert Fx.projection!(base.schema, x).status == :active
+
+      assert {:ok, :not_rearmed_closed} =
+               Scheduler.maybe_rearm_timer(
+                 reload_timer(base, reminder),
+                 DateTime.utc_now(),
+                 base.schema
+               )
+
+      assert pending_reminders(base, x) == []
+    end
+
+    test "re-arm for an open instance and task still arms the successor", %{base: base} do
+      x = instance!(base, orig_graph(recurring_reminder_attrs()))
+      reminder = timer!(base, x, "reminder")
+
+      assert {:ok, :rearmed} =
+               Scheduler.maybe_rearm_timer(reminder, DateTime.utc_now(), base.schema)
+
+      assert [successor] = pending_reminders(base, x) |> Enum.reject(&(&1.id == reminder.id))
+      assert successor.fired_count == 1
+    end
+
+    test "a fire for a cancelled instance is a settled no-op, never a DLQ incident", %{base: base} do
+      x = instance!(base, orig_graph(recurring_reminder_attrs()))
+      reminder = timer!(base, x, "reminder")
+      assert {:ok, _} = cancel_fn(base, x).()
+
+      assert Scheduler.attempt_fire(reminder.id, base.schema) == :already_final
+
+      reloaded = reload_timer(base, reminder)
+      assert reloaded.status == "cancelled"
+      assert reloaded.cancel_reason == "instance_cancelled"
+      assert reloaded.fire_error_count == 0
+      assert Fx.dlq_entries(base.schema) == []
+      assert pending_reminders(base, x) == []
+    end
+
+    test "a stale fire after task completion is a recorded no-op: TIMER_FIRED, no DLQ, no successor",
+         %{base: base} do
+      x = instance!(base, orig_graph(recurring_reminder_attrs()))
+      reminder = timer!(base, x, "reminder")
+      task = pending_task!(base, x, "orig")
+      assert {:ok, _} = complete_fn(base, task.id).()
+
+      # the completion/fire race orphan: the reminder is pending although its task is completed
+      Repo.update_all(
+        from(t in Timer, where: t.id == ^reminder.id),
+        [set: [status: "pending", cancelled_at: nil, cancel_reason: nil]],
+        prefix: base.schema
+      )
+
+      assert Scheduler.attempt_fire(reminder.id, base.schema) == :fired
+
+      assert [event] = Fx.instance_events(base.schema, x, "TIMER_FIRED")
+      assert event.payload["timer_id"] == reminder.id
+      assert reload_timer(base, reminder).status == "fired"
+      assert Fx.audit_rows(base.schema, "task.remind") == []
+      assert Fx.dlq_entries(base.schema) == []
+      assert pending_reminders(base, x) == []
+    end
+
+    test "cancel racing the fire (cancel first): no DLQ entry, no orphan timer", %{base: base} do
+      x = instance!(base, orig_graph(recurring_reminder_attrs()))
+      reminder = timer!(base, x, "reminder")
+
+      overlap =
+        H.forced_overlap(
+          base.schema,
+          {:projection, x},
+          cancel_fn(base, x),
+          fn -> Scheduler.attempt_fire(reminder.id, base.schema) end
+        )
+
+      assert {:ok, _} = overlap.first
+      assert overlap.second == :already_final
+      assert Fx.dlq_entries(base.schema) == []
+      assert pending_reminders(base, x) == []
+      assert reload_timer(base, reminder).fire_error_count == 0
+      assert_margin!(overlap, "F10a")
+    end
+
+    test "cancel racing the fire (fire first): the successor is cancelled, no DLQ entry",
+         %{base: base} do
+      x = instance!(base, orig_graph(recurring_reminder_attrs()))
+      reminder = timer!(base, x, "reminder")
+
+      overlap =
+        H.forced_overlap(
+          base.schema,
+          {:projection, x},
+          fn -> Scheduler.attempt_fire(reminder.id, base.schema) end,
+          cancel_fn(base, x)
+        )
+
+      assert overlap.first == :fired
+      assert {:ok, _} = overlap.second
+      assert Fx.dlq_entries(base.schema) == []
+      assert pending_reminders(base, x) == []
+      assert_margin!(overlap, "F10b")
+    end
+  end
 end

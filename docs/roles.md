@@ -193,6 +193,7 @@ HelpRead                        yes            yes              yes             
 MembershipsRead                 yes            yes              yes              yes         yes          no        yes          yes            tenant
 ModulesManage                   yes            no               no               no          no           no        yes          no             tenant
 MyModulesRead                   yes            yes              yes              yes         yes          yes       yes          yes            tenant
+MyAccessRead                    yes            yes              yes              yes         yes          yes       yes          yes            tenant
 EntitiesRestrictionsManage      yes            no               no               no          no           no        yes          no             tenant
 PromotionsRead                  yes            no               no               no          no           no        yes          yes            tenant
 PromotionsManage                yes            no               no               no          no           no        yes          no             tenant

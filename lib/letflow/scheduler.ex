@@ -94,6 +94,7 @@ defmodule Letflow.Scheduler do
   @default_poll_interval_ms 5_000
   @default_jitter_ms 0
   @default_max_timers_per_cycle 64
+  @default_contended_backoff_ms 30_000
   @default_max_fire_retries 3
   # REQ-188 §2.1 -- retention must never invoke `EventStore.archive/1` on
   # an unconfigured deployment; this default is load-bearing for INV-RETENTION-1.
@@ -235,11 +236,13 @@ defmodule Letflow.Scheduler do
   counts (design §2.2, §2.5).
 
   GH #2707 (PR-3): a fire that hit a lock timeout (`55P03`) is `contended`, not `errored`: no failure
-  is counted, the timer stays `pending` and fires on a later poll. The first contended timer of an
+  is counted, the timer stays `pending` and fires on a later poll, after the contended backoff
+  (GH #2864: its `fire_at`, and that of its instance's other due timers, is pushed back by
+  `contended_backoff_ms/0` so it does not hold a claim slot every cycle). The first contended timer of an
   instance leaves that instance's remaining timers of this cycle untouched, and no new fire starts
   once the cycle has run for 5 s (the first fire always starts). Each contended timer emits
   `[:letflow, :scheduler, :timer_contended]` (count 1; metadata `tenant_schema`, `timer_type`,
-  `code`) and a warning log carrying the classified code only.
+  `code`, `postponed`, `backoff_ms`) and a warning log carrying the classified code only.
   """
   @spec poll_and_fire(tenant_schema :: String.t()) :: poll_result()
   def poll_and_fire(tenant_schema) when is_binary(tenant_schema) do
@@ -284,7 +287,8 @@ defmodule Letflow.Scheduler do
 
   defp tally_fire(:contended, timer_id, acc, skip) do
     timer = safe_peek_timer(timer_id, acc.tenant_schema)
-    announce_contended(acc.tenant_schema, timer)
+    postponed = postpone_contended(timer, acc.tenant_schema)
+    announce_contended(acc.tenant_schema, timer, postponed)
 
     skip =
       case timer do
@@ -326,19 +330,67 @@ defmodule Letflow.Scheduler do
     defp inject_peek_failure, do: :ok
   end
 
-  defp announce_contended(tenant_schema, timer) do
+  # GH #2864: pushes `fire_at` of every due pending timer of the contended instance back by
+  # `contended_backoff_ms/0`, so a stuck timer holds a claim slot once per backoff interval, not
+  # once per cycle. One statement in its own transaction, timers rows only, `SKIP LOCKED`: it
+  # waits on no lock and takes no `P_x` (decision 0061, "Amended (GH #2864)"). Backoff 0 or an
+  # unknown instance (failed peek) runs no statement. Never raises; returns the rows postponed.
+  defp postpone_contended(%Timer{instance_id: instance_id}, tenant_schema) do
+    backoff_ms = contended_backoff_ms()
+
+    if backoff_ms > 0 do
+      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+      later = DateTime.add(now, backoff_ms, :millisecond)
+
+      due_ids =
+        from(t in Timer,
+          where: t.instance_id == ^instance_id and t.status == "pending" and t.fire_at <= ^now,
+          select: t.id,
+          lock: "FOR UPDATE SKIP LOCKED"
+        )
+
+      {count, _} =
+        Repo.update_all(
+          from(t in Timer, where: t.id in subquery(due_ids)),
+          [set: [fire_at: later]],
+          prefix: tenant_schema
+        )
+
+      count
+    else
+      0
+    end
+  rescue
+    exception ->
+      Logger.warning("scheduler: contended postpone failed (#{inspect(exception.__struct__)})",
+        schema: tenant_schema
+      )
+
+      0
+  end
+
+  defp postpone_contended(nil, _tenant_schema), do: 0
+
+  defp announce_contended(tenant_schema, timer, postponed) do
     timer_type = if timer, do: timer.timer_type, else: nil
 
     :telemetry.execute(
       [:letflow, :scheduler, :timer_contended],
       %{count: 1},
-      %{tenant_schema: tenant_schema, timer_type: timer_type, code: :lock_not_available}
+      %{
+        tenant_schema: tenant_schema,
+        timer_type: timer_type,
+        code: :lock_not_available,
+        postponed: postponed,
+        backoff_ms: contended_backoff_ms()
+      }
     )
 
     Logger.warning(
       "scheduler: timer fire contended (lock_not_available), left pending",
       schema: tenant_schema,
-      timer_type: timer_type
+      timer_type: timer_type,
+      postponed: postponed
     )
   end
 
@@ -682,6 +734,9 @@ defmodule Letflow.Scheduler do
     * `fired_timer.repeat_total != nil` and the next occurrence count
       (`fired_timer.fired_count + 1`) has reached it -> `{:ok,
       :series_complete}`, no row inserted -- the series has reached its cap.
+    * The instance projection is not `:active`, or no pending task remains at
+      the timer's (instance, token, node) -> `{:ok, :not_rearmed_closed}`, no
+      row inserted (GH #2554). Tests also call this function directly.
     * Otherwise -> builds and inserts a new `"pending"` row (see
       `build_rearm_attrs/2`), returning `{:ok, :rearmed}` on success or
       `{:error, changeset}` on failure (which, per the caller's `with`
@@ -691,13 +746,16 @@ defmodule Letflow.Scheduler do
   `fired_timer.fire_at` (the timer's own SCHEDULED fire time) plus
   `repeat_interval_us`, never the actual firing timestamp. This is
   deliberate: anchoring to the nominal schedule prevents drift accumulation
-  from poll latency.
+  from poll latency. Exception (GH #2864): a timer that was contended has its
+  `fire_at` postponed, and the postponed `fire_at` is then the anchor.
   """
   @spec maybe_rearm_timer(
           fired_timer :: Timer.t(),
           fired_at :: DateTime.t(),
           tenant_schema :: String.t()
-        ) :: {:ok, :rearmed | :not_recurring | :series_complete} | {:error, Ecto.Changeset.t()}
+        ) ::
+          {:ok, :rearmed | :not_recurring | :series_complete | :not_rearmed_closed}
+          | {:error, Ecto.Changeset.t()}
   def maybe_rearm_timer(%Timer{repeat_expression: nil}, _fired_at, tenant_schema)
       when is_binary(tenant_schema) do
     {:ok, :not_recurring}
@@ -707,20 +765,48 @@ defmodule Letflow.Scheduler do
       when is_binary(tenant_schema) do
     new_fired_count = fired_timer.fired_count + 1
 
-    if fired_timer.repeat_total != nil and new_fired_count >= fired_timer.repeat_total do
-      {:ok, :series_complete}
-    else
-      attrs = build_rearm_attrs(fired_timer, new_fired_count)
+    cond do
+      fired_timer.repeat_total != nil and new_fired_count >= fired_timer.repeat_total ->
+        {:ok, :series_complete}
 
-      %Timer{}
-      |> Timer.rearm_changeset(attrs)
-      |> Repo.insert(prefix: tenant_schema)
-      |> case do
-        {:ok, _new_timer} -> {:ok, :rearmed}
-        {:error, changeset} -> {:error, changeset}
-      end
+      not rearm_target_open?(fired_timer, tenant_schema) ->
+        {:ok, :not_rearmed_closed}
+
+      true ->
+        attrs = build_rearm_attrs(fired_timer, new_fired_count)
+
+        %Timer{}
+        |> Timer.rearm_changeset(attrs)
+        |> Repo.insert(prefix: tenant_schema)
+        |> case do
+          {:ok, _new_timer} -> {:ok, :rearmed}
+          {:error, changeset} -> {:error, changeset}
+        end
     end
   end
+
+  # GH #2554: a recurring REMINDER successor is only armed while its instance is `:active` AND
+  # its task is still pending, checked here in the caller's transaction (the fire already holds
+  # the instance projection, so the reads are consistent with cancel / completion). Without the
+  # check a successor armed after cancel or completion would be an orphan that fires later into
+  # the dead-letter queue. Other timer types are unchanged. Prefix-scoped (INV-1).
+  defp rearm_target_open?(%Timer{timer_type: "reminder"} = timer, tenant_schema) do
+    instance_active? =
+      InstanceProjection
+      |> where([p], p.instance_id == ^timer.instance_id and p.status == :active)
+      |> Repo.exists?(prefix: tenant_schema)
+
+    instance_active? and
+      Letflow.Engine.Task
+      |> where(
+        [t],
+        t.instance_id == ^timer.instance_id and t.token_id == ^timer.token_id and
+          t.node_id == ^timer.node_id and t.status == :pending
+      )
+      |> Repo.exists?(prefix: tenant_schema)
+  end
+
+  defp rearm_target_open?(%Timer{}, _tenant_schema), do: true
 
   # REQ-188 design §1.3 -- mirrors build_arm_changeset/2's pattern exactly.
   defp build_rearm_attrs(%Timer{} = fired_timer, new_fired_count) do
@@ -924,6 +1010,19 @@ defmodule Letflow.Scheduler do
   @spec max_fire_retries() :: pos_integer()
   def max_fire_retries do
     scheduler_config()[:max_fire_retries] || @default_max_fire_retries
+  end
+
+  @doc """
+  GH #2864: how far (ms) a contended timer's `fire_at` is pushed back. `0` disables the postponement
+  (a contended timer is then re-claimed on every cycle). Anything but a non-negative integer falls
+  back to the default.
+  """
+  @spec contended_backoff_ms() :: non_neg_integer()
+  def contended_backoff_ms do
+    case scheduler_config()[:contended_backoff_ms] do
+      ms when is_integer(ms) and ms >= 0 -> ms
+      _ -> @default_contended_backoff_ms
+    end
   end
 
   @spec retention_enabled?() :: boolean()

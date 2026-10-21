@@ -2,7 +2,8 @@ defmodule Letflow.Routers.SelfServiceScopeTest do
   @moduledoc """
   REQ-518 / GH #2535 slice 2c-i-b, AC 21 (design `lib/letflow/design/req518-compiler-scope-filter.md`
   4.1 to 4.4, 10.1 T-S2, T-S3, T-S5, T-S6, T-S7, T-S9; spec `test/specs/REQ-518-2c-i-b.md`): the
-  three `:self_service` routes `GET /me/memberships` (M1), `GET /me/modules` (M2) and
+  `:self_service` routes `GET /me/memberships` (M1), `GET /me/modules` (M2) (REQ-449 later added
+  `GET /me/access`, covered by one extra test below) and
   `GET /help/resolved` (H1) through their REAL routers with the per-request enforcement mode in
   the `auth_context`.
 
@@ -61,6 +62,15 @@ defmodule Letflow.Routers.SelfServiceScopeTest do
       modules = get(@me, "/modules", fx, scoped.id, [@worker], :on)
       assert modules.status == 200
       assert json(modules) == %{"installed_modules" => []}
+    end
+
+    test "REQ-449 /me/access answers 200 for a scoped-only caller under on", %{
+      fx: fx,
+      scoped: scoped
+    } do
+      access = get(@me, "/access", fx, scoped.id, [@worker], :on)
+      assert access.status == 200
+      assert json(access)["roles"] == [@worker]
     end
 
     test "H1 answers 200 with the live help row", %{fx: fx, scoped: scoped} do

@@ -24,9 +24,9 @@ defmodule Letflow.Api.RolesMatrixParityTest do
 
   @roles_md Path.expand("../../../docs/roles.md", __DIR__)
 
-  # Decision 0046 D6: exactly 14 atoms. :PromotionsRead was withheld by REQ-448 until Q-1011's
-  # stored-tenant check merged and was granted by ISS-1109 / GH #2489. :MyModulesRead is the
-  # role-agnostic grant every role holds.
+  # Decision 0046 D6: exactly 14 atoms plus REQ-449's role-agnostic :MyAccessRead.
+  # :PromotionsRead was withheld by REQ-448 until Q-1011's stored-tenant check merged and was
+  # granted by ISS-1109 / GH #2489. :MyModulesRead is the role-agnostic grant every role holds.
   @auditor_yes_literal [
     :DefinitionsRead,
     :InstancesRead,
@@ -41,7 +41,8 @@ defmodule Letflow.Api.RolesMatrixParityTest do
     :HelpRead,
     :MembershipsRead,
     :PromotionsRead,
-    :MyModulesRead
+    :MyModulesRead,
+    :MyAccessRead
   ]
 
   # --- parser --------------------------------------------------------------------------------
@@ -319,13 +320,13 @@ defmodule Letflow.Api.RolesMatrixParityTest do
       end
     end
 
-    test "the TENANT_AUDITOR column is exactly the 14 literal atoms of D6, PromotionsRead included" do
+    test "the TENANT_AUDITOR column is exactly the 15 literal atoms (D6's 14 plus MyAccessRead), PromotionsRead included" do
       {:ok, %{rows: rows}} = parse(real_text())
 
       assert Enum.sort(yes_names(rows, "TENANT_AUDITOR")) ==
                Enum.sort(Enum.map(@auditor_yes_literal, &Atom.to_string/1))
 
-      assert length(@auditor_yes_literal) == 14
+      assert length(@auditor_yes_literal) == 15
 
       # and the code agrees with the same literal (not only with the doc)
       granted =

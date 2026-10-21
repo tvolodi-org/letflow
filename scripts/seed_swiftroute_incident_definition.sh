@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # seed_swiftroute_incident_definition.sh
 #
-# Deploys the SwiftRoute "Driver Incident Report" v1.0 ProcessDefinition to a
+# Deploys the SwiftRoute "Driver Incident Report" v1.1 ProcessDefinition to a
 # live Letflow QA instance. Version-aware idempotency (versions compared
 # numerically by `sort -V`, see scripts/lib/seed_service_task_base.sh):
 #   none ACTIVE               -> create the fixture version and activate it
