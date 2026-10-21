@@ -54,6 +54,12 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
     6. plain TERM to the watchdog subshell only (simulated missed group kill, GH #2457):
        its sleep must die too -- deterministic, fails on the old script everywhere
 
+  The fork window itself (a TERM landing while the subshell forks `sleep`) has no
+  deterministic test: which side of the `$!` assignment the signal lands on is the
+  kernel's choice, and no stub can pin it. It is covered only by the EXIT-trap test
+  (case 3) under a bounded `--repeat-until-failure` run, e.g.
+  `mix test test/scripts/test_parallel_watchdog_orphan_test.exs:<line of case 3> --repeat-until-failure 30`.
+
   Needs a real `bash`; on Windows set `UAT_PF_BASH` (or `TEST_PARALLEL_BASH`) to git-bash.
   `async: false`: the cases spawn process trees and are timing-sensitive.
   """
@@ -481,33 +487,6 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
                "#{String.trim(File.read!(marker))}
 #{out}"
 
-      assert_no_orphan_sleep(t)
-    end)
-  end
-
-  test "a TERM arriving as the watchdog forks its sleep still kills that sleep",
-       %{tmp_dir: tmp} do
-    # GH #2457 root cause: the abort path signals the watchdog within milliseconds of its
-    # start, while the subshell is still forking `sleep`. The old trap read a pid assigned
-    # only after the fork and exited with the sleep orphaned. The `sleep` shim TERMs its
-    # parent the moment it starts. The exact interleaving (before or after `$!` is
-    # assigned) is the kernel's, so this cannot pin one order; the script now handles both,
-    # and the EXIT-trap test above is the end-to-end check under a bounded repeat run.
-    t = unique_timeout()
-
-    {status, out, _elapsed} =
-      run_script(
-        tmp,
-        [
-          {"STUB_MODE", "pass"},
-          {"STUB_FORK_TERM", "1"},
-          {"TEST_PARALLEL_PARTITION_TIMEOUT_S", "#{t}"}
-        ],
-        @prompt_ms
-      )
-
-    TestParallelCapture.with_context(tmp, out, fn ->
-      refute status == :timeout, out
       assert_no_orphan_sleep(t)
     end)
   end
