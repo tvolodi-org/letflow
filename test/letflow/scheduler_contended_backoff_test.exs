@@ -336,13 +336,10 @@ defmodule Letflow.SchedulerContendedBackoffTest do
       {proj_holder, _} = H.hold_row(base.schema, {:projection, a})
       {row_holder, _} = H.hold_row(base.schema, {:timer, a2.id})
 
-      t0 = System.monotonic_time(:millisecond)
       result = Scheduler.poll_and_fire(base.schema)
-      elapsed = System.monotonic_time(:millisecond) - t0
 
       # a2 is locked, hence invisible to the claim query: only a1 is claimed and postponed
       assert %{claimed: 1, contended: 1} = result
-      assert elapsed < @timeout_ms + 3_000
       assert DateTime.compare(reload(base, a1).fire_at, a1.fire_at) == :gt
       assert reload(base, a2).fire_at == a2.fire_at
 

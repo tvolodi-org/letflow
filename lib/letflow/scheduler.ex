@@ -362,7 +362,7 @@ defmodule Letflow.Scheduler do
     end
   rescue
     exception ->
-      Logger.debug("scheduler: contended postpone failed (#{inspect(exception.__struct__)})",
+      Logger.warning("scheduler: contended postpone failed (#{inspect(exception.__struct__)})",
         schema: tenant_schema
       )
 
