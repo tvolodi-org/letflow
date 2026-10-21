@@ -363,13 +363,25 @@ defmodule Letflow.Engine.Req494HumanTaskReminderTimerTest do
       assert reminders(c3) == []
     end
 
-    test "no definition under test/fixtures carries a reminder_* key" do
+    # REQ-494 itself changed no shipped definition. A definition that opts in later
+    # does so on purpose, in its own issue, and is listed here with that issue.
+    @reminder_opt_in_fixtures [
+      # GH #2553: the 8D corrective action's reminder replaces its E6 waiver.
+      "test/fixtures/qa/vortex_8d_corrective_action_definition.json"
+    ]
+
+    test "no definition under test/fixtures carries a reminder_* key unless it opted in" do
+      cwd = File.cwd!()
+
       offenders =
-        Path.wildcard(Path.join(File.cwd!(), "test/fixtures/**/*"))
+        Path.wildcard(Path.join(cwd, "test/fixtures/**/*"))
         |> Enum.filter(&File.regular?/1)
         |> Enum.filter(&(File.read!(&1) =~ "reminder_"))
+        |> Enum.map(&Path.relative_to(&1, cwd))
 
-      assert offenders == []
+      assert offenders -- @reminder_opt_in_fixtures == []
+      # Every opt-in still exists and still carries the keys, so the list cannot go stale.
+      assert Enum.sort(@reminder_opt_in_fixtures) -- offenders == []
     end
   end
 

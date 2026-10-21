@@ -1,7 +1,7 @@
 {
   "name": "8D Corrective Action",
-  "version": "1.1",
-  "description": "8D corrective-action child process spawned by Supplier Quality Deviation for CRITICAL severity; Procurement completes it. Escalation follows D-ESC: timer -> higher role -> fail closed (v1.1, ISS-1002 / Q-984; BA ruling GH #2281). Documented deviation: corrective-action-8d carries an E6 waiver (long-running remediation work) instead of a timer pair, because an escalation timer cancels the task and would end the child, and with it the parent deviation, without any corrective action; the BA-proposed P14D reminder cannot be modelled without an engine feature that notifies while keeping the task open.",
+  "version": "1.2",
+  "description": "8D corrective-action child process spawned by Supplier Quality Deviation for CRITICAL severity; Procurement completes it. Escalation follows D-ESC: timer -> higher role -> fail closed (v1.1, ISS-1002 / Q-984; BA ruling GH #2281). The long-running corrective-action task carries a non-cancelling reminder (reminder_timer_duration P14D, reminder_role role-procurement-manager; REQ-494 / GH #2553, replaces the E6 waiver of v1.1): the reminder is audit-only (task.remind) and the task stays open, so no escalation timer can cancel it and close the parent deviation without corrective action.",
   "graph": {
     "nodes": [
       {
@@ -13,7 +13,9 @@
         "node_type": "HUMAN_TASK",
         "attributes": {
           "role": "role-procurement-manager",
-          "description": "Waiver: long-running remediation work (engine gap: a HUMAN_TASK escalation timer always cancels; no non-cancelling reminder — Q-1017 / GH #2325 / ISS-1035). BA ruling GH #2281, E6. The 8D corrective action is open-ended work; an escalation timer would cancel the task and close the deviation with no corrective action, so it stays open until the procurement manager completes it."
+          "description": "Long-running remediation work: the 8D corrective action is open-ended, so it carries a reminder instead of an escalation timer (an escalation timer would cancel the task and close the deviation with no corrective action). It stays open until the procurement manager completes it.",
+          "reminder_timer_duration": "P14D",
+          "reminder_role": "role-procurement-manager"
         }
       },
       {
