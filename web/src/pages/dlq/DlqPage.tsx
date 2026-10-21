@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { dlqApi } from '@/api/dlq'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess } from '@/auth/access'
 import type { DlqEntry } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
@@ -16,7 +16,6 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { PaginationControls } from '@/components/ui/PaginationControls'
 import { JsonEditor } from '@/components/ui/JsonEditor'
 
-const OPERATE_ROLES = ['PROCESS_OPERATOR', 'PLATFORM_ADMIN']
 
 function parseJsonLike(value: unknown): unknown {
   if (typeof value !== 'string') return value
@@ -125,7 +124,6 @@ interface RetryAttempt {
 
 export default function DlqPage() {
   const qc = useQueryClient()
-  const { session } = useAuth()
   const tenantKeys = useTenantScopedQueryKeys()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -136,7 +134,7 @@ export default function DlqPage() {
   const [transientStatusById, setTransientStatusById] = useState<Record<string, string>>({})
   const [discardConfirmItem, setDiscardConfirmItem] = useState<DlqEntry | null>(null)
 
-  const canOperate = session?.roles.some((role) => OPERATE_ROLES.includes(role)) ?? false
+  const canOperate = useAccess().can(P.DlqOperate)
   const cursor = cursorStack.length > 0 ? cursorStack[cursorStack.length - 1] : undefined
 
   const { data, isLoading, isError, error, refetch } = useQuery({

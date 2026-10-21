@@ -68,7 +68,7 @@ export async function getKeycloakToken(
   return body.access_token
 }
 
-function decodeJwtPayload(token: string): { sub: string; exp: number; roles?: string[]; preferred_username?: string; name?: string; email?: string } {
+function decodeJwtPayload(token: string): { sub: string; exp: number; preferred_username?: string; name?: string; email?: string } {
   return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf-8'))
 }
 
@@ -166,15 +166,14 @@ export async function loginWithToken(page: Page, token: string): Promise<void> {
   const payload = decodeJwtPayload(token)
   const displayName = payload.preferred_username ?? payload.name ?? payload.email ?? payload.sub
   await page.addInitScript(
-    (args: { token: string; displayName: string; roles: string[] }) => {
+    (args: { token: string; displayName: string }) => {
       sessionStorage.setItem('__e2e_session', JSON.stringify({
         token: args.token,
         display_name: args.displayName,
-        roles: args.roles,
-        loginSource: 'oidc' as const,
+          loginSource: 'oidc' as const,
       }))
     },
-    { token, displayName, roles: payload.roles ?? [] },
+    { token, displayName },
   )
   await page.goto('/', { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('[data-testid="user-display-name"]', { timeout: 15_000 }).catch(() => {})

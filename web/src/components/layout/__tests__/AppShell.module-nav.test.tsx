@@ -10,13 +10,14 @@ import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import type { UserSession } from '@/types/api'
+import type { AccessFixtureName } from '@/auth/access/fixtures'
 import type { InstalledModule } from '@/api/me'
 
 expect.extend(jestDomMatchers)
 
 // Test-only fixture module definition (was previously in production REGISTERED_MODULES;
 // removed from registry.ts by ISS-0836, kept here as test-only data).
-const SAMPLE_FIXTURE_NAV_ITEM = { to: '/sample', label: 'Sample', roles: ['CANDIDATE'] }
+const SAMPLE_FIXTURE_NAV_ITEM = { to: '/sample', label: 'Sample', permission: 'ExamSessionStart' }
 
 vi.mock('@/modules/registry', () => ({
   getInstalledModuleNavItems: vi.fn(
@@ -44,11 +45,10 @@ vi.mock('@/api/client', () => ({
   client: { get: vi.fn(() => Promise.resolve({ items: [] })) },
 }))
 
-function sessionWithRoles(roles: string[]): UserSession {
+function testSession(): UserSession {
   return {
     token: 'tok',
     display_name: 'Test User',
-    roles,
     loginSource: null,
     tenant_slug: 'acme',
     tenant_display_name: 'Acme Co',
@@ -63,13 +63,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function renderAppShellAs(roles: string[], installedModules: Array<{ module_id: string; version: string }> = []) {
+async function renderAppShellAs(fixture: AccessFixtureName, installedModules: Array<{ module_id: string; version: string }> = []) {
   vi.resetModules()
 
   const { useAuth } = await import('@/auth/AuthContext')
   const { useInstalledModules } = await import('@/hooks/useInstalledModules')
   vi.mocked(useAuth).mockReturnValue({
-    session: sessionWithRoles(roles),
+    session: testSession(),
     isAuthenticated: true,
     isLoading: false,
     loginSource: null,
@@ -107,11 +107,15 @@ async function renderAppShellAs(roles: string[], installedModules: Array<{ modul
 
   const { BrandingProvider } = await import('@/theming/BrandingProvider')
   const { AppShell } = await import('../AppShell')
+  const { AccessStateProvider } = await import('@/auth/access/AccessContext')
+  const { accessState } = await import('@/auth/access/fixtures')
 
   render(
     <MemoryRouter initialEntries={['/instances']}>
       <BrandingProvider>
-        <AppShell />
+        <AccessStateProvider state={accessState(fixture)}>
+          <AppShell />
+        </AccessStateProvider>
       </BrandingProvider>
     </MemoryRouter>,
   )
@@ -119,13 +123,13 @@ async function renderAppShellAs(roles: string[], installedModules: Array<{ modul
 
 describe('AppShell installed-module nav', () => {
   it('shows an installed module nav item for the roles it grants', async () => {
-    await renderAppShellAs(['CANDIDATE'], [{ module_id: 'sample', version: '1.0.0' }])
+    await renderAppShellAs('candidate', [{ module_id: 'sample', version: '1.0.0' }])
     await waitFor(() => expect(screen.getByText('Sample')).toBeInTheDocument())
     expect(screen.getByRole('link', { name: 'Sample' })).toHaveAttribute('href', '/sample')
   })
 
   it('hides a module nav item when the tenant has not installed it', async () => {
-    await renderAppShellAs(['CANDIDATE'], [])
+    await renderAppShellAs('candidate', [])
     await waitFor(() => expect(screen.getByTestId('logout-button')).toBeInTheDocument())
     // With no installed modules, neither module-provided nav item appears.
     expect(screen.queryByText('Sample')).not.toBeInTheDocument()

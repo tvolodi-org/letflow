@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { servicesApi, type RegisterServiceBody, type ServiceRecord, type PublishVersionBody } from '@/api/services'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
-import { useAuth } from '@/auth/AuthContext'
+import { P, useAccess, AccessPending } from '@/auth/access'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
@@ -20,10 +20,10 @@ import type { ApiError } from '@/types/api'
 export default function ServicesPage() {
   const queryClient = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
-  const { session } = useAuth()
 
   {/* CUSTOM: role-gate */}
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.can(P.PlatformServicesManage) && access.isPlatformTenant
 
   const [search, setSearch] = useState('')
   const [scope, setScope] = useState('')
@@ -42,8 +42,9 @@ export default function ServicesPage() {
   const listQueryKey = tenantKeys.admin.services()
   const listQuery = useQuery({
     queryKey: listQueryKey,
+    enabled: access.isReady,
     queryFn: () =>
-      isPlatformAdmin
+      isAllowed
         ? servicesApi.listAll()
         : servicesApi.listForTenant(),
   })
@@ -184,7 +185,7 @@ export default function ServicesPage() {
     { id: 'timeout', header: 'Timeout (ms)', accessor: (row) => row.timeout_ms },
     { id: 'retries', header: 'Retries', accessor: (row) => row.max_retries },
     // CUSTOM: role-gate — owner_tenant/actions columns only for platform-admin
-    ...(isPlatformAdmin
+    ...(isAllowed
       ? [
           {
             id: 'owner_tenant',
@@ -225,12 +226,14 @@ export default function ServicesPage() {
       : []),
   ]
 
+  if (!access.isReady) return <AccessPending access={access} />
+
   return (
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '1.25rem' }}>
         <h2 style={{ margin: 0 }}>Services</h2>
         {/* CUSTOM: role-gate — Register button only for platform-admin */}
-        {isPlatformAdmin && (
+        {isAllowed && (
           <span style={{ marginLeft: 'auto' }}>
             <Button variant="primary" size="sm" onClick={() => deferClickState(() => setShowCreate(true))}>
               + Register service

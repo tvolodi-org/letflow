@@ -464,7 +464,7 @@ tests 1-4 running every route against both a denied and an absent type and by `h
 than before for restricted-field actors (a behaviour break by intent, OQ-1). R3 the seed script and any UAT/QA flow that writes restricted
 types as an admin (OQ-4). R4 four extra reads per write request. R5 a half-installed managed type changes 403 -> 404 (OQ-6). R6 the
 non-transactional gate/write window (section 8). R7 engine step writes and module handlers also lack TypeAccess (OQ-3), so a type-denied actor
-who can start a process whose step writes that type still writes it: out of scope here, to be filed.
+who can start a process whose step writes that type still writes it: out of scope here, to be filed. (Closed by GH #2808: the definition write routes, the restrictions import and the engine/handler writes now apply TypeAccess; see the T-0060 design note and `Letflow.Entities.DefinitionAccess`.)
 
 ## 14. Rulings and open questions
 

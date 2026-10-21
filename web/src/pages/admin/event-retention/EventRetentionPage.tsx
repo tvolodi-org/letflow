@@ -14,7 +14,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
-import { useAuth } from '@/auth/AuthContext'
+import { useAccess, AccessPending } from '@/auth/access'
 import { useRetentionSummary, useStartRetirement, useRetirementStatus } from '@/hooks/useEventRetention'
 import type { RetentionSummary, RetirementOutcome, RetirementResult } from '@/api/eventRetention'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -154,8 +154,8 @@ function RetirementStatusPanel(props: { result: RetirementResult }): React.React
 }
 
 export default function EventRetentionPage(): React.ReactElement {
-  const { session } = useAuth()
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.canManageTenants
 
   const [searchParams, setSearchParams] = useSearchParams()
   const deepLinkRetirementId = searchParams.get('retirement')
@@ -181,7 +181,9 @@ export default function EventRetentionPage(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retirementStatus, qc])
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 

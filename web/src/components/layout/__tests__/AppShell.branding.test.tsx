@@ -37,7 +37,6 @@ vi.mock('@/api/client', () => ({
 const SESSION: UserSession = {
   token: 'tok',
   display_name: 'Test User',
-  roles: ['PLATFORM_ADMIN'],
   loginSource: null,
   tenant_slug: 'acme',
   tenant_display_name: 'Acme Co',
@@ -78,11 +77,15 @@ async function renderAppShellWithBranding(brandingConfig: unknown) {
 
   const { BrandingProvider } = await import('@/theming/BrandingProvider')
   const { AppShell } = await import('../AppShell')
+  const { AccessStateProvider } = await import('@/auth/access/AccessContext')
+  const { accessState } = await import('@/auth/access/fixtures')
 
   render(
     <MemoryRouter initialEntries={['/instances']}>
       <BrandingProvider>
-        <AppShell />
+        <AccessStateProvider state={accessState('platformAdmin')}>
+          <AppShell />
+        </AccessStateProvider>
       </BrandingProvider>
     </MemoryRouter>,
   )

@@ -59,7 +59,6 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
       session: {
         token: 'header.' + btoa(JSON.stringify({ sub: 'marco-id' })) + '.sig',
         display_name: 'Marco',
-        roles: ['PLATFORM_ADMIN'],
         loginSource: 'oidc' as const,
         tenant_slug: null,
         tenant_display_name: null,

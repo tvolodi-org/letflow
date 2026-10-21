@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup } from '@testing-library/react'
+import { screen, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 expect.extend(jestDomMatchers)
 
@@ -39,6 +39,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import TenantsPage from '@/pages/admin/tenants/TenantsPage'
 import type { TenantListResponse } from '@/api/tenants'
+import { renderWithAccess } from '@/auth/access/testing'
 
 const mockUseQuery = vi.mocked(useQuery)
 const mockUseAuth = vi.mocked(useAuth)
@@ -48,7 +49,6 @@ const mockUseAuth = vi.mocked(useAuth)
 const ADMIN_SESSION = {
   token: 'tok',
   display_name: 'Admin',
-  roles: ['PLATFORM_ADMIN'],
   loginSource: null as null,
   tenant_slug: 'platform',
   tenant_display_name: 'Platform',
@@ -110,10 +110,11 @@ describe('ENV-04 — TenantsPage [TEST] badge', () => {
       isError: false,
     } as ReturnType<typeof useQuery>)
 
-    render(
+    renderWithAccess(
       <MemoryRouter>
         <TenantsPage />
       </MemoryRouter>,
+      'platformAdmin',
     )
 
     // VERDICT: Screen shows TEST badge for test-type tenant row

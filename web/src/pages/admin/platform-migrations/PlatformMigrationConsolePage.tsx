@@ -14,7 +14,7 @@
 import React, { useMemo, useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useAuth } from '@/auth/AuthContext'
+import { useAccess, AccessPending } from '@/auth/access'
 import { useRolloutStatus, useStartRollout, useResumeRollout } from '@/hooks/usePlatformMigrations'
 import type { RolloutOutcome, RolloutResult, StartRolloutRequest } from '@/api/platformMigrations'
 import { tenantsApi } from '@/api/tenants'
@@ -258,8 +258,8 @@ function RolloutOutcomeTable(props: { outcomes: RolloutOutcome[]; tenantNames: M
 }
 
 export default function PlatformMigrationConsolePage(): React.ReactElement {
-  const { session } = useAuth()
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.canManageTenants
 
   const [searchParams, setSearchParams] = useSearchParams()
   const deepLinkRolloutId = searchParams.get('rollout')
@@ -278,7 +278,9 @@ export default function PlatformMigrationConsolePage(): React.ReactElement {
   const statusQuery = useRolloutStatus(activeRolloutId)
   const tenantNames = useTenantNameLookup()
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 

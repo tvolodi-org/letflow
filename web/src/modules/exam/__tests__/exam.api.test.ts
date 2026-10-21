@@ -13,7 +13,7 @@
  *
  * Plus `listAvailableExams` (ISS-0718), which replaced this file's original
  * `queryExamRecords` wrapper around the generic `POST /entities/query` route:
- * CANDIDATE cannot reach that route (`:EntitiesQuery` is outside CANDIDATE's
+ * candidate role cannot reach that route (`:EntitiesQuery` is outside candidate role's
  * ISS-0646 closed permission set), so the exam list screen now calls the
  * dedicated `GET /modules/exam/exam-sessions/available` route instead; see
  * exam.api.ts's own moduledoc comment.

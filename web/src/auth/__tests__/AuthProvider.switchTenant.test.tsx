@@ -50,7 +50,6 @@ vi.mock('@/api/client', () => ({
   tryRestoreE2eSession: vi.fn(() => ({
     token: 'tok-a',
     display_name: 'Alice',
-    roles: ['PLATFORM_ADMIN'],
     tenant_slug: 'tenant-a',
     tenant_display_name: 'Tenant A',
     tenant_id: 'tid-a',
@@ -72,6 +71,17 @@ vi.mock('../tenantOidcRegistry', () => ({
   attemptSilentSwitch: mockAttemptSilentSwitch,
 }))
 
+// /me/access decides platform authority (the token's role claims are never read).
+vi.mock('@/api/me', () => ({
+  meApi: {
+    getAccessWithToken: vi.fn(async () => ({
+      roles: [],
+      permissions: ['TenantsManage'],
+      platform_tenant: true,
+    })),
+  },
+}))
+
 vi.mock('@/api/tenants', () => ({
   tenantsApi: {
     getBySlug: mockGetBySlug,
@@ -80,7 +90,7 @@ vi.mock('@/api/tenants', () => ({
 
 // A minimal, real-shaped (base64url header.payload.signature) JWT so
 // decodeTokenPayload (the real, unmocked implementation) parses it. Payload:
-// { roles: ["PLATFORM_ADMIN"], tenant_id: "tenant-b", sub: "u1" }
+// { roles: ["claimed"], tenant_id: "tenant-b", sub: "u1" }
 const TENANT_B_TOKEN =
   'eyJhbGciOiJub25lIn0.' +
   'eyJyb2xlcyI6WyJQTEFURk9STV9BRE1JTiJdLCJ0ZW5hbnRfaWQiOiJ0ZW5hbnQtYiIsInN1YiI6InUxIn0.' +

@@ -8,6 +8,8 @@ import { setToken } from '@/api/client'
 import { decodeTokenPayload, resolveDisplayName } from '@/auth/tokenUtils'
 import { resolveRealmFromUrl } from '@/auth/tenantConfig'
 import { tenantsApi } from '@/api/tenants'
+import { meApi } from '@/api/me'
+import { canManageTenants } from '@/auth/access'
 import { isSafeRestorePath } from '@/auth/safeRestorePath'
 
 /**
@@ -81,9 +83,15 @@ export default function OidcCallbackPage() {
         let tenantType: 'production' | 'test' | null = null
         let productionTenantDisplayName: string | null = null
         // Q-1074 / GH 2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
-        // Only a PLATFORM_ADMIN login asks for the record; every other login skips the
-        // call and shows the slug as its display name.
-        if (realmSlug && payload.roles.includes('PLATFORM_ADMIN')) {
+        // Only a login whose /me/access (never the token's role claims) grants platform
+        // tenant management asks for the record; every other login skips the call and shows
+        // the slug as its display name. A failed access call counts as no access.
+        const access = await meApi
+          .getAccessWithToken(token)
+          .then(info => ({ status: 'ready' as const, info }))
+          .catch(() => ({ status: 'loading' as const }))
+        const isPlatformAdmin = canManageTenants(access)
+        if (realmSlug && isPlatformAdmin) {
           try {
             const tenantData = await tenantsApi.getBySlug(realmSlug)
             tenantDisplayName = tenantData?.display_name ?? null
@@ -97,7 +105,6 @@ export default function OidcCallbackPage() {
         setSession({
           token,
           display_name: resolveDisplayName(payload),
-          roles: payload.roles,
           loginSource: 'oidc',
           tenant_slug: realmSlug,
           tenant_display_name: tenantDisplayName ?? realmSlug,
@@ -107,7 +114,7 @@ export default function OidcCallbackPage() {
         })
         const restoredPath = isSafeRestorePath(user.state) ? user.state : null
         const destination =
-          restoredPath ?? (payload.roles.includes('PLATFORM_ADMIN') ? '/platform-dashboard' : '/')
+          restoredPath ?? (isPlatformAdmin ? '/platform-dashboard' : '/')
         navigate(destination, { replace: true })
       } catch {
         // OIDC callback failed — redirect to root which triggers Keycloak login

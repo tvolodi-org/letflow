@@ -18,7 +18,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams, useLocation } from 'react-router-dom'
-import { useAuth } from '@/auth/AuthContext'
+import { useAccess, AccessPending } from '@/auth/access'
 import { Button } from '@/components/ui/Button'
 import {
   getOnboarding,
@@ -29,7 +29,7 @@ import {
 const DEFAULT_POLL_MS = 10_000
 
 export default function OnboardingProgressPage() {
-  const { session } = useAuth()
+  const access = useAccess()
   const { onboardingId } = useParams<{ onboardingId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -106,7 +106,8 @@ export default function OnboardingProgressPage() {
   }, [onboardingId])
 
   // Role guard — after all hooks
-  if (!session?.roles.includes('PLATFORM_ADMIN')) {
+  if (!access.isReady) return <AccessPending access={access} />
+  if (!access.canManageTenants) {
     return <Navigate to="/instances" replace />
   }
 

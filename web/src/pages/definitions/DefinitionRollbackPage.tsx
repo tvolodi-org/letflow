@@ -8,13 +8,14 @@
  *
  *  Role gating (§6) deliberately diverges from `DefinitionListPage.tsx`'s
  *  `DESIGNER_ROLES` — `POST .../rollback` is `:Unknown`-gated, i.e.
- *  PLATFORM_ADMIN-only, matching `PromotionReviewPage.tsx`'s own gate on an
+ *  platform-admin role-only, matching `PromotionReviewPage.tsx`'s own gate on an
  *  equally `:Unknown`-gated route, not `DefinitionListPage.tsx`'s broader
  *  `DefinitionsWrite`-gated `DESIGNER_ROLES`.
  */
 
 import React, { useMemo, useState } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
+import { P, useAccess, AccessPending } from '@/auth/access'
 import { useAuth } from '@/auth/AuthContext'
 import { useDefinition, useDefinitionVersions, useRollbackDefinition } from '@/hooks/useDefinitions'
 import type { RollbackResult } from '@/api/definitionRollback'
@@ -61,7 +62,8 @@ interface RollbackHistoryEntry {
 export default function DefinitionRollbackPage(): React.ReactElement {
   const { id } = useParams<{ id: string }>()
   const { session } = useAuth()
-  const isPlatformAdmin = Boolean(session?.roles.includes('PLATFORM_ADMIN'))
+  const access = useAccess()
+  const isAllowed = access.can(P.DefinitionsRollback)
 
   const { data: def, isLoading, isError, error, refetch } = useDefinition(id ?? '')
   const processKey = (def as ProcessDefinition | undefined)?.name ?? ''
@@ -87,7 +89,9 @@ export default function DefinitionRollbackPage(): React.ReactElement {
 
   const state: RendererState = isLoading ? 'loading' : isError ? classifyError(error) : 'success'
 
-  if (!isPlatformAdmin) {
+  if (!access.isReady) return <AccessPending access={access} />
+
+  if (!isAllowed) {
     return <Navigate to="/instances" replace />
   }
 
