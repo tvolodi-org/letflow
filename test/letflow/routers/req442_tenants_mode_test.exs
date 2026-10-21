@@ -1,7 +1,7 @@
 defmodule Letflow.Routers.Req442TenantsModeTest do
   @moduledoc """
   REQ-442 AC2 (write authorisation, audit, null reset, failure modes) and the
-  platform-admin half of AC3 (the seven-key tenant shape on every route that uses
+  platform-admin half of AC3 (the eight-key tenant shape (seven plus REQ-469's tenant_type) on every route that uses
   `tenant_map/1`). See `test/specs/REQ-442.md` for the criterion -> test map.
 
   Dispatch is direct `Letflow.Routers.Tenants.call/2` with `conn.assigns.auth_context`
@@ -42,6 +42,7 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
                 "display_name",
                 "status",
                 "login_disclosure_mode",
+                "tenant_type",
                 "inserted_at",
                 "updated_at"
               ])
@@ -703,7 +704,7 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
 
   # ── Seven-key shape on every tenant_map/1 route ─────────────────────────
 
-  describe "AC3 (platform-admin half): the tenant shape has exactly seven keys on every route" do
+  describe "AC3 (platform-admin half): the tenant shape has exactly eight keys on every route" do
     test "get, list, patch, deactivate and reactivate carry the key (value or null) alongside the six existing keys" do
       t = TenantFixture.provisioned_tenant!(slug_prefix: "req442-shape")
       set_mode!(t.tenant_id, "uniform_plus_email")
@@ -752,7 +753,7 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
       assert get.resp_body =~ ~s("login_disclosure_mode":null)
     end
 
-    test "POST /tenants returns seven keys with a null mode, and a login_disclosure_mode in the create body is ignored (not cast on create)" do
+    test "POST /tenants returns eight keys with a null mode, and a login_disclosure_mode in the create body is ignored (not cast on create)" do
       SandboxAutoMode.provision!(Letflow.Repo, fn ->
         slug = "req442-create-#{Ecto.UUID.generate()}"
 

@@ -95,6 +95,9 @@ defmodule Letflow.Api.PlatformMarkerNotWritableTest do
                  # REQ-497 PR 1b (0051 D12): the per-tenant scope-enforcement flag (off|shadow),
                  # not a platform marker; cast only by Tenant.scope_enforcement_changeset/2.
                  :scope_enforcement,
+                 # REQ-469: the tenant environment type (test|production); cast only by
+                 # create_changeset/3 and admin_patch_changeset/2, not a platform marker.
+                 :tenant_type,
                  :inserted_at,
                  :updated_at
                ])
@@ -147,7 +150,7 @@ defmodule Letflow.Api.PlatformMarkerNotWritableTest do
   end
 
   describe "(b) the PATCH /tenants/:slug allowlist" do
-    test "@patch_schema names exactly display_name and login_disclosure_mode" do
+    test "@patch_schema names exactly display_name, login_disclosure_mode and tenant_type" do
       source = File.read!("lib/letflow/routers/tenants.ex")
 
       [_before, after_marker] = String.split(source, "@patch_schema [", parts: 2)
@@ -155,7 +158,7 @@ defmodule Letflow.Api.PlatformMarkerNotWritableTest do
 
       names = ~r/name:\s*"([^"]+)"/ |> Regex.scan(block) |> Enum.map(fn [_all, name] -> name end)
 
-      assert Enum.sort(names) == ["display_name", "login_disclosure_mode"]
+      assert Enum.sort(names) == ["display_name", "login_disclosure_mode", "tenant_type"]
     end
   end
 
