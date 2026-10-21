@@ -242,7 +242,7 @@ defmodule Letflow.Engine.SwiftrouteEscalationTimerTest do
 
   # --- Driver Incident Report: each branch -> CEO -> notice ------------------------------------
 
-  test "starting the incident arms an escalation timer on each human task (P1D) plus the TIMER node" do
+  test "starting the incident arms an escalation timer on each human task (P1D)" do
     {schema, id} = incident!()
 
     pending =
@@ -252,11 +252,7 @@ defmodule Letflow.Engine.SwiftrouteEscalationTimerTest do
 
     by_node = Map.new(pending, &{&1.node_id, &1})
 
-    assert Map.keys(by_node) |> Enum.sort() == [
-             "finance-estimate",
-             "ops-assessment",
-             "ops-escalation-timer"
-           ]
+    assert Map.keys(by_node) |> Enum.sort() == ["finance-estimate", "ops-assessment"]
 
     assert by_node["ops-assessment"].timer_type == "escalation"
     assert by_node["finance-estimate"].timer_type == "escalation"
@@ -344,5 +340,16 @@ defmodule Letflow.Engine.SwiftrouteEscalationTimerTest do
     # an ordinary (non-escalated) completion of the other branch still works (e8 carries `true`)
     complete!(schema, task!(schema, id, "finance-estimate"), %{})
     refute "finance-estimate" in projection(schema, id).current_nodes
+  end
+
+  # GH #2933: the join must not wait on a third (timer) branch.
+  test "ops-assessment and finance-estimate completing reaches case-summary with no timer fired" do
+    {schema, id} = incident!()
+    complete!(schema, task!(schema, id, "ops-assessment"), %{})
+    complete!(schema, task!(schema, id, "finance-estimate"), %{})
+
+    assert "case-summary" in dispatched_nodes(schema, id)
+    advance_service_task!(schema, id, "case-summary", %{})
+    assert projection(schema, id).status == :completed
   end
 end

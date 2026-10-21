@@ -682,6 +682,9 @@ defmodule Letflow.Scheduler do
     * `fired_timer.repeat_total != nil` and the next occurrence count
       (`fired_timer.fired_count + 1`) has reached it -> `{:ok,
       :series_complete}`, no row inserted -- the series has reached its cap.
+    * The instance projection is not `:active`, or no pending task remains at
+      the timer's (instance, token, node) -> `{:ok, :not_rearmed_closed}`, no
+      row inserted (GH #2554). Tests also call this function directly.
     * Otherwise -> builds and inserts a new `"pending"` row (see
       `build_rearm_attrs/2`), returning `{:ok, :rearmed}` on success or
       `{:error, changeset}` on failure (which, per the caller's `with`
@@ -697,7 +700,9 @@ defmodule Letflow.Scheduler do
           fired_timer :: Timer.t(),
           fired_at :: DateTime.t(),
           tenant_schema :: String.t()
-        ) :: {:ok, :rearmed | :not_recurring | :series_complete} | {:error, Ecto.Changeset.t()}
+        ) ::
+          {:ok, :rearmed | :not_recurring | :series_complete | :not_rearmed_closed}
+          | {:error, Ecto.Changeset.t()}
   def maybe_rearm_timer(%Timer{repeat_expression: nil}, _fired_at, tenant_schema)
       when is_binary(tenant_schema) do
     {:ok, :not_recurring}
@@ -707,20 +712,48 @@ defmodule Letflow.Scheduler do
       when is_binary(tenant_schema) do
     new_fired_count = fired_timer.fired_count + 1
 
-    if fired_timer.repeat_total != nil and new_fired_count >= fired_timer.repeat_total do
-      {:ok, :series_complete}
-    else
-      attrs = build_rearm_attrs(fired_timer, new_fired_count)
+    cond do
+      fired_timer.repeat_total != nil and new_fired_count >= fired_timer.repeat_total ->
+        {:ok, :series_complete}
 
-      %Timer{}
-      |> Timer.rearm_changeset(attrs)
-      |> Repo.insert(prefix: tenant_schema)
-      |> case do
-        {:ok, _new_timer} -> {:ok, :rearmed}
-        {:error, changeset} -> {:error, changeset}
-      end
+      not rearm_target_open?(fired_timer, tenant_schema) ->
+        {:ok, :not_rearmed_closed}
+
+      true ->
+        attrs = build_rearm_attrs(fired_timer, new_fired_count)
+
+        %Timer{}
+        |> Timer.rearm_changeset(attrs)
+        |> Repo.insert(prefix: tenant_schema)
+        |> case do
+          {:ok, _new_timer} -> {:ok, :rearmed}
+          {:error, changeset} -> {:error, changeset}
+        end
     end
   end
+
+  # GH #2554: a recurring REMINDER successor is only armed while its instance is `:active` AND
+  # its task is still pending, checked here in the caller's transaction (the fire already holds
+  # the instance projection, so the reads are consistent with cancel / completion). Without the
+  # check a successor armed after cancel or completion would be an orphan that fires later into
+  # the dead-letter queue. Other timer types are unchanged. Prefix-scoped (INV-1).
+  defp rearm_target_open?(%Timer{timer_type: "reminder"} = timer, tenant_schema) do
+    instance_active? =
+      InstanceProjection
+      |> where([p], p.instance_id == ^timer.instance_id and p.status == :active)
+      |> Repo.exists?(prefix: tenant_schema)
+
+    instance_active? and
+      Letflow.Engine.Task
+      |> where(
+        [t],
+        t.instance_id == ^timer.instance_id and t.token_id == ^timer.token_id and
+          t.node_id == ^timer.node_id and t.status == :pending
+      )
+      |> Repo.exists?(prefix: tenant_schema)
+  end
+
+  defp rearm_target_open?(%Timer{}, _tenant_schema), do: true
 
   # REQ-188 design §1.3 -- mirrors build_arm_changeset/2's pattern exactly.
   defp build_rearm_attrs(%Timer{} = fired_timer, new_fired_count) do

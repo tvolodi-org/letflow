@@ -527,10 +527,10 @@ defmodule Letflow.Simulation.Req206SwiftrouteTest do
     # because `POST /instances/:id/advance-timer` did not exist
     # (handoffs/WF03-ISS0389-20260905/step-03-elixir-dev.json). The route now
     # ships, and `process_shipment_dispatch.yaml` gained a real
-    # `ops-escalation-timer` TIMER node (forked in parallel with
-    # `ops-assessment`/`finance-estimate`, feeding `parallel-join`) so this
-    # scenario has an actual, single pending timer to force-fire -- design
-    # doc AC5/AC10 (`lib/letflow/design/iss0389-advance-timer-endpoint.md`).
+    # `ops-escalation-timer` TIMER node (removed again in GH #2933: it held the
+    # `parallel-join` open). The scenario now force-fires `ops-assessment`'s own
+    # escalation timer (ISS-1007) -- design doc AC5/AC10
+    # (`lib/letflow/design/iss0389-advance-timer-endpoint.md`).
     #
     # Also fixes a pre-existing bug in this test's own `definitions` pattern:
     # it destructured `%{approval: definition}` (the unrelated
@@ -575,8 +575,8 @@ defmodule Letflow.Simulation.Req206SwiftrouteTest do
       assert step2.captured["timer_status"] == "fired",
              "expected timer_status \"fired\", got: #{inspect(step2.captured)}"
 
-      assert step2.captured["node_id"] == "ops-escalation-timer",
-             "expected the fired timer's node_id to be the ops-escalation-timer TIMER node, got: #{inspect(step2.captured)}"
+      assert step2.captured["node_id"] == "ops-assessment",
+             "expected the fired timer's node_id to be ops-assessment, got: #{inspect(step2.captured)}"
 
       assert step2.captured["instance_id"] == step1.detail["instance_id"]
 
@@ -598,10 +598,10 @@ defmodule Letflow.Simulation.Req206SwiftrouteTest do
       current_nodes =
         Repo.get!(Letflow.EventStore.InstanceProjection, instance_id, prefix: schema_name).current_nodes
 
-      refute "ops-escalation-timer" in current_nodes,
-             "expected the fired timer's token to have moved off ops-escalation-timer, current_nodes: #{inspect(current_nodes)}"
+      refute "ops-assessment" in current_nodes,
+             "expected the fired timer's token to have moved off ops-assessment, current_nodes: #{inspect(current_nodes)}"
 
-      assert "ops-assessment" in current_nodes
+      assert "escalate-ops-assessment-to-ceo" in current_nodes
       assert "finance-estimate" in current_nodes
 
       # Both expected_outcomes: instance ACTIVE (1 before advance-timer, 1 after)

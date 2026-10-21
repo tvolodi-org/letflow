@@ -9,12 +9,12 @@
 #
 # Step 1: start instance (real api)
 # Step 2: advance timer (real api -- ISS-0389 shipped POST .../advance-timer;
-#   process_shipment_dispatch.yaml's ops-escalation-timer TIMER node, added by
-#   ISS-0389, gives this step a real, single pending timer to force-fire)
+#   ops-assessment's own escalation timer (ISS-1007) is the real pending timer to force-fire;
+#   the ISS-0389 ops-escalation-timer TIMER node was removed in GH #2933)
 # Step 3: verify instance still ACTIVE (real api -- the ops-assessment/
-#   finance-estimate HUMAN_TASKs are still outstanding, so the parallel-join
-#   this timer feeds cannot fire yet; the timer's own token has moved off the
-#   TIMER node regardless -- asserted directly in the test via GET's tokens)
+#   finance-estimate branches are still outstanding, so the parallel-join cannot fire yet; the
+#   ops-assessment token has escalated to escalate-ops-assessment-to-ceo -- asserted directly in
+#   the test)
 id: swiftroute-shipment-ops-timeout-escalation
 company_id: swiftroute
 process_id: DEFINITION_NAME
@@ -40,14 +40,14 @@ steps:
     produces: instance
     actor: actor-swiftroute-lena
 
-  # Step 2 — real api: force-fire the pending ops-escalation-timer (ISS-0389). Since ISS-1007
-  # (D-ESC) ops-assessment and finance-estimate each arm their own escalation timer too, so the
-  # instance has three pending timers and the route needs a timer_id; the Runner resolves
+  # Step 2 — real api: force-fire ops-assessment's escalation timer (ISS-0389). Since ISS-1007
+  # (D-ESC) ops-assessment and finance-estimate each arm an escalation timer, so the
+  # instance has two pending timers and the route needs a timer_id; the Runner resolves
   # `timer_node_id` to it.
   - via: api
     action: "POST /api/v1/instances/{{produces.instance.instance_id}}/advance-timer"
     params:
-      timer_node_id: ops-escalation-timer
+      timer_node_id: ops-assessment
     produces: advance_timer_result
     actor: actor-swiftroute-marco
 
