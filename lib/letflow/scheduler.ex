@@ -681,6 +681,9 @@ defmodule Letflow.Scheduler do
     * `fired_timer.repeat_total != nil` and the next occurrence count
       (`fired_timer.fired_count + 1`) has reached it -> `{:ok,
       :series_complete}`, no row inserted -- the series has reached its cap.
+    * The instance projection is not `:active`, or no pending task remains at
+      the timer's (instance, token, node) -> `{:ok, :not_rearmed_closed}`, no
+      row inserted (GH #2554). Tests also call this function directly.
     * Otherwise -> builds and inserts a new `"pending"` row (see
       `build_rearm_attrs/2`), returning `{:ok, :rearmed}` on success or
       `{:error, changeset}` on failure (which, per the caller's `with`
