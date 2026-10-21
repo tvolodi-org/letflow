@@ -922,41 +922,55 @@ defmodule Letflow.Routers.Identity do
         # same value as the audit actor). Fixed bodies that name no role or principal
         # (INV-2); the domain atoms tell the cases apart.
         with_cast_id(conn, raw_user_id, fn user_id ->
-          case Identity.mint_token(
-                 conn.assigns.auth_context.user_id,
-                 user_id,
-                 %{roles: roles, expires_at: parsed_expires_at},
-                 audit_opts(conn, opts)
-               ) do
-            {:ok, %{token: token, plaintext: plaintext}} ->
-              Response.created(conn, token_created_map(token, plaintext))
-
-            {:error, :issuer_not_authorized} ->
-              forbid_insufficient(conn)
-
-            {:error, :user_not_found} ->
-              Response.not_found(conn)
-
-            {:error, :user_inactive} ->
-              Response.unprocessable(conn, "user_inactive")
-
-            {:error, reason}
-            when reason in [:invalid_role_set, :roles_not_held, :platform_admin_token_not_self] ->
-              Response.unprocessable(conn, "roles_invalid")
-
-            {:error, :platform_admin_token_expiry} ->
-              Response.unprocessable(conn, "platform_admin_token_expiry_invalid")
-
-            {:error, :expires_at_in_past} ->
-              Response.unprocessable(conn, "expires_at_in_past")
-
-            {:error, %Ecto.Changeset{}} ->
-              Response.unprocessable(conn, "validation failed")
-
-            {:error, {:transaction_failed, _exception}} ->
-              Response.internal_error(conn)
-          end
+          render_mint_result(
+            conn,
+            Identity.mint_token(
+              conn.assigns.auth_context.user_id,
+              user_id,
+              %{roles: roles, expires_at: parsed_expires_at},
+              audit_opts(conn, opts)
+            )
+          )
         end)
+    end
+  end
+
+  # GH 2573: one clause per return shape of Identity.mint_token/4 (its mint_error type); no
+  # catch-all. `@doc false` public only so the audit shape (no HTTP trigger) is testable.
+  @doc false
+  @spec render_mint_result(Plug.Conn.t(), term()) :: Plug.Conn.t()
+  def render_mint_result(conn, result) do
+    case result do
+      {:ok, %{token: token, plaintext: plaintext}} ->
+        Response.created(conn, token_created_map(token, plaintext))
+
+      {:error, :issuer_not_authorized} ->
+        forbid_insufficient(conn)
+
+      {:error, :user_not_found} ->
+        Response.not_found(conn)
+
+      {:error, :user_inactive} ->
+        Response.unprocessable(conn, "user_inactive")
+
+      {:error, reason}
+      when reason in [:invalid_role_set, :roles_not_held, :platform_admin_token_not_self] ->
+        Response.unprocessable(conn, "roles_invalid")
+
+      {:error, :platform_admin_token_expiry} ->
+        Response.unprocessable(conn, "platform_admin_token_expiry_invalid")
+
+      {:error, :expires_at_in_past} ->
+        Response.unprocessable(conn, "expires_at_in_past")
+
+      {:error, %Ecto.Changeset{}} ->
+        Response.unprocessable(conn, "validation failed")
+
+      {:error, {:audit_failed, _reason}} ->
+        Response.internal_error(conn)
+
+      {:error, {:transaction_failed, _exception}} ->
+        Response.internal_error(conn)
     end
   end
 
@@ -992,15 +1006,26 @@ defmodule Letflow.Routers.Identity do
       if not platform_scope?(conn) and Identity.token_carries_platform_admin?(id, opts) do
         forbid_insufficient(conn)
       else
-        case Identity.revoke_token(id, audit_opts(conn, opts)) do
-          {:ok, token} -> Response.ok(conn, revoked_token_map(token))
-          {:error, :not_found} -> Response.not_found(conn)
-          # REQ-497 PR 1b N1 (Option A): the owner is the last counted admin through tokens.
-          {:error, :last_tenant_wide_admin} -> last_admin_conflict(conn)
-          {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
-        end
+        render_revoke_result(conn, Identity.revoke_token(id, audit_opts(conn, opts)))
       end
     end)
+  end
+
+  # GH 2573: one clause per return shape of Identity.revoke_token/2; no catch-all, so a new
+  # shape is a compile-visible gap in the spec, not a CaseClauseError. `@doc false` public
+  # only so the changeset shape (no HTTP trigger) is testable.
+  @doc false
+  @spec render_revoke_result(Plug.Conn.t(), term()) :: Plug.Conn.t()
+  def render_revoke_result(conn, result) do
+    case result do
+      {:ok, token} -> Response.ok(conn, revoked_token_map(token))
+      {:error, :not_found} -> Response.not_found(conn)
+      # REQ-497 PR 1b N1 (Option A): the owner is the last counted admin through tokens.
+      {:error, :last_tenant_wide_admin} -> last_admin_conflict(conn)
+      {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
+      {:error, {:audit_failed, _reason}} -> Response.internal_error(conn)
+      {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
+    end
   end
 
   # ── GET /pending-admin-grants (ISS-1030 PR 2, design 5.3) ────────────────
