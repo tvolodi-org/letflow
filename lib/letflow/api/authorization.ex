@@ -14,8 +14,8 @@ defmodule Letflow.Api.Authorization do
   allowed a permission iff `permission_scope/1` of it is `:tenant`; never a
   platform-scope permission, never `:Unknown` (see the `TENANT_ADMIN` clause
   of `core_role_allows?/2`). `TENANT_AUDITOR` is read-only: a closed explicit
-  list of 13 core atoms plus the role-agnostic `:MyModulesRead` (14 effective
-  grants, decision 0046 D6). `:PromotionsRead` is granted since ISS-1109 (the
+  list of 13 core atoms plus the role-agnostic `:MyModulesRead` and
+  `:MyAccessRead` (15 effective grants, decision 0046 D6). `:PromotionsRead` is granted since ISS-1109 (the
   stored-tenant check of Q-1011 / ISS-1029 has merged), and the link-issue
   route is denied through `:AttachmentLinksIssue`.
 
@@ -270,6 +270,19 @@ defmodule Letflow.Api.Authorization do
   `:MyModulesRead` — this is intentional, not an oversight (AC6's grep
   contract checks exactly this).
 
+  ## `:MyAccessRead` (REQ-449) — role-agnostic, granted to every role including CANDIDATE
+
+  One new core permission for `Letflow.Routers.Me`'s `GET /me/access`
+  route (the caller's own effective roles and permissions). Granted exactly
+  the way `:MyModulesRead` above is: a public wildcard-role `role_allows?/2`
+  clause with an unconditional `true` body, placed second (right after the
+  `:MyModulesRead` one, which must stay first for REQ-403 AC6's grep
+  contract), plus the matching `role_allows_without_module_grants?/2` clause.
+  No per-role list in `core_role_allows?/2` names it. `evaluate_access/2` also
+  allows the key unconditionally (like `:MetricsRead`), so a caller whose
+  effective role list is empty (no groups, or only a dropped `PLATFORM_ADMIN`)
+  still gets its own, empty, answer instead of a 403.
+
   ## Catalog-sourced permissions and role grants (REQ-401, D4)
 
   `permissions/0` and `role_allows?/2` are both widened by REQ-401 to also
@@ -328,6 +341,7 @@ defmodule Letflow.Api.Authorization do
           | :MembershipsRead
           | :ModulesManage
           | :MyModulesRead
+          | :MyAccessRead
           | :PlatformServicesManage
           | :TenantSettingsManage
           | :PromotionsRead
@@ -389,6 +403,7 @@ defmodule Letflow.Api.Authorization do
           | :MembershipsRead
           | :ModulesManage
           | :MyModulesRead
+          | :MyAccessRead
           | :ScopeNodePathsConsistencyRead
           | :ScopeEnforcementRead
           | :ScopeEnforcementManage
@@ -461,6 +476,7 @@ defmodule Letflow.Api.Authorization do
     :MembershipsRead,
     :ModulesManage,
     :MyModulesRead,
+    :MyAccessRead,
     :EntitiesRestrictionsManage,
     # ISS-0993 (design iss0993-platform-scope-separation.md section 5)
     :PlatformServicesManage,
@@ -495,7 +511,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All forty-three core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All forty-four core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -506,7 +522,7 @@ defmodule Letflow.Api.Authorization do
   `:EntitiesRecordsImport`), plus REQ-317's `:EntitiesAttachmentsManage`/
   `:EntitiesAttachmentsRead`, plus REQ-352's `:PublicReadHandlesIssue`, plus
   REQ-366's `:HelpRead`, plus REQ-384's `:MembershipsRead`, plus REQ-401's
-  `:ModulesManage`, plus REQ-403's `:MyModulesRead`, plus ISS-0935's
+  `:ModulesManage`, plus REQ-403's `:MyModulesRead`, plus REQ-449's `:MyAccessRead`, plus ISS-0935's
   `:EntitiesRestrictionsManage` (the new `POST /entities/restrictions/import`
   bulk write path for `entity_field_restrictions`/`user_entity_grants`/
   `entity_type_restrictions`/`user_entity_type_grants` — a distinct
@@ -1189,6 +1205,10 @@ defmodule Letflow.Api.Authorization do
   # and lib/letflow/design/req403-module-install-route.md §5.3.
   def endpoint_policy_key("GET", "/me/modules"), do: :MyModulesRead
 
+  # REQ-449 — Letflow.Routers.Me's GET /me/access (full path
+  # /api/v1/me/access). See this module's moduledoc "MyAccessRead" section.
+  def endpoint_policy_key("GET", "/me/access"), do: :MyAccessRead
+
   # REQ-401 §4 — the Catalog-module route fallback. Every module route is
   # mounted at `/modules/<id>/<rest>` (relative to `/api/v1`, same convention
   # every clause above uses). Resolves to the permission atom the module's
@@ -1254,6 +1274,13 @@ defmodule Letflow.Api.Authorization do
           else: %AccessDecision{kind: :Deny403, task_scope: nil}
 
       endpoint == :MetricsRead ->
+        %AccessDecision{kind: :Allow, task_scope: :all}
+
+      # REQ-449: GET /me/access answers every authenticated caller, one whose effective role
+      # list is empty included (has_permission?/2 is false for no roles, so the role-agnostic
+      # grant alone would 403 it): the body is the caller's own roles and permissions, which
+      # for an empty list is the role-agnostic ones.
+      endpoint == :MyAccessRead ->
         %AccessDecision{kind: :Allow, task_scope: :all}
 
       true ->
@@ -1406,6 +1433,7 @@ defmodule Letflow.Api.Authorization do
   # GH 2534 PR 7b-2b (decision 0053 D6): confirm a self-published version.
   def required_permission(:ScriptRulesConfirm), do: :ScriptsPublish
   def required_permission(:MyModulesRead), do: :MyModulesRead
+  def required_permission(:MyAccessRead), do: :MyAccessRead
 
   # REQ-496 (design D11): same holders as the tree-write permission (0050 D7);
   # tenant scope, so no new permission atom.
@@ -1517,6 +1545,9 @@ defmodule Letflow.Api.Authorization do
   # contract).
   def role_allows?(_role, :MyModulesRead), do: true
 
+  # REQ-449 — same shape, second clause (the first one above must stay first).
+  def role_allows?(_role, :MyAccessRead), do: true
+
   def role_allows?(role, permission) do
     core_role_allows?(role, permission) or permission in Letflow.Modules.Catalog.role_grants(role)
   end
@@ -1524,6 +1555,7 @@ defmodule Letflow.Api.Authorization do
   @doc "role_allows?/2 minus the Catalog.role_grants/1 fallback: the :MyModulesRead clause, then core_role_allows?/2. For the permission matrix's `via` column only (GH #2586, `Letflow.Api.PermissionMatrix`); never an access decision (it can only under-grant)."
   @spec role_allows_without_module_grants?(role(), permission() | atom()) :: boolean()
   def role_allows_without_module_grants?(_role, :MyModulesRead), do: true
+  def role_allows_without_module_grants?(_role, :MyAccessRead), do: true
 
   def role_allows_without_module_grants?(role, permission),
     do: core_role_allows?(role, permission)

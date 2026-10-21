@@ -101,7 +101,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
              |> Enum.filter(&(&1.class == :self_service))
              |> Enum.map(&"#{&1.method} #{&1.path}")
              |> Enum.sort() ==
-               ["GET /help/resolved", "GET /me/memberships", "GET /me/modules"]
+               ["GET /help/resolved", "GET /me/access", "GET /me/memberships", "GET /me/modules"]
     end
   end
 
@@ -300,6 +300,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"GET", "/:id/attachments/:attachment_id/link-content", :tenant_wide},
                  {"GET", "/memberships", :self_service},
                  {"GET", "/modules", :self_service},
+                 {"GET", "/access", :self_service},
                  {"GET", "/resolved", :self_service},
                  {"POST", "/:id/attachments/:attachment_id/link", :tenant_wide},
                  {"POST", "/query", :filter},

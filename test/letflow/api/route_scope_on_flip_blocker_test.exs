@@ -11,8 +11,8 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
       snapshot holds no `/me` or `/help` line;
     * T-RW2 no `@self_service_routes` entry is `:pending_sec_ruling`, and every `:tenant_wide`
       entry carries a binary ruling id;
-    * T-RW3 the three ruled routes are `:self_service` with exactly the rulings `0051-A7`,
-      `SEC-518-R2-modules`, `SEC-518-R2-help`;
+    * T-RW3 the four ruled routes are `:self_service` with exactly the rulings `0051-A7`,
+      `SEC-518-R2-modules`, `SEC-REQ-449-access`, `SEC-518-R2-help`;
     * T-RW4 `RouteScope.audit_routes/3` returns `[]` on the real table.
 
   Each guard is proven live: a seeded default-sourced `/me` route, a seeded pending ruling and a
@@ -30,6 +30,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
   @expected_rulings %{
     "GET /me/memberships" => "0051-A7",
     "GET /me/modules" => "SEC-518-R2-modules",
+    "GET /me/access" => "SEC-REQ-449-access",
     "GET /help/resolved" => "SEC-518-R2-help"
   }
 
@@ -57,7 +58,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     } do
       mine = Enum.filter(routes, &self_service_path?(&1.path))
 
-      # a walk over nothing would pass: the three ruled routes are really mounted
+      # a walk over nothing would pass: the four ruled routes are really mounted
       assert length(mine) >= 3
 
       assert mine |> Enum.map(&"#{&1.method} #{&1.path}") |> Enum.sort() ==
@@ -99,7 +100,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     test "the committed list has no :pending_sec_ruling entry and no blank ruling" do
       list = RouteScope.self_service_routes()
 
-      assert length(list) == 3
+      assert length(list) == 4
       assert pending(list) == []
       assert unruled(list) == []
       assert Enum.all?(list, &is_binary(&1.ruling))
@@ -127,7 +128,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     end
   end
 
-  describe "T-RW3 the three routes and their rulings" do
+  describe "T-RW3 the four routes and their rulings" do
     test "each is :self_service with exactly its ruling id", %{routes: routes} do
       list = RouteScope.self_service_routes()
 

@@ -526,3 +526,10 @@ same 404 as for a nonexistent id on `GET /promotions/:id` and
 `GET /promotions/:id/context`. The AC5 row of
 `promotion_context_entries_scope_test.exs` moved to the allowed side. The other
 deviations above stand.
+
+### Addendum: `:MyAccessRead` (REQ-449 / GH #2237)
+
+REQ-449 adds `GET /me/access` and a second role-agnostic grant, `:MyAccessRead`, held by every
+role exactly as `:MyModulesRead` is. `TENANT_AUDITOR` therefore holds 15 effective atoms (13 core
+atoms plus the 2 role-agnostic ones, `:MyModulesRead` and `:MyAccessRead`). D6's role-specific
+list is unchanged; the "14" above counts only `:MyModulesRead` as role-agnostic.
