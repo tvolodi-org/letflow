@@ -19,10 +19,10 @@ defmodule Letflow.Routers.EntitiesScopeProductionShapeTest do
     * a database assertion after every refused call: no row, event, attachment or artifact was
       written, no stored value changed, no attachment removed.
 
-  Record attachments of a MANAGED type are outside the managed-type lock by design (#2582): the
-  design's T-W21 sentence lists a 403 for them too, but the as-built attachment routes have no
-  managed check; the observed behavior (a record in scope is served, an out-of-scope one is the
-  nonexistent answer) is pinned below and reported.
+  Upload and delete on a record attachment of a MANAGED declared type answer the constant 403
+  `entity_type_managed` for this scoped caller (GH #2582, `RecordAccess.attachment_write/3`),
+  as design T-W21 says, and write or remove nothing. List and content GET are unchanged: a
+  record in scope is served, an out-of-scope one is the nonexistent answer.
 
   `async: false`: a dedicated provisioned OIDC tenant, committed writes, VM-global config
   (the allowlist is restored in `on_exit`).
@@ -225,8 +225,19 @@ defmodule Letflow.Routers.EntitiesScopeProductionShapeTest do
       assert W.counts(fx) == before
     end
 
-    test "managed type attachments are outside the managed lock (#2582): served in scope, hidden out of scope",
+    test "managed type attachments (#2582): upload and delete are the 403 entity_type_managed, list and content GET are served in scope and hidden out of scope",
          %{fx: fx, managed_a: a, managed_b: b, att_managed_a: att_a, att_managed_b: att_b} do
+      before = W.counts(fx)
+
+      for {record, att} <- [{a, att_a}, {b, att_b}],
+          {label, conn} <- attachment_calls(fx, @managed, record.record_id, att.id),
+          label in ["attach create", "attach delete"] do
+        assert conn.status == 403, "#{label}: #{conn.resp_body}"
+        assert conn.resp_body =~ "entity_type_managed", label
+      end
+
+      assert W.counts(fx) == before
+
       assert [%{"id" => id}] =
                W.request(fx, :get, W.attachments_path(@managed, a.record_id), nil)
                |> W.json()
@@ -238,7 +249,8 @@ defmodule Letflow.Routers.EntitiesScopeProductionShapeTest do
       absent = attachment_calls(fx, @managed, Ecto.UUID.generate(), Ecto.UUID.generate())
       real = attachment_calls(fx, @managed, b.record_id, att_b.id)
 
-      for {{label, conn}, {label, expected}} <- Enum.zip(real, absent) do
+      for {{label, conn}, {label, expected}} <- Enum.zip(real, absent),
+          label in ["attach list", "attach content"] do
         assert W.norm(conn) == W.norm(expected), label
       end
     end
