@@ -1,0 +1,104 @@
+# Authored by BA-MERIDIAN (GH #2330, process-audit PA-MERIDIAN-004, checklist D2).
+# Written against test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json on main.
+# Covers the human task remediation-subprocess (role-compliance-officer) as a STARTED path;
+# regulatory-compliance-review-cro-signoff.yaml only expects it NOT to be started.
+# evidence-collection -> risk-evaluation -> severity-routing (critical) -> remediation-subprocess ->
+# post-remediation-check (resolved) -> findings-sign-off -> archive-review.
+---
+id: meridian-regulatory-compliance-review-remediation
+company_id: meridian
+process_id: proc-meridian-regulatory-compliance-review
+title: A critical finding starts the remediation task, which the compliance officer resolves, and the CRO then signs the review off
+version: "1.0"
+tags: [happy_path, regulatory]
+
+description: >
+  A periodic compliance review is run. The risk manager rates the highest finding critical, so the
+  review does not go straight to the CRO: the remediation task is created for the compliance
+  officer. She records the remediation as resolved, and only then does the CRO sign the findings
+  off. The review is archived and closed and no BaFin notice is filed.
+
+actors:
+  compliance_officer: actor-meridian-claudia
+  risk_manager: actor-meridian-miriam
+  cro: actor-meridian-thomas
+
+preconditions:
+  - description: Regulatory compliance review process definition is active
+    check: process_definition_active
+  - description: No pending compliance review instances for Meridian
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: compliance_officer
+    action: Initiates a periodic compliance review for the 2026 Q4 loan portfolio and completes the evidence collection
+    via: api
+    input:
+      review_id: sim-meridian-review-004
+      review_type: periodic
+      portfolio_ref: "MER-PORTFOLIO-2026-Q4"
+      review_period: "2026-Q4"
+      initiator_actor_id: actor-meridian-claudia
+      documents_uploaded: true
+    produces:
+      instance_id: "the process instance ID for this compliance review"
+
+  - step: 2
+    actor: risk_manager
+    action: Completes the risk evaluation and rates the highest finding critical
+    via: api
+    input:
+      highest_severity: critical
+      risk_notes: "Systemic gaps in income verification."
+
+  - step: 3
+    actor: compliance_officer
+    action: Completes the remediation task and records that the critical findings were remediated
+    via: api
+    input:
+      remediation_status: resolved
+
+  - step: 4
+    actor: cro
+    action: Reviews the remediated findings and signs them off
+    via: api
+    input:
+      cro_decision: sign_off
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      A critical finding creates the remediation task for the compliance officer and does not go
+      straight to the CRO
+    verification:
+      method: task_assigned
+      detail: >
+        task 'remediation-subprocess' assigned to role-compliance-officer (actor-meridian-claudia)
+        after risk-evaluation; 'findings-sign-off' not yet created
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Critical findings reach CRO sign-off without anyone remediating them.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      Only after remediation is resolved does the CRO get the sign-off task; the review is
+      archived and closed without a BaFin notice
+    verification:
+      method: instance_state
+      detail: >
+        task 'findings-sign-off' assigned to role-cro (actor-meridian-thomas) after
+        remediation_status == 'resolved'; instance status == COMPLETED, end node is 'end-closed',
+        archive-review executed, remediation-unresolved-escalation and reopen-review not executed
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A remediated review is not closed, or is reported to the regulator although the findings
+        were resolved.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel instance sim-meridian-review-004 if not already completed
