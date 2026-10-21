@@ -28,7 +28,7 @@ defmodule Letflow.Scripts.PersonaActorSeedDriftTest do
         "test/fixtures/qa/vortex_supplier_quality_deviation_process_definition.json",
         "test/fixtures/qa/vortex_8d_corrective_action_definition.json"
       ],
-      count: 5
+      count: 6
     }
   }
 
