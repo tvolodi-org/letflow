@@ -2,6 +2,12 @@
 # Filename kept as process_shipment_dispatch.yaml to avoid breaking test references.
 # Graph translated from R-Co's YAML node/edge format to Letflow's native graph schema.
 #
+# GH #2933 (v1.1): the `ops-escalation-timer` TIMER node and its edges e12/e13 described below were
+# REMOVED. It fed parallel-join, so the AND-join waited for the timer (P1D) even after ops-assessment
+# and finance-estimate completed; ops-assessment has its own escalation timer (ISS-1007), so the
+# branch was redundant. scenarios/shipment-ops-timeout-escalation.yaml now force-fires
+# ops-assessment's escalation timer instead. The history below is kept as the record.
+#
 # ISS-0389 (2026-09-05, TEST-DESIGNER): added the `ops-escalation-timer` TIMER
 # node below, forked in parallel with `ops-assessment`. The pre-existing
 # `timeout-ops-assessment` edge (a comment-only "on_timeout" annotation on a
@@ -47,7 +53,7 @@
 # (seed: scripts/seed_swiftroute_incident_definition.sh; ISS-1022 / Q-1004, GH #2294); the two are kept in
 # step by test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs.
 name: Driver Incident Report
-version: "1.0"
+version: "1.1"
 description: >
   Driver submits a field incident (accident, cargo damage, theft).
   Ops assessment and finance estimate run in parallel. Exercises:
@@ -58,7 +64,7 @@ description: >
   marked assessed); finance-estimate (role-accountant, P1D) -> escalate-finance-estimate-to-ceo
   (role-ceo, P1D) -> stalled: finance-auto-close. Deviations (documented, no waivers): P1D rather
   than the operational PT4H default because the incident scenario's own SLA for both tasks is 24
-  hours and the pre-existing ops-escalation-timer is P1D. The CEO levels are the top of the chain
+  hours and the former ops-escalation-timer was P1D. The CEO levels are the top of the chain
   (E4): their escalation_role repeats their own role (nominal CHK-21 co-required attribute only)
   and their timeout edge goes straight to the fail-closed notice. The branch is joined by
   parallel-join (AND), so the stalled branch rejoins the flow through its notice node instead of
@@ -91,10 +97,6 @@ graph:
         description: "top of chain: escalation_role is nominal; stalled = fail closed"
         escalation_timer_duration: "P1D"
         escalation_role: role-ceo
-    - id: ops-escalation-timer
-      node_type: TIMER
-      attributes:
-        duration_iso8601: "P1D"
     - id: finance-estimate
       node_type: HUMAN_TASK
       attributes:
@@ -156,15 +158,6 @@ graph:
     - id: e5
       source: parallel-fork
       target: finance-estimate
-    # ISS-0389: parallel-fork's 3rd branch -- a real, armed TIMER node
-    # feeding straight into parallel-join, forcing this AND-join to wait on
-    # it exactly like the other two branches.
-    - id: e12
-      source: parallel-fork
-      target: ops-escalation-timer
-    - id: e13
-      source: ops-escalation-timer
-      target: parallel-join
     - id: e6
       source: ops-assessment
       target: parallel-join
