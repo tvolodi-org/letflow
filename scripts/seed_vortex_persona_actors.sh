@@ -3,7 +3,7 @@
 #
 # Provisions the letflow-side (Part B) of the Vortex persona actors (ISS-0931):
 #   - Creates process-routing role groups + tenant_role bindings for every role
-#     referenced by the Vortex QA definitions (5 roles)
+#     referenced by the Vortex QA definitions (6 roles)
 #   - Adds each persona actor to TASK_WORKER (implicit) and to its role groups
 #
 # Prerequisites:
@@ -20,7 +20,7 @@
 #
 # Assumption: the persona -> role mapping comes from the scenario `actors:` blocks
 # (test/fixtures/uat/scenarios/vortex/*.yaml) and
-# test/fixtures/simulation/vortex/org_structure.yaml; dirk -> role-ceo is inferred
+# test/fixtures/simulation/vortex/org_structure.yaml; greta -> role-finance-director (REQ-471, name proposed, BA-VORTEX confirms) and dirk -> role-ceo are inferred
 # from org structure, not stated verbatim. Role groups are the authoritative part;
 # a BA may amend the PERSONAS table only.
 # TASK_WORKER is implicit for every persona and never listed below.
@@ -38,12 +38,14 @@ ROLES=(
   "role-quality-manager"
   "role-ceo"
   "role-procurement-manager"
+  "role-finance-director"
 )
 PERSONAS=(
   "actor-vortex-sabine|role-production-manager"
   "actor-vortex-stefan|role-controller"
   "actor-vortex-karl|role-quality-manager"
   "actor-vortex-dirk|role-ceo"
+  "actor-vortex-greta|role-finance-director"
   "actor-vortex-anna|"
   "actor-vortex-nina|"
   "actor-vortex-felix|role-procurement-manager"

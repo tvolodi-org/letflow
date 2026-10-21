@@ -1,7 +1,7 @@
 # Ported from R-Co tests/simulation/companies/vortex/process_production_order_release.yaml (ISS-0388).
 # Filename kept as process_quality_check.yaml to avoid breaking test references.
 name: Production Order Release
-version: "1.0"
+version: "1.8"
 description: >
   Multi-level release gate for a new production order. Planner creates the order;
   Production Manager reviews; if value > 10000 Financial Controller signs off.
@@ -9,8 +9,14 @@ description: >
   conditional branch.
   Escalation follows D-ESC: timer -> higher role -> fail closed (ISS-1002 / Q-984):
   capacity-review -> escalate-to-ceo -> auto-reject-order; budget-approval ->
-  escalate-budget-approval-to-ceo -> auto-reject-order. A stalled level repeats
+  escalate-budget-approval-to-finance-director -> auto-reject-order. A stalled level repeats
   its own role as escalation_role (co-required attribute only; no third level).
+  Budget escalation to a finance director (v1.8, REQ-471 / GH #2479):
+  escalate-budget-approval-to-ceo is renamed escalate-budget-approval-to-finance-director
+  and routed to role-finance-director, so it can name escalate-to-ceo, capacity-review
+  and budget-approval in distinct_from (the CEO who decided escalate-to-ceo can no
+  longer decide the budget escalation). budget-approval's escalation_role follows its
+  timeout target.
 graph:
   nodes:
     - id: start
@@ -35,14 +41,16 @@ graph:
       attributes:
         role: role-controller
         escalation_timer_duration: P2D
-        escalation_role: role-ceo
-    - id: escalate-budget-approval-to-ceo
+        escalation_role: role-finance-director
+        distinct_from: [capacity-review, escalate-to-ceo]
+    - id: escalate-budget-approval-to-finance-director
       node_type: HUMAN_TASK
       attributes:
-        role: role-ceo
+        role: role-finance-director
         description: "top of chain: escalation_role is nominal; stalled = fail closed"
         escalation_timer_duration: P2D
-        escalation_role: role-ceo
+        escalation_role: role-finance-director
+        distinct_from: [capacity-review, escalate-to-ceo, budget-approval]
     - id: assign-line
       node_type: SERVICE_TASK
       attributes:
@@ -118,17 +126,17 @@ graph:
     # on_timeout for budget-approval (also fallback)
     - id: timeout-budget-approval
       source: budget-approval
-      target: escalate-budget-approval-to-ceo
+      target: escalate-budget-approval-to-finance-director
     - id: e7-escalated
-      source: escalate-budget-approval-to-ceo
+      source: escalate-budget-approval-to-finance-director
       target: assign-line
       condition: "variables.budget_decision == 'approve'"
     - id: e8-escalated
-      source: escalate-budget-approval-to-ceo
+      source: escalate-budget-approval-to-finance-director
       target: auto-reject-order
       condition: "variables.budget_decision == 'reject'"
-    - id: timeout-escalate-budget-approval-to-ceo
-      source: escalate-budget-approval-to-ceo
+    - id: timeout-escalate-budget-approval-to-finance-director
+      source: escalate-budget-approval-to-finance-director
       target: auto-reject-order
     - id: e9
       source: assign-line

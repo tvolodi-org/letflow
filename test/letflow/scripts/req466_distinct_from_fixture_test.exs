@@ -3,7 +3,7 @@ defmodule Letflow.Scripts.Req466DistinctFromFixtureTest do
   REQ-466 -- the two shipped QA fixtures (vortex "Production Order Release" and swiftroute
   "Shipment Approval") carry `distinct_from` on exactly the approval nodes listed in the
   requirement's table, and nothing else. Pins the node set and the listed ids, the version bumps
-  (1.6 -> 1.7 for both) and that each description says why, and runs the REQ-464 checks over both
+  (1.6 -> 1.7 for both; vortex 1.7 -> 1.8 for REQ-471) and that each description says why, and runs the REQ-464 checks over both
   definitions: zero violations and zero same-role candidate pairs.
 
   Pure: no DB, no HTTP. The checks run through the same Graph, SemanticValidation and RoleBinding
@@ -25,12 +25,16 @@ defmodule Letflow.Scripts.Req466DistinctFromFixtureTest do
 
   # node id => the listed distinct_from ids, exactly as the requirement's table records them.
   # capacity-review, escalate-to-ceo and ops-review are first-level nodes and carry none.
-  # escalate-budget-approval-to-ceo does not list escalate-to-ceo: both route to role-ceo and the
-  # shipped-definition guard forbids same-role pairs (the REQ-466 deviation).
+  # escalate-budget-approval-to-finance-director lists all three upstream nodes since v1.8 (REQ-471):
+  # it routes to role-finance-director, so the shipped-definition guard's same-role rule no longer bites.
   @expected %{
     @vortex => %{
       "budget-approval" => ["capacity-review", "escalate-to-ceo"],
-      "escalate-budget-approval-to-ceo" => ["capacity-review"]
+      "escalate-budget-approval-to-finance-director" => [
+        "capacity-review",
+        "escalate-to-ceo",
+        "budget-approval"
+      ]
     },
     @swiftroute => %{"ceo-approval" => ["ops-review"]}
   }
@@ -66,9 +70,12 @@ defmodule Letflow.Scripts.Req466DistinctFromFixtureTest do
     end
   end
 
-  test "versions: vortex release is 1.7 and swiftroute is 1.7 (both from 1.6); each description says why (REQ-466 / Q-1029 / GH #2344) and keeps the REQ-462 sentence" do
+  test "versions: vortex release is 1.8 (REQ-471) and swiftroute is 1.7; each description says why (REQ-466 / Q-1029 / GH #2344) and keeps the REQ-462 sentence" do
+    assert doc(@vortex)["version"] == "1.8"
+    assert doc(@vortex)["description"] =~ "REQ-471 / GH #2479"
+    assert doc(@swiftroute)["version"] == "1.7"
+
     for file <- [@vortex, @swiftroute] do
-      assert doc(file)["version"] == "1.7", file
       assert doc(file)["description"] =~ "REQ-466 / Q-1029, GH #2344", file
       assert doc(file)["description"] =~ "Required decision outputs (v1.6, REQ-462 / Q-1025", file
     end
