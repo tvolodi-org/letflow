@@ -85,6 +85,33 @@ defmodule Letflow.Entities.RecordAccess do
     end
   end
 
+  @typedoc """
+  `:hidden`: denied by TypeAccess, or any failed read. `:managed`: visible but module-managed.
+  `:open`: the attachment write proceeds.
+  """
+  @type attachment_write_decision :: :hidden | :managed | :open
+
+  @doc """
+  The gate of the record ATTACHMENT WRITE routes (upload, delete; GH #2582, decision 0050 D7):
+  `attachment/3` plus the managed stamp. Both reads are always made, then decided with the
+  precedence hidden > managed > open, so a managed refusal never reveals a type the caller may not
+  see. No definition-existence read (see `attachment/3`). Writes nothing, logs nothing, audits
+  nothing (INV-8).
+  """
+  @spec attachment_write(user_id :: String.t(), entity_type :: String.t(), prefix :: String.t()) ::
+          attachment_write_decision()
+  def attachment_write(user_id, entity_type, prefix)
+      when is_binary(user_id) and is_binary(entity_type) and is_binary(prefix) do
+    owner = ManagedTypes.owner_of(entity_type, prefix)
+    access = TypeAccess.authorized?(user_id, entity_type, prefix)
+
+    case {access, owner} do
+      {{:ok, :allowed}, {:ok, _module_id}} -> :managed
+      {{:ok, :allowed}, :unmanaged} -> :open
+      _denied_or_failed -> :hidden
+    end
+  end
+
   @doc """
   True iff `field_values` is a map with at least one top-level key in `restricted`. A non-map is
   false (the schema and `Records` layers reject it).

@@ -107,7 +107,7 @@ defmodule Letflow.Modules.CatalogItems.RunbookTest do
       {"lib/letflow/entities/records.ex", 1004, "reject_step_key"},
       {"lib/letflow/entities/records.ex", 997, "reject_reserved_attributes"},
       {"lib/letflow/entities/records.ex", 330, "step_key_prefix"},
-      {"lib/letflow/routers/entities.ex", 532, "entity_type_managed"},
+      {"lib/letflow/routers/entities.ex", 536, "entity_type_managed"},
       {"lib/letflow/entities/step_writes.ex", 754, "command_multi"},
       {"lib/letflow/entities/handler_writes.ex", 245, "command_multi"}
     ]
