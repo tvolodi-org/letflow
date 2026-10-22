@@ -377,8 +377,8 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
       assert body =~ "tenant-wide callers are unchanged"
     end
 
-    test "the code the docs point at exists: import_scope_check/6 is defined in the entities router" do
-      source = File.read!("lib/letflow/routers/entities.ex")
+    test "the code the docs point at exists: import_scope_check/6 is defined in the entities record import module" do
+      source = File.read!("lib/letflow/routers/entities/record_import.ex")
       assert source =~ ~r/defp import_scope_check\(/
     end
   end

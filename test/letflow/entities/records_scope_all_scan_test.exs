@@ -31,7 +31,15 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
 
   @records_parts [:Letflow, :Entities, :Records]
   @functions [:create_record, :update_record, :delete_record, :upsert_record_by_external_ref]
-  @router_file "lib/letflow/routers/entities.ex"
+  # The router and the handler modules it delegates to (GH #2833): the record write, import and
+  # attachment handlers hold the Records call sites the router used to hold.
+  @router_files [
+    "lib/letflow/routers/entities.ex",
+    "lib/letflow/routers/entities/record_writes.ex",
+    "lib/letflow/routers/entities/record_import.ex",
+    "lib/letflow/routers/entities/record_attachments.ex",
+    "lib/letflow/routers/entities/support.ex"
+  ]
   @records_file "lib/letflow/entities/records.ex"
   @justification ~r/\Ascope-all:\s*\S/
   @lines_above 4
@@ -144,8 +152,15 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
 
   defp lib_files do
     Path.wildcard("lib/**/*.ex")
-    |> Enum.reject(&(&1 in [@router_file, @records_file]))
+    |> Enum.reject(&(&1 in [@records_file | @router_files]))
     |> Enum.reject(&String.starts_with?(&1, "lib/letflow/design/"))
+  end
+
+  defp router_asts do
+    Enum.map(@router_files, fn file ->
+      {ast, _} = Code.string_to_quoted_with_comments!(File.read!(file), columns: false)
+      ast
+    end)
   end
 
   defp all_sites do
@@ -283,7 +298,7 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
 
     test "the reference check is WIRED: Records calls check_references, the router calls check_references_of_type and check_batch_references (F7 withdrawn; BUG-1)" do
       assert "check_references" in identifiers(@records_file)
-      router = identifiers(@router_file)
+      router = Enum.flat_map(@router_files, &identifiers/1)
       assert "check_references_of_type" in router
       assert "check_batch_references" in router
     end
@@ -326,19 +341,22 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     end
 
     test "the router builds EVERY record command attribute literal with `scope:` (four literals: create, update, delete, import entry)" do
-      {ast, _} = Code.string_to_quoted_with_comments!(File.read!(@router_file), columns: false)
+      literals =
+        Enum.flat_map(router_asts(), fn ast ->
+          {_, found} =
+            Macro.prewalk(ast, [], fn
+              {:%{}, _, pairs} = node, acc when is_list(pairs) ->
+                keys = for {k, _v} <- pairs, is_atom(k), do: k
 
-      {_, literals} =
-        Macro.prewalk(ast, [], fn
-          {:%{}, _, pairs} = node, acc when is_list(pairs) ->
-            keys = for {k, _v} <- pairs, is_atom(k), do: k
+                if :idempotency_key in keys and :entity_type in keys and :actor_id in keys,
+                  do: {node, [keys | acc]},
+                  else: {node, acc}
 
-            if :idempotency_key in keys and :entity_type in keys and :actor_id in keys,
-              do: {node, [keys | acc]},
-              else: {node, acc}
+              node, acc ->
+                {node, acc}
+            end)
 
-          node, acc ->
-            {node, acc}
+          found
         end)
 
       assert length(literals) == 4, inspect(literals)
@@ -346,16 +364,19 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     end
 
     test "the router passes only those literals (or `command_attrs` built from them) to Records" do
-      {ast, _} = Code.string_to_quoted_with_comments!(File.read!(@router_file), columns: false)
+      args =
+        Enum.flat_map(router_asts(), fn ast ->
+          {_, found} =
+            Macro.prewalk(ast, [], fn
+              {{:., _, [{:__aliases__, _, [:Records]}, fun]}, _, [first | _]} = node, acc
+              when fun in [:create_record, :update_record, :delete_record] ->
+                {node, [first | acc]}
 
-      {_, args} =
-        Macro.prewalk(ast, [], fn
-          {{:., _, [{:__aliases__, _, [:Records]}, fun]}, _, [first | _]} = node, acc
-          when fun in [:create_record, :update_record, :delete_record] ->
-            {node, [first | acc]}
+              node, acc ->
+                {node, acc}
+            end)
 
-          node, acc ->
-            {node, acc}
+          found
         end)
 
       assert length(args) == 4

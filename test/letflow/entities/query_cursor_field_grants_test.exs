@@ -964,9 +964,19 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
       %{router_files: router_files, referencing: referencing}
     end
 
-    test "Letflow.Routers.Entities is the ONLY router referencing Query.Cursor/Query.FieldGrants",
+    # GH #2833 moved the record write handlers into Routers.Entities.RecordWrites. Its only use of
+    # Query.FieldGrants is the GH #2784 single-record redaction (`redact_field_values/2` in
+    # render_record_command/4), not the query pipeline, so it may alias FieldGrants but never Cursor.
+    test "Letflow.Routers.Entities is the ONLY router running the query pipeline (Query.Cursor/Query.FieldGrants)",
          %{referencing: referencing} do
-      assert referencing == ["lib/letflow/routers/entities.ex"]
+      assert referencing == [
+               "lib/letflow/routers/entities.ex",
+               "lib/letflow/routers/entities/record_writes.ex"
+             ]
+
+      writes = File.read!("lib/letflow/routers/entities/record_writes.ex")
+      refute writes =~ "Query.Cursor"
+      assert writes =~ "FieldGrants.redact_field_values("
     end
 
     test "the one consumer composes them in the order design §1 specifies" do
