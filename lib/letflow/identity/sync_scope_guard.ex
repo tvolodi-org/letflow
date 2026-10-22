@@ -46,6 +46,11 @@ defmodule Letflow.Identity.SyncScopeGuard do
 
   @resource_type "user_role"
 
+  @actions %{
+    has_scoped_rows: "grant.sync_suppressed",
+    no_scoped_rows: "binding.pending_scope"
+  }
+
   @type kind :: :has_scoped_rows | :no_scoped_rows
   @type item :: %{group_id: Ecto.UUID.t(), role: String.t(), kind: kind()}
 
@@ -164,8 +169,16 @@ defmodule Letflow.Identity.SyncScopeGuard do
     end
   end
 
-  defp action_for(:has_scoped_rows), do: "grant.sync_suppressed"
-  defp action_for(:no_scoped_rows), do: "binding.pending_scope"
+  @doc """
+  The audit action recorded for a suppression kind. The only place the pairing is written:
+  the writer (`record/5`) and every reader of the audit trail go through it.
+  """
+  @spec action_for(kind()) :: String.t()
+  def action_for(kind) when is_map_key(@actions, kind), do: Map.fetch!(@actions, kind)
+
+  @doc "Every suppression kind; each one has an audit action (`action_for/1`)."
+  @spec kinds() :: [kind(), ...]
+  def kinds, do: Map.keys(@actions)
 
   defp already_recorded?(resource_id, action, prefix) do
     Audit.latest_matching(prefix, @resource_type, resource_id, [action]) != nil
