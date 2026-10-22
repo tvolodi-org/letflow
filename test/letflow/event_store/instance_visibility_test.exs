@@ -168,11 +168,11 @@ defmodule Letflow.EventStore.InstanceVisibilityTest do
 
     test "a non-binary prefix is a FunctionClauseError, never swallowed" do
       assert_raise FunctionClauseError, fn ->
-        InstanceVisibility.exclude_synthetic(InstanceProjection, nil)
+        apply(InstanceVisibility, :exclude_synthetic, [InstanceProjection, nil])
       end
 
       assert_raise FunctionClauseError, fn ->
-        InstanceVisibility.exclude_synthetic(InstanceProjection, :tenant_schema)
+        apply(InstanceVisibility, :exclude_synthetic, [InstanceProjection, :tenant_schema])
       end
     end
   end

@@ -44,7 +44,6 @@ defmodule Letflow.Engine.VariableSchemaTest do
 
   use Letflow.DataCase, async: false
 
-  import Ecto.Query
   import ExUnit.CaptureLog
 
   alias Letflow.Definitions

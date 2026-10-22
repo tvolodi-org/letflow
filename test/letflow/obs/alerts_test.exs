@@ -83,10 +83,6 @@ defmodule Letflow.Obs.AlertsTest do
     Repo.get!(AlertTriggerState, trigger_key, prefix: schema_name)
   end
 
-  defp trigger_state(schema_name, trigger_key) do
-    Repo.get(AlertTriggerState, trigger_key, prefix: schema_name)
-  end
-
   defp receive_request(timeout \\ 2_000) do
     receive do
       {:webhook_test_server_request, req} -> req

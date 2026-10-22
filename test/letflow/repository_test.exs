@@ -261,7 +261,7 @@ defmodule Letflow.RepositoryTest do
 
   describe "AC5 -- Canonicaliser is a separate module from PromotionDigest" do
     test "Letflow.Repository.Canonicaliser and Letflow.Definitions.PromotionDigest are distinct modules with independent function exports" do
-      refute Canonicaliser == PromotionDigest
+      refute Atom.to_string(Canonicaliser) == Atom.to_string(PromotionDigest)
 
       canonicaliser_exports = Canonicaliser.__info__(:functions)
       promotion_digest_exports = PromotionDigest.__info__(:functions)
