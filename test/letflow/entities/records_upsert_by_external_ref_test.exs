@@ -2,7 +2,7 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
   @moduledoc """
   GH #2659 / REQ-505 PR-2 (design `lib/letflow/design/gh2659-external-ref-idempotent-import.md`
   sections 3, 4, 5.3.1, 9 and 10; decisions 0057, 0060, 0061): the DOMAIN half of the idempotent
-  upsert -- `Letflow.Entities.Records.upsert_record_by_external_ref/2,3`.
+  upsert -- `Letflow.Entities.Records.upsert_record_by_external_ref/2,3,4`.
 
     * T1 (domain): same ref twice -> `created` then `unchanged` (no event, version untouched);
       a changed value -> `updated` with one UPDATED event that carries no ref; an `append_only`
@@ -18,6 +18,9 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
     * T7 (module caller): `Owner` authority writes a managed type, `:tenant` is refused; a
       caller-chosen idempotency key replays as `unchanged` / `idempotency_key_reuse`; a 255 byte
       id with the derived-key shape is accepted.
+    * T12 (GH #2807): a create on a tenant below `ENTITY_RECORD_CREATED` v2 is
+      `event_schema_outdated` with nothing written; update/unchanged are unaffected;
+      `schema_checked: true` skips the read.
     * T11: strict decimals compare after normalisation (`"12.5"` then `"12.50"` is `unchanged`).
 
   Real Postgres, real commits and several connections: `async: false`.
@@ -914,6 +917,183 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
       assert row.external_system == nil and row.external_id == nil
       assert row.last_event_global_seq == plain.last_event_global_seq
       assert length(rows(schema)) == 3
+    end
+  end
+
+  # ---- T12 (GH #2807) ------------------------------------------------------------------------
+
+  describe "T12: the primitive refuses a create below ENTITY_RECORD_CREATED v2" do
+    defp downgrade_created!(schema) do
+      Repo.update_all(
+        from(e in "event_type_registry", where: e.name == "ENTITY_RECORD_CREATED"),
+        [set: [schema_version: 1]],
+        prefix: schema
+      )
+    end
+
+    defp count_version_reads(fun) do
+      parent = self()
+      handler = "gh2807-version-reads-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        Repo.config()[:telemetry_prefix] ++ [:query],
+        fn _event, _measurements, metadata, _config ->
+          query = Map.get(metadata, :query, "")
+
+          if self() == parent and query =~ "event_type_registry" and query =~ "max(",
+            do: send(parent, :version_read)
+        end,
+        nil
+      )
+
+      try do
+        result = fun.()
+        {result, drain_version_reads(0)}
+      after
+        :telemetry.detach(handler)
+      end
+    end
+
+    defp drain_version_reads(n) do
+      receive do
+        :version_read -> drain_version_reads(n + 1)
+      after
+        0 -> n
+      end
+    end
+
+    test "T12a: /2 create on a v1 tenant is event_schema_outdated; no row, no event", %{
+      schema: schema
+    } do
+      seed_type!(schema, "customer")
+      downgrade_created!(schema)
+
+      assert {:error, :event_schema_outdated} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "1", name("A")),
+                 schema
+               )
+
+      assert rows(schema) == []
+      assert events(schema) == []
+    end
+
+    test "T12a: a validation error still wins over the version check", %{schema: schema} do
+      seed_type!(schema, "customer")
+      downgrade_created!(schema)
+
+      assert {:error, {:definition_not_found, "nope"}} =
+               Records.upsert_record_by_external_ref(
+                 attrs("nope", "sap", "1", name("A")),
+                 schema
+               )
+    end
+
+    test "T12b: /3 with Owner authority on a managed type is refused the same way", %{
+      schema: schema,
+      tenant_id: tenant_id
+    } do
+      on_exit(fn ->
+        Repo.delete_all(from(i in SolutionPackInstall, where: i.tenant_id == ^tenant_id))
+        Repo.delete_all(from(b in SolutionPackArtefactBase, where: b.tenant_id == ^tenant_id))
+        Repo.delete_all(from(cp in ColumnPromotion, where: cp.tenant_id == ^tenant_id))
+      end)
+
+      {:ok, _} =
+        Installs.install("fixture_managed", Ecto.UUID.generate(),
+          prefix: schema,
+          rationale: "GH #2807 upsert test install"
+        )
+
+      owner = ManagedTypes.owner_for!(FixtureManaged)
+      downgrade_created!(schema)
+
+      assert {:error, :event_schema_outdated} =
+               Records.upsert_record_by_external_ref(
+                 attrs("fxm_site", "sap", "S1", %{"name" => "Site"}),
+                 schema,
+                 owner
+               )
+
+      assert rows(schema) == []
+      assert events(schema) == []
+    end
+
+    test "T12c: update and unchanged need no v2; only a new ref is refused", %{schema: schema} do
+      seed_type!(schema, "customer")
+
+      assert {:ok, %{outcome: :created}} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "1", name("A")),
+                 schema
+               )
+
+      downgrade_created!(schema)
+
+      assert {:ok, %{outcome: :unchanged}} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "1", name("A")),
+                 schema
+               )
+
+      assert {:ok, %{outcome: :updated}} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "1", name("B")),
+                 schema
+               )
+
+      assert {:error, :event_schema_outdated} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "2", name("A")),
+                 schema
+               )
+
+      assert length(rows(schema)) == 1
+    end
+
+    test "T12d: schema_checked: true skips the primitive's read, the default does one", %{
+      schema: schema
+    } do
+      seed_type!(schema, "customer")
+
+      {result, reads} =
+        count_version_reads(fn ->
+          Records.upsert_record_by_external_ref(
+            attrs("customer", "sap", "1", name("A")),
+            schema,
+            :tenant,
+            schema_checked: true
+          )
+        end)
+
+      assert {:ok, %{outcome: :created}} = result
+      assert reads == 0
+
+      {result, reads} =
+        count_version_reads(fn ->
+          Records.upsert_record_by_external_ref(
+            attrs("customer", "sap", "2", name("A")),
+            schema,
+            :tenant,
+            []
+          )
+        end)
+
+      assert {:ok, %{outcome: :created}} = result
+      assert reads == 1
+    end
+
+    test "T12d: invalid opts raise ArgumentError", %{schema: schema} do
+      a = attrs("customer", "sap", "1", name("A"))
+
+      assert_raise ArgumentError, fn ->
+        Records.upsert_record_by_external_ref(a, schema, :tenant, bogus: 1)
+      end
+
+      assert_raise ArgumentError, fn ->
+        Records.upsert_record_by_external_ref(a, schema, :tenant, schema_checked: "yes")
+      end
     end
   end
 end

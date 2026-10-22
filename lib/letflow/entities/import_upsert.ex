@@ -18,7 +18,8 @@ defmodule Letflow.Entities.ImportUpsert do
 
   ## `run/6` (per entry, sequential, per-entry report not whole-file rollback, design 5.4)
 
-  Each entry is one `Records.upsert_record_by_external_ref/2` call with a server-derived
+  Each entry is one `Records.upsert_record_by_external_ref/4` call (with `schema_checked: true`,
+  since `precheck/2` did the version read once for the request) with a server-derived
   idempotency key (`idempotency_key/2`). Before the call, in this order:
 
     1. the entry's `external_ref` must parse (`ExternalRef.parse/1`), else `:external_ref_invalid`;
@@ -46,7 +47,6 @@ defmodule Letflow.Entities.ImportUpsert do
   alias Letflow.EventStore.Registry
 
   @created_event_type "ENTITY_RECORD_CREATED"
-  @min_created_schema_version 2
 
   # The constant reasons this module itself produces (the router renders them as
   # `{"type": reason}` without detail). A reason added here is rendered by the router
@@ -96,7 +96,7 @@ defmodule Letflow.Entities.ImportUpsert do
         {:error, :not_found}
 
       {:open, restricted} ->
-        if is_integer(version) and version >= @min_created_schema_version,
+        if is_integer(version) and version >= Records.min_ref_schema_version(),
           do: {:ok, restricted},
           else: {:error, :event_schema_outdated}
     end
@@ -168,7 +168,10 @@ defmodule Letflow.Entities.ImportUpsert do
         }
 
         # scope-all: tenant-wide callers only (import_scope_check/6 refuses upsert mode for a scoped caller)
-        case Records.upsert_record_by_external_ref(attrs, ctx.prefix) do
+        # schema_checked: precheck/2 already read the CREATED version once for this request (GH #2807).
+        case Records.upsert_record_by_external_ref(attrs, ctx.prefix, :tenant,
+               schema_checked: true
+             ) do
           {:ok, %{record: %Latest{record_id: record_id}, outcome: outcome}} ->
             {:ok,
              %{
