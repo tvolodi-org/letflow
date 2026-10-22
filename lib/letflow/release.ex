@@ -23,8 +23,18 @@ defmodule Letflow.Release do
 
   See `docs/runbooks/release-backfills.md`. `Letflow.Release.IdempotencySquats` and the other
   `Letflow.Release.*` modules are separate operator entry points.
+
+  GH 2579 adds the PLATFORM_ADMIN token inventory and the explicit re-mint act:
+
+      bin/letflow eval "Letflow.Release.platform_admin_token_inventory()"
+      bin/letflow eval "Letflow.Release.reissue_platform_admin_token(\"<tenant>\", \"<token>\", \"<operator>\", cause: \"<reason>\", plaintext_file: \"<path>\")"
+
+  Their output is ids, schema names, timestamps and counts; a tenant id and a schema name are not
+  secrets. Neither prints a token value, hash or name. The re-mint writes the new value to the
+  `plaintext_file` it is given and never to stdout. See `docs/runbooks/platform-admin-token-reissue.md`.
   """
 
+  alias Letflow.Identity.PlatformAdminTokens
   alias Letflow.LoginDirectory.Backfill, as: LoginDirectoryBackfill
   alias Letflow.Scripts.HmacSecret.Backfill, as: HmacSecretBackfill
   alias Letflow.TenantProvisioning
@@ -92,6 +102,112 @@ defmodule Letflow.Release do
         halt_or_return({:error, empty_summary(1)}, opts)
     end
   end
+
+  @doc """
+  GH 2579 -- read-only inventory of the standing PLATFORM_ADMIN tokens with no expiry, per
+  registered tenant. Prints one `PA_TOKEN_NO_EXPIRY` line per token (ids and timestamps, never the
+  value, hash or name), one `TENANT` line per tenant and one `SUMMARY` line. A tenant that fails
+  is counted in `errored` and the others still run. Options: `:registrations` (default every
+  registered tenant), `:halt` (default `true`: `System.halt(1)` when a tenant errored), `:start`
+  (default `true`).
+  """
+  @spec platform_admin_token_inventory(keyword()) :: {:ok | :error, map()}
+  def platform_admin_token_inventory(opts \\ []) do
+    maybe_start(opts)
+
+    registrations =
+      Keyword.get_lazy(opts, :registrations, &TenantProvisioning.list_registrations/0)
+
+    summary =
+      Enum.reduce(
+        registrations,
+        %{non_expiring_platform_admin: 0, legacy_no_issuer: 0, errored: 0},
+        &inventory_tenant/2
+      )
+
+    IO.puts(
+      "SUMMARY tenants=#{length(registrations)} " <>
+        "non_expiring_platform_admin=#{summary.non_expiring_platform_admin} " <>
+        "legacy_no_issuer=#{summary.legacy_no_issuer} errored=#{summary.errored}"
+    )
+
+    status = if summary.errored == 0, do: :ok, else: :error
+    halt_or_return({status, summary}, opts)
+  end
+
+  defp inventory_tenant(registration, acc) do
+    rows = PlatformAdminTokens.inventory(registration.schema_name)
+    Enum.each(rows, &IO.puts(format_inventory_row(registration, &1)))
+    legacy = Enum.count(rows, &is_nil(&1.issuer_user_id))
+
+    IO.puts(
+      "TENANT tenant=#{registration.tenant_id} schema=#{registration.schema_name} " <>
+        "non_expiring_platform_admin=#{length(rows)} legacy_no_issuer=#{legacy} errored=0"
+    )
+
+    %{
+      acc
+      | non_expiring_platform_admin: acc.non_expiring_platform_admin + length(rows),
+        legacy_no_issuer: acc.legacy_no_issuer + legacy
+    }
+  rescue
+    # A failure is a count, not a reason string (the module's INV-4 output rule).
+    _exception ->
+      IO.puts(
+        "TENANT tenant=#{registration.tenant_id} schema=#{registration.schema_name} errored=1"
+      )
+
+      %{acc | errored: acc.errored + 1}
+  end
+
+  defp format_inventory_row(registration, row) do
+    "PA_TOKEN_NO_EXPIRY tenant=#{registration.tenant_id} schema=#{registration.schema_name} " <>
+      "token_id=#{row.id} owner_user_id=#{row.owner_user_id} " <>
+      "issuer_user_id=#{row.issuer_user_id || "legacy"} " <>
+      "created_at=#{DateTime.to_iso8601(row.created_at)} " <>
+      "last_used_at=#{if row.last_used_at, do: DateTime.to_iso8601(row.last_used_at), else: "never"}"
+  end
+
+  @doc """
+  GH 2579 -- the explicit act for ONE non-expiring PLATFORM_ADMIN token: mints a replacement
+  owned by the same user with an expiry inside the cap, writes its value to `:plaintext_file`
+  (created exclusively, never printed), and revokes the old token. Both audit entries carry the
+  `:cause`, the operator as actor and one trace id. See `Letflow.Identity.PlatformAdminTokens`
+  and `docs/runbooks/platform-admin-token-reissue.md`.
+
+  Options: `:cause` (required), `:days` (default the cap), `:plaintext_file` (required), and for
+  tests `:halt` (default `true`), `:start` (default `true`), `:write_plaintext`.
+  Prints one `REISSUE` line on success, one `ERROR <reason>` line on failure.
+  """
+  @spec reissue_platform_admin_token(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def reissue_platform_admin_token(tenant_id, token_id, operator_id, opts \\ []) do
+    maybe_start(opts)
+    core_opts = Keyword.take(opts, [:cause, :days, :plaintext_file, :write_plaintext])
+
+    result =
+      Letflow.Obs.Logger.with_trace(fn ->
+        PlatformAdminTokens.reissue(tenant_id, token_id, operator_id, core_opts)
+      end)
+
+    case result do
+      {:ok, done} ->
+        IO.puts(
+          "REISSUE old_token_id=#{done.old_token_id} new_token_id=#{done.new_token_id} " <>
+            "owner_user_id=#{done.owner_user_id} " <>
+            "expires_at=#{DateTime.to_iso8601(done.expires_at)} cause_recorded=true " <>
+            "plaintext_file=#{done.plaintext_file}"
+        )
+
+      {:error, reason} ->
+        IO.puts("ERROR #{reason_label(reason)}")
+    end
+
+    halt_or_return(result, opts)
+  end
+
+  defp reason_label(%Ecto.Changeset{}), do: "changeset_invalid"
+  defp reason_label(reason), do: inspect(reason)
 
   defp empty_summary(failed), do: %{processed: 0, created: 0, already_present: 0, failed: failed}
 

@@ -44,3 +44,10 @@ Dev form: `mix letflow.backfill_login_directory` (prints per-tenant ids as well)
 exits with status 1. The output does not name the tenant. Re-run once (safe); if the count
 stays, use the Mix-task form on a checkout, which prints the failed tenant ids. A missing
 pepper prints `the login directory pepper configuration is missing` and exits 1.
+
+## PLATFORM_ADMIN tokens with no expiry (GH #2579)
+
+The inventory of standing PLATFORM_ADMIN tokens with no expiry, and the explicit act that replaces
+one, are operator wrappers too (`Letflow.Release.platform_admin_token_inventory()` and
+`Letflow.Release.reissue_platform_admin_token/4`). They are described in
+`docs/runbooks/platform-admin-token-reissue.md`.

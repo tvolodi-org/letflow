@@ -110,7 +110,8 @@ defmodule Letflow.Identity do
           prefix: String.t(),
           login_directory: :enabled | :skip,
           audit_context: AuditContext.t(),
-          group_member_audit: :emit | :caller_audits
+          group_member_audit: :emit | :caller_audits,
+          cause: String.t()
         ]
 
   # GH 2547 (design section 6.6): the IdP sync bounds its wait on the tenant admin lock
@@ -2606,7 +2607,7 @@ defmodule Letflow.Identity do
         with :ok <- validate_issuable_roles(Map.get(attrs, :roles)),
              :ok <- reject_platform_admin_outside_platform_tenant(Map.get(attrs, :roles), prefix),
              :ok <- validate_expires_at(Map.get(attrs, :expires_at)) do
-          insert_token(user_id, attrs, prefix, AuditContext.from_opts(opts), nil)
+          insert_token(user_id, attrs, prefix, AuditContext.from_opts(opts), nil, nil)
         end
     end
   end
@@ -2655,6 +2656,9 @@ defmodule Letflow.Identity do
   **Owner identity (advisor condition 3).** The token acts as its OWNER, `user_id`
   (`verify_api_token/2`). Separation-of-duties checks (0053 D6) compare owners, never
   `issuer_user_id`; the issuer is recorded for attribution only.
+
+  GH 2579: `opts[:cause]`, when given, is recorded as `cause` in the `token.create` after_state
+  (only the operator re-mint act passes it; the HTTP router never does).
   """
   @spec mint_token(
           issuer_user_id :: Ecto.UUID.t(),
@@ -2667,7 +2671,7 @@ defmodule Letflow.Identity do
     ctx = AuditContext.from_opts(opts)
 
     case Ecto.UUID.cast(issuer_user_id) do
-      {:ok, issuer_id} -> insert_token(user_id, attrs, prefix, ctx, issuer_id)
+      {:ok, issuer_id} -> insert_token(user_id, attrs, prefix, ctx, issuer_id, opts[:cause])
       :error -> {:error, :issuer_not_authorized}
     end
   end
@@ -2742,7 +2746,13 @@ defmodule Letflow.Identity do
 
   # The PLATFORM_ADMIN token cap (advisor condition 2). A misconfigured value (not a
   # positive integer) fails closed by raising, never silently widening the cap.
-  defp platform_admin_token_max_ttl_days do
+  @doc """
+  GH 2579: the PLATFORM_ADMIN token lifetime cap in days (`:platform_admin_token_max_ttl_days`,
+  default 90). Public so the operator re-mint (`Letflow.Identity.PlatformAdminTokens`) checks
+  its `days` against the same value the mint enforces.
+  """
+  @spec platform_admin_token_max_ttl_days() :: pos_integer()
+  def platform_admin_token_max_ttl_days do
     case Application.get_env(:letflow, :platform_admin_token_max_ttl_days, 90) do
       days when is_integer(days) and days > 0 and days <= 366 ->
         days
@@ -2936,7 +2946,9 @@ defmodule Letflow.Identity do
   # GH 2552: `issuer_user_id` nil is the trusted create_token/3 path (NULL issuer, no
   # mint checks); non-nil is mint_token/4, whose :mint_checks run between the lock and
   # the insert.
-  defp insert_token(user_id, attrs, prefix, ctx, issuer_user_id) do
+  # GH 2579: `cause` (optional, from the operator act) is added to the `token.create`
+  # after_state only when non-nil, so every existing caller keeps its exact audit keys.
+  defp insert_token(user_id, attrs, prefix, ctx, issuer_user_id, cause) do
     try do
       plaintext = generate_token_plaintext()
       token_hash = hash_token_value(plaintext)
@@ -2976,7 +2988,7 @@ defmodule Letflow.Identity do
             resource_type: "api_token",
             resource_id: token.id,
             before_state: nil,
-            after_state: token_audit_state(token),
+            after_state: put_cause(token_audit_state(token), cause),
             trace_id: ctx.trace_id
           },
           prefix
@@ -3011,6 +3023,9 @@ defmodule Letflow.Identity do
     |> Audit.struct_state([:token_hash, :name])
     |> Map.put(:scope, "tenant_wide")
   end
+
+  defp put_cause(state, nil), do: state
+  defp put_cause(state, cause), do: Map.put(state, :cause, cause)
 
   defp generate_token_plaintext do
     "lf_tok_" <> (:crypto.strong_rand_bytes(32) |> Base.encode16(case: :lower))
@@ -3118,7 +3133,8 @@ defmodule Letflow.Identity do
   re-reads the token row `FOR UPDATE` and builds `before_state` from that locked row; a
   token revoked concurrently in between is returned unchanged. The `token.revoke` audit
   entry carries the actor and trace id from `opts[:audit_context]` (actor `nil` when none
-  is passed).
+  is passed). GH 2579: `opts[:cause]`, when given, is recorded as `cause` in the `token.revoke`
+  after_state; a nil or absent cause leaves the audit keys unchanged.
 
   REQ-497 PR 1b (design `req497-1b-allowed-flag-shadow-n1.md` 6.2 (f), Option A): the
   `TENANT_ADMIN` binding row is locked right after the tenant admin lock, whatever the
@@ -3147,9 +3163,11 @@ defmodule Letflow.Identity do
 
       %ApiToken{id: id} ->
         ctx = AuditContext.from_opts(opts)
+        # GH 2579: optional `cause`, recorded in the token.revoke after_state when given.
+        cause = opts[:cause]
 
         try do
-          Repo.transaction(fn -> revoke_locked_token(id, prefix, ctx) end, prefix: prefix)
+          Repo.transaction(fn -> revoke_locked_token(id, prefix, ctx, cause) end, prefix: prefix)
           |> case do
             {:error, {:tenant_admin_guard, refusal}} ->
               TenantAdminGuard.refuse(prefix, refusal, ctx)
@@ -3171,7 +3189,7 @@ defmodule Letflow.Identity do
   # REQ-195's actor_id: nil remains the fallback when no audit context is passed.
   # before_state/after_state come from token_audit_state/1: no token_hash and no name
   # (INV-4), plus issuer_user_id and scope (GH 2552).
-  defp revoke_locked_token(token_id, prefix, ctx) do
+  defp revoke_locked_token(token_id, prefix, ctx, cause) do
     lock_tenant_admins!(prefix)
     # REQ-497 PR 1b (design 6.2 (f), CDV B3/SEC A3): rank R unconditionally, A -> R -> B.
     _binding = TenantAdminGuard.lock_admin_binding!(prefix)
@@ -3189,7 +3207,7 @@ defmodule Letflow.Identity do
         now = DateTime.utc_now() |> DateTime.truncate(:second)
         counted? = counted_admin_token?(token, now, prefix)
 
-        case revoke_token_row(token, prefix, ctx, nil, now) do
+        case revoke_token_row(token, prefix, ctx, cause, now) do
           {:ok, updated} ->
             # N1 (Option A, REQ-497 PR 1b): only a token counted at lock time is guarded.
             if counted?,

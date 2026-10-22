@@ -63,6 +63,16 @@ defmodule Letflow.Identity.ApiToken do
     |> foreign_key_constraint(:issuer_user_id)
   end
 
+  @doc """
+  True for a PLATFORM_ADMIN token with no expiry (GH 2579, the legacy standing credential the
+  inventory lists and the token list flags). Pure: it ignores revocation, like
+  `Letflow.Identity.TokenPreconditions`, which uses this predicate.
+  """
+  @spec non_expiring_platform_admin?(t()) :: boolean()
+  def non_expiring_platform_admin?(%__MODULE__{roles: roles, expires_at: expires_at}) do
+    "PLATFORM_ADMIN" in (roles || []) and is_nil(expires_at)
+  end
+
   @doc "Revocation changeset — sets `revoked_at` only. See `Letflow.Identity.revoke_token/2`."
   @spec revoke_changeset(t(), map()) :: Ecto.Changeset.t()
   def revoke_changeset(%__MODULE__{} = token, attrs) do
