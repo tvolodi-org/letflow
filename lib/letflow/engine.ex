@@ -621,6 +621,7 @@ defmodule Letflow.Engine do
          {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, initial_variables} <- fetch_initial_variables(attrs),
          :continue <- start_replay_check(attrs, initial_variables, prefix),
+         :ok <- start_race_gate(attrs),
          {:ok, definition} <- resolve_definition(attrs, opts) do
       correlation_key = Map.get(attrs, :correlation_key)
       start_instance(definition, initial_variables, correlation_key, attrs, tenant_id, prefix)
@@ -672,6 +673,33 @@ defmodule Letflow.Engine do
   end
 
   defp start_replay_check(_attrs, _initial_variables, _prefix), do: :continue
+
+  # Test seam (GH #2577, T-start-race), compiled ONLY when `:engine_test_seams` is true. A start
+  # whose key the test armed in `:persistent_term` waits here, after `start_replay_check/3` has
+  # answered `:continue` and before any insert, until the test releases it. Two armed starts
+  # therefore both pass the replay check before either inserts: the race `resolve_start_race/5`
+  # answers. The wait is bounded, so a test that never releases the gate cannot hang.
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    defp start_race_gate(%{idempotency_key: key}) when is_binary(key) do
+      case :persistent_term.get({__MODULE__, :start_race_gate}, nil) do
+        {test_pid, ^key} ->
+          send(test_pid, {:start_race_arrived, self()})
+
+          receive do
+            :start_race_go -> :ok
+          after
+            10_000 -> :ok
+          end
+
+        _not_armed ->
+          :ok
+      end
+    end
+
+    defp start_race_gate(_attrs), do: :ok
+  else
+    defp start_race_gate(_attrs), do: :ok
+  end
 
   defp start_replay(%EventStore.Event{} = original, attrs, initial_variables, prefix) do
     if same_start_request?(original, attrs, initial_variables, prefix) do
@@ -2642,6 +2670,8 @@ defmodule Letflow.Engine do
           | {:error, {:new_token_during_resume_not_supported, token_id :: String.t()}}
           | {:error, {:task_activation_failed, term()}}
           | {:error, {:event_append_failed, term()}}
+          # GH #2577 (D-1, D-2): the key is claimed by another request (not a same-task retry).
+          | {:error, :idempotency_key_reuse}
           | {:error, :missing_actor_id}
           | {:error, :missing_idempotency_key}
           | {:error,
@@ -3227,14 +3257,14 @@ defmodule Letflow.Engine do
   end
 
   # Rollout backstop (decision 0054 R4a amendment, design 4.11): a handler line adds keys that
-  # only `TASK_ENTITY_WRITES_APPLIED` schema v2 accepts, and a tenant gains v2 only when
-  # `TenantProvisioning.replay_all_pending/0` has run for it. Without v2 the APPLIED event would
+  # only `TASK_ENTITY_WRITES_APPLIED` schema v3 accepts, and a tenant gains v3 only when
+  # `TenantProvisioning.replay_all_pending/0` has run for it. Without v3 the APPLIED event would
   # be refused at append INSIDE the transaction; refuse before it, fail closed.
   defp check_applied_event_schema(_task, [], _lines, _actor_id, _prefix), do: :ok
 
   defp check_applied_event_schema(task, _module_lines, lines, actor_id, prefix) do
     case EventRegistry.max_schema_version(EntityPort.applied_event_type(), prefix) do
-      version when is_integer(version) and version >= 2 ->
+      version when is_integer(version) and version >= 3 ->
         :ok
 
       _outdated ->
@@ -3487,7 +3517,7 @@ defmodule Letflow.Engine do
   defp handler_keys(%{write_ordinal: ordinal} = line) when is_integer(ordinal) do
     %{
       "handler_module" => line.handler_module,
-      "handler" => line.handler,
+      "handler_name" => line.handler_name,
       "write_ordinal" => ordinal
     }
   end
@@ -3527,6 +3557,7 @@ defmodule Letflow.Engine do
              |> IdempotentReplay.fresh() do
         {:ok, result}
       else
+        {:error, {:idempotent_replay, _original}} = replay -> replay
         {:error, _reason} -> {:error, {:entity_write_failed, 0, :sys_value}}
       end
     end)
@@ -3573,6 +3604,7 @@ defmodule Letflow.Engine do
            )
            |> IdempotentReplay.fresh() do
         {:ok, result} -> {:ok, result}
+        {:error, {:idempotent_replay, _original}} = replay -> replay
         {:error, _reason} -> {:error, {:entity_write_failed, 0, :applied_event}}
       end
     end)
@@ -5537,6 +5569,7 @@ defmodule Letflow.Engine do
 
     case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
+      {:error, {:idempotent_replay, _original}} = replay -> replay
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end
@@ -5650,7 +5683,7 @@ defmodule Letflow.Engine do
 
   # GH #2590 R5: the node's `module_writes` (handler calls) are planned like a HUMAN completion's
   # (design 6.1 P0b): the combined 20-line cap, the activator, then the run-time authorization
-  # of the stamp, hashes, handler and arguments against the pinned snapshot, then the v2 event
+  # of the stamp, hashes, handler and arguments against the pinned snapshot, then the v3 event
   # schema backstop, all BEFORE `prepare/2` and every lock. A refusal is a `:service_refused`
   # (the apply driver lands it in ERROR + DLQ, D-C.8) with ONE public code and the closed detail
   # atom going to the tenant audit only (INV-5).
@@ -5725,13 +5758,13 @@ defmodule Letflow.Engine do
   end
 
   # The service twin of `check_applied_event_schema/5` (rollout backstop, decision 0054 R4a/R5
-  # amendment): a tenant without `TASK_ENTITY_WRITES_APPLIED` v2 cannot append a handler line's
+  # amendment): a tenant without `TASK_ENTITY_WRITES_APPLIED` v3 cannot append a handler line's
   # APPLIED event, so it is refused up front, fail closed, and lands in ERROR + DLQ.
   defp check_service_applied_event_schema([], _lines, _prefix), do: :ok
 
   defp check_service_applied_event_schema(_module_lines, lines, prefix) do
     case EventRegistry.max_schema_version(EntityPort.applied_event_type(), prefix) do
-      version when is_integer(version) and version >= 2 ->
+      version when is_integer(version) and version >= 3 ->
         :ok
 
       _outdated ->
@@ -5919,6 +5952,11 @@ defmodule Letflow.Engine do
       {:transaction_failed, %DBConnection.ConnectionError{}} ->
         :contention
 
+      # GH #2577: a derived key of this apply was already claimed. The apply's own completion
+      # was written by the first claimant, so the answer is the existing one (D-3).
+      {:idempotent_replay, _original} ->
+        {:final, {:ok, :already_final}}
+
       _not_an_entity_write_class ->
         {:final, error}
     end
@@ -6079,6 +6117,7 @@ defmodule Letflow.Engine do
            )
            |> IdempotentReplay.fresh() do
         {:ok, result} -> {:ok, result}
+        {:error, {:idempotent_replay, _original}} = replay -> replay
         {:error, _reason} -> {:error, {:entity_write_failed, 0, :applied_event}}
       end
     end)
@@ -6511,7 +6550,17 @@ defmodule Letflow.Engine do
       end)
     end
 
-    if plan == nil, do: run.(), else: rescue_service_contention(run)
+    # GH #2577 (D-4): the replay is mapped here, after the transaction has returned. Inside it,
+    # ScriptTaskDispatcher.apply_with_followup/3 would turn any error into a script_rejected row.
+    # The failure landing (script_failure/7) shares the SCRIPT_TASK_COMPLETED key, so its replay
+    # arrives as :idempotency_key_reuse from ExecutionError.append_multi/3 and maps the same way.
+    outcome = if plan == nil, do: run.(), else: rescue_service_contention(run)
+
+    case outcome do
+      {:error, {:idempotent_replay, _original}} -> {:ok, :stale}
+      {:error, :idempotency_key_reuse} -> {:ok, :stale}
+      outcome -> outcome
+    end
   rescue
     # SEC S3: nothing caught is bound, formatted or logged (a 40P01 deadlock lands here too;
     # the dispatcher's follow-up B' then re-evaluates the same CAS).
@@ -6742,6 +6791,7 @@ defmodule Letflow.Engine do
       |> IdempotentReplay.fresh()
       |> case do
         {:ok, appended} -> {:ok, appended}
+        {:error, {:idempotent_replay, _original}} = replay -> replay
         {:error, reason} -> {:error, {:event_append_failed, reason}}
       end
     end)
@@ -8450,6 +8500,7 @@ defmodule Letflow.Engine do
 
     case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
+      {:error, {:idempotent_replay, _original}} = replay -> replay
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end
@@ -8684,6 +8735,18 @@ defmodule Letflow.Engine do
       :not_a_line_failure ->
         {:error, reason}
     end
+  end
+
+  # GH #2577 (D-1): a complete_task key claimed by another request (another task's
+  # TASK_COMPLETED, or a derived sys_vars / entity_writes key). A same-task retry never gets
+  # here: fetch_and_lock_task answers task_not_pending first. This call is not the claimant,
+  # so the original is not returned; the answer is key reuse (#2543).
+  defp interpret_complete_result(
+         {:error, _failed_step, {:idempotent_replay, _original}, _changes},
+         _actor_id,
+         _prefix
+       ) do
+    {:error, :idempotency_key_reuse}
   end
 
   # Catch-all -- every Multi step's own callback above already maps its
@@ -9461,6 +9524,8 @@ defmodule Letflow.Engine do
           | {:error, {:instance_already_error, error_detail :: map()}}
           | {:error, {:event_append_failed, term()}}
           | {:error, {:execution_error_contention, :lock_not_available | :deadlock_detected}}
+          # GH #2577 (D-2): the EXECUTION_ERROR key is claimed by another request.
+          | {:error, :idempotency_key_reuse}
           | {:error, Ecto.Changeset.t()}
           | {:error, term()}
 

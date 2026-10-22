@@ -6,7 +6,10 @@ defmodule Letflow.EventStore.Registry.JsonSchema do
   `type`, `minimum`/`maximum`, `minLength`/`maxLength`, `enum`, `required`,
   `properties`, `items`, `additionalProperties` (only the literal `false`
   form — the subschema form is not implemented, matching R-Co exactly, and
-  tuple-form `items` is not implemented either, also matching R-Co).
+  tuple-form `items` is not implemented either, also matching R-Co), plus one
+  deliberate addition over R-Co, `dependentRequired` (GH #2671: a property map of
+  name -> [names] that must be present whenever the name is; a non-map or non-list
+  value is ignored like any malformed keyword).
 
   Every other keyword — explicitly including `$ref`, `allOf`/`anyOf`/`oneOf`/
   `not`, `patternProperties`, `pattern`, `format`, `dependencies`, `title`,
@@ -127,6 +130,7 @@ defmodule Letflow.EventStore.Registry.JsonSchema do
 
   defp object_violations(pointer, value, schema) when is_map(value) do
     required_violations(pointer, value, schema) ++
+      dependent_required_violations(pointer, value, schema) ++
       properties_violations(pointer, value, schema) ++
       additional_properties_violations(pointer, value, schema)
   end
@@ -141,6 +145,23 @@ defmodule Letflow.EventStore.Registry.JsonSchema do
         |> Enum.map(&violation(join_pointer(pointer, &1), "required", nil))
 
       _not_a_list ->
+        []
+    end
+  end
+
+  # GH #2671: for each present property with a list of dependents, every dependent not present
+  # is a `required` violation at its own pointer.
+  defp dependent_required_violations(pointer, value, schema) do
+    case schema["dependentRequired"] do
+      dependents when is_map(dependents) ->
+        dependents
+        |> Enum.filter(fn {name, names} -> Map.has_key?(value, name) and is_list(names) end)
+        |> Enum.flat_map(fn {_name, names} -> names end)
+        |> Enum.uniq()
+        |> Enum.reject(&Map.has_key?(value, &1))
+        |> Enum.map(&violation(join_pointer(pointer, &1), "required", nil))
+
+      _not_a_map ->
         []
     end
   end
