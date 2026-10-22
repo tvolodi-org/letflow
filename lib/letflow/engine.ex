@@ -3460,6 +3460,7 @@ defmodule Letflow.Engine do
       activator_id: plan.activator_id,
       authorized: plan.authorized,
       variables: &entity_write_variables/1,
+      variable_labels: &entity_write_variable_labels/1,
       skip?: &entity_write_skip?/1,
       module_writes: plan.module_writes,
       owner: plan.owner,
@@ -3471,6 +3472,10 @@ defmodule Letflow.Engine do
 
   defp entity_write_variables(%{merge: {:merged, %{new_variables: variables}}}), do: variables
   defp entity_write_variables(_changes), do: %{}
+
+  # Decision 0062 R5: the labels of the merged variables the lines read.
+  defp entity_write_variable_labels(%{merge: {:merged, %{new_labels: labels}}}), do: labels
+  defp entity_write_variable_labels(_changes), do: %{}
 
   # Redundant TODAY (defence in depth): `:transition` passes a merge execution error through
   # (`dispatch_task_completion_hop_chain/7`), so the transition clause below also matches.
@@ -6162,6 +6167,7 @@ defmodule Letflow.Engine do
       activator_id: plan.activator_id,
       authorized: plan.authorized,
       variables: fn _changes -> variables end,
+      variable_labels: fn _changes -> advanced_state.variable_labels end,
       # This Multi exists only when the hop chain advanced: nothing to skip.
       skip?: fn _changes -> false end,
       guard_budget_ms: plan.guard_budget_ms,
@@ -7278,6 +7284,10 @@ defmodule Letflow.Engine do
       # caller of this helper can never silently drop a rejection.
       {:rejected, unchanged_variables,
        [{:execution_error, key, rejected_value, :variable_schema_rejected, failures}]} ->
+        # decision 0062 SR-OPT-12: a labelled value is never echoed into the error details
+        {rejected_value, failures} =
+          VariableLabels.scrub_rejection(key, rejected_value, failures, output_labels)
+
         error_args = %{
           instance_id: projection.instance_id,
           error_type: :variable_schema_rejected,

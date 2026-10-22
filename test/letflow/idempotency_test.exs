@@ -310,7 +310,10 @@ defmodule Letflow.IdempotencyTest do
     @literals ["\"idempotency_key\"", "\"idempotency-key\""]
 
     # {file, trimmed line} -- the FieldConstraint name is a schema entry, not a read.
-    @allowlist [{"lib/letflow/routers/entities/record_writes.ex", "name: \"idempotency_key\","}]
+    @allowlist [
+      {"lib/letflow/routers/entities/record_writes.ex", "name: \"idempotency_key\","},
+      {"lib/letflow/modules/exam/router.ex", "name: \"idempotency_key\","}
+    ]
 
     test "caller key is read only in Idempotency" do
       hits =
@@ -328,6 +331,9 @@ defmodule Letflow.IdempotencyTest do
 
     test "the allowlisted FieldConstraint entry is still present (the allowlist is not stale)" do
       assert File.read!("lib/letflow/routers/entities/record_writes.ex") =~
+               ~s(name: "idempotency_key",)
+
+      assert File.read!("lib/letflow/modules/exam/router.ex") =~
                ~s(name: "idempotency_key",)
     end
   end

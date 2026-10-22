@@ -1,0 +1,96 @@
+# T-0224 (BA): OPERATOR group, scenario 2 of 3 (order: see operator-1-manage-tenants.yaml).
+# Test-tooling steps: none.
+# Sources: docs/roles.md (PLATFORM_ADMIN deactivates tenants; TENANT_ADMIN "must not bypass the deactivated-tenant
+# gate"), decision 0046 D2 (the platform tenant cannot be deactivated, 409), lib/letflow/routers/tenants.ex
+# (deactivate and reactivate are TenantsManage).
+# Ends with the test customer ACTIVE again; foundation-4a does the final deactivation.
+---
+id: platform-operator-2-deactivate-and-reactivate-tenant
+scope: platform
+title: The operator switches a customer off and on again, and the customer's own administrator cannot work while it is off
+version: "1.0"
+tags: [operator, tenants, deactivation, platform, refusal]
+
+description: >
+  The platform operator switches the test customer off. While it is off, the customer's own
+  administrator is turned away, even though they hold the highest role inside that customer. The
+  operator also tries to switch off the platform's own workspace and is refused. The operator then
+  switches the test customer on again and the administrator can work.
+
+actors:
+  platform_operator: actor-platform-admin
+  customer_administrator: actor-any
+
+preconditions:
+  - description: Foundation 1 to 3 passed and operator-1 ran in this run; the test customer is active and its administrator has signed in once
+    check: custom
+    detail: If the administrator never became administrator, report BLOCKED, not PASS.
+
+steps:
+  - step: 1
+    actor: customer_administrator
+    action: The customer's administrator opens their own company's list of people. This works (control).
+    via: api
+  - step: 2
+    actor: platform_operator
+    action: The platform operator switches the test customer off.
+    via: gui
+  - step: 3
+    actor: customer_administrator
+    action: The customer's administrator tries to open their own company's list of people while the customer is switched off.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: customer_administrator
+    action: The customer's administrator tries to switch their own customer back on.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: platform_operator
+    action: The platform operator tries to switch off the platform's own workspace.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: platform_operator
+    action: The platform operator switches the test customer on again.
+    via: gui
+  - step: 7
+    actor: customer_administrator
+    action: The customer's administrator opens their own company's list of people again and it works.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: While the customer is off, its administrator is turned away from everything, including switching it on.
+    verification:
+      method: system_state
+      detail: Steps 3 and 4 are refused; the customer state is still "off" after step 4.
+      evidence: The two refusals and the customer state after step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A customer the operator has switched off (for example for non-payment or a security reason) keeps working.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The platform's own workspace cannot be switched off.
+    verification:
+      method: system_state
+      detail: Step 5 is refused as a conflict and the platform workspace is still active.
+      evidence: The refusal and the state of the platform workspace.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The operator could lock themselves and every other operator out of the platform.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Switching the customer on restores the administrator's access, with their data and role unchanged.
+    verification:
+      method: system_state
+      detail: Steps 2 and 6 succeed; step 7 returns the same people as step 1.
+      evidence: The customer state after steps 2 and 6, and the people count at steps 1 and 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A customer cannot be restored after a pause.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The test customer is left active, to be retired by foundation-4a.

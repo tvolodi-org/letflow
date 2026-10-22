@@ -48,6 +48,7 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
   @ledger %{
     "lib/letflow/entities/import_upsert.ex" => 1,
     "lib/letflow/modules/exam/anti_cheat.ex" => 1,
+    "lib/letflow/modules/exam/authoring.ex" => 3,
     "lib/letflow/modules/exam/certificate.ex" => 1,
     "lib/letflow/modules/exam/session.ex" => 3,
     "lib/letflow/modules/exam/snapshot.ex" => 1,

@@ -270,6 +270,21 @@ defmodule Letflow.ExamFixtures do
     :ok
   end
 
+  @doc """
+  GH #2680: activates the authoring types `provisioned_tenant_with_exam_definitions/1` leaves out
+  (`exam_section`, `exam_question_rule_tag`, `question_tag`, `tag`), from the same pack
+  definitions, so the whole authoring surface of the exam module can be written in a test tenant.
+  Kept separate so no existing caller of the provisioning function changes behaviour.
+  """
+  @spec activate_remaining_authoring_definitions!(schema_name :: String.t()) :: :ok
+  def activate_remaining_authoring_definitions!(schema_name) do
+    for entity_type <- ~w(exam_section exam_question_rule_tag question_tag tag) do
+      create_active_definition!(schema_name, load_definition!(entity_type))
+    end
+
+    :ok
+  end
+
   @doc "Creates a record via `Letflow.Entities.Records.create_record/2`, asserting success."
   @spec create_record!(String.t(), String.t(), map(), Ecto.UUID.t()) ::
           Letflow.Entities.Record.Latest.t()

@@ -597,4 +597,34 @@ defmodule Letflow.Idempotency.SquatRemediationTest do
       assert Repo.query!(~s|SELECT count(*) FROM "#{s}".squat_probe|).rows == [[1]]
     end
   end
+
+  describe "remediable?/2 (GH #2668)" do
+    @row_id "00000000-0000-0000-0000-000000000001"
+
+    test "a flagged finding with reason nil is refused, not recorded as \"nil\"" do
+      refute SquatRemediation.remediable?(
+               %{verdict: :flagged, row_id: @row_id, reason: nil},
+               @row_id
+             )
+    end
+
+    test "a flagged finding with a reason for the locked row is remediable" do
+      assert SquatRemediation.remediable?(
+               %{verdict: :flagged, row_id: @row_id, reason: :wrong_event_type},
+               @row_id
+             )
+    end
+
+    test "unflagged findings and other rows are not remediable" do
+      refute SquatRemediation.remediable?(
+               %{verdict: :report_only, row_id: @row_id, reason: :no_rule},
+               @row_id
+             )
+
+      refute SquatRemediation.remediable?(
+               %{verdict: :flagged, row_id: "other", reason: :wrong_event_type},
+               @row_id
+             )
+    end
+  end
 end
