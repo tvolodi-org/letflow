@@ -46,7 +46,6 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
         tenant_display_name: null,
         tenant_id: 'tenant-1',
         tenant_type: null,
-        production_tenant_display_name: null,
       },
       isAuthenticated: true,
       isLoading: false,

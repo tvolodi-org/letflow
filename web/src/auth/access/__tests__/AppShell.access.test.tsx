@@ -23,7 +23,6 @@ vi.mock('@/auth/AuthContext', () => ({
       tenant_display_name: 'Fixture Co',
       tenant_id: 'tid-fixture-co',
       tenant_type: 'production',
-      production_tenant_display_name: null,
     },
     logout: vi.fn(),
     switchTenant: vi.fn(),

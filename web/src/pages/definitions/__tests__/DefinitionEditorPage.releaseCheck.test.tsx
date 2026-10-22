@@ -145,7 +145,6 @@ const DESIGNER_SESSION = {
   tenant_display_name: 'Acme Test',
   tenant_id: 'tid-001',
   tenant_type: 'test' as const,
-  production_tenant_display_name: 'Acme Production',
 }
 
 const AUTH_VALUE = {
@@ -180,7 +179,6 @@ describe('REQ-431 AC5 — ReleaseCheckPanel shows the FRESH release-time result,
     mockUseAuth.mockReturnValue(AUTH_VALUE)
     mockUseTenantContext.mockReturnValue({
       tenantType: 'test',
-      productionDisplayName: 'Acme Production',
       tenantSlug: 'acme-test',
       tenantId: 'tid-001',
       tenantDisplayName: 'Acme Test',

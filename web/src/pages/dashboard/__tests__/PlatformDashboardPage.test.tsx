@@ -73,7 +73,6 @@ const ADMIN_SESSION = {
   tenant_display_name: null,
   tenant_id: null,
   tenant_type: null,
-  production_tenant_display_name: null,
 }
 
 const NON_ADMIN_SESSION = { ...ADMIN_SESSION }

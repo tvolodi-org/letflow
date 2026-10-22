@@ -61,7 +61,6 @@ const NON_ADMIN_SESSION = {
   tenant_display_name: 'Demo Co',
   tenant_id: 'tid-demo-co',
   tenant_type: 'production' as const,
-  production_tenant_display_name: null,
 }
 
 const ADMIN_SESSION = {

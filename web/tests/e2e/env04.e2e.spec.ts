@@ -329,7 +329,7 @@ test.describe('ENV-04-A: Production tenant context (TC-ENV-04-03, TC-ENV-04-07)'
       await shot(page, 'TC-07-production-no-promote-btn')
 
       // Visual assertion: promote button must NOT be present
-      const btnCount = await page.locator('[data-testid="btn-promote-to-production"]').count()
+      const btnCount = await page.locator('[data-testid="promote-to-production-btn"]').count()
       expect(
         btnCount,
         'Screen shows no Promote to Production button on production tenant',
@@ -703,7 +703,7 @@ test.describe('ENV-04-C: Banner and Promote button (TC-ENV-04-01/02/05/06/08/09/
 
   // ── TC-ENV-04-02 ──────────────────────────────────────────────────────────
 
-  test('TC-ENV-04-02: Banner shows paired production tenant name', async ({ page }) => {
+  test('TC-ENV-04-02: Banner shows no pairing text (REQ-470)', async ({ page }) => {
     if (!fixture) {
       throw new Error('TC-ENV-04-02: No test tenant fixture available.')
     }
@@ -719,8 +719,8 @@ test.describe('ENV-04-C: Banner and Promote button (TC-ENV-04-01/02/05/06/08/09/
     await expect(banner, 'Screen shows test-env-banner').toBeVisible({ timeout: 10_000 })
 
     const bannerText = await banner.textContent()
-    expect(bannerText ?? '', 'Screen shows paired production tenant name in banner').toContain(
-      fixture.prodTenantDisplayName,
+    expect(bannerText ?? '', 'Screen shows TEST ENVIRONMENT and no pairing text').not.toContain(
+      'Paired with production',
     )
   })
 
@@ -749,7 +749,7 @@ test.describe('ENV-04-C: Banner and Promote button (TC-ENV-04-01/02/05/06/08/09/
 
       await shot(page, 'TC-05-active-def-test-tenant-promote-btn')
 
-      const btn = page.locator('[data-testid="btn-promote-to-production"]')
+      const btn = page.locator('[data-testid="promote-to-production-btn"]')
       await expect(
         btn,
         'Screen shows Promote to Production button on ACTIVE definition in test tenant',
@@ -784,7 +784,7 @@ test.describe('ENV-04-C: Banner and Promote button (TC-ENV-04-01/02/05/06/08/09/
       await shot(page, 'TC-06-draft-def-test-tenant-no-promote-btn')
 
       const btnCount = await page
-        .locator('[data-testid="btn-promote-to-production"]')
+        .locator('[data-testid="promote-to-production-btn"]')
         .count()
       expect(
         btnCount,
@@ -816,7 +816,7 @@ test.describe('ENV-04-C: Banner and Promote button (TC-ENV-04-01/02/05/06/08/09/
       await loginWithToken(page, fixture.testTenantToken)
       await navigateSpa(page, `/definitions/${defId}`)
 
-      const promoteBtn = page.locator('[data-testid="btn-promote-to-production"]')
+      const promoteBtn = page.locator('[data-testid="promote-to-production-btn"]')
       await expect(promoteBtn, 'Promote to Production button is visible').toBeVisible({
         timeout: 15_000,
       })
@@ -833,10 +833,11 @@ test.describe('ENV-04-C: Banner and Promote button (TC-ENV-04-01/02/05/06/08/09/
 
       const modalText = await modal.textContent()
       expect(modalText ?? '', `Screen shows definition name "${defName}" in modal body`).toContain(defName)
+      expect(modalText ?? '', 'Screen says the promotion goes to production').toContain('to production.')
       expect(
         modalText ?? '',
-        `Screen shows production tenant name "${fixture.prodTenantDisplayName}" in modal body`,
-      ).toContain(fixture.prodTenantDisplayName)
+        'Screen shows no production tenant name in modal body',
+      ).not.toContain(fixture.prodTenantDisplayName)
 
       const confirmBtn = page.locator('[data-testid="promote-modal-confirm"]')
       const cancelBtn = page.locator('[data-testid="promote-modal-cancel"]')
@@ -874,7 +875,7 @@ test.describe('ENV-04-C: Banner and Promote button (TC-ENV-04-01/02/05/06/08/09/
       await loginWithToken(page, fixture.testTenantToken)
       await navigateSpa(page, `/definitions/${defId}`)
 
-      const promoteBtn = page.locator('[data-testid="btn-promote-to-production"]')
+      const promoteBtn = page.locator('[data-testid="promote-to-production-btn"]')
       await expect(promoteBtn, 'Promote button is visible').toBeVisible({ timeout: 15_000 })
 
       await shot(page, 'TC-09-before-confirm-promote')

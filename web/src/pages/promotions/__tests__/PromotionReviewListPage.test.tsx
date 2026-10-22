@@ -67,7 +67,6 @@ const ADMIN_SESSION = {
   tenant_display_name: 'GUI Review Fixture Tenant',
   tenant_id: `tid-${FIXTURE_TENANT_SLUG}`,
   tenant_type: 'production' as const,
-  production_tenant_display_name: null,
 }
 
 const NON_ADMIN_SESSION = { ...ADMIN_SESSION }

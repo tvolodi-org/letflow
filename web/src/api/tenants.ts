@@ -10,8 +10,6 @@ export interface Tenant {
   status: 'ACTIVE' | 'INACTIVE'
   created_at: string
   tenant_type: 'production' | 'test'
-  production_tenant_id: string | null
-  production_tenant_display_name: string | null
 }
 
 // Real backend envelope: lib/letflow/api/pagination.ex's Page struct

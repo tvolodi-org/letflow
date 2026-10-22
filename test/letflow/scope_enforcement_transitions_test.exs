@@ -334,6 +334,32 @@ defmodule Letflow.ScopeEnforcementTransitionsTest do
       assert entry.after_state == %{"mode" => "off", "reason" => "req519 turned off"}
     end
 
+    test "on -> off with a blank, multi-line or non-string reason is :invalid_reason (AC 13); nothing is written" do
+      fx = on_tenant!("req519-x4b")
+      before = flip_entries(fx)
+
+      for reason <- ["", "  ", "a
+b", String.duplicate("x", 501), 5] do
+        assert flip(fx, :off, reason) == {:error, :invalid_reason}, inspect(reason)
+      end
+
+      assert mode!(fx) == :on
+      assert flip_entries(fx) == before
+    end
+
+    test "off -> shadow with a blank, multi-line or non-string reason is :invalid_reason (AC 13); nothing is written" do
+      fx = F.admin_tenant!("req519-x4c")
+      before = all_entries(fx)
+
+      for reason <- ["", "  ", "a
+b", String.duplicate("x", 501), 5] do
+        assert flip(fx, :shadow, reason) == {:error, :invalid_reason}, inspect(reason)
+      end
+
+      assert mode!(fx) == :off
+      assert all_entries(fx) == before
+    end
+
     test "shadow -> off keeps its stage-1 behaviour (reason, disabled, no gate) with a failing fact seeded" do
       fx = F.admin_tenant!("req519-x11")
       F.flip!(fx, :shadow, nil)

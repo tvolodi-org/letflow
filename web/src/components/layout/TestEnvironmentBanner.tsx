@@ -2,15 +2,11 @@ import type React from 'react'
 import { useTenantContext } from '@/auth/useTenantContext'
 
 export function TestEnvironmentBanner(): React.ReactElement | null {
-  const { tenantType, productionDisplayName } = useTenantContext()
+  const { tenantType } = useTenantContext()
 
   if (tenantType !== 'test') {
     return null
   }
-
-  const pairedText = productionDisplayName !== null
-    ? `Paired with production: ${productionDisplayName}`
-    : 'Paired with production: (unknown)'
 
   return (
     <div
@@ -32,7 +28,6 @@ export function TestEnvironmentBanner(): React.ReactElement | null {
       }}
     >
       <span style={{ fontWeight: 700 }}>TEST ENVIRONMENT</span>
-      <span style={{ fontWeight: 400 }}>{pairedText}</span>
     </div>
   )
 }

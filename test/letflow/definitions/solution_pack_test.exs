@@ -45,6 +45,7 @@ defmodule Letflow.Definitions.SolutionPackTest do
   alias Letflow.Engine.VariableSchema
   alias Letflow.Entities.Definitions, as: EntityDefinitions
   alias Letflow.Entities.EntityDefinition
+  alias Letflow.Identity.User
   alias Letflow.Repo
   alias Letflow.TenantFixture
 
@@ -320,7 +321,8 @@ defmodule Letflow.Definitions.SolutionPackTest do
 
       assert {:ok, doc} =
                SolutionPack.export([], [entity_definition.name], "1.0.0",
-                 prefix: tenant.schema_name
+                 prefix: tenant.schema_name,
+                 user_id: Ecto.UUID.generate()
                )
 
       assert doc.definitions == []
@@ -360,7 +362,10 @@ defmodule Letflow.Definitions.SolutionPackTest do
       entity_definition = create_entity_definition!(tenant.schema_name)
 
       assert {:ok, doc} =
-               SolutionPack.export([], [entity_definition.name], nil, prefix: tenant.schema_name)
+               SolutionPack.export([], [entity_definition.name], nil,
+                 prefix: tenant.schema_name,
+                 user_id: Ecto.UUID.generate()
+               )
 
       assert doc.definitions == []
       assert [%{name: name}] = doc.entity_definitions
@@ -377,7 +382,8 @@ defmodule Letflow.Definitions.SolutionPackTest do
                  [definition.id],
                  [entity_definition.name],
                  "1.0.0",
-                 prefix: tenant.schema_name
+                 prefix: tenant.schema_name,
+                 user_id: Ecto.UUID.generate()
                )
 
       expected_definition_id = definition.id
@@ -418,7 +424,10 @@ defmodule Letflow.Definitions.SolutionPackTest do
         })
 
       assert {:ok, doc} =
-               SolutionPack.export([], [shared_name], "1.0.0", prefix: tenant_a.schema_name)
+               SolutionPack.export([], [shared_name], "1.0.0",
+                 prefix: tenant_a.schema_name,
+                 user_id: Ecto.UUID.generate()
+               )
 
       assert [packed] = doc.entity_definitions
       assert packed.entity_definition_id == entity_a.id
@@ -426,12 +435,14 @@ defmodule Letflow.Definitions.SolutionPackTest do
       refute packed.display_name == "Tenant B's definition"
     end
 
-    test "naming a wholly nonexistent name -- {:error, {:entity_definition_not_found, name}}" do
+    test "naming a wholly nonexistent name -- {:error, :entity_definition_not_found}, no name echo" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req304-ac4-missing")
       missing_name = unique("req304_missing")
 
-      assert SolutionPack.export([], [missing_name], "1.0.0", prefix: tenant.schema_name) ==
-               {:error, {:entity_definition_not_found, missing_name}}
+      assert SolutionPack.export([], [missing_name], "1.0.0",
+               prefix: tenant.schema_name,
+               user_id: Ecto.UUID.generate()
+             ) == {:error, :entity_definition_not_found}
     end
 
     test "naming another tenant's entity definition (by name, no definition of that name in the caller's own schema) -- SAME not-found shape, no leak" do
@@ -439,17 +450,25 @@ defmodule Letflow.Definitions.SolutionPackTest do
       tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "req304-ac4-cross-b")
 
       entity_b = create_entity_definition!(tenant_b.schema_name)
+      subject = Ecto.UUID.generate()
 
-      result = SolutionPack.export([], [entity_b.name], "1.0.0", prefix: tenant_a.schema_name)
+      result =
+        SolutionPack.export([], [entity_b.name], "1.0.0",
+          prefix: tenant_a.schema_name,
+          user_id: subject
+        )
 
       # Must be the identical typed error a genuine miss produces -- proves
       # this is not a leak of tenant B's row (e.g. no {:ok, doc} branch, and
       # no distinct error shape that would let a caller distinguish "exists
       # elsewhere" from "doesn't exist anywhere").
-      assert result == {:error, {:entity_definition_not_found, entity_b.name}}
+      assert result == {:error, :entity_definition_not_found}
 
       assert result ==
-               SolutionPack.export([], [entity_b.name], "1.0.0", prefix: tenant_a.schema_name)
+               SolutionPack.export([], [entity_b.name], "1.0.0",
+                 prefix: tenant_a.schema_name,
+                 user_id: subject
+               )
     end
 
     test "first offending name wins deterministically when multiple names are given" do
@@ -462,9 +481,141 @@ defmodule Letflow.Definitions.SolutionPackTest do
                [],
                [missing_first, real.name, missing_second],
                "1.0.0",
-               prefix: tenant.schema_name
-             ) == {:error, {:entity_definition_not_found, missing_first}}
+               prefix: tenant.schema_name,
+               user_id: Ecto.UUID.generate()
+             ) == {:error, :entity_definition_not_found}
     end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # GH #2746 -- entity-definition export reads through TypeAccess (export/4
+  # itself, not a route). A denied type and an absent type are the same
+  # not-found shape; names without a subject fail closed before any read.
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  describe "GH #2746: export/4 applies TypeAccess to every entity definition read" do
+    test "T1: a denied name and an absent name give byte-identical export/4 results" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2746-t1")
+      restricted = create_entity_definition!(tenant.schema_name)
+      user = insert_user!(tenant.schema_name, "t1")
+      insert_type_restriction!(tenant.schema_name, restricted.name)
+      absent = unique("gh2746_absent")
+
+      denied_result =
+        SolutionPack.export([], [restricted.name], "1.0.0",
+          prefix: tenant.schema_name,
+          user_id: user.id
+        )
+
+      absent_result =
+        SolutionPack.export([], [absent], "1.0.0", prefix: tenant.schema_name, user_id: user.id)
+
+      assert denied_result == {:error, :entity_definition_not_found}
+      assert absent_result == {:error, :entity_definition_not_found}
+      assert :erlang.term_to_binary(denied_result) == :erlang.term_to_binary(absent_result)
+    end
+
+    test "T2: a granted user packs the restricted entity definition" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2746-t2")
+      restricted = create_entity_definition!(tenant.schema_name)
+      user = insert_user!(tenant.schema_name, "t2")
+      insert_type_restriction!(tenant.schema_name, restricted.name)
+      insert_type_grant!(tenant.schema_name, user.id, restricted.name)
+
+      assert {:ok, doc} =
+               SolutionPack.export([], [restricted.name], "1.0.0",
+                 prefix: tenant.schema_name,
+                 user_id: user.id
+               )
+
+      assert [%{name: name}] = doc.entity_definitions
+      assert name == restricted.name
+    end
+
+    test "T3: an unrestricted entity definition packs for any subject" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2746-t3")
+      open = create_entity_definition!(tenant.schema_name)
+
+      assert {:ok, doc} =
+               SolutionPack.export([], [open.name], "1.0.0",
+                 prefix: tenant.schema_name,
+                 user_id: Ecto.UUID.generate()
+               )
+
+      assert [%{name: name}] = doc.entity_definitions
+      assert name == open.name
+    end
+
+    test "T4: names without a subject fail closed with :missing_subject before any read" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2746-t4")
+      open = create_entity_definition!(tenant.schema_name)
+
+      assert SolutionPack.export([], [open.name], "1.0.0", prefix: tenant.schema_name) ==
+               {:error, :missing_subject}
+    end
+
+    test "T5: the first hidden name wins whether it is denied or absent" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2746-t5")
+      restricted = create_entity_definition!(tenant.schema_name)
+      user = insert_user!(tenant.schema_name, "t5")
+      insert_type_restriction!(tenant.schema_name, restricted.name)
+      absent = unique("gh2746_t5_absent")
+      real = create_entity_definition!(tenant.schema_name, %{name: unique("gh2746_t5_real")})
+
+      opts = [prefix: tenant.schema_name, user_id: user.id]
+
+      assert SolutionPack.export([], [absent, real.name], "1.0.0", opts) ==
+               {:error, :entity_definition_not_found}
+
+      assert SolutionPack.export([], [restricted.name, absent], "1.0.0", opts) ==
+               {:error, :entity_definition_not_found}
+
+      assert SolutionPack.export([], [real.name, restricted.name], "1.0.0", opts) ==
+               {:error, :entity_definition_not_found}
+    end
+  end
+
+  defp insert_user!(schema_name, suffix) do
+    %User{}
+    |> Ecto.Changeset.change(%{
+      username: "gh2746-user-#{suffix}-#{Ecto.UUID.generate()}",
+      display_name: "GH #2746 Test User",
+      email: "gh2746-#{suffix}-#{Ecto.UUID.generate()}@example.com",
+      password_hash: "__NO_PASSWORD_SET__",
+      status: :active,
+      auth_source: :internal
+    })
+    |> Repo.insert!(prefix: schema_name)
+  end
+
+  defp insert_type_restriction!(schema_name, entity_type) do
+    Repo.insert_all(
+      "entity_type_restrictions",
+      [
+        %{
+          id: Ecto.UUID.bingenerate(),
+          entity_type: entity_type,
+          inserted_at: NaiveDateTime.utc_now(),
+          updated_at: NaiveDateTime.utc_now()
+        }
+      ],
+      prefix: schema_name
+    )
+  end
+
+  defp insert_type_grant!(schema_name, user_id, entity_type) do
+    Repo.insert_all(
+      "user_entity_type_grants",
+      [
+        %{
+          id: Ecto.UUID.bingenerate(),
+          user_id: Ecto.UUID.dump!(user_id),
+          entity_type: entity_type,
+          inserted_at: NaiveDateTime.utc_now()
+        }
+      ],
+      prefix: schema_name
+    )
   end
 
   # ═══════════════════════════════════════════════════════════════════════════
@@ -489,7 +640,10 @@ defmodule Letflow.Definitions.SolutionPackTest do
 
       # AC1 -- via REQ-304's real export path.
       assert {:ok, exported} =
-               SolutionPack.export([], [source.name], "1.0.0", prefix: tenant_a.schema_name)
+               SolutionPack.export([], [source.name], "1.0.0",
+                 prefix: tenant_a.schema_name,
+                 user_id: Ecto.UUID.generate()
+               )
 
       # Simulate the key-shape boundary between export and install -- the same
       # one a route layer's decoded request body would cross -- rather than
@@ -702,7 +856,10 @@ defmodule Letflow.Definitions.SolutionPackTest do
       refute String.valid?(original.logical_shape_version)
 
       assert {:ok, doc} =
-               SolutionPack.export([], [original.name], "1.0.0", prefix: tenant_a.schema_name)
+               SolutionPack.export([], [original.name], "1.0.0",
+                 prefix: tenant_a.schema_name,
+                 user_id: Ecto.UUID.generate()
+               )
 
       # AC1: pack_document must be real-Jason.encode!/1-safe. This is the
       # exact call that raised Jason.EncodeError before the fix.
@@ -1208,7 +1365,10 @@ defmodule Letflow.Definitions.SolutionPackTest do
       assert source.definition_json["append_only"] == true
 
       assert {:ok, exported} =
-               SolutionPack.export([], [source.name], "1.0.0", prefix: tenant_a.schema_name)
+               SolutionPack.export([], [source.name], "1.0.0",
+                 prefix: tenant_a.schema_name,
+                 user_id: Ecto.UUID.generate()
+               )
 
       wire_document = stringify_keys(exported)
 
@@ -1279,7 +1439,10 @@ defmodule Letflow.Definitions.SolutionPackTest do
                EntityDefinitions.get_definition_by_name(source.name, tenant_a.schema_name)
 
       assert {:ok, exported} =
-               SolutionPack.export([], [source.name], "1.0.0", prefix: tenant_a.schema_name)
+               SolutionPack.export([], [source.name], "1.0.0",
+                 prefix: tenant_a.schema_name,
+                 user_id: Ecto.UUID.generate()
+               )
 
       assert {:ok, %{installed_entity_definitions: [_installed]}} =
                SolutionPack.install(stringify_keys(exported), Ecto.UUID.generate(),
@@ -1325,7 +1488,10 @@ defmodule Letflow.Definitions.SolutionPackTest do
                EntityDefinitions.get_definition_by_name(source.name, tenant_a.schema_name)
 
       assert {:ok, exported} =
-               SolutionPack.export([], [source.name], "1.0.0", prefix: tenant_a.schema_name)
+               SolutionPack.export([], [source.name], "1.0.0",
+                 prefix: tenant_a.schema_name,
+                 user_id: Ecto.UUID.generate()
+               )
 
       assert {:ok, %{installed_entity_definitions: [_installed]}} =
                SolutionPack.install(stringify_keys(exported), Ecto.UUID.generate(),
