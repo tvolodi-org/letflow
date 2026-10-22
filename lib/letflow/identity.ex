@@ -1919,7 +1919,13 @@ defmodule Letflow.Identity do
     end
   end
 
+  # GH #2860: the user's held roles and applicable rows are read ONCE per group, before the
+  # decision, and that read is the before-state of the decision and of the insert (no write
+  # happens in between). The reads that depend on the previous group's insert are still made
+  # per group: this read, and the after-write reads in insert_membership_audit/6.
   defp sync_one_group(guard, group_id, user_id, prefix, ctx) do
+    before = MembershipScope.read(user_id, prefix)
+
     decision =
       case guard do
         {:on, roles_by_group} ->
@@ -1927,7 +1933,8 @@ defmodule Letflow.Identity do
             user_id,
             group_id,
             Map.get(roles_by_group, group_id, []),
-            prefix
+            prefix,
+            before
           )
 
         :off ->
@@ -1936,16 +1943,16 @@ defmodule Letflow.Identity do
 
     case decision do
       :allow ->
-        insert_synced_membership(group_id, user_id, prefix, ctx)
+        insert_synced_membership(group_id, user_id, prefix, ctx, before)
 
       {:suppress, suppressed} ->
         SyncScopeGuard.record(user_id, group_id, suppressed, prefix, ctx)
     end
   end
 
-  defp insert_synced_membership(group_id, user_id, prefix, ctx) do
-    before_roles = sorted_effective_role_names(user_id, prefix)
-    before_scope = MembershipScope.snapshot(user_id, prefix)
+  defp insert_synced_membership(group_id, user_id, prefix, ctx, before) do
+    before_roles = Enum.sort(before.held)
+    before_scope = MembershipScope.snapshot_of(before)
 
     case insert_or_fetch_group_member(group_id, user_id, prefix) do
       {:ok, %{inserted: true}} ->
