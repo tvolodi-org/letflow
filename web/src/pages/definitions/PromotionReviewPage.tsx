@@ -32,6 +32,7 @@ export default function PromotionReviewPage(): React.ReactElement {
   const { session } = useAuth()
   const access = useAccess()
   const isAllowed = access.can(P.PromotionsRead)
+  const canManage = access.can(P.PromotionsManage)
 
   const currentUserId = useMemo(
     () => (session?.token ? decodeTokenPayload(session.token)?.sub ?? null : null),
@@ -62,6 +63,7 @@ export default function PromotionReviewPage(): React.ReactElement {
             <NonSkippableApprovalGate
               context={data}
               currentUserId={currentUserId ?? ''}
+              readOnly={!canManage}
               onApprove={(id, planDigest) =>
                 approveMutation
                   .mutateAsync({ reviewId: id, body: { plan_digest: planDigest, approved_by: currentUserId ?? '' } })

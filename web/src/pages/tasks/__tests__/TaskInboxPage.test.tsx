@@ -19,7 +19,8 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { screen, cleanup, waitFor } from '@testing-library/react'
+import { renderWithAccess } from '@/auth/access/testing'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -113,7 +114,7 @@ function taskCompletedEvent(attachmentsAtDecision: Array<{ attachment_id: string
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  return renderWithAccess(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
         <TaskInboxPage />
