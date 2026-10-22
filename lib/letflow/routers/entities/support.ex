@@ -4,6 +4,9 @@ defmodule Letflow.Routers.Entities.Support do
   (`RecordWrites`, `RecordImport`, `RecordAttachments`), extracted from the router
   under GH #2833. Each function is a pure function of its arguments.
 
+  Internal to the Entities router: the functions are public only so the handler
+  modules can call them, and nothing outside that plug pipeline should.
+
   `prefix!/1` is still the one source of the tenant prefix (INV-1): it reads
   `conn.assigns.scoped_opts` and nothing else.
   """
