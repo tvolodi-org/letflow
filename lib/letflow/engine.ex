@@ -3342,7 +3342,7 @@ defmodule Letflow.Engine do
   defp maybe_entity_writes(multi, plan, actor_id, prefix) do
     ctx = %{
       prefix: prefix,
-      task_id: plan.task_id,
+      origin: {:task, plan.task_id},
       instance_id: plan.instance_id,
       node_id: plan.node_id,
       definition_id: plan.definition_id,
