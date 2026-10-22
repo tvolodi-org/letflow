@@ -1666,6 +1666,7 @@ defmodule Letflow.Identity do
     case sync_role_claims_report(user, identity_context, opts) do
       {:ok, synced_user} -> synced_user
       {:suppressed, synced_user, _summary} -> synced_user
+      {:failed, original_user, _step} -> original_user
     end
   end
 
@@ -1682,19 +1683,33 @@ defmodule Letflow.Identity do
           deduped: non_neg_integer()
         }
 
+  @typedoc """
+  The step of the sync transaction that failed, or `:raised` when the transaction raised.
+  The tag is all a caller gets: no exception message and no audit payload.
+  """
+  @type failed_step :: :lock_timeout | :tenant_admin_lock | :memberships | :user | :raised
+
   @doc """
-  The typed form of `sync_role_claims_from_token/3` (REQ-519 AC 2, design 3.9a): the same
-  sync, returning `{:ok, user}` when nothing was suppressed (also for the failure fallback
-  that returns the original user) and `{:suppressed, user, summary}` when at least one
-  (group, role) was suppressed in this call, whether or not other memberships were written
-  and whether or not the audit entry was new. The `user` is the one
-  `sync_role_claims_from_token/3` returns. The summary holds ids and the fixed kind only.
+  The typed form of `sync_role_claims_from_token/3` (REQ-519 AC 2, design 3.9a; GH 2858). Three
+  outcomes, each carrying the `user` that `sync_role_claims_from_token/3` returns:
+
+  - `{:ok, user}`: applied. Nothing was suppressed in this call (memberships may or may not
+    have been written, and nothing needed writing for a user already in the groups).
+  - `{:suppressed, user, summary}`: at least one (group, role) was suppressed in this call,
+    whether or not other memberships were written and whether or not the audit entry was new.
+    The summary holds ids and the fixed kind only.
+  - `{:failed, original_user, step}`: the sync was rolled back whole (nothing of this call
+    persists, the marker stays `nil`, so the next login retries). `original_user` is the user
+    passed in; `step` is the transaction step that failed.
   """
   @spec sync_role_claims_report(
           user :: User.t(),
           identity_context :: IdentityContext.t(),
           opts :: opts()
-        ) :: {:ok, User.t()} | {:suppressed, User.t(), suppressed_summary()}
+        ) ::
+          {:ok, User.t()}
+          | {:suppressed, User.t(), suppressed_summary()}
+          | {:failed, User.t(), failed_step()}
   def sync_role_claims_report(%User{} = user, %IdentityContext{} = identity_context, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
     ctx = %{AuditContext.from_opts(opts) | actor_id: user.id, source: "idp_sync"}
@@ -1800,7 +1815,7 @@ defmodule Letflow.Identity do
             "for user_id=#{user.id}: :audit_failed"
         )
 
-        {:ok, user}
+        {:failed, user, step}
 
       {:error, step, reason, _changes} ->
         Logger.error(
@@ -1808,7 +1823,7 @@ defmodule Letflow.Identity do
             "for user_id=#{user.id}: #{inspect(reason)}"
         )
 
-        {:ok, user}
+        {:failed, user, step}
 
       {:raised, exception_module} ->
         Logger.error(
@@ -1816,7 +1831,7 @@ defmodule Letflow.Identity do
             "user_id=#{user.id}, exception=#{inspect(exception_module)})"
         )
 
-        {:ok, user}
+        {:failed, user, :raised}
     end
   end
 

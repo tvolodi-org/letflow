@@ -252,6 +252,21 @@ defmodule Letflow.Entities.Query.Allowlist do
           | {:error, :invalid_schema_name}
           | {:error, :entity_type_not_found}
   def load(entity_type, prefix) when is_binary(entity_type) and is_binary(prefix) do
+    with {:ok, allowlist, _strict_specs} <- load(entity_type, prefix, :with_specs),
+         do: {:ok, allowlist}
+  end
+
+  @doc """
+  `load/2` plus the strict decimal specs (`Decimals.specs()`) of the SAME active definition row,
+  as `{:ok, allowlist, strict_specs}` (GH #2773). A read response renders a strict field that is
+  not `queried` too, so the specs come from the definition, not from the allowlist entries; this
+  hands them to the router without a second definition read. Same errors as `load/2`.
+  """
+  @spec load(entity_type :: String.t(), prefix :: String.t(), :with_specs) ::
+          {:ok, allowlist(), Decimals.specs()}
+          | {:error, :invalid_schema_name}
+          | {:error, :entity_type_not_found}
+  def load(entity_type, prefix, :with_specs) when is_binary(entity_type) and is_binary(prefix) do
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, entity_definition} <- fetch_active_definition(entity_type, prefix) do
       structural_names = MapSet.new(Map.keys(typed_columns()))
@@ -324,7 +339,7 @@ defmodule Letflow.Entities.Query.Allowlist do
         |> Map.merge(typed_column_entries)
         |> Map.merge(promoted_typed_column_entries)
 
-      {:ok, allowlist}
+      {:ok, allowlist, Decimals.specs_from_definition_json(entity_definition.definition_json)}
     end
   end
 
