@@ -177,9 +177,8 @@ platform_actor_allowed:
 # Scopes with at least one scenario and no expect_refusal step on the day of landing (may only shrink).
 refusal_coverage_exempt: []
 
-# Tenant actors seeded as PLATFORM_ADMIN, dated; REQ-454 empties this map. One entry today, proven by
-# ai-dala-infra T-0150 (run 2026-09-29-provision-letflow-qa-uat-corpus-001, step-04 account table row 2,
-# and landscape/secrets-inventory.md: realm swiftroute accounts created 2026-09-29). The per-realm
-# <slug>-admin-user and promo-proposer accounts are tooling accounts, not scenario actors, so they are
-# not listed here.
+# Tenant actors seeded as PLATFORM_ADMIN, dated. Empty since REQ-454 (T-0114): no tenant actor holds
+# PLATFORM_ADMIN and the seed scripts prepare tenants with TENANT_ADMIN or PROCESS_DESIGNER tokens.
+# The per-realm <slug>-admin-user and promo-proposer accounts are tooling accounts, not scenario
+# actors, so they are not listed here.
 legacy_platform_admin: {}

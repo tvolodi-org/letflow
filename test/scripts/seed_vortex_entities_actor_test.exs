@@ -38,6 +38,7 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActorTest do
   if [[ "$stdin_body" == "1" ]]; then body=$(cat); printf '%s' "$body" | jq -c . >> "$STUB_STDIN_LOG"; fi
   emit() { if [[ -n "$outfile" && "$outfile" != "/dev/null" ]]; then printf '%s' "$1" > "$outfile"; else printf '%s' "$1"; fi; }
   case "$method $url" in
+    "GET "*"/me/access") printf '{"permissions":["EntitiesDefinitionsRead","EntitiesDefinitionsWrite","EntitiesRecordsImport","EntitiesRestrictionsManage","UsersGroupsRolesManage"]}' ;;
     "GET "*"/by-name/"*)
       n=$(( $(cat "$STUB_COUNTER" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_COUNTER"
       if (( n >= 3 )); then printf '%s' "$STUB_OWNER_STATUS"
