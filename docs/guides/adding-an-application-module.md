@@ -310,7 +310,9 @@ completion late). A refusal rolls everything back, the task stays pending, and t
 one code and the declared line index: 403 `write_not_permitted` (one body for every cause),
 422 `validation_failed`/`entity_append_only`/`idempotency_conflict`/`entity_type_inactive`, 503
 `entity_write_contention` (retryable), 409 `entity_write_needs_reactivation` (the activator was
-deactivated: cancel the instance or re-activate through a rollback or promotion). The
+deactivated, or its recorded `activated_by` is unsigned, forged, edited or copied, or the
+signing key is rotated or disabled (GH #2644): cancel the instance and re-activate the definition,
+which re-signs it; rollback and promotion also sign). The
 engine-written `_sys.*` values are never returned to a client. `line_index: 20` with
 `validation_failed` means the 20-line cap was exceeded (a hand-edited snapshot), not a declared
 line. Pilot limit: scoped-type and

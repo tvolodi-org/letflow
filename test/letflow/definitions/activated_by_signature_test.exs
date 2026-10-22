@@ -20,6 +20,7 @@ defmodule Letflow.Definitions.ActivatedBySignatureTest do
   alias Letflow.Definitions.ActivatedBy
   alias Letflow.Definitions.Activator
   alias Letflow.Definitions.ProcessDefinition
+  alias Letflow.Definitions.Promotion
   alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.Repo
   alias Letflow.Secrets
@@ -300,7 +301,69 @@ defmodule Letflow.Definitions.ActivatedBySignatureTest do
     end
   end
 
+  describe "promotion re-signs the row it makes ACTIVE in the target tenant" do
+    test "T-PROMO-1: the promoted row verifies under the target key, not the source's signature" do
+      source = Fx.tenant_case!("t0250ps")
+      target = Fx.tenant_case!("t0250pt")
+      Fx.define_type!(source.schema, "stock_move", %{})
+      Fx.define_type!(target.schema, "stock_move", %{})
+      key = Fx.unique("t0250-promo")
+      lines = [line("stock_move")]
+
+      source_activator =
+        Activator.from_auth_context(%{user_id: source.user.id, roles: ["TENANT_ADMIN"]}, false)
+
+      src = create_and_activate!(source, key, "1", lines, source_activator)
+
+      target_activator =
+        Activator.from_auth_context(%{user_id: target.user.id, roles: ["TENANT_ADMIN"]}, false)
+
+      assert {:ok, %{definition_id: promoted_id}} =
+               Promotion.promote_active_definition(
+                 target.user.id,
+                 source.tenant.tenant_id,
+                 target.tenant.tenant_id,
+                 key,
+                 permission_checker: fn _actor, _tenant -> true end,
+                 tenant_classifier: fn _tenant -> :test end,
+                 event_appender: fn _attrs, _prefix ->
+                   {:ok, %{event_id: Ecto.UUID.generate()}}
+                 end,
+                 activator: target_activator
+               )
+
+      row = Repo.get!(ProcessDefinition, promoted_id, prefix: target.schema)
+      assert row.status == :active
+      assert {:ok, :verified} = ActivatedBy.verify(row.activated_by, row, target.schema)
+
+      # Not a copy of the source document: the source signature does not verify for the target row,
+      # and the target row's document does not verify under the source tenant's key.
+      source_row = Repo.get!(ProcessDefinition, src.id, prefix: source.schema)
+      refute row.activated_by["signature"] == source_row.activated_by["signature"]
+      assert {:error, :mismatch} = ActivatedBy.verify(source_row.activated_by, row, target.schema)
+      assert {:error, _} = ActivatedBy.verify(row.activated_by, row, source.schema)
+
+      {_instance, task} = Fx.start!(target.schema, row)
+
+      assert {:ok, _} =
+               Fx.complete(%{schema: target.schema, user: target.user, task: task}, %{
+                 "label" => "L1"
+               })
+    end
+  end
+
   describe "the key and its versions" do
+    test "T-KEY-3: a corrupted key row (a wrapped key that fails GCM) refuses, and nothing raises" do
+      ctx = case_with_writes!()
+      key = key_row(ctx.tenant.tenant_id)
+
+      {1, _} =
+        from(s in Secret, where: s.id == ^key.id)
+        |> Repo.update_all(set: [wrapped_data_key: :crypto.strong_rand_bytes(48)])
+
+      refused?(ctx)
+    end
+
     test "T-KEY-1: no key row means needs_reactivation, and the read path creates no key" do
       ctx = case_with_writes!()
 

@@ -75,8 +75,16 @@ The budget is also spent before the apply lands: the plan phase and `prepare/2` 
 The result of the service call is not stored, so there is no automatic re-apply:
 
 - `entity_write_needs_reactivation`: the definition's recorded activator is gone, deactivated or
-  no longer holds `EntitiesRecordsWrite`. Cancel the instance and re-activate the definition with
-  a current principal (rollback or promotion paths record a fresh activator).
+  no longer holds `EntitiesRecordsWrite`; or (GH #2644) the recorded `activated_by` document is not
+  a valid signature for this definition. The signature covers the definition id, version, graph
+  and the activator record, under the tenant's `activated-by-hmac` key (`sec://tenant/<slug>/platform/activated-by-hmac`).
+  It is refused when the document is unsigned (every ACTIVE row with `entity_writes` written before
+  the signature change, including the QA rows that auto-CD deploys), when the document or graph was
+  edited or copied to another definition, version or tenant, or when that key was rotated, disabled
+  or is missing. Nothing is back-filled or re-signed automatically. Recovery: cancel the instance,
+  then reactivate the definition with a current principal. Reactivation, rollback and promotion all
+  sign the document again. Key rotation: put the new version of the key first, then disable the
+  old one; documents signed under the old version are refused until the definition is reactivated.
 - `validation_failed` / `write_not_permitted` / `entity_append_only` / `entity_type_inactive`: fix
   the entity type or the definition (a data-dependent refusal means the response did not provide a
   field the type requires), cancel the instance and start a new one. The external effect of the
