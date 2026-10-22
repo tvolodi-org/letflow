@@ -64,7 +64,7 @@ defmodule Letflow.Modules.Exam.Router do
   ## Permission vocabulary -- candidate-reachable, not `PLATFORM_ADMIN`-only
 
   `ExamSessionStart`/`ExamSessionRead`/`ExamSessionSave`/`ExamSessionSubmit`/
-  `ExamSessionReportEvent`/`ExamCertificateIssue` (the first five minted in `Letflow.Api.Authorization`, following
+  `ExamSessionReportEvent`/`ExamCertificateIssue` (the first five minted in `Letflow.Api.Authorization`, the sixth, `ExamCertificateIssue`, declared by this module's manifest, following
   the `Entities*` naming precedent) are granted to `:CANDIDATE` -- a
   dedicated role added by ISS-0646 (see decision 0013's addendum) holding
   exactly these six permissions and nothing else, via
