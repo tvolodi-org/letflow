@@ -39,6 +39,17 @@ defmodule Letflow.Test.SandboxAutoMode do
   not otherwise need, or force the deferred case's restore to run a checkout
   from the wrong process — see the design doc §5 for the full rejection
   rationale.
+
+  ## Position on inline `:auto` (GH #2415 / #2424, ISS-0113, INV-F-6)
+
+  Inline `Sandbox.mode(Repo, :auto)` in a test file's own `setup` stays an accepted
+  convention for `async: false` files; there is no sweep over the existing files.
+  The exposure is closed from the victim side by
+  `mix letflow.check_async_sandbox_reachability`: every non-`async: true` file that
+  calls the `Repo` must use `Letflow.DataCase` or set its own sandbox mode/checkout
+  (or go through this module), and a new inline `Sandbox.mode(_, :auto)` outside the
+  checker's frozen `@inline_auto_allowlist` fails the build. New tests reach `:auto`
+  only through this module.
   """
 
   alias Ecto.Adapters.SQL.Sandbox
