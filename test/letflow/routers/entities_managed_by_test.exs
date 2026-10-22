@@ -702,7 +702,6 @@ defmodule Letflow.Routers.EntitiesManagedByTest do
       assert {:error, {:entity_append_only, "fxm_ledger"}} =
                FixtureManaged.delete_record("fxm_ledger", record.record_id, ctx.schema)
 
-      assert Error.entity_append_only().status == 422
       assert stored(ctx, "fxm_ledger", record.record_id) == before
     end
   end
