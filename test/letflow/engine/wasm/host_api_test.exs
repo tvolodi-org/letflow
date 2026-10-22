@@ -160,6 +160,38 @@ defmodule Letflow.Engine.Wasm.HostApiTest do
     end
   end
 
+  # GH #2646 (#2587 PR B3, INV-2): engine-written `_sys.*` bookkeeping is never readable by a
+  # guest; `host_api.ex` drops reserved keys before the lookup. A plain key is unchanged.
+  describe "GH #2646: read_variable never exposes reserved `_sys.*` keys" do
+    test "a `_sys.*` variable reads as absent (-1); a non-reserved key is returned unchanged" do
+      variables = %{"_sys.move" => "rec-secret", "_sys.move.seq" => 42, "greeting" => "hello"}
+
+      {pid, store, memory} =
+        start_instance(full_manifest(), wasm_execution_context(%{variables: variables}))
+
+      for sys_key <- ["_sys.move", "_sys.move.seq"] do
+        write_bytes(store, memory, 0, sys_key)
+
+        assert {:ok, [-1]} =
+                 Wasmex.call_function(pid, "call_read_variable", [
+                   0,
+                   byte_size(sys_key),
+                   @out_ptr,
+                   @out_cap
+                 ])
+      end
+
+      write_bytes(store, memory, 0, "greeting")
+
+      {:ok, _n, bytes} =
+        call_string_fn(pid, "call_read_variable", [0, byte_size("greeting")], store, memory)
+
+      assert Jason.decode!(bytes) == "hello"
+
+      GenServer.stop(pid)
+    end
+  end
+
   # ---------------------------------------------------------------------
   # AC6: number marshalling -- LuaNumberMarshalling, integer/float subtype round-trip.
   # ---------------------------------------------------------------------

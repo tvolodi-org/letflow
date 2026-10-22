@@ -122,7 +122,7 @@ Consequences to plan for:
   in ERROR (`write_not_permitted`, detail `hash_mismatch`) instead of waiting. Coordinate such a
   deploy so no service call of an affected definition is in flight, or expect to re-drive those
   instances after the upgrade path (decision 0055) exists.
-* A tenant that was never replayed to the `TASK_ENTITY_WRITES_APPLIED` v2 schema lands in ERROR
+* A tenant that was never replayed to the `TASK_ENTITY_WRITES_APPLIED` v3 schema lands in ERROR
   with detail `event_schema_outdated`. Run `TenantProvisioning.replay_all_pending/0` for every
   tenant BEFORE the first handler-calling service definition is activated.
 * A handler value larger than the service byte caps (64 KiB per value, 256 KiB per line, the same
