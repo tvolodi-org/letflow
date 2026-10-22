@@ -24,7 +24,7 @@ defmodule Letflow.Modules.FixtureLedgerOther do
     route_policies: [],
     manages_entity_types: ["fxo_other"],
     write_handlers: [
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "post_other",
         function: {Letflow.Modules.FixtureLedgerOther.Handlers, :post_other},
         targets: ["fxo_other"],

@@ -35,13 +35,13 @@ defmodule Letflow.Modules.FixtureLedger do
     route_policies: [],
     manages_entity_types: ["fxl_ledger", "fxl_balance"],
     write_handlers: [
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "post_entry",
         function: {Letflow.Modules.FixtureLedger.Handlers, :post_entry},
         targets: ["fxl_ledger", "fxl_balance"],
         args: %{"item" => %{required: true}, "quantity" => %{required: true}}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "post_balance_only",
         function: {Letflow.Modules.FixtureLedger.Handlers, :post_balance_only},
         targets: ["fxl_balance"],

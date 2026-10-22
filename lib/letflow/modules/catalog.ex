@@ -53,6 +53,7 @@ defmodule Letflow.Modules.Catalog do
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.ManifestHash
   alias Letflow.Modules.Module
+  alias Letflow.Modules.WriteHandlerSpec
 
   @modules Application.compile_env(:letflow, :modules, [])
 
@@ -69,8 +70,8 @@ defmodule Letflow.Modules.Catalog do
     `Catalog.call_write_handler/4` re-resolves by `module_id` and `name`, so
     every other field (`entry_module`, `targets`, `args`) of a forged value is
     ignored there. Consumers that need the targets re-resolve through
-    `Catalog.write_handler/2`. Follow-up (letflow-2): a struct per handler
-    spec instead of a bare map for the manifest entry.
+    `Catalog.write_handler/2`. The manifest entry is a `Letflow.Modules.WriteHandlerSpec`
+    struct.
     """
 
     @enforce_keys [:module_id, :name, :entry_module, :targets, :args]
@@ -315,11 +316,11 @@ defmodule Letflow.Modules.Catalog do
       other manifest in known-set order.
 
   Rule 10 (GH #2590 / REQ-501 R1, design section 4.1) runs last: the optional
-  `:write_handlers` key, a list of `%{name, function: {Mod, :fun}, targets,
-  args}`. Absent or `[]` is valid. Errors, first one returned:
+  `:write_handlers` key, a list of `Letflow.Modules.WriteHandlerSpec` structs
+  (`name`, `function: {Mod, :fun}`, `targets`, `args`). Absent or `[]` is valid. Errors, first one returned:
 
-    * `{:invalid_write_handlers, value}` - not a list of maps with exactly the
-      four keys, a name outside `^[a-z][a-z0-9_]{0,63}$`, `targets` not a list
+    * `{:invalid_write_handlers, value}` - not a list of valid
+      `WriteHandlerSpec` structs (a plain map is refused), a name outside `^[a-z][a-z0-9_]{0,63}$`, `targets` not a list
       of distinct binaries, `args` not `%{binary => %{required: boolean}}`, or
       `function` not a `{module, function}` atom pair.
     * `{:duplicate_write_handler, name}`.
@@ -606,30 +607,7 @@ defmodule Letflow.Modules.Catalog do
     end
   end
 
-  @handler_keys [:args, :function, :name, :targets]
-
-  defp well_formed_handler?(%{} = handler) do
-    Enum.sort(Map.keys(handler)) == @handler_keys and
-      is_binary(handler.name) and Regex.match?(@name_format, handler.name) and
-      match?({m, f} when is_atom(m) and is_atom(f), handler.function) and
-      is_list(handler.targets) and Enum.all?(handler.targets, &is_binary/1) and
-      Enum.uniq(handler.targets) == handler.targets and
-      well_formed_args?(handler.args)
-  end
-
-  defp well_formed_handler?(_other), do: false
-
-  defp well_formed_args?(args) when is_map(args) and not is_struct(args) do
-    Enum.all?(args, fn
-      {name, %{required: required} = spec} ->
-        is_binary(name) and is_boolean(required) and map_size(spec) == 1
-
-      _ ->
-        false
-    end)
-  end
-
-  defp well_formed_args?(_other), do: false
+  defp well_formed_handler?(handler), do: WriteHandlerSpec.valid?(handler)
 
   defp check_handler_names_unique(handlers) do
     names = Enum.map(handlers, & &1.name)

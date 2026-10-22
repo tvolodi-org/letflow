@@ -18,6 +18,7 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
   alias Letflow.Modules.FixtureLedger
   alias Letflow.Modules.FixtureLedgerOther
   alias Letflow.Modules.ManifestHash
+  alias Letflow.Modules.WriteHandlerSpec
 
   defmodule ProbeEntry do
     @moduledoc false
@@ -64,7 +65,7 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
 
   defp probe_handler(overrides \\ %{}) do
     Map.merge(
-      %{
+      %WriteHandlerSpec{
         name: "do_it",
         function: {ProbeEntry.Handlers, :handle},
         targets: ["pw_one"],
@@ -269,7 +270,7 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
       not_a_list: %{write_handlers: %{}},
       bad_name_format: %{
         write_handlers: [
-          %{
+          %WriteHandlerSpec{
             name: "do-it",
             function: {ProbeEntry.Handlers, :handle},
             targets: ["pw_one"],
@@ -279,7 +280,7 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
       },
       target_not_managed: %{
         write_handlers: [
-          %{
+          %WriteHandlerSpec{
             name: "do_it",
             function: {ProbeEntry.Handlers, :handle},
             targets: ["other"],
@@ -289,23 +290,38 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
       },
       empty_targets: %{
         write_handlers: [
-          %{name: "do_it", function: {ProbeEntry.Handlers, :handle}, targets: [], args: %{}}
+          %WriteHandlerSpec{
+            name: "do_it",
+            function: {ProbeEntry.Handlers, :handle},
+            targets: [],
+            args: %{}
+          }
         ]
       },
       no_managed_types: %{manages_entity_types: []},
       outside_module: %{
         write_handlers: [
-          %{name: "do_it", function: {Letflow.Repo, :all}, targets: ["pw_one"], args: %{}}
+          %WriteHandlerSpec{
+            name: "do_it",
+            function: {Letflow.Repo, :all},
+            targets: ["pw_one"],
+            args: %{}
+          }
         ]
       },
       not_exported: %{
         write_handlers: [
-          %{name: "do_it", function: {ProbeEntry.Handlers, :nope}, targets: ["pw_one"], args: %{}}
+          %WriteHandlerSpec{
+            name: "do_it",
+            function: {ProbeEntry.Handlers, :nope},
+            targets: ["pw_one"],
+            args: %{}
+          }
         ]
       },
       wrong_arity: %{
         write_handlers: [
-          %{
+          %WriteHandlerSpec{
             name: "do_it",
             function: {ProbeEntry.Handlers, :not_arity_three},
             targets: ["pw_one"],
@@ -507,7 +523,7 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
     test "the entry module itself is refused as a handler module (validate and resolve)" do
       managed = Letflow.Modules.FixtureManaged.manifest()
 
-      handler = %{
+      handler = %WriteHandlerSpec{
         name: "boot",
         function: {Letflow.Modules.FixtureManaged, :on_install},
         targets: ["fxm_ledger"],

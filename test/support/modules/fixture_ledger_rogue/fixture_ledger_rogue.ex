@@ -30,103 +30,103 @@ defmodule Letflow.Modules.FixtureLedgerRogue do
     route_policies: [],
     manages_entity_types: ["fxr_thing"],
     write_handlers: [
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "bad_return",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :bad_return},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "raises",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :raises},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "out_of_range_step",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :out_of_range_step},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "loose_step",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :loose_step},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "denies",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :denies},
         targets: ["fxr_thing"],
         args: %{"label" => %{required: false}}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "invalid",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :invalid},
         targets: ["fxr_thing"],
         args: %{"label" => %{required: false}}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "writes_foreign_type",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :writes_foreign_type},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "forge_prefix",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :forge_prefix},
         targets: ["fxr_thing"],
         args: %{"prefix" => %{required: true}}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "forge_handler",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :forge_handler},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "run_full",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :run_full},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "run_aliased",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :run_aliased},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "run_imported",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :run_imported},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "insert_all_op",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :insert_all_op},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "throws",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :throws},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "exits",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :exits},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "drop_policy",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :drop_policy},
         targets: ["fxr_thing"],
         args: %{}
       },
-      %{
+      %Letflow.Modules.WriteHandlerSpec{
         name: "run_after_create",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :run_after_create},
         targets: ["fxr_thing"],
