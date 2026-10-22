@@ -726,6 +726,49 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
     )
   end
 
+  # GH #2773: runs `fun` and returns the number of active-definition lookups (one `artifact_activations` read each) per type name
+  # (the type is told apart by the query's bound parameters).
+  defp definition_reads_by_type(fun, ctx) do
+    parent = self()
+    handler = "gh2773-by-type-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      Repo.config()[:telemetry_prefix] ++ [:query],
+      fn _event, _measurements, metadata, _config ->
+        query = Map.get(metadata, :query, "")
+
+        if self() == parent and
+             String.contains?(query, ~s("#{ctx.schema_name}"."artifact_activations")) do
+          send(parent, {:definition_read, Map.get(metadata, :params, [])})
+        end
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler)
+    end
+
+    ["ledger", "line", "tag"]
+    |> Map.new(fn type -> {type, 0} end)
+    |> Map.merge(
+      Enum.frequencies_by(drain_definition_reads([]), fn params ->
+        Enum.find(["ledger", "line", "tag"], &(&1 in params))
+      end)
+    )
+  end
+
+  defp drain_definition_reads(acc) do
+    receive do
+      {:definition_read, params} -> drain_definition_reads([params | acc])
+    after
+      0 -> acc
+    end
+  end
+
   describe "joined rows (review 1)" do
     setup do
       ctx = tenant_ctx("gh2654r-join")
@@ -796,6 +839,42 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
       assert item["line"]["field_values"]["lamount"] == 1.5
       # joined type with no decimal field: untouched
       assert item["tag"]["field_values"]["label"] == "t"
+    end
+
+    # Pinned lookup counts per type (one `artifact_activations` read per active-definition
+    # lookup). The compiler, allowlist and cursor read definitions themselves; the router's
+    # specs step adds NO read for the primary type ("ledger") and exactly ONE per distinct join
+    # target ("line", "tag"). Restoring a router read of the primary raises "ledger" above 8.
+    @expected_join_reads %{"ledger" => 8, "line" => 4, "tag" => 4}
+
+    test "GH #2773: the query route adds no primary definition read, one per join target",
+         %{ctx: ctx} do
+      reads =
+        definition_reads_by_type(
+          fn ->
+            conn = query(ctx, %{"entity_type" => "ledger", "join" => @joins})
+            assert conn.status == 200, conn.resp_body
+          end,
+          ctx
+        )
+
+      assert reads == @expected_join_reads
+    end
+
+    test "GH #2773: the export route adds no primary definition read, one per join target",
+         %{ctx: ctx} do
+      reads =
+        definition_reads_by_type(
+          fn ->
+            conn =
+              request(:post, "/api/v1/entities/records/ledger/export", ctx, %{"join" => @joins})
+
+            assert conn.status == 200, conn.resp_body
+          end,
+          ctx
+        )
+
+      assert reads == @expected_join_reads
     end
 
     test "export with a join renders the primary side", %{ctx: ctx} do

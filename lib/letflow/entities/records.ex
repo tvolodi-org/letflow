@@ -258,8 +258,8 @@ defmodule Letflow.Entities.Records do
 
   @typedoc """
   GH #2773: `strict_specs` are the strict decimal specs of the definition the command validated
-  against (create, update, delete), so the router renders the response without a second
-  definition read. Absent on results built elsewhere (upsert, duplicate replays of other paths).
+  against, so the router renders without a second definition read. Create, update, delete and the
+  upsert create branch carry it; results from other entry points may lack it.
   """
   @type command_result :: %{
           required(:record) => Latest.t(),
