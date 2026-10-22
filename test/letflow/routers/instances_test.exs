@@ -377,6 +377,27 @@ defmodule Letflow.Routers.InstancesTest do
       reused = rebind.("gh2577-rebind-key", "another reason")
       assert reused.status == 422
       assert Jason.decode!(reused.resp_body)["code"] == "idempotency_key_reuse"
+
+      # the replays wrote no second INSTANCE_PINS_REBOUND
+      assert rebind_count(tenant.schema_name, instance_id) == 1
+
+      # a different key with a new version is a new pin version: a second event
+      fresh =
+        build_conn("POST", "/#{instance_id}/rebind-pins", tenant, %{
+          roles: ["PROCESS_OPERATOR", "ADMIN"],
+          user_id: user_id,
+          body: %{
+            "reason" => "bump",
+            "entries" => [
+              %{"kind" => "variable_schema", "ref" => definition.name, "version" => "v10"}
+            ]
+          }
+        })
+        |> keyed("gh2577-rebind-other-key")
+        |> dispatch()
+
+      assert fresh.status == 200
+      assert rebind_count(tenant.schema_name, instance_id) == 2
     end
   end
 
@@ -1331,6 +1352,12 @@ defmodule Letflow.Routers.InstancesTest do
   end
 
   # ── REQ-080 test helpers ─────────────────────────────────────────────
+
+  defp rebind_count(schema_name, instance_id) do
+    Letflow.EventStore.Event
+    |> where([e], e.instance_id == ^instance_id and e.event_type == "INSTANCE_PINS_REBOUND")
+    |> Letflow.Repo.aggregate(:count, prefix: schema_name)
+  end
 
   defp cancel_instance!(schema_name, instance_id) do
     assert {:ok, _} =

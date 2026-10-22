@@ -618,6 +618,7 @@ defmodule Letflow.Engine do
          {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, initial_variables} <- fetch_initial_variables(attrs),
          :continue <- start_replay_check(attrs, initial_variables, prefix),
+         :ok <- start_race_gate(attrs),
          {:ok, definition} <- resolve_definition(attrs, opts) do
       correlation_key = Map.get(attrs, :correlation_key)
       start_instance(definition, initial_variables, correlation_key, attrs, tenant_id, prefix)
@@ -669,6 +670,33 @@ defmodule Letflow.Engine do
   end
 
   defp start_replay_check(_attrs, _initial_variables, _prefix), do: :continue
+
+  # Test seam (GH #2577, T-start-race), compiled ONLY when `:engine_test_seams` is true. A start
+  # whose key the test armed in `:persistent_term` waits here, after `start_replay_check/3` has
+  # answered `:continue` and before any insert, until the test releases it. Two armed starts
+  # therefore both pass the replay check before either inserts: the race `resolve_start_race/5`
+  # answers. The wait is bounded, so a test that never releases the gate cannot hang.
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    defp start_race_gate(%{idempotency_key: key}) when is_binary(key) do
+      case :persistent_term.get({__MODULE__, :start_race_gate}, nil) do
+        {test_pid, ^key} ->
+          send(test_pid, {:start_race_arrived, self()})
+
+          receive do
+            :start_race_go -> :ok
+          after
+            10_000 -> :ok
+          end
+
+        _not_armed ->
+          :ok
+      end
+    end
+
+    defp start_race_gate(_attrs), do: :ok
+  else
+    defp start_race_gate(_attrs), do: :ok
+  end
 
   defp start_replay(%EventStore.Event{} = original, attrs, initial_variables, prefix) do
     if same_start_request?(original, attrs, initial_variables, prefix) do
@@ -6513,10 +6541,13 @@ defmodule Letflow.Engine do
 
     # GH #2577 (D-4): the replay is mapped here, after the transaction has returned. Inside it,
     # ScriptTaskDispatcher.apply_with_followup/3 would turn any error into a script_rejected row.
+    # The failure landing (script_failure/7) shares the SCRIPT_TASK_COMPLETED key, so its replay
+    # arrives as :idempotency_key_reuse from ExecutionError.append_multi/3 and maps the same way.
     outcome = if plan == nil, do: run.(), else: rescue_service_contention(run)
 
     case outcome do
       {:error, {:idempotent_replay, _original}} -> {:ok, :stale}
+      {:error, :idempotency_key_reuse} -> {:ok, :stale}
       outcome -> outcome
     end
   rescue
