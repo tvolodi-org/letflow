@@ -2592,7 +2592,7 @@ defmodule Letflow.Identity do
   Returns `{:ok, %{token: token, plaintext: plaintext}}` on success —
   `plaintext` is a bare local value that exists only in this return tuple,
   never assigned to any struct field, never persisted, never logged (INV-4).
-  The shared `insert_token/5` is the only place that generates the plaintext;
+  The shared `insert_token/6` is the only place that generates the plaintext;
   it is returned through this function and `mint_token/4` (GH 2552) only.
 
   GH 2547 (design `gh2547-tenant-admin-audit-and-count.md` sections 3.9, 6.6): the

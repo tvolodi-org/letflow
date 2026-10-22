@@ -699,7 +699,7 @@ defmodule Letflow.Routers.Gh2552TokenIssuerTest do
     end
 
     # REVIEWER fix 8034c1a6: the private guard platform_admin_token_max_ttl_days/0 raises on a
-    # value outside 1..366 (or a non-integer). insert_token/5's rescue turns the raise into
+    # value outside 1..366 (or a non-integer). insert_token/6's rescue turns the raise into
     # {:transaction_failed, _}, which the router maps to 500. Fail closed: never a token.
     test "misconfigured :platform_admin_token_max_ttl_days (0, -1, \"90\", 367, 10_000) fails closed: raise -> :transaction_failed, HTTP 500, no row, no audit",
          %{p: p} do
