@@ -168,6 +168,14 @@ defmodule Letflow.Engine.VariableMerge do
           {:variable_overwritten, key :: String.t(), old_value :: term(), new_value :: term()}
 
   @typedoc """
+  The label-aware overwrite outcome of `merge/5`: `merge_event` plus the label lists before and
+  after (`[]` when unlabelled).
+  """
+  @type labelled_merge_event ::
+          {:variable_overwritten, key :: String.t(), old_value :: term(), new_value :: term(),
+           old_labels :: [String.t()], new_labels :: [String.t()]}
+
+  @typedoc """
   One `EXECUTION_ERROR` outcome — emitted for the first (sorted-order) key,
   new or overwrite, whose `variable_validations` entry is `{:rejected,
   failures}` (`docs/migration/decisions/0007-variable-merge-validates-new-keys.md`,
@@ -281,15 +289,62 @@ defmodule Letflow.Engine.VariableMerge do
           variable_validations :: variable_validations() | nil
         ) :: merge_result()
   def merge(current_variables, incoming_variables, variable_validations) do
-    case reserved_keys(incoming_variables) do
-      [] -> merge_unreserved(current_variables, incoming_variables, variable_validations)
-      [key | _] -> {:rejected, current_variables, [reserved_rejection(key)]}
+    case merge(current_variables, %{}, incoming_variables, %{}, variable_validations) do
+      {:ok, new_variables, _labels, events} -> {:ok, new_variables, trim_label_fields(events)}
+      {:rejected, _vars, _events} = rejected -> rejected
     end
+  end
+
+  @doc """
+  Label-aware merge (decision 0062 R7a): the ONLY writer of per-variable labels. Same rules as
+  `merge/3`, plus: for each incoming key the stored label entry becomes the sanitized
+  `incoming_labels[key]` (sorted, unique, binaries only); an empty or absent label set REMOVES the
+  entry (an unlabelled source replaces the value). Labels of keys not in `incoming_variables` are
+  ignored on input and untouched in `current_labels`. Overwrite events are
+  `{:variable_overwritten, key, old_value, new_value, old_labels, new_labels}` (label lists, `[]`
+  when none). A rejection returns the current variables only; the caller keeps its own labels.
+  """
+  @spec merge(map(), map(), map(), map(), variable_validations() | nil) ::
+          {:ok, map(), map(), [labelled_merge_event()]}
+          | {:rejected, map(), [execution_error_event()]}
+  def merge(
+        current_variables,
+        current_labels,
+        incoming_variables,
+        incoming_labels,
+        variable_validations
+      ) do
+    case reserved_keys(incoming_variables) do
+      [] ->
+        merge_unreserved(
+          current_variables,
+          current_labels || %{},
+          incoming_variables,
+          incoming_labels || %{},
+          variable_validations
+        )
+
+      [key | _] ->
+        {:rejected, current_variables, [reserved_rejection(key)]}
+    end
+  end
+
+  defp trim_label_fields(events) do
+    Enum.map(events, fn
+      {:variable_overwritten, key, old, new, _old_labels, _new_labels} ->
+        {:variable_overwritten, key, old, new}
+    end)
   end
 
   defp reserved_rejection(key), do: {:execution_error, key, nil, :reserved_variable_key, []}
 
-  defp merge_unreserved(current_variables, incoming_variables, variable_validations) do
+  defp merge_unreserved(
+         current_variables,
+         current_labels,
+         incoming_variables,
+         incoming_labels,
+         variable_validations
+       ) do
     validations = variable_validations || %{}
     all_keys = incoming_variables |> Map.keys() |> Enum.sort()
 
@@ -312,13 +367,35 @@ defmodule Letflow.Engine.VariableMerge do
           Enum.reduce(overwrite_keys, {variables_with_inserts, []}, fn key, {vars, events} ->
             old_value = Map.get(current_variables, key)
             new_value = Map.fetch!(incoming_variables, key)
-            event = {:variable_overwritten, key, old_value, new_value}
+            old_labels = Map.get(current_labels, key, [])
+            new_labels = sanitize_labels(Map.get(incoming_labels, key))
+
+            event =
+              {:variable_overwritten, key, old_value, new_value, old_labels, new_labels}
+
             {Map.put(vars, key, new_value), [event | events]}
           end)
 
-        {:ok, new_variables, Enum.reverse(events_reversed)}
+        new_label_map =
+          Enum.reduce(all_keys, current_labels, fn key, acc ->
+            case sanitize_labels(Map.get(incoming_labels, key)) do
+              [] -> Map.delete(acc, key)
+              labels -> Map.put(acc, key, labels)
+            end
+          end)
+
+        {:ok, new_variables, new_label_map, Enum.reverse(events_reversed)}
     end
   end
+
+  @doc """
+  A label list as stored: binaries only, unique, sorted. Anything that is not a list is `[]`.
+  """
+  @spec sanitize_labels(term()) :: [String.t()]
+  def sanitize_labels(labels) when is_list(labels),
+    do: labels |> Enum.filter(&is_binary/1) |> Enum.uniq() |> Enum.sort()
+
+  def sanitize_labels(_labels), do: []
 
   @doc """
   Whether `key` is reserved: the string form of a binary or atom key is

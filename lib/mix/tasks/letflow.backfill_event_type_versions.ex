@@ -4,12 +4,12 @@ defmodule Mix.Tasks.Letflow.BackfillEventTypeVersions do
   @moduledoc """
   Backfills event type schema versions for all tenants provisioned before a
   given bump landed. Sweeps a list of event-type version bumps
-  (`@event_type_backfills`) rather than a single hardcoded one.
+  (`event_type_backfills/0`) rather than a single hardcoded one.
 
   Backfills the DEFINITION_PROMOTED event type to schema_version 2 for all
   tenants provisioned before REQ-077 bumped the seed (ISS-0332).
 
-  Backfills the TASK_COMPLETED event type to schema_version 3 for all tenants
+  Backfills the TASK_COMPLETED event type to the current seed version (4) for all tenants
   provisioned before REQ-292/REQ-391 bumped the seed (ISS-0583, then REQ-391):
   `merged_variable_events` now also carries the `computed_field_disagreement` and
   `visible_when_false_value_discarded` event kinds alongside the original
@@ -21,6 +21,11 @@ defmodule Mix.Tasks.Letflow.BackfillEventTypeVersions do
   separate backfill calls -- both bumps are additive/optional fields, so a v1
   or v2 row validates identically against the wider v3 schema for every
   payload either version already produced.
+
+  Decision 0062 R8h-5 (GH #2616): also brings INSTANCE_STARTED, SUB_PROCESS_COMPLETED,
+  EXECUTION_ERROR and SCRIPT_TASK_COMPLETED to schema_version 2 and TASK_COMPLETED to 4, the
+  versions that declare the optional restriction-label fields. These attrs are read from the
+  seed (`Letflow.TenantProvisioning.platform_event_type_seed_attrs/1`), not copied.
 
   Backfills the two new REQ-391 event types, ATTACHMENT_ATTACHED and
   ATTACHMENT_REMOVED (both schema_version 1), for all tenants provisioned
@@ -71,77 +76,19 @@ defmodule Mix.Tasks.Letflow.BackfillEventTypeVersions do
     }
   }
 
-  @task_completed_v3_attrs %{
-    name: "TASK_COMPLETED",
-    schema_version: 3,
-    description:
-      "Emitted by Letflow.Engine.complete_task/3 (M9, EE-04) when a user task is completed. " <>
-        "Bumped from schema_version 1 to 2 (REQ-292): merged_variable_events now also carries " <>
-        "the two new FormExpressionReevaluation.reevaluation_event() kinds " <>
-        "(\"computed_field_disagreement\", \"visible_when_false_value_discarded\") alongside " <>
-        "the original \"variable_overwritten\" -- widened to a single flat item schema (this " <>
-        "validator has no oneOf/anyOf support, Letflow.EventStore.Registry.JsonSchema's own " <>
-        "moduledoc) whose \"required\" only still names \"event\" (the one key every kind " <>
-        "shares); \"key\"/\"field\"/\"old_value\"/\"new_value\"/\"submitted_value\"/" <>
-        "\"server_value\"/\"discarded_value\" are all declared but optional, since which ones " <>
-        "are present depends on which event kind a given array element is. Bumped from " <>
-        "schema_version 2 to 3 (REQ-391): the payload now also carries " <>
-        "\"attachments_at_decision\", a snapshot of every instance_attachments row present on " <>
-        "the instance at completion time. KNOWN GAP, flagged for REVIEWER, same shape as " <>
-        "DEFINITION_PROMOTED's own schema_version 1->2 bump above: this only widens the schema " <>
-        "seeded into TENANTS PROVISIONED FROM THIS POINT ON -- a tenant provisioned before this " <>
-        "change keeps validating TASK_COMPLETED against an earlier version until something " <>
-        "backfills it.",
-    json_schema: %{
-      "type" => "object",
-      "properties" => %{
-        "task_id" => %{"type" => "string"},
-        "node_id" => %{"type" => "string"},
-        "output_variables" => %{"type" => "object"},
-        "merged_variable_events" => %{
-          "type" => "array",
-          "items" => %{
-            "type" => "object",
-            "properties" => %{
-              "event" => %{
-                "type" => "string",
-                "enum" => [
-                  "variable_overwritten",
-                  "computed_field_disagreement",
-                  "visible_when_false_value_discarded"
-                ]
-              },
-              "key" => %{"type" => "string"},
-              "field" => %{"type" => "string"},
-              "old_value" => %{},
-              "new_value" => %{},
-              "submitted_value" => %{},
-              "server_value" => %{},
-              "discarded_value" => %{}
-            },
-            "required" => ["event"]
-          }
-        },
-        "activated_nodes" => %{"type" => "array", "items" => %{"type" => "string"}},
-        "attachments_at_decision" => %{
-          "type" => "array",
-          "items" => %{
-            "type" => "object",
-            "properties" => %{
-              "attachment_id" => %{"type" => "string"},
-              "file_name" => %{"type" => "string"},
-              "content_type" => %{"type" => "string"},
-              "byte_size" => %{"type" => "integer"},
-              "uploaded_by" => %{"type" => "string"},
-              "created_at" => %{"type" => "string"}
-            },
-            "required" => ["attachment_id", "file_name"]
-          }
-        }
-      },
-      "required" => ["task_id", "node_id", "output_variables", "activated_nodes"]
-    }
-  }
+  # Event types brought to the CURRENT seed version, read from the seed itself
+  # (`TenantProvisioning.platform_event_type_seed_attrs/1`) so no schema is copied here.
+  # TASK_COMPLETED: v1->v2 (REQ-292), v2->v3 (REQ-391), v3->v4 (decision 0062 R8h-5); the rest
+  # are the decision 0062 R8h-5 bumps (GH #2616): INSTANCE_STARTED, SUB_PROCESS_COMPLETED,
+  # EXECUTION_ERROR and SCRIPT_TASK_COMPLETED, each 1->2. All bumps only add optional
+  # fields, so a row at an earlier version validates every payload it ever produced.
+  @seed_backfilled_types [
+    "TASK_COMPLETED",
+    "INSTANCE_STARTED",
+    "SUB_PROCESS_COMPLETED",
+    "EXECUTION_ERROR",
+    "SCRIPT_TASK_COMPLETED"
+  ]
 
   @attachment_attached_v1_attrs %{
     name: "ATTACHMENT_ATTACHED",
@@ -180,12 +127,14 @@ defmodule Mix.Tasks.Letflow.BackfillEventTypeVersions do
     }
   }
 
-  @event_type_backfills [
-    @definition_promoted_v2_attrs,
-    @task_completed_v3_attrs,
-    @attachment_attached_v1_attrs,
-    @attachment_removed_v1_attrs
-  ]
+  defp event_type_backfills do
+    [@definition_promoted_v2_attrs] ++
+      Enum.map(
+        @seed_backfilled_types,
+        &Letflow.TenantProvisioning.platform_event_type_seed_attrs/1
+      ) ++
+      [@attachment_attached_v1_attrs, @attachment_removed_v1_attrs]
+  end
 
   @impl Mix.Task
   @spec run(argv :: [String.t()]) :: :ok
@@ -193,7 +142,7 @@ defmodule Mix.Tasks.Letflow.BackfillEventTypeVersions do
     Mix.Task.run("app.start")
 
     any_failed? =
-      Enum.reduce(@event_type_backfills, false, fn attrs, acc_failed? ->
+      Enum.reduce(event_type_backfills(), false, fn attrs, acc_failed? ->
         name = attrs[:name] || attrs["name"]
 
         case Letflow.TenantProvisioning.Backfill.run(attrs) do

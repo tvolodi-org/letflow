@@ -27,7 +27,7 @@ defmodule Letflow.TenantProvisioningScriptEventsTest do
 
   test "new tenant seeded" do
     %{schema_name: schema} = TenantFixture.provisioned_tenant!(slug_prefix: "gh2534-7c-ev")
-    assert registered(schema) == [{"SCRIPT_RUN_RECORDED", 1}, {"SCRIPT_TASK_COMPLETED", 1}]
+    assert registered(schema) == [{"SCRIPT_RUN_RECORDED", 1}, {"SCRIPT_TASK_COMPLETED", 2}]
   end
 
   test "existing tenant seeded on replay" do
@@ -39,7 +39,7 @@ defmodule Letflow.TenantProvisioningScriptEventsTest do
     assert registered(schema) == []
 
     assert {:ok, _} = TenantProvisioning.replay_migrations(tenant_id)
-    assert registered(schema) == [{"SCRIPT_RUN_RECORDED", 1}, {"SCRIPT_TASK_COMPLETED", 1}]
+    assert registered(schema) == [{"SCRIPT_RUN_RECORDED", 1}, {"SCRIPT_TASK_COMPLETED", 2}]
   end
 
   test "migrations idempotent" do

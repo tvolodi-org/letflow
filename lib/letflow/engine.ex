@@ -527,6 +527,7 @@ defmodule Letflow.Engine do
   alias Letflow.Engine.Token
   alias Letflow.Engine.TokenRecord
   alias Letflow.Engine.Transition
+  alias Letflow.Engine.VariableLabels
   alias Letflow.Engine.VariableMerge
   alias Letflow.Engine.VariableSchema
   alias Letflow.Dlq
@@ -949,6 +950,7 @@ defmodule Letflow.Engine do
                  instance_id,
                  new_instance_state.variables,
                  node,
+                 parent_variable_labels: new_instance_state.variable_labels,
                  prefix: prefix
                ) do
             {:ok, prepared} ->
@@ -3690,7 +3692,8 @@ defmodule Letflow.Engine do
     error_state = %InstanceState{
       seed_instance_state
       | status: :error,
-        variables: error_args.variables
+        variables: error_args.variables,
+        variable_labels: Map.get(error_args, :labels, seed_instance_state.variable_labels)
     }
 
     snapshot_instance(instance_id, error_state, sequence_number, prefix)
@@ -3876,7 +3879,8 @@ defmodule Letflow.Engine do
       tokens: active_tokens,
       variables: projection.variables,
       pending_task_nodes: pending_task_tokens,
-      join_counters: SnapshotWriter.deserialize_join_counters(projection.join_counters)
+      join_counters: SnapshotWriter.deserialize_join_counters(projection.join_counters),
+      variable_labels: projection.variable_labels
     }
   end
 
@@ -4944,9 +4948,16 @@ defmodule Letflow.Engine do
         pending_task_tokens = load_pending_task_tokens(repo, dispatch.instance_id, prefix)
         seed_state = build_instance_state(projection, active_tokens, pending_task_tokens)
 
-        case VariableMerge.merge(seed_state.variables, decoded_body, nil) do
-          {:ok, merged_variables, _merge_events} ->
-            state_with_merged_variables = %InstanceState{seed_state | variables: merged_variables}
+        case VariableMerge.merge(
+               seed_state.variables,
+               seed_state.variable_labels,
+               decoded_body,
+               %{},
+               nil
+             ) do
+          {:ok, merged_variables, merged_labels, _merge_events} ->
+            state_with_merged_variables =
+              VariableLabels.put_merged(seed_state, merged_variables, merged_labels)
 
             persist_service_task_advance(
               repo,
@@ -5018,7 +5029,8 @@ defmodule Letflow.Engine do
            required(:idempotency_key) => String.t(),
            required(:on_advanced) => (Multi.t() -> Multi.t()),
            required(:on_no_matching_edge) => (Multi.t() -> Multi.t()),
-           optional(:incident_variables) => map()
+           optional(:incident_variables) => map(),
+           optional(:incident_labels) => map()
          }
 
   @spec dispatch_ref(map()) :: dispatch_ref()
@@ -5204,6 +5216,11 @@ defmodule Letflow.Engine do
         Map.get(completion, :incident_variables, state_with_merged_variables.variables),
         EventStore.platform_actor_id(),
         completion.idempotency_key
+      )
+      # The labels belong to the variables recorded above (decision 0062 R7a).
+      |> Map.put(
+        :labels,
+        Map.get(completion, :incident_labels, state_with_merged_variables.variable_labels)
       )
 
     multi =
@@ -6633,18 +6650,28 @@ defmodule Letflow.Engine do
             script_failure(repo, row, projection, :script_rejected, :apply_failed, facts, prefix)
 
           {:ok, validations} ->
-            case VariableMerge.merge(seed_state.variables, output, validations) do
-              {:ok, merged_variables, _merge_events} ->
+            # Decision 0062 seam: labels reach the merge only through the run facts (the part-3
+            # runtime sets them; part 1 tests do). Absent means an unlabelled output.
+            output_labels = VariableLabels.take(Map.get(facts, :output_labels, %{}), output)
+
+            case VariableMerge.merge(
+                   seed_state.variables,
+                   seed_state.variable_labels,
+                   output,
+                   output_labels,
+                   validations
+                 ) do
+              {:ok, merged_variables, merged_labels, _merge_events} ->
                 persist_service_task_advance(
                   repo,
                   dispatch_ref(row),
                   projection,
                   graph,
                   seed_state,
-                  %InstanceState{seed_state | variables: merged_variables},
+                  VariableLabels.put_merged(seed_state, merged_variables, merged_labels),
                   active_token_records,
                   own_token,
-                  script_completion(row, projection, output, facts, prefix)
+                  script_completion(row, projection, output, output_labels, facts, prefix)
                   |> put_service_entity_plan(plan),
                   prefix
                 )
@@ -6683,23 +6710,26 @@ defmodule Letflow.Engine do
 
   # Section 6 payload; on_advanced/on_no_matching_edge add the run record and the row's
   # terminal status to the same Multi (5.4 step 3).
-  defp script_completion(row, projection, output, facts, prefix) do
+  defp script_completion(row, projection, output, output_labels, facts, prefix) do
     record = RunRecord.build(facts)
 
     %{
       event_type: "SCRIPT_TASK_COMPLETED",
-      event_payload: %{
-        "dispatch_id" => row.id,
-        "node_id" => row.node_id,
-        "attempt" => row.attempt,
-        "script_key" => row.script_key,
-        "script_version" => row.script_version,
-        "output" => output
-      },
+      event_payload:
+        %{
+          "dispatch_id" => row.id,
+          "node_id" => row.node_id,
+          "attempt" => row.attempt,
+          "script_key" => row.script_key,
+          "script_version" => row.script_version,
+          "output" => output
+        }
+        |> VariableLabels.put_label_field("output_labels", output_labels),
       idempotency_key: "script_task_dispatch:#{row.id}:#{row.attempt}",
       # C16 (SEC S3): the no-matching-edge incident records the CURRENT variables, unchanged
       # (the script output is not committed on that path).
       incident_variables: projection.variables,
+      incident_labels: projection.variable_labels,
       on_advanced: fn multi ->
         multi
         |> append_script_run_record_step(row, record, prefix)
@@ -6730,6 +6760,7 @@ defmodule Letflow.Engine do
       affected: {:node, row.node_id},
       reason: script_failure_sentence(code),
       variables: projection.variables,
+      labels: projection.variable_labels,
       details: %{
         outcome: Atom.to_string(code),
         detail: detail_string,
@@ -6889,7 +6920,12 @@ defmodule Letflow.Engine do
           refusal_context()
         ) ::
           {:ok,
-           {:merged, %{new_variables: map(), merge_events: [VariableMerge.merge_event()]}}
+           {:merged,
+            %{
+              new_variables: map(),
+              new_labels: map(),
+              merge_events: [VariableMerge.labelled_merge_event()]
+            }}
            | {:execution_error, ExecutionError.error_args()}}
           | {:error, {:variable_schema_lookup_failed, VariableSchema.error_reason()}}
           | {:error, {:completion_refused, completion_refusal()}}
@@ -7073,7 +7109,12 @@ defmodule Letflow.Engine do
           VariableMerge.variable_validations()
         ) ::
           {:ok,
-           {:merged, %{new_variables: map(), merge_events: [VariableMerge.merge_event()]}}
+           {:merged,
+            %{
+              new_variables: map(),
+              new_labels: map(),
+              merge_events: [VariableMerge.labelled_merge_event()]
+            }}
            | {:execution_error, ExecutionError.error_args()}}
   defp apply_variable_merge(
          projection,
@@ -7083,9 +7124,18 @@ defmodule Letflow.Engine do
          output_variables,
          variable_validations
        ) do
-    case VariableMerge.merge(current_variables, output_variables, variable_validations) do
-      {:ok, new_variables, merge_events} ->
-        {:ok, {:merged, %{new_variables: new_variables, merge_events: merge_events}}}
+    # A human completion is an unlabelled source (decision 0062 R9): written keys lose any label.
+    case VariableMerge.merge(
+           current_variables,
+           projection.variable_labels,
+           output_variables,
+           %{},
+           variable_validations
+         ) do
+      {:ok, new_variables, new_labels, merge_events} ->
+        {:ok,
+         {:merged,
+          %{new_variables: new_variables, new_labels: new_labels, merge_events: merge_events}}}
 
       # REQ-460: unreachable from merge_output_variables/8, which refuses every
       # schema rejection (422, no state change) before calling this function with
@@ -7224,11 +7274,13 @@ defmodule Letflow.Engine do
          projection,
          actor_id,
          idempotency_key,
-         {:merged, %{new_variables: merged_variables}},
+         {:merged, %{new_variables: merged_variables, new_labels: merged_labels}},
          completed_at,
          prefix
        ) do
-    state_with_merged_variables = %InstanceState{seed_state | variables: merged_variables}
+    state_with_merged_variables =
+      VariableLabels.put_merged(seed_state, merged_variables, merged_labels)
+
     hop_limit = length(graph.nodes) * 4 + 10
 
     case Transition.transition(graph, state_with_merged_variables, {:complete_task, own_token_id}) do
@@ -7462,6 +7514,7 @@ defmodule Letflow.Engine do
                projection.instance_id,
                advanced_state.variables,
                node,
+               parent_variable_labels: advanced_state.variable_labels,
                prefix: prefix
              ) do
         {:cont, {:ok, [{parent_token_record_id, prepared} | acc]}}
@@ -7825,6 +7878,7 @@ defmodule Letflow.Engine do
                  instance_id,
                  final_instance_state.variables,
                  parent_token,
+                 child_final_labels: final_instance_state.variable_labels,
                  prefix: prefix,
                  actor_id: actor_id,
                  idempotency_key: idempotency_key
@@ -8472,8 +8526,14 @@ defmodule Letflow.Engine do
   # against here, and no reason to weaken the existing all-or-nothing
   # completion guarantee.
   defp append_task_completed_event(changes, output_variables, actor_id, idempotency_key, prefix) do
-    %{task: task, merge: %{merge_events: merge_events}, transition: final_instance_state} =
-      changes
+    %{
+      task: task,
+      merge: %{merge_events: merge_events} = merge,
+      transition: final_instance_state
+    } = changes
+
+    # Labels of the keys this completion wrote (always empty for a human completer, R9).
+    output_labels = VariableLabels.take(Map.get(merge, :new_labels, %{}), output_variables)
 
     attachments_at_decision =
       task.instance_id
@@ -8481,14 +8541,16 @@ defmodule Letflow.Engine do
       |> Enum.map(&attachment_snapshot/1)
 
     payload =
-      Jason.encode!(%{
+      %{
         task_id: task.id,
         node_id: task.node_id,
         output_variables: output_variables,
-        merged_variable_events: encode_merge_events(merge_events),
+        merged_variable_events: VariableLabels.encode_merge_events(merge_events),
         activated_nodes: Enum.map(final_instance_state.tokens, & &1.node_id),
         attachments_at_decision: attachments_at_decision
-      })
+      }
+      |> VariableLabels.put_label_field(:output_labels, output_labels)
+      |> Jason.encode!()
 
     event_attrs = %{
       instance_id: task.instance_id,
@@ -8524,32 +8586,6 @@ defmodule Letflow.Engine do
     }
   end
 
-  # merge_events tuples ({:variable_overwritten, key, old, new}) aren't
-  # JSON-encodable as-is (Jason has no Encoder for tuples) -- mapped to
-  # plain maps for the event payload only, never persisted as their own
-  # separate rows.
-  defp encode_merge_events(merge_events) do
-    Enum.map(merge_events, fn
-      {:variable_overwritten, key, old_value, new_value} ->
-        %{event: "variable_overwritten", key: key, old_value: old_value, new_value: new_value}
-
-      {:computed_field_disagreement, field, submitted_value, server_value} ->
-        %{
-          event: "computed_field_disagreement",
-          field: field,
-          submitted_value: submitted_value,
-          server_value: server_value
-        }
-
-      {:visible_when_false_value_discarded, field, discarded_value} ->
-        %{
-          event: "visible_when_false_value_discarded",
-          field: field,
-          discarded_value: discarded_value
-        }
-    end)
-  end
-
   # M10 -- projection reconciliation (design doc §8.3). last_event_seq is not
   # set here -- EventStore.append/2's own update_projection/3 (M9's own
   # nested Multi) already advances it as part of the :event step above.
@@ -8578,7 +8614,8 @@ defmodule Letflow.Engine do
       status: final_instance_state.status,
       current_nodes: Enum.map(final_instance_state.tokens, & &1.node_id),
       variables: final_instance_state.variables,
-      join_counters: SnapshotWriter.serialize_join_counters(final_instance_state.join_counters)
+      join_counters: SnapshotWriter.serialize_join_counters(final_instance_state.join_counters),
+      variable_labels: final_instance_state.variable_labels
     }
 
     attrs =

@@ -812,7 +812,9 @@ defmodule Letflow.TenantProvisioning do
     {20_261_022_100_001, Letflow.Repo.Migrations.CreateDocumentTables,
      "20261022100001_create_document_tables.exs"},
     {20_261_022_100_002, Letflow.Repo.Migrations.CreateDocumentImmutabilityTriggers,
-     "20261022100002_create_document_immutability_triggers.exs"}
+     "20261022100002_create_document_immutability_triggers.exs"},
+    {20_261_022_200_001, Letflow.Repo.Migrations.AddVariableLabelsToInstanceProjections,
+     "20261022200001_add_variable_labels_to_instance_projections.exs"}
   ]
 
   @doc """
@@ -1045,22 +1047,25 @@ defmodule Letflow.TenantProvisioning do
   @platform_event_type_seed_attrs [
     %{
       name: "INSTANCE_STARTED",
-      schema_version: 1,
+      schema_version: 2,
       description:
-        "Emitted once by Letflow.Engine.create/2 (EE-01) when a new process instance starts.",
+        "Emitted once by Letflow.Engine.create/2 (EE-01) when a new process instance starts. " <>
+          "Bumped from schema_version 1 to 2 (decision 0062 R8h-5, GH #2616): the optional " <>
+          "\"initial_labels\" (variable name to restriction labels) is declared.",
       json_schema: %{
         "type" => "object",
         "properties" => %{
           "definition_id" => %{"type" => "string"},
           "correlation_key" => %{"type" => ["string", "null"]},
-          "initial_variables" => %{"type" => "object"}
+          "initial_variables" => %{"type" => "object"},
+          "initial_labels" => %{"type" => "object"}
         },
         "required" => ["definition_id", "initial_variables"]
       }
     },
     %{
       name: "TASK_COMPLETED",
-      schema_version: 3,
+      schema_version: 4,
       description:
         "Emitted by Letflow.Engine.complete_task/3 (M9, EE-04) when a user task is completed. " <>
           "Bumped from schema_version 1 to 2 (REQ-292): merged_variable_events now also carries " <>
@@ -1085,13 +1090,18 @@ defmodule Letflow.TenantProvisioning do
           "schema_version 1->2 bump above: this only widens the schema seeded into TENANTS " <>
           "PROVISIONED FROM THIS POINT ON -- a tenant provisioned before this change keeps " <>
           "validating TASK_COMPLETED against an earlier version until something backfills it " <>
-          "(see mix letflow.backfill_event_type_versions).",
+          "(see mix letflow.backfill_event_type_versions). " <>
+          "Bumped from schema_version 3 to 4 (decision 0062 R8h-5, GH #2616): the optional " <>
+          "\"output_labels\" and, on merged_variable_events entries, \"old_labels\"/" <>
+          "\"new_labels\"/\"server_labels\"/\"submitted_labels\"/\"discarded_labels\" are " <>
+          "declared (restriction labels; names only, never values).",
       json_schema: %{
         "type" => "object",
         "properties" => %{
           "task_id" => %{"type" => "string"},
           "node_id" => %{"type" => "string"},
           "output_variables" => %{"type" => "object"},
+          "output_labels" => %{"type" => "object"},
           "merged_variable_events" => %{
             "type" => "array",
             "items" => %{
@@ -1111,7 +1121,12 @@ defmodule Letflow.TenantProvisioning do
                 "new_value" => %{},
                 "submitted_value" => %{},
                 "server_value" => %{},
-                "discarded_value" => %{}
+                "discarded_value" => %{},
+                "old_labels" => %{"type" => "array", "items" => %{"type" => "string"}},
+                "new_labels" => %{"type" => "array", "items" => %{"type" => "string"}},
+                "server_labels" => %{"type" => "array", "items" => %{"type" => "string"}},
+                "submitted_labels" => %{"type" => "array", "items" => %{"type" => "string"}},
+                "discarded_labels" => %{"type" => "array", "items" => %{"type" => "string"}}
               },
               "required" => ["event"]
             }
@@ -1180,22 +1195,27 @@ defmodule Letflow.TenantProvisioning do
     },
     %{
       name: "SUB_PROCESS_COMPLETED",
-      schema_version: 1,
+      schema_version: 2,
       description:
         "Emitted by Letflow.Engine.SubProcess (M-series) on the parent instance's stream when " <>
-          "a called sub-process instance completes and its output is merged back.",
+          "a called sub-process instance completes and its output is merged back. " <>
+          "Bumped from schema_version 1 to 2 (decision 0062 R8h-5, GH #2616): the optional " <>
+          "\"output_labels\" and the merged entries' \"old_labels\"/\"new_labels\" are declared.",
       json_schema: %{
         "type" => "object",
         "properties" => %{
           "child_instance_id" => %{"type" => "string"},
           "output_variables" => %{"type" => "object"},
+          "output_labels" => %{"type" => "object"},
           "merged_variable_events" => %{
             "type" => "array",
             "items" => %{
               "type" => "object",
               "properties" => %{
                 "event" => %{"type" => "string", "enum" => ["variable_overwritten"]},
-                "key" => %{"type" => "string"}
+                "key" => %{"type" => "string"},
+                "old_labels" => %{"type" => "array", "items" => %{"type" => "string"}},
+                "new_labels" => %{"type" => "array", "items" => %{"type" => "string"}}
               },
               "required" => ["event", "key"]
             }
@@ -1207,10 +1227,12 @@ defmodule Letflow.TenantProvisioning do
     },
     %{
       name: "EXECUTION_ERROR",
-      schema_version: 1,
+      schema_version: 2,
       description:
         "Emitted by Letflow.Engine.ExecutionError.append_execution_error_event/2 (EE-10 AC1) " <>
-          "when an instance transitions to the :error status.",
+          "when an instance transitions to the :error status. " <>
+          "Bumped from schema_version 1 to 2 (decision 0062 R8h-5, GH #2616): the optional " <>
+          "\"labels\" (the restriction labels of \"variables\") is declared.",
       json_schema: %{
         "type" => "object",
         "properties" => %{
@@ -1226,6 +1248,7 @@ defmodule Letflow.TenantProvisioning do
           },
           "reason" => %{"type" => "string"},
           "variables" => %{"type" => "object"},
+          "labels" => %{"type" => "object"},
           "details" => %{"type" => "object"}
         },
         "required" => ["error_type", "affected", "reason", "variables"]
@@ -1421,10 +1444,12 @@ defmodule Letflow.TenantProvisioning do
     # per-run record. Both closed (additionalProperties false, every key required).
     %{
       name: "SCRIPT_TASK_COMPLETED",
-      schema_version: 1,
+      schema_version: 2,
       description:
         "Emitted by Letflow.Engine.apply_script_task_result/3 (GH 2534 7c) when a script " <>
-          "SERVICE_TASK's declared output is merged into the instance variables.",
+          "SERVICE_TASK's declared output is merged into the instance variables. " <>
+          "Bumped from schema_version 1 to 2 (decision 0062 R8h-5, GH #2616): the schema is " <>
+          "closed, so the optional \"output_labels\" must be declared to be accepted.",
       json_schema: %{
         "type" => "object",
         "properties" => %{
@@ -1433,7 +1458,8 @@ defmodule Letflow.TenantProvisioning do
           "attempt" => %{"type" => "integer"},
           "script_key" => %{"type" => "string"},
           "script_version" => %{"type" => "integer"},
-          "output" => %{"type" => "object"}
+          "output" => %{"type" => "object"},
+          "output_labels" => %{"type" => "object"}
         },
         "required" => [
           "dispatch_id",
@@ -1593,6 +1619,16 @@ defmodule Letflow.TenantProvisioning do
   # tenant_template fingerprint changes when a seeded event type is bumped (GH #2671).
   def platform_event_type_seed_versions do
     Enum.map(@platform_event_type_seed_attrs, &{&1.name, &1.schema_version})
+  end
+
+  @doc """
+  The seeded attrs of the event type `name` (`nil` when the seed has none): the single source
+  `mix letflow.backfill_event_type_versions` reads for the types it brings to the current
+  seed version, so the backfill never carries a second copy of a schema.
+  """
+  @spec platform_event_type_seed_attrs(String.t()) :: map() | nil
+  def platform_event_type_seed_attrs(name) when is_binary(name) do
+    Enum.find(@platform_event_type_seed_attrs, &(&1.name == name))
   end
 
   defp maybe_seed_platform_event_types(false, _tenant_id), do: :ok

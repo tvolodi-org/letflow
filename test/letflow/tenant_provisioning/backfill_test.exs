@@ -443,9 +443,9 @@ defmodule Letflow.TenantProvisioning.BackfillTest do
       %{tenant_id: tenant_id} =
         TenantFixture.provisioned_tenant!(slug_prefix: "iss0583-ac3", template: :replay)
 
-      # provisioned_tenant! (via :replay) seeds TASK_COMPLETED at v3 (REQ-391
-      # bumped the default seed from v2 to v3 -- see task_completed_v3_attrs/0).
-      assert {:ok, %EventType{schema_version: 3}} =
+      # provisioned_tenant! (via :replay) seeds TASK_COMPLETED at v4 (decision 0062 R8h-5 bumped
+      # the default seed from v3 to v4; task_completed_v3_attrs/0 is now the older version).
+      assert {:ok, %EventType{schema_version: 4}} =
                Registry.get_type("TASK_COMPLETED", tenant_id)
 
       assert {:ok, %{updated: _updated, skipped: skipped}} =
@@ -453,7 +453,7 @@ defmodule Letflow.TenantProvisioning.BackfillTest do
 
       assert skipped >= 1
 
-      assert {:ok, %EventType{schema_version: 3}} =
+      assert {:ok, %EventType{schema_version: 4}} =
                Registry.get_type("TASK_COMPLETED", tenant_id)
     end
   end
