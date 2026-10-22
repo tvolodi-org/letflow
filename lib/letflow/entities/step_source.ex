@@ -221,15 +221,9 @@ defmodule Letflow.Entities.StepSource do
   @spec to_metadata(t()) :: %{String.t() => String.t()}
   def to_metadata(%__MODULE__{} = source) do
     {origin_key, origin_id} =
-      case source do
-        %{task_id: id} when is_binary(id) ->
-          {"source.task_id", id}
-
-        %{dispatch_id: id} when is_binary(id) ->
-          {"source.dispatch_id", id}
-
-        _neither ->
-          raise ArgumentError, "malformed step source: exactly one of task_id / dispatch_id"
+      case origin(source) do
+        {:task, id} -> {"source.task_id", id}
+        {:dispatch, id} -> {"source.dispatch_id", id}
       end
 
     base = %{

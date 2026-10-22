@@ -129,11 +129,9 @@ defmodule Letflow.Engine.EntityPort do
   """
   @type multi_ctx :: %{
           required(:prefix) => String.t(),
-          # PR C2: the origin of the step. `task_id` is the legacy HUMAN spelling of
-          # `{:task, task_id}` (the module-handler path still reads it); exactly one of the two
-          # is required.
-          optional(:origin) => origin(),
-          optional(:task_id) => Ecto.UUID.t(),
+          # GH #2687: the tagged origin of the step is required; it replaces the former
+          # `task_id` / `dispatch_id` pair, so "exactly one of the two" cannot be violated.
+          required(:origin) => origin(),
           optional(:subject_id) => Ecto.UUID.t(),
           optional(:guard_budget_ms) => non_neg_integer(),
           required(:instance_id) => Ecto.UUID.t(),
