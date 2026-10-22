@@ -378,4 +378,74 @@ defmodule Letflow.Scripts.TestParallelShardTest do
       end
     end
   end
+
+  defp manifest_files(p), do: ["test/p#{p}_a_test.exs", "test/p#{p}_b_test.exs"]
+
+  defp write_manifest(tmp, total, partitions) do
+    path = Path.join(tmp, "manifest.txt")
+    body = for p <- partitions, f <- manifest_files(p), do: "#{p} #{f} 1.00\n"
+    File.write!(path, "# partitions: #{total}\n" <> Enum.join(body))
+    path
+  end
+
+  # GH #2380 step 2: TEST_PARALLEL_MANIFEST assigns each global partition its own file list
+  # (scripts/test_shard_manifest.txt). These run the real script on a small manifest of
+  # 16 partitions x 2 files, shard 2 of 4 (partitions 5..8).
+  describe "TEST_PARALLEL_MANIFEST (explicit file list per partition)" do
+    test "manifest shard 2 of 4 runs its own files, no partitions arg",
+         %{tmp_dir: tmp} do
+      manifest = write_manifest(tmp, 16, 1..16)
+
+      {status, lines, argv_dir} =
+        run_script(tmp, [{"TEST_PARALLEL_SHARD", "2/4"}, {"TEST_PARALLEL_MANIFEST", manifest}])
+
+      out = Enum.join(lines, "\n")
+      assert status == 0, out
+      assert argv_parts(argv_dir) == Enum.to_list(5..8), out
+
+      for p <- 5..8 do
+        assert argv(argv_dir, p) ==
+                 ["test", "--no-color", "--exclude", "high_pool_demand" | manifest_files(p)],
+               out
+      end
+
+      assert Enum.sort(db_log(argv_dir)) ==
+               Enum.sort(
+                 for p <- 5..8,
+                     sub <- ["ecto.create", "ecto.migrate"],
+                     do: "#{p} _build/test-partition-#{p} #{sub}"
+               ),
+             out
+    end
+
+    test "manifest for 12 partitions is refused, nothing launched",
+         %{tmp_dir: tmp} do
+      manifest = write_manifest(tmp, 12, 1..12)
+
+      {status, lines, argv_dir} =
+        run_script(tmp, [{"TEST_PARALLEL_SHARD", "2/4"}, {"TEST_PARALLEL_MANIFEST", manifest}])
+
+      out = Enum.join(lines, "\n")
+      assert status == 1, out
+      assert out =~ "refusing to run a partial or mismatched slice", out
+      assert argv_parts(argv_dir) == [], out
+      refute File.exists?(Path.join(argv_dir, "calls.log")), out
+      refute out =~ "pre-compiling", out
+    end
+
+    test "manifest with an empty partition is refused",
+         %{tmp_dir: tmp} do
+      # partition 7 is in shard 2 of 4 (partitions 5..8) and has no line
+      manifest = write_manifest(tmp, 16, Enum.reject(1..16, &(&1 == 7)))
+
+      {status, lines, argv_dir} =
+        run_script(tmp, [{"TEST_PARALLEL_SHARD", "2/4"}, {"TEST_PARALLEL_MANIFEST", manifest}])
+
+      out = Enum.join(lines, "\n")
+      assert status == 1, out
+      assert out =~ "lists no test file for partition 7", out
+      assert argv_parts(argv_dir) == [], out
+      refute File.exists?(Path.join(argv_dir, "calls.log")), out
+    end
+  end
 end

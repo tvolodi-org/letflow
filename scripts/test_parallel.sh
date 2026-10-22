@@ -68,6 +68,14 @@
 #   slice F..L of T` line is printed and the last line ends
 #   `... partitions reported (slice F..L of T)`; unsliced output is unchanged.
 #
+# GH #2380 step 2 (balanced shards, opt-in): TEST_PARALLEL_MANIFEST=<file> gives each global
+#   partition its own list of test files instead of Mix's round-robin over the sorted file list.
+#   The manifest (scripts/test_shard_manifest.txt, built by scripts/test_shard_plan.sh) has the
+#   header `# partitions: P`, which must equal TOTAL (N*M), and each partition of this runner's
+#   slice must list at least one file; otherwise the run exits 1 before anything is compiled. A
+#   partition then runs `mix test <its files>` with no `--partitions`, since Mix would filter an
+#   explicit file list again. Unset, nothing changes.
+#
 # Q-1037 / GH #2364 observability + diagnostic hooks (all default-off or
 # log-only; with nothing set the partitions' mix commands are unchanged):
 #   TEST_PARALLEL_EXTRA_ARGS   (default empty) whitespace-split words appended
@@ -217,6 +225,35 @@ slice_suffix=""
 if [ "$TOTAL" -ne "$N" ] || [ "$OFFSET" -ne 0 ]; then
   slice_suffix=" (slice $FIRST..$LAST of $TOTAL)"
   echo "test_parallel: slice $FIRST..$LAST of $TOTAL (TOTAL=$TOTAL OFFSET=$OFFSET)"
+fi
+
+# GH #2380 step 2: TEST_PARALLEL_MANIFEST=<file> assigns each test file to a global partition
+# (built by scripts/test_shard_plan.sh) instead of Mix's round-robin over the sorted file list.
+# Opt-in: unset, the partitions run `mix test --partitions TOTAL` exactly as before. Set, the
+# manifest must be for this TOTAL and must list at least one file for every partition of this
+# runner's slice. Checked here, before anything is compiled or launched, so a stale or partial
+# manifest never runs a partial slice.
+manifest_path="${TEST_PARALLEL_MANIFEST:-}"
+if [ -n "$manifest_path" ]; then
+  if [ ! -r "$manifest_path" ]; then
+    echo "test_parallel: ERROR TEST_PARALLEL_MANIFEST='$manifest_path' is not readable" >&2
+    exit 1
+  fi
+  manifest_total=$(tr -d '\r' < "$manifest_path" | sed -n 's/^# partitions: \([1-9][0-9]*\)$/\1/p' | head -n 1)
+  if [ -z "$manifest_total" ] || [ "$manifest_total" -ne "$TOTAL" ]; then
+    echo "test_parallel: ERROR TEST_PARALLEL_MANIFEST='$manifest_path' is for ${manifest_total:-no} partitions but this run has TOTAL=$TOTAL -- refusing to run a partial or mismatched slice (regenerate it with scripts/test_shard_plan.sh)" >&2
+    exit 1
+  fi
+  i="$FIRST"
+  while [ "$i" -le "$LAST" ]; do
+    manifest_count=$(tr -d '\r' < "$manifest_path" | awk -v p="$i" '$1 == p { n++ } END { print n + 0 }')
+    if [ "$manifest_count" -eq 0 ]; then
+      echo "test_parallel: ERROR TEST_PARALLEL_MANIFEST='$manifest_path' lists no test file for partition $i -- refusing to run an empty partition" >&2
+      exit 1
+    fi
+    i=$((i + 1))
+  done
+  echo "test_parallel: partitions $FIRST..$LAST take their files from $manifest_path"
 fi
 
 # --- Step 1: pre-compile MIX_ENV=test exactly once (AC5) -----------------
@@ -937,8 +974,17 @@ while [ "$i" -le "$LAST" ]; do
   # job gets its own process group with pgid == its own pid -- what makes
   # the watchdog below (and the EXIT trap) able to signal the WHOLE tree
   # (mix + erl.exe/beam.smp), not just this immediate child.
+  # GH #2380 step 2: with a manifest, the partition's files are passed explicitly and
+  # `--partitions` is dropped. Mix applies its round-robin filter after explicit paths are added,
+  # so `--partitions` with a file list would still run only a slice of that list.
+  partition_args=(--partitions "$TOTAL")
+  partition_files=()
+  if [ -n "$manifest_path" ]; then
+    partition_args=()
+    mapfile -t partition_files < <(tr -d '\r' < "$manifest_path" | awk -v p="$i" '$1 == p { print $2 }')
+  fi
   MIX_TEST_PARTITION="$i" MIX_BUILD_PATH="_build/test-partition-$i" LETFLOW_SKIP_ECTO_SETUP=1 \
-    mix test --partitions "$TOTAL" --no-color $high_pool_demand_exclude "$@" ${extra_args[@]+"${extra_args[@]}"} \
+    mix test ${partition_args[@]+"${partition_args[@]}"} --no-color $high_pool_demand_exclude "$@" ${extra_args[@]+"${extra_args[@]}"} ${partition_files[@]+"${partition_files[@]}"} \
     > "$tmp_dir/partition-$i.log" 2>&1 &
   pids[$i]=$!
   part_start_epoch[$i]=$(date +%s)
