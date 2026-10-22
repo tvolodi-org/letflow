@@ -1,0 +1,84 @@
+# T-0222 (BA): foundation group, scenario 3 of 4 (order: see foundation-1-operator-sign-in.yaml).
+# STATUS: BLOCKED, NOT PASS, until foundation-2 can run (spare realm, D-1; roster for the login, D-2).
+# Test-tooling steps: none of its own. The administrator's login was created by the tooling step of
+# foundation-2 (UAT-only Keycloak client, UAT_KC_ADMIN_CLIENT_ID / UAT_KC_ADMIN_CLIENT_SECRET; the product
+# has no identity-provider admin client until Phase 3, decision 0044). If the login's e-mail is not
+# confirmed, the binding does not fire (decision 0048 section 1.4) and the result means nothing: BLOCKED.
+# Realms: uses the realm and customer of foundation-2. Spare realms, deactivation instead of deletion, and
+# decisions D-1..D-4 are described in foundation-2-onboard-tenant-first-administrator.yaml.
+# Overlap: platform/first-login-admin-binding.yaml covers confirmed against unconfirmed with seeded accounts.
+---
+id: platform-foundation-3-administrator-first-sign-in
+scope: platform
+title: The named administrator signs in through the customer's realm and becomes its administrator
+version: "1.0"
+tags: [foundation, identity, onboarding, administrator, blocked]
+
+description: >
+  The person named by e-mail at onboarding, whose address the identity provider confirms, signs in
+  for the first time through the new customer's own realm. They become the customer's
+  administrator and can manage its users. The operator sees the invitation as used.
+
+actors:
+  platform_operator: actor-platform-admin
+  new_administrator: actor-any
+
+preconditions:
+  - description: >
+      BLOCKED until D-1 and D-2: foundation-2 passed in this run; the person's login lives in the
+      realm bound to the customer, uses exactly the address named at onboarding, and that address is confirmed
+    check: custom
+    detail: >
+      Wrong realm, a different address or an unconfirmed address means no binding: report BLOCKED, not FAIL.
+
+steps:
+  - step: 1
+    actor: new_administrator
+    action: The named person signs in to the new customer for the first time, through the customer's own realm.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: new_administrator
+    action: The person asks the platform who they are, then opens the customer's user management.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: platform_operator
+    action: The platform operator reads the customer's setup record and its list of pending administrators.
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: The person is administrator of the customer, and of nothing else.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 shows the tenant administrator role (role names only) in the new customer's workspace, no
+        platform administrator role, and the user management screen with their own entry.
+      evidence: The answer to "who am I" (role names) and a screenshot of user management.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A new customer cannot start, because nobody can administer it.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The invitation is reported as used, with a binding time; the setup record shows the realm as bound.
+    verification:
+      method: system_state
+      detail: >
+        Step 3: the invitation state is bound, a binding time is set, no e-mail address is shown, and the
+        login status is realm bound.
+      evidence: The answer from step 3 (state, binding time, login status).
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot audit how the customer's first administrator was granted access.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    The test customer is deactivated by foundation-4a, the last scenario that uses it. It cannot be deleted and its realm stays bound
+    to it. The tooling-created login stays in the realm; the owner decides on removing it (D-1).

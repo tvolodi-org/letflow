@@ -1,0 +1,75 @@
+# T-0222 (BA): foundation group, scenario 4c of 4 (order: see foundation-1-operator-sign-in.yaml).
+# STATUS: BLOCKED, NOT PASS, and cannot be unblocked by infra alone: owner decision D-3.
+# The check wanted is "a platform permission is denied to a PLATFORM_ADMIN of another tenant". Decision 0046
+# D4 says that role exists only in the platform tenant, and the rule in CLAUDE.md and docs/roles.md says never
+# to grant it to a tenant user, so the roster has no such actor and none may be invented. A tenant
+# administrator (the nearest real actor) is already covered by foundation-4a. D-3: drop this scenario from
+# UAT (the backend tests keep this check), or approve a one-off UAT-only account in a UAT realm.
+# Test-tooling step (only if D-3 approves an account): creating that login with the UAT-only Keycloak client
+# (UAT_KC_ADMIN_CLIENT_ID / UAT_KC_ADMIN_CLIENT_SECRET; decision 0044). It needs a realm: see foundation-2 header.
+# Cleanup: nothing is created apart from that login.
+---
+id: platform-foundation-4c-refusal-other-tenant-platform-admin-denied
+scope: platform
+title: A platform administrator of a customer tenant is denied platform actions
+version: "1.0"
+tags: [foundation, refusal, identity, platform, blocked]
+
+description: >
+  A person who holds the platform administrator role in a customer tenant, not in the platform
+  tenant, signs in and tries platform actions: listing customers and setting up a customer. The
+  platform turns both away, because platform authority belongs to the platform tenant alone.
+  STATUS: BLOCKED until the owner decides D-3.
+
+actors:
+  customer_side_platform_admin: actor-any
+  uat_tooling: actor-system-uat-keycloak
+
+preconditions:
+  - description: >
+      BLOCKED until D-3: the owner has approved a one-off UAT-only account that holds the platform
+      administrator role in a customer tenant
+    check: custom
+    detail: >
+      No such account may exist in the normal setup. If it does not exist, report BLOCKED, not PASS.
+      Do not grant the role to any tenant user to make this scenario run.
+
+steps:
+  - step: 1
+    actor: uat_tooling
+    action: >
+      TEST-TOOLING STEP (outside the product, only after D-3): create the approved login with the
+      UAT-only identity-provider client.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: customer_side_platform_admin
+    action: The person tries to open the platform's list of customers.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: customer_side_platform_admin
+    action: The person tries to set up a new customer.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: Both platform actions are refused, and the refusal reveals nothing about other customers.
+    verification:
+      method: system_state
+      detail: Steps 2 and 3 end in a refusal with the same text a person without the role would get.
+      evidence: The two refusals (status and text only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A customer-side account could operate the whole platform and see other customers.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing is created apart from the approved login, which the owner removes with the account decision.
