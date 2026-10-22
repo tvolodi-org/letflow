@@ -10,6 +10,7 @@ convention downstream agents need without re-deriving it.
 | `timed_test.sh` | Times a `mix test` run. |
 | `check_pr_gates.sh` | Read-only: exit 1 if a PR touching lib/ web/ apps/ priv/ test/ lacks a valid `## Gates` block (`<PR>` or `--body-file F --files F`); run by the supervisor before a merge slot; not wired into CI. `test_check_pr_gates.sh` is its self-test. |
 | `uat_preflight.sh` | WF-05 Step 0: read-only preflight of a target environment against the UAT scenario corpus's PRECONDITIONS manifest; prints a scenario x check gap table; exit 1 means `ENV_NOT_READY`. Usage in its header comment. |
+| `seed_uat_email_verified.sh` | UAT-only (GH #2503): sets `emailVerified` on the named seeded UAT test accounts via the Keycloak admin API, idempotent; `false` is the rollback. Refuses any non-QA IdP or non-UAT realm before a request. Credentials and the account list come from the environment (`.env.uat`), never from this file. See its header. |
 | `mutate.py` | Single-occurrence substitution mutation-testing helper (apply mutant, run tests, report kill/survive, always revert). See below. |
 | `seed_meridian_definition.sh`, `seed_vortex_definition.sh`, `seed_swiftroute_definition.sh` | Seed the QA ProcessDefinitions from `test/fixtures/qa/*.json` (create + activate). Sources `lib/seed_service_task_base.sh`. See "QA seed scripts" below. |
 
