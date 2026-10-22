@@ -102,6 +102,22 @@ defmodule Letflow.Routers.HistoryRedactionTest do
     end)
   end
 
+  # START -> svc (script) -> review (HUMAN_TASK) -> xg (EXCLUSIVE_GATEWAY: one condition on the
+  # computed `y`, and a default edge so the definition validates) -> END.
+  defp graph_with_gateway(key, version) do
+    graph(key, version)
+    |> Map.update!("nodes", fn nodes ->
+      List.insert_at(nodes, -2, %{"id" => "xg", "node_type" => "EXCLUSIVE_GATEWAY"})
+    end)
+    |> Map.update!("edges", fn edges ->
+      List.replace_at(edges, 2, %{"id" => "e3", "source" => "review", "target" => "xg"}) ++
+        [
+          %{"id" => "e4", "source" => "xg", "target" => "end", "condition" => "variables.y == 1"},
+          %{"id" => "e5", "source" => "xg", "target" => "end", "is_default" => true}
+        ]
+    end)
+  end
+
   defp complete!(t, instance_id, output) do
     task =
       Repo.one!(
@@ -237,6 +253,49 @@ defmodule Letflow.Routers.HistoryRedactionTest do
                Engine.complete_task(
                  task.id,
                  %{output_variables: %{}, actor_id: completer, idempotency_key: "e-#{completer}"},
+                 prefix: t.schema_name
+               )
+
+      [error] = payload_of(history(t, b.instance_id, MapSet.new([@label])), "EXECUTION_ERROR")
+
+      assert error["variables"]["y"] == @placeholder
+      assert error["variables"]["total"] == @placeholder
+    end
+
+    test "(f) a computed key stays hidden in the no_matching_edge error a completer without the grant reads",
+         %{t: t} do
+      b = labelled_review!(t, &graph_with_gateway/2)
+
+      # A definition activated before CHK-24 keeps running without its default edge (REQ-455
+      # OQ-1). The instance runs on its own definition snapshot, so overwrite that graph, the way
+      # service_task_wiring_test overwrites a legacy definition's stored graph.
+      no_default =
+        Map.update!(b.definition.graph, "edges", fn edges ->
+          Enum.reject(edges, &Map.get(&1, "is_default"))
+        end)
+
+      {1, _} =
+        from(s in Letflow.Definitions.InstanceDefinitionSnapshot,
+          where: s.instance_id == ^b.instance_id
+        )
+        |> Repo.update_all([set: [graph: no_default]], prefix: t.schema_name)
+
+      task =
+        Repo.one!(
+          from(x in Letflow.Engine.Task,
+            where: x.instance_id == ^b.instance_id and x.status == :pending
+          ),
+          prefix: t.schema_name
+        )
+
+      completer = Ecto.UUID.generate()
+
+      # The form submits nothing, so `y` = total + 1 = 5 exists only in the post-merge state
+      # (R14); the gateway condition `y == 1` matches nothing and there is no default edge.
+      assert {:error, _} =
+               Engine.complete_task(
+                 task.id,
+                 %{output_variables: %{}, actor_id: completer, idempotency_key: "f-#{completer}"},
                  prefix: t.schema_name
                )
 

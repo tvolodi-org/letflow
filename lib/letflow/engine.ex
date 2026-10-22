@@ -7486,6 +7486,8 @@ defmodule Letflow.Engine do
                 actor_id,
                 idempotency_key
               )
+              # The labels belong to the variables recorded above (decision 0062 R7a).
+              |> Map.put(:labels, state_with_merged_variables.variable_labels)
 
             {:ok, {:execution_error, error_args}}
 
@@ -7503,6 +7505,8 @@ defmodule Letflow.Engine do
             actor_id,
             idempotency_key
           )
+          # The labels belong to the variables recorded above (decision 0062 R7a).
+          |> Map.put(:labels, state_with_merged_variables.variable_labels)
 
         {:ok, {:execution_error, error_args}}
 
