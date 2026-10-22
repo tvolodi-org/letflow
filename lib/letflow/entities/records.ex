@@ -198,6 +198,7 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.StepSource
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
+  alias Letflow.EventStore.Registry
   alias Letflow.EventStore.StoredPayload
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
@@ -290,6 +291,7 @@ defmodule Letflow.Entities.Records do
           | {:error, :external_ref_invalid}
           | {:error, {:external_ref_record_deleted, ExternalRef.t()}}
           | {:error, :external_ref_contention}
+          | {:error, :event_schema_outdated}
 
   @type command_error ::
           {:error, {:definition_not_found, entity_type :: String.t()}}
@@ -339,6 +341,8 @@ defmodule Letflow.Entities.Records do
           | EventStore.append_error()
 
   @upsert_max_attempts 3
+  @created_event_type "ENTITY_RECORD_CREATED"
+  @min_ref_schema_version 2
   @step_key_prefix "sys:step:"
   @step_key_max_bytes 255
   @step_key_format ~r/\Asys:step:[A-Za-z0-9:_.-]+\z/
@@ -470,21 +474,45 @@ defmodule Letflow.Entities.Records do
   The function is convergent, not replay-keyed: its result follows the current state first and the
   `idempotency_key` only protects an append (design section 5.3.1). `is_duplicate: true` is
   returned only when the underlying command returns it. The router (PR 3) applies the per-request
-  `TypeAccess`, field-restriction and event-schema-version checks; the primitive does not.
+  `TypeAccess` and field-restriction checks; the primitive does not.
+
+  GH #2807: only the create branch needs `ENTITY_RECORD_CREATED` at schema v2 (the version that
+  carries the ref); update and unchanged do not. The create branch therefore reads
+  `Registry.max_schema_version/2` and answers `{:error, :event_schema_outdated}` (also for an
+  absent registry row) before any write. The `/4` option `schema_checked: true` skips that read
+  for a caller that has already done it once for a whole batch (`ImportUpsert.precheck/2`); a
+  module handler calls without it. Any other option key or a non-boolean value raises
+  `ArgumentError`.
   """
   @spec upsert_record_by_external_ref(upsert_attrs(), prefix :: String.t()) ::
           {:ok, upsert_result()} | upsert_error()
   def upsert_record_by_external_ref(attrs, prefix) when is_binary(prefix),
-    do: upsert_record_by_external_ref(attrs, prefix, :tenant)
+    do: upsert_record_by_external_ref(attrs, prefix, :tenant, [])
 
   @spec upsert_record_by_external_ref(upsert_attrs(), prefix :: String.t(), ManagedTypes.owner()) ::
           {:ok, upsert_result()} | upsert_error()
+  def upsert_record_by_external_ref(attrs, prefix, authority),
+    do: upsert_record_by_external_ref(attrs, prefix, authority, [])
+
+  @doc "The lowest `ENTITY_RECORD_CREATED` schema version that carries an `external_ref`."
+  @spec min_ref_schema_version() :: pos_integer()
+  def min_ref_schema_version, do: @min_ref_schema_version
+
+  @spec upsert_record_by_external_ref(
+          upsert_attrs(),
+          prefix :: String.t(),
+          ManagedTypes.owner(),
+          schema_checked: boolean()
+        ) :: {:ok, upsert_result()} | upsert_error()
   def upsert_record_by_external_ref(
         %{entity_type: entity_type, field_values: field_values} = attrs,
         prefix,
-        authority
+        authority,
+        opts
       )
-      when is_binary(prefix) and is_authority(authority) do
+      when is_binary(prefix) and is_authority(authority) and is_list(opts) do
+    schema_checked = upsert_opts!(opts)
+
     # The definition is resolved and the values validated here (to compare before writing) and
     # again inside create_record/update_record: two cheap reads kept so the write path stays the
     # one existing command pipeline (no second copy of its checks).
@@ -504,10 +532,23 @@ defmodule Letflow.Entities.Records do
           ref: ref,
           normalised: canonical_json(normalised),
           prefix: prefix,
-          authority: authority
+          authority: authority,
+          schema_checked: schema_checked
         },
         @upsert_max_attempts
       )
+    end
+  end
+
+  defp upsert_opts!(opts) do
+    case Keyword.pop(opts, :schema_checked, false) do
+      {checked, []} when is_boolean(checked) ->
+        checked
+
+      _invalid ->
+        raise ArgumentError,
+              "upsert_record_by_external_ref/4 accepts only schema_checked: boolean, got: " <>
+                inspect(opts)
     end
   end
 
@@ -527,7 +568,18 @@ defmodule Letflow.Entities.Records do
       else: outcome
   end
 
-  defp upsert_create(%{attrs: attrs, ref: ref, prefix: prefix, authority: authority}) do
+  defp upsert_create(%{prefix: prefix, schema_checked: schema_checked} = run) do
+    if schema_checked or ref_schema_ready?(prefix),
+      do: upsert_create_checked(run),
+      else: {:error, :event_schema_outdated}
+  end
+
+  defp ref_schema_ready?(prefix) do
+    version = Registry.max_schema_version(@created_event_type, prefix)
+    is_integer(version) and version >= @min_ref_schema_version
+  end
+
+  defp upsert_create_checked(%{attrs: attrs, ref: ref, prefix: prefix, authority: authority}) do
     case do_create_record(attrs, prefix, authority, ref) do
       {:ok, %{record: record, is_duplicate: false}} ->
         {:ok, %{record: record, outcome: :created, is_duplicate: false}}
