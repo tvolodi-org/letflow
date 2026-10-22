@@ -11,6 +11,7 @@ defmodule Letflow.Identity.PlatformAdminTokensTest do
 
   use Letflow.DataCase, async: false
 
+  import Bitwise
   import Ecto.Query
 
   alias Letflow.Audit.Entry
@@ -366,6 +367,25 @@ defmodule Letflow.Identity.PlatformAdminTokensTest do
       assert token!(p, old.id).revoked_at == nil
       assert {:ok, _} = Identity.verify_api_token(old_plaintext, prefix: p.schema_name)
       refute File.exists?(path)
+    end
+
+    @tag :tmp_dir
+    @tag skip:
+           if(match?({:win32, _}, :os.type()),
+             do: "POSIX file modes do not exist on Windows; the 0600 check runs on Linux CI",
+             else: false
+           )
+    test "T16: the plaintext file is restricted to its owner (0600) after a successful act",
+         %{p: p, tmp_dir: tmp_dir} do
+      owner = owner!(p)
+      operator = operator!(p)
+      {old, _old_plaintext} = legacy_pa_token!(p, owner)
+      path = Path.join(tmp_dir, "new-token.txt")
+
+      assert {:ok, _} =
+               PlatformAdminTokens.reissue(p.tenant_id, old.id, operator.id, opts(tmp_dir))
+
+      assert (File.stat!(path).mode &&& 0o777) == 0o600
     end
   end
 

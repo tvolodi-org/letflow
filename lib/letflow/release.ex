@@ -207,6 +207,8 @@ defmodule Letflow.Release do
   end
 
   defp reason_label(%Ecto.Changeset{}), do: "changeset_invalid"
+  # A raised exception can carry server text (a Postgrex detail); print its module only.
+  defp reason_label({:transaction_failed, %mod{}}), do: "transaction_failed:#{inspect(mod)}"
   defp reason_label(reason), do: inspect(reason)
 
   defp empty_summary(failed), do: %{processed: 0, created: 0, already_present: 0, failed: failed}

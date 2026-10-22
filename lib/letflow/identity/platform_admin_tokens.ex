@@ -17,8 +17,9 @@ defmodule Letflow.Identity.PlatformAdminTokens do
 
   The inventory selects only the ids, roles and timestamps it reports: `token_hash` and `name`
   are never read. `reissue/4` returns no plaintext. The new value goes only to the file, which
-  is created exclusively (an existing file is never overwritten) BEFORE anything is minted, so a
-  file problem refuses the act with no token minted and none revoked.
+  is created exclusively (an existing file is never overwritten) and restricted to its owner
+  (mode 0600, POSIX only) BEFORE anything is minted, so a file problem refuses the act with no
+  token minted and none revoked.
 
   ## Order of the act (`reissue/4`)
 
@@ -186,12 +187,25 @@ defmodule Letflow.Identity.PlatformAdminTokens do
   defp validate_path(path) when is_binary(path) and path != "", do: {:ok, path}
   defp validate_path(_path), do: {:error, :invalid_plaintext_file}
 
-  # Step 5: the file is created here, before any DB write. `:exclusive` never overwrites.
+  # Step 5: the file is created here, before any DB write. `:exclusive` never overwrites. The mode is
+  # then restricted to the owner (0600) before anything is minted: the default umask would leave a
+  # full-platform credential readable by other local users. If the restriction fails, nothing is minted.
   defp open_plaintext_file(path) do
     case File.open(path, [:write, :exclusive]) do
-      {:ok, io} -> {:ok, io}
+      {:ok, io} -> restrict_plaintext_file(io, path)
       {:error, :eexist} -> {:error, :plaintext_file_exists}
       {:error, posix} -> {:error, {:plaintext_file, posix}}
+    end
+  end
+
+  defp restrict_plaintext_file(io, path) do
+    case File.chmod(path, 0o600) do
+      :ok ->
+        {:ok, io}
+
+      {:error, posix} ->
+        discard_file(io, path)
+        {:error, {:plaintext_file, posix}}
     end
   end
 

@@ -49,7 +49,9 @@ Run the act for ONE token id, once. Do not script it over a list of ids.
     bin/letflow eval "Letflow.Release.reissue_platform_admin_token(\"<tenant_id>\", \"<token_id>\", \"<operator_user_id>\", cause: \"<reason>\", plaintext_file: \"<path>\")"
 
 - `<operator_user_id>` is the admin who is accountable for the act. It must be an active
-  PLATFORM_ADMIN of that tenant. It becomes the audit `actor_id`.
+  PLATFORM_ADMIN of that tenant. It becomes the audit `actor_id`. The id records who is
+  accountable for the act; nothing authenticates it. Whoever can run `bin/letflow eval` already
+  has database access, so the id is attribution, not a login.
 - `cause:` is the reason, free text of at most 200 bytes with no control characters. It is
   stored in the audit entries as `cause`. It must not contain a token value or any other
   credential.
@@ -110,7 +112,7 @@ Every failure line is `ERROR <reason>`. The exit status is 1. Read the reason in
 | `:invalid_days` | `days:` is not an integer from 1 to the cap | fix the value; nothing changed |
 | `:invalid_plaintext_file` | `plaintext_file:` is empty | give a path; nothing changed |
 | `:plaintext_file_exists` | the path already exists (for example from an earlier run) | choose a new path. Do NOT delete a file you do not know: it may hold a live token. Nothing changed |
-| `{:plaintext_file, <posix>}` | the file could not be created (for example a directory that does not exist) | fix the path or permissions; nothing changed |
+| `{:plaintext_file, <posix>}` | the file could not be created (for example a directory that does not exist), or its mode could not be set to 0600 | fix the path or permissions; the file was removed; nothing changed |
 | `:issuer_not_authorized`, `:user_inactive`, `:user_not_found`, `:invalid_role_set`, `:roles_not_held`, `:expires_at_in_past`, `:platform_admin_token_not_self` | the mint refused the replacement (the owner lost access, is inactive, or the expiry is out of range) | nothing changed (no token was minted, and the file was removed). Revoke the token with `DELETE /identity/tokens/<old_token_id>` if the owner should not have access |
 | `{:plaintext_write_failed, <new_id>, <posix>}` | the new value could not be written to the file | the NEW token was revoked again automatically, and the OLD token still works. The file was removed. Fix the disk problem and run the act again |
 | `{:plaintext_write_failed, <new_id>, <posix>, {:compensate_failed, _}}` | the write failed, and revoking the new token also failed | a live token nobody holds exists and expires by itself within the cap. Revoke it with `DELETE /identity/tokens/<new_id>`. Do not run the act again until this is done |
@@ -127,7 +129,11 @@ The act mints only in the platform tenant, because a PLATFORM_ADMIN token is ref
 A PLATFORM_ADMIN token in another tenant that the inventory lists (or that the act refuses with
 `:invalid_role_set`) is revoked with `DELETE /identity/tokens/<token_id>` only.
 
-## 7. Windows note
+## 7. File mode
 
-On Windows the file mode of `plaintext_file` is not enforced. Use a path in a directory that only
-the operator can read, and delete the file after delivery.
+On POSIX hosts the act sets the mode of `plaintext_file` to 0600 (owner read and write only)
+right after it creates the file, before anything is minted. If that cannot be done, the act stops
+with `{:plaintext_file, <posix>}`, the file is removed and nothing is minted.
+
+On Windows the POSIX mode is not enforced, so the file is protected only by the directory's ACL.
+Use a path in a directory that only the operator can read, and delete the file after delivery.
