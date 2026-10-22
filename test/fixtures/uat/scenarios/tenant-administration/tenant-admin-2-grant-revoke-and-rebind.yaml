@@ -1,0 +1,110 @@
+# T-0224 (BA): TENANT ADMIN group, scenario 2 of 3 (setup and aliases: tenant-admin-1-people-groups-and-roles.yaml).
+# Test-tooling steps: none (the logins exist from tenant-admin-1).
+# Sources: docs/roles.md (TENANT_ADMIN: only this role rebinds an existing role to another group, with a mandatory
+# reason, one audit entry with old and new group; PROCESS_DESIGNER may create a role binding but gets 403 on a
+# rebind, PR #2537 / GH #2524; TASK_WORKER "must not start or cancel instances").
+# Scope enforcement is assumed OFF for the test customer (the default; docs/roles.md "Creating role bindings while
+# scope enforcement is on"). If it is on, report BLOCKED.
+---
+id: tenant-administration-2-grant-revoke-and-rebind
+scope: tenant-administration
+title: The administrator grants and withdraws a person's authority by group, and only the administrator moves a role to another group
+version: "1.0"
+tags: [tenant-admin, permissions, groups, roles, refusal]
+
+description: >
+  The task worker worker_b has no right to start a process. The administrator puts them in the
+  operator group, and worker_b can start one; the administrator takes them out again and worker_b
+  is turned away at once. The process designer creates a role of their own but cannot move an
+  existing role to another group; the administrator can, must give a reason, and the change is in
+  the audit trail. Nobody but the administrator can change who is in which group.
+
+actors:
+  tenant_admin: actor-any
+  designer: actor-any
+  operator: actor-any
+  worker_b: actor-any
+
+preconditions:
+  - description: tenant-administration-1 and matrix-0 passed in this run (accounts, groups and the active "UAT matrix request" process)
+    check: custom
+  - description: Scope enforcement is off for the test customer
+    check: custom
+    detail: If it is on or shadow, report BLOCKED; the binding rules differ and are another scenario.
+
+steps:
+  - step: 1
+    actor: worker_b
+    action: The task worker worker_b tries to start a new instance of any active process. The company has at least one, made in matrix-0, or the step is skipped with severity MINOR.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: The administrator adds worker_b to the process operator group.
+    via: gui
+  - step: 3
+    actor: worker_b
+    action: worker_b starts a new instance of the same process. It is accepted. (Grant visible at once, no re-sign-in unless the platform needs one - record which.)
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: The administrator removes worker_b from the process operator group, with a reason.
+    via: gui
+  - step: 5
+    actor: worker_b
+    action: worker_b tries to start another instance.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: designer
+    action: The process designer creates a new process routing role "uat-reviewer" and attaches it to the task worker group. This is allowed.
+    via: api
+  - step: 7
+    actor: designer
+    action: The process designer tries to move the "uat-reviewer" role to the process operator group.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: operator
+    action: The process operator tries to add worker_a to the tenant auditor group.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: The administrator tries to move the "uat-reviewer" role to the process operator group without giving a reason.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: The administrator moves the "uat-reviewer" role to the process operator group, with the reason "UAT regrouping".
+    via: api
+  - step: 11
+    actor: tenant_admin
+    action: The administrator opens the audit trail and finds one entry for the role move, showing the old group, the new group and the reason.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: Adding to a group grants the authority and removing from it withdraws it, each time without delay.
+    verification:
+      method: system_state
+      detail: Step 1 and step 5 are refused; step 3 is accepted; the instance made at step 3 exists and was started by worker_b.
+      evidence: The refusals, the accepted step and the instance owner (names only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person keeps authority after the administrator took it away, or cannot get it when it is granted.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Only the administrator moves a role to another group, with a reason, and it is audited once.
+    verification:
+      method: system_state
+      detail: Steps 7, 8 and 9 are refused; step 10 succeeds; step 11 shows exactly one role-moved entry with old group, new group and reason.
+      evidence: The three refusals and the audit entry (fields - old group, new group, reason, actor).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A modelling role can quietly hand authority to other groups, with no trace.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the instance started at step 3 and leave worker_b outside the operator group, as in tenant-administration-1.

@@ -1,0 +1,83 @@
+# T-0224 (BA): TENANT ADMIN group, scenario 3 of 3 (setup and aliases: tenant-admin-1-people-groups-and-roles.yaml).
+# Test-tooling steps: none.
+# Sources: docs/roles.md TENANT_ADMIN paragraph (GH #2552): only an active user who holds TENANT_ADMIN through a group
+# may mint an access token; the token's roles must be held through groups by both the minter and the target user;
+# the issuer is recorded; roles held only through a token never count. TokensManage is held by PLATFORM_ADMIN and
+# TENANT_ADMIN only (roles matrix).
+---
+id: tenant-administration-3-access-tokens
+scope: tenant-administration
+title: Only the administrator can create an access token for a person, and never with more authority than the person has
+version: "1.0"
+tags: [tenant-admin, tokens, permissions, refusal]
+
+description: >
+  The administrator creates an access token for the task worker worker_a, limited to the role
+  worker_a has. A token with an extra role, or one asked for by the process operator or by the
+  token itself, is refused. The administrator revokes the token and it stops working.
+
+actors:
+  tenant_admin: actor-any
+  operator: actor-any
+  worker_a: actor-any
+
+preconditions:
+  - description: tenant-administration-1 passed in this run
+    check: custom
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: The administrator creates an access token for worker_a that carries the task worker role only and ends in 7 days. The administrator notes its identifier, not its value.
+    via: api
+    produces:
+      token_id: the identifier of the token
+  - step: 2
+    actor: tenant_admin
+    action: The administrator opens the token list and sees the token with its owner, its role, its end date and the administrator as issuer.
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: The administrator asks for an access token for worker_a that also carries the tenant administrator role.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: operator
+    action: The process operator asks for an access token for worker_a that carries the task worker role.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: worker_a
+    action: Using the token from step 1 (not their login), worker_a tries to create a further access token for themself.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: The administrator revokes the token and the token list no longer shows it as active.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The token is created within the person's own authority, listed with its issuer, and later revoked.
+    verification:
+      method: system_state
+      detail: Steps 1, 2 and 6 succeed; the listed role set equals the task worker role only.
+      evidence: The token list entry (owner, role names, end date, issuer) and the list after step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A person cannot be given automated access, or access cannot be withdrawn.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A token with more authority than its person, or created by someone who is not an administrator, or created by a token, does not exist.
+    verification:
+      method: system_state
+      detail: Steps 3, 4 and 5 are refused and the token list holds no extra token.
+      evidence: The three refusals and the token count.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Authority can be raised through tokens beyond what the administrator granted.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: The token is revoked in step 6; if the run stops earlier the administrator revokes it by identifier.
