@@ -1,4 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react'
+import { P, useAccess } from '@/auth/access'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { tokensApi, usersApi } from '@/api/identity'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -83,6 +84,7 @@ function formatDate(value?: string | null): string {
 }
 
 export default function TokensPage() {
+  const canManage = useAccess().can(P.TokensManage)
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
   const toast = useToast()
@@ -184,7 +186,7 @@ export default function TokensPage() {
       header: 'Actions',
       accessor: (token) => {
         const revoked = Boolean(token.revoked_at)
-        return !revoked ? (
+        return canManage && !revoked ? (
           <Button variant="danger" size="sm" onClick={() => setPendingRevoke(token)}>
             Revoke
           </Button>
@@ -197,11 +199,13 @@ export default function TokensPage() {
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1.25rem' }}>
         <h2 style={{ margin: 0 }}>API Tokens</h2>
-        <span style={{ marginLeft: 'auto' }}>
-          <Button variant="primary" size="sm" onClick={() => { setCreating(true); setIssuedToken(null); setCreateError('') }}>
-            + Issue token
-          </Button>
-        </span>
+        {canManage && (
+          <span style={{ marginLeft: 'auto' }}>
+            <Button variant="primary" size="sm" onClick={() => { setCreating(true); setIssuedToken(null); setCreateError('') }}>
+              + Issue token
+            </Button>
+          </span>
+        )}
       </div>
 
       {issuedToken && (

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { P, useAccess } from '@/auth/access'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, rolesApi } from '@/api/identity'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -30,6 +31,7 @@ function displayUsername(user: User): string {
 }
 
 export default function UsersPage() {
+  const canManage = useAccess().can(P.UsersGroupsRolesManage)
   const navigate = useNavigate()
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
@@ -97,11 +99,13 @@ export default function UsersPage() {
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1.25rem' }}>
         <h2 style={{ margin: 0 }}>Users</h2>
-        <span style={{ marginLeft: 'auto' }} data-testid="admin-users-new">
-          <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
-            + New User
-          </Button>
-        </span>
+        {canManage && (
+          <span style={{ marginLeft: 'auto' }} data-testid="admin-users-new">
+            <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+              + New User
+            </Button>
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: '.5rem', marginBottom: '1rem' }}>

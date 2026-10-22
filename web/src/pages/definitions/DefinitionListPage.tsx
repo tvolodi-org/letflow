@@ -215,12 +215,12 @@ export default function DefinitionListPage() {
       header: 'Actions',
       accessor: (def) => (
         <div style={{ display: 'flex', gap: '.5rem' }}>
-          {def.status === 'DRAFT' && (
+          {hasDesignerRole && def.status === 'DRAFT' && (
             <Button variant="primary" size="sm" onClick={() => activate.mutate(def.id)} loading={activate.isPending}>
               Activate
             </Button>
           )}
-          {(def.status === 'ACTIVE' || def.status === 'DEPRECATED') && (
+          {hasDesignerRole && (def.status === 'ACTIVE' || def.status === 'DEPRECATED') && (
             <Button variant="secondary" size="sm" onClick={() => archive.mutate(def.id)} loading={archive.isPending}>
               Archive
             </Button>
@@ -260,9 +260,11 @@ export default function DefinitionListPage() {
               />
             </>
           )}
-          <Button variant="primary" size="sm" data-testid="btn-new-definition" onClick={() => setShowCreate(true)}>
-            + New Definition
-          </Button>
+          {hasDesignerRole && (
+            <Button variant="primary" size="sm" data-testid="btn-new-definition" onClick={() => setShowCreate(true)}>
+              + New Definition
+            </Button>
+          )}
         </div>
       }
     >

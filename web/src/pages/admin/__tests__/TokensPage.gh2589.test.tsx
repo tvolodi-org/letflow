@@ -21,7 +21,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, waitFor, within } from '@testing-library/react'
+import { screen, cleanup, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -52,6 +52,8 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
 })
 
 import TokensPage from '@/pages/admin/TokensPage'
+import { renderWithAccess } from '@/auth/access/testing'
+import type { AccessFixtureName } from '@/auth/access/fixtures'
 import type { ApiTokenStatus } from '@/types/api'
 
 const SUCCESS_COLOUR = 'var(--color-success-dark)'
@@ -202,22 +204,23 @@ function stubNetwork() {
   return calls
 }
 
-function renderPage() {
+function renderPage(access: AccessFixtureName = 'tenantAdmin') {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return render(
+  return renderWithAccess(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
         <TokensPage />
       </MemoryRouter>
     </QueryClientProvider>,
+    access,
   )
 }
 
-async function renderedRows(): Promise<HTMLElement[]> {
+async function renderedRows(access: AccessFixtureName = 'tenantAdmin'): Promise<HTMLElement[]> {
   const calls = stubNetwork()
-  renderPage()
+  renderPage(access)
   await waitFor(() => expect(screen.getAllByTestId('datatable-row')).toHaveLength(TOKENS.length))
   expect(calls).toContain('GET /api/v1/identity/tokens')
   return screen.getAllByTestId('datatable-row')
@@ -277,5 +280,19 @@ describe('GH-2589 TokensPage: the four effective token statuses and the issuer',
     expect(issuerText(ROW_REVOKED)).toBe('u-gone-issuer')
     expect(issuerText(ROW_EXPIRED)).toBe('—')
     expect(issuerText(ROW_OWNER_INACTIVE)).toBe('—')
+  })
+})
+
+describe('GH 2238 BUILDS 5 — TokensPage write controls follow TokensManage', () => {
+  it('a tenant admin sees the issue and revoke controls', async () => {
+    await renderedRows('tenantAdmin')
+    expect(screen.getByText('+ Issue token')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Revoke' }).length).toBeGreaterThan(0)
+  })
+
+  it('an auditor sees the rows but no issue or revoke control', async () => {
+    await renderedRows('auditor')
+    expect(screen.queryByText('+ Issue token')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument()
   })
 })
