@@ -6,7 +6,7 @@ defmodule Letflow.Release do
       bin/letflow eval "Letflow.Release.backfill_login_directory()"
 
   Each wrapper delegates to the same core function as its Mix task
-  (`Mix.Tasks.Letflow.BackfillScriptHmacSecrets.backfill/1`,
+  (`Letflow.Scripts.HmacSecret.Backfill.run/1`,
   `Letflow.LoginDirectory.Backfill.run/1`), so the two paths cannot drift. Calling a
   `Mix.Tasks.*` module from a release is not supported; use these.
 
@@ -26,6 +26,7 @@ defmodule Letflow.Release do
   """
 
   alias Letflow.LoginDirectory.Backfill, as: LoginDirectoryBackfill
+  alias Letflow.Scripts.HmacSecret.Backfill, as: HmacSecretBackfill
   alias Letflow.TenantProvisioning
 
   @app :letflow
@@ -51,7 +52,7 @@ defmodule Letflow.Release do
       Keyword.get_lazy(opts, :registrations, &TenantProvisioning.list_registrations/0)
 
     {created, present, failed} =
-      Mix.Tasks.Letflow.BackfillScriptHmacSecrets.backfill(registrations)
+      HmacSecretBackfill.run(registrations)
 
     summary = %{
       processed: length(registrations),

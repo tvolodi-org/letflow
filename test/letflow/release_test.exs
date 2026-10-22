@@ -98,8 +98,9 @@ defmodule Letflow.ReleaseTest do
     test "T-2567-login-rerun-clean" do
       a = Fx.tenant!()
       insert_user!(a, "rel-clean@example.test")
-      Letflow.Release.backfill_login_directory(@opts)
-      {{_status, rerun}, out} = run(fn -> Letflow.Release.backfill_login_directory(@opts) end)
+      {{:ok, first}, _} = run(fn -> Letflow.Release.backfill_login_directory(@opts) end)
+      assert first.failed == 0
+      {{:ok, rerun}, out} = run(fn -> Letflow.Release.backfill_login_directory(@opts) end)
       assert rerun.created == 0
       assert rerun.already_present >= 1
       refute out =~ "rel-clean"

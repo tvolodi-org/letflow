@@ -15,13 +15,13 @@ defmodule Mix.Tasks.Letflow.BackfillScriptHmacSecrets do
       mix letflow.backfill_script_hmac_secrets
 
   Release form (no Mix): `bin/letflow eval "Letflow.Release.backfill_script_hmac_secrets()"`
-  (`Letflow.Release`, GH #2567). No arguments. Idempotent: a tenant that already has an active key is left alone. Prints
-  counts only, never a key. Exits non-zero if any tenant fails.
+  (`Letflow.Release`, GH #2567). No arguments. Idempotent: a tenant that already has an
+  active key is left alone. Prints counts only, never a key. Exits non-zero if any tenant fails.
   """
 
   use Mix.Task
 
-  alias Letflow.Scripts.HmacSecret
+  alias Letflow.Scripts.HmacSecret.Backfill
   alias Letflow.TenantProvisioning
 
   @impl Mix.Task
@@ -45,30 +45,10 @@ defmodule Mix.Tasks.Letflow.BackfillScriptHmacSecrets do
   end
 
   @doc """
-  Ensures the key for each of `registrations` (anything carrying `tenant_id`). Returns
-  `{created, already_present, failed_tenant_ids}`; never prints or halts (the tests call it
-  with their own tenants only).
+  Delegates to `Letflow.Scripts.HmacSecret.Backfill.run/1` (the core shared with the release
+  wrapper); returns `{created, already_present, failed_tenant_ids}`.
   """
   @spec backfill([%{required(:tenant_id) => Ecto.UUID.t()}]) ::
           {non_neg_integer(), non_neg_integer(), [Ecto.UUID.t()]}
-  def backfill(registrations) do
-    {created, present, failed} =
-      Enum.reduce(registrations, {0, 0, []}, fn %{tenant_id: tenant_id}, {c, p, f} ->
-        cond do
-          HmacSecret.exists?(tenant_id) -> {c, p + 1, f}
-          ensure(tenant_id) == :ok -> {c + 1, p, f}
-          true -> {c, p, [tenant_id | f]}
-        end
-      end)
-
-    {created, present, Enum.reverse(failed)}
-  end
-
-  # A tenant whose secret cannot be written (unknown tenant, missing master key) is a counted
-  # failure, never a raise that aborts the others; no exception text is kept (INV-4, INV-8).
-  defp ensure(tenant_id) do
-    HmacSecret.ensure(%{id: tenant_id})
-  rescue
-    _exception -> :error
-  end
+  defdelegate backfill(registrations), to: Backfill, as: :run
 end
