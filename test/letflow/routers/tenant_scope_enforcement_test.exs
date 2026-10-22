@@ -41,8 +41,9 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
 
   @router Letflow.Routers.TenantScopeEnforcement
   @trace "6f1c2b9e-0497-4a11-8c20-0000000002b1"
+  # GH 2579: "no_expiry" joins the token item key set (TokenView.token_map/2).
   @token_keys Enum.sort(
-                ~w(id name user_id issuer_user_id roles status created_at expires_at revoked_at last_used_at)
+                ~w(id name user_id issuer_user_id roles status created_at expires_at revoked_at last_used_at no_expiry)
               )
 
   setup do

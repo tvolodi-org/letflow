@@ -57,9 +57,7 @@ defmodule Letflow.Identity.TokenPreconditions do
           MapSet.subset?(MapSet.new(t.roles || []), Map.fetch!(owner_roles, t.user_id))
         end),
       non_expiring_platform_admin:
-        Enum.filter(items, fn %{token: t} ->
-          "PLATFORM_ADMIN" in (t.roles || []) and is_nil(t.expires_at)
-        end),
+        Enum.filter(items, fn %{token: t} -> ApiToken.non_expiring_platform_admin?(t) end),
       null_issuer: Enum.filter(items, fn %{token: t} -> is_nil(t.issuer_user_id) end),
       service_principal_owner: flagged_owner_tokens(entries)
     }

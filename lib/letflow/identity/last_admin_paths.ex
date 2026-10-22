@@ -123,7 +123,7 @@ defmodule Letflow.Identity.LastAdminPaths do
       other(
         :p10,
         @identity,
-        {:insert_token, 5},
+        {:insert_token, 6},
         :no_lower,
         "token rows are never in the interactive count"
       ),
@@ -137,7 +137,7 @@ defmodule Letflow.Identity.LastAdminPaths do
       other(
         :p12,
         @identity,
-        {:revoke_locked_token, 3},
+        {:revoke_locked_token, 4},
         :no_lower,
         "tokens are never counted; the token guard is unchanged"
       ),

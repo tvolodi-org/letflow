@@ -7,7 +7,9 @@ defmodule Letflow.Api.TokenView do
   `GET /tenant/scope-enforcement/token-preconditions` share one shape).
 
   Exactly the keys `id`, `name`, `user_id`, `issuer_user_id`, `roles`, `status`,
-  `created_at`, `expires_at`, `revoked_at`, `last_used_at`. It structurally excludes
+  `created_at`, `expires_at`, `revoked_at`, `last_used_at`, `no_expiry` (GH 2579: true for a
+  PLATFORM_ADMIN token with no expiry, a legacy standing credential to revoke and re-mint). It
+  structurally excludes
   `token_hash` and has no parameter through which a plaintext could reach it (INV-4).
   """
 
@@ -30,7 +32,8 @@ defmodule Letflow.Api.TokenView do
       "created_at" => iso8601(token.inserted_at),
       "expires_at" => iso8601_or_nil(token.expires_at),
       "revoked_at" => iso8601_or_nil(token.revoked_at),
-      "last_used_at" => iso8601_or_nil(token.last_used_at)
+      "last_used_at" => iso8601_or_nil(token.last_used_at),
+      "no_expiry" => ApiToken.non_expiring_platform_admin?(token)
     }
   end
 

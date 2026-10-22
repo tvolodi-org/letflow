@@ -1245,6 +1245,7 @@ defmodule Letflow.Routers.IdentityTest do
       # under any other name is caught here too.
       for item <- body["items"] do
         # GH 2552: "issuer_user_id" joins the list key set.
+        # GH 2579: "no_expiry" joins it too.
         assert Map.keys(item) |> Enum.sort() == [
                  "created_at",
                  "expires_at",
@@ -1252,6 +1253,7 @@ defmodule Letflow.Routers.IdentityTest do
                  "issuer_user_id",
                  "last_used_at",
                  "name",
+                 "no_expiry",
                  "revoked_at",
                  "roles",
                  "status",
