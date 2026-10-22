@@ -571,7 +571,7 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
       assert p1 ++ p2 == [0.5, 2.5, 66.6666, 100.25]
     end
 
-    test "a tampered decimal cursor component is a 400, never a crash (any decimal field)" do
+    test "a tampered (replaced sealed key) decimal cursor is a 400, never a crash (any decimal field)" do
       ctx = tenant_ctx("gh2654r-c1c")
       for q <- ["1.00", "2.00", "3.00"], do: insert!(ctx, "ledger", %{"qty" => q})
       for a <- [1.5, 2.5, 3.5], do: insert!(ctx, "plain", %{"amount" => a})
@@ -589,14 +589,12 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
 
         {:ok, raw} = Base.url_decode64(cursor, padding: false)
         [head, rest] = String.split(raw, "EQ:", parts: 2)
-        [ts, json] = String.split(rest, ":", parts: 2)
-        %{"bind" => bind, "key" => [_value | tail]} = Jason.decode!(json)
+        [ts, _sealed] = String.split(rest, ":", parts: 2)
 
         for bad <- ["abc", "1; DROP", "", "NaN", "1e", "--1", "zz-tampered-9"] do
           tampered =
             Base.url_encode64(
-              head <>
-                "EQ:" <> ts <> ":" <> Jason.encode!(%{"bind" => bind, "key" => [bad | tail]}),
+              head <> "EQ:" <> ts <> ":" <> Base.url_encode64(bad, padding: false),
               padding: false
             )
 

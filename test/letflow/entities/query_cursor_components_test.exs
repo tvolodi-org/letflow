@@ -1,4 +1,5 @@
 defmodule Letflow.Entities.QueryCursorComponentsTest do
+  @uid "cursor-test-user"
   @moduledoc """
   GH #2844 -- `Letflow.Entities.Query.Cursor` resume-key component decoding.
 
@@ -19,6 +20,7 @@ defmodule Letflow.Entities.QueryCursorComponentsTest do
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
   alias Letflow.Entities.Query.Cursor
+  alias Letflow.Entities.Query.CursorSeal
   alias Letflow.Entities.Records
   alias Letflow.Identity.Tenant
   alias Letflow.Repo
@@ -145,15 +147,31 @@ defmodule Letflow.Entities.QueryCursorComponentsTest do
     %{schema: schema, allowlist: allowlist}
   end
 
-  # Mints "EQ:<mint_time_us>:<resume_key_json>" from raw JSON text, so a test can
-  # carry bytes Jason.encode! would refuse (invalid UTF-8).
-  defp mint_json(resume_key_json) do
+  # Carries raw key JSON text (so a test can hold bytes Jason.encode! would refuse); `page/3`
+  # seals it for the request's tenant, user, entity type and sort (GH #2698).
+  defp mint_json(resume_key_json), do: {:key_json, resume_key_json}
+
+  defp seal_key_json(resume_key_json, ctx, field) do
+    mint_us = System.system_time(:microsecond)
+
+    seal_ctx = %{
+      prefix: ctx.schema,
+      user_id: @uid,
+      entity_type: "widget",
+      sort: [[field, "asc"]],
+      mint_us: mint_us
+    }
+
+    token = CursorSeal.seal("{\"key\":" <> resume_key_json <> "}", seal_ctx)
+
     Cursor.cursor_prefix()
-    |> Pagination.build_raw_cursor(System.system_time(:microsecond), resume_key_json)
+    |> Pagination.build_raw_cursor(mint_us, token)
     |> Pagination.encode_cursor()
   end
 
   defp mint(components), do: mint_json(Jason.encode!(components))
+
+  defp page(ctx, field, {:key_json, json}), do: page(ctx, field, seal_key_json(json, ctx, field))
 
   defp page(ctx, field, cursor) do
     request = %{entity_type: "widget", sort: [%{field: field, dir: :asc}]}
@@ -163,7 +181,7 @@ defmodule Letflow.Entities.QueryCursorComponentsTest do
       request,
       compiled,
       ctx.allowlist,
-      %{page_size: 10, cursor: cursor},
+      %{user_id: @uid, page_size: 10, cursor: cursor},
       ctx.schema
     )
   end
@@ -180,7 +198,7 @@ defmodule Letflow.Entities.QueryCursorComponentsTest do
                request,
                compiled,
                ctx.allowlist,
-               %{page_size: 1, cursor: cursor},
+               %{user_id: @uid, page_size: 1, cursor: cursor},
                ctx.schema
              )
 

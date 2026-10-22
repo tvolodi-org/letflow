@@ -1,4 +1,5 @@
 defmodule Letflow.Entities.QueryScopeTest do
+  @uid "cursor-test-user"
   @moduledoc """
   REQ-518 / GH #2535 slice 2c-i-a, ACs 1 to 5 (decision 0051 D6; design
   `lib/letflow/design/req518-compiler-scope-filter.md` 3.4, 3.8, 3.9; spec
@@ -362,7 +363,7 @@ actual:   #{inspect(actual)}"
 
       page = fn cursor ->
         query = compile!(fx, @by_amount, set)
-        opts = %{page_size: 2, cursor: cursor}
+        opts = %{user_id: @uid, page_size: 2, cursor: cursor}
         assert {:ok, page} = Cursor.paginate(@by_amount, query, allowlist, opts, fx.schema_name)
         page
       end
@@ -384,7 +385,7 @@ actual:   #{inspect(actual)}"
 
       paginate = fn scope, cursor ->
         query = compile!(fx, @by_amount, scope)
-        opts = %{page_size: 3, cursor: cursor}
+        opts = %{user_id: @uid, page_size: 3, cursor: cursor}
         assert {:ok, page} = Cursor.paginate(@by_amount, query, allowlist, opts, fx.schema_name)
         page
       end
@@ -449,7 +450,7 @@ actual:   #{inspect(actual)}"
       {_, page} =
         Fixture.capture_repo_queries(fn ->
           query = compile!(fx, @by_amount, set)
-          Cursor.paginate(@by_amount, query, allowlist, %{page_size: 2}, schema)
+          Cursor.paginate(@by_amount, query, allowlist, %{user_id: @uid, page_size: 2}, schema)
         end)
 
       {_, aggregate} = Fixture.capture_repo_queries(fn -> aggregate!(fx, @grouped, set) end)
@@ -766,7 +767,7 @@ actual:   #{inspect(actual)}"
                 @by_amount,
                 query,
                 allowlist,
-                %{page_size: page_size},
+                %{user_id: @uid, page_size: page_size},
                 fx.schema_name
               )
             end)
