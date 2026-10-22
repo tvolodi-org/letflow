@@ -109,6 +109,7 @@ defmodule Letflow.Routers.Webhooks do
 
   use Letflow.Api.AuthorizedRouter
 
+  alias Letflow.Api.Pagination
   alias Letflow.Api.Response
   alias Letflow.Webhooks
   alias Letflow.Webhooks.Delivery
@@ -221,30 +222,44 @@ defmodule Letflow.Routers.Webhooks do
 
   defp handle_deliveries(conn, id) do
     conn = fetch_query_params(conn)
-    limit = resolve_limit(conn.query_params["limit"])
 
-    case Webhooks.list_delivery_attempts(id, limit, conn.assigns.scoped_opts) do
-      {:ok, deliveries} ->
-        Response.ok(conn, %{"items" => Enum.map(deliveries, &delivery_json/1)})
+    case resolve_limit(conn.query_params["limit"]) do
+      {:ok, limit} ->
+        render_deliveries(
+          conn,
+          Webhooks.list_delivery_attempts(id, limit, conn.assigns.scoped_opts)
+        )
 
-      {:error, :not_found} ->
-        Response.not_found(conn)
-
-      {:error, :invalid_id} ->
-        Response.not_found(conn)
+      {:error, :invalid_limit} ->
+        Response.bad_request(conn, "invalid limit")
     end
   end
+
+  defp render_deliveries(conn, {:ok, deliveries}),
+    do: Response.ok(conn, %{"items" => Enum.map(deliveries, &delivery_json/1)})
+
+  defp render_deliveries(conn, {:error, :not_found}), do: Response.not_found(conn)
+  defp render_deliveries(conn, {:error, :invalid_id}), do: Response.not_found(conn)
 
   @default_deliveries_limit 20
 
+  # A positive value above int64 is refused (400), since it cannot be bound as the
+  # SQL LIMIT. A huge in-range value is clamped to the platform page-size maximum,
+  # the same bound the paginated list routes enforce. Non-positive or non-numeric
+  # values keep their fallback to the default.
   defp resolve_limit(raw) when is_binary(raw) do
     case Integer.parse(raw) do
-      {value, ""} when value > 0 -> value
-      _other -> @default_deliveries_limit
+      {value, ""} when value > 0 ->
+        if Pagination.int64?(value),
+          do: {:ok, min(value, Pagination.max_page_size())},
+          else: {:error, :invalid_limit}
+
+      _other ->
+        {:ok, @default_deliveries_limit}
     end
   end
 
-  defp resolve_limit(_other), do: @default_deliveries_limit
+  defp resolve_limit(_other), do: {:ok, @default_deliveries_limit}
 
   # ── Request-body helpers ───────────────────────────────────────────────────
 

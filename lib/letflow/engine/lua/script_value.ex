@@ -19,6 +19,18 @@ defmodule Letflow.Engine.Lua.ScriptValue do
   @max_depth 32
   @max_output_bytes 65_536
 
+  defmodule Budget do
+    @moduledoc """
+    GH 2534 / GH 2545: the node and byte tally of one `decode/2`, as a struct. Both counters
+    are required, so a budget cannot be built with a misspelled or missing key.
+    """
+
+    @enforce_keys [:nodes, :bytes]
+    defstruct [:nodes, :bytes]
+
+    @type t :: %__MODULE__{nodes: non_neg_integer(), bytes: non_neg_integer()}
+  end
+
   @doc "The output byte cap (0053 D7, 64 KiB)."
   @spec max_output_bytes() :: pos_integer()
   def max_output_bytes, do: @max_output_bytes
@@ -89,7 +101,7 @@ defmodule Letflow.Engine.Lua.ScriptValue do
   def decode(nil, _state), do: {:ok, %{}}
 
   def decode({:tref, _} = ref, state) do
-    budget = %{nodes: 0, bytes: 0}
+    budget = %Budget{nodes: 0, bytes: 0}
 
     with {:ok, value, _budget} <- decode_table(ref, state, MapSet.new(), 1, budget),
          {:ok, json} <- Jason.encode(value),
@@ -197,12 +209,13 @@ defmodule Letflow.Engine.Lua.ScriptValue do
     with {:ok, budget} <- charge(budget, bytes), do: {:ok, value, budget}
   end
 
-  defp charge(%{nodes: nodes, bytes: bytes}, add) do
+  @spec charge(Budget.t(), non_neg_integer()) :: {:ok, Budget.t()} | :error
+  defp charge(%Budget{nodes: nodes, bytes: bytes}, add) do
     nodes = nodes + 1
     bytes = bytes + add
 
     if nodes > @max_nodes or bytes > @max_output_bytes,
       do: :error,
-      else: {:ok, %{nodes: nodes, bytes: bytes}}
+      else: {:ok, %Budget{nodes: nodes, bytes: bytes}}
   end
 end

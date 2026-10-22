@@ -389,6 +389,19 @@ defmodule Letflow.Routers.DefinitionsTest do
       assert conn.status == 400
     end
 
+    test "GET /delta?since=9223372036854775808 (int64 max + 1) returns 400, not a 500" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req125-ac4e")
+
+      conn =
+        build_conn("GET", "/delta?since=9223372036854775808", tenant, %{
+          roles: ["PROCESS_OPERATOR"]
+        })
+        |> dispatch()
+
+      assert conn.status == 400
+      assert Jason.decode!(conn.resp_body)["detail"] == "invalid since"
+    end
+
     test "GET /delta?since=0 is treated as full history, not an error" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req125-ac4d")
       _definition = create_definition!(tenant.schema_name)

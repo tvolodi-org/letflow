@@ -21,7 +21,8 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
+import { screen, cleanup, fireEvent, act } from '@testing-library/react'
+import { renderWithAccess } from '@/auth/access/testing'
 expect.extend(jestDomMatchers)
 
 vi.mock('@tanstack/react-query', () => ({
@@ -281,7 +282,7 @@ describe.each(CASES)('REQ-343 AC1 — EntityCrudPage generic CRUD for entity_typ
     try {
       const { deleteMutateSpy } = installMocksFor(c)
 
-      render(<EntityCrudPage entityType={c.entityType} />)
+      renderWithAccess(<EntityCrudPage entityType={c.entityType} />)
 
       // LIST: the real record's formatted cell value is rendered.
       expect(screen.getByText(c.primaryCellText)).toBeInTheDocument()
@@ -331,7 +332,7 @@ describe('ISS-0663 — default records list excludes soft-deleted rows', () => {
     const tagCase = CASES.find((c) => c.entityType === 'tag')!
     installMocksFor(tagCase)
 
-    render(<EntityCrudPage entityType="tag" />)
+    renderWithAccess(<EntityCrudPage entityType="tag" />)
 
     // useQuery is mocked directly (DIRECTIVE T-2's mocking pattern for this
     // suite), so its queryFn is never invoked by the mock automatically --
@@ -373,7 +374,7 @@ describe('REQ-343 AC2 — answer_option is_correct field-grant awareness', () =>
       const answerOptionCase = CASES.find((c) => c.entityType === 'answer_option')!
       installMocksFor(answerOptionCase)
 
-      render(<EntityCrudPage entityType="answer_option" />)
+      renderWithAccess(<EntityCrudPage entityType="answer_option" />)
       fireEvent.click(screen.getByTestId('entity-create-action'))
       act(() => {
         vi.runAllTimers()
@@ -387,5 +388,19 @@ describe('REQ-343 AC2 — answer_option is_correct field-grant awareness', () =>
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('GH 2238 BUILDS 5 — EntityCrudPage write controls follow EntitiesRecordsWrite', () => {
+  it('an auditor sees the records but no create, edit or delete control', () => {
+    const c = CASES[0]
+    installMocksFor(c)
+
+    renderWithAccess(<EntityCrudPage entityType={c.entityType} />, 'auditor')
+
+    expect(screen.getByText(c.primaryCellText)).toBeInTheDocument()
+    expect(screen.queryByTestId('entity-create-action')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('entity-edit-r1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('entity-delete-r1')).not.toBeInTheDocument()
   })
 })
