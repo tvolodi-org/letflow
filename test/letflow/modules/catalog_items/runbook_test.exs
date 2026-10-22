@@ -102,7 +102,7 @@ defmodule Letflow.Modules.CatalogItems.RunbookTest do
 
   test "B-06: the cited code lines still hold the symbol the limit names" do
     expect = [
-      {"lib/letflow/entities/records.ex", 1864, "check_write_authority"},
+      {"lib/letflow/entities/records.ex", 1896, "check_write_authority"},
       {"lib/letflow/entities/records.ex", 385, "create_record"},
       {"lib/letflow/entities/records.ex", 1066, "reject_step_key"},
       {"lib/letflow/entities/records.ex", 1010, "reject_reserved_attributes"},

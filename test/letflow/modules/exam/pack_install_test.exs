@@ -694,5 +694,14 @@ defmodule Letflow.Modules.Exam.PackInstallTest do
        ),
        do: true
 
+  # GH #2832: a tenant-wide write maps the database's foreign_key_violation to a
+  # constant-message :reference violation (the constraint still did the rejecting).
+  defp fk_violation?(
+         {:error,
+          {:record_payload_invalid,
+           [%Letflow.Entities.Definition.Validator.Violation{rule: :reference}]}}
+       ),
+       do: true
+
   defp fk_violation?(_other), do: false
 end

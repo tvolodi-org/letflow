@@ -14,7 +14,7 @@ was written.
    403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:536`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
-   (`lib/letflow/entities/records.ex:1864`, delegating to `ManagedTypes.check_record_write/3`).
+   (`lib/letflow/entities/records.ex:1896`, delegating to `ManagedTypes.check_record_write/3`).
 2. **Writes go through the module's own Owner only, and nothing checks references.** Module
    code writes with the `/3` arity, `Records.create_record/3` with
    `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:385`). The
@@ -61,7 +61,7 @@ this section was written. It covers the types `catalog_uom` and `catalog_item`.
    generic entity routes answer 403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:536`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
-   (`lib/letflow/entities/records.ex:1864`, delegating to `ManagedTypes.check_record_write/3`).
+   (`lib/letflow/entities/records.ex:1896`, delegating to `ManagedTypes.check_record_write/3`).
 2. **Writes go through the module's own Owner only.** Module code writes with the `/3` arity,
    `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.CatalogItems)`
    (`lib/letflow/entities/records.ex:385`). The module ships no write functions yet.
