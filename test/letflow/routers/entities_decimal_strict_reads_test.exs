@@ -248,6 +248,140 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
     end
   end
 
+  defp recorded_queries_with(fun) do
+    parent = self()
+    handler = "gh2773-queries-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      Repo.config()[:telemetry_prefix] ++ [:query],
+      fn _event, _measurements, metadata, _config ->
+        if self() == parent, do: send(parent, {:query, Map.get(metadata, :query, "")})
+      end,
+      nil
+    )
+
+    result =
+      try do
+        fun.()
+      after
+        :telemetry.detach(handler)
+      end
+
+    {result, drain_queries([])}
+  end
+
+  defp drain_queries(acc) do
+    receive do
+      {:query, q} -> drain_queries([q | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  describe "GH #2773 -- the response renders with the definition the command already read" do
+    # `get_active_definition_by_name/2` is the only reader of `entity_definitions` on these paths.
+    defp definition_reads(queries, ctx) do
+      Enum.count(queries, &String.contains?(&1, ~s("#{ctx.schema_name}"."entity_definitions")))
+    end
+
+    defp attrs(ctx, extra) do
+      Map.merge(
+        %{entity_type: "ledger", actor_id: ctx.user_id, idempotency_key: Ecto.UUID.generate()},
+        extra
+      )
+    end
+
+    # Renders `result` exactly as the router does for a create/update/delete and returns the
+    # body with the number of definition reads the rendering issued.
+    defp render_reads(ctx, result, status) do
+      conn = conn(:get, "/")
+
+      {conn, queries} =
+        recorded_queries_with(fn ->
+          Letflow.Routers.Entities.render_record_command(conn, result, status, MapSet.new())
+        end)
+
+      {body_of(conn), definition_reads(queries, ctx)}
+    end
+
+    test "create, update and delete results carry the specs; rendering them issues no definition read" do
+      ctx = tenant_ctx("gh2773-w")
+
+      assert {:ok, %{strict_specs: %{"qty" => _, "hidden" => _}} = created} =
+               Letflow.Entities.Records.create_record(
+                 attrs(ctx, %{field_values: %{"qty" => "2.5", "hidden" => 7}}),
+                 ctx.schema_name
+               )
+
+      assert {%{"field_values" => %{"qty" => "2.50", "hidden" => "7.00"}}, 0} =
+               render_reads(ctx, {:ok, created}, :created)
+
+      id = created.record.record_id
+
+      assert {:ok, %{strict_specs: %{"qty" => _}} = updated} =
+               Letflow.Entities.Records.update_record(
+                 attrs(ctx, %{record_id: id, field_values: %{"qty" => 4}}),
+                 ctx.schema_name
+               )
+
+      assert {%{"field_values" => %{"qty" => "4.00"}}, 0} =
+               render_reads(ctx, {:ok, updated}, :ok)
+
+      assert {:ok, %{strict_specs: %{"qty" => _}} = deleted} =
+               Letflow.Entities.Records.delete_record(
+                 attrs(ctx, %{record_id: id}),
+                 ctx.schema_name
+               )
+
+      assert {%{"field_values" => %{"qty" => "4.00"}}, 0} =
+               render_reads(ctx, {:ok, deleted}, :ok)
+
+      # the already-deleted no-op success carries them as well
+      assert {:ok, %{strict_specs: %{"qty" => _}}} =
+               Letflow.Entities.Records.delete_record(
+                 attrs(ctx, %{record_id: id}),
+                 ctx.schema_name
+               )
+    end
+
+    test "a type with no strict field gets empty specs and an unchanged body" do
+      ctx = tenant_ctx("gh2773-p")
+
+      assert {:ok, %{strict_specs: specs} = result} =
+               Letflow.Entities.Records.create_record(
+                 attrs(ctx, %{entity_type: "plain", field_values: %{"amount" => 2.5}}),
+                 ctx.schema_name
+               )
+
+      assert specs == %{}
+
+      assert {%{"field_values" => %{"amount" => 2.5}}, 0} =
+               render_reads(ctx, {:ok, result}, :created)
+    end
+
+    test "Allowlist.load/3 hands back the specs of the definition it loaded, in the same reads" do
+      ctx = tenant_ctx("gh2773-a")
+      alias Letflow.Entities.Query.Allowlist
+
+      {{:ok, allowlist}, plain_queries} =
+        recorded_queries_with(fn -> Allowlist.load("ledger", ctx.schema_name) end)
+
+      {{:ok, with_specs, specs}, spec_queries} =
+        recorded_queries_with(fn -> Allowlist.load("ledger", ctx.schema_name, :with_specs) end)
+
+      assert with_specs == allowlist
+      assert specs == Definitions.strict_specs("ledger", ctx.schema_name)
+      # strict but not queried: the allowlist lacks it, the specs have it
+      assert %{"qty" => _, "hidden" => _} = specs
+      refute Map.has_key?(allowlist, "hidden")
+      assert length(spec_queries) == length(plain_queries)
+
+      assert {:error, :entity_type_not_found} =
+               Allowlist.load("nope", ctx.schema_name, :with_specs)
+    end
+  end
+
   describe "FieldGrants -- a restricted strict field stays redacted" do
     test "the renderer neither unmasks nor crashes on the redaction sentinel" do
       ctx = tenant_ctx("gh2654r-fg", ["TASK_WORKER"])

@@ -190,6 +190,7 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.ExternalRef
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Types, as: QueryTypes
+  alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Record.Validator
   alias Letflow.Entities.ScopeDeclaration
@@ -255,7 +256,16 @@ defmodule Letflow.Entities.Records do
           optional(:scope) => QueryTypes.scope_set()
         }
 
-  @type command_result :: %{record: Latest.t(), is_duplicate: boolean()}
+  @typedoc """
+  GH #2773: `strict_specs` are the strict decimal specs of the definition the command validated
+  against (create, update, delete), so the router renders the response without a second
+  definition read. Absent on results built elsewhere (upsert, duplicate replays of other paths).
+  """
+  @type command_result :: %{
+          required(:record) => Latest.t(),
+          required(:is_duplicate) => boolean(),
+          optional(:strict_specs) => Decimals.specs()
+        }
 
   @typedoc """
   GH #2659: `external_ref` is the RAW `%{"system" => _, "id" => _}` map (the parser's input); the
@@ -423,7 +433,7 @@ defmodule Letflow.Entities.Records do
           external_ref: external_ref
         })
 
-      run_command(ctx, attrs)
+      ctx |> run_command(attrs) |> put_strict_specs(definition)
     end
   end
 
@@ -659,7 +669,7 @@ defmodule Letflow.Entities.Records do
           authority: authority
         })
 
-      run_command(ctx, attrs)
+      ctx |> run_command(attrs) |> put_strict_specs(definition)
     end
   end
 
@@ -715,7 +725,7 @@ defmodule Letflow.Entities.Records do
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix),
          :ok <- scope_old_value(scope_ctx, existing_record) do
       if existing_record.deleted do
-        {:ok, %{record: existing_record, is_duplicate: false}}
+        put_strict_specs({:ok, %{record: existing_record, is_duplicate: false}}, definition)
       else
         ctx =
           Map.merge(scope_ctx, %{
@@ -731,10 +741,18 @@ defmodule Letflow.Entities.Records do
             authority: authority
           })
 
-        run_command(ctx, attrs)
+        ctx |> run_command(attrs) |> put_strict_specs(definition)
       end
     end
   end
+
+  # GH #2773: the specs of the definition the command validated against. The append steps
+  # re-check that definition under the type's sequence lock (`{:definition_changed, _}`), so a
+  # success rendered with these specs saw no change between validate and render.
+  defp put_strict_specs({:ok, %{} = result}, %EntityDefinition{definition_json: json}),
+    do: {:ok, Map.put(result, :strict_specs, Decimals.specs_from_definition_json(json))}
+
+  defp put_strict_specs(other, _definition), do: other
 
   # ---------------------------------------------------------------------
   # GH #2587 / REQ-499 -- process-step writes (design
