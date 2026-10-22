@@ -70,15 +70,17 @@ contain a hash; compare `tenant_modules.manifest_hash` with the build's
 
 ## Rollout: replay every tenant BEFORE deploying a build that emits handler lines
 
-A handler write adds three keys (`handler_module`, `handler`, `write_ordinal`) to the lines of the
-`TASK_ENTITY_WRITES_APPLIED` instance event. Only schema version 2 of that event type accepts
+A handler write adds three keys (`handler_module`, `handler_name`, `write_ordinal`; all three or none, GH #2671) to the lines
+of the `TASK_ENTITY_WRITES_APPLIED` instance event. Only schema version 2 of that event type accepts
 them, and a tenant gains v2 ONLY when `Letflow.TenantProvisioning.replay_all_pending/0` has run for
 it (provisioning and onboarding run the same replay, and `Letflow.TenantProvisioning.MigrationReplayBoot` runs it on every boot and always lets boot complete, so a failed boot replay is recorded, not fatal: GH #2727 persists the failure per tenant, readable with `bin/letflow rpc "Letflow.TenantProvisioning.list_replay_failures()"` (tenant id, fixed reason code, time; `[]` = clean). A later successful replay clears the entry.)
 Before the first build that lets a tenant complete a handler-calling task is deployed, run
 `replay_all_pending/0`, confirm `list_replay_failures/0` returns `[]`, and confirm every tenant's highest `TASK_ENTITY_WRITES_APPLIED` version in
 `event_type_registry` is 2. The engine refuses a handler completion on a tenant without v2
 (403 `write_not_permitted`, audit detail `event_schema_outdated`, nothing committed): that refusal
-is the fail-closed backstop, not the plan.
+is the fail-closed backstop, not the plan. Decision 0055 (rollout): `replay_all_pending/0` must
+have run for ALL existing tenants before any build that emits handler lines (R4b onward) is
+deployed; 403 `event_schema_outdated` only catches the tenant that was missed.
 
 ## R5 note: replay_all_pending and the infra inventory
 

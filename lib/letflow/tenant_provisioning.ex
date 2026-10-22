@@ -1543,7 +1543,7 @@ defmodule Letflow.TenantProvisioning do
         "Emitted by Letflow.Engine (decision 0054, GH #2587) when a HUMAN_TASK or " <>
           "SERVICE_TASK step's declared entity writes commit: ids and sequences only, no " <>
           "field value. Replay changes no state for it and never re-executes a write. " <>
-          "Version 2 adds three OPTIONAL line-item keys naming the module handler that " <>
+          "Version 2 adds three line-item keys (all or none) naming the module handler that " <>
           "produced a line; every v1 payload is also a valid v2 payload.",
       json_schema: %{
         "type" => "object",
@@ -1563,10 +1563,16 @@ defmodule Letflow.TenantProvisioning do
                 "event_global_seq" => %{"type" => "integer", "minimum" => 0},
                 # v2: present only on a module-handler line (ids and names, never a value).
                 "handler_module" => %{"type" => "string"},
-                "handler" => %{"type" => "string"},
+                "handler_name" => %{"type" => "string"},
                 "write_ordinal" => %{"type" => "integer", "minimum" => 1}
               },
               "required" => ["line_index", "entity_type", "record_id", "event_global_seq"],
+              # GH #2671: the three handler keys come together or not at all.
+              "dependentRequired" => %{
+                "handler_module" => ["handler_name", "write_ordinal"],
+                "handler_name" => ["handler_module", "write_ordinal"],
+                "write_ordinal" => ["handler_module", "handler_name"]
+              },
               "additionalProperties" => false
             }
           }

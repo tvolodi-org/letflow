@@ -281,7 +281,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       for {line, ordinal} <- [{first, 1}, {second, 2}] do
         assert line["line_index"] == 0
         assert line["handler_module"] == "fixture_ledger"
-        assert line["handler"] == "post_entry"
+        assert line["handler_name"] == "post_entry"
         assert line["write_ordinal"] == ordinal
       end
 
@@ -303,7 +303,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
         assert audit.after_state["activator_id"] == ctx.user.id
         assert audit.after_state["dispatch_id"] == ctx.dispatch.id
         assert audit.after_state["handler_module"] == "fixture_ledger"
-        assert audit.after_state["handler"] == "post_entry"
+        assert audit.after_state["handler_name"] == "post_entry"
         refute Map.has_key?(audit.after_state, "field_values")
         refute inspect(audit.after_state) =~ @label
       end

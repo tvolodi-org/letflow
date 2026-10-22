@@ -3,7 +3,7 @@ defmodule Letflow.EventStore.TaskEntityWritesAppliedV2Test do
   GH #2590 / REQ-501 PR R4a (design `lib/letflow/design/gh2590-req501-module-write-handlers.md`
   4.11, F-1, N-1; section 11 row "Event schema v2"): the platform seed of
   `TASK_ENTITY_WRITES_APPLIED` is bumped IN PLACE from `schema_version: 1` to `2`. v2 is v1's
-  closed line-item schema plus three OPTIONAL keys (`handler_module`, `handler`,
+  closed line-item schema plus three keys (all or none, GH #2671) (`handler_module`, `handler_name`,
   `write_ordinal`) that name the module handler that produced a line.
 
     * a fresh tenant holds exactly one row for the type, at version 2;
@@ -71,7 +71,7 @@ defmodule Letflow.EventStore.TaskEntityWritesAppliedV2Test do
       update_in(
         v2.json_schema,
         item_path,
-        &Map.drop(&1, ["handler_module", "handler", "write_ordinal"])
+        &Map.drop(&1, ["handler_module", "handler_name", "write_ordinal", "dependentRequired"])
       )
 
     %{
@@ -100,11 +100,37 @@ defmodule Letflow.EventStore.TaskEntityWritesAppliedV2Test do
       handler_line =
         line(%{
           "handler_module" => "fixture_ledger",
-          "handler" => "post_entry",
+          "handler_name" => "post_entry",
           "write_ordinal" => 2
         })
 
       assert :ok = validate(payload([line(), handler_line]), tenant_id)
+    end
+
+    test "the handler keys come together: a lone key is refused, the full triple and none pass",
+         %{tenant_id: tenant_id} do
+      triple = %{
+        "handler_module" => "fixture_ledger",
+        "handler_name" => "post_entry",
+        "write_ordinal" => 1
+      }
+
+      assert :ok = validate(payload([line(triple)]), tenant_id)
+      assert :ok = validate(payload([line()]), tenant_id)
+
+      assert {:error, {:payload_validation_failed, [_ | _] = failures}} =
+               validate(payload([line(%{"handler_module" => "fixture_ledger"})]), tenant_id)
+
+      assert Enum.all?(failures, &(&1.constraint == "required"))
+      assert length(failures) == 2
+
+      for key <- Map.keys(triple) do
+        assert {:error, {:payload_validation_failed, [_ | _]}} =
+                 validate(payload([line(Map.take(triple, [key]))]), tenant_id)
+
+        assert {:error, {:payload_validation_failed, [_ | _]}} =
+                 validate(payload([line(Map.delete(triple, key))]), tenant_id)
+      end
     end
 
     test "an unknown line key is still refused; the handler keys are typed", %{
@@ -117,7 +143,7 @@ defmodule Letflow.EventStore.TaskEntityWritesAppliedV2Test do
                validate(payload([line(%{"write_ordinal" => 0})]), tenant_id)
 
       assert {:error, {:payload_validation_failed, [_ | _]}} =
-               validate(payload([line(%{"handler" => 5})]), tenant_id)
+               validate(payload([line(%{"handler_name" => 5})]), tenant_id)
 
       assert {:error, {:payload_validation_failed, [_ | _]}} =
                validate(payload([line(%{"handler_module" => nil})]), tenant_id)
@@ -149,7 +175,7 @@ defmodule Letflow.EventStore.TaskEntityWritesAppliedV2Test do
       handler_line =
         line(%{
           "handler_module" => "fixture_ledger",
-          "handler" => "post_entry",
+          "handler_name" => "post_entry",
           "write_ordinal" => 1
         })
 

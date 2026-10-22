@@ -3487,7 +3487,7 @@ defmodule Letflow.Engine do
   defp handler_keys(%{write_ordinal: ordinal} = line) when is_integer(ordinal) do
     %{
       "handler_module" => line.handler_module,
-      "handler" => line.handler,
+      "handler_name" => line.handler_name,
       "write_ordinal" => ordinal
     }
   end

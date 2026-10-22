@@ -9,7 +9,7 @@ defmodule Letflow.Engine.ModuleWriteAuditTest do
       `source.handler_name` and `source.write_ordinal`; `source.line_index` is the call's
       DECLARED index and `source.activator_id` the recorded activator;
     * each write's idempotency key is `sys:step:<task>:<line_index>:<ordinal>` (ordinals 1..n);
-    * ONE `TASK_ENTITY_WRITES_APPLIED` event whose lines carry `handler_module`, `handler` and
+    * ONE `TASK_ENTITY_WRITES_APPLIED` event whose lines carry `handler_module`, `handler_name` and
       `write_ordinal` for handler writes, and no field value; the history response projects
       each line to `line_index` and `entity_type` only;
     * one `entity_write.process_step` audit entry per write, with the three handler keys;
@@ -203,12 +203,12 @@ defmodule Letflow.Engine.ModuleWriteAuditTest do
                %{"line_index" => 1, "entity_type" => "fxl_balance"} = balance
              ] = payload["lines"]
 
-      refute Map.has_key?(declared, "handler")
+      refute Map.has_key?(declared, "handler_name")
       refute Map.has_key?(declared, "write_ordinal")
 
       for {line, ordinal} <- [{ledger, 1}, {balance, 2}] do
         assert line["handler_module"] == "fixture_ledger"
-        assert line["handler"] == "post_entry"
+        assert line["handler_name"] == "post_entry"
         assert line["write_ordinal"] == ordinal
         assert is_binary(line["record_id"]) and is_integer(line["event_global_seq"])
       end
@@ -240,9 +240,9 @@ defmodule Letflow.Engine.ModuleWriteAuditTest do
       assert length(entries) == 3
 
       by_type = Map.new(entries, &{&1.after_state["entity_type"], &1.after_state})
-      refute Map.has_key?(by_type["stock_move"], "handler")
+      refute Map.has_key?(by_type["stock_move"], "handler_name")
       assert by_type["fxl_ledger"]["handler_module"] == "fixture_ledger"
-      assert by_type["fxl_ledger"]["handler"] == "post_entry"
+      assert by_type["fxl_ledger"]["handler_name"] == "post_entry"
       assert by_type["fxl_ledger"]["write_ordinal"] == 1
       assert by_type["fxl_balance"]["write_ordinal"] == 2
       assert by_type["fxl_ledger"]["line_index"] == 1
@@ -345,6 +345,6 @@ defmodule Letflow.Engine.ModuleWriteAuditTest do
     assert [applied] =
              Fx.instance_events(ctx.schema, ctx.instance_id, "TASK_ENTITY_WRITES_APPLIED")
 
-    assert [%{"handler" => "post_entry"} | _] = decode(applied.payload)["lines"]
+    assert [%{"handler_name" => "post_entry"} | _] = decode(applied.payload)["lines"]
   end
 end
