@@ -116,6 +116,21 @@ defmodule Letflow.Entities.Query.Types do
   """
   @type scope_set :: :all | {:nodes, [String.t(), ...]} | :none
 
+  @doc """
+  The one boundary check of a `scope_set`: `{:ok, set}` for `:all`, `:none` and a non-empty list
+  of binary node ids; an empty node list normalises to `:none`; anything else is `:error`.
+  """
+  @spec cast_scope_set(term()) :: {:ok, scope_set()} | :error
+  def cast_scope_set(:all), do: {:ok, :all}
+  def cast_scope_set(:none), do: {:ok, :none}
+  def cast_scope_set({:nodes, []}), do: {:ok, :none}
+
+  def cast_scope_set({:nodes, [_ | _] = ids} = scope) do
+    if Enum.all?(ids, &is_binary/1), do: {:ok, scope}, else: :error
+  end
+
+  def cast_scope_set(_other), do: :error
+
   @filter_ops ~w(eq neq gt gte lt lte in not_in contains starts_with is_null is_not_null)a
 
   @sort_dirs ~w(asc desc)a

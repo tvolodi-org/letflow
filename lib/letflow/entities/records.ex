@@ -1304,15 +1304,12 @@ defmodule Letflow.Entities.Records do
     end
   end
 
-  defp validate_scope!(:all), do: :all
-  defp validate_scope!(:none), do: :none
-  defp validate_scope!({:nodes, []}), do: :none
-
-  defp validate_scope!({:nodes, ids} = scope) when is_list(ids) do
-    if Enum.all?(ids, &is_binary/1), do: scope, else: raise_bad_scope()
+  defp validate_scope!(scope) do
+    case QueryTypes.cast_scope_set(scope) do
+      {:ok, set} -> set
+      :error -> raise_bad_scope()
+    end
   end
-
-  defp validate_scope!(_other), do: raise_bad_scope()
 
   defp raise_bad_scope,
     do: raise(ArgumentError, "scope must be :all, :none or {:nodes, [binary]}")
