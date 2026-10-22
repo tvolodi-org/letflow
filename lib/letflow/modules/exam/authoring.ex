@@ -74,18 +74,21 @@ defmodule Letflow.Modules.Exam.Authoring do
   @spec create(Records.create_attrs(), prefix :: String.t()) ::
           {:ok, Records.command_result()} | Records.command_error()
   def create(%{entity_type: entity_type} = attrs, prefix) when entity_type in @authoring_types,
+    # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
     do: Records.create_record(attrs, prefix, exam_owner())
 
   @doc "Replaces the `field_values` of a record of an authoring type (`Records.update_record/3`)."
   @spec update(Records.update_attrs(), prefix :: String.t()) ::
           {:ok, Records.command_result()} | Records.command_error()
   def update(%{entity_type: entity_type} = attrs, prefix) when entity_type in @authoring_types,
+    # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
     do: Records.update_record(attrs, prefix, exam_owner())
 
   @doc "Soft-deletes a record of an authoring type (`Records.delete_record/3`)."
   @spec delete(Records.delete_attrs(), prefix :: String.t()) ::
           {:ok, Records.command_result()} | Records.command_error()
   def delete(%{entity_type: entity_type} = attrs, prefix) when entity_type in @authoring_types,
+    # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
     do: Records.delete_record(attrs, prefix, exam_owner())
 
   # Built per call, never stored (as `Session.exam_owner/0`).

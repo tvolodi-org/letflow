@@ -444,7 +444,7 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
     test "the snapshot lost exactly the six 2c-i-b lines and the fifteen 2c-ii lines: 122 remain, none of the six is present",
          %{snapshot: snapshot} do
       # 122 after 2c-ii; PR 2d removed the seven task lines (the two list lines are in @filter_lines); GH #2548 added one line (116)
-      assert length(snapshot) == 116
+      assert length(snapshot) == 119
 
       for l <- @removed_lines, do: refute(l in snapshot, l)
     end
