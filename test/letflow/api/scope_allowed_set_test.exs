@@ -181,7 +181,6 @@ defmodule Letflow.Api.ScopeAllowedSetTest do
       for principal <- [F.principal(fx, {:nodes, [:a3]}), handmade(fx.schema_name, [])] do
         assert {:ok, set} = Scope.allowed_set(principal, @perm)
         assert set == :none
-        refute match?({:nodes, []}, set)
       end
     end
   end

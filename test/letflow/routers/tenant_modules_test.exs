@@ -51,8 +51,6 @@ defmodule Letflow.Routers.TenantModulesTest do
     install_raw(tenant_id, roles, Map.put_new(body, "rationale", "test: module install"))
   end
 
-  defp install(tenant_id, roles, body), do: install_raw(tenant_id, roles, body)
-
   defp install_raw(tenant_id, roles, body) do
     build_conn(tenant_id, roles, body)
     |> Letflow.Routers.TenantModules.call(@opts)

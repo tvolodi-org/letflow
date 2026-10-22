@@ -324,7 +324,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
 
     refute status == :timeout, "script did not return within #{limit} ms:\n#{out}"
     assert status == 1, "expected non-zero exit, got #{inspect(status)}:\n#{out}"
-    assert elapsed < limit
+    assert is_integer(elapsed) and is_integer(limit) and elapsed < limit
 
     all = lines(out)
 

@@ -49,8 +49,6 @@ defmodule Letflow.Routers.TenantSolutionsTest do
     )
   end
 
-  defp install_solution(tenant_id, roles, body), do: install_solution_raw(tenant_id, roles, body)
-
   defp install_solution_raw(tenant_id, roles, body) do
     build_conn(tenant_id, roles, body)
     |> Letflow.Routers.TenantSolutions.call(@opts)

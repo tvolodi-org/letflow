@@ -125,7 +125,7 @@ defmodule Letflow.Routers.GH2747CursorTailHttpTest do
       expected_status = unquote(status)
 
       ctx = ctx!(unquote(who), needs_instance?(name))
-      ctx = if name == :group_members, do: with_group(ctx), else: ctx
+      ctx = maybe_with_group(ctx, name)
       {path, fixed} = route(name, ctx)
 
       control = get(ctx, path, Map.put(fixed, "cursor", @control_cursor))
@@ -150,6 +150,9 @@ defmodule Letflow.Routers.GH2747CursorTailHttpTest do
   end
 
   # ── group-members: existence is checked before the cursor ──────────────────
+
+  defp maybe_with_group(ctx, :group_members), do: with_group(ctx)
+  defp maybe_with_group(ctx, _name), do: ctx
 
   defp with_group(ctx) do
     {:ok, group} =

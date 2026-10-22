@@ -278,7 +278,7 @@ defmodule Letflow.AuditDispositionsTest do
     test "tampering a persisted entry's prev_chain_hash while leaving its own chain_hash untouched is reported as hash_mismatch" do
       %{schema_name: schema_name} = provisioned_tenant()
 
-      assert {:ok, %Entry{id: id_1, chain_hash: chain_hash_1}} =
+      assert {:ok, %Entry{chain_hash: chain_hash_1}} =
                Audit.insert_entry(Repo, base_entry_attrs(resource_id: "res-order-1"), schema_name)
 
       assert {:ok, %Entry{id: id_2, prev_chain_hash: original_prev_hash_2}} =

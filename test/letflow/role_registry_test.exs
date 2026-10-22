@@ -112,8 +112,6 @@ defmodule Letflow.Identity.RoleRegistryTest do
     "#{prefix}-#{System.unique_integer([:positive, :monotonic])}"
   end
 
-  defp unique_slug, do: Letflow.TenantSlugFixture.unique_slug("req063-rolereg")
-
   setup do
     # Provisions via Letflow.TenantFixture (ISS-0112 / GH#366), teardown: false
     # because this file's own on_exit/1 below force-restores :auto mode before

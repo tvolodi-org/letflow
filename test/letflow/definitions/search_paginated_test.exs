@@ -33,8 +33,6 @@ defmodule Letflow.Definitions.SearchPaginatedTest do
 
   use Letflow.DataCase, async: false
 
-  import Ecto.Query
-
   alias Letflow.Definitions
   alias Letflow.TenantFixture
 

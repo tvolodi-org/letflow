@@ -448,7 +448,6 @@ defmodule Letflow.Engine.Lua.ExecutorTest do
         Executor.run_script_sync(%Manifest{script_id: "", capabilities: []}, @infinite_loop, 500)
 
       assert {:error, {:budget_exceeded, 500}} = result
-      refute match?({:error, {:wallclock_timeout, _}}, result)
       refute match?({:error, msg} when is_binary(msg), result)
       refute match?({:error, :invalid_script_ref}, result)
     end

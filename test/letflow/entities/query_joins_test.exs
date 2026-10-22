@@ -101,7 +101,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
   # very first promotion, backfilling) its per-entity-type table -- the
   # exact REQ-297 mechanism, mirrored from
   # constraint_fk_activation_test.exs's own identically-named helper.
-  defp promote_and_create_table!(schema, tenant_id, entity_type, attribute, pg_type, opts \\ []) do
+  defp promote_and_create_table!(_schema, tenant_id, entity_type, attribute, pg_type, opts \\ []) do
     references_entity = Keyword.get(opts, :references_entity)
 
     column_spec =

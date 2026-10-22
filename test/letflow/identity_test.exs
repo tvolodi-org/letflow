@@ -1270,8 +1270,11 @@ defmodule Letflow.IdentityTest do
       refute Identity.active_user?(%User{status: :inactive})
       refute Identity.active_user?(%User{status: nil})
 
-      assert_raise FunctionClauseError, fn -> Identity.active_user?(%{status: :active}) end
-      assert_raise FunctionClauseError, fn -> Identity.active_user?(nil) end
+      assert_raise FunctionClauseError, fn ->
+        apply(Identity, :active_user?, [%{status: :active}])
+      end
+
+      assert_raise FunctionClauseError, fn -> apply(Identity, :active_user?, [nil]) end
     end
 
     test "active_user_condition/1 filters an inactive member out of a GroupMember-User join" do
