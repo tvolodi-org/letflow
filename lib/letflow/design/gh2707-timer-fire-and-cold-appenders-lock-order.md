@@ -728,7 +728,7 @@ timer statement, recorded in 0061 "Amended (GH #2864)".
    is NOT a global 300 in `config/test.exs` (it would shorten every legitimate queueing wait of every
    other test's fires): a build with `:engine_test_seams` reads the process-local key
    `:timer_fire_lock_timeout_ms_override` of the calling process, the same mechanism as `lock_timeout_ms/0`.
-2. **The statement.** `Letflow.Engine.set_timer_fire_lock_timeout/2` (`@doc false`, in `engine.ex`, so the
+2. **The statement.** `Letflow.Engine.Contention.set_timer_fire_lock_timeout/2` (moved from `engine.ex` by GH #2868, so the
    `set_config` string stays inside the T-11 whitelist) runs one `SELECT set_config('lock_timeout', $1, true)`
    with the value as a bound parameter. `Scheduler.fire_timer/2` calls it as the first statement inside its
    `Repo.transaction/1`, before the peek, and skips it when `Repo.in_transaction?()` was true on entry.
