@@ -339,14 +339,98 @@ defmodule Mix.Tasks.Letflow.CheckBoundariesTest do
       assert ExUnit.CaptureIO.capture_io(fn -> assert CB.run([]) == :ok end) =~ "0 violations"
     end
 
-    test "layer_rules/0 is the one declarative row" do
-      assert [rule] = CB.layer_rules()
+    test "layer_rules/0 is the three declarative rows" do
+      assert [rule, scripts_rule, dispatcher_rule] = CB.layer_rules()
       assert rule.source_prefixes == ["lib/letflow/engine.ex", "lib/letflow/engine/"]
 
       assert rule.forbidden_target_prefixes == [
                "lib/letflow/entities.ex",
                "lib/letflow/entities/"
              ]
+
+      assert scripts_rule.source_prefixes == ["lib/letflow/scripts.ex", "lib/letflow/scripts/"]
+      assert "lib/letflow/entities/step_writes.ex" in scripts_rule.forbidden_target_prefixes
+      assert "lib/letflow/engine.ex" in scripts_rule.forbidden_target_prefixes
+
+      assert "lib/letflow/engine/script_task_dispatcher.ex" in dispatcher_rule.source_prefixes
+      assert "lib/letflow/definitions.ex" in dispatcher_rule.forbidden_target_prefixes
+      refute "lib/letflow/engine.ex" in dispatcher_rule.forbidden_target_prefixes
+      refute "lib/letflow/engine/entity_port.ex" in dispatcher_rule.forbidden_target_prefixes
+    end
+
+    # SEC F8 (GH 2632), T-F8-7
+    test "T-F8-7 scripts and dispatcher write-holder edges are violations, sanctioned ones are not" do
+      scripts = "lib/letflow/scripts/runtime.ex"
+      dispatcher = "lib/letflow/engine/script_task_dispatcher.ex"
+
+      for target <- [
+            "lib/letflow/engine.ex",
+            "lib/letflow/engine/entity_port.ex",
+            "lib/letflow/entities.ex",
+            "lib/letflow/entities/records.ex",
+            "lib/letflow/entities/step_writes.ex",
+            "lib/letflow/entities/handler_writes.ex",
+            "lib/letflow/entities/entity_port_impl.ex"
+          ] do
+        assert {:violation, reason} = CB.classify_edge({scripts, target}, %{}), target
+        assert reason =~ "SEC F8" or reason =~ "0053 F10"
+      end
+
+      assert {:violation, reason} =
+               CB.classify_edge(
+                 {"lib/letflow/scripts.ex", "lib/letflow/entities/step_writes.ex"},
+                 %{}
+               )
+
+      assert reason =~ "SEC F8"
+
+      assert {:violation, reason} =
+               CB.classify_edge({dispatcher, "lib/letflow/definitions.ex"}, %{})
+
+      assert reason =~ "dispatcher"
+
+      assert {:violation, _} =
+               CB.classify_edge(
+                 {"lib/letflow/engine/script_task_dispatcher/poller.ex",
+                  "lib/letflow/entities/step_writes.ex"},
+                 %{}
+               )
+
+      for edge <- [
+            {dispatcher, "lib/letflow/engine.ex"},
+            {dispatcher, "lib/letflow/engine/entity_port.ex"},
+            {scripts, "lib/letflow/entities/hidden_labels.ex"},
+            {scripts, "lib/letflow/engine/script_input.ex"},
+            {scripts, "lib/letflow/entities/definitions.ex"},
+            {scripts, "lib/letflow/definitions/graph.ex"}
+          ] do
+        assert CB.classify_edge(edge, %{}) == :ok, inspect(edge)
+      end
+    end
+
+    # SEC F8 (GH 2632), T-F8-8
+    test "T-F8-8 run/1 fails on a synthetic scripts -> step_writes edge and passes without it" do
+      Application.put_env(:letflow, :check_boundaries_xref_runner, fn ->
+        {"lib/letflow/scripts/runtime.ex
+`-- lib/letflow/entities/step_writes.ex (runtime)
+", 0}
+      end)
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert_raise Mix.Error, ~r/1 violation/, fn -> CB.run([]) end
+        end)
+
+      assert output =~
+               "VIOLATION: lib/letflow/scripts/runtime.ex -> lib/letflow/entities/step_writes.ex"
+
+      Application.put_env(:letflow, :check_boundaries_xref_runner, fn ->
+        {"lib/letflow/scripts/runtime.ex
+`-- lib/letflow/entities/hidden_labels.ex (runtime)
+", 0}
+      end)
+
+      assert ExUnit.CaptureIO.capture_io(fn -> assert CB.run([]) == :ok end) =~ "0 violations"
     end
 
     test "no engine file names Letflow.Entities (source scan)" do
