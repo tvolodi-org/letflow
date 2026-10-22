@@ -943,7 +943,7 @@ defmodule Letflow.Entities.StepWrites do
         event_global_seq: seq,
         output_var: nil,
         handler_module: Map.get(line, "module"),
-        handler: Map.get(line, "handler"),
+        handler_name: Map.get(line, "handler"),
         write_ordinal: key - StepSource.call_key(line_index)
       }
     end
