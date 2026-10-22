@@ -101,6 +101,27 @@ defmodule Letflow.Entities.Query.FieldGrants do
   end
 
   @doc """
+  Every `field_name` that has ANY `entity_field_restrictions` row for
+  `entity_type`, ignoring `user_entity_grants` (REQ-516 S1). For a recipient
+  with no user (webhook, DLQ copy): grants cannot apply. One query, same
+  prefix scoping and `tenant_id_for_schema_name/1` check as `load_restrictions/3`.
+  """
+  @spec load_all_restricted(entity_type :: String.t(), prefix :: String.t()) ::
+          {:ok, restriction_set()} | {:error, :invalid_schema_name}
+  def load_all_restricted(entity_type, prefix)
+      when is_binary(entity_type) and is_binary(prefix) do
+    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      query =
+        from(fr in "entity_field_restrictions",
+          where: fr.entity_type == ^entity_type,
+          select: fr.field_name
+        )
+
+      {:ok, MapSet.new(Repo.all(query, prefix: prefix))}
+    end
+  end
+
+  @doc """
   Pure, no I/O: for each `field_name` in `restriction_set` that is also a
   key of `field_values`, replaces that key's value with
   `:__field_redacted__` (design §3.4/§3.5). Every other key is passed

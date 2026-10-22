@@ -141,6 +141,9 @@ defmodule Letflow.Scripts.Policy do
   `restricted_fields` (P12). One code for every cause. An empty `reads` answers `:ok`
   without a query.
 
+  Decision 0062 R6: the same call also runs `check_restricted_inputs/2` (every `restricted_inputs`
+  `from` pair names an active definition with that field), so every caller gets both.
+
   `lock: :share` reads the master rows `FOR SHARE` (publish, inside its transaction), so a
   concurrent clear waits for the publish to commit (P5).
   """
@@ -148,6 +151,14 @@ defmodule Letflow.Scripts.Policy do
   def check_reads(prefix, manifest, opts \\ [])
 
   def check_reads(prefix, manifest, opts) when is_map(manifest) do
+    with :ok <- check_declared_reads(prefix, manifest, opts) do
+      check_restricted_inputs(prefix, manifest)
+    end
+  end
+
+  def check_reads(_prefix, _manifest, _opts), do: {:error, :reads_not_allowed}
+
+  defp check_declared_reads(prefix, manifest, opts) do
     case Map.get(manifest, "reads", []) do
       [] ->
         :ok
@@ -164,7 +175,32 @@ defmodule Letflow.Scripts.Policy do
     end
   end
 
-  def check_reads(_prefix, _manifest, _opts), do: {:error, :reads_not_allowed}
+  @doc """
+  The tenant check of a manifest's `restricted_inputs` (decision 0062 R6): every `from` pair
+  names an ACTIVE definition that has that field. One code for every cause, the same as
+  `check_reads/3`. A manifest without `restricted_inputs` answers `:ok` without a query.
+  """
+  @spec check_restricted_inputs(String.t(), map()) :: :ok | {:error, :reads_not_allowed}
+  def check_restricted_inputs(prefix, manifest) when is_map(manifest) do
+    pairs =
+      manifest
+      |> Validation.restricted_input_entries()
+      |> Enum.flat_map(& &1["from"])
+      |> Enum.uniq()
+
+    if Enum.all?(pairs, &from_pair_known?(prefix, &1)),
+      do: :ok,
+      else: {:error, :reads_not_allowed}
+  end
+
+  def check_restricted_inputs(_prefix, _manifest), do: {:error, :reads_not_allowed}
+
+  defp from_pair_known?(prefix, %{"entity_type" => entity_type, "field" => field}) do
+    case Definitions.get_active_definition_by_name(entity_type, prefix) do
+      {:ok, definition} -> MapSet.member?(definition_fields(definition), field)
+      _ -> false
+    end
+  end
 
   defp read_allowed?(prefix, %{"entity_type" => entity_type} = read, lock)
        when is_binary(entity_type) do

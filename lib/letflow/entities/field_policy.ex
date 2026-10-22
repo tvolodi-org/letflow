@@ -86,6 +86,28 @@ defmodule Letflow.Entities.FieldPolicy do
     end
   end
 
+  @doc """
+  Every field of `entity_type` with any restriction row, grants ignored
+  (REQ-516 S1). Used for copies that leave the system or are immutable.
+  """
+  @spec restricted_anywhere(String.t(), String.t()) ::
+          {:ok, MapSet.t(String.t())} | {:error, :invalid_schema_name}
+  def restricted_anywhere(prefix, entity_type) when is_binary(prefix) and is_binary(entity_type),
+    do: FieldGrants.load_all_restricted(entity_type, prefix)
+
+  @doc """
+  Redacts `field_values` for an external recipient (no principal, no grants):
+  every field with a restriction row is masked. A loader error propagates,
+  never "unrestricted".
+  """
+  @spec redact_for_recipient(String.t(), String.t(), map()) ::
+          {:ok, map()} | {:error, :invalid_schema_name}
+  def redact_for_recipient(prefix, entity_type, field_values) when is_map(field_values) do
+    with {:ok, set} <- restricted_anywhere(prefix, entity_type) do
+      {:ok, FieldGrants.redact_field_values(field_values, set)}
+    end
+  end
+
   @doc "Pure: redacts `field_values` with the already-loaded set for `entity_type`."
   @spec redact_with_sets(restriction_sets(), String.t(), map()) :: map()
   def redact_with_sets(sets, entity_type, field_values)

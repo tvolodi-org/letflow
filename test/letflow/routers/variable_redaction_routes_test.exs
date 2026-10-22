@@ -211,6 +211,73 @@ defmodule Letflow.Routers.VariableRedactionRoutesTest do
     end
   end
 
+  # SR-OPT-1/2/3: a REAL opt-in run (no faked output_labels). `amount` is labelled
+  # customer.salary on the projection; the script doubles it into `total`.
+  defp opted_in_run!(t, restricted_inputs) do
+    Letflow.Support.ScriptPolicyFixture.active_definition!(t.schema_name, "customer", ["salary"])
+
+    manifest = Map.put(F.closed_manifest(), "restricted_inputs", restricted_inputs)
+
+    b = F.bound_graph!(t, F.doubling_source(), manifest, %{"amount" => 2}, &graph/2, [])
+
+    {1, _} =
+      from(p in Letflow.EventStore.InstanceProjection, where: p.instance_id == ^b.instance_id)
+      |> Repo.update_all(
+        [set: [variable_labels: %{"amount" => ["customer.salary"]}]],
+        prefix: t.schema_name
+      )
+
+    {row, result} = F.run_next!(t.schema_name)
+    {b, F.reload(t.schema_name, row), result}
+  end
+
+  @opt_in [
+    %{
+      "name" => "amount",
+      "from" => [%{"entity_type" => "customer", "field" => "salary"}]
+    }
+  ]
+
+  describe "SR-OPT-1/2/3: a real opt-in run" do
+    test "SR-OPT-1 and SR-OPT-3(a): the output is labelled and redacted without the grant", %{
+      t: t
+    } do
+      {b, row, result} = opted_in_run!(t, @opt_in)
+      assert result == {:ok, :applied}
+      assert row.outcome == "ok"
+
+      assert F.projection(t.schema_name, b.instance_id).variable_labels ==
+               %{"amount" => ["customer.salary"], "total" => ["customer.salary"]}
+
+      conn =
+        conn_for(Letflow.Routers.Instances, :get, "/#{b.instance_id}", t, Ecto.UUID.generate())
+
+      assert body(conn)["variables"]["total"] == @placeholder
+      assert body(conn)["variables"]["amount"] == @placeholder
+    end
+
+    test "SR-OPT-3: the principal with the grant sees the value", %{t: t} do
+      {b, _row, {:ok, :applied}} = opted_in_run!(t, @opt_in)
+      viewer = insert_user!(t)
+      grant!(t, viewer)
+
+      conn = conn_for(Letflow.Routers.Instances, :get, "/#{b.instance_id}", t, viewer.id)
+      assert body(conn)["variables"]["total"] == 4
+    end
+
+    test "SR-OPT-2: without the opt-in the labelled input is omitted and the run is rejected",
+         %{t: t} do
+      F.count_runner_calls!()
+      {b, row, result} = opted_in_run!(t, [])
+
+      assert result == {:ok, :failed}
+      assert row.outcome == "script_rejected"
+      assert row.outcome_detail == "input_invalid"
+      assert F.projection(t.schema_name, b.instance_id).status == :error
+      refute_received {:script_runner_called, _, _}
+    end
+  end
+
   describe "a caller with the grant" do
     test "GET /instances/:id shows the value", %{t: t} do
       b = labelled_review!(t)
