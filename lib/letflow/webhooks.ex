@@ -77,6 +77,7 @@ defmodule Letflow.Webhooks do
   import Ecto.Query
 
   alias Ecto.Multi
+  alias Letflow.Entities.FieldPolicy
   alias Letflow.Repo
   alias Letflow.Secrets
   alias Letflow.TenantProvisioning
@@ -256,10 +257,55 @@ defmodule Letflow.Webhooks do
              tenant_id: subscription.tenant_id,
              consumer: :webhook_dispatcher
            ) do
-      attempt_loop(subscription, event_type, payload, delivery_id, prefix, signing_key, 1)
+      case redact_payload_for_delivery(payload, prefix) do
+        {:ok, redacted} ->
+          attempt_loop(subscription, event_type, redacted, delivery_id, prefix, signing_key, 1)
+
+        {:error, _reason} = error ->
+          error
+      end
     else
       {:error, :invalid_tenant_id} = error -> raise inspect(error)
       {:error, reason} -> {:error, {:key_resolution_failed, reason}}
+    end
+  end
+
+  # REQ-516 S1 (C5/C6): an entity-event payload leaves the system, so its
+  # `field_values` are masked with every restriction row of the entity type
+  # (a recipient has no user, hence no grants). The one returned map is used
+  # for the body, the signature and the DLQ copy. Other payloads pass through.
+  # A loader failure fails the delivery closed.
+  defp redact_payload_for_delivery(payload, prefix) do
+    entity_type = payload_value(payload, "entity_type", :entity_type)
+    field_values = payload_value(payload, "field_values", :field_values)
+
+    cond do
+      is_binary(entity_type) and is_map(field_values) ->
+        stringified = Map.new(field_values, fn {key, value} -> {to_string(key), value} end)
+
+        case FieldPolicy.redact_for_recipient(prefix, entity_type, stringified) do
+          {:ok, redacted} ->
+            {:ok,
+             payload
+             |> Map.delete(:field_values)
+             |> Map.put("field_values", redacted)}
+
+          {:error, reason} ->
+            {:error, {:redaction_failed, reason}}
+        end
+
+      is_binary(entity_type) and not is_nil(field_values) ->
+        {:error, {:redaction_failed, :invalid_field_values}}
+
+      true ->
+        {:ok, payload}
+    end
+  end
+
+  defp payload_value(payload, string_key, atom_key) do
+    case Map.fetch(payload, string_key) do
+      {:ok, value} -> value
+      :error -> Map.get(payload, atom_key)
     end
   end
 
