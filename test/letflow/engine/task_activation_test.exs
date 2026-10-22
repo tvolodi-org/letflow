@@ -286,7 +286,7 @@ defmodule Letflow.Engine.TaskActivationTest do
   # this test originally guarded. `variable_merge.ex` still never references
   # form_schema at all (unchanged); `engine.ex`'s own new reference is
   # confirmed confined to reading `task.form_schema` and feeding it into
-  # `Letflow.Engine.FormExpressionReevaluation.reevaluate/3` -- never to
+  # `Letflow.Engine.FormExpressionReevaluation.reevaluate/4` -- never to
   # validating a submitted value's type/constraints against form_schema's own
   # JSON-Schema keywords, which remains `variable_schemas`' sole authority
   # (REQ-292 AC6).
@@ -300,7 +300,7 @@ defmodule Letflow.Engine.TaskActivationTest do
       refute contents =~ "form_schema"
     end
 
-    test "engine.ex reads task.form_schema only to feed FormExpressionReevaluation.reevaluate/3 -- never to validate a submitted value's type/constraints" do
+    test "engine.ex reads task.form_schema only to feed FormExpressionReevaluation.reevaluate/4 -- never to validate a submitted value's type/constraints" do
       contents = File.read!(Path.join(File.cwd!(), "lib/letflow/engine.ex"))
 
       assert contents =~ "task.form_schema"

@@ -56,6 +56,7 @@ defmodule Letflow.Api.Response do
 
   alias Letflow.Api.Error
   alias Letflow.Engine.EntityPort
+  alias Letflow.Engine.VariableLabels
   alias Letflow.Engine.VariableMerge
 
   @json_content_type "application/json"
@@ -64,37 +65,36 @@ defmodule Letflow.Api.Response do
 
   # ── Client-visible variable and event-payload shaping (GH #2587 PR B3, CO-1, INV-2) ──
 
-  @variable_payload_keys ["variables", "output_variables", "initial_variables"]
-
   @doc """
   The ONE helper every router uses before a process-variable map reaches a client
-  (GH #2587 PR B3, decision 0054 CO-1, INV-2): `variables` without its top-level reserved
-  (`_sys`, `_sys.*`) keys. A STRIP, not a permission gate: nothing client-side reads engine
-  bookkeeping, and the stored projection, events and audit entries are untouched. Delegates to
-  `Letflow.Engine.VariableMerge.drop_reserved/1` (the single reserved-key predicate). Nested keys
-  are never touched; a non-map input is returned as `%{}` so a malformed value cannot leak.
+  (GH #2587 PR B3, decision 0054 CO-1, INV-2; GH #2616 part 2, decision 0062 R8): `variables`
+  without its top-level reserved (`_sys`, `_sys.*`) keys, with each value whose labels intersect
+  `hidden` replaced by the redaction placeholder. A STRIP and a redaction, not a permission gate:
+  the stored projection, events and audit entries are untouched. `variable_labels` is the
+  projection's (or in-memory state's) label map; `hidden` is the caller's grant-resolved set from
+  `Letflow.Entities.Query.FieldGrants` (`nil` hides every labelled value). A non-map input is
+  returned as `%{}` so a malformed value cannot leak.
   """
-  @spec public_variables(term()) :: map()
-  def public_variables(variables) when is_map(variables),
-    do: VariableMerge.drop_reserved(variables)
-
-  def public_variables(_other), do: %{}
+  @spec public_variables(term(), map(), MapSet.t() | nil) :: map()
+  def public_variables(variables, variable_labels, hidden),
+    do: VariableLabels.redact_variables(variables, variable_labels, hidden)
 
   @doc """
-  The client-visible form of one stored instance event payload (history, GH #2587 PR B3):
+  The client-visible form of one stored instance event payload (history, GH #2587 PR B3, GH #2616
+  part 2):
 
     * the engine-only `VariableMerge.sys_event_type/0` payload is never shown (`%{}`; history and
       timeline also exclude the row server-side);
     * the `EntityPort.applied_event_type/0` payload is reduced to `node_id`, `task_id`, `dispatch_id`,
       `lines_hash` and `lines` as `[%{"line_index", "entity_type"}]` (no record id, no event
       sequence; the hash-chained audit entry keeps them);
-    * any top-level `variables`, `output_variables` or `initial_variables` map (for example
-      `EXECUTION_ERROR`'s full variable snapshot) passes through `public_variables/1`.
+    * every other payload has its variable values redacted by the labels stored on the event itself
+      against `hidden` (`Letflow.Engine.VariableLabels.redact_event_payload/2`).
 
   The stored event is never changed; this shapes the response only.
   """
-  @spec public_event_payload(String.t() | nil, term()) :: term()
-  def public_event_payload(event_type, payload) when is_map(payload) do
+  @spec public_event_payload(String.t() | nil, term(), MapSet.t() | nil) :: term()
+  def public_event_payload(event_type, payload, hidden) when is_map(payload) do
     cond do
       event_type == VariableMerge.sys_event_type() ->
         %{}
@@ -103,16 +103,19 @@ defmodule Letflow.Api.Response do
         applied_payload(payload)
 
       true ->
-        Enum.reduce(@variable_payload_keys, payload, fn key, acc ->
-          case acc do
-            %{^key => vars} when is_map(vars) -> Map.put(acc, key, public_variables(vars))
-            _ -> acc
-          end
-        end)
+        VariableLabels.redact_event_payload(payload, hidden)
     end
   end
 
-  def public_event_payload(_event_type, payload), do: payload
+  def public_event_payload(_event_type, payload, _hidden), do: payload
+
+  @doc """
+  HTTP 422 — a completion submitted the redaction placeholder for a restricted variable the caller
+  may not read (decision 0062 R8/R9). Key names only; see `Error.redacted_value_submitted/1`.
+  """
+  @spec redacted_value_submitted(Plug.Conn.t(), [String.t()]) :: Plug.Conn.t()
+  def redacted_value_submitted(conn, keys),
+    do: send_problem(conn, Error.redacted_value_submitted(keys))
 
   defp applied_payload(payload) do
     lines =

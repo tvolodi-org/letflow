@@ -317,7 +317,8 @@ defmodule Letflow.Engine.ModuleWriteAuditTest do
       public =
         Letflow.Api.Response.public_event_payload(
           "TASK_ENTITY_WRITES_APPLIED",
-          decode(applied.payload)
+          decode(applied.payload),
+          MapSet.new()
         )
 
       assert [

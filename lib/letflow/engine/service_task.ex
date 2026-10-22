@@ -473,6 +473,27 @@ defmodule Letflow.Engine.ServiceTask do
     }
   end
 
+  @doc """
+  The `EXECUTION_ERROR` attrs for a SERVICE_TASK whose URL or body would render a labelled variable
+  (decision 0062 R12, GH #2616 part 2). `keys` are the placeholder names only; no value is carried.
+  `variable_labels` travel as `labels`, so the event's own snapshot carries the labels the refusal
+  was decided on (R8h).
+  """
+  @spec build_restricted_outbound_error_attrs(map()) :: map()
+  def build_restricted_outbound_error_attrs(%{} = context) do
+    %{
+      instance_id: Map.fetch!(context, :instance_id),
+      error_type: :service_task_restricted_variable_outbound,
+      affected: {:node, Map.fetch!(context, :node_id)},
+      reason: "service task would send a restricted variable to an outbound endpoint",
+      variables: Map.fetch!(context, :variables),
+      labels: Map.fetch!(context, :variable_labels),
+      details: %{keys: Enum.sort(Map.fetch!(context, :keys))},
+      actor_id: Map.fetch!(context, :actor_id),
+      idempotency_key: Map.fetch!(context, :idempotency_key)
+    }
+  end
+
   defp catalog_reason_class({class, _detail}) when is_atom(class), do: class
   defp catalog_reason_class({class, _kind, _ref}) when is_atom(class), do: class
   defp catalog_reason_class(class) when is_atom(class), do: class

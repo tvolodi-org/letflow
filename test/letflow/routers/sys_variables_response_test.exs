@@ -420,14 +420,18 @@ defmodule Letflow.Routers.SysVariablesResponseTest do
     refute inspect(item["payload"]) =~ "event_global_seq"
   end
 
-  test "public_event_payload/2 tolerates a missing or malformed lines value" do
+  test "public_event_payload/3 tolerates a missing or malformed lines value" do
     for payload <- [
           %{"node_id" => "n", "record_id" => "x", "event_global_seq" => 1},
           %{"node_id" => "n", "lines" => "nope", "record_id" => "x"},
           %{"node_id" => "n", "lines" => [1, %{"line_index" => 0, "record_id" => "x"}]}
         ] do
       shaped =
-        Letflow.Api.Response.public_event_payload("TASK_ENTITY_WRITES_APPLIED", payload)
+        Letflow.Api.Response.public_event_payload(
+          "TASK_ENTITY_WRITES_APPLIED",
+          payload,
+          MapSet.new()
+        )
 
       refute inspect(shaped) =~ "record_id"
       refute inspect(shaped) =~ "event_global_seq"

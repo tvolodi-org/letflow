@@ -162,6 +162,21 @@ defmodule Letflow.Definitions.ReservedReferences do
     |> Enum.filter(&VariableMerge.reserved_key?/1)
   end
 
+  @doc """
+  GH #2616 part 2 (decision 0062 R12): the placeholder keys of a SERVICE_TASK URL or body template
+  that are in `tainted`, the static taint of opted-in script outputs. Sorted, unique key names.
+  Pure. Part 2 has no opt-in, so production always passes an empty `tainted`; the activation refusal
+  built on this check (`service_task_restricted_variable_reference`) lands with the opt-in.
+  """
+  @spec restricted_reference_keys([String.t() | nil], MapSet.t(String.t())) :: [String.t()]
+  def restricted_reference_keys(templates, %MapSet{} = tainted) when is_list(templates) do
+    templates
+    |> Enum.flat_map(&ServiceTask.template_variable_keys/1)
+    |> Enum.uniq()
+    |> Enum.filter(&MapSet.member?(tainted, &1))
+    |> Enum.sort()
+  end
+
   # ── L5-L6 templates ───────────────────────────────────────────────────────
 
   defp template_refs(id, location, template) when is_binary(template) do
