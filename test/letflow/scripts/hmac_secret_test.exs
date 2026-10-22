@@ -89,15 +89,23 @@ defmodule Letflow.Scripts.HmacSecretTest do
     end
   end
 
-  test "only Letflow.Scripts.HmacSecret passes platform: true (source scan)" do
+  test "only Letflow.Scripts.HmacSecret and Letflow.Definitions.ActivatedBy pass platform: true (source scan)" do
     sources = Path.wildcard("lib/**/*.ex")
     # guard against a vacuous scan (wrong working directory)
     assert "lib/letflow/scripts/hmac_secret.ex" in sources
+    assert "lib/letflow/definitions/activated_by.ex" in sources
     assert File.read!("lib/letflow/scripts/hmac_secret.ex") =~ ~r/platform:\s*true/
+    assert File.read!("lib/letflow/definitions/activated_by.ex") =~ ~r/platform:\s*true/
+
+    # T-0250 (GH #2644): the activated_by signing key is the second reserved-namespace caller.
+    allowed = [
+      "lib/letflow/scripts/hmac_secret.ex",
+      "lib/letflow/definitions/activated_by.ex"
+    ]
 
     offenders =
       sources
-      |> Enum.reject(&String.ends_with?(&1, "lib/letflow/scripts/hmac_secret.ex"))
+      |> Enum.reject(&(&1 in allowed))
       |> Enum.filter(fn path ->
         path
         |> File.read!()

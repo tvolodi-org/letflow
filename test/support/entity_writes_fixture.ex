@@ -14,6 +14,7 @@ defmodule Letflow.EntityWritesFixture do
 
   alias Letflow.Audit
   alias Letflow.Definitions
+  alias Letflow.Definitions.ActivatedBy
   alias Letflow.Definitions.Activator
   alias Letflow.Engine
   alias Letflow.Engine.Task, as: EngineTask
@@ -195,6 +196,8 @@ defmodule Letflow.EntityWritesFixture do
       Activator.from_auth_context(%{user_id: activator_user.id, roles: ["TENANT_ADMIN"]}, false)
 
     record = Activator.build_record(activator, pairs, DateTime.utc_now())
+    # T-0250: signed through the product's own path, so the fixture stays a valid ACTIVE row.
+    {:ok, record} = ActivatedBy.sign(record, row, schema)
 
     {1, [activated]} =
       from(d in ProcessDefinition, where: d.id == ^row.id, select: d)

@@ -247,6 +247,27 @@ defmodule Letflow.Definitions.EntityWritesActivatorTest do
       assert %{activated_by: nil} = stored(ctx.schema, nested)
     end
 
+    # T-0250 (GH #2644): a caller cannot supply the signature either. The key is refused with the
+    # rest of the document, so no request can hand the write path a self-made MAC.
+    test "a body key carrying a signature is refused too (T-0250, request path)", ctx do
+      signed =
+        Map.put(@forged, "signature", %{
+          "alg" => "HMAC-SHA256",
+          "key_version" => 1,
+          "mac" => String.duplicate("0", 64)
+        })
+
+      resp =
+        call(:post, "/", ctx, ["TENANT_ADMIN"], %{
+          "name" => unique("b1-sig"),
+          "version" => "1",
+          "graph" => graph(),
+          "activated_by" => signed
+        })
+
+      assert resp.status == 422, resp.resp_body
+    end
+
     test "PUT and PATCH /definitions/:id refuse it too (R2 scope extension)", ctx do
       id = create!(ctx)
 
