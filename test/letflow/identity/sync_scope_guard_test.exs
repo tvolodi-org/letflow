@@ -146,7 +146,7 @@ defmodule Letflow.Identity.SyncScopeGuardTest do
         {result, _log} =
           with_log(fn -> S.sync(s, user, ["SYNC_ROLE_A", "SYNC_ROLE_B"]) end)
 
-        assert result == {:ok, user}
+        assert {:failed, ^user, _step} = result
         assert EW.new_entries(s, ids) == []
         assert S.marker(s, user.id) == nil
       after
@@ -766,9 +766,10 @@ defmodule Letflow.Identity.SyncScopeGuardTest do
         {result, log} =
           with_log(fn -> S.sync(s, user, ["SYNC_ROLE_A", "SYNC_ROLE_B"]) end)
 
-        # TS-1 (REVIEWER), CURRENT behaviour: a swallowed failure is {:ok, original user}; the
-        # typed result has no failure variant yet, so a caller cannot tell it from "nothing to do"
-        assert result == {:ok, user}
+        # TS-1 (REVIEWER): a swallowed failure is its own variant, carrying the original user and
+        # the step that failed; it is never {:ok, _}, which means "applied"
+        assert {:failed, ^user, step} = result
+        assert step in [:memberships, :raised]
         assert S.memberships(s, user.id) == []
         assert S.marker(s, user.id) == nil
         assert EW.new_entries(s, ids) == []
@@ -800,7 +801,7 @@ defmodule Letflow.Identity.SyncScopeGuardTest do
           end)
         end)
 
-      assert result == {:ok, user}
+      assert {:failed, ^user, :raised} = result
       assert S.memberships(s, user.id) == []
       assert S.marker(s, user.id) == nil
       assert EW.new_entries(s, ids) == []
@@ -865,6 +866,22 @@ defmodule Letflow.Identity.SyncScopeGuardTest do
 
       assert rendered =~ "User.t()"
       refute rendered =~ ":suppressed"
+    end
+
+    test "T-S18 (GH 2858) the typed report's spec names exactly the applied, suppressed and failed outcomes" do
+      {:ok, specs} = Code.Typespec.fetch_specs(Identity)
+
+      {_key, [spec | _]} =
+        Enum.find(specs, fn {{name, arity}, _} ->
+          {name, arity} == {:sync_role_claims_report, 3}
+        end)
+
+      rendered =
+        :sync_role_claims_report |> Code.Typespec.spec_to_quoted(spec) |> Macro.to_string()
+
+      assert rendered =~ "{:ok, Letflow.Identity.User.t()}"
+      assert rendered =~ "{:suppressed, Letflow.Identity.User.t(), suppressed_summary()}"
+      assert rendered =~ "{:failed, Letflow.Identity.User.t(), failed_step()}"
     end
 
     test "T-S14 the typed report is {:suppressed, ...} exactly for the suppressed cases and {:ok, _} otherwise (MU-46)" do
