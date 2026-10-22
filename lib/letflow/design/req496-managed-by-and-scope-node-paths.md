@@ -352,7 +352,7 @@ path; unchanged (OQ-4).
 | `type` | `@problems_base <> "entity-type-managed"` |
 | `title` | `"Entity Type Is Managed by a Module"` |
 | `status` | `403` |
-| `detail` | `"this entity type is managed by an installed module and cannot be changed through this route"` |
+| `detail` | `"this entity type is reserved for or managed by a module and cannot be changed through this route"` |
 | `extensions` | `%{"code" => "entity_type_managed"}` |
 
 No type name, module id, record id, field value, or append-only wording (INV-2, INV-4, AC4). The
@@ -680,7 +680,7 @@ entry module); `check_boundaries` unaffected.
 * OQ-1 Migration versions `20261014000001` / `20261014000002`: re-check `origin/main` and open PRs
   (#2533, 0053 7b) for a collision before committing. Default: these two.
 * OQ-2 Squatting: a tenant can create a name a REGISTERED but not-installed module declares, which
-  then blocks that module's install (0052 D6 / T-18). AC says "any installed module". Default: not
+  then blocks that module's install (0052 D6 / T-18). AC says "any installed module". Default (superseded by GH #2581: a first creation of such a name is now refused with `entity_type_managed` while the module is not installed in the tenant; this procedure remains for squats that pre-date it): not
   refused at create time. Revision 1, A2, operator recovery: there is no API to delete or rename an
   entity definition, so recovery is a manual, platform-operator procedure inside that one tenant's
   schema, recorded in an issue with the tenant's consent: (1) confirm the squat

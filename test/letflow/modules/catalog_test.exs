@@ -272,4 +272,18 @@ defmodule Letflow.Modules.CatalogTest do
       end
     end
   end
+
+  describe "GH #2581 R-08 — managed_name_declarations/0" do
+    test "maps every declared managed name to its module, all in the managed-name format" do
+      declarations = Catalog.managed_name_declarations()
+
+      assert declarations["fxm_site"] == "fixture_managed"
+
+      for module <- Catalog.entry_modules(),
+          name <- Map.get(module.manifest(), :manages_entity_types, []) do
+        assert Map.has_key?(declarations, name)
+        assert Letflow.Entities.ManagedTypes.managed_name?(name)
+      end
+    end
+  end
 end

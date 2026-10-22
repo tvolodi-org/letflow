@@ -245,18 +245,11 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
 
   describe "AC4: a tenant-created catalog_item blocks the install and everything rolls back" do
     setup ctx do
-      {:ok, own} =
-        Definitions.create_definition(
-          %{
-            definition: %{
-              name: "catalog_item",
-              display_name: "Tenant own item",
-              fields: [%{name: "address", type: :string}]
-            },
-            created_by: Ecto.UUID.generate()
-          },
-          ctx.schema
-        )
+      # GH #2581: the tenant path refuses this name now; plant a pre-existing legacy squat.
+      own =
+        Letflow.ManagedTypesSupport.plant_legacy_squat!(ctx.schema, "catalog_item", [
+          %{name: "address", type: :string}
+        ])
 
       {:ok, own_id: own.id}
     end
@@ -439,8 +432,11 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
         assert ManagedTypes.owner_of(type, other.schema_name) == :unmanaged
       end
 
-      # Tenant B can still create its own catalog_item: nothing of A's lock leaked into it.
-      assert {:ok, _} =
+      refute Installs.installed?("catalog_items", prefix: other.schema_name)
+
+      # GH #2581: B's creation is refused by the reserved-name rule (module not installed in B),
+      # not by anything of A's lock leaking into it; B has no row afterwards.
+      assert {:error, :entity_type_managed} =
                Definitions.create_definition(
                  %{
                    definition: %{

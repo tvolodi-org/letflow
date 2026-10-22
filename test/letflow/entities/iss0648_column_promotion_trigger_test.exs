@@ -480,7 +480,10 @@ defmodule Letflow.Entities.ISS0648ColumnPromotionTriggerTest do
 
         %{tenant_id: tenant_id, schema_name: schema} = provisioned_tenant()
 
-        create_active_definition!(schema, %{
+        # Some of these names are reserved by the exam module (GH #2581), so the
+        # tenant create path refuses them; plant the type as a pre-existing
+        # definition -- this test is about activation's column promotion.
+        definition = %{
           name: entity_type,
           display_name: entity_type,
           fields: [
@@ -490,7 +493,10 @@ defmodule Letflow.Entities.ISS0648ColumnPromotionTriggerTest do
           constraints: [
             %{name: constraint_name, type: :unique, fields: [field_a, field_b]}
           ]
-        })
+        }
+
+        Letflow.ManagedTypesSupport.plant_legacy_definition!(schema, definition)
+        assert {:ok, _activated} = activate!(schema, entity_type)
 
         assert %ColumnPromotion{status: "ddl_applied"} =
                  column_promotion_row(tenant_id, entity_type, field_a)

@@ -65,18 +65,12 @@ defmodule Letflow.ScopeNodePaths.WriteTest do
     {:ok, _seeded} = EventTypes.seed!(schema)
     actor = Ecto.UUID.generate()
 
-    {:ok, _definition} =
-      Definitions.create_definition(
-        %{
-          definition: %{
-            name: "org_unit",
-            display_name: "Org Unit",
-            fields: [%{name: "name", type: :string, required: true}]
-          },
-          created_by: actor
-        },
-        schema
-      )
+    _ =
+      Letflow.ManagedTypesSupport.plant_legacy_definition!(schema, %{
+        name: "org_unit",
+        display_name: "Org Unit",
+        fields: [%{name: "name", type: :string, required: true}]
+      })
 
     {:ok, _active} = Definitions.activate_definition("org_unit", actor, "REQ-496 test", schema)
     :ok

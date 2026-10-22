@@ -179,9 +179,9 @@ defmodule Letflow.Entities.ManagedTypesTest do
                Repo.transaction(fn ->
                  assert held_create_locks() == 0
 
-                 assert {:ok, %EntityDefinition{name: "fxm_unit"}} =
+                 assert {:ok, %EntityDefinition{name: "req496_lock_probe"}} =
                           Definitions.create_definition(
-                            definition_attrs("fxm_unit"),
+                            definition_attrs("req496_lock_probe"),
                             schema,
                             :tenant
                           )
@@ -360,7 +360,8 @@ defmodule Letflow.Entities.ManagedTypesTest do
       assert ManagedTypes.check_create("fxm_site", owner, schema) == {:ok, "fixture_managed"}
 
       # :unmanaged + declaring %Owner{} + a tenant's own unmanaged row -> taken
-      assert {:ok, _own} = Definitions.create_definition(definition_attrs("fxm_site"), schema)
+      # GH #2581: the tenant path refuses this name now; plant a pre-existing legacy squat.
+      _own = Letflow.ManagedTypesSupport.plant_legacy_squat!(schema, "fxm_site")
 
       assert ManagedTypes.check_create("fxm_site", owner, schema) ==
                {:error, {:managed_name_taken, "fxm_site"}}

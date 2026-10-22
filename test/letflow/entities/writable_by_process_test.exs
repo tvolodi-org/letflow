@@ -245,7 +245,7 @@ defmodule Letflow.Entities.WritableByProcessTest do
       ctx = tenant_ctx("gh2587-a4-denied", ["PROCESS_DESIGNER"])
 
       cases = [
-        {"org_unit", ~s(denied prefix "org_")},
+        {"org_gh2581_probe", ~s(denied prefix "org_")},
         {"user_profile", ~s(denied prefix "user_")},
         {"role", ~s(name "role" is denied)},
         {"attachment_meta", ~s(denied prefix "attachment_")}
@@ -313,7 +313,7 @@ defmodule Letflow.Entities.WritableByProcessTest do
     test "the same denied names WITHOUT the flag (and with false) still create" do
       ctx = tenant_ctx("gh2587-a4-noflag", ["PROCESS_DESIGNER"])
 
-      for name <- ["org_unit", "user_profile", "role", "attachment_meta"] do
+      for name <- ["org_gh2581_probe", "user_profile", "role", "attachment_meta"] do
         assert request(:post, "/api/v1/entities/definitions", ctx, http_definition(name)).status ==
                  201,
                name

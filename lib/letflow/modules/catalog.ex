@@ -91,6 +91,23 @@ defmodule Letflow.Modules.Catalog do
   @spec entry_modules() :: [module()]
   def entry_modules, do: @modules
 
+  @doc """
+  Every entity-type name declared in some registered module's `manages_entity_types`
+  (GH #2581), as `%{name => module_id}`. If two modules declare one name the lowest
+  `module_id` wins, only to be deterministic. Pure: reads the compiled manifests.
+  """
+  @spec managed_name_declarations() :: %{String.t() => String.t()}
+  def managed_name_declarations do
+    entry_modules()
+    |> Enum.map(& &1.manifest())
+    |> Enum.sort_by(& &1.id, :desc)
+    |> Enum.reduce(%{}, fn manifest, acc ->
+      manifest
+      |> Map.get(:manages_entity_types, [])
+      |> Enum.reduce(acc, fn name, inner -> Map.put(inner, name, manifest.id) end)
+    end)
+  end
+
   @doc "Looks up a registered entry module by its manifest's `:id` string."
   @spec fetch(id :: String.t()) :: {:ok, module()} | {:error, :not_found}
   def fetch(id) do

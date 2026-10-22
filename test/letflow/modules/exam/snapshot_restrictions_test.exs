@@ -247,11 +247,9 @@ defmodule Letflow.Modules.Exam.SnapshotRestrictionsTest do
 
   describe "T-27 joins" do
     defp create_active_definition!(ctx, definition) do
-      {:ok, entity_definition} =
-        Definitions.create_definition(
-          %{definition: definition, created_by: ctx.user_id},
-          ctx.schema_name
-        )
+      # GH #2581: exam is not installed in this tenant, so the tenant path refuses its names.
+      entity_definition =
+        Letflow.ManagedTypesSupport.plant_legacy_definition!(ctx.schema_name, definition)
 
       {:ok, activated} =
         Definitions.activate_definition(
