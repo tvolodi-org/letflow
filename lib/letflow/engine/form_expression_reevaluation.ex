@@ -110,8 +110,10 @@ defmodule Letflow.Engine.FormExpressionReevaluation do
   """
   @type reevaluation_event ::
           {:computed_field_disagreement, field_name(), submitted_value :: term(),
-           server_value :: term()}
-          | {:visible_when_false_value_discarded, field_name(), discarded_value :: term()}
+           server_value :: term(), server_labels :: [String.t()],
+           submitted_labels :: [String.t()]}
+          | {:visible_when_false_value_discarded, field_name(), discarded_value :: term(),
+             discarded_labels :: [String.t()]}
 
   @typedoc """
   A genuine failure of re-evaluation: either a real cross-field-validation
@@ -154,17 +156,26 @@ defmodule Letflow.Engine.FormExpressionReevaluation do
   @spec reevaluate(
           form_schema :: map() | nil,
           current_variables :: map(),
+          current_labels :: map(),
           output_variables :: map()
         ) ::
-          {:ok, %{output_variables: map(), events: [reevaluation_event()]}}
+          {:ok,
+           %{
+             output_variables: map(),
+             output_labels: %{String.t() => [String.t()]},
+             events: [reevaluation_event()]
+           }}
           | {:error, reevaluation_error()}
-  def reevaluate(form_schema, current_variables, output_variables) do
+  def reevaluate(form_schema, current_variables, current_labels, output_variables) do
     properties = extract_properties(form_schema)
 
     if map_size(properties) == 0 or not has_logic_keys?(properties) do
-      {:ok, %{output_variables: output_variables, events: []}}
+      {:ok, %{output_variables: output_variables, output_labels: %{}, events: []}}
     else
       working = build_working_variables(current_variables, output_variables)
+      # R9: a key this submission overwrites is an unlabelled value; every other key keeps its
+      # stored label. Computed fields are then labelled in topological order (R14).
+      working_labels = Map.drop(current_labels, Map.keys(output_variables))
       graph = FormSchemaExpressions.build_computed_dependency_graph(properties)
 
       case resolve_topological_order(graph) do
@@ -172,10 +183,21 @@ defmodule Letflow.Engine.FormExpressionReevaluation do
           {:error, reevaluation_error}
 
         {:ok, topo_order} ->
-          with {:ok, working_after_computed, computed_events} <-
-                 eval_computed_fields(properties, topo_order, working, output_variables),
+          with {:ok, working_after_computed, labels_after_computed, computed_events} <-
+                 eval_computed_fields(
+                   properties,
+                   topo_order,
+                   working,
+                   working_labels,
+                   output_variables
+                 ),
                {:ok, drop_fields, visible_events} <-
-                 eval_visible_when_fields(properties, working_after_computed, output_variables),
+                 eval_visible_when_fields(
+                   properties,
+                   working_after_computed,
+                   output_variables,
+                   current_labels
+                 ),
                :ok <- eval_cross_field_validations(properties, working_after_computed) do
             corrected_output_variables =
               build_corrected_output_variables(
@@ -185,9 +207,17 @@ defmodule Letflow.Engine.FormExpressionReevaluation do
                 drop_fields
               )
 
+            output_labels =
+              computed_output_labels(properties, drop_fields, labels_after_computed)
+
             events = Enum.sort_by(computed_events ++ visible_events, &event_field/1)
 
-            {:ok, %{output_variables: corrected_output_variables, events: events}}
+            {:ok,
+             %{
+               output_variables: corrected_output_variables,
+               output_labels: output_labels,
+               events: events
+             }}
           end
       end
     end
@@ -310,13 +340,16 @@ defmodule Letflow.Engine.FormExpressionReevaluation do
           properties :: map(),
           topo_order :: [field_name()],
           working :: map(),
+          working_labels :: map(),
           output_variables :: map()
         ) ::
-          {:ok, working :: map(), [reevaluation_event()]}
+          {:ok, working :: map(), working_labels :: map(), [reevaluation_event()]}
           | {:error, reevaluation_error()}
-  defp eval_computed_fields(properties, topo_order, working, output_variables) do
+  defp eval_computed_fields(properties, topo_order, working, working_labels, output_variables) do
     topo_order
-    |> Enum.reduce_while({:ok, working, []}, fn field, {:ok, acc_working, events} ->
+    |> Enum.reduce_while({:ok, working, working_labels, []}, fn field,
+                                                                {:ok, acc_working, acc_labels,
+                                                                 events} ->
       schema = Map.fetch!(properties, field)
       expr_string = computed_expr(schema)
 
@@ -324,21 +357,61 @@ defmodule Letflow.Engine.FormExpressionReevaluation do
         {:ok, server_value} ->
           new_working = Map.put(acc_working, field, server_value)
 
+          # R14: the server value carries the union of its inputs' labels. Inputs are read from
+          # the working labels, so a computed input inherits its own labels first (topological order).
+          server_labels = inherited_labels(expr_string, acc_labels)
+          new_labels = Map.put(acc_labels, field, server_labels)
+
           new_events =
             case Map.fetch(output_variables, field) do
               {:ok, submitted} when submitted != server_value ->
-                events ++ [{:computed_field_disagreement, field, submitted, server_value}]
+                # R9: the submitted value is an unlabelled human input.
+                events ++
+                  [
+                    {:computed_field_disagreement, field, submitted, server_value, server_labels,
+                     []}
+                  ]
 
               _absent_or_agreeing ->
                 events
             end
 
-          {:cont, {:ok, new_working, new_events}}
+          {:cont, {:ok, new_working, new_labels, new_events}}
 
         {:error, reevaluation_error} ->
           {:halt, {:error, reevaluation_error}}
       end
     end)
+  end
+
+  # The sorted union of the labels of every top-level variable the expression reads.
+  defp inherited_labels(expr_string, labels) do
+    expr_string
+    |> input_keys()
+    |> Enum.flat_map(&Map.get(labels, &1, []))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp input_keys(expr_string) do
+    with {:ok, expr_source} <- Expr.translate_cel_to_expr(expr_string),
+         {:ok, ast} <- Expr.parse_strict(expr_source) do
+      ast
+      |> FormSchemaExpressions.collect_var_paths()
+      |> Enum.map(&List.first/1)
+      |> Enum.uniq()
+    else
+      _other -> []
+    end
+  end
+
+  # The label list written for each computed field the form keeps (R14). `[]` removes a label.
+  defp computed_output_labels(properties, drop_fields, labels) do
+    properties
+    |> Enum.filter(fn {field, schema} ->
+      computed_expr(schema) != nil and not MapSet.member?(drop_fields, field)
+    end)
+    |> Map.new(fn {field, _schema} -> {field, Map.get(labels, field, [])} end)
   end
 
   defp evaluate_computed_field(expr_string, working, field) do
@@ -371,11 +444,12 @@ defmodule Letflow.Engine.FormExpressionReevaluation do
   @spec eval_visible_when_fields(
           properties :: map(),
           working :: map(),
-          output_variables :: map()
+          output_variables :: map(),
+          current_labels :: map()
         ) ::
           {:ok, drop_fields :: MapSet.t(field_name()), [reevaluation_event()]}
           | {:error, reevaluation_error()}
-  defp eval_visible_when_fields(properties, working, output_variables) do
+  defp eval_visible_when_fields(properties, working, output_variables, current_labels) do
     properties
     |> Enum.sort_by(&elem(&1, 0))
     |> Enum.reduce_while({:ok, MapSet.new(), []}, fn {field, schema},
@@ -393,7 +467,11 @@ defmodule Letflow.Engine.FormExpressionReevaluation do
               new_events =
                 case Map.fetch(output_variables, field) do
                   {:ok, discarded} ->
-                    events_acc ++ [{:visible_when_false_value_discarded, field, discarded}]
+                    # The discarded value is a submitted one, so its labels are the field's stored labels (fail closed).
+                    discarded_labels = Map.get(current_labels, field, [])
+
+                    events_acc ++
+                      [{:visible_when_false_value_discarded, field, discarded, discarded_labels}]
 
                   :error ->
                     events_acc
@@ -548,6 +626,8 @@ defmodule Letflow.Engine.FormExpressionReevaluation do
 
   defp cross_field_validation(_schema), do: nil
 
-  defp event_field({:computed_field_disagreement, field, _submitted, _server}), do: field
-  defp event_field({:visible_when_false_value_discarded, field, _discarded}), do: field
+  defp event_field({:computed_field_disagreement, field, _submitted, _server, _sl, _subl}),
+    do: field
+
+  defp event_field({:visible_when_false_value_discarded, field, _discarded, _labels}), do: field
 end

@@ -2,14 +2,14 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
   @moduledoc """
   GH #2587 / REQ-499 PR B3 (decision 0054 CO-1, INV-2): every router response boundary that
   emits an instance variable map or an instance event payload goes through the ONE shaping
-  helper, `Letflow.Api.Response.public_variables/1` / `public_event_payload/2`.
+  helper, `Letflow.Api.Response.public_variables/3` / `public_event_payload/3` (the caller's grant-resolved hidden set is the third argument, GH #2616 part 2).
 
   A static AST scan over `lib/letflow/routers/**`:
 
     * rule 1: a map entry whose key is the literal `"variables"` must be a call to
-      `Response.public_variables/1`;
+      `Response.public_variables/3`;
     * rule 2: a map entry whose key is the literal `"payload"` must be a call to
-      `Response.public_event_payload/2` (or the platform-event shaper
+      `Response.public_event_payload/3` (or the platform-event shaper
       `shape_platform_event_payload/3`, which shapes platform events, not instance events);
     * rule 3: a `.payload` field read may appear only in the files of `@payload_readers`
       (a new reader must be added here deliberately, with its shaping reviewed).
@@ -22,7 +22,7 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
   receiver whose LAST alias segment is `Response` but is not `Letflow.Api.Response`
   (`Foo.Response`). Rule 3 deliberately SUBSTITUTES the design's "list the event types
   history_item_map may emit verbatim" with a pinned set of `.payload` reader files, because
-  the shaping function (`public_event_payload/2`) is an allowlist by event type and key. A new
+  the shaping function (`public_event_payload/3`) is an allowlist by event type and key. A new
   map-valued event key therefore needs a unit update in the response test; B2 must also keep
   `_sys`-derived values out of instance-event `metadata`.
 
@@ -57,13 +57,13 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
   end
 
   defp check_entry({"variables", value}, acc) do
-    if call_to?(value, :public_variables, 1),
+    if call_to?(value, :public_variables, 3),
       do: %{acc | guarded: acc.guarded + 1},
       else: %{acc | violations: [{"variables", Macro.to_string(value)} | acc.violations]}
   end
 
   defp check_entry({"payload", value}, acc) do
-    if call_to?(value, :public_event_payload, 2) or
+    if call_to?(value, :public_event_payload, 3) or
          call_to?(value, :shape_platform_event_payload, 3),
        do: %{acc | guarded: acc.guarded + 1},
        else: %{acc | violations: [{"payload", Macro.to_string(value)} | acc.violations]}
@@ -130,7 +130,11 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
   end
 
   test "a helper-shaped variables entry is accepted" do
-    r = scan_source(~S|defp m(p), do: %{"variables" => Response.public_variables(p.variables)}|)
+    r =
+      scan_source(
+        ~S|defp m(p), do: %{"variables" => Response.public_variables(p.variables, p.variable_labels, p.hidden)}|
+      )
+
     assert r.violations == []
     assert r.guarded == 1
   end
@@ -138,7 +142,7 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
   test "a helper-shaped payload entry is accepted" do
     r =
       scan_source(
-        ~S|defp m(e), do: %{"payload" => Response.public_event_payload(e.event_type, e.payload)}|
+        ~S|defp m(e), do: %{"payload" => Response.public_event_payload(e.event_type, e.payload, e.hidden)}|
       )
 
     assert r.violations == []
@@ -146,12 +150,20 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
   end
 
   test "a call to a lookalike function with the same arity is not accepted" do
-    r = scan_source(~S|defp m(p), do: %{"variables" => Other.public_variables(p.variables)}|)
+    r =
+      scan_source(
+        ~S|defp m(p), do: %{"variables" => Other.public_variables(p.variables, p.variable_labels, p.hidden)}|
+      )
+
     assert [{"variables", _}] = r.violations
   end
 
   test "a .payload reader outside the allow-listed files is detected (rule 3)" do
-    r = scan_source(~S|defp m(e), do: Response.public_event_payload(e.event_type, e.payload)|)
+    r =
+      scan_source(
+        ~S|defp m(e), do: Response.public_event_payload(e.event_type, e.payload, e.hidden)|
+      )
+
     assert r.payload_reads == 1
 
     assert unlisted_readers([{"lib/letflow/routers/new_router.ex", r}]) ==
@@ -160,28 +172,32 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
     assert unlisted_readers([{"lib/letflow/routers/instances.ex", r}]) == []
   end
 
-  test "a local public_variables/1 defined in the router is not accepted" do
-    r = scan_source(~S|defp m(p), do: %{"variables" => public_variables(p.variables)}|)
+  test "a local public_variables/3 defined in the router is not accepted" do
+    r =
+      scan_source(
+        ~S|defp m(p), do: %{"variables" => public_variables(p.variables, p.variable_labels, p.hidden)}|
+      )
+
     assert r.violations == []
     assert r.guarded == 1
 
     # The scan accepts an unqualified call by name and arity only; a router that DEFINES its own
-    # public_variables/1 would pass it, so the real-tree test forbids such a definition:
+    # public_variables/3 would pass it, so the real-tree test forbids such a definition:
     for file <- Path.wildcard(@routers_glob) do
       refute File.read!(file) =~ ~r/defp?\s+public_variables\(/,
-             "#{file} defines its own public_variables/1; it must resolve to Response"
+             "#{file} defines its own public_variables/3; it must resolve to Response"
     end
   end
 
   # -- the helper itself uses the single reserved-key predicate ---------------------------------
 
-  test "public_variables/1 is exactly VariableMerge.drop_reserved/1 (no second predicate)" do
+  test "public_variables/3 without labels is exactly VariableMerge.drop_reserved/1 (no second predicate)" do
     vars = %{"a" => 1, "_sys" => 1, "_sys.r" => "x", "_system" => 2, "n" => %{"_sys.x" => 1}}
 
-    assert Letflow.Api.Response.public_variables(vars) ==
+    assert Letflow.Api.Response.public_variables(vars, %{}, MapSet.new()) ==
              Letflow.Engine.VariableMerge.drop_reserved(vars)
 
-    assert Letflow.Api.Response.public_variables(vars) ==
+    assert Letflow.Api.Response.public_variables(vars, %{}, MapSet.new()) ==
              %{"a" => 1, "_system" => 2, "n" => %{"_sys.x" => 1}}
 
     refute File.read!("lib/letflow/api/response.ex") =~ ~s|"_sys|

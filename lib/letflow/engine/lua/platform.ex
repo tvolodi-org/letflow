@@ -292,6 +292,7 @@ defmodule Letflow.Engine.Lua.Platform do
   alias Letflow.Engine.Lua.Platform.TimeSource
   alias Letflow.Engine.LuaNumberMarshalling
   alias Letflow.Engine.Reconstruction
+  alias Letflow.Engine.VariableLabels
   alias Letflow.Engine.VariableMerge
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
@@ -345,7 +346,11 @@ defmodule Letflow.Engine.Lua.Platform do
           trace_id: String.t() | nil,
           script_identity: String.t() | nil,
           actor_id: String.t() | nil,
-          variables: map()
+          variables: map(),
+          # GH #2616 part 2 (decision 0062 R8): the labels of `variables` and the caller's hidden set.
+          # A missing hidden set (`nil`) hides every labelled variable (fail closed).
+          variable_labels: map(),
+          hidden_labels: MapSet.t(String.t()) | nil
         }
 
   # REQ-160 design §2.4. Key: the variable name exactly as the script's first
@@ -433,7 +438,9 @@ defmodule Letflow.Engine.Lua.Platform do
       trace_id: nil,
       script_identity: nil,
       actor_id: nil,
-      variables: %{}
+      variables: %{},
+      variable_labels: %{},
+      hidden_labels: nil
     }
   end
 
@@ -619,11 +626,22 @@ defmodule Letflow.Engine.Lua.Platform do
   # nil" as the two outcomes.
   @spec do_read_variable(args :: [term()], execution_context :: execution_context(), Lua.t()) ::
           {[term()], Lua.t()}
-  defp do_read_variable([name | _rest], %{variables: variables}, lua) when is_binary(name) do
+  defp do_read_variable([name | _rest], %{variables: variables} = execution_context, lua)
+       when is_binary(name) do
     # GH #2587 PR B3 (INV-2): engine-written `_sys.*` bookkeeping is never readable by a script.
     case variables |> VariableMerge.drop_reserved() |> Map.fetch(name) do
       {:ok, value} ->
-        {encoded, lua} = Lua.encode!(lua, LuaNumberMarshalling.to_lua(value))
+        # GH #2616 part 2 (decision 0062 R8): a labelled variable the caller may not read is the placeholder.
+        shown =
+          if VariableLabels.hidden?(
+               variable_labels(execution_context),
+               name,
+               hidden_labels(execution_context)
+             ),
+             do: redacted_text(),
+             else: LuaNumberMarshalling.to_lua(value)
+
+        {encoded, lua} = Lua.encode!(lua, shown)
         {[encoded], lua}
 
       :error ->
@@ -661,7 +679,12 @@ defmodule Letflow.Engine.Lua.Platform do
 
       {:ok, instance_id} ->
         if instance_id == execution_context.instance_id do
-          fetch_instance_state(instance_id, execution_context.prefix, lua)
+          fetch_instance_state(
+            instance_id,
+            execution_context.prefix,
+            hidden_labels(execution_context),
+            lua
+          )
         else
           encode_error(lua, "forbidden")
         end
@@ -672,7 +695,7 @@ defmodule Letflow.Engine.Lua.Platform do
     encode_error(lua, "invalid_id")
   end
 
-  defp fetch_instance_state(instance_id, prefix, lua) do
+  defp fetch_instance_state(instance_id, prefix, hidden, lua) do
     case Repo.get(InstanceProjection, instance_id, prefix: prefix) do
       nil ->
         encode_error(lua, "not_found")
@@ -684,17 +707,30 @@ defmodule Letflow.Engine.Lua.Platform do
           |> Keyword.fetch!(projection.status)
 
         # GH #2587 PR B3 (INV-2): reserved `_sys.*` keys are dropped before the script sees them.
+        # GH #2616 part 2: hidden values are the placeholder; reserved keys are dropped (INV-2).
         variables =
           projection.variables
-          |> VariableMerge.drop_reserved()
-          |> Map.new(fn {key, value} ->
-            {key, LuaNumberMarshalling.to_lua(value)}
-          end)
+          |> VariableLabels.redact_variables(projection.variable_labels, hidden)
+          |> Map.new(fn {key, value} -> {key, lua_value(value)} end)
 
         {encoded, lua} = Lua.encode!(lua, %{status: status_string, variables: variables})
         {[encoded], lua}
     end
   end
+
+  # The Lua value of one variable. The placeholder atom has no Lua form, so it is its string.
+  defp lua_value(value) do
+    if value == VariableLabels.representation(),
+      do: redacted_text(),
+      else: LuaNumberMarshalling.to_lua(value)
+  end
+
+  defp redacted_text, do: Atom.to_string(VariableLabels.representation())
+
+  # A context from before part 2 (or a test double) has no label fields: no labels, and no hidden
+  # set, which fails closed.
+  defp variable_labels(execution_context), do: Map.get(execution_context, :variable_labels, %{})
+  defp hidden_labels(execution_context), do: Map.get(execution_context, :hidden_labels)
 
   defp encode_error(lua, reason) do
     {encoded, lua} = Lua.encode!(lua, %{reason: reason})
@@ -929,7 +965,7 @@ defmodule Letflow.Engine.Lua.Platform do
   defp decode_lua_payload(payload, lua), do: Lua.decode!(lua, payload)
 
   # REQ-150 §2.1 (write direction) applied to every value of a decoded table, one level
-  # deep -- mirrors `fetch_instance_state/3`'s own per-value application above. A
+  # deep -- mirrors `fetch_instance_state/4`'s own per-value application above. A
   # decoded payload that is not an object-shaped proplist has the same identity rule
   # applied directly (REQ-150's rule is identity for every numeric/`nil` shape
   # regardless of surrounding structure, so this is not a second conversion rule).
