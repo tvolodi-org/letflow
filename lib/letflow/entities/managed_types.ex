@@ -318,8 +318,14 @@ defmodule Letflow.Entities.ManagedTypes do
     with true <- managed_name?(name),
          {:ok, module_id} <- Map.fetch(Catalog.managed_name_declarations(), name),
          false <- Installs.installed?(module_id, prefix: prefix),
+         {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          nil <-
-           Repo.one(from(e in EntityDefinition, where: e.name == ^name, select: 1, limit: 1),
+           Repo.one(
+             from(e in EntityDefinition,
+               where: e.tenant_id == ^tenant_id and e.name == ^name,
+               select: 1,
+               limit: 1
+             ),
              prefix: prefix
            ) do
       {:error, :entity_type_managed}

@@ -364,7 +364,7 @@ defmodule Letflow.Api.Error do
       title: "Entity Type Is Managed by a Module",
       status: 403,
       detail:
-        "this entity type is managed by an installed module and cannot be changed through this route",
+        "this entity type is reserved for or managed by a module and cannot be changed through this route",
       extensions: %{"code" => "entity_type_managed"}
     }
   end

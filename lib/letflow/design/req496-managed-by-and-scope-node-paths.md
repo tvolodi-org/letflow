@@ -352,7 +352,7 @@ path; unchanged (OQ-4).
 | `type` | `@problems_base <> "entity-type-managed"` |
 | `title` | `"Entity Type Is Managed by a Module"` |
 | `status` | `403` |
-| `detail` | `"this entity type is managed by an installed module and cannot be changed through this route"` |
+| `detail` | `"this entity type is reserved for or managed by a module and cannot be changed through this route"` |
 | `extensions` | `%{"code" => "entity_type_managed"}` |
 
 No type name, module id, record id, field value, or append-only wording (INV-2, INV-4, AC4). The

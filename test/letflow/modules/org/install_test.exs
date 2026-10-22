@@ -442,6 +442,8 @@ defmodule Letflow.Modules.Org.InstallTest do
         assert ManagedTypes.owner_of(type, other.schema_name) == :unmanaged
       end
 
+      refute Installs.installed?("org", prefix: other.schema_name)
+
       # GH #2581: B's creation is refused by the reserved-name rule (module not installed in B),
       # not by anything of A's lock leaking into it.
       assert {:error, :entity_type_managed} =

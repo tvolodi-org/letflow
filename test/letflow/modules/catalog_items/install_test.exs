@@ -432,6 +432,8 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
         assert ManagedTypes.owner_of(type, other.schema_name) == :unmanaged
       end
 
+      refute Installs.installed?("catalog_items", prefix: other.schema_name)
+
       # GH #2581: B's creation is refused by the reserved-name rule (module not installed in B),
       # not by anything of A's lock leaking into it; B has no row afterwards.
       assert {:error, :entity_type_managed} =
