@@ -232,9 +232,13 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
 
   describe "validate_lines/2 (PR B1) and the fail-closed multi/3" do
     test "validate_lines/2: [] is :ok; a missing-type line is refused (GH #2633)" do
-      assert StepWrites.validate_lines([], %{prefix: "x"}) == :ok
+      assert StepWrites.validate_lines([], %{prefix: "x", origin: {:task, Ecto.UUID.generate()}}) ==
+               :ok
 
-      assert StepWrites.validate_lines([%{"op" => "create"}], %{prefix: "x"}) ==
+      assert StepWrites.validate_lines([%{"op" => "create"}], %{
+               prefix: "x",
+               origin: {:task, Ecto.UUID.generate()}
+             }) ==
                {:error, [%{index: 0, code: :entity_type_missing}]}
     end
 
@@ -249,7 +253,7 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
     test "EntityPortImpl returns what StepWrites returns for the same input" do
       alias Letflow.Entities.EntityPortImpl
       lines = [%{"op" => "create"}, %{"op" => "create", "entity_type" => 5}]
-      ctx = %{prefix: "x"}
+      ctx = %{prefix: "x", origin: {:task, Ecto.UUID.generate()}}
       m = Ecto.Multi.new()
 
       assert EntityPortImpl.validate_lines(lines, ctx) == StepWrites.validate_lines(lines, ctx)
@@ -264,20 +268,33 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
 
     test "multi/3 (PR B2): no lines is the identity; lines add ONE lazy merge, nothing runs" do
       m = Ecto.Multi.new()
-      assert StepWrites.multi(m, [], %{prefix: "x"}) == m
+      assert StepWrites.multi(m, [], %{prefix: "x", origin: {:task, Ecto.UUID.generate()}}) == m
 
-      out = StepWrites.multi(m, [line("a")], %{prefix: "x"})
+      out =
+        StepWrites.multi(m, [line("a")], %{prefix: "x", origin: {:task, Ecto.UUID.generate()}})
+
       assert [{:merge, {:merge, fun}}] = Ecto.Multi.to_list(out)
       assert is_function(fun, 1)
     end
 
     test "multi/3 refuses more than 20 lines as a build error at index 20 (I-B6 defence)" do
       m = Ecto.Multi.new()
-      out = StepWrites.multi(m, List.duplicate(line("a"), 21), %{prefix: "x"})
+
+      out =
+        StepWrites.multi(m, List.duplicate(line("a"), 21), %{
+          prefix: "x",
+          origin: {:task, Ecto.UUID.generate()}
+        })
+
       assert [{{:line, 20, :build}, {:error, :line_malformed}}] = Ecto.Multi.to_list(out)
 
       # exactly 20 is accepted (one lazy merge)
-      ok = StepWrites.multi(m, List.duplicate(line("a"), 20), %{prefix: "x"})
+      ok =
+        StepWrites.multi(m, List.duplicate(line("a"), 20), %{
+          prefix: "x",
+          origin: {:task, Ecto.UUID.generate()}
+        })
+
       assert [{:merge, {:merge, _fun}}] = Ecto.Multi.to_list(ok)
     end
 

@@ -65,7 +65,7 @@ defmodule Letflow.Engine.ModuleWriteLockOrderTest do
 
     multi_ctx = %{
       prefix: ctx.schema,
-      task_id: ctx.task.id,
+      origin: {:task, ctx.task.id},
       instance_id: ctx.instance_id,
       node_id: "ht",
       definition_id: ctx.definition.id,
@@ -84,6 +84,20 @@ defmodule Letflow.Engine.ModuleWriteLockOrderTest do
       Multi.new() |> EntityPortImpl.multi(lines, multi_ctx) |> Multi.to_list()
 
     fun.(%{}) |> Multi.to_list() |> Enum.map(&elem(&1, 0))
+  end
+
+  describe "the step origin is required (GH #2687)" do
+    test "a multi_ctx without a tagged origin matches no multi/3 clause" do
+      ctx = %{prefix: "t", task_id: Ecto.UUID.generate()}
+
+      assert_raise FunctionClauseError, fn ->
+        EntityPortImpl.multi(Multi.new(), [], ctx)
+      end
+
+      assert_raise FunctionClauseError, fn ->
+        EntityPortImpl.multi(Multi.new(), [], Map.put(ctx, :origin, :bad))
+      end
+    end
   end
 
   describe "the built steps" do

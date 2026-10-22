@@ -33,7 +33,7 @@ defmodule Letflow.Entities.StepWrites do
 
   ## SERVICE_TASK origin (GH #2587 PR C2; design `gh2587-req499-pr-c-service-task-writes.md`)
 
-  `ctx.origin` is `{:task, id}` (HUMAN, or the legacy `ctx.task_id`) or `{:dispatch, id}` (a
+  `ctx.origin` is `{:task, id}` (HUMAN) or `{:dispatch, id}` (a
   SERVICE_TASK apply). The dispatch origin differs in three ways only: `source.dispatch_id` and
   the `sys:step:<dispatch_id>:<i>` key (through `StepSource`), the write-side restriction subject
   is `ctx.subject_id` (the activator; the event actor is the platform sentinel), and values are
@@ -107,6 +107,7 @@ defmodule Letflow.Entities.StepWrites do
   alias Letflow.Entities.ProcessWritable
   alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Entities.RecordAccess
   alias Letflow.Entities.Records
   alias Letflow.Entities.StepSource
   alias Letflow.Entities.TypeAccess
@@ -560,7 +561,8 @@ defmodule Letflow.Entities.StepWrites do
   `:entity_writes`. A node without `module_writes` builds exactly the steps it always did.
   """
   @spec multi(Ecto.Multi.t(), [EntityPort.line()], EntityPort.multi_ctx()) :: Ecto.Multi.t()
-  def multi(%Multi{} = multi, lines, ctx) when is_list(lines) and is_map(ctx) do
+  def multi(%Multi{} = multi, lines, %{origin: {tag, id}} = ctx)
+      when is_list(lines) and tag in [:task, :dispatch] and is_binary(id) do
     module_lines = Map.get(ctx, :module_writes, [])
 
     cond do
@@ -719,9 +721,8 @@ defmodule Letflow.Entities.StepWrites do
   defp sort_type(_line), do: ""
 
   # One line: run-time re-normalization of the pinned line, authorization, field
-  # restrictions, then the A2 command. PR C2: the origin is `{:task, id}` (HUMAN, the legacy
-  # `ctx.task_id`) or `{:dispatch, id}` (SERVICE_TASK); the restriction subject is
-  # `ctx.subject_id` (the activator on the service origin, the completer on the human one).
+  # restrictions, then the A2 command. PR C2: the origin is `{:task, id}` (HUMAN) or `{:dispatch, id}` (SERVICE_TASK); the
+  # restriction subject is `ctx.subject_id` (the activator on the service origin, the completer on the human one).
   defp build_line(line, index, ctx, variables) do
     origin = origin(ctx)
 
@@ -755,10 +756,9 @@ defmodule Letflow.Entities.StepWrites do
     end
   end
 
+  # GH #2687: the origin is required and tagged; a ctx without it has no matching clause.
   defp origin(%{origin: {tag, id} = origin}) when tag in [:task, :dispatch] and is_binary(id),
     do: origin
-
-  defp origin(%{task_id: task_id}), do: {:task, task_id}
 
   defp origin_attrs({:task, id}), do: %{task_id: id}
   defp origin_attrs({:dispatch, id}), do: %{dispatch_id: id}
@@ -857,7 +857,7 @@ defmodule Letflow.Entities.StepWrites do
   defp check_restrictions(fields, entity_type, ctx) do
     case FieldGrants.load_restrictions(subject_id(ctx), entity_type, ctx.prefix) do
       {:ok, restricted} ->
-        if Enum.any?(Map.keys(fields), &MapSet.member?(restricted, &1)),
+        if RecordAccess.names_restricted?(fields, restricted),
           do: {:error, :field_restricted},
           else: :ok
 
