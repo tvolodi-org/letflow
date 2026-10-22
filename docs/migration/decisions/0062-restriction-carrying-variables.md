@@ -158,6 +158,14 @@ test/letflow/routers/sys_variables_response_test.exs:423:  test "public_event_pa
 2. **Read redaction and in-process/outbound paths** (R8, R8h-3, R9, R12, R14), including the helper arity change. Tests SR-OPT-3, -7, -8, -11, -13, -14.
 3. **Opt-in, activation and step writes** (R5, R6): manifest shape, `ScriptInput`, the port, the R5 predicate in `StepWrites` and `HandlerWrites`, C10 removal and the test replacements above. Tests SR-OPT-1, -2, -4, -5, -9, -12. Part 3 must not land before parts 1 and 2.
 
+### Part 2 landed (GH #2616, T-0187)
+
+* **Route list correction to R8.** `GET /tasks/:id` and the instance list render no variables today. The task-side variable surface is the `POST /tasks/:id/complete` response. Redaction covers `GET /instances/:id`, reconstruct, history and that response.
+* **Helper arity.** `Letflow.Api.Response.public_variables/3` and `public_event_payload/3` take the caller's grant-resolved hidden label set. The `/1` and `/2` arities are removed.
+* **R14 deviation (Q3).** A computed field's server value always wins, as it did before. A submitted value is recorded only in the disagreement event, with `submitted_labels: []`. The stored label is the union of the labels of the computed field's inputs, taken in topological order.
+* **Sentinel ruling (R8/R9).** A completion that submits the redaction placeholder for a labelled key the caller cannot read is refused with 422 `redacted_value_submitted` (key names only), before any write. A real value is accepted and removes the label. Omitting the key keeps the stored value.
+* **Deferred.** SR-OPT-3(b) (script input omission) belongs to part 3, with the opt-in. No production path yields a label before then.
+
 ## Consequences
 * Every surface that shows instance variables gains a grant check; a caller without the grant sees `:__field_redacted__` (or absence on WASM) where a script delivered a restricted value. Callers with the grant, and every instance without labelled variables, see no change.
 * Event payloads grow optional label fields; old events stay valid and are read as unlabelled.

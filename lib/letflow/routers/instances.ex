@@ -340,7 +340,9 @@ defmodule Letflow.Routers.Instances do
   alias Letflow.Engine.Reconstruction
   alias Letflow.EventStore.InstanceVisibility
   alias Letflow.Idempotency
+  alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Instances
+  alias Letflow.PlatformTenant
   alias Letflow.Repository.Artifact
   alias Letflow.Repository.Attachment
   alias Letflow.Repository.Attachments
@@ -753,13 +755,16 @@ defmodule Letflow.Routers.Instances do
       {:ok, opts} ->
         case cast_instance_id(raw_id) do
           {:ok, instance_id} ->
-            render_reconstruct(
-              conn,
-              Reconstruction.reconstruct_instance(
-                instance_id,
-                Keyword.put(opts, :write_back, true)
+            with_hidden_labels(conn, fn hidden ->
+              render_reconstruct(
+                conn,
+                Reconstruction.reconstruct_instance(
+                  instance_id,
+                  Keyword.put(opts, :write_back, true)
+                ),
+                hidden
               )
-            )
+            end)
 
           {:error, :invalid_instance_id} ->
             Response.unprocessable(conn, "instance_id is not a valid UUID")
@@ -770,16 +775,18 @@ defmodule Letflow.Routers.Instances do
     end
   end
 
-  defp render_reconstruct(conn, {:ok, result}) do
+  defp render_reconstruct(conn, {:ok, result}, hidden) do
     state = result.instance_state
 
     Response.ok(conn, %{
       "instance_id" => result.instance_id,
       "status" => status_string(state.status),
       "tokens" => Enum.map(state.tokens, &token_map/1),
-      "variables" => Response.public_variables(state.variables)
+      "variables" => Response.public_variables(state.variables, state.variable_labels, hidden)
     })
   end
+
+  defp render_reconstruct(conn, result, _hidden), do: render_reconstruct(conn, result)
 
   defp render_reconstruct(conn, {:error, :invalid_instance_id}),
     do: Response.unprocessable(conn, "instance_id is not a valid UUID")
@@ -881,6 +888,24 @@ defmodule Letflow.Routers.Instances do
 
   defp cast_optional_timer_id(_not_a_string), do: {:error, :invalid_timer_id}
 
+  # GH #2616 part 2 (decision 0062 R8): every read of variable values loads the caller's hidden label
+  # set once, before the handler does any work. A failed load is a no-detail 500 (INV-4), never a
+  # clear value. The platform principal holds no entity grants, so it hides every restricted field.
+  defp with_hidden_labels(conn, fun) do
+    auth_context = conn.assigns.auth_context
+    prefix = conn.assigns.scoped_opts[:prefix]
+
+    loaded =
+      if PlatformTenant.platform_tenant?(Map.get(auth_context, :tenant_id)),
+        do: FieldGrants.load_platform_hidden_labels(prefix),
+        else: FieldGrants.load_hidden_labels(auth_context.user_id, prefix)
+
+    case loaded do
+      {:ok, hidden} -> fun.(hidden)
+      {:error, _reason} -> Response.internal_error(conn)
+    end
+  end
+
   # ── GET /instances/:id (design §"Router"/get_by_id) ────────────────────
 
   defp handle_get_by_id(conn, raw_id) do
@@ -888,26 +913,33 @@ defmodule Letflow.Routers.Instances do
 
     case cast_instance_id(raw_id) do
       {:ok, id} ->
-        render_get_by_id(conn, Instances.get_by_id(id, opts))
+        with_hidden_labels(conn, fn hidden ->
+          render_get_by_id(conn, Instances.get_by_id(id, opts), hidden)
+        end)
 
       {:error, :invalid_instance_id} ->
         Response.unprocessable(conn, "instance_id is not a valid UUID")
     end
   end
 
-  defp render_get_by_id(conn, {:ok, projection}), do: Response.ok(conn, instance_map(projection))
+  defp render_get_by_id(conn, {:ok, projection}, hidden),
+    do: Response.ok(conn, instance_map(projection, hidden))
+
+  defp render_get_by_id(conn, result, _hidden), do: render_get_by_id(conn, result)
+
   defp render_get_by_id(conn, {:error, :not_found}), do: Response.not_found(conn)
 
   defp render_get_by_id(conn, {:error, :invalid_id}),
     do: Response.unprocessable(conn, "instance_id is not a valid UUID")
 
-  defp instance_map(projection) do
+  defp instance_map(projection, hidden) do
     %{
       "instance_id" => projection.instance_id,
       "definition_id" => projection.definition_id,
       "correlation_key" => projection.correlation_key,
       "status" => status_string(projection.status),
-      "variables" => Response.public_variables(projection.variables),
+      "variables" =>
+        Response.public_variables(projection.variables, projection.variable_labels, hidden),
       "started_at" => DateTime.to_iso8601(projection.started_at),
       "completed_at" => optional_iso8601(projection.completed_at),
       "cancelled_at" => optional_iso8601(projection.cancelled_at),
@@ -985,15 +1017,17 @@ defmodule Letflow.Routers.Instances do
         page_size: page_size
       }
 
-      result = Instances.history(id, params, opts)
+      with_hidden_labels(conn, fn hidden ->
+        result = Instances.history(id, params, opts)
 
-      names =
-        case result do
-          {:ok, %{items: items}} -> Instances.actor_display_names(items, opts)
-          _error -> %{}
-        end
+        names =
+          case result do
+            {:ok, %{items: items}} -> Instances.actor_display_names(items, opts)
+            _error -> %{}
+          end
 
-      render_page_result(result, conn, &history_item_map(&1, names))
+        render_page_result(result, conn, &history_item_map(&1, names, hidden))
+      end)
     else
       {:error, :invalid_instance_id} ->
         Response.unprocessable(conn, "instance_id is not a valid UUID")
@@ -1009,9 +1043,9 @@ defmodule Letflow.Routers.Instances do
     end
   end
 
-  # CO-1 (GH #2587 PR B3): the payload is shaped by `Response.public_event_payload/2`, never
+  # CO-1 (GH #2587 PR B3): the payload is shaped by `Response.public_event_payload/3`, never
   # emitted verbatim, so engine-written `_sys` values and record ids cannot reach a client.
-  defp history_item_map(event, display_names) do
+  defp history_item_map(event, display_names, hidden) do
     %{
       "event_id" => event.event_id,
       "actor_id" => event.actor_id,
@@ -1019,7 +1053,7 @@ defmodule Letflow.Routers.Instances do
       "event_type" => event.event_type,
       "sequence_number" => event.sequence_number,
       "created_at" => DateTime.to_iso8601(event.created_at),
-      "payload" => Response.public_event_payload(event.event_type, event.payload)
+      "payload" => Response.public_event_payload(event.event_type, event.payload, hidden)
     }
   end
 

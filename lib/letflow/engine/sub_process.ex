@@ -1249,6 +1249,7 @@ defmodule Letflow.Engine.SubProcess do
              graph,
              parent_instance_id,
              final_instance_state.variables,
+             final_instance_state.variable_labels,
              completed_at,
              prefix,
              hop_chain_key

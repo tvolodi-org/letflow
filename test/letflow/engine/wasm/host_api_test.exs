@@ -162,6 +162,51 @@ defmodule Letflow.Engine.Wasm.HostApiTest do
 
   # GH #2646 (#2587 PR B3, INV-2): engine-written `_sys.*` bookkeeping is never readable by a
   # guest; `host_api.ex` drops reserved keys before the lookup. A plain key is unchanged.
+  describe "GH #2616 part 2: read_variable hides a labelled variable the caller may not read" do
+    @salary_label "customer.salary"
+
+    test "a hidden labelled variable reads as not present (-1); an unlabelled one is returned" do
+      ctx =
+        wasm_execution_context(%{
+          variables: %{"x" => 1, "w" => "open"},
+          variable_labels: %{"x" => [@salary_label]},
+          hidden_labels: MapSet.new([@salary_label])
+        })
+
+      {pid, store, memory} = start_instance(full_manifest(), ctx)
+
+      write_bytes(store, memory, 0, "x")
+
+      assert {:ok, [-1]} =
+               Wasmex.call_function(pid, "call_read_variable", [0, 1, @out_ptr, @out_cap])
+
+      write_bytes(store, memory, 0, "w")
+
+      {:ok, _n, bytes} = call_string_fn(pid, "call_read_variable", [0, 1], store, memory)
+      assert Jason.decode!(bytes) == "open"
+
+      GenServer.stop(pid)
+    end
+
+    test "a missing hidden set (nil) hides every labelled variable (fail closed)" do
+      ctx =
+        wasm_execution_context(%{
+          variables: %{"x" => 1},
+          variable_labels: %{"x" => [@salary_label]},
+          hidden_labels: nil
+        })
+
+      {pid, store, memory} = start_instance(full_manifest(), ctx)
+
+      write_bytes(store, memory, 0, "x")
+
+      assert {:ok, [-1]} =
+               Wasmex.call_function(pid, "call_read_variable", [0, 1, @out_ptr, @out_cap])
+
+      GenServer.stop(pid)
+    end
+  end
+
   describe "GH #2646: read_variable never exposes reserved `_sys.*` keys" do
     test "a `_sys.*` variable reads as absent (-1); a non-reserved key is returned unchanged" do
       variables = %{"_sys.move" => "rec-secret", "_sys.move.seq" => 42, "greeting" => "hello"}
