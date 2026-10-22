@@ -131,22 +131,37 @@ defmodule Letflow.Idempotency.SquatRemediation do
 
   defp remediate_locked(schema, key, operator, %{id: row_id}) do
     case SquatAudit.classify_key(Repo, schema, key) do
-      {:ok, %{verdict: :flagged, row_id: ^row_id} = finding} ->
-        with {:ok, _entry} <-
-               Audit.insert_entry(Repo, audit_attrs(finding, operator), schema),
-             {1, _} <- delete_row(schema, row_id, key) do
-          :removed
-        else
-          {:error, reason} -> Repo.rollback({:audit_failed, reason})
-          _count_mismatch -> Repo.rollback(:delete_count_mismatch)
-        end
-
-      {:ok, finding} ->
-        Repo.rollback({:not_flagged, Map.put(finding, :schema, schema)})
+      {:ok, finding} = classified ->
+        if remediable?(finding, row_id),
+          do: remove_locked(schema, key, operator, row_id, finding),
+          else: refuse_not_flagged(classified, schema)
 
       {:error, :no_such_key} ->
         # Locked a moment ago in this same transaction; cannot vanish. Treated as clear.
         Repo.rollback(:already_clear)
+    end
+  end
+
+  @doc false
+  # The finding type allows `reason: nil` (clear/unclassified rows), so "flagged" alone does not
+  # guarantee a reason to record. A flagged finding without one is refused rather than audited
+  # as the string "nil" (GH #2668).
+  @spec remediable?(SquatAudit.finding(), Ecto.UUID.t()) :: boolean()
+  def remediable?(%{verdict: :flagged, row_id: row_id, reason: reason}, row_id),
+    do: is_atom(reason) and not is_nil(reason)
+
+  def remediable?(_finding, _row_id), do: false
+
+  defp refuse_not_flagged({:ok, finding}, schema),
+    do: Repo.rollback({:not_flagged, Map.put(finding, :schema, schema)})
+
+  defp remove_locked(schema, key, operator, row_id, finding) do
+    with {:ok, _entry} <- Audit.insert_entry(Repo, audit_attrs(finding, operator), schema),
+         {1, _} <- delete_row(schema, row_id, key) do
+      :removed
+    else
+      {:error, reason} -> Repo.rollback({:audit_failed, reason})
+      _count_mismatch -> Repo.rollback(:delete_count_mismatch)
     end
   end
 
