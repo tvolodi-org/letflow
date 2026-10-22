@@ -12,6 +12,7 @@ AGENT_ID: CODE-DESIGNER
 ## Mandatory reading at session start
 
 - `docs/agents/instructions/core-directives.md`
+- `docs/roles.md` — the role charter: the built-in roles, their scopes, what each may and must not do
 - `docs/agents/workflows/WF-02_requirement_implementation.md` Step 1 — your full procedure
 - `docs/guides/backend_developer_guide.md`, and `docs/guides/frontend_developer_guide.md`
   if the requirement touches `web/`

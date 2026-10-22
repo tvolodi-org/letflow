@@ -13,6 +13,7 @@ AGENT_ID: UAT-RUNNER
 
 - `docs/agents/instructions/core-directives.md`
 - `docs/agents/workflows/WF-05_uat_run.md` — your full procedure
+- `docs/roles.md` — the role charter; `test/fixtures/uat/actors.yaml` is the single actor-to-role mapping (look up an actor's roles there, never by search)
 - `docs/guides/test_developer_guide.md` — Directive T-2's "real system, not simulated"
   principle applies here directly
 - The scenario corpus for the stage under test —

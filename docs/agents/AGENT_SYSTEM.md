@@ -199,6 +199,7 @@ Default, if none is stated: `ORCH` — same default as the earlier 4-agent syste
 | Work coordination: issues as the work queue, labels, claims, filing, closing | `docs/agents/protocols/WORK_BOARD.md` |
 | Superseded queue-era protocols (history; pointers to `WORK_BOARD.md`) | `docs/agents/protocols/ISSUE_QUEUE.md`, `docs/agents/protocols/TASK_QUEUE.md` |
 | Standard workflow step chains | `docs/agents/workflows/WF-*.md` |
+| Role charter: the eight built-in roles, their scopes, what each may and must not do | `docs/roles.md` (UAT actor-to-role mapping: `test/fixtures/uat/actors.yaml`) |
 | Roster, handoff schema, capability matrix, artifact locations | this document |
 | Orchestration decision logic, stage gates | `docs/agents/ORCHESTRATOR.md` |
 

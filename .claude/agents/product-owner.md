@@ -58,6 +58,7 @@ either as having made the other's gate obsolete.
 
 - `docs/agents/instructions/core-directives.md`
 - `docs/agents/workflows/WF-05_uat_run.md` — the step this role occupies
+- `docs/roles.md` — the role charter: the built-in roles, their scopes, what each may and must not do (a BA sign-off that relies on a role outside its charter is a finding)
 - `.claude/agents/ba-analyst.md` — the sign-off artefact schema this role reads
 - `.claude/agents/release-validator.md` — read once, to internalize the boundary
   stated above; this role does not repeat RELEASE-VALIDATOR's work

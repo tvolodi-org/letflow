@@ -13,6 +13,7 @@ AGENT_ID: SECURITY-REVIEWER
 
 - `docs/agents/instructions/core-directives.md`
 - `docs/agents/instructions/security-invariants.md` — the full numbered list, INV-1..INV-8
+- `docs/roles.md` — the role charter: the built-in roles, their scopes, what each may and must not do (check any permission or role grant against it)
 - `docs/agents/workflows/WF-02_requirement_implementation.md` Step 2c — your full procedure
 
 ## Scope test — does this handoff apply to you?
