@@ -8,7 +8,7 @@
 #   CANDIDATE         allowed: none                          refused: complete the release
 #   TENANT_ADMIN      allowed: stop (cancel) a request       refused: complete the release without being in the releasers group
 #   TENANT_AUDITOR    allowed: none (reads only)             refused: complete the release
-# Test-tooling steps: none. Continues from matrix-1 (R1 and R2 approved and waiting, R3 waiting for approval).
+# Test-tooling steps: none. Continues from matrix-1 (R1 and R2 approved and waiting, R3 and R4 waiting for approval).
 ---
 id: tenant-administration-matrix-2-pay-or-release
 scope: tenant-administration
@@ -19,9 +19,9 @@ tags: [matrix, release, payment, roles, refusal, access]
 description: >
   The releaser (a task worker in the releasers group) releases the payment of one request. The
   process operator stops a second request before it is paid, and the administrator stops a third.
-  A fourth request is approved and waits for release. Every other role, and the two who hold a
+  A fifth request is approved and waits for release. Every other role, and the two who hold a
   general role but are not the releaser, then try to release it or to stop it and are turned away.
-  The fourth request is still waiting at the end.
+  The fifth request is still waiting at the end.
 
 actors:
   tenant_admin: actor-any
@@ -34,64 +34,70 @@ actors:
   auditor: actor-any
 
 preconditions:
-  - description: matrix-1 passed in this run (R1 and R2 are approved and wait for release; R3 waits for approval)
+  - description: matrix-1 passed in this run (R1 and R2 are approved and wait for release; R3 and R4 wait for approval)
     check: custom
 
 steps:
   - step: 1
     actor: operator
-    action: The process operator starts a fourth request R4. worker_a approves it. It now waits for release.
+    action: The process operator starts a fifth request R5.
     via: api
+    produces:
+      request_id: the identifier of R5
   - step: 2
+    actor: worker_a
+    action: worker_a (task worker in the approvers group) claims and approves R5. It now waits for release.
+    via: api
+  - step: 3
     actor: worker_b
     action: worker_b (task worker in the releasers group) releases the payment of R1.
     via: api
-  - step: 3
+  - step: 4
     actor: operator
     action: The process operator stops R2 before it is paid.
     via: api
-  - step: 4
+  - step: 5
     actor: tenant_admin
     action: The administrator stops R3 before it is paid.
     via: api
-  - step: 5
-    actor: designer
-    action: The process designer tries to release the payment of R4.
-    expect_refusal: true
-    via: api
   - step: 6
-    actor: operator
-    action: The process operator (not in the releasers group) tries to release the payment of R4.
+    actor: designer
+    action: The process designer tries to release the payment of R5.
     expect_refusal: true
     via: api
   - step: 7
-    actor: worker_b
-    action: worker_b tries to stop R4 before it is paid.
+    actor: operator
+    action: The process operator (not in the releasers group) tries to release the payment of R5.
     expect_refusal: true
     via: api
   - step: 8
-    actor: agent_runner
-    action: The agent runner tries to release the payment of R4.
+    actor: worker_b
+    action: worker_b tries to stop R5 before it is paid.
     expect_refusal: true
     via: api
   - step: 9
-    actor: candidate
-    action: The candidate tries to release the payment of R4.
+    actor: agent_runner
+    action: The agent runner tries to release the payment of R5.
     expect_refusal: true
     via: api
   - step: 10
-    actor: tenant_admin
-    action: The administrator (not in the releasers group) tries to release the payment of R4.
+    actor: candidate
+    action: The candidate tries to release the payment of R5.
     expect_refusal: true
     via: api
   - step: 11
-    actor: auditor
-    action: The tenant auditor tries to release the payment of R4.
+    actor: tenant_admin
+    action: The administrator (not in the releasers group) tries to release the payment of R5.
     expect_refusal: true
     via: api
   - step: 12
+    actor: auditor
+    action: The tenant auditor tries to release the payment of R5.
+    expect_refusal: true
+    via: api
+  - step: 13
     actor: tenant_admin
-    action: The administrator checks the four requests - R1 released, R2 and R3 stopped, R4 still waiting for release.
+    action: The administrator checks the five requests - R1 released, R2 and R3 stopped, R4 still waiting for approval, R5 still waiting for release.
     via: api
 
 expected_outcomes:
@@ -109,8 +115,8 @@ expected_outcomes:
     description: The designer, auditor, agent runner and candidate cannot release, and a task worker cannot stop a request.
     verification:
       method: system_state
-      detail: Steps 5, 7, 8, 9 and 11 are refused; R4 is unchanged after each.
-      evidence: The five refusals and the state of R4.
+      detail: Steps 6, 8, 9, 10 and 12 are refused; R5 is unchanged after each.
+      evidence: The five refusals and the state of R5.
     on_fail:
       severity: BLOCKER
       business_impact: Money can be released, or a payment halted, by a person with no such authority.
@@ -119,8 +125,8 @@ expected_outcomes:
     description: The operator and the administrator hold broad rights but are not the releaser, and are turned away from releasing.
     verification:
       method: system_state
-      detail: Steps 6 and 10 are refused; R4 still waits for the releasers group.
-      evidence: The two refusals and the state of R4.
+      detail: Steps 7 and 11 are refused; R5 still waits for the releasers group.
+      evidence: The two refusals and the state of R5.
     on_fail:
       severity: BLOCKER
       business_impact: Payment release is not separated from general administration, so one broad account can release money alone.
@@ -128,4 +134,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: true
-  description: Cancel R4 (as the administrator), and any other request left open, so that the test customer holds no running instance.
+  description: Cancel R4 and R5 (as the administrator), and any other request left open, so that the test customer holds no running instance.

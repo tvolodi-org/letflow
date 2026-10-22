@@ -3,9 +3,11 @@
 # default; the inventory and re-issue are release-operator commands run with bin/letflow eval, one token at a time,
 # decided by a person), docs/roles.md (TENANT_ADMIN paragraph: in the platform tenant a PLATFORM_ADMIN may mint, but
 # only for themself, expiry at most 90 days; only a TENANT_ADMIN holder through a group mints in a customer tenant).
-# TEST-TOOLING STEP (outside the product): step 6, the read-only inventory on the host
+# TEST-TOOLING STEP (outside the product): step 7, the read-only inventory on the host
 # (Letflow.Release.platform_admin_token_inventory()). It needs shell access to a release node. If the acceptance
-# environment has none, step 6 is reported BLOCKED and the rest of the scenario still runs.
+# environment has none, step 7 is reported BLOCKED and the rest of the scenario still runs.
+# Step 3 (a token that never ends) is refused: the platform requires an end date within the cap
+# (lib/letflow/identity.ex validate_platform_admin_expiry/4; the interface answers 422 platform_admin_token_expiry_invalid).
 # NOT RUN HERE: the re-issue act itself (runbook step 3). It changes a live legacy token, needs the owner's decision
 # per token, and a legacy non-expiring token cannot be made through the product any more. No such token is created
 # for the test, and the act is not probed. Finding: the re-issue has no product-level UAT; see the task summary.
@@ -94,9 +96,8 @@ expected_outcomes:
     verification:
       method: system_state
       detail: >
-        Steps 4 and 5 are refused. Step 3 is either refused or answered with a token whose end date
-        is inside the cap; in no case does a token without an end date exist afterwards. If the
-        source does not settle which of the two applies to step 3, record it as a finding.
+        Steps 3, 4 and 5 are all refused (the platform requires an end date within the cap for a
+        platform token), and no token without an end date exists afterwards.
       evidence: The answers to steps 3 to 5 and the token list afterwards (end dates only).
     on_fail:
       severity: BLOCKER

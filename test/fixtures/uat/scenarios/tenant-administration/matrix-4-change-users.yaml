@@ -46,7 +46,7 @@ steps:
     via: gui
   - step: 2
     actor: designer
-    action: The process designer creates a new role binding "uat-matrix-extra" on the task worker group. This is allowed.
+    action: The process designer creates a new process routing role "uat-matrix-extra" on the task worker group. This is allowed.
     via: api
   - step: 3
     actor: designer

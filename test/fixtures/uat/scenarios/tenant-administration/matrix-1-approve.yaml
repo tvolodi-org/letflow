@@ -7,9 +7,10 @@
 #   TASK_WORKER       allowed: complete an approval       refused: complete an approval they are not routed to
 #   AGENT_RUNNER      allowed: none                       refused: complete an approval
 #   CANDIDATE         allowed: none                       refused: complete an approval
-#   TENANT_ADMIN      allowed: reassign an approval task  refused: complete an approval without being in the approvers group (routing role in force)
+#   TENANT_ADMIN      allowed: reassign an approval task (R4)  refused: complete an approval (R3) without being in the approvers group (routing role in force)
 #   TENANT_AUDITOR    allowed: none (reads only)          refused: complete an approval
-# Test-tooling steps: none. Aliases: see tenant-admin-1-people-groups-and-roles.yaml. A step the product lets through
+# R3 stays routed to the approvers group and assigned to nobody, so steps 5 to 11 test the routing role itself;
+# the reassignment is done on R4 so that it does not mask the routing check. Test-tooling steps: none. Aliases: see tenant-admin-1-people-groups-and-roles.yaml. A step the product lets through
 # is a finding, not a reason to reword the step.
 ---
 id: tenant-administration-matrix-1-approve
@@ -19,10 +20,10 @@ version: "1.0"
 tags: [matrix, approve, roles, refusal, access]
 
 description: >
-  The process operator starts three requests. A task worker and the process operator each approve one
-  (they sit in the approvers group). The administrator reassigns the third request's approval to the
+  The process operator starts four requests. A task worker and the process operator each approve one
+  (they sit in the approvers group). The administrator reassigns the fourth request's approval to the
   task worker. Then every role without the right to approve, and the two who have the role but not
-  the routing, try to approve the third request and are turned away. The third request is still
+  the routing, try to approve the third request, which is routed to the approvers group and assigned to nobody, and are turned away. The third request is still
   waiting at the end.
 
 actors:
@@ -44,10 +45,10 @@ preconditions:
 steps:
   - step: 1
     actor: operator
-    action: The process operator starts three requests of the "UAT matrix request" process, R1, R2 and R3.
+    action: The process operator starts four requests of the "UAT matrix request" process, R1, R2, R3 and R4.
     via: api
     produces:
-      request_ids: the identifiers of R1, R2 and R3
+      request_ids: the identifiers of R1, R2, R3 and R4
   - step: 2
     actor: worker_a
     action: worker_a (task worker in the approvers group) claims and approves R1.
@@ -58,7 +59,7 @@ steps:
     via: api
   - step: 4
     actor: tenant_admin
-    action: The administrator reassigns the open approval of R3 to worker_a. worker_a does not act on it.
+    action: The administrator reassigns the open approval of R4 to worker_a. worker_a does not act on it. R3 stays routed to the approvers group and assigned to nobody.
     via: api
   - step: 5
     actor: designer
@@ -97,16 +98,16 @@ steps:
     via: api
   - step: 12
     actor: tenant_admin
-    action: The administrator checks R3 - its approval is still open, assigned to worker_a, and R1 and R2 are approved and waiting for release.
+    action: The administrator checks R3 - its approval is still open and assigned to nobody, R4 is still assigned to worker_a, and R1 and R2 are approved and waiting for release.
     via: api
 
 expected_outcomes:
   - id: EO-001
-    description: Those who may approve, can - worker_a approves R1, the operator approves R2, the administrator reassigns R3's approval.
+    description: Those who may approve, can - worker_a approves R1, the operator approves R2, the administrator reassigns R4's approval.
     verification:
       method: system_state
-      detail: R1 and R2 have moved on to the release task; R3's approval is assigned to worker_a.
-      evidence: The state of R1, R2 and R3 (task name and assignee only).
+      detail: R1 and R2 have moved on to the release task; R4's approval is assigned to worker_a.
+      evidence: The state of R1, R2 and R4 (task name and assignee only).
     on_fail:
       severity: MAJOR
       business_impact: Approvals cannot be given, so no request ever moves on.
@@ -125,7 +126,7 @@ expected_outcomes:
     description: Having the task-completing role is not enough. A task worker outside the approvers group and the administrator outside it are turned away.
     verification:
       method: system_state
-      detail: Steps 7 and 10 are refused; R3 still waits for worker_a.
+      detail: Steps 7 and 10 are refused because they are not in the routing role (not because the task is assigned to somebody else); R3 still waits, unassigned.
       evidence: The two refusals and the state of R3.
     on_fail:
       severity: BLOCKER
@@ -134,4 +135,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: R1 and R2 are used by matrix-2 (release); R3 is cancelled at the end of matrix-2.
+  description: R1 and R2 are used by matrix-2 (release); R3 is cancelled in matrix-2; R4 is cancelled at the end of matrix-2.
