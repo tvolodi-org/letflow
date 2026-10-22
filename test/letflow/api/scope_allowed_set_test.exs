@@ -175,6 +175,15 @@ defmodule Letflow.Api.ScopeAllowedSetTest do
       ghost = handmade(fx.schema_name, [node_row("sf-ghost")])
       assert Scope.allowed_set(ghost, @perm) == {:ok, :none}
     end
+
+    test "the producer never returns an empty node list: no result is {:nodes, []} (GH #2809)",
+         %{fx: fx} do
+      for principal <- [F.principal(fx, {:nodes, [:a3]}), handmade(fx.schema_name, [])] do
+        assert {:ok, set} = Scope.allowed_set(principal, @perm)
+        assert set == :none
+        refute match?({:nodes, []}, set)
+      end
+    end
   end
 
   # ===========================================================================================

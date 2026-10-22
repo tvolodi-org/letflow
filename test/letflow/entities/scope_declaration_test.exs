@@ -48,6 +48,17 @@ defmodule Letflow.Entities.ScopeDeclarationTest do
 
   defp names(rows), do: rows |> Enum.map(& &1.field_values["name"]) |> Enum.sort()
 
+  describe "valid_declaration?/1 is the single owner of declaration validity (GH #2809)" do
+    test "accepts :tenant_wide and a column with a managed-format name, rejects the rest" do
+      assert ScopeDeclaration.valid_declaration?(:tenant_wide)
+      assert ScopeDeclaration.valid_declaration?({:column, "warehouse_id"})
+      refute ScopeDeclaration.valid_declaration?({:column, "Not Managed!"})
+      refute ScopeDeclaration.valid_declaration?({:column, :warehouse_id})
+      refute ScopeDeclaration.valid_declaration?(:undeclared)
+      refute ScopeDeclaration.valid_declaration?(nil)
+    end
+  end
+
   # ===========================================================================================
   describe "T-D1 for_type/2 and for_types/2" do
     setup do

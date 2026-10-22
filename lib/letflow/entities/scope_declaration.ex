@@ -106,10 +106,16 @@ defmodule Letflow.Entities.ScopeDeclaration do
       else: :undeclared
   end
 
-  defp valid_declaration?(:tenant_wide), do: true
+  @doc """
+  Whether `decl` is a well-formed manifest declaration (`:tenant_wide` or `{:column, field}`
+  with a managed-name `field`). The single owner of the validity rule: `Letflow.Modules.Catalog`
+  validation and `for_types/2` both call it.
+  """
+  @spec valid_declaration?(term()) :: boolean()
+  def valid_declaration?(:tenant_wide), do: true
 
-  defp valid_declaration?({:column, field}) when is_binary(field),
+  def valid_declaration?({:column, field}) when is_binary(field),
     do: ManagedTypes.managed_name?(field)
 
-  defp valid_declaration?(_other), do: false
+  def valid_declaration?(_other), do: false
 end
