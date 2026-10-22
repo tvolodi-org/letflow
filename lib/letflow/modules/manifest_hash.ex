@@ -32,6 +32,7 @@ defmodule Letflow.Modules.ManifestHash do
   """
 
   alias Letflow.Modules.Module
+  alias Letflow.Modules.WriteHandlerSpec
 
   @doc "Lowercase hex SHA-256 over the canonical JSON of the manifest's hashed surface."
   @spec compute(Module.manifest()) :: String.t()
@@ -67,7 +68,7 @@ defmodule Letflow.Modules.ManifestHash do
   defp handler_list(handlers) when is_list(handlers), do: handlers
   defp handler_list(_other), do: []
 
-  defp handler_surface(%{} = handler) do
+  defp handler_surface(%WriteHandlerSpec{} = handler) do
     {module, fun} =
       case Map.get(handler, :function) do
         {m, f} -> {m, f}

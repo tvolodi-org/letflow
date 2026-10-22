@@ -58,12 +58,7 @@ defmodule Letflow.Modules.Module do
   `fun` exported with arity 3; `targets` is non-empty, distinct and a subset of the same manifest's `:manages_entity_types`;
   `args` declares argument names (and whether each is required) only.
   """
-  @type write_handler_spec :: %{
-          required(:name) => String.t(),
-          required(:function) => {module(), atom()},
-          required(:targets) => [String.t()],
-          required(:args) => %{String.t() => %{required: boolean()}}
-        }
+  @type write_handler_spec :: Letflow.Modules.WriteHandlerSpec.t()
 
   @typedoc """
   The manifest map shape every entry module's `manifest/0` must return
@@ -182,7 +177,7 @@ defmodule Letflow.Modules.Module do
   | `:settings_schema` | `map()` literal or `nil` |
   | `:route_policies` | `[{String.t(), String.t(), atom()}]` literal list |
   | `:widens_grants` (optional) | `[{atom(), atom()}]` literal list (narrowing declarations, GH #2586) |
-  | `:write_handlers` (optional) | `[t:write_handler_spec/0]` literal list; `function: {Mod, :fun}` with full aliases (GH #2590) |
+  | `:write_handlers` (optional) | `[t:write_handler_spec/0]` literal list of `Letflow.Modules.WriteHandlerSpec` structs; `function: {Mod, :fun}` with full aliases (GH #2590) |
   | `:scope_declarations` (optional) | `%{String.t() => {:column, String.t()} | :tenant_wide}` literal map (REQ-518) |
 
   If any `role_grants` value atom is absent from `permissions`, a
