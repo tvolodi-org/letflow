@@ -87,7 +87,7 @@ defmodule Letflow.Entities.StepWritesModuleWritesTest do
       Map.merge(
         %{
           prefix: "tenant_unused",
-          task_id: Ecto.UUID.generate(),
+          origin: {:task, Ecto.UUID.generate()},
           instance_id: Ecto.UUID.generate(),
           node_id: "ht",
           definition_id: Ecto.UUID.generate(),

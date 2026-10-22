@@ -720,8 +720,8 @@ defmodule Letflow.Entities.StepWrites do
   defp sort_type(_line), do: ""
 
   # One line: run-time re-normalization of the pinned line, authorization, field
-  # restrictions, then the A2 command. PR C2: the origin is `{:task, id}` (HUMAN) or `{:dispatch, id}` (SERVICE_TASK); the restriction subject is
-  # `ctx.subject_id` (the activator on the service origin, the completer on the human one).
+  # restrictions, then the A2 command. PR C2: the origin is `{:task, id}` (HUMAN) or `{:dispatch, id}` (SERVICE_TASK); the
+  # restriction subject is `ctx.subject_id` (the activator on the service origin, the completer on the human one).
   defp build_line(line, index, ctx, variables) do
     origin = origin(ctx)
 

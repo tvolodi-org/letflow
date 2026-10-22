@@ -558,7 +558,7 @@ defmodule Letflow.Engine.CompleteTaskEntityWritesTest do
 
       step_ctx = %{
         prefix: ctx.schema,
-        task_id: ctx.task.id,
+        origin: {:task, ctx.task.id},
         instance_id: ctx.instance_id,
         node_id: "ht",
         definition_id: ctx.definition.id,
