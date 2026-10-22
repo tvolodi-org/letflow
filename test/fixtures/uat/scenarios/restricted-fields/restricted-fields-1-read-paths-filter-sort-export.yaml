@@ -1,0 +1,149 @@
+# T-0272 (BA): restricted-field READ PATHS that the restriction-carrying variables build on.
+# Sources: GH #2697 (query, join query and export used to accept filters and sort on a field the caller may not read;
+# the aggregate route already refused), merged as #2703 and #2735 (aggregate over join hops); GH #3059 (counts, totals,
+# pagination metadata, cursor binding, audit text); docs/roles.md (EntitiesQuery, EntitiesRecordsExportUnredacted,
+# EntitiesRestrictionsManage, AuditRead); decision 0062 R3 (redaction by the current restriction rows and the caller's grants).
+# Uses the "UAT payee" record type with the protected "bank account" field prepared in tenant-administration matrix-0.
+# Test-tooling steps: none.
+# UAT assumption, to be confirmed by the process owner: the scenario checks "refused, no rows", not the exact refusal wording.
+# Every refused step is expected to be refused. A step the product lets through is a finding, not a reason to reword the step.
+---
+id: restricted-fields-1-read-paths-filter-sort-export
+scope: tenant-administration
+title: Restricted field - a reader without the right cannot find the hidden value by filtering, sorting, counting, paging or exporting
+version: "1.0"
+tags: [restricted-field, sensitive-data, refusal, regression, access]
+
+description: >
+  The payee records hold a protected bank account number. A task worker may read the records and sees the
+  number masked, but must not be able to learn the number in any roundabout way: asking only for the payees whose
+  number equals a guess, ordering the list by the number, grouping or totalling by it, borrowing a page marker
+  from one list to read another, or exporting the list. The administrator, who holds the right, may do all of these.
+  The page of results shows only the records and a marker for the next page, never a hidden count.
+
+actors:
+  tenant_admin: actor-any
+  worker_a: actor-any
+
+preconditions:
+  - description: tenant-administration matrix-0 passed in this run (two payee records, bank account protected, values invented)
+    check: custom
+  - description: The task worker holds no special right on the bank account field
+    check: custom
+
+steps:
+  - step: 1
+    actor: worker_a
+    action: The task worker opens the list of payee records and sees the names with the bank account masked.
+    via: api
+  - step: 2
+    actor: worker_a
+    action: The task worker asks for only the payees whose bank account equals the invented value of Payee One.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: worker_a
+    action: The task worker asks for the payee list ordered by bank account.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: worker_a
+    action: The task worker asks for a count of payees grouped by bank account.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: worker_a
+    action: The task worker asks for a payee list joined with another record type, filtered on the bank account of the payee.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: worker_a
+    action: The task worker asks to export the payee list filtered by bank account.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: worker_a
+    action: The task worker asks for the payee list filtered by name only (an unprotected field) and gets Payee One.
+    via: api
+  - step: 8
+    actor: worker_a
+    action: >
+      The task worker reads the first page of the payee list with a page size of one, then tries to use the
+      next-page marker of that list to read the payee list ordered differently.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator filters the payee list by bank account, orders it by bank account and exports it with the
+      number in full, and sees both invented values.
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: The administrator opens the audit trail entry of the full export and reads which fields were exported.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The worker sees the bank account masked in the plain list and can still filter by an unprotected field.
+    verification:
+      method: system_state
+      detail: >
+        The answers at steps 1 and 7 do not contain "UAT-ACCT-0001" or "UAT-ACCT-0002"; step 7 returns Payee One
+        and no other record.
+      evidence: Whether the invented values appear in each answer (yes or no only), and the names returned at step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A worker is either shown a protected number or shut out of ordinary lookups.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      Filtering, ordering, grouping, joining and exporting on the protected field are all refused to the worker, and
+      no row comes back with the refusal.
+    verification:
+      method: system_state
+      detail: Steps 2, 3, 4, 5 and 6 are refused; none of them returns a record, a count or a group.
+      evidence: The five refusals (status and wording only), and that each answer carries no record.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A worker could work out a protected number by asking which records match a guess, one guess at a time.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: >
+      A list page carries only the records and a marker for the next page. No total or hidden count is shown, and a
+      next-page marker from one list does not work on a differently ordered list.
+    verification:
+      method: system_state
+      detail: >
+        The page read at step 8 holds the records and the next-page marker and nothing else about the whole list; the
+        attempt to reuse the marker under another ordering is refused.
+      evidence: The names of the parts of the page answer, and the refusal of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A count or a borrowed page marker can tell a worker how many records match a hidden value.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: The administrator may use the protected field in a filter, an ordering and a full export.
+    verification:
+      method: system_state
+      detail: Step 9 succeeds and its answers contain both invented values.
+      evidence: Whether both invented values appear in the answers of step 9 (yes or no).
+    on_fail:
+      severity: MAJOR
+      business_impact: The person who is meant to manage the protected field cannot use it.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The audit trail entry of the full export names the exported protected fields and holds no value.
+    verification:
+      method: system_state
+      detail: Step 10 shows the field name "bank account" and does not contain "UAT-ACCT-0001" or "UAT-ACCT-0002".
+      evidence: Whether the field name and the invented values appear in the entry (yes or no each).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A protected number is copied into the record of who did what.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Reads and refusals only; the exports are not kept.

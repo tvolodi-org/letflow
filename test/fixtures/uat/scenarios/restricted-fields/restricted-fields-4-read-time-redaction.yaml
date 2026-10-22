@@ -1,0 +1,136 @@
+# T-0272 (BA): READ-TIME REDACTION of a protected process value for a caller without the right (GH #2616 acceptance:
+# "refusal for a principal without the grant"; decision 0062 R3, R8, R8h, R9 and "Part 2 landed").
+# Sources: R3 (what a reader sees is decided when it is read, by the current protection settings and the reader's
+# rights), R8 (the instance, its reconstruction and the task-completion answer show a hidden placeholder instead of the
+# value; a key name is never hidden), R8h (the history shows the placeholder using the protection the value had when the
+# event happened), R9 (a person without the right may overwrite a protected value; that removes the protection of the new
+# value and still hides the old one), "Part 2 landed" (submitting the placeholder back for a protected key is refused,
+# "redacted value submitted", key names only).
+# Follows restricted-fields-3 in the same run: the instance of process A for Payee One holds a protected value.
+# Test-tooling steps: none.
+# UAT assumption, to be confirmed by the process owner: the placeholder is shown the same way other redacted
+# fields are shown; the scenario checks that the real value is absent, not the placeholder's exact look.
+---
+id: restricted-fields-4-read-time-redaction
+scope: tenant-administration
+title: Restricted field - a protected process value is hidden from a reader without the right, in the instance, its history and the task answer
+version: "1.0"
+tags: [restricted-field, redaction, sensitive-data, refusal, access]
+
+description: >
+  A running or finished instance may hold a value that came from the protected bank account. A reader who holds the
+  right sees it. A task worker, who does not, sees a hidden placeholder in its place, in the instance, in the history of
+  what happened, and in the answer to completing a task; the name of the value is still shown. If the administrator
+  later protects another field the value came from, the hiding applies at once; if the protection is removed the value
+  is shown again. A worker cannot read the value by sending the placeholder back, and cannot read the old value by
+  overwriting it.
+
+actors:
+  tenant_admin: actor-any
+  worker_a: actor-any
+  auditor: actor-any
+
+preconditions:
+  - description: restricted-fields-3 passed in this run (an instance of process A for Payee One holds a protected value; its bank account value is invented)
+    check: custom
+  - description: The task worker holds no right on the bank account field; the auditor is a tenant auditor
+    check: custom
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: The administrator opens the instance of process A for Payee One and its history and sees the protected value.
+    via: api
+  - step: 2
+    actor: worker_a
+    action: The task worker opens the same instance and sees the name of the protected value with a hidden placeholder instead of the value.
+    via: api
+  - step: 3
+    actor: worker_a
+    action: The task worker opens the history of the same instance and sees the events with the placeholder in place of the value.
+    via: api
+  - step: 4
+    actor: auditor
+    action: The tenant auditor opens the same instance and its history and sees the placeholder in place of the value.
+    via: api
+  - step: 5
+    actor: worker_a
+    action: The task worker completes a later task of the instance and reads the answer, which lists the instance values.
+    via: api
+  - step: 6
+    actor: worker_a
+    action: >
+      The task worker completes another task of the instance and submits the hidden placeholder back as the value
+      of the protected name.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: worker_a
+    action: The task worker completes a task of the instance and submits a new, ordinary value of their own for the protected name.
+    via: api
+  - step: 8
+    actor: worker_a
+    action: The task worker opens the history of the instance and looks for the old protected value in the events before and after step 7.
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator removes the protection from the bank account field, and the task worker opens another instance
+      of process A that still holds a protected value.
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: The administrator protects the bank account field again, and the task worker opens the same instance.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator, who holds the right, sees the value; the worker and the auditor do not.
+    verification:
+      method: system_state
+      detail: >
+        The answer at step 1 contains the invented value; the answers at steps 2, 3, 4 and 5 show the name of the
+        protected value with the placeholder and do not contain the invented value.
+      evidence: Whether the invented value appears in each answer (yes or no), and whether the name appears (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A protected number held in a running process is shown to people who must not see it.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Sending the placeholder back is refused and changes nothing.
+    verification:
+      method: system_state
+      detail: Step 6 is refused with a message that names the value but not its content; the task stays open and the stored value is unchanged.
+      evidence: The refusal (status and wording only) and the task state before and after.
+    on_fail:
+      severity: MAJOR
+      business_impact: The placeholder could overwrite a real protected value, or be used to probe for it.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A worker's own new value replaces the protected one, and the old value stays hidden from the worker in the history.
+    verification:
+      method: system_state
+      detail: >
+        After step 7 the instance shows the worker's value without the placeholder; the history read at step 8 shows
+        the placeholder wherever the old value would stand and does not contain the invented value.
+      evidence: Whether the worker's value and the invented value appear in the instance and in the history (yes or no each).
+    on_fail:
+      severity: BLOCKER
+      business_impact: Overwriting a protected value reveals the old one to the person who overwrote it.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Hiding follows the current protection settings at the moment of reading.
+    verification:
+      method: system_state
+      detail: >
+        At step 9 the worker's answer shows the value; at step 10 the worker's answer shows the placeholder again.
+        The value stored in the instance is the same in both.
+      evidence: Whether the invented value appears in the worker's answers at steps 9 and 10 (yes or no each).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A change of protection does not reach values already stored, so protection can be lost or the data hidden for good.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the instances opened for this scenario if still open. The bank account field must be protected again at the end (step 10); if it is not, restore it and record a finding.
