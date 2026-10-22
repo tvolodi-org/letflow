@@ -653,7 +653,7 @@ defmodule Letflow.EventStore do
 
   defp maybe_bound_lock_wait(multi, lock_timeout_ms) do
     Multi.run(multi, :lock_timeout, fn repo, _changes ->
-      Letflow.Engine.set_lock_timeout_ms(repo, lock_timeout_ms)
+      Contention.set_lock_timeout_ms(repo, lock_timeout_ms)
     end)
   end
 

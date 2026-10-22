@@ -481,7 +481,7 @@ defmodule Letflow.Scheduler do
         Repo.transaction(fn ->
           # GH #2707 (PR-3): the FIRST statement bounds EVERY lock wait of this fire (per wait, not
           # cumulatively); bound parameter, transaction-local, skipped when nested.
-          {:ok, _} = Letflow.Engine.set_timer_fire_lock_timeout(Repo, nested?)
+          {:ok, _} = Contention.set_timer_fire_lock_timeout(Repo, nested?)
 
           case lock_and_fire(timer_id, tenant_schema) do
             {:ok, result} -> result
