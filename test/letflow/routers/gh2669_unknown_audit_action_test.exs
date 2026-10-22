@@ -34,7 +34,7 @@ defmodule Letflow.Routers.Gh2669UnknownAuditActionTest do
   @unknown_action "example_subject.tested"
   @known_action "definition.create"
 
-  defp build_conn(tenant_fixture, query_string \\ "") do
+  defp build_conn(tenant_fixture, query_string) do
     path = if query_string == "", do: "/", else: "/?" <> query_string
 
     conn(:get, path)
