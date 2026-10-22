@@ -14,7 +14,8 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup } from '@testing-library/react'
+import { screen, cleanup } from '@testing-library/react'
+import { renderWithAccess } from '@/auth/access/testing'
 import React from 'react'
 import type { UseQueryResult } from '@tanstack/react-query'
 expect.extend(jestDomMatchers)
@@ -93,7 +94,7 @@ afterEach(() => {
 describe('ISS-0811 — GroupsPage Members column removed; Group wire shape correctness', () => {
   it('TC-ISS0811-01: the groups table has no Members column (member_count never sent by group_map/1)', () => {
     installQueryMock()
-    render(React.createElement(GroupsPage))
+    renderWithAccess(React.createElement(GroupsPage))
 
     // The table renders; assert no "Members" column header appears
     expect(screen.queryByRole('columnheader', { name: /members/i })).not.toBeInTheDocument()
@@ -101,7 +102,7 @@ describe('ISS-0811 — GroupsPage Members column removed; Group wire shape corre
 
   it('TC-ISS0811-02: group row is rendered with real wire-shape data (no phantom 0 count)', () => {
     installQueryMock()
-    render(React.createElement(GroupsPage))
+    renderWithAccess(React.createElement(GroupsPage))
 
     // The group name and display name render correctly from group_map/1 fields
     expect(screen.getByText('operators')).toBeInTheDocument()
@@ -110,10 +111,21 @@ describe('ISS-0811 — GroupsPage Members column removed; Group wire shape corre
 
   it('TC-ISS0811-03: Delete button is visible for groups (is_system condition removed — backend enforces)', () => {
     installQueryMock()
-    render(React.createElement(GroupsPage))
+    renderWithAccess(React.createElement(GroupsPage))
 
     // Delete button should be visible (no longer conditionally hidden by phantom is_system/member_count)
     const deleteButton = screen.getByTestId('delete-group-g-1')
     expect(deleteButton).toBeInTheDocument()
+  })
+})
+
+describe('GH 2238 BUILDS 5 — GroupsPage write controls follow UsersGroupsRolesManage', () => {
+  it('an auditor sees no new, manage-members or delete control', () => {
+    installQueryMock()
+    renderWithAccess(React.createElement(GroupsPage), 'auditor')
+
+    expect(screen.queryByText('+ New Group')).not.toBeInTheDocument()
+    expect(screen.queryByText('Manage members')).not.toBeInTheDocument()
+    expect(screen.queryByTestId(/^delete-group-/)).not.toBeInTheDocument()
   })
 })

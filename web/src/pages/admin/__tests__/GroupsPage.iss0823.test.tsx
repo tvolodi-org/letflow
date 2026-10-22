@@ -16,7 +16,8 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { screen, cleanup, waitFor } from '@testing-library/react'
+import { renderWithAccess } from '@/auth/access/testing'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import type { UseQueryResult } from '@tanstack/react-query'
@@ -150,7 +151,7 @@ afterEach(() => {
 describe('ISS-0823 — GroupsPage Add-member user list truncation warning', () => {
   it('TC-ISS0823-01: shows truncation warning when usersApi.list returns next_cursor (>200 users)', async () => {
     installQueryMock('cursor-page-2')
-    render(React.createElement(GroupsPage))
+    renderWithAccess(React.createElement(GroupsPage))
 
     const user = userEvent.setup()
     await waitFor(() => screen.getByText('Manage members'))
@@ -165,7 +166,7 @@ describe('ISS-0823 — GroupsPage Add-member user list truncation warning', () =
 
   it('TC-ISS0823-02: no truncation warning when usersApi.list returns next_cursor: null (≤200 users)', async () => {
     installQueryMock(null)
-    render(React.createElement(GroupsPage))
+    renderWithAccess(React.createElement(GroupsPage))
 
     const user = userEvent.setup()
     await waitFor(() => screen.getByText('Manage members'))
@@ -178,7 +179,7 @@ describe('ISS-0823 — GroupsPage Add-member user list truncation warning', () =
 
   it('TC-ISS0823-03: availableUsers subtraction is safe when user list is truncated (no crash or false exclusion)', async () => {
     installQueryMock('cursor-page-2')
-    render(React.createElement(GroupsPage))
+    renderWithAccess(React.createElement(GroupsPage))
 
     const user = userEvent.setup()
     await waitFor(() => screen.getByText('Manage members'))
@@ -197,7 +198,7 @@ describe('ISS-0823 — GroupsPage Add-member user list truncation warning', () =
 describe('ISS-0816/ISS-0828 — GroupsPage members list truncation warning (AC3)', () => {
   it('TC-ISS0816-01: shows truncation warning when groupsApi.members returns next_cursor (>50 members)', async () => {
     installQueryMock(null, 'cursor-members-2')
-    render(React.createElement(GroupsPage))
+    renderWithAccess(React.createElement(GroupsPage))
 
     const user = userEvent.setup()
     await waitFor(() => screen.getByText('Manage members'))
@@ -212,7 +213,7 @@ describe('ISS-0816/ISS-0828 — GroupsPage members list truncation warning (AC3)
 
   it('TC-ISS0816-02: no members truncation warning when next_cursor is null (≤50 members)', async () => {
     installQueryMock(null, null)
-    render(React.createElement(GroupsPage))
+    renderWithAccess(React.createElement(GroupsPage))
 
     const user = userEvent.setup()
     await waitFor(() => screen.getByText('Manage members'))

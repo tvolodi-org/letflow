@@ -15,7 +15,8 @@ defmodule Letflow.Entities.RecordsScopeReferencesTest do
     * the foreign-key backstop: the referenced row is removed after every pre-check passed (it is
       locked FOR UPDATE by another connection, so the writer blocks on the foreign key of its
       INSERT); a scoped writer gets `{:error, :scope_refused}`, never the raw database error,
-      while scope `:all` keeps today's error (pre-existing, issue #2832).
+      while scope `:all` gets the constant 422 shape `{:record_payload_invalid, [%Violation{rule:
+      :reference}]}` (issue #2832).
 
   `async: false`: a dedicated provisioned tenant, real cross-connection locks.
   """
@@ -459,12 +460,49 @@ defmodule Letflow.Entities.RecordsScopeReferencesTest do
       assert W.counts(fx) == before
     end
 
-    test "the same race with scope :all keeps today's raw error (pre-existing, issue #2832)", %{
+    test "the same race with scope :all is a constant reference violation (issue #2832)", %{
       fx: fx
     } do
       ref = fx.items.a2x.record_id
-      assert {:error, reason} = fk_race(fx, :a2x, fn -> create_child(fx, ref, :all) end)
-      refute reason == :scope_refused
+
+      assert {:error, {:record_payload_invalid, [violation]}} =
+               fk_race(fx, :a2x, fn -> create_child(fx, ref, :all) end)
+
+      assert violation.rule == :reference
+      assert violation.path == ["item_id"]
+      assert violation.message == "referenced record does not exist"
+      refute inspect(violation) =~ ref
+    end
+
+    test "T-8/T-5: a tenant-wide create or update with a nonexistent reference is a constant violation and writes nothing",
+         %{fx: fx} do
+      {:ok, %{record: child}} = create_child(fx, fx.items.a.record_id, :all)
+      before = W.counts(fx)
+      bad = Ecto.UUID.generate()
+
+      for result <- [
+            create_child(fx, bad, :all),
+            update_child(fx, child.record_id, bad, :all)
+          ] do
+        assert {:error, {:record_payload_invalid, [violation]}} = result
+        assert violation.rule == :reference
+        assert violation.path == ["item_id"]
+        assert violation.message == "referenced record does not exist"
+        refute inspect(violation) =~ bad
+      end
+
+      assert W.counts(fx) == before
+
+      assert W.stored_values(fx, "scoped_child", child.record_id)["item_id"] ==
+               fx.items.a.record_id
+
+      # the same ids for a scoped caller stay the generic refusal, never the 422 shape
+      assert create_child(fx, bad, @in_a) == {:error, :scope_refused}
+      assert update_child(fx, child.record_id, bad, @in_a) == {:error, :scope_refused}
+    end
+
+    test "T-9: a tenant-wide write with an existing reference still succeeds", %{fx: fx} do
+      assert {:ok, _} = create_child(fx, fx.items.b.record_id, :all)
     end
   end
 end

@@ -540,6 +540,9 @@ defmodule Letflow.Engine do
   alias Letflow.Repository.Attachments
   alias Letflow.Scheduler
   alias Letflow.Scheduler.Timer
+  alias Letflow.Scheduler.TimerTypes
+
+  require Letflow.Scheduler.TimerTypes
   alias Letflow.ServiceCatalog
   alias Letflow.ServiceCatalog.PinLookup
   alias Letflow.TenantProvisioning
@@ -1082,7 +1085,7 @@ defmodule Letflow.Engine do
             {:ok,
              %{
                instance_id: instance_id,
-               timer_type: "deadline",
+               timer_type: TimerTypes.deadline(),
                node_id: node_id,
                fire_at: DateTime.add(now, seconds, :second)
              }}
@@ -1097,7 +1100,7 @@ defmodule Letflow.Engine do
   end
 
   # REQ-396: mirrors resolve_timer_arm_attrs/4 but reads escalation_timer_duration
-  # and sets timer_type: "escalation". CHK-21 already validates the duration at
+  # and sets the escalation timer type. CHK-21 already validates the duration at
   # definition-approval time, so an invalid value here is defensive-only.
   defp resolve_escalation_timer_arm_attrs(
          %Graph.Node{attributes: attributes},
@@ -1112,7 +1115,7 @@ defmodule Letflow.Engine do
             {:ok,
              %{
                instance_id: instance_id,
-               timer_type: "escalation",
+               timer_type: TimerTypes.escalation(),
                node_id: node_id,
                fire_at: DateTime.add(now, seconds, :second)
              }}
@@ -1159,7 +1162,7 @@ defmodule Letflow.Engine do
        Map.merge(
          %{
            instance_id: instance_id,
-           timer_type: "reminder",
+           timer_type: TimerTypes.reminder(),
            node_id: node_id,
            fire_at: DateTime.add(now, seconds, :second)
          },
@@ -1230,12 +1233,12 @@ defmodule Letflow.Engine do
 
       opts =
         case arm_attrs.timer_type do
-          "escalation" ->
+          TimerTypes.escalation() ->
             [prefix: prefix, step_name: {:scheduler_escalation_timer, token_record_id}]
 
           # REQ-494 design §2.4: without its own step name a reminder would
           # collide with a deadline timer's :scheduler_timer in the same chain.
-          "reminder" ->
+          TimerTypes.reminder() ->
             [prefix: prefix, step_name: {:scheduler_reminder_timer, token_record_id}]
 
           _ ->
@@ -4303,7 +4306,7 @@ defmodule Letflow.Engine do
   @spec lock_for_timer_fire(Timer.t(), Ecto.Repo.t() | module(), prefix :: String.t()) ::
           {:ok, InstanceProjection.t()} | {:error, :instance_not_found} | {:error, term()}
   def lock_for_timer_fire(%Timer{} = timer, repo, prefix) do
-    if timer.timer_type == "escalation" and not is_nil(timer.token_id) do
+    if timer.timer_type == TimerTypes.escalation() and not is_nil(timer.token_id) do
       timer.token_id
       |> pending_token_tasks_query()
       |> order_by([t], asc: t.id)
@@ -4355,8 +4358,13 @@ defmodule Letflow.Engine do
        ),
        do: :continuing
 
-  defp timer_fire_lock_intent(%Timer{timer_type: "reminder"}, _projection, _repo, _prefix),
-    do: :continuing
+  defp timer_fire_lock_intent(
+         %Timer{timer_type: TimerTypes.reminder()},
+         _projection,
+         _repo,
+         _prefix
+       ),
+       do: :continuing
 
   defp timer_fire_lock_intent(%Timer{} = timer, projection, repo, prefix) do
     with {:ok, snapshot_and_state} <-
@@ -4372,7 +4380,10 @@ defmodule Letflow.Engine do
   # The pure part of a timer fire, shared by the lock prelude and the fire itself so the two
   # cannot drift: `{:ok, snapshot_and_state, advanced_state, pending_events}`, `:stale` (an
   # escalation timer whose token has moved on: the fire is a no-op) or `{:error, _}`.
-  defp timer_fire_hop_chain(%Timer{timer_type: "escalation"} = timer, snapshot_and_state) do
+  defp timer_fire_hop_chain(
+         %Timer{timer_type: TimerTypes.escalation()} = timer,
+         snapshot_and_state
+       ) do
     if escalation_timer_stale?(timer, snapshot_and_state) do
       # ISS-0925: the token is no longer at the node this timer was armed for
       # (its HUMAN_TASK completed and the token moved on). Never act on a

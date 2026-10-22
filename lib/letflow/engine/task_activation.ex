@@ -71,6 +71,9 @@ defmodule Letflow.Engine.TaskActivation do
   alias Letflow.Engine.Task
   alias Letflow.Engine.Token
   alias Letflow.Engine.TokenRecord
+  alias Letflow.Scheduler.TimerTypes
+
+  require Letflow.Scheduler.TimerTypes
 
   @doc """
   Builds a `token.token_id => TokenRecord.id` lookup map from two same-order
@@ -548,7 +551,7 @@ defmodule Letflow.Engine.TaskActivation do
   ISS-0925 -- cancels the pending ESCALATION timer(s) armed for one specific
   `(token, node)`: called when that node's HUMAN_TASK completes normally, so the
   timer cannot fire later against whatever node the token has moved on to.
-  Scoped by `timer_type == "escalation"`, `token_id` and `node_id`, and
+  Scoped by the escalation timer type, `token_id` and `node_id`, and
   status-guarded like `cancel_pending_timers/5` (a row a concurrent fire already
   flipped is untouched). Runs on the caller's transaction-scoped `repo`.
   """
@@ -566,7 +569,7 @@ defmodule Letflow.Engine.TaskActivation do
       |> where(
         [t],
         t.instance_id == ^instance_id and t.token_id == ^token_id and t.node_id == ^node_id and
-          t.timer_type == "escalation" and t.status == "pending"
+          t.timer_type == ^TimerTypes.escalation() and t.status == "pending"
       )
       |> repo.update_all(
         [set: [status: "cancelled", cancelled_at: cancelled_at, cancel_reason: "task_completed"]],
@@ -608,7 +611,7 @@ defmodule Letflow.Engine.TaskActivation do
       |> where(
         [t],
         t.instance_id == ^instance_id and t.token_id == ^token_id and t.node_id == ^node_id and
-          t.timer_type == "reminder" and t.status == "pending"
+          t.timer_type == ^TimerTypes.reminder() and t.status == "pending"
       )
       |> repo.update_all(
         [set: [status: "cancelled", cancelled_at: cancelled_at, cancel_reason: cancel_reason]],

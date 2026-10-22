@@ -38,7 +38,7 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
   end
 
   defp host_run do
-    %{run_ref: make_ref(), ctx: @ctx, input: %{}, fail_codes: nil}
+    %ScriptHost.Run{run_ref: make_ref(), ctx: @ctx, input: %{}, fail_codes: nil}
   end
 
   defp script_vm(instructions) do
@@ -814,6 +814,66 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
       )
 
       assert pct.(full, 0.95) < 1_000_000
+    end
+  end
+
+  # ── GH 2545: the runtime's inputs are structs; a missing key fails at construction ──
+
+  describe "GH 2545 typed structs" do
+    @config_attrs [
+      source: "return {}",
+      input: %{},
+      tenant: "tenant_script_test",
+      ctx: @ctx,
+      instructions: 1_000,
+      timeout_ms: 1_000,
+      heap_words: 1_000_000,
+      max_string_bytes: 1_048_576,
+      max_output_bytes: 65_536,
+      admission: Letflow.Engine.Lua.ScriptAdmission
+    ]
+
+    test "a runner config with every limit builds" do
+      assert %ScriptRunner.Config{instructions: 1_000, max_output_bytes: 65_536} =
+               struct!(ScriptRunner.Config, @config_attrs)
+    end
+
+    test "a runner config without any required limit fails at construction, naming the key" do
+      for key <- [
+            :instructions,
+            :timeout_ms,
+            :heap_words,
+            :max_string_bytes,
+            :max_output_bytes
+          ] do
+        assert_raise ArgumentError, ~r/#{key}/, fn ->
+          struct!(ScriptRunner.Config, Keyword.delete(@config_attrs, key))
+        end
+      end
+    end
+
+    test "a runner config with an unknown key is refused (no misspelled limit slips through)" do
+      assert_raise KeyError, fn ->
+        struct!(ScriptRunner.Config, [timeout_mss: 1] ++ @config_attrs)
+      end
+    end
+
+    test "ScriptValue's budget requires both counters" do
+      alias Letflow.Engine.Lua.ScriptValue.Budget
+
+      assert %Budget{nodes: 0, bytes: 0} = struct!(Budget, nodes: 0, bytes: 0)
+
+      assert_raise ArgumentError, ~r/bytes/, fn -> struct!(Budget, nodes: 0) end
+    end
+
+    test "ScriptHost's run requires its run_ref, ctx and input" do
+      attrs = [run_ref: make_ref(), ctx: @ctx, input: %{}]
+
+      assert %ScriptHost.Run{fail_codes: nil} = struct!(ScriptHost.Run, attrs)
+
+      assert_raise ArgumentError, ~r/input/, fn ->
+        struct!(ScriptHost.Run, Keyword.delete(attrs, :input))
+      end
     end
   end
 end

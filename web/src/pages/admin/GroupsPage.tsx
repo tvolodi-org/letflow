@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { P, useAccess } from '@/auth/access'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { groupsApi, usersApi } from '@/api/identity'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
@@ -28,6 +29,7 @@ function formatUser(user: User): string {
 }
 
 export default function GroupsPage() {
+  const canManage = useAccess().can(P.UsersGroupsRolesManage)
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
   const [creating, setCreating] = useState(false)
@@ -171,14 +173,18 @@ export default function GroupsPage() {
       accessor: (g) => {
         return (
           <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-            <Button variant="primary" size="sm" onClick={() => openManageMembers(g)}>
-              Manage members
-            </Button>
+            {canManage && (
+              <Button variant="primary" size="sm" onClick={() => openManageMembers(g)}>
+                Manage members
+              </Button>
+            )}
             {/* ISS-0811: is_system and member_count never sent by group_map/1;
                 Delete shown for all groups — backend enforces deletion constraints */}
-            <Button variant="danger" size="sm" data-testid={`delete-group-${g.id}`} onClick={() => openDeleteGroup(g)}>
-              Delete
-            </Button>
+            {canManage && (
+              <Button variant="danger" size="sm" data-testid={`delete-group-${g.id}`} onClick={() => openDeleteGroup(g)}>
+                Delete
+              </Button>
+            )}
           </div>
         )
       },
@@ -189,11 +195,13 @@ export default function GroupsPage() {
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1.25rem' }}>
         <h2 style={{ margin: 0 }}>Groups</h2>
-        <span style={{ marginLeft: 'auto' }}>
-          <Button variant="primary" size="sm" onClick={openCreateGroup}>
-            + New Group
-          </Button>
-        </span>
+        {canManage && (
+          <span style={{ marginLeft: 'auto' }}>
+            <Button variant="primary" size="sm" onClick={openCreateGroup}>
+              + New Group
+            </Button>
+          </span>
+        )}
       </div>
 
       {creating && (
