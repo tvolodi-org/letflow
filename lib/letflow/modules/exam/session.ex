@@ -118,10 +118,12 @@ defmodule Letflow.Modules.Exam.Session do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Entities.FieldPolicy
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
   alias Letflow.Entities.Query.Cursor
+  alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Modules.Exam
@@ -208,14 +210,15 @@ defmodule Letflow.Modules.Exam.Session do
   #{@default_available_exams_page_size} when `:page_size` is omitted or
   `nil`) and the REQUIRED `:scope` (REQ-518: the caller's allowed node set, a
   `Types.scope_set()`, read with `Keyword.fetch!/2`, so a missing key raises; it is passed to
-  `Compiler.compile/3`). Reuses the same three-step read pipeline
-  `Letflow.Routers.Entities`' generic `POST /entities/query` route calls
-  (`Compiler.compile/3`, `Allowlist.load/2`, `Cursor.paginate/5`) -- library
-  modules, not HTTP-route-specific -- without that route's `FieldGrants`
-  redaction step: `entity_field_restrictions` carries no row for
-  entity_type "exam" today (design doc §6 OQ-1), so there is nothing for
-  redaction to enforce that plain `field_values` exposure does not already
-  cover for this fixed, hardcoded, `status = "active"` and `deleted = false` query.
+  `Compiler.compile/3`) and the REQUIRED `:user_id` (the caller, read with `Keyword.fetch!/2`
+  after pagination, so the `:scope` contract above still raises first). Reuses the same
+  three-step read pipeline `Letflow.Routers.Entities`' generic `POST /entities/query` route
+  calls (`Compiler.compile/3`, `Allowlist.load/2`, `Cursor.paginate/5`) -- library
+  modules, not HTTP-route-specific. The page then gets the same `FieldGrants` redaction that
+  route applies: the caller's restriction set for `"exam"` (`FieldPolicy.restriction_set/2`)
+  replaces every restricted `field_values` entry with the sentinel before the rows are
+  rendered. No row exists for entity_type "exam" today (design doc §6 OQ-1), so this changes
+  nothing for the present data; it closes the gap for a restriction added later.
   """
   @spec list_available_exams(prefix :: String.t(), opts :: keyword()) ::
           {:ok, %{items: [exam_row()], next_cursor: String.t() | nil}}
@@ -241,7 +244,11 @@ defmodule Letflow.Modules.Exam.Session do
 
     with {:ok, compiled} <- Compiler.compile(request, prefix, scope),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
-         {:ok, page} <- Cursor.paginate(request, compiled, allowlist, paginate_opts, prefix) do
+         {:ok, page} <- Cursor.paginate(request, compiled, allowlist, paginate_opts, prefix),
+         user_id = Keyword.fetch!(opts, :user_id),
+         {:ok, restrictions} <-
+           FieldPolicy.restriction_set(%{user_id: user_id, prefix: prefix}, "exam") do
+      page = FieldGrants.redact_page(page, restrictions)
       {:ok, %{items: page.items, next_cursor: page.next_cursor}}
     end
   end
