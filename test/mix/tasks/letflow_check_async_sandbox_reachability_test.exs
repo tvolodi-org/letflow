@@ -383,6 +383,178 @@ defmodule Mix.Tasks.Letflow.CheckAsyncSandboxReachabilityTest do
   end
 
   # ==========================================================================
+  # GH #2424 -- victim-side rules (modeless Repo files, new inline :auto)
+  # ==========================================================================
+
+  describe "GH #2424: async:true file reaching :auto is caught (existing rule)" do
+    setup do
+      dir =
+        Path.join(System.tmp_dir!(), "letflow-check-2424-#{System.unique_integer([:positive])}")
+        |> Path.expand()
+
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+      %{dir: dir}
+    end
+
+    test "an async:true file with an inline :auto call fails with [ASYNC-SANDBOX]", %{dir: dir} do
+      File.write!(
+        Path.join(dir, "bystander_test.exs"),
+        fixture([
+          "defmodule Letflow.BystanderTest do",
+          "  use Letflow.DataCase, async: true",
+          "",
+          "  setup do",
+          "    Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)",
+          "  end",
+          "end"
+        ])
+      )
+
+      output =
+        capture_io(fn ->
+          assert_raise Mix.Error, fn -> Checker.run(["--dir", dir]) end
+        end)
+
+      assert output =~ "[ASYNC-SANDBOX]"
+    end
+  end
+
+  describe "inline_auto_sites/1" do
+    test "finds a real inline :auto call" do
+      content = fixture(["  setup do", "    Sandbox.mode(Letflow.Repo, :auto)", "  end"])
+      assert [%{line_number: 2}] = Checker.inline_auto_sites(content)
+    end
+
+    test "ignores :manual, comments, moduledoc prose, strings and regexes" do
+      content =
+        fixture([
+          "  @moduledoc \"\"\"",
+          "  needs Sandbox.mode(Letflow.Repo, :auto)",
+          "  \"\"\"",
+          "  # Sandbox.mode(Letflow.Repo, :auto)",
+          "  Sandbox.mode(Letflow.Repo, :manual)",
+          "  x = \"Sandbox.mode(Letflow.Repo, :auto)\"",
+          "  ~r/Sandbox.mode(Repo, :auto)/"
+        ])
+
+      assert Checker.inline_auto_sites(content) == []
+    end
+  end
+
+  describe "modeless_repo_file?/1" do
+    test "an async:false Repo caller that sets no mode is flagged" do
+      content =
+        fixture([
+          "defmodule Letflow.NoModeTest do",
+          "  use ExUnit.Case, async: false",
+          "  test \"x\", do: Letflow.Repo.all(Foo)",
+          "end"
+        ])
+
+      assert Checker.modeless_repo_file?(content)
+    end
+
+    test "DataCase, an own Sandbox mode/checkout or SandboxAutoMode clears it" do
+      for evidence <- [
+            "  use Letflow.DataCase, async: false",
+            "  setup do: Sandbox.mode(Repo, :manual)",
+            "  setup do: Ecto.Adapters.SQL.Sandbox.checkout(Repo)",
+            "  alias Letflow.Test.SandboxAutoMode"
+          ] do
+        content = fixture([evidence, "  def f, do: Repo.all(Foo)"])
+        refute Checker.modeless_repo_file?(content), evidence
+      end
+    end
+
+    test "no Repo call (or only Repo.config, or Repo in prose/strings) is not flagged" do
+      for body <- [
+            "  def f, do: 1",
+            "  def f, do: Repo.config()",
+            "  # Repo.all(Foo)",
+            "  def f, do: \"Repo.all(Foo)\""
+          ] do
+        content = fixture(["  use ExUnit.Case, async: false", body])
+        refute Checker.modeless_repo_file?(content), body
+      end
+    end
+
+    test "an async:true file is left to the reachability rule" do
+      content = fixture(["  use ExUnit.Case, async: true", "  def f, do: Repo.all(Foo)"])
+      refute Checker.modeless_repo_file?(content)
+    end
+  end
+
+  describe "run/1 victim-side rules against a scratch --dir fixture" do
+    setup do
+      dir =
+        Path.join(System.tmp_dir!(), "letflow-check-2424-#{System.unique_integer([:positive])}")
+        |> Path.expand()
+
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+      %{dir: dir}
+    end
+
+    test "a new inline Sandbox.mode(_, :auto) outside the allow-list fails", %{dir: dir} do
+      File.write!(
+        Path.join(dir, "new_auto_test.exs"),
+        fixture([
+          "defmodule Letflow.NewAutoTest do",
+          "  use Letflow.DataCase, async: false",
+          "",
+          "  setup do",
+          "    Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)",
+          "  end",
+          "end"
+        ])
+      )
+
+      output =
+        capture_io(fn ->
+          assert_raise Mix.Error, ~r/found 1 new violation/, fn -> Checker.run(["--dir", dir]) end
+        end)
+
+      assert output =~ "[INLINE-AUTO]"
+      assert output =~ "new_auto_test.exs:5"
+    end
+
+    test "a modeless async:false Repo file fails", %{dir: dir} do
+      File.write!(
+        Path.join(dir, "modeless_test.exs"),
+        fixture([
+          "defmodule Letflow.ModelessTest do",
+          "  use ExUnit.Case, async: false",
+          "  test \"x\", do: Letflow.Repo.all(Foo)",
+          "end"
+        ])
+      )
+
+      output =
+        capture_io(fn ->
+          assert_raise Mix.Error, ~r/found 1 new violation/, fn -> Checker.run(["--dir", dir]) end
+        end)
+
+      assert output =~ "[NO-SANDBOX-MODE]"
+    end
+
+    test "a file reaching :auto through SandboxAutoMode passes", %{dir: dir} do
+      File.write!(
+        Path.join(dir, "helper_test.exs"),
+        fixture([
+          "defmodule Letflow.HelperTest do",
+          "  use ExUnit.Case, async: false",
+          "  alias Letflow.Test.SandboxAutoMode",
+          "  setup_all do: SandboxAutoMode.enter_auto_mode!(Letflow.Repo)",
+          "end"
+        ])
+      )
+
+      capture_io(fn -> assert Checker.run(["--dir", dir]) == :ok end)
+    end
+  end
+
+  # ==========================================================================
   # Real-tree smoke assertion -- proves §1's current boundary holds today
   # ==========================================================================
 

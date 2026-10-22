@@ -118,6 +118,93 @@ defmodule Mix.Tasks.Letflow.CheckAsyncSandboxReachability do
      "ISS-0113/ISS-0423 -- three-mechanism procedure passed, see the file's own moduledoc"}
   ]
 
+  # GH #2424 (decision on GH #2415): the inline `Sandbox.mode(_, :auto)` convention
+  # is kept; this frozen list is the files that use it today. A new file with an
+  # inline `:auto` fails the build; it reaches `:auto` through
+  # `Letflow.Test.SandboxAutoMode` instead. Entries may only be removed.
+  @inline_auto_allowlist ~w(
+    test/letflow/audit_capture_test.exs
+    test/letflow/audit_dispositions_test.exs
+    test/letflow/audit_test.exs
+    test/letflow/definitions/req462_shipped_required_outputs_adoption_test.exs
+    test/letflow/engine/lua_script_audit_retired_test.exs
+    test/letflow/engine/meridian_loan_escalation_timer_test.exs
+    test/letflow/engine/migrations_test.exs
+    test/letflow/engine/regulatory_review_timer_path_test.exs
+    test/letflow/engine/service_task_subprocess_cascade_test.exs
+    test/letflow/engine/shipped_definition_variable_schemas_engine_test.exs
+    test/letflow/engine/sub_process_child_pins_test.exs
+    test/letflow/engine/sub_process_service_task_after_test.exs
+    test/letflow/engine/swiftroute_escalation_timer_test.exs
+    test/letflow/engine/vortex_escalation_timer_test.exs
+    test/letflow/engine_catalog_service_task_test.exs
+    test/letflow/engine_pin_resolver_catalog_test.exs
+    test/letflow/entities/records_test.exs
+    test/letflow/event_store/migrations_test.exs
+    test/letflow/event_store/retention_operations_test.exs
+    test/letflow/identity/group_test.exs
+    test/letflow/identity/role_scope_grants_writers_test.exs
+    test/letflow/identity/tenant_admin_seeding_test.exs
+    test/letflow/identity/tenant_auditor_seeding_test.exs
+    test/letflow/identity/tenant_role_test.exs
+    test/letflow/identity/user_test.exs
+    test/letflow/identity_migration_test.exs
+    test/letflow/identity_test.exs
+    test/letflow/integration/keycloak_auth_pipeline_test.exs
+    test/letflow/login_directory_test.exs
+    test/letflow/migrations/add_catalog_endpoint_url_reserved_ref_guard_test.exs
+    test/letflow/modules/exam/exam_sessions_test.exs
+    test/letflow/platform/migration_rollout_test.exs
+    test/letflow/plugs/iss0778_platform_role_seeding_e2e_test.exs
+    test/letflow/repository/gh2718_attachments_delete_event_test.exs
+    test/letflow/repository_test.exs
+    test/letflow/role_registry_test.exs
+    test/letflow/routers/admin_services_publish_retire_test.exs
+    test/letflow/routers/admin_services_reserved_endpoint_test.exs
+    test/letflow/routers/admin_services_test.exs
+    test/letflow/routers/event_retention_test.exs
+    test/letflow/routers/gh2564_deactivation_revokes_tokens_test.exs
+    test/letflow/routers/onboarding_client_config_test.exs
+    test/letflow/routers/onboarding_test.exs
+    test/letflow/routers/platform_migrations_test.exs
+    test/letflow/routers/req077_promotion_pipeline_test.exs
+    test/letflow/sandbox_pool/fixture_loader_test.exs
+    test/letflow/sandbox_pool_test.exs
+    test/letflow/scheduler/poller_test.exs
+    test/letflow/scripts/swiftroute_decision_forms_fixture_test.exs
+    test/letflow/service_catalog/endpoint_url_db_guard_changeset_test.exs
+    test/letflow/service_catalog/endpoint_url_db_guard_parity_test.exs
+    test/letflow/service_catalog/endpoint_url_reserved_test.exs
+    test/letflow/service_catalog/endpoint_url_validation_test.exs
+    test/letflow/service_catalog_delete_pinned_instances_test.exs
+    test/letflow/service_catalog_resolve_pinned_version_test.exs
+    test/letflow/service_catalog_test.exs
+    test/letflow/simulation/req206_swiftroute_test.exs
+    test/letflow/simulation/req207_vortex_test.exs
+    test/letflow/simulation/req208_meridian_test.exs
+    test/letflow/simulation/runner_template_and_outcomes_test.exs
+    test/letflow/simulation/runner_test.exs
+    test/letflow/simulation/seed_idempotency_test.exs
+    test/letflow/support/tenant_fixture_pool_test.exs
+    test/letflow/tenant_onboarding_test.exs
+    test/letflow/tenant_provisioning/backfill_test.exs
+    test/letflow/tenant_provisioning/column_promotion_test.exs
+    test/letflow/tenant_provisioning/entity_event_type_seeding_test.exs
+    test/letflow/tenant_provisioning/task_completed_backfill_test.exs
+    test/letflow/tenant_provisioning_test.exs
+    test/mix/tasks/letflow.seed.exam_fixtures_test.exs
+    test/mix/tasks/letflow.seed_test.exs
+    test/support/bpm_default_realm_displacement_gate_test.exs
+    test/support/bpm_default_realm_displacement_test.exs
+    test/support/fake_invocation_connection_test.exs
+    test/support/service_catalog_reaper_test.exs
+    test/support/template_build_reaper_test.exs
+    test/support/tenant_fixture_dispatch_test.exs
+    test/support/tenant_schema_reaper_test.exs
+    test/support/tenant_template_retry_test.exs
+    test/support/tenant_template_test.exs
+  )
+
   @async_true_re ~r/^\s*use\s+[A-Za-z0-9_.]+\s*,.*\basync:\s*true\b/
   @provisioned_tenant_re ~r/provisioned_tenant!\s*\(/
   @sandbox_mode_re ~r/(Ecto\.Adapters\.SQL\.)?Sandbox\.mode\s*\(/
@@ -142,9 +229,22 @@ defmodule Mix.Tasks.Letflow.CheckAsyncSandboxReachability do
 
     {new, permitted} = Enum.split_with(findings, &(&1.verified_safe_citation == nil))
 
-    print_report(findings, new, permitted)
+    new_auto =
+      files
+      |> Enum.flat_map(fn path ->
+        case inline_auto_sites(Map.fetch!(contents, path)) do
+          [] -> []
+          sites -> [%{path: path, matches: sites}]
+        end
+      end)
+      |> Enum.reject(&(&1.path in @inline_auto_allowlist))
 
-    total_new = length(new)
+    modeless = Enum.filter(files, &modeless_repo_file?(Map.fetch!(contents, &1)))
+
+    print_report(findings, new, permitted)
+    print_victim_report(new_auto, modeless)
+
+    total_new = length(new) + length(new_auto) + length(modeless)
 
     IO.puts(@rule)
 
@@ -167,6 +267,63 @@ defmodule Mix.Tasks.Letflow.CheckAsyncSandboxReachability do
       IO.puts(@rule)
       :ok
     end
+  end
+
+  # -- GH #2424: victim-side rules ----------------------------------------------
+  #
+  # Both rules read "code lines": comment lines, `@moduledoc`/`@doc` and any other
+  # heredoc body are dropped and double-quoted string literals are blanked, so
+  # prose and fixture text never count as a call.
+
+  @inline_auto_re ~r/Sandbox\.mode\s*\([^)]*:auto\b/
+  @repo_use_re ~r/\bRepo\.(?!config\b)[a-z_]+[!?]?\s*[(\s]|\bRepo\.[a-z_]+[!?]?$/
+  @mode_evidence_re ~r/\buse\s+Letflow\.DataCase\b|Sandbox\.(mode|checkout|start_owner!)\s*\(|SandboxAutoMode/
+
+  @doc false
+  @spec code_lines(content :: String.t()) :: [{pos_integer(), String.t()}]
+  def code_lines(content) do
+    content
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.reduce({false, []}, fn {line, line_number}, {in_heredoc?, acc} ->
+      toggles? = rem(length(Regex.scan(~r/"""|'''/, line)), 2) == 1
+
+      cond do
+        in_heredoc? -> {not toggles?, acc}
+        toggles? -> {true, acc}
+        comment_line?(line) -> {false, acc}
+        true -> {false, [{line_number, blank_strings(line)} | acc]}
+      end
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp blank_strings(line) do
+    line
+    |> then(&Regex.replace(~r/~[rsRS]([|\/'"]).*?\1/, &1, "\"\""))
+    |> then(&Regex.replace(~r/"(?:[^"\x5C]|\x5C.)*"/, &1, "\"\""))
+  end
+
+  @doc false
+  @spec inline_auto_sites(content :: String.t()) :: [map()]
+  def inline_auto_sites(content) do
+    for {line_number, line} <- code_lines(content), Regex.match?(@inline_auto_re, line) do
+      %{pattern: :inline_auto, line_number: line_number, line_text: String.trim(line)}
+    end
+  end
+
+  # An async:false (or undeclared) file that calls the Repo and neither uses
+  # Letflow.DataCase nor sets/checks out a sandbox mode itself: it runs in
+  # whatever mode the previous file left behind.
+  @doc false
+  @spec modeless_repo_file?(content :: String.t()) :: boolean()
+  def modeless_repo_file?(content) do
+    lines = code_lines(content)
+
+    not async_true_file?(content) and
+      Enum.any?(lines, fn {_n, l} -> Regex.match?(@repo_use_re, l) end) and
+      not Enum.any?(lines, fn {_n, l} -> Regex.match?(@mode_evidence_re, l) end)
   end
 
   # -- CLI flag parsing (mirrors letflow.lint_handoffs.ex's --dir handling) --
@@ -331,4 +488,37 @@ defmodule Mix.Tasks.Letflow.CheckAsyncSandboxReachability do
 
   defp pattern_description(:provisioned_tenant), do: "calls `provisioned_tenant!(`"
   defp pattern_description(:sandbox_mode), do: "calls `Sandbox.mode(`"
+
+  defp print_victim_report(new_auto, modeless) do
+    if new_auto != [] do
+      IO.puts(@rule)
+      IO.puts("NEW INLINE Sandbox.mode(_, :auto) (fail the build):")
+
+      Enum.each(new_auto, fn finding ->
+        Enum.each(finding.matches, fn match ->
+          IO.puts(
+            "  [INLINE-AUTO] #{finding.path}:#{match.line_number}: inline `:auto` outside the " <>
+              "frozen @inline_auto_allowlist -- reach :auto through " <>
+              "Letflow.Test.SandboxAutoMode (test/support/sandbox_auto_mode.ex) instead."
+          )
+
+          IO.puts("      #{match.line_text}")
+        end)
+      end)
+    end
+
+    if modeless != [] do
+      IO.puts(@rule)
+      IO.puts("MODELESS REPO FILES (fail the build):")
+
+      Enum.each(modeless, fn path ->
+        IO.puts(
+          "  [NO-SANDBOX-MODE] #{path}: not async:true, calls the Repo, and neither uses " <>
+            "Letflow.DataCase nor sets a sandbox mode/checkout (Sandbox.mode, " <>
+            "Sandbox.checkout, SandboxAutoMode) -- it runs in whatever mode the previous " <>
+            "file left behind."
+        )
+      end)
+    end
+  end
 end
