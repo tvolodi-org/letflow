@@ -1,0 +1,80 @@
+# T-0224 (BA): ROLE MATRIX, preparation. Order in the whole run: foundation-1..3, operator-1..3, tenant-admin-1,
+# matrix-0, tenant-admin-2, tenant-admin-3, matrix-1..4, matrix-5 (platform row), foundation-4a..4c.
+# Test-tooling steps: none (logins from tenant-administration-1).
+#
+# THE FOUR SENSITIVE ACTIONS, as the matrix scenarios read them (each mapped to the permission of the roles matrix in
+# docs/roles.md; names in business terms):
+#   approve        = completing the approval task of a request          (matrix row TasksComplete, plus the task's routing role)
+#   pay or release = completing the release-payment task, or stopping a request before payment (TasksComplete; InstancesCancel)
+#   see sensitive  = reading the protected field of a record unmasked (EntitiesRecordsExportUnredacted), reading
+#                    the audit trail (AuditRead), querying records (EntitiesQuery)
+#   change users   = adding, removing or changing people, groups and role bindings (UsersGroupsRolesManage, RolesManage)
+# The matrix process is generic UAT material for a fresh customer. It is not a vertical's process and carries no money.
+---
+id: tenant-administration-matrix-0-prepare-process-and-data
+scope: tenant-administration
+title: Role matrix preparation - a two-step request process and a record type with one protected field
+version: "1.0"
+tags: [matrix, setup, tenant-admin, process-design]
+
+description: >
+  The process designer models a small "UAT matrix request" process: a request is started, then
+  approved by the "uat-approvers" group, then released for payment by the "uat-releasers" group.
+  The designer also models a record type "UAT payee" with a name and a bank account field. The
+  administrator protects the bank account field, and the operator saves two payee records. Each
+  step is allowed for its role here; what the other roles are refused is checked in matrix 1 to 4.
+
+actors:
+  designer: actor-any
+  tenant_admin: actor-any
+  operator: actor-any
+
+preconditions:
+  - description: tenant-administration-1 passed in this run (people, groups and working groups exist)
+    check: custom
+
+steps:
+  - step: 1
+    actor: designer
+    action: >
+      The process designer creates and publishes the process "UAT matrix request": start, approval task for the
+      "uat-approvers" routing role, release-payment task for the "uat-releasers" routing role, end.
+    via: api
+  - step: 2
+    actor: designer
+    action: The process designer creates the record type "UAT payee" with the fields "name" and "bank account".
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: The administrator protects the "bank account" field, so that anyone but the administrator sees it masked.
+    via: api
+  - step: 4
+    actor: operator
+    action: The process operator saves two payee records - "Payee One" with bank account "UAT-ACCT-0001" and "Payee Two" with bank account "UAT-ACCT-0002". Both are invented test values.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The process is published and the record type exists with its protected field.
+    verification:
+      method: system_state
+      detail: The process is listed as active with its two tasks and their routing roles; the record type is listed; the bank account field is marked as protected.
+      evidence: The process and record-type descriptions (names and routing roles only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: The role matrix has nothing to test its approve, release and data checks against.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Two payee records exist.
+    verification:
+      method: system_state
+      detail: A count of payee records is 2.
+      evidence: The count.
+    on_fail:
+      severity: MAJOR
+      business_impact: The sensitive-data checks have nothing to read.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The process and records stay until the test customer is retired by foundation-4a.

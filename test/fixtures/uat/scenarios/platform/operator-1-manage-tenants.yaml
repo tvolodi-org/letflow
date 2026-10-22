@@ -1,0 +1,85 @@
+# T-0224 (BA): OPERATOR group, scenario 1 of 3. Runs after the foundation group (foundation-1..3) in the same run,
+# on the uniquely named test customer that foundation-2 set up. Order of the whole admin-driven UAT:
+#   foundation-1..3, operator-1, operator-2, operator-3, tenant-admin-1..3, matrix-0..4, matrix-5 (platform row),
+#   then foundation-4a..4c (4a retires the test customer, so it runs last).
+# Test-tooling steps: none. Every step is done through the product.
+# Sources: docs/roles.md (PLATFORM_ADMIN "Does" / "Must not"), lib/letflow/routers/tenants.ex (list, read and change
+# of a tenant are the platform permission TenantsManage), decision 0046 D1/D2/D4.
+---
+id: platform-operator-1-manage-tenants
+scope: platform
+title: The platform operator looks after customers - list, read, correct a customer's display details, and stay out of a customer's business data
+version: "1.0"
+tags: [operator, tenants, platform, access, refusal]
+
+description: >
+  The platform operator manages customers as organisations: sees the list, opens one customer's
+  record and corrects its display details. The operator does not run a customer's business. As
+  a control that this is a rule and not a missing screen, the operator tries to open the test
+  customer's process designs and people, and is turned away.
+
+actors:
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: Foundation 1 to 3 passed in this run, so the test customer exists, is active and has its administrator
+    check: custom
+    detail: If the test customer does not exist, report BLOCKED, not FAIL.
+
+steps:
+  - step: 1
+    actor: platform_operator
+    action: The platform operator opens the list of customers and finds the test customer by its unique name.
+    via: gui
+  - step: 2
+    actor: platform_operator
+    action: The platform operator opens the test customer's record and reads its name, state and sign-in setup.
+    via: gui
+  - step: 3
+    actor: platform_operator
+    action: >
+      The platform operator corrects the test customer's display name (adds the word "checked" at
+      the end) and saves.
+    via: gui
+    input:
+      change: display name only
+  - step: 4
+    actor: platform_operator
+    action: The platform operator opens the list of customers again and sees the corrected name and no second customer.
+    via: gui
+  - step: 5
+    actor: platform_operator
+    action: The platform operator tries to open the test customer's list of people.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: platform_operator
+    action: The platform operator tries to open the test customer's process designs.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The operator finds the test customer, reads its record and corrects its display name.
+    verification:
+      method: system_state
+      detail: Steps 1 to 4 succeed and the customer list shows the corrected name once.
+      evidence: The customer list (names and states only) before and after step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot look after customers.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The operator is turned away from the customer's people and process designs.
+    verification:
+      method: system_state
+      detail: Steps 5 and 6 are refused, and the refusal does not describe what lies behind it.
+      evidence: The refusals (status and wording only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: The organisation that runs the platform can read the business data of a customer, which the role charter forbids.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: The display name stays corrected; the test customer is retired by foundation-4a.

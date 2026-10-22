@@ -1,0 +1,99 @@
+# T-0224 (BA): ROLE MATRIX, the PLATFORM_ADMIN row (scope platform, because the actor is the platform operator; this is
+# why it is a separate file from tenant-administration-matrix-1..4). The eighth built-in role.
+# Sources: docs/roles.md PLATFORM_ADMIN ("Does: everything, including create, change and deactivate tenants ... Must
+# not: act inside a customer tenant or read a customer's business data"), decision 0046 D4 (no power inside a customer
+# tenant). In the roles matrix a "yes" for PLATFORM_ADMIN means as evaluated in the platform tenant.
+# Allowed counterpart, per sensitive action (in the platform's own workspace, or none):
+#   approve         allowed: none (the platform workspace has no approval process)   refused: approve in the customer
+#   pay or release  allowed: none (no payment process in the platform workspace)     refused: release in the customer
+#   see sensitive   allowed: read the platform workspace's own audit trail           refused: read the customer's records unmasked
+#   change users    allowed: read the platform workspace's own people                refused: change the customer's groups
+# Test-tooling steps: none. Steps 1 and 2 are setup by customer people (the matrix process: see tenant-administration group files).
+---
+id: platform-matrix-5-platform-administrator-row
+scope: platform
+title: Role matrix, the platform operator's row - full power over the platform, no power inside a customer
+version: "1.0"
+tags: [matrix, platform, roles, refusal, access]
+
+description: >
+  The platform operator uses their authority in the platform's own workspace (the audit trail and
+  the people there). They then try each of the four sensitive actions inside the test customer:
+  approve a request, release a payment, read the protected bank account in full, and change the
+  customer's groups. All four must be refused.
+
+actors:
+  platform_operator: actor-platform-admin
+  customer_administrator: actor-any
+  customer_operator: actor-any
+  customer_approver: actor-any
+
+preconditions:
+  - description: tenant-administration matrix-0 and matrix-2 passed in this run, so the test customer holds no running request; this scenario starts its own requests in steps 1 and 2
+    check: custom
+
+steps:
+  - step: 1
+    actor: customer_operator
+    action: The customer's process operator starts two requests of the "UAT matrix request" process, R5 and R6.
+    via: api
+    produces:
+      request_ids: the identifiers of R5 and R6
+  - step: 2
+    actor: customer_approver
+    action: The customer's task worker in the approvers group claims and approves R5. R5 now waits for release; R6 still waits for approval.
+    via: api
+  - step: 3
+    actor: platform_operator
+    action: The platform operator opens the audit trail of the platform's own workspace and the list of its people.
+    via: api
+  - step: 4
+    actor: platform_operator
+    action: The platform operator tries to approve request R6 in the test customer.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: platform_operator
+    action: The platform operator tries to release the payment of R5 in the test customer.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: platform_operator
+    action: The platform operator tries to export the test customer's payee records with the bank account in full.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: platform_operator
+    action: The platform operator tries to add a person to a group of the test customer.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: customer_administrator
+    action: The customer's administrator checks that the request, the payments, the records and the groups of the customer are exactly as before.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The platform operator can see the audit trail and people of the platform's own workspace.
+    verification:
+      method: system_state
+      detail: Step 3 returns both.
+      evidence: Entry and people counts.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot oversee the platform's own workspace.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: None of the four sensitive actions works for the platform operator inside a customer.
+    verification:
+      method: system_state
+      detail: Steps 4 to 7 are refused and step 8 finds no change.
+      evidence: The four refusals and the state check of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The organisation that runs the platform can approve, pay, read protected data and change users in a customer's company.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel R5 and R6 as the customer's administrator.
