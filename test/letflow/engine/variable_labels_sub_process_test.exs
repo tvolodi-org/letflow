@@ -234,6 +234,70 @@ defmodule Letflow.Engine.VariableLabelsSubProcessTest do
     end
   end
 
+  describe "SR-OPT-12: a rejected labelled value is never echoed into the error details" do
+    # The parent declares `a` an integer; the child's labelled `a` is a string the parent rejects.
+    defp rejected_merge!(schema_name, labels) do
+      child_def = active_definition!(schema_name, child_graph())
+
+      parent_def =
+        Letflow.Support.ScriptTaskFixture.definition!(
+          schema_name,
+          parent_graph(child_def.name, nil),
+          Letflow.Support.ScriptTaskFixture.integer_schemas(["a"])
+        )
+
+      assert {:ok, %{instance_id: parent_id}} =
+               Engine.create(
+                 %{
+                   definition_id: parent_def.id,
+                   initial_variables: %{"a" => 5},
+                   actor_id: Ecto.UUID.generate(),
+                   idempotency_key: seq("start")
+                 },
+                 prefix: schema_name
+               )
+
+      complete!(schema_name, parent_id, %{})
+      child = child_of!(schema_name, parent_id)
+
+      {1, _} =
+        from(p in InstanceProjection, where: p.instance_id == ^child.instance_id)
+        |> Repo.update_all(
+          [set: [variables: %{"a" => "secret-42"}, variable_labels: labels]],
+          prefix: schema_name
+        )
+
+      task =
+        EngineTask
+        |> where([t], t.instance_id == ^child.instance_id and t.status == :pending)
+        |> Repo.one!(prefix: schema_name)
+
+      Engine.complete_task(
+        task.id,
+        %{output_variables: %{}, actor_id: Ecto.UUID.generate(), idempotency_key: seq("c")},
+        prefix: schema_name
+      )
+
+      payloads(schema_name, parent_id, "EXECUTION_ERROR")
+    end
+
+    test "a labelled key: the value and each failure's actual are scrubbed", %{
+      schema_name: schema_name
+    } do
+      assert [%{"details" => details} = payload] =
+               rejected_merge!(schema_name, %{"a" => @salary})
+
+      assert details["rejected_value"] == "__field_redacted__"
+      assert Enum.all?(details["failures"], &(&1["actual"] == nil))
+      refute inspect(payload) =~ "secret-42"
+    end
+
+    test "an unlabelled key keeps its details", %{schema_name: schema_name} do
+      assert [%{"details" => details}] = rejected_merge!(schema_name, %{})
+      assert details["rejected_value"] == "secret-42"
+    end
+  end
+
   describe "SR-OPT-10 pure label carry" do
     test "labels travel exactly with the copied keys and never for a reserved key" do
       labels = %{"a" => @salary, "y" => @ssn, "_sys.move" => ["customer.salary"]}

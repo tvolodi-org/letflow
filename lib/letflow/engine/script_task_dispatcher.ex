@@ -86,7 +86,6 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
           | :script_unavailable
           | :script_revoked
           | :pin_mismatch
-          | :restricted_opt_in_unsupported
           | :output_schema_open
           | :hmac_secret_missing
           | :hmac_failed
@@ -113,6 +112,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
           attempt: pos_integer()
         }
   @type run_facts :: %{
+          optional(:output_labels) => %{optional(String.t()) => [String.t()]},
           row: ScriptTaskDispatch.t(),
           phase: :rejected | :ran | :lease_expired,
           outcome: outcome(),
@@ -508,18 +508,23 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
   end
 
   defp run_with_spec(row, spec, prefix) do
-    variables =
+    {variables, variable_labels} =
       case Repo.get_by(InstanceProjection, [instance_id: row.instance_id], prefix: prefix) do
-        %InstanceProjection{variables: %{} = variables} -> variables
-        _missing -> %{}
+        %InstanceProjection{variables: %{} = variables} = projection ->
+          {variables, projection.variable_labels || %{}}
+
+        _missing ->
+          {%{}, %{}}
       end
 
-    with {:ok, declared_vars} <- ScriptInput.build(variables, spec.manifest, nil),
+    with {:ok, declared_vars, input_taint} <-
+           ScriptInput.build(variables, variable_labels, spec.manifest, nil),
          {:ok, reads_result} <- prefetch(spec.reads, declared_vars, prefix),
          input = ScriptInput.put_reads(declared_vars, reads_result),
          ctx = hmac_ctx(row),
          {:ok, hmac} <- spec.hmac_fun.(ScriptInput.canonical(input, ctx)) do
-      run_script(row, spec, input, hmac, prefix)
+      taint = Enum.uniq(input_taint ++ ScriptInput.read_taint(spec.reads)) |> Enum.sort()
+      run_script(row, spec, input, hmac, prefix, taint)
     else
       {:error, :input_invalid} -> rejected(row, :input_invalid)
       {:error, :reads_not_allowed} -> rejected(row, :reads_not_allowed)
@@ -549,7 +554,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
     }
   end
 
-  defp run_script(row, spec, input, hmac, prefix) do
+  defp run_script(row, spec, input, hmac, prefix, taint) do
     runner = runner()
     t0 = System.monotonic_time(:microsecond)
 
@@ -588,7 +593,12 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
 
         case Runtime.check_output(output, spec.manifest) do
           {:ok, declared} ->
-            {:ok, declared, facts(row, :ran, :ok, nil, hmac, run_stats)}
+            run_facts =
+              row
+              |> facts(:ran, :ok, nil, hmac, run_stats)
+              |> put_output_labels(declared, taint)
+
+            {:ok, declared, run_facts}
 
           {:error, detail} ->
             {:failed, :output_invalid, detail,
@@ -626,6 +636,13 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
         {:failed, :script_error, nil, facts(row, :ran, :script_error, nil, hmac, base_stats)}
     end
   end
+
+  # Decision 0062 R4: every output key carries the taint of what the run received (a run with an
+  # empty taint writes no labels, byte-identical to the unlabelled path).
+  defp put_output_labels(facts, _declared, []), do: facts
+
+  defp put_output_labels(facts, declared, taint),
+    do: Map.put(facts, :output_labels, Map.new(Map.keys(declared), &{&1, taint}))
 
   # [CDV C2] the runner seam is honoured only under :scripts_test_hooks.
   defp runner do
