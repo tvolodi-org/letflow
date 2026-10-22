@@ -33,7 +33,7 @@ actors:
 preconditions:
   - description: restricted-fields-2 passed in this run (script with opt-in published; its result is protected)
     check: custom
-  - description: Processes A and C described in the header exist as drafts; process B exists as a draft and also as an already active version; the task worker is a member of the group the person task is routed to
+  - description: Processes A and C described in the header exist as drafts; process B exists as a draft and also as an already active version; the task worker and the administrator are both members of the group the person tasks of process A and B are routed to, so that a refusal can only come from the field rule and not from task routing
     check: custom
     detail: >
       Provided by the test environment; otherwise BLOCKED. If the environment cannot provide an already active
@@ -41,8 +41,8 @@ preconditions:
 
 steps:
   - step: 1
-    actor: tenant_admin
-    action: The administrator publishes process A, whose person task writes the script result into the bank account field of the payee record.
+    actor: designer
+    action: The process designer publishes process A, whose person task writes the script result into the bank account field of the payee record.
     via: api
   - step: 2
     actor: designer
@@ -74,6 +74,10 @@ steps:
     expect_refusal: true
     via: api
   - step: 8
+    actor: operator
+    action: The process operator starts process A for Payee Two and lets the opted-in script run, so that the instance holds a protected value.
+    via: api
+  - step: 9
     actor: worker_a
     action: >
       The task worker completes the person task of process A for Payee Two, whose bank account value is hidden from the
@@ -118,7 +122,7 @@ expected_outcomes:
     description: A person who may not read the protected value cannot use a task to write it.
     verification:
       method: system_state
-      detail: Step 8 is refused and the bank account field of Payee Two is the same as before.
+      detail: Step 9 is refused and the bank account field of Payee Two is the same as before.
       evidence: The refusal (status and wording only) and whether the field changed (yes or no).
     on_fail:
       severity: BLOCKER

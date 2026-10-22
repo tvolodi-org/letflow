@@ -4,7 +4,7 @@
 # (a value not named in the opt-in is left out; a required input then missing, the run is rejected); docs/roles.md
 # (ScriptsWrite: designer and administrator; ScriptsPublish and EntitiesRestrictionsManage: administrator only).
 # Uses the "UAT payee" record type with the protected "bank account" field (tenant-administration matrix-0).
-# Precondition the test environment must provide: a process with a script step that reads the payee record. If it cannot,
+# Precondition the test environment must provide: a process with one script step that reads the payee record; the bank account reaches the script through the read's list of protected fields it may receive (decision 0062 "Part 3 as landed", Port). No labelled process variable is needed for this scenario. If it cannot,
 # this scenario is BLOCKED, not PASS.
 # Test-tooling steps: none.
 # UAT assumption, to be confirmed by the process owner: the example script only compares the bank account with a
@@ -19,9 +19,9 @@ tags: [restricted-field, script, opt-in, refusal, access]
 description: >
   A script step in a process may read a payee record. By default it never receives the protected bank account. The
   administrator, who holds the right to manage protected fields, can publish a version of the script that names the
-  one variable and the one field it may receive. The designer, who can write scripts but not publish them, is turned
-  away when trying to publish a version that asks for protected data. A version that names a different field than the
-  one the value comes from leaves the value out and the run is turned down. Whatever the script produces from a
+  one protected field its read may receive. The designer, who can write scripts but not publish them, is turned
+  away because publishing needs a right the designer lacks. A version whose read lists a different field than the
+  bank account never receives the bank account; a version listing a field that exists nowhere is not published. Whatever the script produces from a
   protected value is protected too.
 
 actors:
@@ -53,8 +53,8 @@ steps:
   - step: 4
     actor: tenant_admin
     action: >
-      The administrator publishes the version, naming the bank account variable and the bank account field of the
-      payee record as the only protected data it may receive.
+      The administrator publishes the version, whose read lists the bank account field of the
+      payee record as the only protected field it may receive.
     via: api
   - step: 5
     actor: operator
@@ -63,17 +63,18 @@ steps:
   - step: 6
     actor: tenant_admin
     action: >
-      The administrator publishes a further version that names the bank account variable but lists a different field
-      of the payee record than the one the variable comes from.
+      The administrator publishes a further version of the script whose read of the payee record lists only a
+      different field of the payee than the bank account as the protected field it may receive.
     via: api
   - step: 7
     actor: operator
     action: The process operator starts the process with that further version, selecting Payee One.
-    expect_refusal: true
     via: api
   - step: 8
-    actor: designer
-    action: The process designer tries to publish a version whose protected data names a field that exists in no active record type.
+    actor: tenant_admin
+    action: >
+      The administrator tries to publish a version whose read lists a protected field that exists in no active
+      record type.
     expect_refusal: true
     via: api
 
@@ -96,7 +97,7 @@ expected_outcomes:
       evidence: The refusal (status and wording only) and the version state before and after.
     on_fail:
       severity: BLOCKER
-      business_impact: Someone without the right to manage protected fields can give a script access to them.
+      business_impact: Someone without the publishing right can activate a script version that asks for protected data (this refusal proves the missing publish right; the administrator holds both rights, so it cannot isolate the restriction-manage gate).
       suggested_action: route_to_security_review
   - id: EO-003
     description: After the administrator's opt-in the script receives the number, and its result is marked protected.
@@ -111,19 +112,19 @@ expected_outcomes:
       business_impact: The opt-in does not work, or its result is not marked protected and could later be shown to anyone.
       suggested_action: route_to_wf03
   - id: EO-004
-    description: A version that names a different field leaves the number out, and the run is turned down.
+    description: A version that lists a different field never receives the bank account.
     verification:
       method: instance_state
       detail: >
-        Step 7 is refused or ends in a stored input error; the script never receives "UAT-ACCT-0001"; the error text
-        names the variable and not the value.
-      evidence: The error (status and wording only), and whether the invented value appears in it (yes or no).
+        The run of step 7 completes (or ends in a stored input error); the script input and result never contain
+        "UAT-ACCT-0001"; any error text names the variable and not the value.
+      evidence: The run outcome, and whether the invented value appears in the run's script input, result or error (yes or no).
     on_fail:
       severity: BLOCKER
       business_impact: A script gets protected data it was not named for, or the error text leaks the value.
       suggested_action: route_to_security_review
   - id: EO-005
-    description: A version naming a field that exists nowhere is not published.
+    description: A version listing a protected field that exists nowhere is not published, even by the administrator who holds every right needed.
     verification:
       method: system_state
       detail: Step 8 is refused and no new active version exists after it.
