@@ -20,6 +20,7 @@ defmodule Letflow.Entities.Record.Latest do
   import Ecto.Changeset
   import Ecto.Query
 
+  alias Letflow.Entities.ExternalRef
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -59,12 +60,35 @@ defmodule Letflow.Entities.Record.Latest do
   `:entity_def_version`/`:last_event_global_seq` are required; `:deleted`
   defaults `false`, never cast on insert (design §6.1).
 
-  GH #2659: `:external_system`/`:external_id` are cast optionally (not required; both or
-  neither, enforced by the database CHECK) and declare the partial unique index
+  GH #2794: the master reference enters as `:external_ref` (`ExternalRef.t() | nil`), converted
+  once by `ExternalRef.to_columns/1`, so a half-set pair cannot be built. Combining `:external_ref`
+  with the raw `:external_system`/`:external_id` attrs is refused (error on `:external_ref`, no
+  change applied). The raw column attrs are cast only when `:external_ref` is absent: that is the
+  documented DB-backstop path (the database CHECK still refuses a half pair); production writes
+  use the struct.
+
+  GH #2659: the changeset declares the partial unique index
   `entity_record_latest_external_ref_idx` as a `unique_constraint`. The update changeset never
-  casts them: a reference is immutable once set.
+  casts the reference: it is immutable once set.
   """
   @spec insert_changeset(t(), attrs :: map()) :: Ecto.Changeset.t()
+  def insert_changeset(record, %{external_ref: _} = attrs) do
+    {ref, attrs} = Map.pop!(attrs, :external_ref)
+
+    if Enum.any?(
+         @optional_insert_fields,
+         &(Map.has_key?(attrs, &1) or Map.has_key?(attrs, "#{&1}"))
+       ) do
+      record
+      |> change()
+      |> add_error(:external_ref, "conflicting external_ref attrs")
+    else
+      record
+      |> insert_changeset(attrs)
+      |> change(ExternalRef.to_columns(ref))
+    end
+  end
+
   def insert_changeset(record, attrs) do
     record
     |> cast(attrs, @insert_fields ++ @optional_insert_fields)
@@ -76,6 +100,19 @@ defmodule Letflow.Entities.Record.Latest do
       name: :entity_record_latest_external_ref_idx
     )
     |> check_constraint(:external_id, name: :entity_record_latest_external_ref_pair_chk)
+  end
+
+  @doc """
+  The record's master reference as one value (`nil` when ref-less). A stored row is consistent
+  by the database CHECK; a half-set pair can only come from a hand-built `%Latest{}` and raises
+  `ArgumentError` rather than being read as "no reference".
+  """
+  @spec external_ref(t()) :: ExternalRef.t() | nil
+  def external_ref(%__MODULE__{external_system: system, external_id: id}) do
+    case ExternalRef.from_columns(system, id) do
+      {:ok, ref} -> ref
+      {:error, _} -> raise ArgumentError, "half-set external_ref pair on Latest"
+    end
   end
 
   @doc """

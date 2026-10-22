@@ -47,9 +47,60 @@ defmodule Letflow.Entities.ExternalRef do
   @system_pattern ~r/\A[a-z0-9][a-z0-9._-]*\z/
   @forbidden_id_chars ~r/[\p{Cc}\p{Cf}]/u
 
-  @type t :: %{system: String.t(), id: String.t()}
+  @enforce_keys [:system, :id]
+  defstruct [:system, :id]
 
-  @spec parse(term()) :: {:ok, t()} | {:error, :external_ref_invalid}
+  @typedoc "A validated pair: both halves are set, a half-set pair has no representation."
+  @type t :: %__MODULE__{system: String.t(), id: String.t()}
+
+  @typedoc "The validator's plain-map result (see `parse/1`)."
+  @type parsed :: %{system: String.t(), id: String.t()}
+
+  @type columns :: %{external_system: String.t() | nil, external_id: String.t() | nil}
+
+  # ---- the one conversion point: payload <-> struct <-> columns ----
+
+  @doc """
+  Wire map (`%{"system" => _, "id" => _}`) to a validated `%ExternalRef{}`. Production callers
+  use this; `parse/1` is the validator underneath and keeps its plain-map result.
+  """
+  @spec from_payload(term()) :: {:ok, t()} | {:error, :external_ref_invalid}
+  def from_payload(payload) do
+    with {:ok, %{system: system, id: id}} <- parse(payload) do
+      {:ok, %__MODULE__{system: system, id: id}}
+    end
+  end
+
+  @doc "Struct to the wire map; byte-identical to the pair the event payload has always carried."
+  @spec to_payload(t()) :: %{String.t() => String.t()}
+  def to_payload(%__MODULE__{system: system, id: id}), do: %{"system" => system, "id" => id}
+
+  @doc "Struct (or nil) to the two `entity_record_latest` columns; always both keys, set together."
+  @spec to_columns(t() | nil) :: columns()
+  def to_columns(nil), do: %{external_system: nil, external_id: nil}
+
+  def to_columns(%__MODULE__{system: system, id: id}),
+    do: %{external_system: system, external_id: id}
+
+  @doc """
+  The two stored columns to a value: nil/nil is `{:ok, nil}`, both binaries are validated, and a
+  half-set pair is refused (`{:error, :external_ref_invalid}`) before it can reach the database.
+  """
+  @spec from_columns(String.t() | nil, String.t() | nil) ::
+          {:ok, t() | nil} | {:error, :external_ref_invalid}
+  def from_columns(nil, nil), do: {:ok, nil}
+
+  def from_columns(system, id) when is_binary(system) and is_binary(id),
+    do: from_payload(%{"system" => system, "id" => id})
+
+  def from_columns(_system, _id), do: {:error, :external_ref_invalid}
+
+  @doc """
+  Validator with a plain-map result (`{:ok, %{system:, id:}}`). Kept for its existing contract
+  (GH #2659 tests compare it with `==` to a plain map); production code goes through
+  `from_payload/1`.
+  """
+  @spec parse(term()) :: {:ok, parsed()} | {:error, :external_ref_invalid}
   def parse(%{"system" => system, "id" => id} = ref)
       when map_size(ref) == 2 and is_binary(system) and is_binary(id) do
     if valid_system?(system) and valid_id?(id) do
