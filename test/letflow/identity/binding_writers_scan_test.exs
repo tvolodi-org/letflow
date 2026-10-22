@@ -3,9 +3,11 @@ defmodule Letflow.Identity.BindingWritersScanTest do
   REQ-519 slice 2e-a (GH #2535), AC 1 completeness (design
   `lib/letflow/design/req519-enforced-writers-and-flag-on.md` section 3.4, tests T-C1 and T-C2;
   SEC code gate step-06 merge condition F-2; spec `test/specs/REQ-519-2e-a.md`): "an ExUnit
-  source scan lists every call site under lib/ of RoleScopeGrants.reconcile_binding!,
-  ensure_tenant_wide_group_row!, repair_group_row!, move_group_rows!, delete_group_principal_rows!
-  and Backfill.run, and fails when a call site is not named in the writer registry".
+  source scan lists every call site under lib/ of RoleScopeGrants.reconcile_widening!,
+  reconcile_non_widening!, ensure_tenant_wide_group_row!, repair_group_row!, move_group_rows!,
+  delete_group_principal_rows! and Backfill.run, and fails when a call site is not named in the
+  writer registry" (GH #2848: the registry names the entry point each site calls, so a site that
+  moves from the widening to the non-widening entry point is a registry change too).
 
   T-C1: the AST scan of `lib/**/*.ex` (aliases resolved; remote calls, piped calls, `&M.f/n`
   captures and a bare function-name atom as in `apply/3` are all call sites; docs and comments
@@ -38,7 +40,8 @@ defmodule Letflow.Identity.BindingWritersScanTest do
   @backfill "Letflow.Identity.RoleScopeGrants.Backfill"
   @targets %{
     @grants => [
-      reconcile_binding!: 3,
+      reconcile_widening!: 3,
+      reconcile_non_widening!: 3,
       ensure_tenant_wide_group_row!: 3,
       repair_group_row!: 3,
       move_group_rows!: 4,
@@ -47,7 +50,8 @@ defmodule Letflow.Identity.BindingWritersScanTest do
     @backfill => [run: 1]
   }
   @distinctive_atoms [
-    :reconcile_binding!,
+    :reconcile_widening!,
+    :reconcile_non_widening!,
     :ensure_tenant_wide_group_row!,
     :repair_group_row!,
     :move_group_rows!,
@@ -164,8 +168,10 @@ defmodule Letflow.Identity.BindingWritersScanTest do
 
   defp walk(_other, _ctx, _aliases, acc), do: acc
 
-  # The scanned sites of one source: [{file, {fun, arity}}] (sorted), flagged dynamic uses
-  # included under the enclosing function.
+  # The scanned sites of one source: [{file, {fun, arity}, entry}] (sorted), where `entry` is the
+  # entry point the site calls (GH #2848: the widening and non-widening entry points are
+  # different sites, so a call that switches between them is a classification change). Flagged
+  # dynamic uses are included under the enclosing function.
   defp sites(file, source) do
     source
     |> Code.string_to_quoted!()
@@ -174,7 +180,7 @@ defmodule Letflow.Identity.BindingWritersScanTest do
       {:call, mod, fun, arity, _ctx} -> Keyword.get(Map.get(@targets, mod, []), fun) == arity
       {:atom, _, _fun, _arity, _ctx} -> true
     end)
-    |> Enum.map(fn {_kind, _mod, _fun, _arity, ctx} -> {file, ctx} end)
+    |> Enum.map(fn {_kind, _mod, fun, _arity, ctx} -> {file, ctx, fun} end)
     |> Enum.sort()
   end
 
@@ -190,14 +196,17 @@ defmodule Letflow.Identity.BindingWritersScanTest do
   defp indirect_rows, do: Enum.filter(BindingWriters.binding_rows(), & &1.indirect)
 
   defp registry_sites,
-    do: scanned_rows() |> Enum.map(&{&1.site.file, &1.site.function}) |> Enum.sort()
+    do:
+      scanned_rows()
+      |> Enum.map(&{&1.site.file, &1.site.function, &1.site.entry})
+      |> Enum.sort()
 
   # {found - registry, registry - found} as multisets
   defp diff(found, registry), do: {found -- registry, registry -- found}
 
   # ===========================================================================================
-  describe "T-C1 completeness: every call site of the AC's six functions is a registered row" do
-    test "the registry's entry points are exactly the AC's six functions" do
+  describe "T-C1 completeness: every call site of the scanned functions is a registered row" do
+    test "the registry's entry points are exactly the scanned functions (the AC's six, with reconcile_binding! split in two)" do
       expected =
         @targets
         |> Enum.flat_map(fn {_mod, fns} -> fns end)
@@ -206,18 +215,21 @@ defmodule Letflow.Identity.BindingWritersScanTest do
       assert Enum.sort(BindingWriters.entry_points()) == expected
     end
 
-    test "the multiset of {file, enclosing function} found under lib/ equals the SCANNED rows" do
+    test "the multiset of {file, enclosing function, entry point} found under lib/ equals the SCANNED rows" do
       assert diff(lib_sites(), registry_sites()) == {[], []}
     end
 
-    test "the scan is not empty and sees converge_existing_role/5 twice (a multiset, not a set)" do
+    test "the scan is not empty and sees converge_existing_role/5 three times, one per entry point (a multiset)" do
       found = lib_sites()
-      assert length(found) == 10
+      assert length(found) == 11
 
-      assert Enum.count(
-               found,
-               &(&1 == {"lib/letflow/identity/role_registry.ex", {:converge_existing_role, 5}})
-             ) == 2
+      converge = for {file, {:converge_existing_role, 5}, entry} <- found, do: {file, entry}
+
+      assert Enum.sort(converge) == [
+               {"lib/letflow/identity/role_registry.ex", :reconcile_non_widening!},
+               {"lib/letflow/identity/role_registry.ex", :reconcile_non_widening!},
+               {"lib/letflow/identity/role_registry.ex", :reconcile_widening!}
+             ]
     end
 
     test "every row carries a state, a transition and a reason; ids are unique" do
@@ -252,7 +264,7 @@ defmodule Letflow.Identity.BindingWritersScanTest do
       """
 
       seeded = sites("lib/letflow/seeded/a.ex", source)
-      assert seeded == [{"lib/letflow/seeded/a.ex", {:sneaky, 3}}]
+      assert seeded == [{"lib/letflow/seeded/a.ex", {:sneaky, 3}, :ensure_tenant_wide_group_row!}]
 
       {unregistered, stale} = diff(lib_sites() ++ seeded, registry_sites())
       assert unregistered == seeded
@@ -281,20 +293,20 @@ defmodule Letflow.Identity.BindingWritersScanTest do
 
         def as_alias(a, b, c), do: RSG.repair_group_row!(a, b, c)
         def full_name(a, b, c, d), do: Letflow.Identity.RoleScopeGrants.move_group_rows!(a, b, c, d)
-        def piped(a, b, c), do: a |> RSG.reconcile_binding!(b, c)
+        def piped(a, b, c), do: a |> RSG.reconcile_widening!(b, c)
         def captured, do: Enum.map([], &RSG.delete_group_principal_rows!/2)
-        def dynamic(a), do: apply(RSG, :reconcile_binding!, [a, a, a])
+        def dynamic(a), do: apply(RSG, :reconcile_non_widening!, [a, a, a])
         def sweep(opts), do: Backfill.run(opts)
       end
       """
 
       assert sites("lib/b.ex", source) == [
-               {"lib/b.ex", {:as_alias, 3}},
-               {"lib/b.ex", {:captured, 0}},
-               {"lib/b.ex", {:dynamic, 1}},
-               {"lib/b.ex", {:full_name, 4}},
-               {"lib/b.ex", {:piped, 3}},
-               {"lib/b.ex", {:sweep, 1}}
+               {"lib/b.ex", {:as_alias, 3}, :repair_group_row!},
+               {"lib/b.ex", {:captured, 0}, :delete_group_principal_rows!},
+               {"lib/b.ex", {:dynamic, 1}, :reconcile_non_widening!},
+               {"lib/b.ex", {:full_name, 4}, :move_group_rows!},
+               {"lib/b.ex", {:piped, 3}, :reconcile_widening!},
+               {"lib/b.ex", {:sweep, 1}, :run}
              ]
     end
 
@@ -306,7 +318,7 @@ defmodule Letflow.Identity.BindingWritersScanTest do
         alias Letflow.Identity.RoleScopeGrants
 
         # RoleScopeGrants.move_group_rows!(a, b, c, d) in a comment
-        @doc "RoleScopeGrants.reconcile_binding!(a, b, c)"
+        @doc "RoleScopeGrants.reconcile_widening!(a, b, c)"
         def other(opts), do: Backfill.run(opts)
         def wrong_arity(a), do: RoleScopeGrants.repair_group_row!(a)
         def remove(a, b, c), do: RoleScopeGrants.remove_group_rows!(a, b, c)
@@ -416,7 +428,7 @@ defmodule Letflow.Identity.BindingWritersScanTest do
             {:seed_default_platform_role_groups_report, 1}
           ] do
         assert reaches?(graph, entry, &scanned_call?/1),
-               "#{inspect(entry)} no longer reaches reconcile_binding!"
+               "#{inspect(entry)} no longer reaches a binding writer"
       end
     end
 
@@ -425,7 +437,7 @@ defmodule Letflow.Identity.BindingWritersScanTest do
       defmodule Letflow.Seeded.D do
         alias Letflow.Identity.RoleScopeGrants
         def writer(a, b, c), do: helper(a, b, c)
-        defp helper(a, b, c), do: RoleScopeGrants.reconcile_binding!(a, b, c)
+        defp helper(a, b, c), do: RoleScopeGrants.reconcile_non_widening!(a, b, c)
         def orphan(a), do: String.upcase(a)
         def cyclic(a), do: cyclic(a)
       end
