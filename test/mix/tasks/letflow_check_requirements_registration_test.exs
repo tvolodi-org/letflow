@@ -785,8 +785,7 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistrationTest do
     end
 
     test "R8-NEVER-RAISES -- garbage input returns {:error, binary}, never raises or throws" do
-      for garbage <- ["a: [unclosed", "		bad: :
-  - -"] do
+      for garbage <- ["a: [unclosed", "\t\tbad: :\n  - -"] do
         assert {:error, msg} = Check.parse_check(garbage)
         assert is_binary(msg)
       end
@@ -895,5 +894,34 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistrationTaskTest do
       assert Exception.message(error) =~ "[R6]"
       assert Exception.message(error) =~ "docs/requirements.yaml"
     end)
+  end
+
+  # The Application.ensure_all_started(:yaml_elixir) failure branch of run/1
+  # cannot be driven here: yaml_elixir is a compiled dev/test dependency, so
+  # the start succeeds under any MIX_ENV this suite runs in, and forcing it to
+  # fail would mean removing the dependency from the running VM. It is a
+  # two-line guard that only formats a message.
+  test "T-TASK-R8-BROKEN-YAML -- a structurally invalid corpus raises FAILED [R8] from run/1" do
+    broken = """
+    requirements:
+      - id: REQ-001
+        stage: S0
+        impl_order: 42
+        acceptance_criteria:
+          - "x contains the sentence "A" and the sentence "B", end"
+    """
+
+    # The line scan alone sees nothing wrong with these bytes, so only the
+    # parse_check call in run/1 can raise.
+    assert Check.scan(broken).violations == []
+
+    {error, _out} =
+      in_corpus(broken, fn ->
+        with_io(fn -> assert_raise Mix.Error, fn -> Check.run([]) end end)
+      end)
+
+    message = Exception.message(error)
+    assert message =~ "FAILED [R8]"
+    assert message =~ "does not parse as YAML"
   end
 end
