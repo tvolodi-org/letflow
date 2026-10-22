@@ -38,6 +38,7 @@ defmodule Letflow.Modules.CatalogItems do
 
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.EntityActivation
+  alias Letflow.Modules.ReadApi
 
   # Must stay equal to `manages_entity_types` in the manifest below (defmanifest takes literals).
   @types [
@@ -80,16 +81,7 @@ defmodule Letflow.Modules.CatalogItems do
   tenant-scoped by `prefix` alone.
   """
   @spec lookup(prefix :: String.t(), id :: term()) :: {:ok, map()} | {:error, :not_found}
-  def lookup(prefix, id) when is_binary(prefix) do
-    with {:ok, record_id} <- Ecto.UUID.cast(id),
-         {:ok, row} <- first_live(prefix, record_id, @types) do
-      {:ok, to_map(row)}
-    else
-      _ -> {:error, :not_found}
-    end
-  end
-
-  def lookup(_prefix, _id), do: {:error, :not_found}
+  def lookup(prefix, id), do: ReadApi.lookup(prefix, id, @types)
 
   @doc """
   True only for an existing, non-deleted record (either type) whose `active` field is `true`. A
@@ -97,7 +89,7 @@ defmodule Letflow.Modules.CatalogItems do
   """
   @spec active?(prefix :: String.t(), id :: term()) :: boolean()
   def active?(prefix, id) do
-    match?({:ok, %{"active" => true}}, lookup(prefix, id))
+    ReadApi.active?(prefix, id, @types)
   end
 
   @doc """
@@ -127,18 +119,5 @@ defmodule Letflow.Modules.CatalogItems do
       {:ok, row} -> {:ok, row.field_values}
       error -> error
     end
-  end
-
-  defp first_live(_prefix, _record_id, []), do: {:error, :not_found}
-
-  defp first_live(prefix, record_id, [type | rest]) do
-    case Latest.get_live(record_id, type, prefix) do
-      {:ok, _row} = found -> found
-      _ -> first_live(prefix, record_id, rest)
-    end
-  end
-
-  defp to_map(%Latest{} = row) do
-    Map.merge(row.field_values, %{"record_id" => row.record_id, "entity_type" => row.entity_type})
   end
 end
