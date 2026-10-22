@@ -307,7 +307,7 @@ defmodule Letflow.Scripts.TestParallelShardTest do
   end
 
   describe "no shard environment (regression: output and argv exactly as before)" do
-    for {label, cap} <- [{"default admission cap", "4"}, {"admission cap 1", "1"}] do
+    for {label, cap} <- [{"cap 4 (default)", "4"}, {"cap 1", "1"}] do
       test "N=4 runs partitions 1..4 of 4 with no slice text, #{label}", %{tmp_dir: tmp} do
         {status, lines, argv_dir} =
           run_script(tmp, [{"TEST_PARALLEL_MAX_CONCURRENT_TEMPLATE_BUILDS", unquote(cap)}])
