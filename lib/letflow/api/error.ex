@@ -438,6 +438,26 @@ defmodule Letflow.Api.Error do
   end
 
   @doc """
+  HTTP 422 — a completion submitted the redaction sentinel for a restricted variable the caller
+  cannot read (decision 0062 R8/R9). Nothing was written. The body carries the constant `code`
+  `"redacted_value_submitted"` and the sorted key NAMES; no value, label or sentinel text.
+  """
+  @spec redacted_value_submitted([String.t()]) :: t()
+  def redacted_value_submitted(keys) when is_list(keys) do
+    %__MODULE__{
+      type: @problems_base <> "redacted-value-submitted",
+      title: "Redacted Value Submitted",
+      status: 422,
+      detail:
+        "a submitted value is the redaction placeholder for a variable the caller may not read",
+      extensions: %{
+        "code" => "redacted_value_submitted",
+        "keys" => keys |> Enum.uniq() |> Enum.sort()
+      }
+    }
+  end
+
+  @doc """
   HTTP 429 — Too Many Requests.
 
   The caller MUST set the `Retry-After` header separately; this constructor

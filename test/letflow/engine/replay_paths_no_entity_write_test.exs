@@ -252,7 +252,7 @@ defmodule Letflow.Engine.ReplayPathsNoEntityWriteTest do
 
       # the replayed state keeps the engine-only keys; the client-visible form never shows them
       assert Map.has_key?(state.variables, "_sys.move")
-      shown = Response.public_variables(state.variables)
+      shown = Response.public_variables(state.variables, %{}, MapSet.new())
       refute Enum.any?(Map.keys(shown), &String.starts_with?(&1, "_sys"))
       refute inspect(shown) =~ move.record_id
       refute inspect(shown) =~ note.record_id

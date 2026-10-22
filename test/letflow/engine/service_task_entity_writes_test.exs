@@ -916,7 +916,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       [applied] = Fx.instance_events(ctx.schema, ctx.instance_id, "TASK_ENTITY_WRITES_APPLIED")
       [sys] = Fx.instance_events(ctx.schema, ctx.instance_id, "INSTANCE_SYS_VARIABLES_SET")
 
-      shaped = Response.public_event_payload(applied.event_type, payload(applied))
+      shaped = Response.public_event_payload(applied.event_type, payload(applied), MapSet.new())
 
       assert Map.keys(shaped) |> Enum.sort() == [
                "dispatch_id",
@@ -933,13 +933,13 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
                &(Map.keys(&1) |> Enum.sort() == ["entity_type", "line_index"])
              )
 
-      assert Response.public_event_payload(sys.event_type, payload(sys)) == %{}
+      assert Response.public_event_payload(sys.event_type, payload(sys), MapSet.new()) == %{}
 
       projection = Fx.projection!(ctx.schema, ctx.instance_id)
       assert Map.has_key?(projection.variables, "_sys.move")
 
       refute Enum.any?(
-               Map.keys(Response.public_variables(projection.variables)),
+               Map.keys(Response.public_variables(projection.variables, %{}, MapSet.new())),
                &String.starts_with?(&1, "_sys")
              )
     end

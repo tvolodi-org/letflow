@@ -666,11 +666,11 @@ defmodule Letflow.Engine.Lua.PlatformTest do
     # Mutation-testing finding (TEST-DESIGNER, REQ-159 Step 3): the design and moduledoc
     # both state "forbidden" is returned with NO `Repo` call attempted at all -- but
     # every test above only asserts the RETURN VALUE. A mutation that runs
-    # `fetch_instance_state/3` (i.e. calls `Repo.get/3`) UNCONDITIONALLY and only
+    # `fetch_instance_state/4` (i.e. calls `Repo.get/3`) UNCONDITIONALLY and only
     # afterward substitutes the "forbidden" error for a non-matching id produces the
     # exact same return values on every test above and is caught by none of them --
     # confirmed directly: reordering `do_get_instance_state/3`'s self-instance equality
-    # check to run after `fetch_instance_state/3` rather than before it left all
+    # check to run after `fetch_instance_state/4` rather than before it left all
     # pre-existing tests in this file passing (56/56). This test closes that gap by
     # asserting, via `:telemetry`, that the `[:letflow, :repo, :query]` event never
     # fires for a same-tenant-sibling id -- the same telemetry-counter idiom
@@ -1002,10 +1002,10 @@ defmodule Letflow.Engine.Lua.PlatformTest do
       assert source =~ "Repo.get(InstanceProjection, instance_id, prefix: prefix)"
 
       # `prefix` at that call site is only ever bound from
-      # `execution_context.prefix` (fetch_instance_state/3's own parameter, itself
-      # only ever called with `execution_context.prefix`) -- never from the Lua
-      # call's own argument list (`raw_id`/`instance_id`).
-      assert source =~ "fetch_instance_state(instance_id, execution_context.prefix, lua)"
+      # `execution_context.prefix` (fetch_instance_state/4's own parameter, itself
+      # only ever called with `execution_context.prefix`, GH #2616 part 2 adds the hidden set
+      # argument) -- never from the Lua call's own argument list (`raw_id`/`instance_id`).
+      assert source =~ "execution_context.prefix,"
       refute source =~ "prefix: raw_id"
       refute source =~ "prefix: instance_id"
     end

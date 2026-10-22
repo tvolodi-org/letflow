@@ -129,6 +129,7 @@ defmodule Letflow.Routers.Tasks do
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
   alias Letflow.Engine
+  alias Letflow.Entities.HiddenLabels
   alias Letflow.Tasks
 
   # REQ-518 PR 2d (AC 20, design 7.1 T1-T7): the two list routes are `:filter` (the handler passes
@@ -355,7 +356,8 @@ defmodule Letflow.Routers.Tasks do
     # REQ-518 PR 2d: the scope gate comes first; an out-of-scope task answers like a nonexistent
     # one, and the routing-role errors below stay as they were (AC 14).
     with :ok <- Tasks.in_scope(id, scope, opts),
-         :ok <- Tasks.authorize_completion(id, actor_id, opts) do
+         :ok <- Tasks.authorize_completion(id, actor_id, opts),
+         {:ok, hidden} <- hidden_labels(conn) do
       output_variables = conn.body_params
       idempotency_key = Ecto.UUID.generate()
 
@@ -365,18 +367,28 @@ defmodule Letflow.Routers.Tasks do
         idempotency_key: idempotency_key
       }
 
+      # GH #2616 part 2: the caller's hidden labels reach the sentinel check under the instance lock.
+      opts = opts |> Keyword.put(:f1, f1) |> Keyword.put(:hidden_labels, hidden)
+
       id
-      |> Engine.complete_task(attrs, Keyword.put(opts, :f1, f1))
-      |> handle_complete_result(conn)
+      |> Engine.complete_task(attrs, opts)
+      |> handle_complete_result(conn, hidden)
     else
       {:error, reason} ->
         handle_complete_result({:error, reason}, conn)
     end
   end
 
-  defp handle_complete_result({:ok, result}, conn) do
-    Response.ok(conn, complete_result_map(result))
+  defp handle_complete_result({:ok, result}, conn, hidden) do
+    Response.ok(conn, complete_result_map(result, hidden))
   end
+
+  defp handle_complete_result(result, conn, _hidden), do: handle_complete_result(result, conn)
+
+  # GH #2616 part 2 (decision 0062 R8, R9): the caller submitted the redaction placeholder for a
+  # restricted variable it cannot read. Nothing was written; key names only.
+  defp handle_complete_result({:error, {:redacted_value_submitted, keys}}, conn),
+    do: Response.redacted_value_submitted(conn, keys)
 
   defp handle_complete_result({:error, :invalid_task_id}, conn) do
     Response.bad_request(conn, "task_id is not a valid UUID")
@@ -746,22 +758,39 @@ defmodule Letflow.Routers.Tasks do
   # %Task{} struct at all on this path). instance_status uses the same
   # Atom.to_string/1 |> String.upcase/1 convention task_status_string/1
   # already establishes, producing "ACTIVE"/"COMPLETED".
-  @spec complete_result_map(Letflow.Engine.complete_result()) :: map()
-  defp complete_result_map(%{
-         task_id: task_id,
-         instance_id: instance_id,
-         instance_status: instance_status,
-         current_nodes: current_nodes,
-         variables: variables,
-         completed_at: completed_at
-       }) do
+  @spec complete_result_map(Letflow.Engine.complete_result(), MapSet.t() | nil) :: map()
+  defp complete_result_map(
+         %{
+           task_id: task_id,
+           instance_id: instance_id,
+           instance_status: instance_status,
+           current_nodes: current_nodes,
+           variables: variables,
+           variable_labels: variable_labels,
+           completed_at: completed_at
+         },
+         hidden
+       ) do
     %{
       "task_id" => task_id,
       "instance_id" => instance_id,
       "instance_status" => instance_status |> Atom.to_string() |> String.upcase(),
       "current_nodes" => current_nodes,
-      "variables" => Response.public_variables(variables),
+      "variables" => Response.public_variables(variables, variable_labels, hidden),
       "completed_at" => DateTime.to_iso8601(completed_at)
     }
+  end
+
+  # GH #2616 part 2 (decision 0062 R8): the caller's hidden label set, loaded once per request before
+  # the completion runs (the engine checks the placeholder under the lock with it). A failed load is
+  # a no-detail 500 through handle_complete_result/2 (INV-4). The platform principal holds no entity
+  # grants, so it hides every restricted field.
+  defp hidden_labels(conn) do
+    auth_context = conn.assigns.auth_context
+    prefix = conn.assigns.scoped_opts[:prefix]
+
+    if Letflow.PlatformTenant.platform_tenant?(Map.get(auth_context, :tenant_id)),
+      do: HiddenLabels.load_platform_hidden_labels(prefix),
+      else: HiddenLabels.load_hidden_labels(auth_context.user_id, prefix)
   end
 end

@@ -374,7 +374,7 @@ defmodule Letflow.Engine.EntityWritesGatesTest do
       baseline = written(ctx)
 
       # a cross_field_validation rule the submitted output violates: the pinned task
-      # form_schema makes FormExpressionReevaluation.reevaluate/3 return an error, so the
+      # form_schema makes FormExpressionReevaluation.reevaluate/4 return an error, so the
       # :merge step yields {:execution_error, _} and the instance parks in ERROR
       form_schema = %{
         "type" => "object",
