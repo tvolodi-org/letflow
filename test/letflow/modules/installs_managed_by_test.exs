@@ -23,7 +23,6 @@ defmodule Letflow.Modules.InstallsManagedByTest do
   alias Letflow.Definitions.SolutionPack
   alias Letflow.Definitions.SolutionPackArtefactBase
   alias Letflow.Definitions.SolutionPackInstall
-  alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EventTypes
   alias Letflow.Entities.ManagedTypes
