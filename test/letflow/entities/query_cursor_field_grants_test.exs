@@ -518,7 +518,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
   # codebase's convention of duplicating small test helpers across files.
   # ---------------------------------------------------------------------------------
 
-  defp promote_and_create_table!(schema, tenant_id, entity_type, attribute, pg_type, opts \\ []) do
+  defp promote_and_create_table!(_schema, tenant_id, entity_type, attribute, pg_type, opts \\ []) do
     references_entity = Keyword.get(opts, :references_entity)
 
     column_spec =
