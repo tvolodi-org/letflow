@@ -35,6 +35,9 @@ defmodule Letflow.Modules.Exam.Router do
   | autosave_answer | `PUT /exam-sessions/:id/answers/:question_id` | `Letflow.Modules.Exam.Session.autosave_answer/4` | `ExamSessionSave` | 200 / 400 / 404 / 422 |
   | submit_session | `POST /exam-sessions/:id/submit` | `Letflow.Modules.Exam.Session.submit/3` | `ExamSessionSubmit` | 200 / 404 |
   | report_event | `POST /exam-sessions/:id/events` | `Letflow.Modules.Exam.AntiCheat.record_signal/4` | `ExamSessionReportEvent` | 200 / 400 / 404 / 422 |
+  | authoring_create | `POST /authoring/:entity_type` (GH #2680) | `Letflow.Modules.Exam.Authoring.create/2` | `ExamAuthoringWrite` | 201 / 400 / 403 / 404 / 422 |
+  | authoring_update | `PUT /authoring/:entity_type/:record_id` (GH #2680) | `Letflow.Modules.Exam.Authoring.update/2` | `ExamAuthoringWrite` | 200 / 400 / 403 / 404 / 409 / 422 |
+  | authoring_delete | `DELETE /authoring/:entity_type/:record_id` (GH #2680) | `Letflow.Modules.Exam.Authoring.delete/2` | `ExamAuthoringWrite` | 200 / 400 / 403 / 404 / 409 |
   | issue_certificate | `POST /exam-sessions/:id/certificate` | `Letflow.Modules.Exam.Certificate.issue_or_get_for_user/3` (REQ-355) | `ExamCertificateIssue` | 200 / 404 / 409 |
   | download_certificate | `GET /exam-sessions/:id/certificate/download` | `Letflow.Modules.Exam.Certificate.issue_or_get_for_user/3` + `Letflow.Modules.Exam.CertificateDocument.render/2` (REQ-356) | `ExamCertificateIssue` | 200 (`application/pdf`) / 404 / 409 |
 
@@ -61,10 +64,10 @@ defmodule Letflow.Modules.Exam.Router do
   ## Permission vocabulary -- candidate-reachable, not `PLATFORM_ADMIN`-only
 
   `ExamSessionStart`/`ExamSessionRead`/`ExamSessionSave`/`ExamSessionSubmit`/
-  `ExamSessionReportEvent` (minted in `Letflow.Api.Authorization`, following
+  `ExamSessionReportEvent`/`ExamCertificateIssue` (the first five minted in `Letflow.Api.Authorization`, following
   the `Entities*` naming precedent) are granted to `:CANDIDATE` -- a
   dedicated role added by ISS-0646 (see decision 0013's addendum) holding
-  exactly these five permissions and nothing else, via
+  exactly these six permissions and nothing else, via
   `Letflow.Api.Authorization`'s `role_allows?(:CANDIDATE, ...)` clause. A
   candidate sitting an exam is exactly that: an ordinary authenticated
   tenant user reaching their OWN session. `TASK_WORKER` no longer holds
@@ -73,6 +76,10 @@ defmodule Letflow.Modules.Exam.Router do
   `endpoint_policy_key/2` clauses for the five real matrix entries backing
   these atoms (proven by `test/letflow/api/authorization_enforcement_test.exs`
   -- none is on that test's allowlist, none evaluates `:Unknown`).
+
+  `ExamAuthoringWrite` (GH #2680) is the exception: it gates the authoring write routes, is declared
+  by the exam manifest only and has NO `role_grants`, so it is held through the core rules alone
+  (PLATFORM_ADMIN and TENANT_ADMIN). CANDIDATE and PROCESS_OPERATOR do not hold it.
 
   ## Ownership and tenant isolation (INV-1, INV-5, INV-8)
 
@@ -128,13 +135,19 @@ defmodule Letflow.Modules.Exam.Router do
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
   alias Letflow.Entities.Definitions
+  alias Letflow.Entities.RecordAccess
   alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.Exam.AntiCheat
+  alias Letflow.Modules.Exam.Authoring
   alias Letflow.Modules.Exam.Certificate
   alias Letflow.Modules.Exam.CertificateDocument
   alias Letflow.Modules.Exam.Session
+  alias Letflow.Idempotency
   alias Letflow.PublicRead
+  alias Letflow.Routers.Entities.RecordWrites
+
+  import Letflow.Routers.Entities.Support, only: [restricted_fields_refusal: 1]
 
   # GH #2682 / REQ-511, design 7.4: constant response bodies for the two snapshot failure classes.
   # The body never carries the reason, ids or values (INV-4/INV-5); the reason is logged.
@@ -224,6 +237,24 @@ defmodule Letflow.Modules.Exam.Router do
 
   authz_get "/exam-sessions/:id/certificate/download", :ExamCertificateIssue do
     handle_download_certificate(conn, conn.params["id"])
+  end
+
+  # ── Authoring writes (GH #2680 / REQ-510 slice 1) ───────────────────────
+  #
+  # The module's own write surface for the ten authoring types, gated by the dedicated
+  # `:ExamAuthoringWrite` permission. No `scope:` option: the route-scope default is the
+  # fail-closed `:tenant_wide`, as for every route here.
+
+  authz_post "/authoring/:entity_type", :ExamAuthoringWrite do
+    handle_authoring_create(conn, conn.params["entity_type"])
+  end
+
+  authz_put "/authoring/:entity_type/:record_id", :ExamAuthoringWrite do
+    handle_authoring_update(conn, conn.params["entity_type"], conn.params["record_id"])
+  end
+
+  authz_delete "/authoring/:entity_type/:record_id", :ExamAuthoringWrite do
+    handle_authoring_delete(conn, conn.params["entity_type"], conn.params["record_id"])
   end
 
   authz_unmatched(:ordinary)
@@ -890,6 +921,189 @@ defmodule Letflow.Modules.Exam.Router do
       :snapshot_error -> Response.service_unavailable(conn, @upgrading_detail)
     end
   end
+
+  # ══ Authoring writes: POST/PUT/DELETE /authoring/:entity_type[/:record_id] ═══
+  #
+  # Bodies and responses are byte-compatible with `Letflow.Routers.Entities.RecordWrites` (the
+  # generic routes), whose renderer is reused, so the web switch is a path swap. Order (INV-5):
+  # permission plug (403 before any lookup) -> `Authoring.access/3` (a type outside the allow-list
+  # is the constant 404) -> record id cast (a bad id is the same 404) -> body -> command. `actor_id`
+  # is the authenticated user, `prefix` comes from `scoped_opts` (INV-1), `entity_type` from the path
+  # only. A `:hidden` type is validated like an absent one and then answers as an absent one.
+
+  @max_int8 9_223_372_036_854_775_807
+
+  @authoring_write_schema [
+    %FieldConstraint{name: "field_values", required: true, type: :object},
+    %FieldConstraint{
+      name: "idempotency_key",
+      required: false,
+      type: :string,
+      reject_empty_string: true
+    }
+  ]
+
+  @authoring_update_schema @authoring_write_schema ++
+                             [
+                               %FieldConstraint{
+                                 name: "expected_last_event_global_seq",
+                                 required: false,
+                                 type: :integer,
+                                 min_value: 0,
+                                 max_value: @max_int8
+                               }
+                             ]
+
+  defp handle_authoring_create(conn, entity_type) do
+    prefix = prefix!(conn)
+    actor_id = conn.assigns.auth_context.user_id
+
+    with access when access != :not_authoring <- Authoring.access(actor_id, entity_type, prefix),
+         {:ok, body} <- object_body(conn),
+         {:ok, attrs} <- validate_schema(@authoring_write_schema, body),
+         {:ok, resolved} <- Idempotency.from_body(attrs, :rec, actor_id) do
+      field_values = Map.fetch!(attrs, "field_values")
+
+      command_attrs = %{
+        entity_type: entity_type,
+        field_values: field_values,
+        actor_id: actor_id,
+        idempotency_key: resolved.key
+      }
+
+      case authoring_write_point(access, field_values) do
+        {:run, restricted} ->
+          render_authoring(conn, Authoring.create(command_attrs, prefix), :created, restricted)
+
+        {:refuse, :restricted_field} ->
+          restricted_fields_refusal(conn)
+
+        {:refuse, :hidden} ->
+          render_authoring(conn, RecordAccess.hidden_result(entity_type), :created, MapSet.new())
+      end
+    else
+      :not_authoring -> Response.not_found(conn)
+      other -> render_authoring_input_error(conn, other)
+    end
+  end
+
+  defp handle_authoring_update(conn, entity_type, raw_record_id) do
+    prefix = prefix!(conn)
+    actor_id = conn.assigns.auth_context.user_id
+
+    with access when access != :not_authoring <- Authoring.access(actor_id, entity_type, prefix),
+         {:ok, record_id} <- cast_uuid(raw_record_id),
+         {:ok, body} <- object_body(conn),
+         {:ok, attrs} <- validate_schema(@authoring_update_schema, body),
+         {:ok, resolved} <- Idempotency.from_body(attrs, :rec, actor_id) do
+      field_values = Map.fetch!(attrs, "field_values")
+
+      command_attrs = %{
+        entity_type: entity_type,
+        record_id: record_id,
+        field_values: field_values,
+        actor_id: actor_id,
+        idempotency_key: resolved.key,
+        expected_last_event_global_seq: Map.get(attrs, "expected_last_event_global_seq")
+      }
+
+      # PUT replaces `field_values` wholesale: a body naming a restricted key is refused, otherwise
+      # the stored values of the actor's restricted keys are carried over (`preserve_keys`).
+      case authoring_write_point(access, field_values) do
+        {:run, restricted} ->
+          command_attrs =
+            if MapSet.size(restricted) > 0,
+              do: Map.put(command_attrs, :preserve_keys, restricted),
+              else: command_attrs
+
+          render_authoring(conn, Authoring.update(command_attrs, prefix), :ok, restricted)
+
+        {:refuse, :restricted_field} ->
+          restricted_fields_refusal(conn)
+
+        {:refuse, :hidden} ->
+          render_authoring(conn, RecordAccess.hidden_result(entity_type), :ok, MapSet.new())
+      end
+    else
+      :not_authoring -> Response.not_found(conn)
+      other -> render_authoring_input_error(conn, other)
+    end
+  end
+
+  defp handle_authoring_delete(conn, entity_type, raw_record_id) do
+    prefix = prefix!(conn)
+    actor_id = conn.assigns.auth_context.user_id
+
+    with access when access != :not_authoring <- Authoring.access(actor_id, entity_type, prefix),
+         {:ok, record_id} <- cast_uuid(raw_record_id),
+         conn = fetch_query_params(conn),
+         {:ok, expected} <-
+           parse_expected_seq(Map.get(conn.query_params, "expected_last_event_global_seq")) do
+      command_attrs = %{
+        entity_type: entity_type,
+        record_id: record_id,
+        actor_id: actor_id,
+        idempotency_key: Ecto.UUID.generate(),
+        expected_last_event_global_seq: expected
+      }
+
+      case access do
+        {:open, restricted} ->
+          render_authoring(conn, Authoring.delete(command_attrs, prefix), :ok, restricted)
+
+        :hidden ->
+          render_authoring(conn, RecordAccess.hidden_result(entity_type), :ok, MapSet.new())
+      end
+    else
+      :not_authoring ->
+        Response.not_found(conn)
+
+      :error ->
+        Response.not_found(conn)
+
+      {:error, :invalid_expected_seq} ->
+        Response.bad_request(conn, "invalid expected_last_event_global_seq")
+    end
+  end
+
+  defp authoring_write_point(:hidden, _field_values), do: {:refuse, :hidden}
+
+  defp authoring_write_point({:open, restricted}, field_values) do
+    if RecordAccess.names_restricted?(field_values, restricted),
+      do: {:refuse, :restricted_field},
+      else: {:run, restricted}
+  end
+
+  defp render_authoring(conn, result, status, restricted),
+    do: RecordWrites.render_record_command(conn, result, status, restricted)
+
+  # A malformed record id is the same zero-detail 404 as an absent or cross-tenant one (INV-5).
+  defp render_authoring_input_error(conn, :error), do: Response.not_found(conn)
+
+  defp render_authoring_input_error(conn, {:error, :malformed_json}),
+    do: Response.bad_request(conn, "request body must be a JSON object")
+
+  defp render_authoring_input_error(conn, {:errors, field_errors}),
+    do: Response.send_problem(conn, Validation.problem(field_errors))
+
+  defp render_authoring_input_error(conn, {:error, :idempotency_key_too_long}),
+    do: Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:body)]))
+
+  defp render_authoring_input_error(conn, {:error, :idempotency_key_invalid}),
+    do: Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:body)]))
+
+  # Absent -> {:ok, nil}; a fully consumed non-negative integer within int8 -> {:ok, n}; anything
+  # else is `:invalid_expected_seq` (as the generic DELETE route).
+  defp parse_expected_seq(nil), do: {:ok, nil}
+
+  defp parse_expected_seq(raw) when is_binary(raw) do
+    case Integer.parse(raw) do
+      {n, ""} when n >= 0 and n <= @max_int8 -> {:ok, n}
+      _other -> {:error, :invalid_expected_seq}
+    end
+  end
+
+  defp parse_expected_seq(_other), do: {:error, :invalid_expected_seq}
 
   # ══ JSON shaping (hand-selected fields only -- see this module's own
   # moduledoc redaction section) ══════════════════════════════════════════
