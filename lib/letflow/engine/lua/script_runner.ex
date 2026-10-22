@@ -34,6 +34,7 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
   alias Letflow.Admission
   alias Letflow.Engine.Lua.Sandbox
   alias Letflow.Engine.Lua.ScriptHost
+  alias Letflow.Engine.Lua.ScriptRunner.Config
   alias Letflow.Engine.Lua.ScriptValue
 
   @task_supervisor Letflow.Engine.Lua.TaskSupervisor
@@ -69,7 +70,7 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
         }
 
   @doc "The platform defaults and maxima (for 7b/7c and the tests)."
-  @spec limits() :: map()
+  @spec limits() :: %{atom() => pos_integer()}
   def limits do
     %{
       default_instructions: @default_instructions,
@@ -139,7 +140,7 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
 
     %{instance_id: i, node_id: n, token_id: t, now: now} = ctx
 
-    %{
+    %Config{
       source: source,
       input: input,
       tenant: tenant,
@@ -148,6 +149,8 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
         clamp(Keyword.get(opts, :instructions), @default_instructions, @max_instructions),
       timeout_ms: clamp(Keyword.get(opts, :timeout_ms), @default_timeout_ms, @max_timeout_ms),
       heap_words: clamp(Keyword.get(opts, :heap_words), @default_heap_words, @max_heap_words),
+      max_string_bytes: Sandbox.script_max_string_bytes(),
+      max_output_bytes: ScriptValue.max_output_bytes(),
       fail_codes: Keyword.get(opts, :fail_codes),
       author_detail: Keyword.get(opts, :author_detail, false) == true,
       admission: Keyword.get(opts, :admission, @admission)
@@ -250,7 +253,7 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
     started = System.monotonic_time(:microsecond)
     run_ref = make_ref()
 
-    host_run = %{
+    host_run = %ScriptHost.Run{
       run_ref: run_ref,
       ctx: config.ctx,
       input: config.input,

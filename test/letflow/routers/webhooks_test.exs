@@ -460,6 +460,49 @@ defmodule Letflow.Routers.WebhooksTest do
   end
 
   describe "REQ-184 AC2: limit param enforcement" do
+    test "limit=9223372036854775808 (int64 max + 1) returns 400, not a 500" do
+      tenant = provisioned_tenant("req184-limit-overflow")
+      {_conn, created} = create_subscription(tenant, ["TENANT_ADMIN"])
+
+      conn =
+        build_conn(
+          :get,
+          "/subscriptions/#{created["id"]}/deliveries?limit=9223372036854775808",
+          tenant,
+          roles: ["TENANT_ADMIN"]
+        )
+        |> dispatch()
+
+      assert conn.status == 400
+      assert Jason.decode!(conn.resp_body)["detail"] == "invalid limit"
+    end
+
+    test "a huge in-range limit is clamped to the 200-item maximum, not returned unbounded" do
+      tenant = provisioned_tenant("req184-limit-clamp")
+      {_conn, created} = create_subscription(tenant, ["TENANT_ADMIN"])
+
+      base_time = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      for i <- 1..201 do
+        insert_delivery!(tenant, created["id"], %{
+          attempted_at: DateTime.add(base_time, -i, :second),
+          attempt_count: 1
+        })
+      end
+
+      conn =
+        build_conn(
+          :get,
+          "/subscriptions/#{created["id"]}/deliveries?limit=9223372036854775807",
+          tenant,
+          roles: ["TENANT_ADMIN"]
+        )
+        |> dispatch()
+
+      assert conn.status == 200
+      assert length(Jason.decode!(conn.resp_body)["items"]) == 200
+    end
+
     test "more delivery attempts than the requested limit returns exactly limit items, most-recent first" do
       tenant = provisioned_tenant("req184-limit")
       {_conn, created} = create_subscription(tenant, ["TENANT_ADMIN"])

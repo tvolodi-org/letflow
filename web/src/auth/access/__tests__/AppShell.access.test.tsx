@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 /**
- * AppShell navigation from a mocked GET /me/access (REQ-450 slice 1). The group structure and the
- * remaining roles' shells are the remainder of GH #2238.
+ * AppShell navigation from a mocked GET /me/access (REQ-450 slices 1 and 2b): entries per role and
+ * the three sidebar groups (Work, Tenant administration, Platform) for each of the eight roles.
  */
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccessStateProvider } from '../AccessContext'
-import { accessState, ERROR_STATE, LOADING_STATE } from '../fixtures'
+import { accessState, ACCESS_FIXTURES, ERROR_STATE, LOADING_STATE, type AccessFixtureName } from '../fixtures'
 import type { AccessState } from '../types'
 expect.extend(jestDomMatchers)
 
@@ -92,5 +92,69 @@ describe('AppShell nav from /me/access', () => {
     expect(navLabels()).toEqual([])
     expect(screen.getByTestId('logout-button')).toBeInTheDocument()
     expect(screen.getByTestId('user-roles')).toHaveTextContent('')
+  })
+})
+
+function groupLabels(): string[] {
+  return screen.queryAllByRole('group').map(g => g.getAttribute('aria-label') ?? '')
+}
+
+function linksIn(group: string): string[] {
+  return Array.from(screen.getByRole('group', { name: group }).querySelectorAll('a')).map(a => a.textContent ?? '')
+}
+
+// Expected sidebar groups for each fixture role (the grant matrix in fixtures.ts decides).
+const WORK = 'Work'
+const TENANT_ADMIN = 'Tenant administration'
+const PLATFORM = 'Platform'
+const GROUPS_BY_ROLE: Record<AccessFixtureName, string[]> = {
+  platformAdmin: [WORK, TENANT_ADMIN, PLATFORM],
+  tenantAdmin: [WORK, TENANT_ADMIN],
+  designer: [WORK],
+  operator: [WORK, TENANT_ADMIN],
+  taskWorker: [WORK],
+  auditor: [WORK, TENANT_ADMIN],
+  agentRunner: [],
+  candidate: [],
+}
+
+describe('AppShell nav groups from /me/access (GH 2238 slice 2b)', () => {
+  it.each(Object.keys(ACCESS_FIXTURES) as AccessFixtureName[])('%s: renders exactly the expected groups', (name) => {
+    renderShell(accessState(name))
+    expect(groupLabels()).toEqual(GROUPS_BY_ROLE[name])
+  })
+
+  it('non-platform tenant admin: Tenant administration, no Platform group or entry', () => {
+    renderShell(accessState('tenantAdmin'))
+    expect(groupLabels()).not.toContain(PLATFORM)
+    expect(linksIn(TENANT_ADMIN)).toEqual(expect.arrayContaining(['Users', 'Groups', 'Tokens', 'Audit']))
+    for (const l of PLATFORM_ENTRIES) expect(navLabels()).not.toContain(l)
+  })
+
+  it('platform-tenant platform admin: all three groups with their entries', () => {
+    renderShell(accessState('platformAdmin'))
+    expect(linksIn(WORK)).toEqual(['Instances', 'My Tasks', 'Definitions'])
+    expect(linksIn(TENANT_ADMIN)).toEqual(expect.arrayContaining(['Users', 'Tokens', 'Audit', 'Promotion Reviews']))
+    expect(linksIn(PLATFORM)).toEqual(expect.arrayContaining(PLATFORM_ENTRIES))
+  })
+
+  it('auditor: read pages only (no write-surface entries, no Platform group)', () => {
+    renderShell(accessState('auditor'))
+    expect(linksIn(WORK)).toEqual(['Instances', 'My Tasks', 'Definitions'])
+    expect(linksIn(TENANT_ADMIN)).toEqual(['Promotion Reviews', 'Audit', 'Metrics'])
+  })
+
+  it('task worker: neither admin group', () => {
+    renderShell(accessState('taskWorker'))
+    expect(groupLabels()).not.toContain(TENANT_ADMIN)
+    expect(groupLabels()).not.toContain(PLATFORM)
+  })
+
+  it.each([
+    ['loading', LOADING_STATE],
+    ['error', ERROR_STATE],
+  ])('while /me/access is %s no group renders', (_name, state) => {
+    renderShell(state)
+    expect(groupLabels()).toEqual([])
   })
 })
