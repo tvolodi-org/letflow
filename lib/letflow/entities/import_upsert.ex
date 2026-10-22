@@ -21,7 +21,7 @@ defmodule Letflow.Entities.ImportUpsert do
   Each entry is one `Records.upsert_record_by_external_ref/2` call with a server-derived
   idempotency key (`idempotency_key/2`). Before the call, in this order:
 
-    1. the entry's `external_ref` must parse (`ExternalRef.parse/1`), else `:external_ref_invalid`;
+    1. the entry's `external_ref` must parse (`ExternalRef.from_payload/1`), else `:external_ref_invalid`;
     2. a ref already seen earlier in the file is `:duplicate_external_ref_in_request` (the first
        occurrence proceeds);
     3. write-side field restrictions, as step writes apply them: an entry naming a restricted
@@ -141,7 +141,7 @@ defmodule Letflow.Entities.ImportUpsert do
   defp import_entry(entry, seen, ctx) do
     source_record_id = source_record_id(entry)
 
-    case entry |> entry_ref() |> ExternalRef.parse() do
+    case entry |> entry_ref() |> ExternalRef.from_payload() do
       {:error, :external_ref_invalid} ->
         {failure(source_record_id, :external_ref_invalid), seen}
 
@@ -161,7 +161,7 @@ defmodule Letflow.Entities.ImportUpsert do
       :ok ->
         attrs = %{
           entity_type: ctx.entity_type,
-          external_ref: %{"system" => ref.system, "id" => ref.id},
+          external_ref: ExternalRef.to_payload(ref),
           field_values: field_values,
           actor_id: ctx.actor_id,
           idempotency_key: idempotency_key(ctx.request_id, ref)

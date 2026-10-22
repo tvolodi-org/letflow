@@ -88,7 +88,23 @@ defmodule Letflow.Entities.Record.Projector do
   @updated_event "ENTITY_RECORD_UPDATED"
   @deleted_event "ENTITY_RECORD_DELETED"
 
+  # The internal fold result: the master reference is ONE value (GH #2794), so a half-set pair
+  # has no representation here.
   @type snapshot :: %{
+          entity_type: String.t(),
+          record_id: Ecto.UUID.t(),
+          field_values: map(),
+          deleted: boolean(),
+          entity_def_version: binary(),
+          external_ref: ExternalRef.t() | nil,
+          last_event_global_seq: pos_integer(),
+          last_event_sequence_number: pos_integer(),
+          last_event_type: String.t()
+        }
+
+  # What `replay_record/3` returns: the snapshot with the reference spelled as the two column
+  # keys, built from the struct at the single boundary point `to_public/1`.
+  @type replay_snapshot :: %{
           entity_type: String.t(),
           record_id: Ecto.UUID.t(),
           field_values: map(),
@@ -122,14 +138,14 @@ defmodule Letflow.Entities.Record.Projector do
   # ---------------------------------------------------------------------
 
   @doc """
-  Replays one entity record's full event stream into a `snapshot()`,
+  Replays one entity record's full event stream into a `replay_snapshot()`,
   independent of whatever `entity_record_latest` currently holds. Read-only
   -- issues zero writes to any table. See the moduledoc for the exact
   deleted-record representation (AC2) and design doc §3.3 for the full
   per-event-type fold table this delegates to via `fold_record_events/3`.
   """
   @spec replay_record(entity_type :: String.t(), record_id :: Ecto.UUID.t(), prefix :: String.t()) ::
-          {:ok, snapshot()} | replay_error()
+          {:ok, replay_snapshot()} | replay_error()
   def replay_record(entity_type, record_id, prefix)
       when is_binary(entity_type) and is_binary(prefix) do
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
@@ -144,10 +160,17 @@ defmodule Letflow.Entities.Record.Projector do
 
       case filtered do
         [] -> {:error, :record_not_found}
-        _ -> fold_record_events(entity_type, record_id, filtered)
+        _ -> entity_type |> fold_record_events(record_id, filtered) |> to_public()
       end
     end
   end
+
+  defp to_public({:ok, snapshot}) do
+    {ref, rest} = Map.pop(snapshot, :external_ref)
+    {:ok, Map.merge(rest, ExternalRef.to_columns(ref))}
+  end
+
+  defp to_public({:error, _reason} = error), do: error
 
   defp fetch_synthetic_instance(entity_type, prefix) do
     case Repo.get(EntityTypeInstance, entity_type, prefix: prefix) do
@@ -283,8 +306,7 @@ defmodule Letflow.Entities.Record.Projector do
           field_values: snapshot.field_values,
           entity_def_version: snapshot.entity_def_version,
           last_event_global_seq: snapshot.last_event_global_seq,
-          external_system: snapshot.external_system,
-          external_id: snapshot.external_id
+          external_ref: snapshot.external_ref
         })
         |> maybe_mark_deleted(snapshot.deleted)
         |> Repo.insert!(prefix: prefix)
@@ -457,16 +479,15 @@ defmodule Letflow.Entities.Record.Projector do
 
   # First event must be CREATED.
   defp apply_event(nil, %{event_type: @created_event} = event, record_id) do
-    with {:ok, {external_system, external_id}} <-
-           external_ref_pair(event.payload, record_id, event.event_id) do
+    with {:ok, external_ref} <-
+           external_ref_from_payload(event.payload, record_id, event.event_id) do
       {:ok,
        %{
          record_id: record_id,
          field_values: Map.get(event.payload, "field_values", %{}),
          deleted: false,
          entity_def_version: decode_entity_def_version(event.payload),
-         external_system: external_system,
-         external_id: external_id,
+         external_ref: external_ref,
          last_event_global_seq: event.global_seq,
          last_event_sequence_number: event.sequence_number,
          last_event_type: event.event_type
@@ -527,7 +548,7 @@ defmodule Letflow.Entities.Record.Projector do
   # and DELETED carry the accumulator's pair forward unchanged (the `%{acc | ...}` clauses above
   # never touch it) and never clear it.
   #
-  # The stored pair is re-parsed with the same `ExternalRef.parse/1` the writer uses (the
+  # The stored pair is re-parsed with the same `ExternalRef.from_payload/1` the writer uses (the
   # registered schema bounds length by characters and its `pattern` keyword is inert, so it
   # cannot be the only gate). An absent key is NULL/NULL; a present but invalid or malformed
   # value is an explicit corrupt-stream error (never a silent drop and never a half pair that
@@ -539,14 +560,27 @@ defmodule Letflow.Entities.Record.Projector do
           | {:error,
              {:corrupt_event_stream, {:invalid_external_ref, Ecto.UUID.t(), Ecto.UUID.t()}}}
   def external_ref_pair(payload, record_id, event_id) do
+    with {:ok, ref} <- external_ref_from_payload(payload, record_id, event_id) do
+      %{external_system: system, external_id: id} = ExternalRef.to_columns(ref)
+      {:ok, {system, id}}
+    end
+  end
+
+  # The same check returning the value: nil when the key is absent, the struct otherwise.
+  @doc false
+  @spec external_ref_from_payload(map(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, ExternalRef.t() | nil}
+          | {:error,
+             {:corrupt_event_stream, {:invalid_external_ref, Ecto.UUID.t(), Ecto.UUID.t()}}}
+  def external_ref_from_payload(payload, record_id, event_id) do
     case Map.fetch(payload, "external_ref") do
       :error ->
-        {:ok, {nil, nil}}
+        {:ok, nil}
 
       {:ok, ref} ->
-        case ExternalRef.parse(ref) do
-          {:ok, %{system: system, id: id}} ->
-            {:ok, {system, id}}
+        case ExternalRef.from_payload(ref) do
+          {:ok, %ExternalRef{} = ref} ->
+            {:ok, ref}
 
           {:error, :external_ref_invalid} ->
             {:error, {:corrupt_event_stream, {:invalid_external_ref, record_id, event_id}}}
