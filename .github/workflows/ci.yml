@@ -715,6 +715,12 @@ jobs:
           # 4-slot pool (test/support/nested_mix.ex). 97 usable - 10 headroom - 16 = 71, so
           # TEST_POOL_SIZE = 71 / 4 = 17; worst case 4*17 + 16 + 2 external = 86 of 97.
           TEST_NONPOOL_CONNECTION_RESERVE: 16
+          # GH #2380 step 1 (log-only): per-file test times for rebalancing the shards. The
+          # --slowest-modules value is at least the largest partition: 869 test/**/*_test.exs
+          # files over 12 partitions (TEST_PARALLEL_N=4 x matrix M=3) = 72.4, so 73 files on the
+          # busiest partition; 80 leaves room for growth. Recompute if M or the file count changes.
+          TEST_PARALLEL_EXTRA_ARGS: "--slowest 40 --slowest-modules 80"
+          TEST_PARALLEL_PRINT_SLOWEST: 1
 
   # This job's `name:` string is a required-status-check `context` on main's branch
   # protection (docs/migration/decisions/0018-branch-protection-posture.md). Do not
