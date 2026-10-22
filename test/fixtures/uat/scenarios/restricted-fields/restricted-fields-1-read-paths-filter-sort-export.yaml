@@ -128,7 +128,7 @@ expected_outcomes:
     verification:
       method: system_state
       detail: Step 8 succeeds and its answers contain both invented values.
-      evidence: Whether both invented values appear in the answers of step 9 (yes or no).
+      evidence: Whether both invented values appear in the answers of step 8 (yes or no).
     on_fail:
       severity: MAJOR
       business_impact: The person who is meant to manage the protected field cannot use it.
