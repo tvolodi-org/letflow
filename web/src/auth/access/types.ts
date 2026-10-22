@@ -11,6 +11,7 @@ export const P = {
   InstancesCancel: 'InstancesCancel',
   TasksRead: 'TasksRead',
   TasksAssign: 'TasksAssign',
+  TasksComplete: 'TasksComplete',
   DefinitionsRead: 'DefinitionsRead',
   DefinitionsWrite: 'DefinitionsWrite',
   DefinitionsRollback: 'DefinitionsRollback',
