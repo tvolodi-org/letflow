@@ -38,7 +38,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
     * R6 (GH #2596): under `lib/letflow/modules/exam/`, no qualified `Records.create_record |
       update_record | delete_record` call has two arguments or a literal `:tenant` third argument
       (the exam module writes only its managed runtime types; the spec is `test/specs/GH2596-exam-managed.md`).
-      The exam writers `session.ex`, `certificate.ex`, `anti_cheat.ex` are in `@authority_callers`
+      The exam writers `session.ex`, `certificate.ex`, `anti_cheat.ex`, `authoring.ex` are in `@authority_callers`
       and call `owner_for!(Exam)` (R2 directory rule).
 
   Accepted limits (design 7.5), NOT covered: computed module or function names
@@ -62,12 +62,19 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @script_policy_fixture "test/support/script_policy_fixture.ex"
   # GH #2596: the exam module's own record writers; each passes the exam Owner (`exam_owner/0`).
   @exam_anti_cheat "lib/letflow/modules/exam/anti_cheat.ex"
+  @exam_authoring "lib/letflow/modules/exam/authoring.ex"
   @exam_certificate "lib/letflow/modules/exam/certificate.ex"
   @exam_session "lib/letflow/modules/exam/session.ex"
   # GH #2682 PR b: the exam snapshot module writes the late snapshot / certificate facts through
   # the exam Owner (Records /3), like the other exam writers.
   @exam_snapshot "lib/letflow/modules/exam/snapshot.ex"
-  @exam_writers [@exam_anti_cheat, @exam_certificate, @exam_session, @exam_snapshot]
+  @exam_writers [
+    @exam_anti_cheat,
+    @exam_authoring,
+    @exam_certificate,
+    @exam_session,
+    @exam_snapshot
+  ]
   @exam_dir ["lib", "letflow", "modules", "exam"]
 
   # Static allow-list for R1: adding a file here is a reviewed diff (design 7.3). Kept in the
@@ -675,6 +682,13 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
 
       assert sites.(@exam_certificate) == [{:call, :create_record}]
       assert sites.(@exam_anti_cheat) == [{:call, :create_record}]
+
+      assert sites.(@exam_authoring) |> Enum.sort() ==
+               Enum.sort([
+                 {:call, :create_record},
+                 {:call, :update_record},
+                 {:call, :delete_record}
+               ])
     end
   end
 

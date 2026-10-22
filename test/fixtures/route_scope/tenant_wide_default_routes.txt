@@ -1,6 +1,7 @@
 DELETE /admin/services/:service_id AdminServicesManage
 DELETE /definitions/:id DefinitionsDelete
 DELETE /instances/:id/attachments/:attachment_id AttachmentsManage
+DELETE /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
 DELETE /script-rules/:key/versions/:version ScriptsWrite
 DELETE /webhooks/subscriptions/:id WebhookSubscriptionsManage
@@ -72,6 +73,7 @@ POST /instances/:id/attachments AttachmentsManage
 POST /instances/:id/cancel InstancesCancel
 POST /instances/:id/rebind-pins InstancesCancel
 POST /instances/:id/reconstruct InstancesCancel
+POST /modules/exam/authoring/:entity_type ExamAuthoringWrite
 POST /modules/exam/exam-sessions ExamSessionStart
 POST /modules/exam/exam-sessions/:id/certificate ExamCertificateIssue
 POST /modules/exam/exam-sessions/:id/events ExamSessionReportEvent
@@ -106,6 +108,7 @@ POST /tenants/:slug/reactivate TenantsManage
 POST /tenants/:test_tenant_id/promote/:process_key PromotionsManage
 POST /webhooks/subscriptions WebhookSubscriptionsManage
 PUT /definitions/:id DefinitionsUpdate
+PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
 PUT /script-policy/kill-switch ScriptPolicyManage
 PUT /script-policy/readable-masters/:entity_type ScriptPolicyManage
