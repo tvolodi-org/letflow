@@ -44,7 +44,7 @@ defmodule Letflow.Entities.WriteScopeTest do
   describe "ImportAccess.new/2" do
     test "builds a validated struct" do
       assert %ImportAccess{access: :hidden, scope: :all} = ImportAccess.new(:hidden, :all)
-      assert %ImportAccess{scope: :none} = ImportAccess.new({:open, []}, {:nodes, []})
+      assert %ImportAccess{scope: :none} = ImportAccess.new({:open, MapSet.new()}, {:nodes, []})
     end
 
     test "malformed access or scope fails at the boundary" do

@@ -10,12 +10,14 @@ defmodule Letflow.Entities.ImportAccess do
   @enforce_keys [:access, :scope]
   defstruct [:access, :scope]
 
-  @type access :: :hidden | {:open, term()}
+  @type access :: Letflow.Entities.RecordAccess.access()
   @type t :: %__MODULE__{access: access(), scope: Types.scope_set()}
 
   @spec new(access(), Types.scope_set()) :: t()
   def new(access, scope)
-      when access == :hidden or (is_tuple(access) and elem(access, 0) == :open) do
+      when access == :hidden or
+             (is_tuple(access) and elem(access, 0) == :open and
+                is_struct(elem(access, 1), MapSet)) do
     case Types.cast_scope_set(scope) do
       {:ok, set} -> %__MODULE__{access: access, scope: set}
       :error -> raise ArgumentError, "malformed import scope"

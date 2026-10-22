@@ -1700,7 +1700,7 @@ defmodule Letflow.Routers.Entities do
          actor_id,
          import_request_id,
          prefix,
-         access_and_scope
+         import_access
        ),
        do:
          run_import(
@@ -1709,12 +1709,12 @@ defmodule Letflow.Routers.Entities do
            actor_id,
            import_request_id,
            prefix,
-           access_and_scope
+           import_access
          )
 
   # Pre-check once (the schema-version read, then the decision `RecordAccess.write/3` already
   # made), then the per-entry upsert. A scoped caller never reaches it (`import_scope_check/6`
-  # refuses upsert mode for it), so the scope in the pair is always `:all`.
+  # refuses upsert mode for it), so the scope in the struct is always `:all`.
   defp run_import_mode(
          :upsert,
          records,
