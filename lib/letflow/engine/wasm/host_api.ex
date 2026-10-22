@@ -164,6 +164,7 @@ defmodule Letflow.Engine.Wasm.HostApi do
 
   alias Letflow.Engine.Lua.Platform
   alias Letflow.Engine.LuaNumberMarshalling
+  alias Letflow.Engine.VariableLabels
   alias Letflow.Engine.VariableMerge
   alias Letflow.Engine.Wasm.MemoryGuard
 
@@ -193,7 +194,11 @@ defmodule Letflow.Engine.Wasm.HostApi do
           prefix: String.t() | nil,
           trace_id: String.t() | nil,
           script_identity: String.t() | nil,
-          variables: map()
+          variables: map(),
+          # GH #2616 part 2 (decision 0062 R8): the labels of `variables` and the caller's hidden set.
+          # A missing hidden set (`nil`) hides every labelled variable (fail closed).
+          variable_labels: map(),
+          hidden_labels: MapSet.t(String.t()) | nil
         }
 
   @doc """
@@ -209,7 +214,9 @@ defmodule Letflow.Engine.Wasm.HostApi do
       prefix: nil,
       trace_id: nil,
       script_identity: nil,
-      variables: %{}
+      variables: %{},
+      variable_labels: %{},
+      hidden_labels: nil
     }
   end
 
@@ -253,12 +260,17 @@ defmodule Letflow.Engine.Wasm.HostApi do
       # GH #2587 PR B3 (INV-2): engine-written `_sys.*` bookkeeping is never readable by a guest.
       case execution_context.variables |> VariableMerge.drop_reserved() |> Map.fetch(name) do
         {:ok, value} ->
-          json_bytes =
-            value
-            |> LuaNumberMarshalling.to_lua()
-            |> Jason.encode!()
+          # GH #2616 part 2 (decision 0062 R8): a hidden labelled variable reads as not present.
+          if hidden?(execution_context, name) do
+            -1
+          else
+            json_bytes =
+              value
+              |> LuaNumberMarshalling.to_lua()
+              |> Jason.encode!()
 
-          write_buffer_result(context, json_bytes, out_ptr, out_cap)
+            write_buffer_result(context, json_bytes, out_ptr, out_cap)
+          end
 
         :error ->
           -1
@@ -266,6 +278,15 @@ defmodule Letflow.Engine.Wasm.HostApi do
     else
       {:error, _reason} -> -2
     end
+  end
+
+  # A context from before part 2 has no label fields; a missing hidden set fails closed.
+  defp hidden?(execution_context, name) do
+    VariableLabels.hidden?(
+      Map.get(execution_context, :variable_labels, %{}),
+      name,
+      Map.get(execution_context, :hidden_labels)
+    )
   end
 
   # ── log (design §5.4) ─────────────────────────────────────────────────────────────

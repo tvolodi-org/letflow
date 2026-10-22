@@ -857,6 +857,7 @@ defmodule Letflow.Engine do
              %{
                pin_source: {:pins, pins},
                tenant_id: tenant_id,
+               variable_labels: new_instance_state.variable_labels,
                actor_id: Map.get(attrs, :actor_id)
              }
            ) do
@@ -916,6 +917,11 @@ defmodule Letflow.Engine do
       # GH 2534 PR 7c-1 (design 4.4): a script SERVICE_TASK without a usable :script pin.
       {:script_binding_error, node_id, reason, _variables} ->
         {:error, {:activation_failed, {:script_binding_unresolved, node_id, reason}}}
+
+      # GH #2616 part 2 (decision 0062 R12): a labelled variable would render into an outbound URL or body.
+      {:restricted_outbound_error, node_id, keys, _variables} ->
+        {:error,
+         {:activation_failed, {:service_task_restricted_variable_outbound, node_id, keys}}}
     end
   end
 
@@ -1285,6 +1291,8 @@ defmodule Letflow.Engine do
              variables :: map()}
           | {:script_binding_error, node_id :: String.t(), :pin_missing | :pin_mismatch,
              variables :: map()}
+          | {:restricted_outbound_error, node_id :: String.t(), keys :: [String.t()],
+             variables :: map()}
   # GH 2534 PR 7c-1 (design 4.4): `kind` says which table the row goes to -- `:http`
   # (`service_task_dispatches`, every pre-7c row) or `:script` (`script_task_dispatches`).
   @type prepared_service_task_dispatch :: %{
@@ -1306,9 +1314,12 @@ defmodule Letflow.Engine do
   # GH 2534 PR 7c-1 (design 4.4): optional `actor_id`, the hop chain's command actor (create/2:
   # the starting actor; complete_task/3: the completing user), stored on a script dispatch row
   # as `triggering_user_id`; timer, HTTP-advance, script-advance and sub-process hops pass none.
+  # GH #2616 part 2 (decision 0062 R12): `variable_labels` are the labels of the `variables` the
+  # dispatch renders, read from the same in-memory state (a labelled key may not reach an endpoint).
   @typep catalog_dispatch_ctx :: %{
            required(:pin_source) => catalog_pin_source(),
            required(:tenant_id) => Ecto.UUID.t() | {:schema_prefix, String.t()},
+           required(:variable_labels) => %{optional(String.t()) => [String.t()]},
            optional(:actor_id) => Ecto.UUID.t() | nil
          }
   @typep catalog_resolution_reason ::
@@ -1366,6 +1377,9 @@ defmodule Letflow.Engine do
 
             {:script_binding_error, ^node_id, reason} ->
               {:halt, {:script_binding_error, node_id, reason, variables}}
+
+            {:restricted_outbound_error, ^node_id, keys} ->
+              {:halt, {:restricted_outbound_error, node_id, keys, variables}}
           end
       end
     end)
@@ -1375,6 +1389,7 @@ defmodule Letflow.Engine do
       {:empty_url_error, node_id, variables} -> {:empty_url_error, node_id, variables}
       {:catalog_resolution_error, _node_id, _reason, _variables} = error -> error
       {:script_binding_error, _node_id, _reason, _variables} = error -> error
+      {:restricted_outbound_error, _node_id, _keys, _variables} = error -> error
     end
   end
 
@@ -1404,38 +1419,47 @@ defmodule Letflow.Engine do
         {:error, {:config_parse_failed, node_id, reason}}
 
       {:ok, %ServiceTask.Config{route_kind: :inline_url} = config} ->
-        rendered_url = render_service_task_template(config.url_template, variables)
-        rendered_body = render_service_task_body_template(config.body_template, variables)
+        with [] <- restricted_outbound_keys([config.url_template, config.body_template], ctx) do
+          rendered_url = render_service_task_template(config.url_template, variables)
+          rendered_body = render_service_task_body_template(config.body_template, variables)
 
-        with {:ok, arm_attrs} <-
-               finish_service_task_arm_attrs(
-                 config,
-                 node_id,
-                 instance_id,
-                 rendered_url,
-                 rendered_body,
-                 now
-               ) do
-          {:ok, arm_attrs, ctx}
+          with {:ok, arm_attrs} <-
+                 finish_service_task_arm_attrs(
+                   config,
+                   node_id,
+                   instance_id,
+                   rendered_url,
+                   rendered_body,
+                   now
+                 ) do
+            {:ok, arm_attrs, ctx}
+          end
+        else
+          keys -> {:restricted_outbound_error, node_id, keys}
         end
 
       {:ok, %ServiceTask.Config{route_kind: :catalog_service} = config} ->
         case resolve_catalog_version(config, ctx) do
           {:ok, resolved, ctx} ->
-            rendered_url = render_service_task_template(resolved.endpoint_url, variables)
-            rendered_body = render_service_task_body_template(config.body_template, variables)
+            with [] <-
+                   restricted_outbound_keys([resolved.endpoint_url, config.body_template], ctx) do
+              rendered_url = render_service_task_template(resolved.endpoint_url, variables)
+              rendered_body = render_service_task_body_template(config.body_template, variables)
 
-            with {:ok, arm_attrs} <-
-                   finish_service_task_arm_attrs(
-                     config,
-                     node_id,
-                     instance_id,
-                     rendered_url,
-                     rendered_body,
-                     now,
-                     resolved
-                   ) do
-              {:ok, arm_attrs, ctx}
+              with {:ok, arm_attrs} <-
+                     finish_service_task_arm_attrs(
+                       config,
+                       node_id,
+                       instance_id,
+                       rendered_url,
+                       rendered_body,
+                       now,
+                       resolved
+                     ) do
+                {:ok, arm_attrs, ctx}
+              end
+            else
+              keys -> {:restricted_outbound_error, node_id, keys}
             end
 
           {:error, reason} ->
@@ -1465,6 +1489,17 @@ defmodule Letflow.Engine do
             {:script_binding_error, node_id, reason}
         end
     end
+  end
+
+  # GH #2616 part 2 (decision 0062 R12): a labelled variable never renders into a URL or body that
+  # leaves the process. Returns the sorted key names of the templates' placeholders that carry a
+  # label in the dispatch's own labels (names only; `[]` when none). An unlabelled key renders as today.
+  defp restricted_outbound_keys(templates, ctx) do
+    templates
+    |> Enum.flat_map(&ServiceTask.template_variable_keys/1)
+    |> Enum.uniq()
+    |> Enum.filter(&(Map.get(ctx.variable_labels, &1, []) != []))
+    |> Enum.sort()
   end
 
   defp resolve_script_pin(%ServiceTask.Config{script_key: key, script_version: version}, ctx) do
@@ -1725,6 +1760,7 @@ defmodule Letflow.Engine do
           instance_id :: Ecto.UUID.t(),
           node_id :: String.t(),
           variables :: map(),
+          variable_labels :: map(),
           actor_id :: Ecto.UUID.t() | nil,
           idempotency_key :: String.t()
         ) :: standalone_error_attrs()
@@ -1732,6 +1768,7 @@ defmodule Letflow.Engine do
          instance_id,
          node_id,
          variables,
+         variable_labels,
          actor_id,
          idempotency_key
        ) do
@@ -1743,7 +1780,9 @@ defmodule Letflow.Engine do
       variables: variables
     }
 
-    ServiceTask.build_empty_url_error_attrs(context)
+    context
+    |> ServiceTask.build_empty_url_error_attrs()
+    |> Map.put(:labels, variable_labels)
   end
 
   # ISS-0917 -- sibling of build_service_task_empty_url_error/5 for a catalog
@@ -1753,6 +1792,7 @@ defmodule Letflow.Engine do
           node_id :: String.t(),
           reason :: term(),
           variables :: map(),
+          variable_labels :: map(),
           actor_id :: Ecto.UUID.t() | nil,
           idempotency_key :: String.t()
         ) :: standalone_error_attrs()
@@ -1761,17 +1801,20 @@ defmodule Letflow.Engine do
          node_id,
          reason,
          variables,
+         variable_labels,
          actor_id,
          idempotency_key
        ) do
-    ServiceTask.build_catalog_unresolved_error_attrs(%{
+    %{
       instance_id: instance_id,
       node_id: node_id,
       reason: reason,
       actor_id: actor_id,
       idempotency_key: idempotency_key,
       variables: variables
-    })
+    }
+    |> ServiceTask.build_catalog_unresolved_error_attrs()
+    |> Map.put(:labels, variable_labels)
   end
 
   # REQ-215 design doc §2.5 -- wires prepare_service_task_dispatch/5's own
@@ -2712,6 +2755,7 @@ defmodule Letflow.Engine do
           instance_status: :active | :completed,
           current_nodes: [String.t()],
           variables: map(),
+          variable_labels: VariableLabels.labels(),
           completed_at: DateTime.t()
         }
 
@@ -2771,8 +2815,19 @@ defmodule Letflow.Engine do
         idempotency_key,
         completed_at,
         prefix,
-        Keyword.get(opts, :f1, :off)
+        Keyword.get(opts, :f1, :off),
+        hidden_check(opts)
       )
+    end
+  end
+
+  # GH #2616 part 2 (decision 0062 R8, R9): the router passes the caller's hidden label set under
+  # `:hidden_labels`, and the sentinel refusal runs for it (`nil` hides every labelled key). Other
+  # callers (scripts, timers, tests) pass no such option and the check is skipped for them.
+  defp hidden_check(opts) do
+    case Keyword.fetch(opts, :hidden_labels) do
+      {:ok, hidden} -> {:check, hidden}
+      :error -> :skip
     end
   end
 
@@ -2813,7 +2868,8 @@ defmodule Letflow.Engine do
          idempotency_key,
          completed_at,
          prefix,
-         f1
+         f1,
+         hidden_check
        ) do
     try do
       # GH #2587 PR B2 (design 7.3, P0/P1): the read-only plan phase and `prepare/2` run
@@ -2828,7 +2884,8 @@ defmodule Letflow.Engine do
             idempotency_key,
             completed_at,
             prefix,
-            f1
+            f1,
+            hidden_check
           )
 
         {:error, _reason} = error ->
@@ -2847,7 +2904,8 @@ defmodule Letflow.Engine do
          idempotency_key,
          completed_at,
          prefix,
-         f1
+         f1,
+         hidden_check
        ) do
     plan
     |> build_complete_task_multi(
@@ -2857,7 +2915,8 @@ defmodule Letflow.Engine do
       idempotency_key,
       completed_at,
       prefix,
-      f1
+      f1,
+      hidden_check
     )
     |> run_transaction(plan)
     |> fold_sys_into_transition()
@@ -2884,7 +2943,8 @@ defmodule Letflow.Engine do
             "step-names-probe",
             DateTime.utc_now(),
             prefix,
-            :off
+            :off,
+            :skip
           )
           |> Multi.to_list()
           |> Enum.map(fn
@@ -2897,6 +2957,32 @@ defmodule Letflow.Engine do
     end
   end
 
+  # GH #2616 part 2 (decision 0062 R8, R9): a completion may not write the redaction placeholder over a
+  # restricted value the caller cannot read; that would destroy the stored value and erase its label.
+  # Checked under the instance row lock and before any write (the reevaluation and the merge come
+  # after it). The labels are the locked projection's. Refused keys are names only.
+  defp maybe_redacted_sentinel_check(multi, :skip, _output_variables), do: multi
+
+  defp maybe_redacted_sentinel_check(multi, {:check, hidden}, output_variables) do
+    Multi.run(multi, :redacted_sentinel, fn _repo, %{instance_projection: projection} ->
+      case redacted_sentinel_keys(output_variables, projection.variable_labels, hidden) do
+        [] -> {:ok, :accepted}
+        keys -> {:error, {:redacted_value_submitted, keys}}
+      end
+    end)
+  end
+
+  defp redacted_sentinel_keys(output_variables, labels, hidden) do
+    placeholder = Atom.to_string(VariableLabels.representation())
+
+    output_variables
+    |> Enum.filter(fn {key, value} ->
+      value == placeholder and VariableLabels.hidden?(labels, key, hidden)
+    end)
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort()
+  end
+
   defp build_complete_task_multi(
          plan,
          task_id,
@@ -2905,7 +2991,8 @@ defmodule Letflow.Engine do
          idempotency_key,
          completed_at,
          prefix,
-         f1
+         f1,
+         hidden_check
        ) do
     Multi.new()
     |> maybe_entity_write_timeouts(plan)
@@ -2933,6 +3020,7 @@ defmodule Letflow.Engine do
                                         } ->
       check_completion_guards(repo, graph, task, output_variables, actor_id, prefix, plan)
     end)
+    |> maybe_redacted_sentinel_check(hidden_check, output_variables)
     |> Multi.run(:form_expression_reevaluation, fn _repo,
                                                    %{
                                                      task: task,
@@ -2941,7 +3029,7 @@ defmodule Letflow.Engine do
                                                      }
                                                    } ->
       # Multi.run/3's own contract: the callback itself must always succeed
-      # structurally -- reevaluate/3's domain result (which can itself be an
+      # structurally -- reevaluate/4's domain result (which can itself be an
       # {:error, reevaluation_error()} rejection) is carried INSIDE this
       # {:ok, _} payload and inspected explicitly by the :merge step below,
       # the same discipline merge_output_variables/7's own
@@ -2950,6 +3038,7 @@ defmodule Letflow.Engine do
        FormExpressionReevaluation.reevaluate(
          task.form_schema,
          seed_state.variables,
+         seed_state.variable_labels,
          output_variables
        )}
     end)
@@ -2976,13 +3065,19 @@ defmodule Letflow.Engine do
 
           {:ok, {:execution_error, error_args}}
 
-        {:ok, %{output_variables: corrected_output_variables, events: form_events}} ->
+        {:ok,
+         %{
+           output_variables: corrected_output_variables,
+           output_labels: output_labels,
+           events: form_events
+         }} ->
           projection
           |> merge_output_variables(
             actor_id,
             idempotency_key,
             seed_state.variables,
             corrected_output_variables,
+            output_labels,
             repo,
             prefix,
             refusal_context(graph, task)
@@ -4036,7 +4131,11 @@ defmodule Letflow.Engine do
                timer.instance_id,
                advanced_state.variables,
                now,
-               %{pin_source: {:reconstruct, timer.instance_id, prefix}, tenant_id: tenant_id}
+               %{
+                 pin_source: {:reconstruct, timer.instance_id, prefix},
+                 tenant_id: tenant_id,
+                 variable_labels: advanced_state.variable_labels
+               }
              ),
            {:ok, sub_process_outcome} <-
              prepare_sub_process_children_for_completion(
@@ -4525,7 +4624,11 @@ defmodule Letflow.Engine do
                timer.instance_id,
                advanced_state.variables,
                now,
-               %{pin_source: {:reconstruct, timer.instance_id, prefix}, tenant_id: tenant_id}
+               %{
+                 pin_source: {:reconstruct, timer.instance_id, prefix},
+                 tenant_id: tenant_id,
+                 variable_labels: advanced_state.variable_labels
+               }
              ),
            {:ok, sub_process_outcome} <-
              prepare_sub_process_children_for_completion(
@@ -4760,6 +4863,11 @@ defmodule Letflow.Engine do
       # GH 2534 PR 7c-1 (design 4.4): same treatment as the catalog case above.
       {:script_binding_error, node_id, reason, _variables} ->
         {:error, {:script_task_pin_unresolved_not_supported_for_timer_fire, node_id, reason}}
+
+      # GH #2616 part 2: same treatment as the catalog case above (the transaction aborts).
+      {:restricted_outbound_error, node_id, keys, _variables} ->
+        {:error,
+         {:service_task_restricted_variable_outbound_not_supported_for_timer_fire, node_id, keys}}
     end
   end
 
@@ -4795,6 +4903,7 @@ defmodule Letflow.Engine do
           Graph.t(),
           instance_id :: Ecto.UUID.t(),
           variables :: map(),
+          variable_labels :: map(),
           now :: DateTime.t(),
           prefix :: String.t(),
           hop_chain_token_records_key :: term()
@@ -4805,13 +4914,15 @@ defmodule Letflow.Engine do
         graph,
         instance_id,
         variables,
+        variable_labels,
         now,
         prefix,
         hop_chain_token_records_key
       ) do
     catalog_ctx = %{
       pin_source: {:reconstruct, instance_id, prefix},
-      tenant_id: {:schema_prefix, prefix}
+      tenant_id: {:schema_prefix, prefix},
+      variable_labels: variable_labels
     }
 
     with {:ok, prepared_timers} <- prepare_timer_arms(pending_events, graph, instance_id, now),
@@ -5328,7 +5439,11 @@ defmodule Letflow.Engine do
                dispatch.instance_id,
                advanced_state.variables,
                now,
-               %{pin_source: {:reconstruct, dispatch.instance_id, prefix}, tenant_id: tenant_id}
+               %{
+                 pin_source: {:reconstruct, dispatch.instance_id, prefix},
+                 tenant_id: tenant_id,
+                 variable_labels: advanced_state.variable_labels
+               }
              ),
            {:ok, sub_process_outcome} <-
              prepare_sub_process_children_for_completion(
@@ -6915,6 +7030,7 @@ defmodule Letflow.Engine do
           String.t(),
           current_variables :: map(),
           output_variables :: map(),
+          output_labels :: %{String.t() => [String.t()]},
           repo :: module(),
           prefix :: String.t() | nil,
           refusal_context()
@@ -6935,6 +7051,7 @@ defmodule Letflow.Engine do
          idempotency_key,
          current_variables,
          output_variables,
+         output_labels,
          repo,
          prefix,
          %{required: required, allowed: allowed}
@@ -6951,6 +7068,7 @@ defmodule Letflow.Engine do
           idempotency_key,
           current_variables,
           output_variables,
+          output_labels,
           repo,
           prefix,
           required,
@@ -6968,6 +7086,7 @@ defmodule Letflow.Engine do
          idempotency_key,
          current_variables,
          output_variables,
+         output_labels,
          repo,
          prefix,
          required,
@@ -6995,6 +7114,7 @@ defmodule Letflow.Engine do
           idempotency_key,
           current_variables,
           output_variables,
+          output_labels,
           variable_validations
         )
       end
@@ -7106,6 +7226,7 @@ defmodule Letflow.Engine do
           String.t(),
           current_variables :: map(),
           output_variables :: map(),
+          output_labels :: %{String.t() => [String.t()]},
           VariableMerge.variable_validations()
         ) ::
           {:ok,
@@ -7122,14 +7243,16 @@ defmodule Letflow.Engine do
          idempotency_key,
          current_variables,
          output_variables,
+         output_labels,
          variable_validations
        ) do
-    # A human completion is an unlabelled source (decision 0062 R9): written keys lose any label.
+    # A human completion is an unlabelled source (decision 0062 R9); a computed field carries the
+    # labels of its inputs (R14), so `output_labels` is the write for those keys.
     case VariableMerge.merge(
            current_variables,
            projection.variable_labels,
            output_variables,
-           %{},
+           output_labels,
            variable_validations
          ) do
       {:ok, new_variables, new_labels, merge_events} ->
@@ -7309,6 +7432,7 @@ defmodule Letflow.Engine do
                      graph,
                      projection,
                      advanced_state.variables,
+                     advanced_state.variable_labels,
                      completed_at,
                      actor_id,
                      idempotency_key,
@@ -7345,6 +7469,9 @@ defmodule Letflow.Engine do
               {:error, {:script_binding_error, error_args}} ->
                 {:ok, {:execution_error, error_args}}
 
+              {:error, {:restricted_outbound_error, error_args}} ->
+                {:ok, {:execution_error, error_args}}
+
               {:error, reason} ->
                 {:error, reason}
             end
@@ -7359,6 +7486,8 @@ defmodule Letflow.Engine do
                 actor_id,
                 idempotency_key
               )
+              # The labels belong to the variables recorded above (decision 0062 R7a).
+              |> Map.put(:labels, state_with_merged_variables.variable_labels)
 
             {:ok, {:execution_error, error_args}}
 
@@ -7376,6 +7505,8 @@ defmodule Letflow.Engine do
             actor_id,
             idempotency_key
           )
+          # The labels belong to the variables recorded above (decision 0062 R7a).
+          |> Map.put(:labels, state_with_merged_variables.variable_labels)
 
         {:ok, {:execution_error, error_args}}
 
@@ -7401,6 +7532,7 @@ defmodule Letflow.Engine do
          graph,
          projection,
          variables,
+         variable_labels,
          now,
          actor_id,
          idempotency_key,
@@ -7412,7 +7544,8 @@ defmodule Letflow.Engine do
     catalog_ctx = %{
       pin_source: {:reconstruct, projection.instance_id, prefix},
       tenant_id: {:schema_prefix, prefix},
-      actor_id: actor_id
+      actor_id: actor_id,
+      variable_labels: variable_labels
     }
 
     case prepare_service_task_dispatch(
@@ -7432,6 +7565,26 @@ defmodule Letflow.Engine do
       # GH 2534 PR 7c-1 (design 4.4): routed into an ExecutionError like the catalog case
       # below (the projection is already locked on this path); fixed reason sentence, the
       # reason atom only in details.
+      # GH #2616 part 2 (decision 0062 R12): the refusal is an EXECUTION_ERROR on the already-locked
+      # projection, like the catalog and script cases below. Key names only in details.
+      {:restricted_outbound_error, node_id, keys, variables} ->
+        error_args =
+          ServiceTask.build_restricted_outbound_error_attrs(%{
+            instance_id: projection.instance_id,
+            node_id: node_id,
+            keys: keys,
+            variables: variables,
+            variable_labels: variable_labels,
+            actor_id: actor_id,
+            idempotency_key: idempotency_key
+          })
+
+        {:error, {:restricted_outbound_error, error_args}}
+
+      # GH #2616 part 2 (decision 0062 R7a, R8h): every EXECUTION_ERROR written here snapshots
+      # `variables` from the post-merge state, so it carries `variable_labels` from the same state.
+      # Without them the event would fall back to the locked projection's labels, which miss the
+      # keys a completion computes (R14), and the history of the event would show those values.
       {:script_binding_error, node_id, reason, variables} ->
         error_args = %{
           instance_id: projection.instance_id,
@@ -7439,6 +7592,7 @@ defmodule Letflow.Engine do
           affected: {:node, node_id},
           reason: "script service task has no usable script pin recorded for this instance",
           variables: variables,
+          labels: variable_labels,
           details: %{reason: reason},
           actor_id: actor_id,
           idempotency_key: idempotency_key
@@ -7453,6 +7607,7 @@ defmodule Letflow.Engine do
             node_id,
             reason,
             variables,
+            variable_labels,
             actor_id,
             idempotency_key
           )
@@ -7465,6 +7620,7 @@ defmodule Letflow.Engine do
             projection.instance_id,
             node_id,
             variables,
+            variable_labels,
             actor_id,
             idempotency_key
           )
@@ -7526,15 +7682,17 @@ defmodule Letflow.Engine do
           {:halt, {:error, reason}}
 
         {:error, failure} ->
+          # GH #2616 part 2 (decision 0062 R7a): the snapshot is the post-merge state, so its labels travel too.
           error_args =
-            SubProcess.to_error_args(
-              failure,
+            failure
+            |> SubProcess.to_error_args(
               projection.instance_id,
               node_id,
               advanced_state.variables,
               actor_id,
               idempotency_key
             )
+            |> Map.put(:labels, advanced_state.variable_labels)
 
           {:halt, {:execution_error, error_args}}
       end
@@ -8668,6 +8826,7 @@ defmodule Letflow.Engine do
        instance_status: final_instance_state.status,
        current_nodes: Enum.map(final_instance_state.tokens, & &1.node_id),
        variables: final_instance_state.variables,
+       variable_labels: final_instance_state.variable_labels,
        completed_at: completed_task.completed_at
      }}
   end
