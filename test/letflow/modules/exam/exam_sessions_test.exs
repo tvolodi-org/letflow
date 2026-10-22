@@ -1626,4 +1626,99 @@ defmodule Letflow.Modules.Exam.RouterTest do
       assert item["field_values"]["fee"] == "1.00"
     end
   end
+
+  describe "GET /modules/exam/exam-sessions/available -- restricted exam fields (GH #2814, decision a)" do
+    # The wire form of FieldGrants' sentinel (an atom JSON-encodes as its name).
+    defp redacted_wire_value,
+      do: Letflow.Entities.Query.FieldGrants.redacted_sentinel() |> Atom.to_string()
+
+    defp insert_exam_restriction!(schema, field_name) do
+      Repo.insert_all(
+        "entity_field_restrictions",
+        [
+          %{
+            id: Ecto.UUID.bingenerate(),
+            entity_type: "exam",
+            field_name: field_name,
+            inserted_at: NaiveDateTime.utc_now(),
+            updated_at: NaiveDateTime.utc_now()
+          }
+        ],
+        prefix: schema
+      )
+    end
+
+    defp insert_exam_grant!(schema, user_id, field_name) do
+      Repo.insert_all(
+        "user_entity_grants",
+        [
+          %{
+            id: Ecto.UUID.bingenerate(),
+            user_id: Ecto.UUID.dump!(user_id),
+            entity_type: "exam",
+            field_name: field_name,
+            inserted_at: NaiveDateTime.utc_now()
+          }
+        ],
+        prefix: schema
+      )
+    end
+
+    defp available_item(ctx, record_id) do
+      conn = request("GET", "/api/v1/modules/exam/exam-sessions/available", ctx)
+      assert conn.status == 200
+      Enum.find(json(conn)["items"], &(&1["record_id"] == record_id))
+    end
+
+    test "T-2814-1: a restricted exam field is redacted for a CANDIDATE with no grant" do
+      tenant = tenant("gh2814-t1")
+      ctx = candidate_ctx(tenant)
+      insert_exam_restriction!(tenant.schema_name, "title")
+      exam = create_exam!(tenant.schema_name, %{})
+
+      item = available_item(ctx, exam.record_id)
+
+      assert item["field_values"]["title"] == redacted_wire_value()
+      assert item["field_values"]["status"] == "active"
+    end
+
+    test "T-2814-2: a grant for the restricted field lifts the redaction for that user" do
+      tenant = tenant("gh2814-t2")
+      ctx = candidate_ctx(tenant)
+      insert_exam_restriction!(tenant.schema_name, "title")
+      insert_exam_grant!(tenant.schema_name, ctx.user_id, "title")
+      exam = create_exam!(tenant.schema_name, %{})
+
+      item = available_item(ctx, exam.record_id)
+
+      assert item["field_values"]["title"] == %{"en" => "Exam"}
+    end
+
+    test "T-2814-3: the grant is per user, not per role -- a second CANDIDATE is still redacted" do
+      tenant = tenant("gh2814-t3")
+      granted = candidate_ctx(tenant)
+      other = candidate_ctx(tenant)
+      insert_exam_restriction!(tenant.schema_name, "title")
+      insert_exam_grant!(tenant.schema_name, granted.user_id, "title")
+      exam = create_exam!(tenant.schema_name, %{})
+
+      assert available_item(granted, exam.record_id)["field_values"]["title"] ==
+               %{"en" => "Exam"}
+
+      assert available_item(other, exam.record_id)["field_values"]["title"] ==
+               redacted_wire_value()
+    end
+
+    test "T-2814-5: a restricted decimal_strict field is redacted, not rendered" do
+      tenant = tenant("gh2814-t5")
+      ctx = candidate_ctx(tenant)
+      add_strict_fee_to_exam!(tenant.schema_name)
+      insert_exam_restriction!(tenant.schema_name, "fee")
+      exam = create_exam!(tenant.schema_name, %{"fee" => "2.5"})
+
+      item = available_item(ctx, exam.record_id)
+
+      assert item["field_values"]["fee"] == redacted_wire_value()
+    end
+  end
 end
