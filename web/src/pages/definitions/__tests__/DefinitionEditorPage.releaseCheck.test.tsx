@@ -22,7 +22,8 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { screen, cleanup, waitFor } from '@testing-library/react'
+import { renderWithAccess } from '@/auth/access/testing'
 import userEvent from '@testing-library/user-event'
 import React, { useEffect } from 'react'
 expect.extend(jestDomMatchers)
@@ -193,7 +194,7 @@ describe('REQ-431 AC5 — ReleaseCheckPanel shows the FRESH release-time result,
       validated_at: '2026-09-30T00:00:00Z',
     })
 
-    render(<DefinitionEditorPage />)
+    renderWithAccess(<DefinitionEditorPage />, 'designer')
 
     // No release-check panel shown before any submission attempt.
     expect(screen.queryByTestId('release-check-panel')).not.toBeInTheDocument()

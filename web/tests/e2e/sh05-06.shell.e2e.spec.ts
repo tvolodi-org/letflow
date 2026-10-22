@@ -37,7 +37,7 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { loginWithToken } from './helpers'
+import { loginWithToken, mockMeAccess } from './helpers'
 
 // ── JWT helper ────────────────────────────────────────────────────────────────
 
@@ -54,7 +54,6 @@ function makeFakeJwt(payload: Record<string, unknown>): string {
 const TOKEN_TASK_WORKER = makeFakeJwt({
   sub: 'sh06-tw-001',
   display_name: 'SH06 Task Worker',
-  roles: ['TASK_WORKER'],
 })
 
 // ── SH-06: API Connectivity Banner ───────────────────────────────────────────
@@ -74,6 +73,7 @@ test.describe('SH-06 — API Connectivity Banner', () => {
       }),
     )
 
+    await mockMeAccess(page, 'taskWorker')
     await loginWithToken(page, TOKEN_TASK_WORKER)
 
     // Give the immediate mount check time to resolve and re-render
@@ -111,6 +111,7 @@ test.describe('SH-06 — API Connectivity Banner', () => {
       }
     })
 
+    await mockMeAccess(page, 'taskWorker')
     await loginWithToken(page, TOKEN_TASK_WORKER)
 
     // Wait for banner to appear (immediate mount check → 503)
@@ -149,6 +150,7 @@ test.describe('SH-06 — API Connectivity Banner', () => {
       }
     })
 
+    await mockMeAccess(page, 'taskWorker')
     await loginWithToken(page, TOKEN_TASK_WORKER)
 
     const banner = page.getByTestId('connectivity-banner')
