@@ -88,7 +88,6 @@ describe('Q-1074 / GH 2431 — buildSessionFromToken tenant lookup', () => {
       display_name: 'Bilimbaga Tenant',
       tenant_id: 't-1',
       tenant_type: 'production',
-      production_tenant_display_name: null,
     } as never)
 
     const session = await buildSessionFromToken(fakeToken(SLUG))

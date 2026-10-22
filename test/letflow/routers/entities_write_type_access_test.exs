@@ -12,7 +12,7 @@ defmodule Letflow.Routers.EntitiesWriteTypeAccessTest do
     * T6: call-sequence parity (`:erlang.trace` on the four gate calls, Repo telemetry cut after
       the field-restrictions query).
     * T7: an allowed caller is unchanged.
-    * T8: field restrictions on an open type (POST key 403, PUT blanket 403, DELETE response
+    * T8: field restrictions on an open type (POST key 403, PUT naming a restricted key 403, DELETE response
       redacted, import per-entry `field_restricted`), T9 precedence, T10 `render_record_command/4`.
 
   Full pipeline (`Letflow.Router.call/2`, real bearer token), real Postgres, real commits, so
@@ -598,19 +598,203 @@ defmodule Letflow.Routers.EntitiesWriteTypeAccessTest do
       assert ok.status == 201
     end
 
-    test "PUT is a blanket 403 for any record and any body, after id and body validation", %{
+    # GH #2812: PUT keeps the stored values of the keys the actor cannot see.
+    defp stored(ctx, record_id),
+      do: Repo.get_by!(Latest, [record_id: record_id], prefix: ctx.schema_name)
+
+    defp event_count(ctx), do: Repo.aggregate("events", :count, prefix: ctx.schema_name)
+
+    defp put_customer(ctx, record_id, field_values, extra \\ %{}) do
+      request(
+        :put,
+        path("customer", record_id),
+        ctx,
+        Map.merge(%{"field_values" => field_values}, extra)
+      )
+    end
+
+    test "T1: an unrestricted edit keeps the restricted value server-side, out of the response",
+         %{ctx: ctx, record_id: record_id} do
+      conn = put_customer(ctx, record_id, %{"customer_name" => "Z"})
+
+      assert conn.status == 200
+      fv = Jason.decode!(conn.resp_body)["field_values"]
+      assert fv["customer_name"] == "Z"
+      assert fv["credit_limit"] == "__field_redacted__"
+      refute conn.resp_body =~ @secret
+
+      assert stored(ctx, record_id).field_values ==
+               %{"customer_name" => "Z", "credit_limit" => @secret}
+    end
+
+    test "T2: a write between read and write is refused by the version check", %{
+      ctx: ctx,
+      record_id: record_id
+    } do
+      seen = stored(ctx, record_id).last_event_global_seq
+      token = %{"expected_last_event_global_seq" => seen}
+
+      assert put_customer(ctx, record_id, %{"customer_name" => "B"}, token).status == 200
+      before = counts(ctx)
+
+      conn = put_customer(ctx, record_id, %{"customer_name" => "C"}, token)
+
+      assert conn.status == 409
+      assert counts(ctx) == before
+      assert stored(ctx, record_id).field_values["customer_name"] == "B"
+      assert stored(ctx, record_id).field_values["credit_limit"] == @secret
+    end
+
+    test "T3: preserve_keys makes the write conditional on the version the merge read", %{
+      ctx: ctx,
+      record_id: record_id
+    } do
+      stale = stored(ctx, record_id)
+
+      {:ok, _} =
+        Records.update_record(
+          %{
+            entity_type: "customer",
+            record_id: record_id,
+            field_values: %{"customer_name" => "W", "credit_limit" => "WINNER"},
+            actor_id: ctx.user_id,
+            idempotency_key: Ecto.UUID.generate()
+          },
+          ctx.schema_name
+        )
+
+      assert {:error, :record_version_conflict} =
+               Records.update_record(
+                 %{
+                   entity_type: "customer",
+                   record_id: record_id,
+                   field_values: %{"customer_name" => "L"},
+                   actor_id: ctx.user_id,
+                   idempotency_key: Ecto.UUID.generate(),
+                   expected_last_event_global_seq: stale.last_event_global_seq,
+                   preserve_keys: MapSet.new(["credit_limit"])
+                 },
+                 ctx.schema_name
+               )
+
+      assert stored(ctx, record_id).field_values["credit_limit"] == "WINNER"
+    end
+
+    test "T10: Records merges only stored preserved keys, stored wins, event is whole-document",
+         %{ctx: ctx, record_id: record_id} do
+      {:ok, %{record: record}} =
+        Records.update_record(
+          %{
+            entity_type: "customer",
+            record_id: record_id,
+            field_values: %{"customer_name" => "M", "credit_limit" => "BODY"},
+            actor_id: ctx.user_id,
+            idempotency_key: Ecto.UUID.generate(),
+            preserve_keys: MapSet.new(["credit_limit"])
+          },
+          ctx.schema_name
+        )
+
+      assert record.field_values == %{"customer_name" => "M", "credit_limit" => @secret}
+
+      event =
+        Repo.one!(
+          from(e in "events",
+            where: e.event_type == "ENTITY_RECORD_UPDATED",
+            select: e.payload,
+            order_by: [desc: e.global_seq],
+            limit: 1
+          ),
+          prefix: ctx.schema_name
+        )
+
+      assert event["field_values"] == record.field_values
+    end
+
+    test "T12: a replay of a successful PUT returns the original and appends nothing", %{
+      ctx: ctx,
+      record_id: record_id
+    } do
+      extra = %{
+        "idempotency_key" => "gh2812-replay",
+        "expected_last_event_global_seq" => stored(ctx, record_id).last_event_global_seq
+      }
+
+      assert put_customer(ctx, record_id, %{"customer_name" => "R"}, extra).status == 200
+      events = event_count(ctx)
+
+      replay = put_customer(ctx, record_id, %{"customer_name" => "R"}, extra)
+      assert replay.status == 200
+      assert event_count(ctx) == events
+      refute replay.resp_body =~ @secret
+      assert stored(ctx, record_id).field_values["credit_limit"] == @secret
+    end
+
+    test "T4: a body naming a restricted key is the constant 403 and writes nothing", %{
+      ctx: ctx,
+      record_id: record_id
+    } do
+      before = counts(ctx)
+
+      log =
+        capture_log(fn ->
+          for value <- [@secret, "__field_redacted__", nil] do
+            conn =
+              put_customer(ctx, record_id, %{"customer_name" => "Z", "credit_limit" => value})
+
+            assert conn.status == 403
+            assert Jason.decode!(conn.resp_body)["detail"] == @restricted_detail
+            refute conn.resp_body =~ "credit_limit"
+          end
+        end)
+
+      refute log =~ "credit_limit"
+      refute log =~ @secret
+      assert counts(ctx) == before
+    end
+
+    test "T9: a stored restricted value that no longer validates is the constant 403", %{
+      ctx: ctx,
+      record_id: record_id
+    } do
+      Repo.update_all(
+        from(l in Latest, where: l.record_id == ^record_id),
+        [set: [field_values: %{"customer_name" => "A", "credit_limit" => 5}]],
+        prefix: ctx.schema_name
+      )
+
+      before = counts(ctx)
+      conn = put_customer(ctx, record_id, %{"customer_name" => "Z"})
+
+      assert conn.status == 403
+      assert Jason.decode!(conn.resp_body)["detail"] == @restricted_detail
+      refute conn.resp_body =~ "credit_limit"
+      assert counts(ctx) == before
+    end
+
+    test "T6: a PUT to a record of another tenant is a 404 and merges nothing", %{
+      ctx: ctx,
+      record_id: record_id
+    } do
+      other = tenant_ctx("gh2812-other")
+      seed_type!(other, "customer")
+      insert_restriction!(other, "customer", "credit_limit")
+      before_other = counts(other)
+      row_before = stored(ctx, record_id)
+
+      assert put_customer(other, record_id, %{"customer_name" => "X"}).status == 404
+      assert counts(other) == before_other
+      assert stored(ctx, record_id) == row_before
+    end
+
+    test "T5: absent and malformed ids are the ordinary 404; body errors keep their status", %{
       ctx: ctx,
       record_id: record_id
     } do
       before = counts(ctx)
       body = %{"field_values" => %{"customer_name" => "Z"}}
 
-      live = request(:put, path("customer", record_id), ctx, body)
-      random = request(:put, path("customer", Ecto.UUID.generate()), ctx, body)
-      assert live.status == 403
-      assert norm(live) == norm(random)
-      assert Jason.decode!(live.resp_body)["detail"] == @restricted_detail
-
+      assert request(:put, path("customer", Ecto.UUID.generate()), ctx, body).status == 404
       assert request(:put, path("customer", "not-a-uuid"), ctx, body).status == 404
       assert request(:put, path("customer", record_id), ctx, {:raw, "[1]"}).status == 400
 
@@ -634,14 +818,17 @@ defmodule Letflow.Routers.EntitiesWriteTypeAccessTest do
       assert Jason.decode!(conn.resp_body)["field_values"]["credit_limit"] == "1"
     end
 
-    test "the 403 never names the restricted field in the response or the log", %{ctx: ctx} do
+    test "the 403 never names the restricted field in the response or the log", %{
+      ctx: ctx,
+      record_id: record_id
+    } do
       log =
         capture_log(fn ->
           for {method, p, b} <- [
                 {:post, path("customer"),
                  %{"field_values" => %{"customer_name" => "N", "credit_limit" => "1"}}},
-                {:put, path("customer", Ecto.UUID.generate()),
-                 %{"field_values" => %{"customer_name" => "N"}}}
+                {:put, path("customer", record_id),
+                 %{"field_values" => %{"customer_name" => "N", "credit_limit" => "1"}}}
               ] do
             conn = request(method, p, ctx, b)
             assert conn.status == 403

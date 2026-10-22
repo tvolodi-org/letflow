@@ -241,6 +241,7 @@ defmodule Letflow.Entities.Records do
           required(:actor_id) => Ecto.UUID.t(),
           required(:idempotency_key) => String.t(),
           optional(:expected_last_event_global_seq) => expected_seq(),
+          optional(:preserve_keys) => MapSet.t(String.t()),
           optional(:scope) => QueryTypes.scope_set(),
           optional(:legacy_original) => Event.t()
         }
@@ -296,6 +297,7 @@ defmodule Letflow.Entities.Records do
           | {:error, {:payload_validation_failed, [term()]}}
           | {:error, :reserved_idempotency_key}
           | {:error, :reserved_attribute}
+          | {:error, :preserved_value_invalid}
           | {:error, term()}
 
   @typedoc "GH #2587: one process-step line (only `kind: :create` is accepted, D-A2.10)."
@@ -604,6 +606,13 @@ defmodule Letflow.Entities.Records do
   declared column of the new (create, update) and the stored (update, delete) document must be a
   string in the set, checked before the transaction and again inside it. Nothing is appended on
   refusal.
+
+  GH #2812: the internal `attrs.preserve_keys` (a `MapSet` of field names, default empty) carries
+  the STORED value of each named key into the written document, whatever the body holds for it,
+  before validation and before the event is built (the event stays a whole-document event). The
+  write is then always conditional: `expected_last_event_global_seq` if given, else the version
+  merged from, checked FOR UPDATE by the existing version step. A stored value that no longer
+  validates gives `{:error, :preserved_value_invalid}` (no field name reaches the caller).
   """
   @spec update_record(update_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
@@ -629,9 +638,13 @@ defmodule Letflow.Entities.Records do
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix),
          :ok <- scope_old_value(scope_ctx, existing_record),
          :ok <- ensure_not_deleted(existing_record, record_id),
-         {:ok, field_values} <- validate_field_values(definition, field_values),
+         preserve = preserve_keys(attrs),
+         merged = merge_preserved(field_values, existing_record, preserve),
+         {:ok, field_values} <- validate_merged(definition, merged, preserve),
          :ok <- scope_new_value(scope_ctx, field_values),
          :ok <- scope_new_references(scope_ctx, definition, field_values, prefix) do
+      expected = pin_expected(expected, existing_record, preserve)
+
       ctx =
         Map.merge(scope_ctx, %{
           kind: :update,
@@ -999,6 +1012,55 @@ defmodule Letflow.Entities.Records do
       do: {:error, :reserved_attribute},
       else: :ok
   end
+
+  # GH #2812: `attrs.preserve_keys` (internal, set by the router only) names the restricted keys the
+  # actor cannot see. Absent or empty = today's whole-document replace.
+  defp preserve_keys(%{preserve_keys: %MapSet{} = keys}), do: keys
+  defp preserve_keys(_attrs), do: MapSet.new()
+
+  # The stored value of a preserved key wins over anything in the body and is carried verbatim; a
+  # preserved key that is not stored stays absent.
+  defp merge_preserved(field_values, existing_record, preserve) do
+    if MapSet.size(preserve) == 0 do
+      field_values
+    else
+      stored = existing_record.field_values |> Map.take(MapSet.to_list(preserve))
+      field_values |> Map.drop(MapSet.to_list(preserve)) |> Map.merge(stored)
+    end
+  end
+
+  # With preserved keys the write is always conditional: the client's token, else the version the
+  # merge read. There is deliberately no pre-transaction comparison (it would run before the
+  # :idempotency step and break the replay rule, GH #2528/#2543); the FOR UPDATE step in
+  # `check_record_version` is the single check.
+  defp pin_expected(nil, existing_record, preserve) do
+    if MapSet.size(preserve) > 0, do: existing_record.last_event_global_seq, else: nil
+  end
+
+  defp pin_expected(expected, _existing_record, _preserve), do: expected
+
+  # A violation that names a preserved key (or no key at all, e.g. a document-level `required`)
+  # could leak a restricted name: it becomes `:preserved_value_invalid` (the router's constant 403).
+  defp validate_merged(definition, merged, preserve) do
+    case validate_field_values(definition, merged) do
+      {:error, {:record_payload_invalid, violations}} = error ->
+        if MapSet.size(preserve) > 0 and Enum.any?(violations, &touches_preserved?(&1, preserve)),
+          do: {:error, :preserved_value_invalid},
+          else: error
+
+      other ->
+        other
+    end
+  end
+
+  defp touches_preserved?(%{field_path: path}, preserve) when is_binary(path) do
+    case path |> String.split("/", trim: true) |> List.first() do
+      nil -> true
+      key -> MapSet.member?(preserve, key)
+    end
+  end
+
+  defp touches_preserved?(_violation, _preserve), do: true
 
   # D-A2.1: exact bytes; only command_multi/3 accepts the step-key family.
   defp reject_step_key(%{idempotency_key: @step_key_prefix <> _rest}),

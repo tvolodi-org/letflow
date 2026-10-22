@@ -26,7 +26,6 @@ describe('ENV-04 — ConfirmPromoteModal', () => {
     render(
       <ConfirmPromoteModal
         definitionName="Onboarding Flow"
-        productionDisplayName="Acme Production"
         onConfirm={onConfirm}
         onCancel={onCancel}
         isLoading={false}
@@ -38,7 +37,7 @@ describe('ENV-04 — ConfirmPromoteModal', () => {
     // VERDICT: Screen shows exact prescribed body text
     expect(
       screen.getByText(
-        "You are about to promote 'Onboarding Flow' to production tenant 'Acme Production'. " +
+        "You are about to promote 'Onboarding Flow' to production. " +
         "This will create a DRAFT version that requires separate activation. Confirm?",
       ),
     ).toBeVisible()
@@ -54,7 +53,6 @@ describe('ENV-04 — ConfirmPromoteModal', () => {
     render(
       <ConfirmPromoteModal
         definitionName="Onboarding Flow"
-        productionDisplayName="Acme Production"
         onConfirm={onConfirm}
         onCancel={onCancel}
         isLoading={false}

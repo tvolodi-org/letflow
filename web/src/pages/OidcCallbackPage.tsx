@@ -7,6 +7,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { setToken } from '@/api/client'
 import { decodeTokenPayload, resolveDisplayName } from '@/auth/tokenUtils'
 import { resolveRealmFromUrl } from '@/auth/tenantConfig'
+import { fetchTenantTypeForSlug } from '@/auth/tenantType'
 import { tenantsApi } from '@/api/tenants'
 import { meApi } from '@/api/me'
 import { canManageTenants } from '@/auth/access'
@@ -80,8 +81,6 @@ export default function OidcCallbackPage() {
         const realmSlug = resolveRealmFromUrl() ?? sessionStorage.getItem('bpm_realm_slug') ?? null
         let tenantDisplayName: string | null = null
         let tenantId: string | null = null
-        let tenantType: 'production' | 'test' | null = null
-        let productionTenantDisplayName: string | null = null
         // Q-1074 / GH 2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
         // Only a login whose /me/access (never the token's role claims) grants platform
         // tenant management asks for the record; every other login skips the call and shows
@@ -96,12 +95,12 @@ export default function OidcCallbackPage() {
             const tenantData = await tenantsApi.getBySlug(realmSlug)
             tenantDisplayName = tenantData?.display_name ?? null
             tenantId = tenantData?.tenant_id ?? null
-            tenantType = tenantData?.tenant_type ?? null
-            productionTenantDisplayName = tenantData?.production_tenant_display_name ?? null
           } catch {
             // non-fatal: a failed lookup leaves tenantDisplayName null, so the slug is shown below
           }
         }
+        // REQ-470: tenant_type comes from the public tenant-config for every login.
+        const tenantType = await fetchTenantTypeForSlug(realmSlug)
         setSession({
           token,
           display_name: resolveDisplayName(payload),
@@ -110,7 +109,6 @@ export default function OidcCallbackPage() {
           tenant_display_name: tenantDisplayName ?? realmSlug,
           tenant_id: tenantId,
           tenant_type: tenantType,
-          production_tenant_display_name: productionTenantDisplayName,
         })
         const restoredPath = isSafeRestorePath(user.state) ? user.state : null
         const destination =

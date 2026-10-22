@@ -31,7 +31,6 @@ function sessionWithTenant(tenantId: string | null) {
       tenant_display_name: 'Fixture Tenant',
       tenant_id: tenantId,
       tenant_type: 'test' as const,
-      production_tenant_display_name: null,
     },
   }
 }

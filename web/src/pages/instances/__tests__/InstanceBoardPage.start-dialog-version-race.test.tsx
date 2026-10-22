@@ -111,7 +111,6 @@ const TEST_SESSION = {
   tenant_display_name: 'Acme Test',
   tenant_id: 'tid-test-001',
   tenant_type: 'test' as const,
-  production_tenant_display_name: 'Acme Production',
 }
 
 const AUTH_VALUE = {

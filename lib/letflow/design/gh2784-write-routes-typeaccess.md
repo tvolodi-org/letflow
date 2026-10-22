@@ -469,7 +469,7 @@ who can start a process whose step writes that type still writes it: out of scop
 ## 14. Rulings and open questions
 
 RESOLVED (supervisor 2026-10-18/19), recorded as decisions:
-- OQ-1 RESOLVED: ship the blanket 403 for PUT by an actor holding ANY restricted field on the type now; letflow-2 files a follow-up issue for
+- OQ-1 RESOLVED (superseded by GH #2812: PUT naming no restricted key now preserves the stored restricted values under a version check): ship the blanket 403 for PUT by an actor holding ANY restricted field on the type now; letflow-2 files a follow-up issue for
   merge semantics. UAT impact: non-Anna users editing `production_batch` (restricted `cost_figure`) lose PUT.
 - OQ-2 RESOLVED: DELETE allowed but REDACTED (section 4, F1).
 - OQ-3 RESOLVED: letflow-2 is the sole filer of ONE follow-up issue covering the definition write routes, `POST /restrictions/import` and

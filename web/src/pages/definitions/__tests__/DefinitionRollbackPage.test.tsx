@@ -67,7 +67,7 @@ const VERSIONS = {
 
 function setupAdmin() {
   vi.mocked(useAuth).mockReturnValue({
-    session: { token: 't', display_name: 'op-1', loginSource: null, tenant_slug: null, tenant_display_name: null, tenant_id: null, tenant_type: null, production_tenant_display_name: null },
+    session: { token: 't', display_name: 'op-1', loginSource: null, tenant_slug: null, tenant_display_name: null, tenant_id: null, tenant_type: null},
     isAuthenticated: true,
     isLoading: false,
     loginSource: null,
@@ -99,7 +99,7 @@ describe('DefinitionRollbackPage — role gating', () => {
   it('TC-REQ371-01: non-platform-admin session redirects to /instances', () => {
     vi.mocked(useParams).mockReturnValue({ id: 'def-active-id' })
     vi.mocked(useAuth).mockReturnValue({
-      session: { token: 't', display_name: 'designer-1', loginSource: null, tenant_slug: null, tenant_display_name: null, tenant_id: null, tenant_type: null, production_tenant_display_name: null },
+      session: { token: 't', display_name: 'designer-1', loginSource: null, tenant_slug: null, tenant_display_name: null, tenant_id: null, tenant_type: null},
       isAuthenticated: true,
       isLoading: false,
       loginSource: null,

@@ -462,13 +462,12 @@ defmodule Letflow.Engine.EntityWritesGatesTest do
   end
 
   describe "B-4 negatives (TDV blocker 5)" do
-    test "the same 55P03 inside a completion WITHOUT lines keeps {:transaction_failed, _}" do
+    test "the same 55P03 inside a completion WITHOUT lines is contention too (GH #2823)" do
       base = Fx.tenant_case!("gh2587-b2neg")
       ctx = Fx.attach!(base, [])
       install_trigger!(ctx.schema, "tasks", "UPDATE", task_completed_condition(), "55P03")
 
-      assert {:error,
-              {:transaction_failed, %Postgrex.Error{postgres: %{code: :lock_not_available}}}} =
+      assert {:error, {:entity_write_refused, :contention, :entity_write_contention}} =
                Fx.complete(ctx, %{})
     end
 

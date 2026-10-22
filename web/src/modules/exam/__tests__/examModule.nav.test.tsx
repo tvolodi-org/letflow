@@ -45,7 +45,6 @@ function testSession(): UserSession {
     tenant_display_name: 'Fixture Tenant',
     tenant_id: 'tid-fixture',
     tenant_type: 'production',
-    production_tenant_display_name: null,
   }
 }
 

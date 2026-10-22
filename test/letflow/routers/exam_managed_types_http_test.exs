@@ -376,8 +376,6 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
         Letflow.Modules.Exam.answer_key_fields()
         |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
 
-      restricted_types = Map.keys(keys_by_type)
-
       for type <- @ten, roles <- [@operator, @admin] do
         label = "#{type} as #{inspect(roles)}"
 
@@ -407,7 +405,7 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
             "field_values" => values(type, 6)
           })
 
-        if type in restricted_types do
+        if Enum.any?(Map.keys(values(type, 6)), &(&1 in Map.get(keys_by_type, type, []))) do
           assert updated.status == 403, "PUT #{label}: #{updated.resp_body}"
 
           assert body_of(updated)["detail"] ==

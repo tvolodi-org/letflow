@@ -54,7 +54,6 @@ vi.mock('@/auth/AuthContext', () => ({
       tenant_display_name: 'Fixture Tenant',
       tenant_id: 'tid-entity-crud',
       tenant_type: 'test',
-      production_tenant_display_name: null,
     },
     isAuthenticated: true,
   }),

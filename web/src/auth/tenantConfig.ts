@@ -22,6 +22,8 @@ export interface TenantConfig {
   oidc_authority: string
   client_id: string
   branding?: Branding
+  /** REQ-470: 'test' | 'production'; absent or null when the tenant is unknown. */
+  tenant_type?: 'production' | 'test' | null
 }
 
 let _cachedConfig: TenantConfig | null = null
