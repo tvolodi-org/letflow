@@ -652,30 +652,36 @@ defmodule Letflow.Routers.Req317RecordAttachmentsRoutesTest do
       assert body_of(plain_conn)["items"] == body_of(spoofed_conn)["items"]
     end
 
-    test "grep: no new direct Repo call was added to lib/letflow/routers/entities.ex" do
+    test "grep: no new direct Repo call was added to the Entities router or its handler modules" do
       {output, _exit} =
-        System.cmd("grep", ["-n", "Repo\\.", "lib/letflow/routers/entities.ex"],
+        System.cmd(
+          "grep",
+          ["-rn", "Repo\\.", "lib/letflow/routers/entities.ex", "lib/letflow/routers/entities"],
           cd: File.cwd!(),
           stderr_to_stdout: true
         )
 
-      # This module has NEVER issued a Repo.* call (INV-1 moduledoc section) --
-      # REQ-317 delegates exclusively to Letflow.Repository.EntityAttachments,
-      # so this grep is expected to return nothing at all, same as before this
-      # requirement's change.
+      # The Entities router and its handler modules (record_attachments.ex,
+      # record_writes.ex, record_import.ex, support.ex) have NEVER issued a
+      # Repo.* call (INV-1 moduledoc section) -- REQ-317 delegates exclusively
+      # to Letflow.Repository.EntityAttachments, so this grep is expected to
+      # return nothing at all, same as before this requirement's change.
       assert output == "",
-             "expected zero 'Repo.' matches in lib/letflow/routers/entities.ex, got:\n#{output}"
+             "expected zero 'Repo.' matches in the Entities router and its handler modules, got:\n#{output}"
     end
 
-    test "grep: no new FieldGrants call was added to lib/letflow/routers/entities.ex by the attachment handlers" do
-      {output, _exit} =
-        System.cmd("grep", ["-n", "FieldGrants", "lib/letflow/routers/entities.ex"],
-          cd: File.cwd!(),
-          stderr_to_stdout: true
-        )
+    test "grep: no FieldGrants code call was added to the record-attachment handlers" do
+      # Comments may still mention FieldGrants (the design explains why the
+      # attachment path does not redact); only code lines count.
+      code_lines =
+        "lib/letflow/routers/entities/record_attachments.ex"
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.reject(&String.match?(&1, ~r/^\s*#/))
+        |> Enum.filter(&String.contains?(&1, "FieldGrants"))
 
-      refute output =~ "record_attachment",
-             "expected no FieldGrants reference near the record-attachment handlers, got:\n#{output}"
+      assert code_lines == [],
+             "expected no FieldGrants code call in record_attachments.ex, got:\n#{Enum.join(code_lines, "\n")}"
     end
   end
 end
