@@ -32,7 +32,7 @@ was written.
    `{:error, :reserved_idempotency_key}` (`reject_step_key/1`,
    `lib/letflow/entities/records.ex:1066`; prefix `@step_key_prefix`, line 332). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:754` and `lib/letflow/entities/handler_writes.ex:245`.
+   `lib/letflow/entities/step_writes.ex:755` and `lib/letflow/entities/handler_writes.ex:246`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1010`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -80,7 +80,7 @@ this section was written. It covers the types `catalog_uom` and `catalog_item`.
    `{:error, :reserved_idempotency_key}` (`reject_step_key/1`,
    `lib/letflow/entities/records.ex:1066`; prefix `@step_key_prefix`, line 332). Only
    `command_multi/3` accepts that key family, and it has two callers:
-   `lib/letflow/entities/step_writes.ex:754` and `lib/letflow/entities/handler_writes.ex:245`.
+   `lib/letflow/entities/step_writes.ex:755` and `lib/letflow/entities/handler_writes.ex:246`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:1010`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
