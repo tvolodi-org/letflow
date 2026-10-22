@@ -13,8 +13,8 @@ defmodule Letflow.Entities.ScriptReads do
        skips `check_reads`. The table is read schemalessly by name: this module does not call
        into the scripts context (no entities -> scripts code edge).
     1. The type has an ACTIVE definition and no `entity_type_restrictions` row; every `fields`
-       name and the `match.field` is a field of that definition; `restricted_fields` is absent
-       or empty (hook 1 has no restricted opt-in, C10).
+       name and the `match.field` is a field of that definition; `restricted_fields` (the
+       opt-in, decision 0062 R6) is a list of names of the `fields`.
     2. `R` = the type's CURRENT restricted field names (`entity_field_restrictions`), with NO
        per-user grant anti-join: the script principal has no user and holds no grants (D5).
     3. SEC N1: a `match.field` in `R` is refused. The equality filter can never act as an
@@ -92,13 +92,13 @@ defmodule Letflow.Entities.ScriptReads do
          input_vars
        )
        when is_binary(name) and is_binary(entity_type) and is_map(match) and is_list(fields) do
-    with true <- Map.get(read, "restricted_fields", []) in [[], nil],
-         true <- readable_master?(prefix, entity_type),
+    with true <- readable_master?(prefix, entity_type),
          {:ok, definition} <- active_definition(entity_type, prefix),
          false <- type_restricted?(prefix, entity_type),
          true <- known_fields?(definition, fields, match),
-         restricted = restricted_fields(prefix, entity_type),
-         false <- match_field_restricted?(match, restricted),
+         current = restricted_fields(prefix, entity_type),
+         false <- match_field_restricted?(match, current),
+         restricted = omitted_fields(current, read),
          strict = Decimals.specs_from_definition_json(definition.definition_json),
          {:ok, query} <- build_query(prefix, entity_type, match, read, input_vars, strict) do
       {:ok, %{name: name, fields: fields, restricted: restricted, query: query, strict: strict}}
@@ -157,8 +157,15 @@ defmodule Letflow.Entities.ScriptReads do
     |> MapSet.new()
   end
 
-  # SEC N1: a match field restricted NOW is refused before any record query (no opt-in exists
-  # for hook 1, C10).
+  # Decision 0062 R6: a field the read declares in `restricted_fields` is delivered even while
+  # restricted; every other restricted field stays omitted. SEC N1 still uses the full set.
+  defp omitted_fields(current, read) do
+    declared = read |> Map.get("restricted_fields", []) |> List.wrap()
+    MapSet.difference(current, MapSet.new(declared))
+  end
+
+  # SEC N1: a match field restricted NOW is refused before any record query (a declared
+  # restricted_fields entry does not lift it).
   defp match_field_restricted?(%{"field" => field}, restricted),
     do: MapSet.member?(restricted, field)
 

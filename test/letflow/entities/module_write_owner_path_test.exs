@@ -469,6 +469,29 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
 
   # ── build_call/4: the run-time recheck, arguments and the handler's return ──────────────────
 
+  describe "SR-OPT-9(d): a labelled variable is never a handler argument (decision 0062 R5)" do
+    test "a var argument whose variable carries a label is refused, nothing is written", ctx do
+      before = written(ctx)
+      labels = %{"label" => ["customer.salary"]}
+
+      assert {:error, {:line, 20, :build}, :entity_write_restriction_widened, _changes} =
+               run(ctx, entry_line(), %{"label" => "L1"}, %{variable_labels: labels})
+
+      assert written(ctx) == before
+    end
+
+    test "labels on a variable the arguments do not name, or none at all, change nothing", ctx do
+      assert {:ok, _} =
+               run(ctx, entry_line(), %{"label" => "L1"}, %{variable_labels: %{"x" => ["a.b"]}})
+    end
+
+    test "a const argument is not a variable and is never refused", ctx do
+      constant = line("post_entry", %{"item" => %{"const" => "L"}, "quantity" => %{"const" => 3}})
+
+      assert {:ok, _} = run(ctx, constant, %{}, %{variable_labels: %{"label" => ["a.b"]}})
+    end
+  end
+
   describe "build_call/4" do
     test "the install row and both hashes are re-verified at execution time, with no lock",
          ctx do

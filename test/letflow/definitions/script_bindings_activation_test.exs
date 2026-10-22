@@ -1,9 +1,10 @@
 defmodule Letflow.Definitions.ScriptBindingsActivationTest do
   @moduledoc """
   GH 2534 PR 7c-1 AC1 (definition save), AC2 and AC2a (design
-  `lib/letflow/design/gh2534-7c-script-handler.md` 4.5, C8, C10, C11a): a definition binding a
+  `lib/letflow/design/gh2534-7c-script-handler.md` 4.5, C8, C11a; C10 was lifted by decision 0062
+  part 3, SR-OPT-4/5): a definition binding a
   tenant script is refused activation unless every bound `(key, version)` is a published
-  `service_task` version with a CLOSED output schema and no restricted opt-in -- in ALL three
+  `service_task` version with a CLOSED output schema -- in ALL three
   activation paths (`Definitions.activate/2`, promotion, version rollback). Each refusal writes
   nothing. GH 2534 PR 7c-2 lifted 7c-1's `:script_reads_unsupported`: declared `reads`
   activate, and are re-checked on every run instead (design 11.3).
@@ -19,6 +20,7 @@ defmodule Letflow.Definitions.ScriptBindingsActivationTest do
   alias Letflow.Definitions.PromotionDigest
   alias Letflow.Definitions.PromotionReview
   alias Letflow.Scripts.Runtime
+  alias Letflow.Support.ScriptPolicyFixture, as: SP
   alias Letflow.Support.ScriptTaskFixture, as: F
 
   defp unique(prefix), do: "#{prefix}_#{System.unique_integer([:positive])}"
@@ -244,17 +246,23 @@ defmodule Letflow.Definitions.ScriptBindingsActivationTest do
       assert {{:ok, _}, :deprecated} = rollback_path(t.schema_name, graph)
     end
 
-    test "restricted opt-in", %{source: s, target: t} do
+    # SR-OPT-4: the 0053 C10 activation refusal is gone, in all three activation paths.
+    test "SR-OPT-4: a restricted opt-in activates in all three paths", %{source: s, target: t} do
       key = unique("k")
-      manifest = Map.put(F.closed_manifest(), "restricted_inputs", ["amount"])
-      version = version_in_status!(t.schema_name, key, :published, manifest)
 
-      assert_refused_everywhere(
-        s,
-        t,
-        F.script_graph(key, version),
-        :script_restricted_opt_in_unsupported
-      )
+      manifest =
+        Map.put(F.closed_manifest(), "restricted_inputs", [
+          %{"name" => "amount", "from" => [%{"entity_type" => "customer", "field" => "salary"}]}
+        ])
+
+      version = version_in_status!(t.schema_name, key, :published, manifest)
+      graph = F.script_graph(key, version)
+
+      assert {{:ok, %{definition: %{status: :active}}}, :active} =
+               activate_path(t.schema_name, graph)
+
+      assert {{:ok, _}, [%{status: :active}]} = promote_path(s, t, graph)
+      assert {{:ok, _}, :deprecated} = rollback_path(t.schema_name, graph)
 
       key2 = unique("k")
 
@@ -271,8 +279,117 @@ defmodule Letflow.Definitions.ScriptBindingsActivationTest do
 
       version2 = version_in_status!(t.schema_name, key2, :published, manifest2)
 
-      assert {{:error, {:script_binding_invalid, "svc", :script_restricted_opt_in_unsupported}},
-              :draft} = activate_path(t.schema_name, F.script_graph(key2, version2))
+      assert {{:ok, %{definition: %{status: :active}}}, :active} =
+               activate_path(t.schema_name, F.script_graph(key2, version2))
+    end
+  end
+
+  # ── SR-OPT-5 (activation half): decision 0062 R5a / R12 ─────────────────────
+
+  describe "SR-OPT-5: the restriction flow of an opted-in script's outputs" do
+    setup %{target: t} do
+      key = unique("k")
+
+      manifest =
+        Map.put(F.closed_manifest(), "restricted_inputs", [
+          %{"name" => "amount", "from" => [%{"entity_type" => "customer", "field" => "salary"}]}
+        ])
+
+      version = version_in_status!(t.schema_name, key, :published, manifest)
+      %{key: key, version: version}
+    end
+
+    # START -> svc (the opted-in script, output `total`) -> `extra` node -> END
+    defp flow_graph(ctx, extra) do
+      graph = F.script_graph(ctx.key, ctx.version)
+      %{graph | "nodes" => List.insert_at(graph["nodes"], 2, extra)}
+    end
+
+    defp check_flow(schema, graph) do
+      {:ok, graph} = Letflow.Definitions.Graph.from_map(graph)
+      Runtime.check_bindings(graph, schema)
+    end
+
+    defp write_node(field, var) do
+      %{
+        "id" => "task",
+        "node_type" => "HUMAN_TASK",
+        "attributes" => %{
+          "entity_writes" => [
+            %{"entity_type" => "customer", "fields" => %{field => %{"var" => var}}}
+          ]
+        }
+      }
+    end
+
+    test "a tainted output into an unrestricted entity field is refused", %{target: t} = ctx do
+      SP.restrict_field!(t.schema_name, "customer", "salary")
+
+      assert check_flow(t.schema_name, flow_graph(ctx, write_node("name", "total"))) ==
+               {:error, {:script_binding_invalid, "task", :script_output_restriction_widened}}
+    end
+
+    test "into the restricted source field itself it is accepted", %{target: t} = ctx do
+      SP.restrict_field!(t.schema_name, "customer", "salary")
+      assert check_flow(t.schema_name, flow_graph(ctx, write_node("salary", "total"))) == :ok
+    end
+
+    test "into another restricted field it is refused (the narrow predicate)",
+         %{target: t} = ctx do
+      SP.restrict_field!(t.schema_name, "customer", "salary")
+      SP.restrict_field!(t.schema_name, "customer", "ssn")
+
+      assert check_flow(t.schema_name, flow_graph(ctx, write_node("ssn", "total"))) ==
+               {:error, {:script_binding_invalid, "task", :script_output_restriction_widened}}
+    end
+
+    test "a variable the script does not output is not tainted", %{target: t} = ctx do
+      SP.restrict_field!(t.schema_name, "customer", "salary")
+      assert check_flow(t.schema_name, flow_graph(ctx, write_node("name", "other"))) == :ok
+    end
+
+    test "a tainted module_writes argument is refused", %{target: t} = ctx do
+      node = %{
+        "id" => "task",
+        "node_type" => "HUMAN_TASK",
+        "attributes" => %{
+          "module_writes" => [
+            %{"module" => "m", "handler" => "h", "args" => %{"a" => %{"var" => "total"}}}
+          ]
+        }
+      }
+
+      assert check_flow(t.schema_name, flow_graph(ctx, node)) ==
+               {:error, {:script_binding_invalid, "task", :script_output_restriction_widened}}
+    end
+
+    test "R12: a service task endpoint or body naming a tainted variable is refused",
+         %{target: t} = ctx do
+      for attrs <- [
+            %{"endpoint" => "https://example.com/{{variables.total}}"},
+            %{"endpoint" => "https://example.com", "body_template" => "{{ variables.total }}"}
+          ] do
+        node = %{"id" => "http", "node_type" => "SERVICE_TASK", "attributes" => attrs}
+
+        assert check_flow(t.schema_name, flow_graph(ctx, node)) ==
+                 {:error,
+                  {:script_binding_invalid, "http", :service_task_restricted_variable_reference}}
+      end
+    end
+
+    test "a graph without an opt-in script is not checked", %{target: t} do
+      key = unique("k")
+      version = version_in_status!(t.schema_name, key, :published, F.closed_manifest())
+      graph = F.script_graph(key, version)
+
+      node = %{
+        "id" => "http",
+        "node_type" => "SERVICE_TASK",
+        "attributes" => %{"endpoint" => "https://example.com/{{variables.total}}"}
+      }
+
+      graph = %{graph | "nodes" => List.insert_at(graph["nodes"], 2, node)}
+      assert check_flow(t.schema_name, graph) == :ok
     end
   end
 
