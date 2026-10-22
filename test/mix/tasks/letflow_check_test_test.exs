@@ -867,6 +867,31 @@ defmodule Mix.Tasks.Letflow.Check.TestTest do
       refute io =~ @target_substring
     end
 
+    test "GH #2615: a passing run echoes the budget measurement line from its partition log to the job output",
+         %{fixture_root: fixture_root, fake_bin_dir: fake_bin_dir} do
+      measurement =
+        "GH2534 budget measurement (us): new_script median=112 p95=290; full run median=640 p95=1210"
+
+      log_dir =
+        write_partition_log(fixture_root, "logs", "partition-1.log", """
+        Compiling 3 files (.ex)
+        Result: 5/5 passed
+        """)
+
+      write_partition_log(fixture_root, "logs", "partition-2.log", """
+      #{measurement}
+      Result: 3/3 passed
+      """)
+
+      install_fake_executable(fake_bin_dir, "bash", fake_runner_stdout(log_dir), 0)
+      install_wasm_hang_aware_fake_mix(fake_bin_dir)
+
+      io = run_and_capture_ok(fake_bin_dir)
+
+      assert io =~ "partition 2 #{measurement}"
+      refute io =~ "partition 1 GH2534"
+    end
+
     test "raises when the wrapper itself exits nonzero (real test failure), regardless of the substring, and prints the failing partition's full log content before raising",
          %{fixture_root: fixture_root, fake_bin_dir: fake_bin_dir} do
       log_dir =
