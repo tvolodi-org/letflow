@@ -4,8 +4,9 @@ defmodule Letflow.Scripts.HmacSecret do
   (7c) uses to HMAC a script's canonical input. Design section 9.
 
   It lives in `Letflow.Secrets` under the RESERVED `platform` namespace,
-  `sec://tenant/<slug>/platform/script-input-hmac`, purpose `:script_hmac`, and is the ONLY
-  caller that passes `platform: true` (a source-scan test checks that). It is created at tenant
+  `sec://tenant/<slug>/platform/script-input-hmac`, purpose `:script_hmac`, and is one of two
+  callers that pass `platform: true` (the other is `Letflow.Definitions.ActivatedBy`; a source-scan
+  test checks that). It is created at tenant
   provisioning and by `mix letflow.backfill_script_hmac_secrets` for existing tenants, never
   lazily during a run; the plaintext is never logged or returned by `ensure/1`.
   """
@@ -84,7 +85,7 @@ defmodule Letflow.Scripts.HmacSecret do
   captures). Every non-`{:ok, _}` outcome of the lookups, and any raise, is
   `{:error, :missing}`: never a bare match, so no `MatchError` can carry the plaintext into a
   log (SEC S3). NEVER calls `ensure/1` or `Letflow.Secrets.put/2` (D9 / advisor Q11: a key is
-  never created lazily on the run path). Still the ONLY `platform: true` caller.
+  never created lazily on the run path). Still one of the two `platform: true` callers (T-0250 added `ActivatedBy`).
   """
   @spec hmac_fun(Ecto.UUID.t()) :: {:ok, hmac_fun()} | {:error, :missing}
   def hmac_fun(tenant_id) when is_binary(tenant_id) do

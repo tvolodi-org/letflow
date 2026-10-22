@@ -127,6 +127,7 @@ defmodule Letflow.Definitions do
   alias Ecto.Multi
   alias Letflow.Api.Pagination
   alias Letflow.Audit
+  alias Letflow.Definitions.ActivatedBy
   alias Letflow.Definitions.Activator
   alias Letflow.Definitions.DefinitionSequence
   alias Letflow.Definitions.Graph
@@ -2660,13 +2661,32 @@ defmodule Letflow.Definitions do
   # activator's authority plus the (entity_type, "create") pairs of the graph's lines; nil when
   # the graph has no lines (the column stays NULL) or no activator is given (such a graph was
   # refused by check_entity_writes/3 already).
+  # T-0250: the document is SIGNED here (`ActivatedBy.sign/3`), bound to the row's id, version
+  # and graph. `{:ok, nil}` when the graph has no lines (nothing is signed, nothing is created).
   @doc false
   @spec entity_writes_activated_by(
           ProcessDefinition.t() | map(),
           EntityPort.activator() | nil,
-          DateTime.t()
-        ) :: map() | nil
-  def entity_writes_activated_by(%{graph: graph_map}, activator, %DateTime{} = now) do
+          DateTime.t(),
+          String.t()
+        ) :: {:ok, map() | nil} | {:error, term()}
+  def entity_writes_activated_by(row, activator, %DateTime{} = now, prefix) do
+    case build_activated_by(row, activator, now) do
+      nil -> {:ok, nil}
+      record -> ActivatedBy.sign(record, row, prefix)
+    end
+  end
+
+  # Rolls the enclosing transaction back on a failed sign, so a row is never made ACTIVE
+  # without a signature. Every caller runs inside a transaction.
+  defp activated_by_or_rollback(row, activator, now, prefix) do
+    case entity_writes_activated_by(row, activator, now, prefix) do
+      {:ok, activated_by} -> activated_by
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp build_activated_by(%{graph: graph_map}, activator, %DateTime{} = now) do
     case {entity_write_nodes(graph_map), activator} do
       {{:ok, declared, nodes}, %{user_id: _} = activator} ->
         module_declared = ModuleWrites.declared_nodes(nodes)
@@ -2683,7 +2703,7 @@ defmodule Letflow.Definitions do
 
           record = Activator.build_record(activator, pairs, now)
 
-          # Additive (GH #2590 R3, design 5.2): `recorded_activator/1` ignores unknown keys.
+          # Additive (GH #2590 R3, design 5.2): `recorded_activator/2` ignores unknown keys.
           case ModuleWrites.handler_names(module_declared) do
             [] -> record
             handlers -> Map.put(record, "module_handlers", handlers)
@@ -2901,7 +2921,7 @@ defmodule Letflow.Definitions do
   # discarded together on a locking failure.
   defp activate_draft(%ProcessDefinition{name: name} = draft, prefix, tenant_id, activator) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-    activated_by = entity_writes_activated_by(draft, activator, now)
+    activated_by = activated_by_or_rollback(draft, activator, now, prefix)
 
     case assign_definition_sequence(tenant_id, prefix) do
       {:ok, deprecate_seq} ->
@@ -3208,7 +3228,7 @@ defmodule Letflow.Definitions do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     # GH #2587 PR B1: the re-activating principal's authority is recorded afresh (NULL for a
     # graph without lines), never carried over from the row's earlier activation.
-    activated_by = entity_writes_activated_by(target_row, activator, now)
+    activated_by = activated_by_or_rollback(target_row, activator, now, prefix)
 
     ProcessDefinition
     |> where([d], d.id == ^current_active.id)
