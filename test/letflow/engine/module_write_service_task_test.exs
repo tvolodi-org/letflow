@@ -670,13 +670,13 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       assert_landed(ctx, "write_not_permitted", 0, "module_not_installed")
     end
 
-    test "a tenant not replayed to TASK_ENTITY_WRITES_APPLIED v2 lands ERROR: event_schema_outdated" do
+    test "a tenant not replayed to TASK_ENTITY_WRITES_APPLIED v3 lands ERROR: event_schema_outdated" do
       ctx = Mw.service_case!("gh2590-r5-schema", :svc_module)
 
       {1, _} =
         Repo.delete_all(
           from(e in "event_type_registry",
-            where: e.name == "TASK_ENTITY_WRITES_APPLIED" and e.schema_version == 2
+            where: e.name == "TASK_ENTITY_WRITES_APPLIED" and e.schema_version == 3
           ),
           prefix: ctx.schema
         )

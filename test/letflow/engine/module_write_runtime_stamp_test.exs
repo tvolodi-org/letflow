@@ -172,14 +172,29 @@ defmodule Letflow.Engine.ModuleWriteRuntimeStampTest do
     assert_refused(ctx, 0, :module_not_installed)
   end
 
-  test "a tenant not replayed to TASK_ENTITY_WRITES_APPLIED v2 is refused: event_schema_outdated" do
+  test "a tenant not replayed to TASK_ENTITY_WRITES_APPLIED v3 is refused: event_schema_outdated" do
     ctx = Mw.case!("gh2590-r4b-rs-schema", :module)
 
     {1, _} =
       Repo.delete_all(
         from(e in "event_type_registry",
-          where: e.name == "TASK_ENTITY_WRITES_APPLIED" and e.schema_version == 2
+          where: e.name == "TASK_ENTITY_WRITES_APPLIED" and e.schema_version == 3
         ),
+        prefix: ctx.schema
+      )
+
+    assert_refused(ctx, 0, :event_schema_outdated)
+  end
+
+  test "a tenant still at the R4a v2 row is refused: event_schema_outdated" do
+    ctx = Mw.case!("gh2671-rs-stale-v2", :module)
+
+    {1, _} =
+      Repo.update_all(
+        from(e in "event_type_registry",
+          where: e.name == "TASK_ENTITY_WRITES_APPLIED" and e.schema_version == 3
+        ),
+        [set: [schema_version: 2]],
         prefix: ctx.schema
       )
 

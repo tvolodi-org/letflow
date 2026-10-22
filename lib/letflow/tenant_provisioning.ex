@@ -1538,13 +1538,18 @@ defmodule Letflow.TenantProvisioning do
       name: "TASK_ENTITY_WRITES_APPLIED",
       # v2 (GH #2590 / REQ-501 R4a): bumped IN PLACE (a v1 entry kept beside v2 would fail
       # every replay with :schema_version_not_monotonic for a tenant already at v2).
-      schema_version: 2,
+      # v3 (GH #2671): the handler key is renamed `handler_name` and the three handler keys
+      # become all-or-none. A rename is not additive and Registry.register_type refuses an equal
+      # version, so a tenant already holding the R4a v2 row only gets it as a new version; v2 is
+      # replaced in place in the seed, same as v1 above.
+      schema_version: 3,
       description:
         "Emitted by Letflow.Engine (decision 0054, GH #2587) when a HUMAN_TASK or " <>
           "SERVICE_TASK step's declared entity writes commit: ids and sequences only, no " <>
           "field value. Replay changes no state for it and never re-executes a write. " <>
-          "Version 2 adds three line-item keys (all or none) naming the module handler that " <>
-          "produced a line; every v1 payload is also a valid v2 payload.",
+          "Version 3 carries three line-item keys (handler_module, handler_name, write_ordinal; " <>
+          "all or none) naming the module handler that produced a line; every v1 payload is " <>
+          "also a valid v3 payload.",
       json_schema: %{
         "type" => "object",
         "properties" => %{

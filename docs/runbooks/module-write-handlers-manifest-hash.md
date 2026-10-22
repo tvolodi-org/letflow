@@ -45,7 +45,7 @@ whenever handler behaviour changes.
 | Rolling back to an older stamped version, or a promotion apply | the same 422 |
 | A tenant whose module was installed before the hash column existed (pre-R2 install, no recorded hash) | the same 422 on activation: reinstall the module (OQ-R7, no backfill) |
 | Completing an in-flight task of a handler-calling definition (R4b onward) | 403 `write_not_permitted` with the handler call's DECLARED `line_index` (declarative lines come first, so a node with N declarative lines reports N for its first handler call); the task stays `pending`; nothing is committed; the tenant audit log has an `entity_write.refused` entry with detail `hash_mismatch` (the detail also reads `hash_mismatch` when the install row has no recorded hash) |
-| A completion on a tenant that was never replayed to the `TASK_ENTITY_WRITES_APPLIED` v2 event schema | the same 403; audit detail `event_schema_outdated`; run `TenantProvisioning.replay_all_pending/0` (see Rollout) |
+| A completion on a tenant that was never replayed to the `TASK_ENTITY_WRITES_APPLIED` v3 event schema | the same 403; audit detail `event_schema_outdated`; run `TenantProvisioning.replay_all_pending/0` (see Rollout) |
 | A completion whose stamp, installed module, handler or pinned graph no longer matches | the same 403; audit detail `stamp_missing`, `stamp_mismatch`, `module_not_installed`, `handler_unknown`, `body_changed`, `arg_unknown` or `arg_missing` |
 | Completing a SERVICE_TASK node that calls handlers (R5) | there is no request and no task that can stay pending: the instance goes to ERROR with one DLQ entry `{"line_index", "code": "write_not_permitted", "dispatch_id"}` and an `entity_write.refused` audit entry with the same detail atoms as above; the service result is not applied. Re-driving the instance after the cause is fixed is a separate operator action |
 | A handler that rejects its arguments | 422 `validation_failed`, same `line_index`; audit detail `handler_invalid_arguments` |
@@ -71,12 +71,12 @@ contain a hash; compare `tenant_modules.manifest_hash` with the build's
 ## Rollout: replay every tenant BEFORE deploying a build that emits handler lines
 
 A handler write adds three keys (`handler_module`, `handler_name`, `write_ordinal`; all three or none, GH #2671) to the lines
-of the `TASK_ENTITY_WRITES_APPLIED` instance event. Only schema version 2 of that event type accepts
-them, and a tenant gains v2 ONLY when `Letflow.TenantProvisioning.replay_all_pending/0` has run for
+of the `TASK_ENTITY_WRITES_APPLIED` instance event. Only schema version 3 of that event type accepts
+them, and a tenant gains v3 ONLY when `Letflow.TenantProvisioning.replay_all_pending/0` has run for
 it (provisioning and onboarding run the same replay, and `Letflow.TenantProvisioning.MigrationReplayBoot` runs it on every boot and always lets boot complete, so a failed boot replay is recorded, not fatal: GH #2727 persists the failure per tenant, readable with `bin/letflow rpc "Letflow.TenantProvisioning.list_replay_failures()"` (tenant id, fixed reason code, time; `[]` = clean). A later successful replay clears the entry.)
 Before the first build that lets a tenant complete a handler-calling task is deployed, run
 `replay_all_pending/0`, confirm `list_replay_failures/0` returns `[]`, and confirm every tenant's highest `TASK_ENTITY_WRITES_APPLIED` version in
-`event_type_registry` is 2. The engine refuses a handler completion on a tenant without v2
+`event_type_registry` is 3 (v2 is the R4a row: it uses the key `handler` and has no all-or-none rule, so a tenant at v2 is refused too). The engine refuses a handler completion on a tenant without v3
 (403 `write_not_permitted`, audit detail `event_schema_outdated`, nothing committed): that refusal
 is the fail-closed backstop, not the plan. Decision 0055 (rollout): `replay_all_pending/0` must
 have run for ALL existing tenants before any build that emits handler lines (R4b onward) is

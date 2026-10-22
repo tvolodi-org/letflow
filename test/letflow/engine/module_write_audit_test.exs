@@ -186,7 +186,7 @@ defmodule Letflow.Engine.ModuleWriteAuditTest do
   end
 
   describe "the APPLIED event, the history response and the audit trail" do
-    test "one v2 APPLIED event; handler lines carry the handler keys and no field value" do
+    test "one v3 APPLIED event; handler lines carry the handler keys and no field value" do
       ctx = Mw.case!("gh2590-r4b-au-applied", :mixed)
       assert {:ok, _} = Fx.complete(ctx, %{"label" => "secret-value-1"})
 
@@ -331,7 +331,7 @@ defmodule Letflow.Engine.ModuleWriteAuditTest do
     end
   end
 
-  test "the APPLIED event is validated against the v2 schema (TDV T5)" do
+  test "the APPLIED event is validated against the v3 schema (TDV T5)" do
     ctx = Mw.case!("gh2590-r4b-au-v2", :module)
     assert {:ok, _} = Fx.complete(ctx, %{"label" => "L1"})
 
@@ -340,7 +340,7 @@ defmodule Letflow.Engine.ModuleWriteAuditTest do
     assert Letflow.EventStore.Registry.max_schema_version(
              "TASK_ENTITY_WRITES_APPLIED",
              ctx.schema
-           ) == 2
+           ) == 3
 
     assert [applied] =
              Fx.instance_events(ctx.schema, ctx.instance_id, "TASK_ENTITY_WRITES_APPLIED")
