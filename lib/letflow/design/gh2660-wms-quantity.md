@@ -1,14 +1,14 @@
 # GH #2660 / REQ-504 -- WMS quantity rules (3 of 4): exact decimal strings, scale per unit of measure, rounding rule, conversion at posting, the (base, original, unit) triple, item tolerance
 
-Author: CODE-DESIGNER, 2026-10-19. Revision 3, final (on top of revision 2 `1331249e` and revision 1 `1ca191e5`; section 15 maps every CDV and SECURITY finding of all rounds). Branch `docs/GH-2660-wms-quantity-design`,
-from `origin/main` `a614e9c1`. Design only: signatures, type shapes, column and constraint lists, step lists, test briefs. No function bodies. Nothing here was run
+Author: CODE-DESIGNER, 2026-10-19. Revision 4 (T-0177, 2026-10-22: independent validation pass of revision 3 and citation refresh on `main` `2af2bac7c`; no design change, section 15.3), on top of revision 3 `848993c7` (on top of revision 2 `1331249e` and revision 1 `1ca191e5`; section 15 maps every CDV and SECURITY finding of all rounds). Branch `docs/GH-2660-wms-quantity-design`,
+from `origin/main` `a614e9c1`; the #2654 citations (E1-E16) and N1/N2 were re-read again on `2af2bac7c` in revision 4. Design only: signatures, type shapes, column and constraint lists, step lists, test briefs. No function bodies. Nothing here was run
 (docs only; the host is memory-starved and mix is not used). Every claim about existing code carries a `file:line` re-read on `a614e9c1`
 (worktree `C:\Users\tvolo\AppData\Local\Temp\wt2660`), a citation to what #2654 DELIVERED (it is done), or is marked NOT FOUND or NOT VERIFIED.
 Path shorthand: `decimals.ex` = `lib/letflow/entities/record/decimals.ex`; `validator.ex` (record) = `lib/letflow/entities/record/validator.ex`.
 
 Sources: issue #2660 (body, updates of 2026-10-17 and 2026-10-18); decisions 0057 D4, D9, D10 (`docs/migration/decisions/0057-wms-customer-draft-reconciliation.md:16,44-48`
 and the D10 addendum), 0058 (c), 0060 (items 1-6 and "Not decided here"), 0050; `lib/letflow/design/gh2654-decimal-exact-strings.md` (cited `gh2654...md`);
-the ledger-core note **revision 5, `04a0dae9`, PR #2873, NOT on main** (cited `gh2657...md` with ITS section numbers; read in `C:\Users\tvolo\AppData\Local\Temp\wt2657`);
+the ledger-core note **revision 5, on main since PR #2873 (`97e5cde75`)** (cited `gh2657...md` with ITS section numbers; its section list re-read in revision 4);
 issues #2657, #2658 (with the alignment comment of 2026-10-19), #2661-#2664; base document `docs/WMS/WMS_Procurement_Requirements_Draft.md`
 (MD-01 :60, MD-07 :66, MD-08 :67, stock dimensions :40); mapping `docs/migration/wms-customer-draft-mapping-20261016.md:57`.
 
@@ -34,19 +34,19 @@ issues #2657, #2658 (with the alignment comment of 2026-10-19), #2661-#2664; bas
 
 | # | Fact | Source |
 |---|---|---|
-| E1 | `decimal_strict` is a per-field opt-in, default false; immutable once the type has any record; WMS declares it from its first definition | 0060 items 1, 4, 6; `lib/letflow/entities/definitions.ex:471-...` (gate), `lib/letflow/entities/definition/validator.ex:470-540` (Rule 7), `lib/letflow/entities/managed_types/stamp.ex:97,584-607,651` |
+| E1 | `decimal_strict` is a per-field opt-in, default false; immutable once the type has any record; WMS declares it from its first definition | 0060 items 1, 4, 6; `lib/letflow/entities/definitions.ex:492-623` (gate, `decimal_strict_in_play?` :608), `lib/letflow/entities/definition/validator.ex:466-540` (Rule 7), `lib/letflow/entities/managed_types/stamp.ex:97,584-607,651` |
 | E2 | Write grammar for a strict field: a binary of at most 1100 bytes matching `^-?(0|[1-9][0-9]*)(\.[0-9]+)?$` (no exponent, no `+`, no whitespace), or a JSON integer; every JSON float refused with constraint `type` | `decimals.ex:41-44, 120-121, 130-148`; 0060 item 2 |
 | E3 | Value-based digit rule: trailing zeros dropped first, then more fractional digits than `decimal_scale` is `scale`, more integer digits than `precision - scale` is `precision`; NEVER rounded; order type -> scale -> precision -> min/max | `decimals.ex:156-166`; `gh2654...md` section 3 |
-| E4 | Stored, event, response and read form is the canonical scale-padded string (`"2.5"` -> `"2.50"`, `3` -> `"3.00"`, `-0.00` -> `0.00`) | `decimals.ex:189-209, 392`; `lib/letflow/entities/records.ex:1830-1838`; `validator.ex:96-114` |
+| E4 | Stored, event, response and read form is the canonical scale-padded string (`"2.5"` -> `"2.50"`, `3` -> `"3.00"`, `-0.00` -> `0.00`) | `decimals.ex:189-209, 392`; `lib/letflow/entities/records.ex:1996` (`validate_field_values/2`, returns the NORMALISED map; callers :419, :524, :863, :1115); `validator.ex:96-114` |
 | E5 | Strict field subschema is `{"type":"string"}`; non-strict stays `{"type":"number"}` | `validator.ex:134-135` |
 | E6 | Bounds `min`/`max`/`non_negative` use `Decimal.compare/2`, INCLUSIVE; a strict bound may be a string | `decimals.ex:99-116, 399-405`; `definition/validator.ex:611-616` |
-| E7 | Filters coerce the literal to an exact Decimal; a float literal is `invalid_decimal_value` (422) | `lib/letflow/entities/query/compiler.ex:468-503`; `decimals.ex:336-347` |
-| E8 | Sort casts the stored text; a tampered cursor on ANY decimal field is a cursor error | `compiler.ex:642-660`; `lib/letflow/entities/query/cursor.ex:353-370` |
-| E9 | Aggregates: `sum`/`min`/`max` and a `group_by` key of a strict field padded to the field scale; `avg` UNPADDED | `compiler.ex:894-925, 1048`; `lib/letflow/entities/query/allowlist.ex:444-454` |
-| E10 | HTTP reads, JSON export and ScriptReads render strict fields as strings from the DEFINITION's specs | `lib/letflow/routers/entities.ex:3136-3156, 3372-3376, 3427-3432`; `lib/letflow/entities/script_reads.ex:102, 223-233, 296-308` |
+| E7 | Filters coerce the literal to an exact Decimal; a float literal is `invalid_decimal_value` (422) | `lib/letflow/entities/query/compiler.ex:468-507`; `decimals.ex:336-347` |
+| E8 | Sort casts the stored text; a tampered cursor on ANY decimal field is a cursor error | `compiler.ex:646-664`; `lib/letflow/entities/query/cursor.ex:358-371` |
+| E9 | Aggregates: `sum`/`min`/`max` and a `group_by` key of a strict field padded to the field scale; `avg` UNPADDED | `compiler.ex:894-925, 1052`; `lib/letflow/entities/query/allowlist.ex:466` (`strict_decimal_scale`) |
+| E10 | HTTP reads, JSON export and ScriptReads render strict fields as strings from the DEFINITION's specs | `lib/letflow/routers/entities.ex:1848, 1856, 2101` and `lib/letflow/routers/entities/support.ex:34` (`Decimals.render_field_values/2`, `decimals.ex:268-280`); `lib/letflow/entities/script_reads.ex:102, 223-225, 299-304` |
 | E11 | `Decimals.to_decimal/1` and `render_value/2` (accepts `%Decimal{}`, number or string; never raises; with more digits than `scale` it prints plain notation UNPADDED via `Decimal.to_string(_, :normal)`) | `decimals.ex:290-309, 319-328` |
 | E12 | Decimal is 3.1.1; its default context is precision 34, `half_up`; `mult`, `add`, `sub`, `abs`, `negate`, `round` and `normalize` end in `context()` and so read the CALLING PROCESS's context (process dictionary) and round at its precision; `Decimal.compare/2` is context-free (it compares adjusted exponents and padded coefficients); `Context.with/2` does `Process.put`; `Decimal.to_string/1` defaults to SCIENTIFIC and `Jason.Encoder` for `Decimal` uses it | `mix.lock:4`; `deps/decimal/lib/decimal/context.ex` (`defstruct precision: 34`; `with/2`); `deps/decimal/lib/decimal.ex:324` (`abs`), `:363-390` (`add`), `:1145-1147` (`negate`), `:1224-1230` (`mult`), `:1272-1290` (`normalize`), `:1304-1318` (`round/3`), `:506-535` (`compare/2`), `:1686` (`to_string`); `deps/jason/lib/encoder.ex:227-230` |
-| E13 | `HandlerWrites.create/3` writes through `command_multi/3`, so a handler-created record passes the strict pre-pass | `lib/letflow/entities/handler_writes.ex:138-149`; `records.ex:1836` |
+| E13 | `HandlerWrites.create/3` writes through `command_multi/3`, so a handler-created record passes the strict pre-pass | `lib/letflow/entities/handler_writes.ex:139-150`; `records.ex:856-863` |
 | E14 | Per-unit-of-measure scale is NOT a core concern; field scale is the maximum, the module narrows through the public parser | 0060 "Not decided here"; `gh2654...md` section 9, D8 |
 | E15 | StreamData is a test dependency; property tests exist | `mix.exs:62`; `test/letflow/api/pagination_test.exs:11` |
 | E16 | `Decimals.reduce/1` is `defp` (private) and `Decimals.parse/3` returns the REDUCED value (may have a positive exponent) | `decimals.ex:170-177, 164` |
@@ -55,8 +55,8 @@ issues #2657, #2658 (with the alignment comment of 2026-10-19), #2661-#2664; bas
 
 | # | Item | Evidence |
 |---|---|---|
-| N1 | A unit master with a decimal scale: no module `Letflow.Modules.CatalogItems`, no `catalog_uom` definition with `decimal_scale`. `lib/letflow/modules/` holds the registry files (`catalog.ex`, `installs.ex`, ...) and `exam/`; `priv/modules/` holds `exam/`. The names `catalog_uom`/`catalog_item` exist only as name-only fixtures (`priv/module_fixtures/managed_foundation.json:105`; `lib/letflow/design/req496-managed-by-and-scope-node-paths.md:274`). #2663 is OPEN and says the unit scale and conversion factors "are NOT here: #2660"; #2664 `item_uom_valid?` allows only the base unit | `ls lib/letflow/modules priv/modules`; the issue bodies |
-| N2 | `Letflow.Ledger`, any `ledger_*` table, `quantity_original`, `conversion_factor` | design only (PR #2873) |
+| N1 | A unit master WITH a decimal scale. `Letflow.Modules.CatalogItems` now exists (#2663 merged; revision 3 of this note said it did not): it ships `catalog_uom` (unique `code`, import key) and `catalog_item` (`base_uom_id`, `kind`) but NO `decimal_scale`, `dimension`, factor, rounding or tolerance field; its moduledoc and `priv/modules/catalog_items/entity_definitions/catalog_uom.json` say "The unit scale and conversion factors are REQ-504 (#2660), not here"; `item_uom_valid?` (#2664, `catalog_items.ex`) allows only the base unit. The design consequence is unchanged: the static `units` table of 4.1 stays the L1-L4 source | `grep -rn "decimal_scale\|catalog_uom" lib/letflow/modules/catalog_items priv/modules/catalog_items/entity_definitions`: only the "not here" comments and the module's own `catalog_uom` references; no `decimal_scale` field on `catalog_uom` |
+| N2 | `Letflow.Ledger`, any `ledger_*` table, `quantity_original`, `conversion_factor` | design only (`gh2657...md`, on main via PR #2873); `ls lib/letflow \| grep -i ledger` is empty |
 | N3 | Any rounding or unit-conversion code | no `Decimal.round`, `Decimal.mult`, `Decimal.div` in `lib/` (searched) |
 | N4 | Any item tolerance, rounding rule, alternate unit, item class | no field or module |
 | N5 | A read facade for handlers | `gh2590-req501-module-write-handlers.md` OQ-R4; `gh2657...md` V1, 14.6 |
@@ -465,7 +465,7 @@ Generators draw coefficients and exponents within the caps of 4.2 only; the orac
 * **Audit/telemetry (SEC 9).** `ledger.posted` carries `excepted_leg_count` and `tolerance_leg_count` (numbers); no `%Decimal{}` or quantity in `details`, telemetry, logs or audit (T-ERR-3 of the ledger note extended).
 * **Trust statement.** In L1-L4 the stored `command` factor, `exception_ref` and the reference quantity remain client evidence: bounded (`factor_min/max`), gated (permissions), counted (audit) and reported
   (`factor_drift`), not verified. The base quantity is authoritative for the balance once posted. L7 (which gates the pilot) replaces this with master reads. Whether the factor can come from a variable the completer
-  cannot overwrite (`script_reads.ex:102, 296-308`) is NOT VERIFIED (N6).
+  cannot overwrite (`script_reads.ex:102, 299-304`) is NOT VERIFIED (N6).
 
 ## 8. Amendments to the #2657 note, revision 5 (complete list; this note does not edit that file)
 
@@ -595,16 +595,16 @@ example from the requirement.
 | Security, INV-2/4/5/7/8 | section 7 |
 | Amendments to #2657, effect on #2658 | sections 8, 9 |
 | Slicing, out of scope, OQs, customer input | sections 10, 12 |
-| CODE-DESIGN-VALIDATOR passes | pending |
+| CODE-DESIGN-VALIDATOR passes | rev 1 and rev 2 FAILED (findings closed in 15.1, 15.2); rev 3 re-validated independently in T-0177 (15.3): findings fixed here in rev 4 |
 
 ## 14. Risks for CODE-DESIGN-VALIDATOR to attack first
 
 1. 4.4: the arithmetic contract (integer carrier forms plus `Decimal.compare/2` only) and that the policy allowlist (A15) can still express `declare/2` through `Policy` delegates alone.
 2. 4.4 table C1-C12: completeness of the registration-relative core checks (is any relation still trusted from the policy?), especially `:audit` mode versus scale increases.
-3. 4.5: the tripwire CHECK `abs(abs(quantity_original) * conversion_factor - abs(quantity)) < 10 ^ (-quantity_scale)` for all five modes and for reversals; behaviour of `10 ^ (-n)` as Postgres numeric.
+3. 4.5: the tripwire CHECK `abs(abs(quantity_original) * conversion_factor - abs(quantity)) * power(10::numeric, quantity_scale::numeric) < 1` for all five modes and for reversals (the `10 ^ (-n)` form of revision 2 is NOT used, CDV 3).
 4. 4.6: tolerance value from the registration only (per base unit, not per item), the exception permission in the authority step, and the partial-control wording until L7.
 5. 4.1/4.4: the `pack` dimension rule with `factor_min/max` as the bound on unverified factors.
-6. Amendments A1-A33 against a note (revision 5) that is still under review on PR #2873.
+6. Amendments A1-A33 against the ledger note revision 5 (merged, PR #2873; section headings re-read in revision 4).
 7. Practice citations are not verified at clause level (N7).
 
 ## 15. Revision map: every CDV and SECURITY finding
@@ -654,3 +654,17 @@ example from the requirement.
 | SEC 8 CSV | done | as F7, plus text columns always neutralised: 4.8, A11 |
 | SEC 9 wire rendering and details | done | `to_wire` only; no `%Decimal{}`/quantity in details, telemetry, audit: 4.8, A21 |
 | SEC checklist Q1-Q4 | done | section 10, A22 |
+
+### 15.3 Revision 4 (T-0177, 2026-10-22): independent validation pass of revision 3 on `main` `2af2bac7c`
+
+Scope: acceptance criteria of #2660 against merged #2761 (`49f43759`, PR-1), #2770 (`e6dc2419`, PR-2), decision 0060 and the code. Result: every rev 1 and rev 2 finding above is closed in the text of revision 3 (each "done" row was matched to its section: 4.1 rule 12, 4.2 carrier form, 4.4 table C1-C12 and `:audit` mode, 4.5 `power(10::numeric, ...)` tripwire, `registration_hash`, A26-A33, T-Q2/T-Q2b/T-Q8/T-Q9/T-Q13/T-Q15/T-Q17). Defects found in revision 3 and fixed here (wording and citations only, no design change):
+
+| Finding | Status | Where |
+|---|---|---|
+| V-1 header and Sources said the ledger note is "NOT on main", risk 6 said "under review on PR #2873"; it is merged (`97e5cde75`) | fixed | header, Sources, section 14 item 6 |
+| V-2 N1 said no `Letflow.Modules.CatalogItems` exists; #2663 merged it, with `catalog_uom` but no `decimal_scale`; the conclusion (static `units` table in L1-L4) stands | fixed | N1, N2 |
+| V-3 stale line pins after code moved: `routers/entities.ex:3136-3156, 3372-3376, 3427-3432` (read rendering now `routers/entities.ex:1848, 1856, 2101`, `routers/entities/support.ex:34`, `Decimals.render_field_values/2` `decimals.ex:268-280`), `records.ex:1830-1838` (now `validate_field_values/2` `records.ex:1996`), `definitions.ex:471` (gate now `:492-623`), `script_reads.ex:296-308` (now `:299-304`), `cursor.ex:353-370`, `allowlist.ex:444-454`, `handler_writes.ex:138-149`, `compiler.ex` offsets | fixed | E1, E4, E7-E10, E13 |
+| V-4 section 14 item 3 still quoted the revision 2 tripwire `< 10 ^ (-quantity_scale)` that CDV 3 replaced | fixed | section 14 |
+| V-5 AC map row "CODE-DESIGN-VALIDATOR passes" said pending | fixed | section 13 |
+
+No wording in the note says #2654 "plans" or "will" provide anything: every #2654 fact is E1-E16 with a code citation, and the one #2654 choice the test plan depends on is the merged one (a JSON float is refused with constraint `type`, `decimals.ex:130-148`; digits beyond scale are refused, never rounded, `decimals.ex:156-166`; decision 0060 item 2). Section 2 and T-Q1/T-Q2 assert exactly that, and name it as the assumed choice. The cable case (2.5 m, absolute tolerance 0.05 m in the base unit, percent NOT supported, 4.6/OQ-Q3) is T-Q6 E0, the two-rounding-rule case is T-Q6 E5 with T-Q3.
