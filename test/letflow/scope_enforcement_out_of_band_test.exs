@@ -613,7 +613,7 @@ defmodule Letflow.ScopeEnforcementOutOfBandTest do
 
       {task, pid} = Locks.start_worker(fn -> go(fx, :shadow) end)
       Locks.wait_for_blocked([pid], 1)
-      assert barrier_pid in Locks.blockers(pid)
+      Locks.await_blocked_by(pid, [barrier_pid])
       # nothing is committed while it waits
       assert BG.mode(fx) == "on"
 
@@ -632,7 +632,7 @@ defmodule Letflow.ScopeEnforcementOutOfBandTest do
 
       {task, pid} = Locks.start_worker(fn -> go(fx, :off) end)
       Locks.wait_for_blocked([pid], 1)
-      assert barrier_pid in Locks.blockers(pid)
+      Locks.await_blocked_by(pid, [barrier_pid])
 
       # T is not held by the waiting command: a second connection takes it at once
       assert {:ok, %{num_rows: 1}} =
