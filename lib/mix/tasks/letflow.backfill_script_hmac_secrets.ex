@@ -14,7 +14,8 @@ defmodule Mix.Tasks.Letflow.BackfillScriptHmacSecrets do
 
       mix letflow.backfill_script_hmac_secrets
 
-  No arguments. Idempotent: a tenant that already has an active key is left alone. Prints
+  Release form (no Mix): `bin/letflow eval "Letflow.Release.backfill_script_hmac_secrets()"`
+  (`Letflow.Release`, GH #2567). No arguments. Idempotent: a tenant that already has an active key is left alone. Prints
   counts only, never a key. Exits non-zero if any tenant fails.
   """
 
@@ -55,11 +56,19 @@ defmodule Mix.Tasks.Letflow.BackfillScriptHmacSecrets do
       Enum.reduce(registrations, {0, 0, []}, fn %{tenant_id: tenant_id}, {c, p, f} ->
         cond do
           HmacSecret.exists?(tenant_id) -> {c, p + 1, f}
-          HmacSecret.ensure(%{id: tenant_id}) == :ok -> {c + 1, p, f}
+          ensure(tenant_id) == :ok -> {c + 1, p, f}
           true -> {c, p, [tenant_id | f]}
         end
       end)
 
     {created, present, Enum.reverse(failed)}
+  end
+
+  # A tenant whose secret cannot be written (unknown tenant, missing master key) is a counted
+  # failure, never a raise that aborts the others; no exception text is kept (INV-4, INV-8).
+  defp ensure(tenant_id) do
+    HmacSecret.ensure(%{id: tenant_id})
+  rescue
+    _exception -> :error
   end
 end
