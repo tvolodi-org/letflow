@@ -1,0 +1,165 @@
+# T-0224 (BA): TENANT ADMIN group, scenario 1 of 3, and the SETUP of the role matrix. Runs on the test customer of the
+# foundation group, after operator-1..3 (order: see platform/operator-1-manage-tenants.yaml).
+#
+# Aliases used by the whole group (every one is a person created in THIS scenario through the product, except
+# tenant_admin, who is the first administrator that bound at foundation-3). All are actor-any because the roster has
+# no entry for them (open decision D-2 of the foundation group: record the tooling-created logins in
+# test/fixtures/uat/actors.yaml; this task does not widen the roster):
+#   designer, operator, worker_a (approves), worker_b (releases), agent_runner, candidate, auditor.
+#
+# TEST-TOOLING STEP (the only one outside the product): step 1. The product has no identity-provider admin client until
+# Phase 3 (decision 0044), so the UAT-only Keycloak client (UAT_KC_ADMIN_CLIENT_ID / UAT_KC_ADMIN_CLIENT_SECRET, as in
+# foundation-2) creates one LOGIN per person in the test customer's realm, with a fixed test e-mail address on a
+# mailbox-less domain. The person's ACCOUNT, group and roles are made by the tenant admin through the product
+# (steps 2 to 6). An account is bound to its login at the person's first sign-in (step 8).
+#
+# UAT assumptions, to be confirmed by the process owner (nothing in the sources settles them):
+#   A-1 The realm role of the login (if any) plays no part: the tenant admin gives the built-in role through the
+#       group, as docs/roles.md says (TENANT_ADMIN paragraph, decision 0046 D5/D10).
+#   A-2 AGENT_RUNNER is "machine accounts ... no human" (docs/roles.md). The UAT creates it as an ordinary account
+#       in a group. If the product does not allow a group with that role for a user account, the steps for agent_runner
+#       are BLOCKED and the matrix keeps the refusal rows for it as written.
+#   A-3 Group names below are UAT names; the built-in role set is closed (0046 D10), so only these eight roles exist.
+# Sources: docs/roles.md; decision 0046 D5/D10; lib/letflow/routers/identity.ex (users, groups, group members, roles
+# are the user-and-group permissions that only TENANT_ADMIN and PLATFORM_ADMIN hold per the roles matrix).
+---
+id: tenant-administration-1-people-groups-and-roles
+scope: tenant-administration
+title: The customer's administrator creates the people, the groups and the roles of the company, and the people sign in with exactly those roles
+version: "1.0"
+tags: [tenant-admin, identity, users, groups, roles, setup]
+
+description: >
+  The administrator of the test customer builds the company: one account per person, one group per
+  built-in role, and two working groups for the approval and release steps of the role matrix. Each
+  person then signs in once and can see only what their role allows. The administrator also looks at
+  the audit trail of what they did. The eight built-in roles are the whole menu: the administrator
+  cannot invent a ninth.
+
+actors:
+  tenant_admin: actor-any
+  uat_tooling: actor-system-uat-keycloak
+  designer: actor-any
+  operator: actor-any
+  worker_a: actor-any
+  worker_b: actor-any
+  agent_runner: actor-any
+  candidate: actor-any
+  auditor: actor-any
+
+preconditions:
+  - description: Foundation 3 passed in this run, so tenant_admin is administrator of the test customer; operator-2 left the customer active
+    check: custom
+    detail: If the administrator never bound, report BLOCKED, not PASS.
+  - description: The customer's realm accepts logins created by the UAT-only client (foundation D-1 and D-2 decided)
+    check: custom
+    detail: If the UAT client may not create logins in that realm, report BLOCKED, not FAIL.
+
+steps:
+  - step: 1
+    actor: uat_tooling
+    action: >
+      TEST-TOOLING STEP (outside the product): with the UAT-only identity-provider client, create seven
+      logins in the test customer's realm (designer, operator, worker_a, worker_b, agent_runner,
+      candidate, auditor), each with a fixed test e-mail address on a mailbox-less test domain, that
+      address marked as confirmed, and no built-in role set on the login. Keep the addresses.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator creates the seven people's accounts in the company, each with the matching
+      e-mail address and name.
+    via: gui
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator creates one group for each of six built-in roles: process designer,
+      process operator, task worker, agent runner, candidate, tenant auditor. The administrator's own
+      group already carries the tenant administrator role. The eighth role, platform administrator,
+      is never given inside a customer.
+    via: gui
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator creates two working groups for the matrix process, "uat-approvers" and
+      "uat-releasers", each carrying its own routing role of the same name, and no built-in role.
+    via: gui
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator puts each person in the group of their role: designer, operator, auditor,
+      agent_runner, candidate each in their own group; worker_a and worker_b in the task worker group.
+      Then worker_a and operator go into "uat-approvers", and worker_b into "uat-releasers".
+    via: gui
+  - step: 6
+    actor: tenant_admin
+    action: The administrator opens the list of groups with their members and roles and checks it against the plan of step 5.
+    via: gui
+  - step: 7
+    actor: tenant_admin
+    action: The administrator tries to create a ninth built-in role, "uat-super-user", with every permission.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: designer
+    action: Each of the seven people signs in once (in turn), and asks the platform which roles they hold. The designer's answer is checked here, the others in the next scenarios.
+    via: api
+  - step: 9
+    actor: designer
+    action: The process designer tries to open the company's list of people.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: The administrator opens the audit trail and finds the entries for the groups, the members and the roles they have just changed.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: Seven accounts exist in the test customer, each in the group of its role, and the working groups hold exactly the planned members.
+    verification:
+      method: system_state
+      detail: >
+        The group list at step 6 shows seven accounts (plus the administrator), each person in the group of
+        their one built-in role; "uat-approvers" holds worker_a and operator; "uat-releasers" holds worker_b.
+      evidence: The group list (group name, role names, member count and member names).
+    on_fail:
+      severity: BLOCKER
+      business_impact: The administrator cannot set up people with the right authority, so the role checks that follow cannot start.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Each person, after signing in, holds exactly the one built-in role of their group.
+    verification:
+      method: system_state
+      detail: Step 8 shows for each of the seven people exactly one built-in role and, for the working groups, the routing roles of step 5. A person holding more roles is a finding.
+      evidence: Role names per person (names only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person holds more authority than the administrator granted.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: There is no ninth built-in role, and a process designer cannot manage people.
+    verification:
+      method: system_state
+      detail: Steps 7 and 9 are refused; the role list still has the eight built-in roles.
+      evidence: The two refusals and the role list (names only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: Authority can be created outside the role charter, or a modelling role can manage people.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Every change of the administrator is in the audit trail with who and when.
+    verification:
+      method: system_state
+      detail: Step 10 lists group-created, member-added and role entries for this run, each with the administrator as actor.
+      evidence: Entry kinds and counts only.
+    on_fail:
+      severity: MAJOR
+      business_impact: Nobody can later prove who gave a person their authority.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    The accounts and groups stay for the next scenarios and are retired with the test customer in foundation-4a.
+    The product cannot delete a tenant.

@@ -381,12 +381,76 @@ defmodule Letflow.Entities.ScriptReadsTest do
       assert row == %{"id" => cid, "name" => "Ann"}
     end
 
-    test "a non-empty restricted_fields is refused by the port itself (no opt-in, C10)", ctx do
-      cid = record!(ctx.schema, %{"name" => "Ann"})
-      read = Map.put(id_read(), "restricted_fields", ["name"])
+    # Decision 0062 R6 (SR-OPT-1, port half): C10 is lifted, a declared pair is delivered.
+    test "SR-OPT-1: a field declared in restricted_fields is delivered although restricted",
+         ctx do
+      cid = record!(ctx.schema, %{"name" => "Ann", "ssn" => "111"})
+      SP.restrict_field!(ctx.schema, @type_name, "ssn")
+      read = Map.put(id_read(["name", "ssn"]), "restricted_fields", ["ssn"])
 
-      assert ScriptReads.prefetch(ctx.schema, [read], %{"cid" => cid}) ==
+      assert {:ok, %{"r" => [row]}} = ScriptReads.prefetch(ctx.schema, [read], %{"cid" => cid})
+      assert row == %{"id" => cid, "name" => "Ann", "ssn" => "111"}
+    end
+
+    test "SR-OPT-3(b): a restricted field that is in fields but not declared stays omitted",
+         ctx do
+      cid = record!(ctx.schema, %{"name" => "Ann", "ssn" => "111", "tier" => "gold"})
+      SP.restrict_field!(ctx.schema, @type_name, "ssn")
+      SP.restrict_field!(ctx.schema, @type_name, "tier")
+      read = Map.put(id_read(["name", "ssn", "tier"]), "restricted_fields", ["tier"])
+
+      assert {:ok, %{"r" => [row]}} = ScriptReads.prefetch(ctx.schema, [read], %{"cid" => cid})
+      assert row == %{"id" => cid, "name" => "Ann", "tier" => "gold"}
+    end
+
+    test "SEC N1: a restricted match.field listed in restricted_fields is still refused", ctx do
+      record!(ctx.schema, %{"name" => "Ann", "tier" => "gold"})
+      SP.restrict_field!(ctx.schema, @type_name, "tier")
+      read = Map.put(tier_read(5), "restricted_fields", ["tier"])
+
+      assert ScriptReads.prefetch(ctx.schema, [read], %{"tier" => "gold"}) ==
                {:error, :reads_not_allowed}
+    end
+  end
+
+  # ── decision 0062 R4/R6: the opt-in through the real dispatcher ─────────────
+
+  describe "SR-OPT-1: reads opt-in" do
+    test "a declared restricted field is delivered and every output carries its label", ctx do
+      cid = record!(ctx.schema, %{"name" => "Ann", "ssn" => "111"})
+      SP.restrict_field!(ctx.schema, @type_name, "ssn")
+      read = Map.put(id_read(["name", "ssn"]), "restricted_fields", ["ssn"])
+      b = bound!(ctx.t, [read], %{"cid" => cid})
+
+      {row, result, _queries} = run_capturing(ctx.schema)
+      assert result == {:ok, :applied}, inspect(row)
+      assert row.outcome == "ok"
+
+      assert {1, [%{"id" => ^cid, "name" => "Ann", "ssn" => "111"}]} =
+               output(ctx.schema, b.instance_id)
+
+      assert F.projection(ctx.schema, b.instance_id).variable_labels ==
+               %{"n" => ["customer.ssn"], "rows" => ["customer.ssn"]}
+
+      assert [%{"output_labels" => labels}] =
+               F.payloads(ctx.schema, b.instance_id, "SCRIPT_TASK_COMPLETED")
+
+      assert labels == %{"n" => ["customer.ssn"], "rows" => ["customer.ssn"]}
+    end
+
+    test "without the declaration the restricted field is not delivered and nothing is labelled",
+         ctx do
+      cid = record!(ctx.schema, %{"name" => "Ann", "ssn" => "111"})
+      SP.restrict_field!(ctx.schema, @type_name, "ssn")
+      b = bound!(ctx.t, [id_read(["name", "ssn"])], %{"cid" => cid})
+
+      {_row, {:ok, :applied}, _queries} = run_capturing(ctx.schema)
+      assert {1, [row]} = output(ctx.schema, b.instance_id)
+      assert row == %{"id" => cid, "name" => "Ann"}
+      assert F.projection(ctx.schema, b.instance_id).variable_labels == %{}
+
+      assert [payload] = F.payloads(ctx.schema, b.instance_id, "SCRIPT_TASK_COMPLETED")
+      refute Map.has_key?(payload, "output_labels")
     end
   end
 

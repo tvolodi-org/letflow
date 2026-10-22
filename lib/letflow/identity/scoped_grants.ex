@@ -37,10 +37,25 @@ defmodule Letflow.Identity.ScopedGrants do
   @cursor_prefix "RG:"
 
   @type principal_type :: :user | :group
+  # The mechanism name written to the audit entry: `"oidc"` or `"api_token"` (binary literals
+  # are not expressible in a typespec, so the type is the binary; `actor_from_conn/1` is the
+  # only producer and maps the auth context atom).
+  @type credential :: String.t()
+  @type create_attrs :: %{
+          principal_type: principal_type(),
+          principal_id: Ecto.UUID.t(),
+          role: String.t(),
+          scope_node_id: String.t()
+        }
+  @type make_tenant_wide_attrs :: %{
+          principal_type: principal_type(),
+          principal_id: Ecto.UUID.t(),
+          role: String.t()
+        }
   @type actor :: %{
           required(:user_id) => Ecto.UUID.t(),
           required(:trace_id) => String.t() | nil,
-          optional(:credential) => String.t() | nil
+          optional(:credential) => credential() | nil
         }
   @type grant_view :: %{
           id: Ecto.UUID.t(),
@@ -72,7 +87,7 @@ defmodule Letflow.Identity.ScopedGrants do
 
   @doc "Parses and validates a create body (no DB access). Step 1 to 3 of design 3.3."
   @spec parse_create(body :: term()) ::
-          {:ok, map()} | {:error, :invalid_body | :invalid_role | :invalid_principal}
+          {:ok, create_attrs()} | {:error, :invalid_body | :invalid_role | :invalid_principal}
   def parse_create(body) do
     with {:ok, map} <- exact_string_keys(body, @create_keys),
          {:ok, role} <- parse_role(map["role"]),
@@ -84,7 +99,8 @@ defmodule Letflow.Identity.ScopedGrants do
 
   @doc "Parses and validates a make-tenant-wide body (no DB access)."
   @spec parse_make_tenant_wide(body :: term()) ::
-          {:ok, map()} | {:error, :invalid_body | :invalid_role | :invalid_principal}
+          {:ok, make_tenant_wide_attrs()}
+          | {:error, :invalid_body | :invalid_role | :invalid_principal}
   def parse_make_tenant_wide(body) do
     with {:ok, map} <- exact_string_keys(body, @make_tenant_wide_keys),
          {:ok, role} <- parse_role(map["role"]),
@@ -132,7 +148,7 @@ defmodule Letflow.Identity.ScopedGrants do
   # --- create ------------------------------------------------------------------
 
   @doc "Creates one scoped row (design 3.3 steps 4 to 11)."
-  @spec create(attrs :: map(), actor(), prefix :: String.t()) ::
+  @spec create(attrs :: create_attrs(), actor(), prefix :: String.t()) ::
           {:ok, grant_view()} | {:error, write_error()}
   def create(attrs, actor, prefix) when is_map(attrs) and is_binary(prefix) do
     %{principal_type: type, principal_id: pid, role: role, scope_node_id: node_id} = attrs
@@ -249,7 +265,7 @@ defmodule Letflow.Identity.ScopedGrants do
   # --- make tenant-wide ----------------------------------------------------------
 
   @doc "Replaces every scoped row of (principal, role) with ONE tenant-wide row (design 3.3)."
-  @spec make_tenant_wide(attrs :: map(), actor(), prefix :: String.t()) ::
+  @spec make_tenant_wide(attrs :: make_tenant_wide_attrs(), actor(), prefix :: String.t()) ::
           {:ok, %{id: Ecto.UUID.t(), removed_scoped_ids: [Ecto.UUID.t()]}}
           | {:error, write_error()}
   def make_tenant_wide(attrs, actor, prefix) when is_map(attrs) and is_binary(prefix) do

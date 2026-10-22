@@ -28,6 +28,7 @@ defmodule Letflow.Scripts.Validation do
   @code_pattern ~r/\A[a-z][a-z0-9_]{0,63}\z/
   @max_fail_codes 32
   @max_restricted 32
+  @max_restricted_from 8
   @max_schema_depth 8
   @max_schema_bytes 32_768
   @max_cases 32
@@ -118,19 +119,57 @@ defmodule Letflow.Scripts.Validation do
 
   defp limits(_other), do: :error
 
+  # Decision 0062 R6 / Q4: each entry is `%{"name" => input property, "from" => [%{"entity_type",
+  # "field"}]}`; the former list of bare names is retired.
   defp restricted(list, input_schema) when is_list(list) do
     properties = Map.get(input_schema, "properties", %{})
+    names = Enum.map(list, &if(is_map(&1), do: Map.get(&1, "name")))
 
-    if length(list) <= @max_restricted and Enum.uniq(list) == list and
-         Enum.all?(
-           list,
-           &(is_binary(&1) and Regex.match?(@code_pattern, &1) and Map.has_key?(properties, &1))
-         ),
+    if length(list) <= @max_restricted and Enum.uniq(names) == names and
+         Enum.all?(list, &restricted_entry?(&1, properties)),
        do: :ok,
        else: :error
   end
 
   defp restricted(_other, _schema), do: :error
+
+  defp restricted_entry?(%{"name" => name, "from" => from} = entry, properties)
+       when map_size(entry) == 2 do
+    code?(name) and Map.has_key?(properties, name) and is_list(from) and from != [] and
+      length(from) <= @max_restricted_from and Enum.uniq(from) == from and
+      Enum.all?(from, &from_pair?/1)
+  end
+
+  defp restricted_entry?(_entry, _properties), do: false
+
+  defp from_pair?(%{"entity_type" => type, "field" => field} = pair) when map_size(pair) == 2,
+    do: code?(type) and code?(field)
+
+  defp from_pair?(_pair), do: false
+
+  @doc """
+  The `restricted_inputs` entries of a stored manifest, normalised to `%{"name", "from"}`
+  (`from` a list of `%{"entity_type", "field"}`). A legacy bare-name entry reads as `from: []`
+  (never delivered, fail closed); a malformed entry is dropped. Pure.
+  """
+  @spec restricted_input_entries(term()) :: [%{String.t() => term()}]
+  def restricted_input_entries(%{} = manifest) do
+    case Map.get(manifest, "restricted_inputs") do
+      list when is_list(list) -> Enum.flat_map(list, &normalise_restricted_entry/1)
+      _none -> []
+    end
+  end
+
+  def restricted_input_entries(_manifest), do: []
+
+  defp normalise_restricted_entry(name) when is_binary(name),
+    do: [%{"name" => name, "from" => []}]
+
+  defp normalise_restricted_entry(%{"name" => name, "from" => from})
+       when is_binary(name) and is_list(from),
+       do: [%{"name" => name, "from" => Enum.filter(from, &from_pair?/1)}]
+
+  defp normalise_restricted_entry(_entry), do: []
 
   # ── reads (7b-2a section 3.1) ──────────────────────────────────────────────
 

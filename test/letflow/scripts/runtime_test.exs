@@ -3,11 +3,11 @@ defmodule Letflow.Scripts.RuntimeTest do
   GH 2534 PR 7c-2, design `lib/letflow/design/gh2534-7c-script-handler.md` 5.3 step 3 and 11.3
   (`Letflow.Scripts.Runtime.prepare_run/3` in 7c-2):
 
-    * AC26a: a version whose manifest carries a non-empty `restricted_fields`, bound by a
-      definition made active WITHOUT the activation check, is rejected
-      `restricted_opt_in_unsupported` and the read port is never called (C10: no opt-in path).
-    * The normative step order: closed output schema, then the restricted opt-in refusal, then
-      the run-time `check_reads` (first failure wins); `run_spec.reads` carries the declared
+    * SR-OPT-1 (decision 0062 part 3): the restricted opt-in is allowed; the 0053 C10 refusal and
+      its `restricted_opt_in_unsupported` backstop are gone. A `restricted_inputs` `from` pair is
+      re-checked with the reads (`reads_not_allowed`).
+    * The normative step order: closed output schema, then the run-time `check_reads` (first
+      failure wins); `run_spec.reads` carries the declared
       reads only when every check passed.
 
   `async: false`: provisioning switches the sandbox to `:auto`; tests flip application env.
@@ -47,6 +47,9 @@ defmodule Letflow.Scripts.RuntimeTest do
     )
   end
 
+  defp restricted_input(name, entity_type, field),
+    do: %{"name" => name, "from" => [%{"entity_type" => entity_type, "field" => field}]}
+
   defp read(extra \\ %{}), do: Map.merge(SP.id_read("r", "customer"), extra)
 
   defp binding_of(rule),
@@ -78,9 +81,8 @@ defmodule Letflow.Scripts.RuntimeTest do
     Repo.get!(ProcessDefinition, row.id, prefix: schema)
   end
 
-  describe "AC26a" do
-    test "opt-in backstop: restricted_fields inserted directly is rejected and the port is never called",
-         %{t: t} do
+  describe "SR-OPT-1: the restricted opt-in is allowed (0053 C10 lifted by 0062 part 3)" do
+    test "restricted_fields on a read no longer rejects the run; the port is called", %{t: t} do
       schema = t.schema_name
       F.record_read_port_calls!()
       F.count_runner_calls!()
@@ -90,8 +92,8 @@ defmodule Letflow.Scripts.RuntimeTest do
       rule =
         F.published!(schema, "k#{System.unique_integer([:positive])}", "return {n = 1}", manifest)
 
-      assert Runtime.prepare_run(schema, t.tenant_id, binding_of(rule)) ==
-               {:rejected, :restricted_opt_in_unsupported}
+      assert {:ok, %{reads: [%{"restricted_fields" => ["name"]}]}} =
+               Runtime.prepare_run(schema, t.tenant_id, binding_of(rule))
 
       definition = raw_active_definition!(schema, F.script_graph(rule.key, rule.version))
 
@@ -99,23 +101,31 @@ defmodule Letflow.Scripts.RuntimeTest do
         F.start!(schema, definition, %{"cid" => Ecto.UUID.generate()}, Ecto.UUID.generate())
 
       {row, result} = F.run_next!(schema)
-      assert result == {:ok, :failed}
-      row = F.reload(schema, row)
-      assert row.outcome == "script_rejected"
-      assert row.outcome_detail == "restricted_opt_in_unsupported"
-      assert F.projection(schema, instance_id).status == :error
+      assert result == {:ok, :applied}
+      assert F.reload(schema, row).outcome == "ok"
+      assert F.projection(schema, instance_id).status != :error
 
-      refute_received {:script_read_port_called, _, _, _}
-      refute_received {:script_runner_called, _, _}
+      assert_received {:script_read_port_called, _, _, _}
+      assert_received {:script_runner_called, _, _}
     end
 
-    test "restricted_inputs is refused the same way", %{t: t} do
-      manifest =
-        manifest([], %{
-          "restricted_inputs" => ["cid"]
-        })
+    test "a restricted_inputs object whose from pair names a known field is accepted", %{t: t} do
+      m = manifest([], %{"restricted_inputs" => [restricted_input("cid", "customer", "name")]})
+      assert {:ok, %{manifest: ^m}} = prepare(t, m)
+    end
 
-      assert prepare(t, manifest) == {:rejected, :restricted_opt_in_unsupported}
+    test "a from pair naming an unknown field or type is reads_not_allowed", %{t: t} do
+      bad_field =
+        manifest([], %{"restricted_inputs" => [restricted_input("cid", "customer", "zz")]})
+
+      bad_type = manifest([], %{"restricted_inputs" => [restricted_input("cid", "nope", "name")]})
+
+      assert prepare(t, bad_field) == {:rejected, :reads_not_allowed}
+      assert prepare(t, bad_type) == {:rejected, :reads_not_allowed}
+    end
+
+    test "a legacy bare-name restricted_inputs row still prepares and delivers nothing", %{t: t} do
+      assert {:ok, _spec} = prepare(t, manifest([], %{"restricted_inputs" => ["cid"]}))
     end
   end
 
@@ -194,15 +204,15 @@ defmodule Letflow.Scripts.RuntimeTest do
   end
 
   describe "step order (design 11.3)" do
-    test "3a closed output schema wins over 3b restricted opt-in and 3c check_reads", %{t: t} do
+    test "3a closed output schema wins over 3b check_reads", %{t: t} do
       open = %{"output_schema" => %{"type" => "object"}}
       m = manifest([read(%{"restricted_fields" => ["name"], "entity_type" => "nope"})], open)
       assert prepare(t, m) == {:rejected, :output_schema_open}
     end
 
-    test "3b restricted opt-in wins over 3c check_reads", %{t: t} do
-      m = manifest([read(%{"restricted_fields" => ["name"], "entity_type" => "nope"})])
-      assert prepare(t, m) == {:rejected, :restricted_opt_in_unsupported}
+    test "3b a restricted_inputs from pair is re-checked with the reads (one code)", %{t: t} do
+      m = manifest([], %{"restricted_inputs" => [restricted_input("cid", "nope", "name")]})
+      assert prepare(t, m) == {:rejected, :reads_not_allowed}
     end
 
     test "3c check_reads against the CURRENT policy", %{t: t} do

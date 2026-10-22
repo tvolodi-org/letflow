@@ -239,4 +239,39 @@ defmodule Letflow.Engine.VariableLabels do
       if hidden?(labels, key, hidden), do: {key, representation()}, else: {key, value}
     end)
   end
+
+  # ── Write rule (decision 0062 R5, Q5 narrow predicate) ──
+
+  @doc """
+  Whether a value tainted with `taint` may be written to the target field `target`
+  (`"entity.field"`) whose restriction set `RS` is `{target}` when `target` is in `restricted`
+  and `{}` otherwise. `taint` must be a subset of `RS`: empty, or exactly `[target]` with
+  `target` restricted. Pure.
+  """
+  @spec write_allowed?([String.t()], String.t(), MapSet.t()) :: boolean()
+  def write_allowed?([], _target, _restricted), do: true
+
+  def write_allowed?(taint, target, %MapSet{} = restricted) when is_list(taint),
+    do: Enum.uniq(taint) == [target] and MapSet.member?(restricted, target)
+
+  def write_allowed?(_taint, _target, _restricted), do: false
+
+  @doc """
+  An error detail never echoes a labelled value (decision 0062 SR-OPT-12). When `key` carries
+  labels in `incoming_labels`, the rejected value becomes the redaction representation and every
+  failure's `actual` is cleared; otherwise both are returned unchanged.
+  """
+  @spec scrub_rejection(String.t(), term(), [map()], labels() | term()) :: {term(), [map()]}
+  def scrub_rejection(key, rejected_value, failures, incoming_labels) do
+    case is_map(incoming_labels) && Map.get(incoming_labels, key) do
+      [_ | _] ->
+        {Atom.to_string(representation()), Enum.map(List.wrap(failures), &clear_actual/1)}
+
+      _ ->
+        {rejected_value, failures}
+    end
+  end
+
+  defp clear_actual(%{actual: _} = failure), do: %{failure | actual: nil}
+  defp clear_actual(other), do: other
 end

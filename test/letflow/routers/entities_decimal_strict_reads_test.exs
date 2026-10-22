@@ -590,11 +590,13 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
         {:ok, raw} = Base.url_decode64(cursor, padding: false)
         [head, rest] = String.split(raw, "EQ:", parts: 2)
         [ts, json] = String.split(rest, ":", parts: 2)
-        [_value | tail] = Jason.decode!(json)
+        %{"bind" => bind, "key" => [_value | tail]} = Jason.decode!(json)
 
         for bad <- ["abc", "1; DROP", "", "NaN", "1e", "--1", "zz-tampered-9"] do
           tampered =
-            Base.url_encode64(head <> "EQ:" <> ts <> ":" <> Jason.encode!([bad | tail]),
+            Base.url_encode64(
+              head <>
+                "EQ:" <> ts <> ":" <> Jason.encode!(%{"bind" => bind, "key" => [bad | tail]}),
               padding: false
             )
 
