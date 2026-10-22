@@ -105,8 +105,9 @@ steps:
   - step: 5
     actor: platform_operator
     action: >
-      The platform operator looks at the administrators of customer A and of customer B.
-    via: gui
+      The platform operator asks the platform for the state of the administrator invitation of
+      customer A and of customer B (who was bound, when, and whether the invitation is still open).
+    via: api
     sla_context:
       expected_within_hours: null
 
@@ -122,8 +123,8 @@ expected_outcomes:
         Step 2 ends in a plain refusal screen. The screens seen before it are identical to
         those of a person with no invitation. The person is not listed as administrator.
       evidence: >
-        Screenshots after step 2, and customer B's administrator list as shown to the
-        platform operator at step 5.
+        Screenshots after step 2, and the platform's answer for customer B's administrator
+        invitation at step 5 (still open, nobody bound, no binding time).
     on_fail:
       severity: BLOCKER
       business_impact: >
@@ -150,18 +151,21 @@ expected_outcomes:
 
   - id: EO-003
     description: >
-      The platform operator sees exactly one administrator for customer A, the confirmed
-      person, and no administrator for customer B; customer B's invitation is still open.
+      The platform reports customer A's administrator invitation as used by the confirmed
+      person, with a binding time, and customer B's invitation as still open with nobody bound.
       Customer A's audit log records the binding if the screen shows it.
     verification:
-      method: gui_screen
+      method: system_state
       detail: >
-        Step 5 lists the confirmed person as administrator of customer A and nobody as
-        administrator of customer B. Step 4 shows the audit log entry for the binding; if the
-        audit log screen does not show it, record that as "not settled by the screen" and do not
-        fail the outcome on that alone.
+        At step 5, the platform's answer for customer A's onboarding shows the invitation bound,
+        with the confirmed person as the bound user and a binding time set; the answer for
+        customer B's onboarding shows the invitation still open, with no bound user and no
+        binding time. Step 4 shows the audit log entry for the binding; if the audit log screen
+        does not show it, record that as "not settled by the screen" and do not fail the
+        outcome on that alone.
       evidence: >
-        Screenshots of the administrator lists at step 5 and of the audit log at step 4.
+        The two answers from step 5 (state, binding time, bound user) and a screenshot of the
+        audit log at step 4.
     on_fail:
       severity: MAJOR
       business_impact: >
