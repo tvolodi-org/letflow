@@ -96,6 +96,7 @@ defmodule Letflow.Modules.Exam.PackInstallTest do
     # {:error, :unknown_event_type}. Seeded here, exactly as
     # test/letflow/entities/query_joins_test.exs's own fixture does.
     assert {:ok, _seed_result} = Letflow.Entities.EventTypes.seed!(fixture.schema_name)
+    Letflow.ExamFixtures.mark_exam_installed!(fixture.schema_name)
 
     # `solution_pack_installs` is a GLOBAL table by REQ-041's own design (see
     # solution_pack.ex's "Tenant scoping (INV-1)" moduledoc section), and it

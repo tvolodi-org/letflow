@@ -258,18 +258,11 @@ defmodule Letflow.Modules.Org.InstallTest do
 
   describe "AC4: a tenant's own org_site blocks the install and everything rolls back" do
     setup ctx do
-      {:ok, own} =
-        Definitions.create_definition(
-          %{
-            definition: %{
-              name: "org_site",
-              display_name: "Tenant own site",
-              fields: [%{name: "address", type: :string}]
-            },
-            created_by: Ecto.UUID.generate()
-          },
-          ctx.schema
-        )
+      # GH #2581: the tenant path refuses this name now; plant a pre-existing legacy squat.
+      own =
+        Letflow.ManagedTypesSupport.plant_legacy_squat!(ctx.schema, "org_site", [
+          %{name: "address", type: :string}
+        ])
 
       {:ok, own_id: own.id}
     end
@@ -449,8 +442,9 @@ defmodule Letflow.Modules.Org.InstallTest do
         assert ManagedTypes.owner_of(type, other.schema_name) == :unmanaged
       end
 
-      # Tenant B can still create its own org_site: nothing of A's lock leaked into it.
-      assert {:ok, _} =
+      # GH #2581: B's creation is refused by the reserved-name rule (module not installed in B),
+      # not by anything of A's lock leaking into it.
+      assert {:error, :entity_type_managed} =
                Definitions.create_definition(
                  %{
                    definition: %{

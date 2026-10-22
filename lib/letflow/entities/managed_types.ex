@@ -41,6 +41,17 @@ defmodule Letflow.Entities.ManagedTypes do
   So a name failing the format can never be managed, and `owner_of/2` answers
   `:unmanaged` for it without a query.
 
+  ## Reserved names (GH #2581)
+
+  A tenant's first creation of a name that a registered module declares in
+  `manages_entity_types` is refused (`{:error, :entity_type_managed}`) while that module
+  is not installed in the tenant; otherwise the squat would block the later install with
+  `managed_name_taken`. Chosen over a tooled, audited recovery because prevention touches
+  no tenant data (nothing is renamed or deleted, so there is no admin act to audit).
+  A tenant that already owns an unmanaged type of such a name can still create new
+  versions of it; squats that pre-date this check stay on the manual procedure of the
+  REQ-496 design, OQ-2.
+
   ## Advisory-lock namespaces
 
   Creates of one (tenant, name) are serialised by the transaction-scoped two-int4
@@ -56,6 +67,7 @@ defmodule Letflow.Entities.ManagedTypes do
 
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Modules.Catalog
+  alias Letflow.Modules.Installs
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -274,7 +286,7 @@ defmodule Letflow.Entities.ManagedTypes do
     if is_binary(name) do
       case owner_of(name, prefix) do
         {:ok, _module_id} -> {:error, :entity_type_managed}
-        :unmanaged -> {:ok, nil}
+        :unmanaged -> refuse_reserved_first_creation(name, prefix)
         {:error, :invalid_schema_name} = error -> error
       end
     else
@@ -296,6 +308,23 @@ defmodule Letflow.Entities.ManagedTypes do
       end
     else
       {:ok, nil}
+    end
+  end
+
+  # GH #2581: a tenant's FIRST creation of a name that a registered, not-installed module
+  # declares in `manages_entity_types` is refused. A name the tenant already owns (an
+  # unmanaged legacy type) keeps accepting new versions.
+  defp refuse_reserved_first_creation(name, prefix) do
+    with true <- managed_name?(name),
+         {:ok, module_id} <- Map.fetch(Catalog.managed_name_declarations(), name),
+         false <- Installs.installed?(module_id, prefix: prefix),
+         nil <-
+           Repo.one(from(e in EntityDefinition, where: e.name == ^name, select: 1, limit: 1),
+             prefix: prefix
+           ) do
+      {:error, :entity_type_managed}
+    else
+      _not_reserved_or_already_held -> {:ok, nil}
     end
   end
 

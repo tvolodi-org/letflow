@@ -181,6 +181,24 @@ defmodule Letflow.ExamFixtures do
   end
 
   @doc """
+  GH #2581: records the exam module as installed in `schema_name` (a `tenant_modules` row,
+  no pack install). A tenant that has not installed exam cannot create the exam module's
+  managed type names through the tenant path; a test that installs the exam pack with
+  `SolutionPack.install/3` directly calls this first.
+  """
+  @spec mark_exam_installed!(schema_name :: String.t()) :: TenantModule.t()
+  def mark_exam_installed!(schema_name) do
+    %TenantModule{}
+    |> TenantModule.insert_changeset(%{
+      module_id: "exam",
+      version: Exam.manifest().version,
+      installed_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
+      settings: %{}
+    })
+    |> Repo.insert!(prefix: schema_name)
+  end
+
+  @doc """
   Activates this fixture's full exam entity-definition set (`@entity_types`)
   into an ALREADY-provisioned tenant schema named `schema_name`.
 
@@ -525,11 +543,8 @@ defmodule Letflow.ExamFixtures do
   end
 
   defp create_active_definition!(schema, definition) do
-    assert {:ok, entity_definition} =
-             Definitions.create_definition(
-               %{definition: definition, created_by: Ecto.UUID.generate()},
-               schema
-             )
+    # GH #2581: the tenant path refuses module-managed names of a module not installed yet.
+    entity_definition = Letflow.ManagedTypesSupport.plant_legacy_definition!(schema, definition)
 
     assert {:ok, activated} =
              Definitions.activate_definition(

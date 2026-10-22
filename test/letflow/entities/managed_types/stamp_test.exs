@@ -618,7 +618,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
   describe "T-17 (AC4d): no exam" do
     test "a tenant without the exam module is untouched, whether or not it holds an unrelated session" do
       %{schema_name: with_session} = Fx.bare_tenant!("gh2596-d-session", false)
-      legacy_def!(with_session, "session")
+      Letflow.ManagedTypesSupport.plant_legacy_squat!(with_session, "session")
       %{schema_name: empty} = Fx.bare_tenant!("gh2596-d-empty", false)
 
       before = Fx.dump(with_session, ["session"])

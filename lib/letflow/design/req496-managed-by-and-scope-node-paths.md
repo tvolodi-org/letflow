@@ -680,7 +680,7 @@ entry module); `check_boundaries` unaffected.
 * OQ-1 Migration versions `20261014000001` / `20261014000002`: re-check `origin/main` and open PRs
   (#2533, 0053 7b) for a collision before committing. Default: these two.
 * OQ-2 Squatting: a tenant can create a name a REGISTERED but not-installed module declares, which
-  then blocks that module's install (0052 D6 / T-18). AC says "any installed module". Default: not
+  then blocks that module's install (0052 D6 / T-18). AC says "any installed module". Default (superseded by GH #2581: a first creation of such a name is now refused with `entity_type_managed` while the module is not installed in the tenant; this procedure remains for squats that pre-date it): not
   refused at create time. Revision 1, A2, operator recovery: there is no API to delete or rename an
   entity definition, so recovery is a manual, platform-operator procedure inside that one tenant's
   schema, recorded in an issue with the tenant's consent: (1) confirm the squat

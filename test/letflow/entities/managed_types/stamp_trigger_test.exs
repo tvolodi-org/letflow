@@ -46,7 +46,8 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
 
   # A minimal NULL-stamped definition row; returns its id.
   defp row!(schema, name) do
-    Fx.create_definition!(schema, %{
+    # GH #2581: planted directly, the tenant path refuses module-managed names.
+    Letflow.ManagedTypesSupport.plant_legacy_definition!(schema, %{
       name: name,
       display_name: "GH2596 #{name}",
       fields: [Fx.field("name", :string)]

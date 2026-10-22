@@ -193,18 +193,11 @@ defmodule Letflow.Modules.InstallsManagedByTest do
 
   test "T-18: a tenant's own type of a declared name blocks the install with managed_name_taken",
        ctx do
-    assert {:ok, own} =
-             Definitions.create_definition(
-               %{
-                 definition: %{
-                   name: "fxm_site",
-                   display_name: "Tenant's own site",
-                   fields: [%{name: "address", type: :string}]
-                 },
-                 created_by: Ecto.UUID.generate()
-               },
-               ctx.schema
-             )
+    # GH #2581: creating it through the tenant path is refused now; plant a legacy squat.
+    own =
+      Letflow.ManagedTypesSupport.plant_legacy_squat!(ctx.schema, "fxm_site", [
+        %{name: "address", type: :string}
+      ])
 
     assert install("fixture_managed", ctx.schema) ==
              {:error, {:pack_install_failed, {:managed_name_taken, "fxm_site"}}}
