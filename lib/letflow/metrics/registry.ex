@@ -151,14 +151,7 @@ defmodule Letflow.Metrics.Registry do
   # Family 7 -- letflow_scope_shadow_would_deny_total (REQ-497 PR 1b, design 4.3). Label
   # allow-list: `reason` ONLY, from the closed six-value `Letflow.Api.Scope.deny_reason()`
   # set; any other value is dropped. Never a tenant, user, policy or role label.
-  @scope_shadow_reasons [
-    :role_not_held,
-    :no_grant_rows,
-    :not_tenant_wide,
-    :out_of_scope,
-    :unresolvable,
-    :grants_unavailable
-  ]
+  @scope_shadow_reasons Letflow.Api.Scope.deny_reasons()
 
   @spec handle_scope_shadow_would_deny(map(), map(), term()) :: :ok
   def handle_scope_shadow_would_deny(measurements, %{reason: reason}, _config)

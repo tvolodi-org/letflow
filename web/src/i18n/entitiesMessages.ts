@@ -100,6 +100,8 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
     'entities.crud.form.submitUpdate': 'Save',
     'entities.crud.form.cancel': 'Cancel',
     'entities.crud.form.submitError': 'Could not save this record.',
+    'entities.crud.form.restrictedFieldError':
+      'You do not have permission to write a protected field. Ask a tenant administrator.',
     'entities.crud.form.conflictError':
       'This record was changed by someone else while you were editing. Reload and try again.',
     'entities.crud.delete.confirmTitle': 'Delete this record?',
@@ -195,6 +197,8 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
     'entities.crud.form.submitUpdate': 'Сохранить',
     'entities.crud.form.cancel': 'Отмена',
     'entities.crud.form.submitError': 'Не удалось сохранить эту запись.',
+    'entities.crud.form.restrictedFieldError':
+      'У вас нет прав на запись защищённого поля. Обратитесь к администратору тенанта.',
     'entities.crud.form.conflictError':
       'Эта запись была изменена кем-то другим, пока вы её редактировали. Обновите страницу и повторите попытку.',
     'entities.crud.delete.confirmTitle': 'Удалить эту запись?',
@@ -284,6 +288,8 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
     'entities.crud.form.submitUpdate': 'Сақтау',
     'entities.crud.form.cancel': 'Бас тарту',
     'entities.crud.form.submitError': 'Бұл жазбаны сақтау мүмкін болмады.',
+    'entities.crud.form.restrictedFieldError':
+      'Қорғалған өріске жазуға рұқсатыңыз жоқ. Тенант әкімшісіне хабарласыңыз.',
     'entities.crud.form.conflictError':
       'Сіз өңдеп жатқан кезде бұл жазбаны басқа біреу өзгертті. Бетті қайта жүктеп, әрекетті қайталаңыз.',
     'entities.crud.delete.confirmTitle': 'Бұл жазбаны жоясыз ба?',
