@@ -154,3 +154,31 @@ describe('DefinitionListPage — rollback button gating (REQ-371 AC1)', () => {
     expect(mockNavigate).toHaveBeenCalledWith(`/definitions/${ACTIVE_DEF.id}/rollback`)
   })
 })
+
+describe('DefinitionListPage — write controls follow DefinitionsWrite (GH 2238, BUILDS 5)', () => {
+  it('an auditor sees the rows but no new, import, activate, archive or rollback control', () => {
+    mockAuth()
+    mockDefinitions([ACTIVE_DEF, DRAFT_DEF])
+
+    renderWithAccess(<DefinitionListPage />, 'auditor')
+
+    expect(screen.getAllByText('approvals').length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('btn-new-definition')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('btn-import-definition')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Activate' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId(`btn-rollback-${ACTIVE_DEF.id}`)).not.toBeInTheDocument()
+  })
+
+  it('a designer sees new, import, activate and archive', () => {
+    mockAuth()
+    mockDefinitions([ACTIVE_DEF, DRAFT_DEF])
+
+    renderWithAccess(<DefinitionListPage />, 'designer')
+
+    expect(screen.getByTestId('btn-new-definition')).toBeInTheDocument()
+    expect(screen.getByTestId('btn-import-definition')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument()
+  })
+})

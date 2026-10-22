@@ -26,6 +26,8 @@ export interface NonSkippableApprovalGateProps {
   onReject: (reviewId: string) => Promise<void>
   onApply: (reviewId: string, planDigest: string) => Promise<void>
   className?: string
+  /** Hides Reject/Approve/Apply for a viewer without PromotionsManage (the server enforces it) */
+  readOnly?: boolean
 }
 
 // ── Inline error alert ─────────────────────────────────────────────────────────
@@ -247,7 +249,7 @@ function AssertionItem(props: { artifact_id: string; assertion_type: string; pas
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function NonSkippableApprovalGate(props: NonSkippableApprovalGateProps): React.ReactElement {
-  const { context, currentUserId, onApprove, onReject, onApply, className } = props
+  const { context, currentUserId, onApprove, onReject, onApply, className, readOnly = false } = props
   const { review, plan, digest_verified, assertions } = context
 
   const [approving, setApproving] = useState(false)
@@ -413,6 +415,8 @@ export function NonSkippableApprovalGate(props: NonSkippableApprovalGateProps): 
           alignItems: 'flex-start',
         }}
       >
+        {!readOnly && (
+        <>
         {/* Reject button */}
         <button
           data-testid="reject-btn"
@@ -477,6 +481,8 @@ export function NonSkippableApprovalGate(props: NonSkippableApprovalGateProps): 
         >
           {applying ? 'Applying…' : 'Apply'}
         </button>
+        </>
+        )}
 
         {/* Non-skippable gate notice */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '.3rem' }}>

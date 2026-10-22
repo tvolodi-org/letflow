@@ -59,6 +59,7 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
 
 import TaskInboxPage from '@/pages/tasks/TaskInboxPage'
 import { renderWithAccess } from '@/auth/access/testing'
+import type { AccessFixtureName } from '@/auth/access/fixtures'
 
 const TASK_ID = 'task-sod-1'
 
@@ -119,7 +120,7 @@ function stubFetch(task: ReturnType<typeof row>, postRoute: PostRoute) {
   return calls
 }
 
-function renderPage() {
+function renderPage(access: AccessFixtureName = 'platformAdmin') {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -129,14 +130,18 @@ function renderPage() {
         <TaskInboxPage />
       </MemoryRouter>
     </QueryClientProvider>,
-    'platformAdmin',
+    access,
   )
 }
 
-async function openPanel(task: ReturnType<typeof row>, postRoute: PostRoute) {
+async function openPanel(
+  task: ReturnType<typeof row>,
+  postRoute: PostRoute,
+  access: AccessFixtureName = 'platformAdmin',
+) {
   const calls = stubFetch(task, postRoute)
   events.mockResolvedValue({ items: [], next_cursor: null, count: 0 })
-  renderPage()
+  renderPage(access)
   const user = userEvent.setup()
   await waitFor(() => expect(screen.getByTestId('task-row')).toBeInTheDocument())
   await user.click(screen.getByTestId('task-row'))
@@ -193,5 +198,19 @@ describe('TaskDetailPanel -- separation-of-duties refusal, end to end (GH 2355)'
     await user.click(await screen.findByTestId('task-complete-button'))
     await waitFor(() => expect(calls).toContain(`POST /api/v1/tasks/${TASK_ID}/complete`))
     expect(screen.queryByTestId('task-sod-error')).not.toBeInTheDocument()
+  })
+})
+
+describe('TaskDetailPanel -- write controls follow TasksComplete (GH 2238, BUILDS 5)', () => {
+  it('an auditor sees the task but no complete or claim control', async () => {
+    await openPanel(row('marco-id', 'USER'), { suffix: '/none', response: ok200({}) }, 'auditor')
+    expect(screen.getByTestId('task-detail-title')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-complete-button')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('task-claim-button')).not.toBeInTheDocument()
+  })
+
+  it('a task worker (TasksComplete) still sees the complete control', async () => {
+    await openPanel(row('marco-id', 'USER'), { suffix: '/none', response: ok200({}) }, 'taskWorker')
+    expect(await screen.findByTestId('task-complete-button')).toBeInTheDocument()
   })
 })

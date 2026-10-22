@@ -258,6 +258,7 @@ function TaskDetailPanel({ taskId, onClose }: { taskId: string; onClose: () => v
   const { session } = useAuth()
   const complete = useCompleteTask()
   const claim = useClaimTask()
+  const canCompleteTask = useAccess().can(P.TasksComplete)
   // REQ-392 AC5 -- the reviewed attachment(s) named on the completed task's
   // TASK_COMPLETED event snapshot. Only fetched once the task is COMPLETED.
   const completionAttachments = useTaskCompletionAttachments(
@@ -434,7 +435,7 @@ function TaskDetailPanel({ taskId, onClose }: { taskId: string; onClose: () => v
 
       {/* Action buttons */}
       <div style={{ display: 'flex', gap: '.75rem', marginTop: '2rem' }}>
-        {isClaimable && (
+        {canCompleteTask && isClaimable && (
           <div style={{ flex: 1 }}>
             <Button
               variant="primary"
@@ -448,7 +449,7 @@ function TaskDetailPanel({ taskId, onClose }: { taskId: string; onClose: () => v
           </div>
         )}
 
-        {isAssignedToMe && task.status === 'PENDING' && (
+        {canCompleteTask && isAssignedToMe && task.status === 'PENDING' && (
           <div style={{ flex: 1 }}>
             <Button
               variant="primary"
