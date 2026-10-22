@@ -65,7 +65,7 @@ Commands run (all in the worktree at 80390c78b):
 | C9 | DLQ read API `GET /dlq*` | `routers/dlq.ex:221` (`"source_payload" => entry.source_payload`), `dlq/entry.ex:52` | whatever C6/C8 stored | none at read: rows are stored redacted (C6/C8); read redaction is impossible because the DLQ has no entity type/principal context | stored |
 | C10 | Audit entries | `audit.ex:233-258` (`insert_entry`, `before_state`/`after_state`), chain hash `audit.ex:598-631`, list `audit.ex:355-372`, `routers/audit.ex:151` | NO record audit exists: every `Audit.insert_entry` caller (`grep -rn "Audit.insert_entry" lib`) is identity/definitions/engine/stamp, e.g. `entities/managed_types/stamp.ex:405-421` stores counts and type names only | write time. An entry is hash-chained (`audit.ex:630` canonical JSON in the hash), so it cannot be redacted later; a future record audit must store `FieldPolicy.redact_for_recipient/3` output | stored ALREADY-REDACTED (rule); guard test forbids a raw `field_values` key in audit states |
 | C11 | Event exports | `grep -rniE "event.*export|export.*event" lib/letflow/routers` -> none. Record export `POST /entities/records/:entity_type/export` (`routers/entities.ex:500`, `export_record_map` `:1838-1856`) | records, not events; already redacted by `check_request`/`redact_page` with `EntitiesRecordsExportUnredacted` as the only bypass | already covered by #2697 | not stored |
-| C12 | Logs | grep above: no `field_values`/payload in any log call | no | rule + lint guard (S5): no `Logger` call may interpolate a payload, event, or `field_values` | never logged |
+| C12 | Logs | grep above: no `field_values`/payload in any log call | no | rule + lint guard (S4): no `Logger` call may interpolate a payload, event, or `field_values` | never logged |
 | C13 | Internal readers | `entities/record/projector.ex:153,266` (builds `entity_record_latest`), `entities/script_reads.ex:179` (select), `entities/record_access.ex`, `modules/read_api.ex:45`, `modules/org/org.ex:128`, `modules/catalog_items/catalog_items.ex:119` | yes, trusted in-process code | script reads omit restricted fields (existing); `read_api`/`org`/`catalog_items` read managed foundation types with no restriction rows by definition | n/a |
 | C14 | Idempotency / tamper / squat tooling | `idempotency/squat_audit.ex:290,466`, `entities/managed_types/tamper_inventory.ex:33,234-257`, `release/idempotency_squats.ex:20` | read single keys (`session_id`, `user_id`) inside SQL; report ids and counts only, never values | none needed | n/a |
 | C15 | Archive / retention | `event_store/archived_event.ex:69` (`payload` column), `event_store.ex:1473` `archive/1`, `engine/reconstruction.ex:327,404` | archive copies the payload verbatim (same trust level as C1) | none: not client-readable; if an archive read route is ever added it must call C2's redactor | stored RAW (same as C1) |
@@ -117,9 +117,9 @@ route calls `redact_event_payload/3` and nothing else.
   Failure to load restrictions fails the delivery closed (no request is sent, the error is returned).
 - C3: `Response.public_event_payload/2`: new `cond` arm for `event_type in ["ENTITY_RECORD_CREATED",
   "ENTITY_RECORD_UPDATED"]` returns `Map.delete(payload, "field_values")`.
-- C7/C8: no code change now (no direct path). A guard test (S5) pins that `service_task_dispatcher.ex` and `engine.ex`
+- C7/C8: no code change now (no direct path). A guard test (S4) pins that `service_task_dispatcher.ex` and `engine.ex`
   do not reference `field_values`, so a new path forces a conscious change.
-- C10/C12: guard tests only (S5).
+- C10/C12: guard tests only (S4).
 
 ### 5.4 `GET /entities/records/:entity_type/:record_id/history`
 
@@ -202,6 +202,7 @@ Tests that must change for S2 (greps run: `grep -rn "records/:entity_type/:recor
 - `test/letflow/api/authorization_test.exs` (around 1571, 1998, 2214): these lists are samples, not exhaustive sets, so
   they do not break; the developer adds the history route to the `endpoint_policy_key` case list (about 2214) for coverage.
 - `test/letflow/api/route_scope_resolver_test.exs:37-38`: inventory list gets the new line (T1).
+- `test/letflow/api/route_scope_resolver_test.exs:269`: `assert length(entity_rows) == 18` becomes 19; the titles/comments saying "eight" (lines 11, 18, 78, 227) become "nine".
 No `core_permissions` count test changes (no new atom).
 CRLF/line pins: new handler lives in a new file; do not add lines above cited symbols in `routers/entities.ex`
 beyond one `authz_get` block (`grep -rl "entities.ex" test/` then run each hit).
