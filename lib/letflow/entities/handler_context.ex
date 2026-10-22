@@ -22,8 +22,8 @@ defmodule Letflow.Entities.HandlerContext do
        network or file I/O, never writes a table other than through `create/3`. Pure argument
        checking (returning `:invalid_arguments`) is its only logic. The scan H4 is a tripwire
        for this; the boundary is that the API hands the handler nothing dangerous.
-    2. `create/3` is the ONLY writer. It builds the `StepSource` (with `handler` and the next
-       `write_ordinal`), derives the key and namespace, refuses a type outside the handler's
+    2. `create/3` is the ONLY writer. It builds the `StepSource` (with `handler`, which carries
+       the next ordinal), derives the key and namespace, refuses a type outside the handler's
        registered targets (`:target_not_registered`) and a call with more than 49 `create`
        additions (`:too_many_writes`), applies the field restrictions of `subject_id`, and
        writes through `Letflow.Entities.Records.command_multi/3` with the Owner the platform

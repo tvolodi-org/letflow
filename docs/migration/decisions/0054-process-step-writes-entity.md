@@ -336,11 +336,11 @@ The platform side of a module write handler's entity writes ships without engine
 `Owner` on every call from the Catalog registration (`ManagedTypes.owner_for_handler/2`, narrowed to
 the handler's registered targets), refuses a type outside those targets, caps a call at 49 creates,
 applies the completer's field restrictions and, in a `:policy` step, requires the type's row to be
-managed by the registering module and unscoped. `StepSource` gains optional `handler` and
-`write_ordinal` (key `20 + line_index * 50 + ordinal`, idempotency key with the ordinal, three more
+managed by the registering module and unscoped. `StepSource` gains one optional `handler` map
+(`%{module_id, name, ordinal}`; GH #2671 folded the separate `write_ordinal` into it) (key `20 + line_index * 50 + ordinal`, idempotency key with the ordinal, three more
 metadata keys); declarative lines are byte-identical. `EventStore.lock_instance_sequence/3` is the
 lock-only primitive for the engine's ascending type locks. `TASK_ENTITY_WRITES_APPLIED` is bumped
-IN PLACE to schema_version 2 (three optional line-item keys). The R4b executor re-verifies the
+IN PLACE to schema_version 2 (three optional line-item keys); GH #2671 renamed the payload key `handler` to `handler_name`, made the three keys all-or-none and bumped it to schema_version 3 (a stored R4a v2 row is never updated in place, so a rename needs a new version). The R4b executor re-verifies the
 install row and both hashes at execution time (`HandlerWrites.build_call/4`, step
 `owner_recheck`). Nothing in the engine calls it yet: R3's interim guard stays until R4b.
 
@@ -405,7 +405,7 @@ committed. The closed detail atom (`stamp_missing`, `stamp_mismatch`, `module_no
 no hash or module name is in a response. Handler "invalid arguments" is 422 `validation_failed`.
 A handler that raises, throws or exits, returns a non-Multi, smuggles a step or drops a write's
 `:policy` step is an internal failure (500, no body detail; ids and names only in the log).
-`TASK_ENTITY_WRITES_APPLIED` v2 lines carry `handler_module`, `handler` and `write_ordinal` for
+`TASK_ENTITY_WRITES_APPLIED` v3 lines carry `handler_module`, `handler_name` and `write_ordinal` (all three or none; GH #2671) for
 handler writes; the audit entry per write carries the same three keys; the history response still
 projects each line to `line_index` and `entity_type` only.
 

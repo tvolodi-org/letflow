@@ -1538,13 +1538,18 @@ defmodule Letflow.TenantProvisioning do
       name: "TASK_ENTITY_WRITES_APPLIED",
       # v2 (GH #2590 / REQ-501 R4a): bumped IN PLACE (a v1 entry kept beside v2 would fail
       # every replay with :schema_version_not_monotonic for a tenant already at v2).
-      schema_version: 2,
+      # v3 (GH #2671): the handler key is renamed `handler_name` and the three handler keys
+      # become all-or-none. A rename is not additive and Registry.register_type refuses an equal
+      # version, so a tenant already holding the R4a v2 row only gets it as a new version; v2 is
+      # replaced in place in the seed, same as v1 above.
+      schema_version: 3,
       description:
         "Emitted by Letflow.Engine (decision 0054, GH #2587) when a HUMAN_TASK or " <>
           "SERVICE_TASK step's declared entity writes commit: ids and sequences only, no " <>
           "field value. Replay changes no state for it and never re-executes a write. " <>
-          "Version 2 adds three OPTIONAL line-item keys naming the module handler that " <>
-          "produced a line; every v1 payload is also a valid v2 payload.",
+          "Version 3 carries three line-item keys (handler_module, handler_name, write_ordinal; " <>
+          "all or none) naming the module handler that produced a line; every v1 payload is " <>
+          "also a valid v3 payload.",
       json_schema: %{
         "type" => "object",
         "properties" => %{
@@ -1563,10 +1568,16 @@ defmodule Letflow.TenantProvisioning do
                 "event_global_seq" => %{"type" => "integer", "minimum" => 0},
                 # v2: present only on a module-handler line (ids and names, never a value).
                 "handler_module" => %{"type" => "string"},
-                "handler" => %{"type" => "string"},
+                "handler_name" => %{"type" => "string"},
                 "write_ordinal" => %{"type" => "integer", "minimum" => 1}
               },
               "required" => ["line_index", "entity_type", "record_id", "event_global_seq"],
+              # GH #2671: the three handler keys come together or not at all.
+              "dependentRequired" => %{
+                "handler_module" => ["handler_name", "write_ordinal"],
+                "handler_name" => ["handler_module", "write_ordinal"],
+                "write_ordinal" => ["handler_module", "handler_name"]
+              },
               "additionalProperties" => false
             }
           }
@@ -1576,6 +1587,13 @@ defmodule Letflow.TenantProvisioning do
       }
     }
   ]
+
+  @doc false
+  # Test-support hook: the (name, schema_version) pairs the platform seed registers, so the
+  # tenant_template fingerprint changes when a seeded event type is bumped (GH #2671).
+  def platform_event_type_seed_versions do
+    Enum.map(@platform_event_type_seed_attrs, &{&1.name, &1.schema_version})
+  end
 
   defp maybe_seed_platform_event_types(false, _tenant_id), do: :ok
 

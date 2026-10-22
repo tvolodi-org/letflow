@@ -25,8 +25,8 @@ defmodule Letflow.Entities.HandlerWrites do
        Catalog registration (never taken from the context, F-4; which is also why this file is
        an `@authority_callers` file: the third argument of `Records.command_multi/3` is a
        non-literal here);
-    6. `Records.command_multi/3` with that Owner, a server-built `StepSource` (handler,
-       `write_ordinal`) and a `{:line, key, :policy}` step that re-reads the type's
+    6. `Records.command_multi/3` with that Owner, a server-built `StepSource` (`handler`
+       with its ordinal) and a `{:line, key, :policy}` step that re-reads the type's
        definition row under its sequence lock and requires `managed_by == handler.module_id`
        (F-7: the registration only names the type in the MANIFEST) and an unscoped type
        (INV-6, until decision 0051).
@@ -238,8 +238,11 @@ defmodule Letflow.Entities.HandlerWrites do
                definition_version: ctx.definition_version,
                line_index: ctx.line_index,
                activator_id: ctx.activator_id,
-               handler: %{module_id: ctx.handler.module_id, name: ctx.handler.name},
-               write_ordinal: ordinal
+               handler: %{
+                 module_id: ctx.handler.module_id,
+                 name: ctx.handler.name,
+                 ordinal: ordinal
+               }
              })
            ),
          {:ok, line_multi} <-
