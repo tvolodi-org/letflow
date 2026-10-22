@@ -396,11 +396,9 @@ defmodule Letflow.Modules.Exam.Router do
   # (`cursor`/`page_size`, same flat-query-string shape
   # Letflow.Routers.Entities' own `GET /entities/definitions` route uses).
   #
-  # No FieldGrants redaction step: entity_field_restrictions carries no row
-  # for entity_type "exam" today (confirmed against the live migrations/
-  # seed data at implementation time -- design doc §6 OQ-1), so there is
-  # nothing for a redaction step to enforce here that plain field_values
-  # exposure does not already cover.
+  # Field values are redacted by FieldGrants inside Session.list_available_exams/2,
+  # keyed by the caller's own user id (the same rule as POST /entities/query).
+  # The caller is never taken from the request.
 
   defp handle_list_available_exams(conn) do
     prefix = prefix!(conn)
@@ -410,7 +408,12 @@ defmodule Letflow.Modules.Exam.Router do
     case Pagination.parse_page_size_param(Map.get(query, "page_size")) do
       {:ok, page_size} ->
         # scope-all: exam routes are :tenant_wide until reclassified (walk guard :exam_route_reclassified)
-        opts = [cursor: Map.get(query, "cursor"), page_size: page_size, scope: :all]
+        opts = [
+          cursor: Map.get(query, "cursor"),
+          page_size: page_size,
+          scope: :all,
+          user_id: conn.assigns.auth_context.user_id
+        ]
 
         render_list_available_exams(
           conn,
