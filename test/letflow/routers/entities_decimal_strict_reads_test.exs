@@ -897,8 +897,7 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
 
     test "the allowlist treats qty as a promoted typed column (non-vacuous)", %{ctx: ctx} do
       {:ok, allowlist} = Letflow.Entities.Query.Allowlist.load("ledger", ctx.schema_name)
-      assert %{source: :typed_column, type: :decimal, decimal_strict: true} = allowlist["qty"]
-      assert allowlist["qty"].decimal_scale == 2
+      assert %{source: :typed_column, type: :decimal, strict_decimal_scale: 2} = allowlist["qty"]
     end
 
     test "filters coerce exactly on the typed column", %{ctx: ctx} do
