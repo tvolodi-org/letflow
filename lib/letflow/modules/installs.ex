@@ -69,6 +69,7 @@ defmodule Letflow.Modules.Installs do
   alias Letflow.Entities.ManagedTypes
   alias Letflow.EventStore.Registry.JsonSchema
   alias Letflow.Modules.Catalog
+  alias Letflow.Modules.InstallContext
   alias Letflow.Modules.TenantModule
   alias Letflow.Repo
 
@@ -120,9 +121,10 @@ defmodule Letflow.Modules.Installs do
                maybe_install_pack(entry_module, actor_id, opts, owner),
              :ok <- check_managed_types_in_pack(owner, pack_entity_definition_ids),
              {:ok, tenant_module} <- insert_tenant_module(entry_module, owner, prefix),
-             ctx = %{
+             ctx = %InstallContext{
                actor_id: actor_id,
                rationale: rationale,
+               tenant_prefix: prefix,
                pack_entity_definition_ids: pack_entity_definition_ids
              },
              :ok <- maybe_run_on_install(entry_module, prefix, tenant_module.settings, ctx) do

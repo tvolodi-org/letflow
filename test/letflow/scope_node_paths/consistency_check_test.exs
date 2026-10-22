@@ -116,6 +116,33 @@ defmodule Letflow.ScopeNodePaths.ConsistencyCheckTest do
     end
   end
 
+  describe "check/2 row cap" do
+    test "a table over the cap is read up to the cap, truncated, and not :ok", %{schema: schema} do
+      seed!(schema, chain_rows("c", 5))
+
+      assert {:ok, report} = Consistency.check(schema, 3)
+      assert report.truncated == true
+      assert report.status == :inconsistent
+      assert report.checked_nodes == 3
+
+      # Stable: the same first rows (by node_id) every time.
+      assert {:ok, ^report} = Consistency.check(schema, 3)
+    end
+
+    test "a table exactly at the cap is complete and not truncated", %{schema: schema} do
+      seed!(schema, chain_rows("c", 3))
+
+      assert {:ok, report} = Consistency.check(schema, 3)
+      assert report.truncated == false
+      assert report.status == :ok
+      assert report.checked_nodes == 3
+    end
+
+    test "the default cap is bounded" do
+      assert Consistency.row_cap() == 50_000
+    end
+  end
+
   describe "analyse/1 (pure)" do
     test "malformed: bad path shape, last segment not the id, depth not the segment count" do
       report =

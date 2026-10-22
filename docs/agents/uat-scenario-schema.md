@@ -149,7 +149,7 @@ branches:
     when:
       fact: role
       op: in
-      value: [TENANT_ADMIN, TENANT_USER]      # eq/in are the only allowed operators
+      value: [TENANT_ADMIN, TASK_WORKER]     # eq/in are the only allowed operators
     steps:
       - step: 1
         actor: viewer
@@ -261,13 +261,18 @@ refusal_coverage_exempt: [bilimbaga]     # optional; scopes exempt from rule (e)
 legacy_platform_admin:                   # optional; tenant actors seeded as PLATFORM_ADMIN
   actor-acme-bob:
     since: "2026-10-06"                  # ISO date
-    reason: "no TENANT_ADMIN until REQ-447"
+    reason: "example entry: a tenant actor still seeded as PLATFORM_ADMIN"
     removed_by: REQ-454
 ```
 
 A *login actor* is any id in a scenario's top-level `actors:` values or a step `actor:`
 that starts with `actor-`, excluding `actor-system-*` and `actor-any`. `unresolved`
 is a recorded gap (never guess a role); an actor there is exempt from rules (b)-(d).
+
+The roster `test/fixtures/uat/actors.yaml` is the single actor-to-role mapping. A scenario
+names an actor, never a role, and the role charter [`docs/roles.md`](../roles.md) defines
+what each built-in role may do. Look up an actor's roles in the roster; do not search
+the seed scripts or the e2e tests for them.
 
 Correct: the example above (every key valid). Rejected (`SCHEMA-12`, roster path as file):
 
@@ -318,9 +323,9 @@ Rejected (no entry anywhere):
 ```
 
 **(b) `SCHEMA-8` — every `builtin_roles` value is a known role.**
-Correct: `builtin_roles: [TASK_WORKER]`. Rejected: `builtin_roles: [TENANT_BOSS]`:
+Correct: `builtin_roles: [TASK_WORKER]`. Rejected: `builtin_roles: [<any name not in roles/0>]`:
 ```
-[SCHEMA-8] test/fixtures/uat/actors.yaml: actor "actor-acme-bob" lists builtin_roles value "TENANT_BOSS" which is not in Authorization.roles/0 (PLATFORM_ADMIN, PROCESS_DESIGNER, ...)
+[SCHEMA-8] test/fixtures/uat/actors.yaml: actor "actor-acme-bob" lists builtin_roles value "<not-a-role>" which is not in Authorization.roles/0 (PLATFORM_ADMIN, PROCESS_DESIGNER, ...)
 ```
 
 **(c) `SCHEMA-9` — a non-platform actor must not hold `PLATFORM_ADMIN`.**

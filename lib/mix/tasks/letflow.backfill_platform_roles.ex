@@ -40,7 +40,7 @@ defmodule Mix.Tasks.Letflow.BackfillPlatformRoles do
   def run(_args) do
     Mix.Task.run("app.start")
 
-    case RoleBackfill.run() do
+    case RoleBackfill.run(report: &print_tenant/1) do
       {:ok, %{seeded: seeded, unchanged: unchanged, role_claims_markers_reset: reset_count}} ->
         Mix.shell().info(
           "ISS-0886 platform-role backfill complete: #{length(seeded)} tenant(s) seeded, " <>
@@ -56,10 +56,21 @@ defmodule Mix.Tasks.Letflow.BackfillPlatformRoles do
 
       {:error, {:backfill_failed, tenant_id, reason}} ->
         Mix.shell().error(
-          "ISS-0886 platform-role backfill failed for tenant #{tenant_id}: #{inspect(reason)}"
+          "ISS-0886 platform-role backfill failed for tenant #{tenant_id} " <>
+            "(reason class: #{inspect(RoleBackfill.reason_class(reason))}); the tenant was rolled back, re-run to retry"
         )
 
         System.halt(1)
     end
   end
+
+  # GH 2572: one line per tenant as the sweep reaches it. Failure prints the reason class only.
+  defp print_tenant({tenant_id, :unchanged}),
+    do: Mix.shell().info("tenant #{tenant_id}: unchanged")
+
+  defp print_tenant({tenant_id, {:seeded, reset_count}}),
+    do: Mix.shell().info("tenant #{tenant_id}: seeded, #{reset_count} marker(s) reset (ISS-0910)")
+
+  defp print_tenant({tenant_id, {:failed, reason_class}}),
+    do: Mix.shell().error("tenant #{tenant_id}: failed (reason class: #{inspect(reason_class)})")
 end

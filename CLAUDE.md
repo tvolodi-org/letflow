@@ -149,6 +149,9 @@ summarized here:
   flag it and get REVIEWER sign-off rather than quietly diverging.
 - **Merge discipline** (`core-directives.md`): one PR per issue; no docs/chore merges while a functional PR is in CI;
   classify every CI failure (a repeat is a defect); run CI-shaped locally before pushing; overlap-check before filing.
+- **Never grant PLATFORM_ADMIN to a tenant user.** Platform-scope actions belong to the
+  platform tenant only; a tenant-side test that needs more authority gets a tenant role
+  (for example TENANT_ADMIN), not PLATFORM_ADMIN. See `docs/roles.md`.
 - Check `docs/anti-patterns.md` before non-trivial changes, and add to
   it when you find a mistake worth not repeating.
 
@@ -156,6 +159,7 @@ summarized here:
 
 - `README.md` (full)
 - `docs/agents/AGENT_SYSTEM.md` — full roster and how work flows through it
+- `docs/roles.md` — the role charter: the eight built-in roles, their scopes, and what each may and must not do
 - `docs/agents/instructions/core-directives.md` — cross-cutting rules binding every role
 - `docs/requirements.yaml` — find or confirm the requirement in scope
 - `docs/migration/README.md` — stage breakdown

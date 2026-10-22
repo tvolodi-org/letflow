@@ -7,9 +7,13 @@ defmodule Letflow.ScopeNodePaths.Consistency do
   (`GET /api/v1/tenant/scope-node-paths/consistency`) and the consistency test
   `mix letflow.check` runs.
 
-  `check/1` loads EVERY row of the tenant's table, uncapped; only the id lists
-  in the report are capped (1000 each, `truncated: true` when any cap is hit;
-  `counts` stay exact). No write, no lock.
+  `check/1` loads at most `row_cap/0` rows of the tenant's table (ordered by
+  `node_id`), so the endpoint's work is bounded (INV-8). When the table holds
+  more, the report is built from the first `row_cap/0` rows, `truncated: true`,
+  and `status` is `:inconsistent`: a partial table cannot prove consistency (the
+  parents of loaded rows may be missing), so the gates fail safe. The id lists
+  in the report are also capped (1000 each, `truncated: true` when any cap is
+  hit; `counts` stay exact). No write, no lock.
 
   Rules (segments = `path` split on `/`, empty ends dropped; parent = the
   second-last segment):
@@ -24,12 +28,15 @@ defmodule Letflow.ScopeNodePaths.Consistency do
     5. `depth_exceeded` -- `depth > 12` or more than 12 segments (any row).
   """
 
+  import Ecto.Query, only: [from: 2]
+
   alias Letflow.Repo
   alias Letflow.ScopeNodePaths
   alias Letflow.ScopeNodePaths.Node
   alias Letflow.TenantProvisioning
 
   @list_cap 1000
+  @row_cap 50_000
   @path_format ~r{^/([^/]+/)+$}
 
   @type report :: %{
@@ -51,11 +58,28 @@ defmodule Letflow.ScopeNodePaths.Consistency do
           truncated: boolean()
         }
 
-  @doc "Loads every `scope_node_paths` row of the tenant schema `prefix` and analyses it."
+  @doc "The most rows `check/1` loads; a larger table yields `truncated: true`."
+  @spec row_cap() :: pos_integer()
+  def row_cap, do: @row_cap
+
+  @doc "Loads up to `row_cap/0` `scope_node_paths` rows of the tenant schema `prefix` and analyses them."
   @spec check(prefix :: String.t()) :: {:ok, report()} | {:error, :invalid_schema_name}
-  def check(prefix) when is_binary(prefix) do
+  def check(prefix) when is_binary(prefix), do: check(prefix, @row_cap)
+
+  @doc false
+  @spec check(String.t(), pos_integer()) :: {:ok, report()} | {:error, :invalid_schema_name}
+  def check(prefix, row_cap) when is_binary(prefix) and is_integer(row_cap) and row_cap > 0 do
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
-      {:ok, analyse(Repo.all(Node, prefix: prefix))}
+      query = from(n in Node, order_by: n.node_id, limit: ^(row_cap + 1))
+
+      case Repo.all(query, prefix: prefix) do
+        rows when length(rows) > row_cap ->
+          report = analyse(Enum.take(rows, row_cap))
+          {:ok, %{report | status: :inconsistent, truncated: true}}
+
+        rows ->
+          {:ok, analyse(rows)}
+      end
     end
   end
 
