@@ -404,3 +404,52 @@ describe('GH 2238 BUILDS 5 — EntityCrudPage write controls follow EntitiesReco
     expect(screen.queryByTestId('entity-delete-r1')).not.toBeInTheDocument()
   })
 })
+
+describe('GH #2815 — restricted-field write 403 shows a friendly message', () => {
+  const restrictedMessage = entitiesMessages.en['entities.crud.form.restrictedFieldError']
+
+  function openCreateAndFail(err: unknown) {
+    vi.useFakeTimers()
+    try {
+      installMocksFor(CASES[0])
+      const onErrors: Array<(e: unknown) => void> = []
+      const base = mockUseMutation.getMockImplementation()!
+      mockUseMutation.mockImplementation((opts: unknown) => {
+        onErrors.push((opts as { onError: (e: unknown) => void }).onError)
+        return base(opts as never)
+      })
+      renderWithAccess(<EntityCrudPage entityType={CASES[0].entityType} />)
+      fireEvent.click(screen.getByTestId('entity-create-action'))
+      act(() => {
+        vi.runAllTimers()
+      })
+      act(() => {
+        onErrors[0](err)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('maps the write 403 body to a message that names no field', () => {
+    openCreateAndFail({
+      status: 403,
+      code: 'https://letflow/problems/forbidden',
+      message: 'Forbidden',
+      details: { detail: 'one or more requested fields are restricted for this caller', status: 403 },
+    })
+    const banner = screen.getByTestId('entity-form-error-banner')
+    expect(banner).toHaveTextContent(restrictedMessage)
+    expect(banner).not.toHaveTextContent('restricted for this caller')
+  })
+
+  it('maps the import per-entry field_restricted code to the same message', () => {
+    openCreateAndFail({ status: 422, code: 'field_restricted', message: 'field_restricted' })
+    expect(screen.getByTestId('entity-form-error-banner')).toHaveTextContent(restrictedMessage)
+  })
+
+  it('leaves an unrelated 403 untouched', () => {
+    openCreateAndFail({ status: 403, code: 'x', message: 'Forbidden', details: { detail: 'other' } })
+    expect(screen.getByTestId('entity-form-error-banner')).toHaveTextContent('Forbidden')
+  })
+})

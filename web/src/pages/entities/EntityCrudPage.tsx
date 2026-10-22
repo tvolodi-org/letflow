@@ -69,6 +69,23 @@ function isApiError(err: unknown): err is ApiError {
   return typeof err === 'object' && err !== null && 'status' in err
 }
 
+/** GH #2815: the record write 403 for a protected (restricted) field carries the
+ *  constant detail below (routers/entities.ex `@restricted_fields_detail`); an
+ *  import entry carries the code `field_restricted`. Neither names a field, so
+ *  the replacement message names none either. */
+const RESTRICTED_FIELDS_DETAIL = 'one or more requested fields are restricted for this caller'
+const RESTRICTED_FIELD_CODE = 'field_restricted'
+
+function isRestrictedFieldError(err: ApiError): boolean {
+  const detail = err.details?.['detail']
+  const code = err.details?.['code']
+  return (
+    err.code === RESTRICTED_FIELD_CODE ||
+    code === RESTRICTED_FIELD_CODE ||
+    (err.status === 403 && detail === RESTRICTED_FIELDS_DETAIL)
+  )
+}
+
 /** Renders one field's value for the list table. `:localized_text` values
  *  are `{locale: string}` objects (REQ-301) — shown in the viewer's own
  *  locale, falling back to the first populated locale. `:boolean` values
@@ -151,6 +168,13 @@ function EntityCrudPageInner({ entityType }: EntityCrudPageProps) {
     void qc.invalidateQueries({ queryKey: tenantKeys.entities.all() })
   }
 
+  const toFormError = (err: unknown): ApiError | null => {
+    if (!isApiError(err)) return null
+    return isRestrictedFieldError(err)
+      ? { status: err.status, code: err.code, message: intl.formatMessage({ id: 'entities.crud.form.restrictedFieldError' }) }
+      : err
+  }
+
   const createMutation = useMutation({
     mutationFn: (fieldValues: Record<string, unknown>) => entitiesApi.createRecord(entityType, fieldValues),
     onSuccess: () => {
@@ -159,7 +183,7 @@ function EntityCrudPageInner({ entityType }: EntityCrudPageProps) {
       invalidateList()
     },
     onError: (err: unknown) => {
-      setFormError(isApiError(err) ? err : null)
+      setFormError(toFormError(err))
     },
   })
 
@@ -172,7 +196,7 @@ function EntityCrudPageInner({ entityType }: EntityCrudPageProps) {
       invalidateList()
     },
     onError: (err: unknown) => {
-      setFormError(isApiError(err) ? err : null)
+      setFormError(toFormError(err))
     },
   })
 
