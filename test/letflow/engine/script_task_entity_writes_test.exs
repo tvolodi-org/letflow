@@ -408,12 +408,21 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
   end
 
   # Counts the CAS locks (`SELECT ... FOR UPDATE` on script_task_dispatches) of one
-  # `run_claimed/2`. Each engine apply attempt takes exactly one, so the count pins the number of
-  # applies: the dispatcher follow-up B' (a SECOND `apply_script_task_result/3`) would add one.
+  # `run_claimed/2`. Each engine apply attempt takes exactly one.
   defp cas_locks(queries) do
     Enum.count(queries, fn %{query: sql} ->
       sql =~ "FOR UPDATE" and sql =~ "script_task_dispatches"
     end)
+  end
+
+  # Counts the apply attempts that reached the entity port: each one reports one `multi/3` call
+  # (`ChaosEntityPort.record!/0`). Independent of how many statements an attempt issues.
+  defp port_multi_calls(acc \\ 0) do
+    receive do
+      {:port_call, :multi, _ctx} -> port_multi_calls(acc + 1)
+    after
+      0 -> acc
+    end
   end
 
   defp runner_calls(acc \\ 0) do
@@ -434,11 +443,13 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
       F.count_runner_calls!()
       counter = ChaosEntityPort.arm!(:lock_not_available, 1)
 
-      {row, result} = run_counted(schema)
+      {row, {result, cas, attempts}} = run_counted(schema)
 
-      # attempt 1 (rolled back) + attempt 2; no follow-up
-      assert result == {{:ok, :applied}, 2}
-      assert :counters.get(counter, 1) == 2
+      # attempt 1 (rolled back) + attempt 2; no follow-up: every apply attempt the port sees is
+      # one CAS, and the attempts are exactly the contended runs the port itself counted
+      assert result == {:ok, :applied}
+      assert attempts == :counters.get(counter, 1)
+      assert cas == attempts
       assert runner_calls() == 1
       assert F.reload(schema, row).status == :applied
     end
@@ -451,10 +462,13 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
       bound!(t, activator, refusing_lines())
       F.count_runner_calls!()
 
-      {row, result} = run_counted(schema)
+      {row, {result, cas, attempts}} = run_counted(schema)
 
-      # the apply + its landing; a dispatcher follow-up would be a third
-      assert result == {{:ok, :failed}, 2}
+      # one apply attempt, then its landing (one CAS of its own); a dispatcher follow-up would
+      # add a second apply, which is one more CAS than the attempts plus the landing
+      assert result == {:ok, :failed}
+      assert attempts == 1
+      assert cas == attempts + 1
       assert runner_calls() == 1
       assert F.reload(schema, row).outcome_detail == "entity_write_refused"
     end
@@ -468,23 +482,27 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
       F.count_runner_calls!()
       ChaosEntityPort.arm!(:lock_not_available, :infinity)
 
-      {row, result} = run_counted(schema)
+      {row, {result, cas, attempts}} = run_counted(schema)
 
-      # three attempts + the landing; a dispatcher follow-up would be a fifth
-      assert result == {{:ok, :failed}, 4}
+      # the bounded re-applies (every attempt the port sees) + one landing; a dispatcher
+      # follow-up would add one more apply
+      assert result == {:ok, :failed}
+      assert attempts == 3
+      assert cas == attempts + 1
       assert runner_calls() == 1
       assert F.reload(schema, row).outcome_detail == "entity_write_contention"
     end
 
     defp run_counted(schema) do
       assert {:ok, row} = ScriptTaskDispatcher.claim_next(schema)
+      ChaosEntityPort.record!()
 
       {result, queries} =
         PlatformTenantFixture.capture_repo_queries(fn ->
           ScriptTaskDispatcher.run_claimed(row, schema)
         end)
 
-      {row, {result, cas_locks(queries)}}
+      {row, {result, cas_locks(queries), port_multi_calls()}}
     end
   end
 

@@ -751,16 +751,24 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert Fx.audit_rows(cancelled.schema, "service_task.advance_failed") == []
     end
 
-    test "ambiguous commit: the re-apply after a committed first apply (activator deactivated meanwhile) answers already_final" do
+    test "lost acknowledgement after a committed apply: the caller's retry adds no record and no event" do
       ctx = Fx.service_case!("gh2587c-dup4", Fx.service_then_human_graph(two_lines()))
       body = %{"label" => "L1", "note" => "N1"}
-      assert {:ok, :advanced} = Fx.apply_http(ctx, body)
 
-      {1, _} =
-        from(u in User, where: u.id == ^ctx.user.id)
-        |> Repo.update_all([set: [status: :inactive]], prefix: ctx.schema)
+      # the first apply commits; its acknowledgement never reaches the caller, so the result is
+      # discarded and the caller retries with the same body
+      _lost_ack = Fx.apply_http(ctx, body)
+      records = Fx.all_records(ctx.schema)
+      entity_events = Fx.entity_events(ctx.schema)
+      instance_events = Fx.all_instance_event_count(ctx.schema, ctx.instance_id)
+      assert length(records) == 2
+      assert length(entity_events) == 2
 
       assert {:ok, :already_final} = Fx.apply_http(ctx, body)
+
+      assert Fx.all_records(ctx.schema) == records
+      assert Fx.entity_events(ctx.schema) == entity_events
+      assert Fx.all_instance_event_count(ctx.schema, ctx.instance_id) == instance_events
       assert Fx.projection!(ctx.schema, ctx.instance_id).status == :active
       assert Fx.dlq_entries(ctx.schema) == []
     end
