@@ -35,7 +35,8 @@ defmodule Letflow.Modules.Exam.Snapshot do
     * `ensure/3` is the candidate touch (own transaction, owner check first, writes at once);
     * `ensure_locked/2` is the submit/finalize variant: it only BUILDS (reads) and returns the
       session row with the snapshot merged in memory. The caller persists it in its single
-      `session` update after scoring, then calls `record_late/4` as the LAST statement. This keeps
+      `session` update after scoring, then records it through `record_late_after_persist/6` (persist
+      first, `record_late/4` last). This keeps
       the lock order identical to a plain submit (session row, score sequence, session sequence)
       with the audit chain lock last (writing the snapshot first would invert the score/session
       sequence order against concurrent plain submits);
@@ -707,9 +708,9 @@ defmodule Letflow.Modules.Exam.Snapshot do
   defp persist_late(:existing, _session, _after, _snapshot, _actor, _prefix), do: :ok
 
   defp persist_late(:late, session, session_after, snapshot, actor_id, prefix) do
-    with :ok <- write_session(session, session_after, prefix) do
-      record_late(session, snapshot, actor_id, prefix)
-    end
+    record_late_after_persist(:late, session, snapshot, actor_id, prefix, fn ->
+      write_session(session, session_after, prefix)
+    end)
   end
 
   @doc """
@@ -718,7 +719,7 @@ defmodule Letflow.Modules.Exam.Snapshot do
   returned verified and `session_after` is the row unchanged. For `:late` the snapshot is only
   BUILT (reads): `session_after.field_values` carries it, nothing is written yet. The caller MUST
   write `session_after.field_values` in its single `session` update (so the later update cannot
-  drop the snapshot) and then call `record_late/4` as its last statement. Deviation from the 17.2
+  drop the snapshot) and then record it with `record_late_after_persist/6`. Deviation from the 17.2
   table (return shape and deferred write) is recorded in the PR: it keeps the lock order the same
   as a plain submit.
   """
@@ -923,10 +924,11 @@ defmodule Letflow.Modules.Exam.Snapshot do
 
   @doc """
   The audit entry of a late snapshot (design 17.6): one hash-chained `exam.session_snapshot_late`
-  entry, ids/names/timestamps only (INV-4/INV-5), in the caller's transaction. Call it as the LAST
-  statement of that transaction (the audit chain lock is the last lock). `actor_id` is the touching
-  user, or `nil` for the system sweep. A failure is `{:snapshot_error, :audit_failed}`; the caller
-  rolls its transaction back, so a late snapshot that cannot be recorded is not taken.
+  entry, ids/names/timestamps only (INV-4/INV-5), in the caller's transaction. It is the LAST
+  statement of that transaction (the audit chain lock is the last lock), so callers reach it only
+  through `record_late_after_persist/6`, which runs the session write first. `actor_id` is the
+  touching user, or `nil` for the system sweep. A failure is `{:snapshot_error, :audit_failed}`; the
+  caller rolls its transaction back, so a late snapshot that cannot be recorded is not taken.
   """
   @spec record_late(
           session :: Latest.t(),
@@ -966,6 +968,31 @@ defmodule Letflow.Modules.Exam.Snapshot do
         )
 
         {:error, {:snapshot_error, :audit_failed}}
+    end
+  end
+
+  @doc """
+  The one entry point for a late snapshot's session write and audit entry (GH #2733). `persist` is a
+  zero-arity function that writes the session (the caller's single `session` update, carrying
+  `session_after.field_values` for `:late`) and returns `:ok | {:error, term()}`. It runs FIRST;
+  only when it returns `:ok` does `record_late/4` run, as the last statement. A `:late` snapshot
+  therefore cannot be audited without its write, and a failed write records nothing. For `:existing`
+  there is no audit entry: only `persist` runs.
+  """
+  @spec record_late_after_persist(
+          provenance(),
+          session :: Latest.t(),
+          snapshot(),
+          actor_id :: String.t() | nil,
+          prefix :: String.t(),
+          persist :: (-> :ok | {:error, term()})
+        ) :: :ok | {:error, term()}
+  def record_late_after_persist(:existing, _session, _snapshot, _actor_id, _prefix, persist),
+    do: persist.()
+
+  def record_late_after_persist(:late, session, snapshot, actor_id, prefix, persist) do
+    with :ok <- persist.() do
+      record_late(session, snapshot, actor_id, prefix)
     end
   end
 
@@ -1087,8 +1114,10 @@ defmodule Letflow.Modules.Exam.Snapshot do
              :ok <- check_prerequisites(prefix),
              :ok <- check_before_cutover(session, prefix),
              {:ok, snapshot} <- build_certificate_only(session, prefix, now()),
-             :ok <- write_session(session, put_snapshot(session, snapshot), prefix),
-             :ok <- record_late(session, snapshot, user_id, prefix) do
+             :ok <-
+               record_late_after_persist(:late, session, snapshot, user_id, prefix, fn ->
+                 write_session(session, put_snapshot(session, snapshot), prefix)
+               end) do
           {:ok, snapshot}
         end
 

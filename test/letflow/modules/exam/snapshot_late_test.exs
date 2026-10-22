@@ -1571,4 +1571,70 @@ defmodule Letflow.Modules.Exam.SnapshotLateTest do
       assert {:error, :invalid_schema_name} = Snapshot.late_origin_counts("no_such_schema")
     end
   end
+
+  describe "GH #2733 record_late_after_persist/6 is the one entry point: persist first, record last" do
+    test "the session write runs before the audit entry, and the audit entry is written once" do
+      ctx = legacy_scenario!("gh2733-persist-first")
+      assert {:ok, row} = Latest.get(ctx.session_id, "session", ctx.schema)
+      assert {:ok, snapshot, _session_after, :late} = Snapshot.ensure_locked(row, ctx.schema)
+
+      persist = fn ->
+        assert late_audit(ctx.schema) == []
+        :ok
+      end
+
+      assert :ok =
+               Snapshot.record_late_after_persist(
+                 :late,
+                 row,
+                 snapshot,
+                 ctx.candidate,
+                 ctx.schema,
+                 persist
+               )
+
+      assert [%{after_state: %{"origin" => "late"}}] = late_audit(ctx.schema)
+    end
+
+    test "a failed session write returns its error and records no audit entry" do
+      ctx = legacy_scenario!("gh2733-persist-fails")
+      assert {:ok, row} = Latest.get(ctx.session_id, "session", ctx.schema)
+      assert {:ok, snapshot, _session_after, :late} = Snapshot.ensure_locked(row, ctx.schema)
+
+      assert {:error, :write_failed} =
+               Snapshot.record_late_after_persist(
+                 :late,
+                 row,
+                 snapshot,
+                 ctx.candidate,
+                 ctx.schema,
+                 fn -> {:error, :write_failed} end
+               )
+
+      assert late_audit(ctx.schema) == []
+    end
+
+    test "an existing snapshot runs only the session write and records no audit entry" do
+      ctx = scenario!("gh2733-existing", [single_spec()], %{})
+      assert {:ok, row} = Latest.get(ctx.session_id, "session", ctx.schema)
+      snapshot = row.field_values["exam_snapshot"]
+      ran = self()
+
+      assert :ok =
+               Snapshot.record_late_after_persist(
+                 :existing,
+                 row,
+                 snapshot,
+                 ctx.candidate,
+                 ctx.schema,
+                 fn ->
+                   send(ran, :persisted)
+                   :ok
+                 end
+               )
+
+      assert_received :persisted
+      assert late_audit(ctx.schema) == []
+    end
+  end
 end
