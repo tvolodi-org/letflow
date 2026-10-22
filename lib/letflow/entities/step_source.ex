@@ -18,17 +18,17 @@ defmodule Letflow.Entities.StepSource do
     * `definition_version` is a valid UTF-8 string of 1..255 bytes (the stored
       `ProcessDefinition.version`, #2587 D-B.9);
     * `line_index` is a non-negative integer;
-    * `handler` / `write_ordinal` (GH #2590 / REQ-501 R4a, design
-      `gh2590-req501-module-write-handlers.md` 4.4) are both `nil` for a declarative
-      line and both set for a write made by a module write handler: `handler` is
-      `%{module_id: String.t(), name: String.t()}` (each matching
-      `^[a-z][a-z0-9_]{0,63}$`) and `write_ordinal` an integer in `1..49`.
+    * `handler` (GH #2590 / REQ-501 R4a, design `gh2590-req501-module-write-handlers.md`
+      4.4; one field since GH #2671) is `nil` for a declarative line and
+      `%{module_id: String.t(), name: String.t(), ordinal: 1..49}` for a write made by a
+      module write handler (`module_id` and `name` each matching `^[a-z][a-z0-9_]{0,63}$`),
+      so a handler without an ordinal, or an ordinal without a handler, cannot be built.
 
   The line key and the `sys:step:` idempotency key of the write are DERIVED
   from the struct: `line_key/1` is the `line_index` of a declarative line and
-  `20 + line_index * 50 + write_ordinal` of a handler write (the two ranges are
+  `20 + line_index * 50 + handler.ordinal` of a handler write (the two ranges are
   disjoint), and `idempotency_key/1` builds `"sys:step:<origin id>:<line_index>"`,
-  with `":<write_ordinal>"` appended for a handler write. A key that disagrees with
+  with `":<handler.ordinal>"` appended for a handler write. A key that disagrees with
   the source's origin id, line index or ordinal cannot be expressed (#2627, OQ-C7).
   Step-name collision to know about (R4b): `StepWrites` names its 21st-line overflow failure
   `{:line, 20, :build}`, and `call_key(0)` is also 20. The two never coexist because the engine caps
@@ -64,8 +64,7 @@ defmodule Letflow.Entities.StepSource do
     :definition_version,
     :line_index,
     :activator_id,
-    :handler,
-    :write_ordinal
+    :handler
   ]
 
   @type t :: %__MODULE__{
@@ -78,8 +77,7 @@ defmodule Letflow.Entities.StepSource do
           definition_version: String.t(),
           line_index: non_neg_integer(),
           activator_id: Ecto.UUID.t(),
-          handler: %{module_id: String.t(), name: String.t()} | nil,
-          write_ordinal: 1..49 | nil
+          handler: %{module_id: String.t(), name: String.t(), ordinal: 1..49} | nil
         }
 
   @kind "process_step"
@@ -95,8 +93,7 @@ defmodule Letflow.Entities.StepSource do
     :definition_version,
     :line_index,
     :activator_id,
-    :handler,
-    :write_ordinal
+    :handler
   ]
   @handler_name_format ~r/\A[a-z][a-z0-9_]{0,63}\z/
 
@@ -109,7 +106,7 @@ defmodule Letflow.Entities.StepSource do
   @doc """
   Validates an atom-keyed attribute map (closed key set; `kind` optional;
   `task_id`/`dispatch_id` may be absent or `nil`, exactly one must be set;
-  `handler`/`write_ordinal` both absent/`nil` or both well formed) and returns the struct.
+  `handler` absent/`nil` or a well formed `%{module_id, name, ordinal}`) and returns the struct.
   """
   @spec new(term()) :: {:ok, t()} | {:error, :invalid_step_source}
   def new(attrs) when is_map(attrs) and not is_struct(attrs) do
@@ -127,7 +124,7 @@ defmodule Letflow.Entities.StepSource do
          true <- String.valid?(version),
          line_index when is_integer(line_index) and line_index >= 0 <-
            Map.get(attrs, :line_index),
-         {:ok, handler, write_ordinal} <- handler_fields(attrs) do
+         {:ok, handler} <- handler_field(attrs) do
       {:ok,
        %__MODULE__{
          kind: @kind,
@@ -139,8 +136,7 @@ defmodule Letflow.Entities.StepSource do
          definition_version: version,
          line_index: line_index,
          activator_id: activator_id,
-         handler: handler,
-         write_ordinal: write_ordinal
+         handler: handler
        }}
     else
       _invalid -> {:error, :invalid_step_source}
@@ -170,31 +166,31 @@ defmodule Letflow.Entities.StepSource do
   The step idempotency key of this line (built from the origin id `new/1` stored, i.e. in cast
   lowercase UUID form, GH #2587 C0 delta F1): `"sys:step:" <> origin id <> ":" <>
   line_index` (decision 0054 D9.2), the exact format `StepWrites` always built; a handler
-  write appends `":" <> write_ordinal`.
+  write appends `":" <> handler.ordinal`.
   """
   @spec idempotency_key(t()) :: String.t()
-  def idempotency_key(%__MODULE__{line_index: line_index, write_ordinal: nil} = source) do
+  def idempotency_key(%__MODULE__{line_index: line_index, handler: nil} = source) do
     {_tag, id} = origin(source)
     "sys:step:" <> id <> ":" <> Integer.to_string(line_index)
   end
 
-  def idempotency_key(%__MODULE__{line_index: line_index, write_ordinal: ordinal} = source)
+  def idempotency_key(%__MODULE__{line_index: line_index, handler: %{ordinal: ordinal}} = source)
       when is_integer(ordinal) do
     {_tag, id} = origin(source)
     "sys:step:" <> id <> ":" <> Integer.to_string(line_index) <> ":" <> Integer.to_string(ordinal)
   end
 
   def idempotency_key(%__MODULE__{}),
-    do: raise(ArgumentError, "malformed step source: line_index / write_ordinal")
+    do: raise(ArgumentError, "malformed step source: line_index / handler")
 
   @doc """
   The namespace key of this write's `{:line, key}` Multi steps: the `line_index` of a
-  declarative line, `20 + line_index * 50 + write_ordinal` of a handler write.
+  declarative line, `20 + line_index * 50 + handler.ordinal` of a handler write.
   """
   @spec line_key(t()) :: non_neg_integer()
-  def line_key(%__MODULE__{line_index: line_index, write_ordinal: nil}), do: line_index
+  def line_key(%__MODULE__{line_index: line_index, handler: nil}), do: line_index
 
-  def line_key(%__MODULE__{line_index: line_index, write_ordinal: ordinal})
+  def line_key(%__MODULE__{line_index: line_index, handler: %{ordinal: ordinal}})
       when is_integer(ordinal),
       do: call_key(line_index) + ordinal
 
@@ -248,7 +244,7 @@ defmodule Letflow.Entities.StepSource do
     }
 
     case source do
-      %{handler: %{module_id: module_id, name: name}, write_ordinal: ordinal} ->
+      %{handler: %{module_id: module_id, name: name, ordinal: ordinal}} ->
         Map.merge(base, %{
           "source.handler_module" => module_id,
           "source.handler_name" => name,
@@ -268,17 +264,18 @@ defmodule Letflow.Entities.StepSource do
     end
   end
 
-  # Both nil (declarative) or both set and well formed (handler write); anything else is refused.
-  defp handler_fields(attrs) do
-    case {Map.get(attrs, :handler), Map.get(attrs, :write_ordinal)} do
-      {nil, nil} ->
-        {:ok, nil, nil}
+  # Absent/nil (declarative) or a closed, well formed handler map (handler write); anything else
+  # is refused.
+  defp handler_field(attrs) do
+    case Map.get(attrs, :handler) do
+      nil ->
+        {:ok, nil}
 
-      {%{module_id: module_id, name: name} = handler, ordinal}
-      when map_size(handler) == 2 and is_integer(ordinal) and ordinal >= 1 and
+      %{module_id: module_id, name: name, ordinal: ordinal} = handler
+      when map_size(handler) == 3 and is_integer(ordinal) and ordinal >= 1 and
              ordinal <= @max_write_ordinal ->
         if handler_name?(module_id) and handler_name?(name),
-          do: {:ok, %{module_id: module_id, name: name}, ordinal},
+          do: {:ok, %{module_id: module_id, name: name, ordinal: ordinal}},
           else: :error
 
       _other ->

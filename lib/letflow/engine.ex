@@ -3257,14 +3257,14 @@ defmodule Letflow.Engine do
   end
 
   # Rollout backstop (decision 0054 R4a amendment, design 4.11): a handler line adds keys that
-  # only `TASK_ENTITY_WRITES_APPLIED` schema v2 accepts, and a tenant gains v2 only when
-  # `TenantProvisioning.replay_all_pending/0` has run for it. Without v2 the APPLIED event would
+  # only `TASK_ENTITY_WRITES_APPLIED` schema v3 accepts, and a tenant gains v3 only when
+  # `TenantProvisioning.replay_all_pending/0` has run for it. Without v3 the APPLIED event would
   # be refused at append INSIDE the transaction; refuse before it, fail closed.
   defp check_applied_event_schema(_task, [], _lines, _actor_id, _prefix), do: :ok
 
   defp check_applied_event_schema(task, _module_lines, lines, actor_id, prefix) do
     case EventRegistry.max_schema_version(EntityPort.applied_event_type(), prefix) do
-      version when is_integer(version) and version >= 2 ->
+      version when is_integer(version) and version >= 3 ->
         :ok
 
       _outdated ->
@@ -3517,7 +3517,7 @@ defmodule Letflow.Engine do
   defp handler_keys(%{write_ordinal: ordinal} = line) when is_integer(ordinal) do
     %{
       "handler_module" => line.handler_module,
-      "handler" => line.handler,
+      "handler_name" => line.handler_name,
       "write_ordinal" => ordinal
     }
   end
@@ -5683,7 +5683,7 @@ defmodule Letflow.Engine do
 
   # GH #2590 R5: the node's `module_writes` (handler calls) are planned like a HUMAN completion's
   # (design 6.1 P0b): the combined 20-line cap, the activator, then the run-time authorization
-  # of the stamp, hashes, handler and arguments against the pinned snapshot, then the v2 event
+  # of the stamp, hashes, handler and arguments against the pinned snapshot, then the v3 event
   # schema backstop, all BEFORE `prepare/2` and every lock. A refusal is a `:service_refused`
   # (the apply driver lands it in ERROR + DLQ, D-C.8) with ONE public code and the closed detail
   # atom going to the tenant audit only (INV-5).
@@ -5758,13 +5758,13 @@ defmodule Letflow.Engine do
   end
 
   # The service twin of `check_applied_event_schema/5` (rollout backstop, decision 0054 R4a/R5
-  # amendment): a tenant without `TASK_ENTITY_WRITES_APPLIED` v2 cannot append a handler line's
+  # amendment): a tenant without `TASK_ENTITY_WRITES_APPLIED` v3 cannot append a handler line's
   # APPLIED event, so it is refused up front, fail closed, and lands in ERROR + DLQ.
   defp check_service_applied_event_schema([], _lines, _prefix), do: :ok
 
   defp check_service_applied_event_schema(_module_lines, lines, prefix) do
     case EventRegistry.max_schema_version(EntityPort.applied_event_type(), prefix) do
-      version when is_integer(version) and version >= 2 ->
+      version when is_integer(version) and version >= 3 ->
         :ok
 
       _outdated ->
