@@ -101,6 +101,54 @@ defmodule Letflow.Engine.Contention do
   @spec lock_timeout_setting() :: String.t()
   def lock_timeout_setting, do: Integer.to_string(lock_timeout_ms()) <> "ms"
 
+  # GH #2868: the transaction-local `lock_timeout` statements live here, the leaf module, so that
+  # `Letflow.EventStore` need not depend on `Letflow.Engine`. This file is the one whitelisted
+  # `set_config` site for them in the T-11 scan (`stamp_opener_scan_test`): the setting name is a
+  # literal, the value always a BOUND parameter (INV-7), `true` = transaction-local (`SET LOCAL`).
+
+  @doc """
+  GH #2706 (design 3.1): the first statement of the cancel transaction bounds every later lock wait
+  with `lock_timeout_setting/0`. Skipped when the caller already holds a transaction (`nested?`):
+  Ecto nested transactions use no savepoint, so the setting would outlive this call.
+  """
+  @spec set_cancel_lock_timeout(Ecto.Repo.t() | module(), nested? :: boolean()) ::
+          {:ok, nil | :set}
+  def set_cancel_lock_timeout(_repo, true), do: {:ok, nil}
+
+  def set_cancel_lock_timeout(repo, false) do
+    repo.query!("SELECT set_config('lock_timeout', $1, true)", [lock_timeout_setting()])
+
+    {:ok, :set}
+  end
+
+  @doc """
+  GH #2707 (PR-3): the FIRST statement of a timer-fire transaction, `Letflow.Scheduler.fire_timer/2`,
+  with the PER-WAIT value `timer_fire_lock_timeout_setting/0`. Skipped when the caller already
+  holds a transaction.
+  """
+  @spec set_timer_fire_lock_timeout(Ecto.Repo.t() | module(), nested? :: boolean()) ::
+          {:ok, nil | :set}
+  def set_timer_fire_lock_timeout(_repo, true), do: {:ok, nil}
+
+  def set_timer_fire_lock_timeout(repo, false) do
+    repo.query!("SELECT set_config('lock_timeout', $1, true)", [timer_fire_lock_timeout_setting()])
+
+    {:ok, :set}
+  end
+
+  @doc """
+  GH #2707 (PR-2): the same statement for `Letflow.EventStore.append/2`'s `:lock_timeout_ms`
+  option (a cold appender's bound).
+  """
+  @spec set_lock_timeout_ms(Ecto.Repo.t() | module(), pos_integer()) :: {:ok, :set}
+  def set_lock_timeout_ms(repo, timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0 do
+    repo.query!("SELECT set_config('lock_timeout', $1, true)", [
+      Integer.to_string(timeout_ms) <> "ms"
+    ])
+
+    {:ok, :set}
+  end
+
   @doc """
   `{:ok, code}` for a `Postgrex.Error` that is a lock timeout (`55P03`) or a deadlock victim
   (`40P01`); `:error` for everything else (other codes, connection errors, non-exceptions).

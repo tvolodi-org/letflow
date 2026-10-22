@@ -6,8 +6,9 @@ defmodule Letflow.Identity.EnforcedWritersInvariantTest do
 
   T-I1 is a property test over the writer set: random sequences of operations in a tenant stored
   `on`, drawn from `upsert_role/4` (every kind, every group), `rebind_role/4`, the platform-role
-  seeding, `Backfill.run_tenant/2`, `reconcile_binding!/3` called directly with every
-  `(before, after)` shape, and the two low-level inserters `ensure_tenant_wide_group_row!/3` and
+  seeding, `Backfill.run_tenant/2`, `reconcile_widening!/3` and `reconcile_non_widening!/3`
+  called directly with every `(before, after)` shape (each shape to the entry point its writer
+  picks), and the two low-level inserters `ensure_tenant_wide_group_row!/3` and
   `repair_group_row!/3`, after each of which the number of `tenant_wide = true` rows must not
   have INCREASED. A `drop_rows` step deletes a binding's rows behind the writers' back so that
   the repair paths have a gap to be tempted by. The one sanctioned insert, the explicit
@@ -92,7 +93,15 @@ defmodule Letflow.Identity.EnforcedWritersInvariantTest do
   defp do_op({:reconcile, before_kind, after_kind, role, g1, g2}, s, groups) do
     before = shape(before_kind, role, Enum.at(groups, g1))
     after_ = shape(after_kind, role, Enum.at(groups, g2))
-    Repo.transaction(fn -> RoleScopeGrants.reconcile_binding!(before, after_, s) end)
+
+    Repo.transaction(fn ->
+      # The entry point each binding writer picks (GH #2848): a creating write is the widening one.
+      if platform_binding?(after_) and not platform_binding?(before) do
+        RoleScopeGrants.reconcile_widening!(before, after_, s)
+      else
+        RoleScopeGrants.reconcile_non_widening!(before, after_, s)
+      end
+    end)
   end
 
   defp do_op({:ensure_row, g, role}, s, groups) do
@@ -104,6 +113,9 @@ defmodule Letflow.Identity.EnforcedWritersInvariantTest do
   defp do_op({:repair_row, g, role}, s, groups) do
     Repo.transaction(fn -> RoleScopeGrants.repair_group_row!(Enum.at(groups, g), role, s) end)
   end
+
+  defp platform_binding?(%TenantRole{kind: :platform_role}), do: true
+  defp platform_binding?(_binding), do: false
 
   defp shape(nil, _role, _group), do: nil
   defp shape(kind, role, group), do: %TenantRole{name: role, kind: kind, group_id: group}

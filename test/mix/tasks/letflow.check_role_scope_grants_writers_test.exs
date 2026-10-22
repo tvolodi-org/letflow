@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Letflow.CheckRoleScopeGrantsWritersTest do
     * T-X3 must-pass fixtures: two read-only queries and the two sites on `main` a substring match
       would flag, taken VERBATIM from the real files at test time
       (`Letflow.Identity.delete_group/2`'s `delete_group_principal_rows!` pair and
-      `TenantAdminMigration.remove_legacy_binding/2`'s `reconcile_binding!` pair);
+      `TenantAdminMigration.remove_legacy_binding/2`'s `reconcile_non_widening!` pair);
     * T-X4 the whole-word rule: the first verbatim fixture with `RoleScopeGrants` replaced by the
       singular schema word fails (mutant M11);
     * T-X5 an allowlisted file with a violation passes, the task's own file is exempt;
@@ -185,9 +185,9 @@ defmodule Mix.Tasks.Letflow.CheckRoleScopeGrantsWritersTest do
       assert Scan.audit(snippet <> "\n", "lib/letflow/identity.ex") == []
     end
 
-    test "verbatim: TenantAdminMigration's Repo.delete_all of a TenantRole query followed by RoleScopeGrants.reconcile_binding! passes" do
+    test "verbatim: TenantAdminMigration's Repo.delete_all of a TenantRole query followed by RoleScopeGrants.reconcile_non_widening! passes" do
       snippet = migration_snippet()
-      assert snippet =~ "RoleScopeGrants.reconcile_binding!"
+      assert snippet =~ "RoleScopeGrants.reconcile_non_widening!"
       assert Scan.audit(snippet <> "\n", "lib/letflow/identity/tenant_admin_migration.ex") == []
     end
   end

@@ -60,52 +60,93 @@ defmodule Letflow.Identity.RoleScopeGrants do
   # --- writers ---------------------------------------------------------------
 
   @typedoc """
-  The result of `reconcile_binding!/3` (REQ-519 2e-a): `:ok` (the grant rows are as the
-  binding needs), `{:skipped, :enforced}` (the tenant is `on`, so NO row was written and the
-  binding is left without one, reported by the caller), or `{:refused, :scope_required}` (the
-  tenant is `on` and the write would create a binding that needs a tenant-wide row; the caller
-  rolls back).
+  The result of `reconcile_widening!/3` (REQ-519 2e-a): `:ok` (the grant rows are as the
+  binding needs), or `{:refused, :scope_required}` (the tenant is `on` and the write would create
+  a binding that needs a tenant-wide row; nothing is written and the caller rolls back).
   """
-  @type reconcile_result :: :ok | {:skipped, :enforced} | {:refused, :scope_required}
+  @type widening_result :: :ok | {:refused, :scope_required}
+
+  @typedoc """
+  The result of `reconcile_non_widening!/3` (REQ-519 2e-a): `:ok`, or `{:skipped, :enforced}`
+  (the tenant is `on` and the binding has no row to repair or move, so NO row was written; the
+  caller reports it). A non-widening write is never refused.
+  """
+  @type non_widening_result :: :ok | {:skipped, :enforced}
 
   @doc """
-  The entry point every binding writer calls with the binding as it was (`before_binding`)
-  and as it is after its write (`after_binding`), in the same transaction. `nil` means no
-  binding. With P = `kind == :platform_role` and the tenant mode M read ONCE under lock A
+  The entry point of a binding write that CREATES a `:platform_role` binding: `before_binding`
+  is `nil` or not a platform role, and `after_binding` is a platform role (a new binding, or a
+  routing binding converted to platform). Every other transition that does not end as a platform
+  role writes nothing and answers `:ok`. With the tenant mode M read ONCE under lock A
   (`Letflow.ScopeEnforcement.mode_under_lock!/1`):
 
     * `nil -> P` and `not P -> P`: M `off`/`shadow`: `ensure_tenant_wide_group_row!/3`
       (unconditional create); M `on`: `{:refused, :scope_required}`, nothing written;
-    * `P -> P`, same group: `repair_group_row!/3` (inserts only when the binding has no row);
-      in `on` it never inserts and answers `{:skipped, :enforced}` when the binding has no row;
-    * `P -> P`, other group: `move_group_rows!/4`; in `on` moved rows are `:ok`, none moved is
-      `{:skipped, :enforced}` (no repair fallback);
-    * `P -> not P` and `P -> nil`: `remove_group_rows!/3` (removal never widens, every mode);
-    * anything else: nothing.
+    * anything else (`nil` or routing, to `nil` or routing): `:ok`, nothing written.
 
-  The mode is read only by the clauses that could insert or widen a row, so removals never
-  depend on it. In `off` and `shadow` the result is always `:ok`. Raises `ArgumentError` outside a
-  transaction (the "same transaction" rule, enforced structurally), raises on any DB error and
-  raises `Letflow.ScopeEnforcement.ModeUnavailableError` when the mode cannot be read; the
-  caller's transaction turns every raise into a rollback.
+  Raises `ArgumentError` when `before_binding` is already a platform role (a repair, a move or a
+  removal: use `reconcile_non_widening!/3`), outside a transaction (the "same transaction" rule,
+  enforced structurally), and on any DB error. Raises
+  `Letflow.ScopeEnforcement.ModeUnavailableError` when the mode cannot be read; the caller's
+  transaction turns every raise into a rollback.
   """
-  @spec reconcile_binding!(
+  @spec reconcile_widening!(
           before_binding :: TenantRole.t() | nil,
           after_binding :: TenantRole.t() | nil,
           prefix :: String.t()
-        ) :: reconcile_result()
-  def reconcile_binding!(before_binding, after_binding, prefix) when is_binary(prefix) do
-    ensure_in_transaction!("reconcile_binding!/3")
-    do_reconcile(before_binding, after_binding, prefix)
+        ) :: widening_result()
+  def reconcile_widening!(before_binding, after_binding, prefix) when is_binary(prefix) do
+    ensure_in_transaction!("reconcile_widening!/3")
+
+    if platform_binding?(before_binding) do
+      raise ArgumentError,
+            "reconcile_widening!/3: the binding was already a platform role; " <>
+              "use reconcile_non_widening!/3"
+    end
+
+    if platform_binding?(after_binding),
+      do: create_or_refuse(after_binding, prefix),
+      else: :ok
   end
 
-  # The mode is read LAZILY (once, under lock A) and only by the clauses that could insert or
-  # widen a row; a pure removal (`P -> not P`, `P -> nil`) and the no-op clause never read it,
-  # so an unreadable mode cannot fail a removal.
-  defp do_reconcile(nil, %TenantRole{kind: :platform_role} = new, prefix),
-    do: create_or_refuse(new, prefix)
+  @doc """
+  The entry point of every binding write that does NOT create a platform binding: a repair
+  (`P -> P`, same group), a move (`P -> P`, another group), a removal (`P -> not P` or `P -> nil`)
+  and the no-op transitions. It never widens a binding and is never refused. The mode is read
+  only by the clauses that could insert or move a row (`P -> P`), so a removal never depends on
+  it. In `off` and `shadow` the result is always `:ok`; in `on`:
 
-  defp do_reconcile(
+    * `P -> P`, same group: `repair_group_row!/3` (inserts only when the binding has no row);
+      with no row it answers `{:skipped, :enforced}` and inserts nothing;
+    * `P -> P`, other group: `move_group_rows!/4`; moved rows are `:ok`, none moved is
+      `{:skipped, :enforced}` (no repair fallback);
+    * `P -> not P` and `P -> nil`: `remove_group_rows!/3` (`:ok` in every mode).
+
+  Raises `ArgumentError` when `after_binding` is a platform role that `before_binding` was not
+  (a widening: use `reconcile_widening!/3`), outside a transaction, and on any DB error. Raises
+  `Letflow.ScopeEnforcement.ModeUnavailableError` when a needed mode read fails.
+  """
+  @spec reconcile_non_widening!(
+          before_binding :: TenantRole.t() | nil,
+          after_binding :: TenantRole.t() | nil,
+          prefix :: String.t()
+        ) :: non_widening_result()
+  def reconcile_non_widening!(before_binding, after_binding, prefix) when is_binary(prefix) do
+    ensure_in_transaction!("reconcile_non_widening!/3")
+
+    if platform_binding?(after_binding) and not platform_binding?(before_binding) do
+      raise ArgumentError,
+            "reconcile_non_widening!/3: the binding becomes a platform role; " <>
+              "use reconcile_widening!/3"
+    end
+
+    do_non_widening(before_binding, after_binding, prefix)
+  end
+
+  # The mode is read LAZILY (once, under lock A) and only by the repair and move clauses; a pure
+  # removal (`P -> not P`, `P -> nil`) and the no-op clause never read it, so an unreadable mode
+  # cannot fail a removal.
+  defp do_non_widening(
          %TenantRole{kind: :platform_role} = old,
          %TenantRole{kind: :platform_role} = new,
          prefix
@@ -125,15 +166,15 @@ defmodule Letflow.Identity.RoleScopeGrants do
     end
   end
 
-  defp do_reconcile(%TenantRole{kind: :platform_role} = old, _not_platform_or_nil, prefix) do
+  defp do_non_widening(%TenantRole{kind: :platform_role} = old, _not_platform_or_nil, prefix) do
     _ = remove_group_rows!(old.group_id, old.name, prefix)
     :ok
   end
 
-  defp do_reconcile(%TenantRole{}, %TenantRole{kind: :platform_role} = new, prefix),
-    do: create_or_refuse(new, prefix)
+  defp do_non_widening(_before_binding, _after_binding, _prefix), do: :ok
 
-  defp do_reconcile(_before_binding, _after_binding, _prefix), do: :ok
+  defp platform_binding?(%TenantRole{kind: :platform_role}), do: true
+  defp platform_binding?(_binding), do: false
 
   defp create_or_refuse(%TenantRole{} = new, prefix) do
     case ScopeEnforcement.mode_under_lock!(prefix) do

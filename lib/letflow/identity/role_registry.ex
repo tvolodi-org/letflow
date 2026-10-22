@@ -370,7 +370,7 @@ defmodule Letflow.Identity.RoleRegistry do
           case lock_role_by_name(name, prefix) do
             %TenantRole{kind: :platform_role} = role ->
               # REQ-497 W4 (b): repair-only, inserts a row only for a binding with none.
-              case RoleScopeGrants.reconcile_binding!(role, role, prefix) do
+              case RoleScopeGrants.reconcile_non_widening!(role, role, prefix) do
                 :ok ->
                   {role, :in_place}
 
@@ -634,7 +634,7 @@ defmodule Letflow.Identity.RoleRegistry do
             # REQ-519 2e-a: in an `on` tenant the write is refused (W-a), except the seeding's
             # internal no-row policy (W-g1), which keeps the binding and reports it.
             rows =
-              case {RoleScopeGrants.reconcile_binding!(nil, role, prefix), policy} do
+              case {RoleScopeGrants.reconcile_widening!(nil, role, prefix), policy} do
                 {:ok, _policy} ->
                   :in_place
 
@@ -678,7 +678,7 @@ defmodule Letflow.Identity.RoleRegistry do
       role.kind == kind ->
         # REQ-497 W2 (b): repair-only for a platform binding, a no-op for a routing one.
         rows =
-          case RoleScopeGrants.reconcile_binding!(role, role, prefix) do
+          case RoleScopeGrants.reconcile_non_widening!(role, role, prefix) do
             :ok ->
               :in_place
 
@@ -698,17 +698,23 @@ defmodule Letflow.Identity.RoleRegistry do
         case role |> Ecto.Changeset.change(kind: kind) |> Repo.update(prefix: prefix) do
           {:ok, updated} ->
             # REQ-497 W2 (a): inserts on routing -> platform, removes on platform -> routing.
-            # REQ-519 2e-a: routing -> platform is refused in an `on` tenant (W-b).
+            # REQ-519 2e-a: routing -> platform is refused in an `on` tenant (W-b). Platform ->
+            # routing is a removal (never widens), so only the first direction can be refused.
             rows =
-              case RoleScopeGrants.reconcile_binding!(role, updated, prefix) do
-                :ok ->
-                  :in_place
+              if updated.kind == :platform_role do
+                case RoleScopeGrants.reconcile_widening!(role, updated, prefix) do
+                  :ok ->
+                    :in_place
 
-                {:refused, :scope_required} ->
-                  Repo.rollback(
-                    {:binding_refused,
-                     %{case: :routing_to_platform, role: role.name, group_id: group_id}}
-                  )
+                  {:refused, :scope_required} ->
+                    Repo.rollback(
+                      {:binding_refused,
+                       %{case: :routing_to_platform, role: role.name, group_id: group_id}}
+                    )
+                end
+              else
+                :ok = RoleScopeGrants.reconcile_non_widening!(role, updated, prefix)
+                :in_place
               end
 
             :ok = audit_binding_write({:kind_changed, role.kind}, updated, prefix, ctx, rows)
@@ -992,7 +998,7 @@ defmodule Letflow.Identity.RoleRegistry do
     # REQ-497 W3: the binding's grant rows follow it to the target group (a raise is
     # caught by rebind_role/4's rescue since PR 1b, GH #2575).
     rows =
-      case RoleScopeGrants.reconcile_binding!(role, updated, prefix) do
+      case RoleScopeGrants.reconcile_non_widening!(role, updated, prefix) do
         :ok ->
           :in_place
 

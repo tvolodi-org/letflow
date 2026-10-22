@@ -355,9 +355,10 @@ defmodule Letflow.Identity.BindingWritersModesTest do
   describe "T-B10 W-f1: P -> nil removal (UNCHANGED: removal never widens)" do
     for mode <- [:off, :shadow, :on] do
       @tag mode: mode
-      test "T-B10 #{mode}: reconcile_binding!(P, nil) removes the group rows in every mode", %{
-        mode: mode
-      } do
+      test "T-B10 #{mode}: reconcile_non_widening!(P, nil) removes the group rows in every mode",
+           %{
+             mode: mode
+           } do
         fx = tenant!("req519-b10-#{mode}", :off)
         s = fx.schema_name
         g = group!(fx)
@@ -366,7 +367,7 @@ defmodule Letflow.Identity.BindingWritersModesTest do
         set_mode!(fx, mode)
 
         assert {:ok, :ok} =
-                 Repo.transaction(fn -> RoleScopeGrants.reconcile_binding!(pa, nil, s) end,
+                 Repo.transaction(fn -> RoleScopeGrants.reconcile_non_widening!(pa, nil, s) end,
                    prefix: s
                  )
 

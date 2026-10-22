@@ -370,7 +370,8 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
                  # read-only
                  # REQ-517 PR 2a readers
                  [
-                   reconcile_binding!: 3,
+                   reconcile_widening!: 3,
+                   reconcile_non_widening!: 3,
                    ensure_tenant_wide_group_row!: 3,
                    repair_group_row!: 3,
                    remove_group_rows!: 3,
