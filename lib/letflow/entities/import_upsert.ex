@@ -18,10 +18,11 @@ defmodule Letflow.Entities.ImportUpsert do
 
   ## `run/6` (per entry, sequential, per-entry report not whole-file rollback, design 5.4)
 
-  Each entry is one `Records.upsert_record_by_external_ref/2` call with a server-derived
+  Each entry is one `Records.upsert_record_by_external_ref/4` call (with `schema_checked: true`,
+  since `precheck/2` did the version read once for the request) with a server-derived
   idempotency key (`idempotency_key/2`). Before the call, in this order:
 
-    1. the entry's `external_ref` must parse (`ExternalRef.parse/1`), else `:external_ref_invalid`;
+    1. the entry's `external_ref` must parse (`ExternalRef.from_payload/1`), else `:external_ref_invalid`;
     2. a ref already seen earlier in the file is `:duplicate_external_ref_in_request` (the first
        occurrence proceeds);
     3. write-side field restrictions, as step writes apply them: an entry naming a restricted
@@ -46,7 +47,6 @@ defmodule Letflow.Entities.ImportUpsert do
   alias Letflow.EventStore.Registry
 
   @created_event_type "ENTITY_RECORD_CREATED"
-  @min_created_schema_version 2
 
   # The constant reasons this module itself produces (the router renders them as
   # `{"type": reason}` without detail). A reason added here is rendered by the router
@@ -96,7 +96,7 @@ defmodule Letflow.Entities.ImportUpsert do
         {:error, :not_found}
 
       {:open, restricted} ->
-        if is_integer(version) and version >= @min_created_schema_version,
+        if is_integer(version) and version >= Records.min_ref_schema_version(),
           do: {:ok, restricted},
           else: {:error, :event_schema_outdated}
     end
@@ -141,7 +141,7 @@ defmodule Letflow.Entities.ImportUpsert do
   defp import_entry(entry, seen, ctx) do
     source_record_id = source_record_id(entry)
 
-    case entry |> entry_ref() |> ExternalRef.parse() do
+    case entry |> entry_ref() |> ExternalRef.from_payload() do
       {:error, :external_ref_invalid} ->
         {failure(source_record_id, :external_ref_invalid), seen}
 
@@ -161,14 +161,17 @@ defmodule Letflow.Entities.ImportUpsert do
       :ok ->
         attrs = %{
           entity_type: ctx.entity_type,
-          external_ref: %{"system" => ref.system, "id" => ref.id},
+          external_ref: ExternalRef.to_payload(ref),
           field_values: field_values,
           actor_id: ctx.actor_id,
           idempotency_key: idempotency_key(ctx.request_id, ref)
         }
 
         # scope-all: tenant-wide callers only (import_scope_check/6 refuses upsert mode for a scoped caller)
-        case Records.upsert_record_by_external_ref(attrs, ctx.prefix) do
+        # schema_checked: precheck/2 already read the CREATED version once for this request (GH #2807).
+        case Records.upsert_record_by_external_ref(attrs, ctx.prefix, :tenant,
+               schema_checked: true
+             ) do
           {:ok, %{record: %Latest{record_id: record_id}, outcome: outcome}} ->
             {:ok,
              %{

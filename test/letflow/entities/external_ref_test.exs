@@ -126,4 +126,41 @@ defmodule Letflow.Entities.ExternalRefTest do
       end
     end
   end
+
+  describe "GH #2794: the pair as one value" do
+    test "from_payload/1 builds the struct and refuses what parse/1 refuses" do
+      assert ExternalRef.from_payload(%{"system" => "1c", "id" => "42"}) ==
+               {:ok, %ExternalRef{system: "1c", id: "42"}}
+
+      for bad <- [nil, "x", %{"system" => "1c"}, %{"system" => "SAP", "id" => "1"}] do
+        assert ExternalRef.from_payload(bad) == {:error, :external_ref_invalid}
+      end
+    end
+
+    test "to_payload/1 round-trips the wire map" do
+      payload = %{"system" => "sap", "id" => "A/B 7"}
+      {:ok, ref} = ExternalRef.from_payload(payload)
+      assert ExternalRef.to_payload(ref) == payload
+    end
+
+    test "from_columns/2 refuses a half-set pair before the database" do
+      assert ExternalRef.from_columns(nil, nil) == {:ok, nil}
+      assert ExternalRef.from_columns("x", nil) == {:error, :external_ref_invalid}
+      assert ExternalRef.from_columns(nil, "x") == {:error, :external_ref_invalid}
+
+      assert ExternalRef.from_columns("1c", "42") ==
+               {:ok, %ExternalRef{system: "1c", id: "42"}}
+    end
+
+    test "to_columns/1 always sets both keys together" do
+      assert ExternalRef.to_columns(nil) == %{external_system: nil, external_id: nil}
+
+      assert ExternalRef.to_columns(%ExternalRef{system: "1c", id: "42"}) ==
+               %{external_system: "1c", external_id: "42"}
+    end
+
+    test "a half struct cannot be built" do
+      assert_raise ArgumentError, fn -> struct!(ExternalRef, system: "a") end
+    end
+  end
 end

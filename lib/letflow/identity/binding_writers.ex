@@ -7,9 +7,11 @@ defmodule Letflow.Identity.BindingWriters do
   DATA ONLY: no DB access, no side effects. Two kinds of row:
 
     * SCANNED rows (`binding_rows/0` entries with a `:site`) are keyed by the CALL SITE of one
-      of the six entry points the completeness scan looks for (`entry_points/0`): the only
-      ways a binding's grant row is written or removed. A call site that is not registered
-      here is an unclassified writer, and the scan test fails.
+      of the seven entry points the completeness scan looks for (`entry_points/0`), and by the
+      entry point the site calls (GH #2848: the binding write is split into a widening and a
+      non-widening entry point, so a site is classified by which one it calls): the only ways a
+      binding's grant row is written or removed. A call site that is not registered here is an
+      unclassified writer, and the scan test fails.
     * INDIRECT rows (`indirect: true`) name a writer that reaches a scanned site through
       `upsert_role/4`, `rebind_role/4`, the seeding or the HTTP route. They are not subject to
       the completeness scan; a second check asserts each named function still exists and still
@@ -25,8 +27,13 @@ defmodule Letflow.Identity.BindingWriters do
   @type transition ::
           :nil_to_p | :not_p_to_p | :p_to_p_same | :p_to_p_other | :p_to_not_p | :p_to_nil | :none
   # No positional index: a file may hold several call sites in one function; the scan compares
-  # the MULTISET of {file, function}, and the registry list order is the documentation order.
-  @type site :: %{file: String.t(), function: {atom(), arity()}}
+  # the MULTISET of {file, function, entry point}, and the registry list order is the
+  # documentation order. `entry` is set on scanned rows only.
+  @type site :: %{
+          required(:file) => String.t(),
+          required(:function) => {atom(), arity()},
+          optional(:entry) => atom()
+        }
   @type row :: %{
           id: atom(),
           site: site() | nil,
@@ -52,7 +59,8 @@ defmodule Letflow.Identity.BindingWriters do
         }
 
   @entry_points [
-    {:reconcile_binding!, 3},
+    {:reconcile_widening!, 3},
+    {:reconcile_non_widening!, 3},
     {:ensure_tenant_wide_group_row!, 3},
     {:repair_group_row!, 3},
     {:move_group_rows!, 4},
@@ -60,7 +68,7 @@ defmodule Letflow.Identity.BindingWriters do
     {:run, 1}
   ]
 
-  @doc "The six scanned entry points as `{function, arity}` (`run/1` is `Backfill.run/1`)."
+  @doc "The seven scanned entry points as `{function, arity}` (`run/1` is `Backfill.run/1`)."
   @spec entry_points() :: [{atom(), arity()}]
   def entry_points, do: @entry_points
 
@@ -68,19 +76,38 @@ defmodule Letflow.Identity.BindingWriters do
   @spec binding_rows() :: [row()]
   def binding_rows do
     [
-      scanned(:w_a, @role_registry, {:insert_role, 6}, :nil_to_p, :refused, "new binding"),
+      scanned(
+        :w_a,
+        @role_registry,
+        {:insert_role, 6},
+        :reconcile_widening!,
+        :nil_to_p,
+        :refused,
+        "new binding"
+      ),
       scanned(
         :w_b,
         @role_registry,
         {:converge_existing_role, 5},
+        :reconcile_widening!,
         :not_p_to_p,
         :refused,
-        "routing binding becomes platform (also p_to_not_p, which is unchanged: removal)"
+        "routing binding becomes platform"
+      ),
+      scanned(
+        :w_b2,
+        @role_registry,
+        {:converge_existing_role, 5},
+        :reconcile_non_widening!,
+        :p_to_not_p,
+        :unchanged,
+        "platform binding becomes routing: removal, never widens"
       ),
       scanned(
         :w_c1,
         @role_registry,
         {:converge_existing_role, 5},
+        :reconcile_non_widening!,
         :p_to_p_same,
         :no_row,
         "repair of a binding with no row"
@@ -89,6 +116,7 @@ defmodule Letflow.Identity.BindingWriters do
         :w_c2,
         @role_registry,
         {:ensure_platform_role_binding, 2},
+        :reconcile_non_widening!,
         :p_to_p_same,
         :no_row,
         "seeding repair"
@@ -97,6 +125,7 @@ defmodule Letflow.Identity.BindingWriters do
         :w_c3,
         @tam,
         {:ensure_binding, 2},
+        :reconcile_non_widening!,
         :p_to_p_same,
         :no_row,
         "unreachable in on through real_tenant (tenant skipped)"
@@ -105,6 +134,7 @@ defmodule Letflow.Identity.BindingWriters do
         :w_d,
         @role_registry,
         {:move_role, 6},
+        :reconcile_non_widening!,
         :p_to_p_other,
         :unchanged,
         "rows follow the binding; zero rows moved is NO-ROW (reported)"
@@ -113,6 +143,7 @@ defmodule Letflow.Identity.BindingWriters do
         :w_e,
         @backfill,
         {:repair_rows!, 3},
+        :repair_group_row!,
         :p_to_p_same,
         :no_row,
         "an on tenant is skipped before this site (skipped_enforced)"
@@ -121,6 +152,7 @@ defmodule Letflow.Identity.BindingWriters do
         :w_e2,
         @mix_task,
         {:run, 1},
+        :run,
         :none,
         :no_row,
         "Backfill.run: per-tenant skipped_enforced, never an error"
@@ -129,6 +161,7 @@ defmodule Letflow.Identity.BindingWriters do
         :w_f1,
         @tam,
         {:remove_legacy_binding, 2},
+        :reconcile_non_widening!,
         :p_to_nil,
         :unchanged,
         "removal never widens"
@@ -137,6 +170,7 @@ defmodule Letflow.Identity.BindingWriters do
         :w_f2,
         @identity,
         {:delete_group, 2},
+        :delete_group_principal_rows!,
         :p_to_nil,
         :unchanged,
         "removal never widens"
@@ -220,10 +254,10 @@ defmodule Letflow.Identity.BindingWriters do
   defp member(id, file, function, state, why),
     do: %{id: id, site: %{file: file, function: function}, state: state, why: why}
 
-  defp scanned(id, file, function, transition, state, why) do
+  defp scanned(id, file, function, entry, transition, state, why) do
     %{
       id: id,
-      site: %{file: file, function: function},
+      site: %{file: file, function: function, entry: entry},
       indirect: false,
       transition: transition,
       state: state,

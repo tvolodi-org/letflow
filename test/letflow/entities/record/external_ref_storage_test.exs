@@ -347,6 +347,74 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
                |> Repo.insert(prefix: schema)
     end
 
+    test "GH #2794: Latest.insert_changeset/2 takes the pair as :external_ref", %{schema: schema} do
+      attrs = %{
+        entity_type: "item",
+        record_id: Ecto.UUID.generate(),
+        field_values: %{},
+        entity_def_version: <<0>>,
+        last_event_global_seq: 1
+      }
+
+      ref = %Letflow.Entities.ExternalRef{system: "1c", id: "42"}
+
+      assert {:ok, %Latest{external_system: "1c", external_id: "42"} = row} =
+               %Latest{}
+               |> Latest.insert_changeset(Map.put(attrs, :external_ref, ref))
+               |> Repo.insert(prefix: schema)
+
+      assert Latest.external_ref(row) == ref
+
+      assert {:ok, %Latest{external_system: nil, external_id: nil} = bare} =
+               %Latest{}
+               |> Latest.insert_changeset(
+                 attrs
+                 |> Map.put(:record_id, Ecto.UUID.generate())
+                 |> Map.put(:external_ref, nil)
+               )
+               |> Repo.insert(prefix: schema)
+
+      assert Latest.external_ref(bare) == nil
+    end
+
+    test "GH #2794: Latest.external_ref/1 raises on a hand-built half pair" do
+      assert_raise ArgumentError, fn ->
+        Latest.external_ref(%Latest{external_system: "x", external_id: nil})
+      end
+    end
+
+    test "GH #2794: :external_ref together with raw column attrs is refused, nothing applied" do
+      changeset =
+        Latest.insert_changeset(%Latest{}, %{
+          entity_type: "item",
+          external_ref: %Letflow.Entities.ExternalRef{system: "1c", id: "42"},
+          external_system: "x"
+        })
+
+      refute changeset.valid?
+      assert Keyword.has_key?(changeset.errors, :external_ref)
+      assert changeset.changes == %{}
+    end
+
+    test "GH #2794: external_ref_from_payload/3 returns the struct, nil, or the corrupt-stream error" do
+      id = Ecto.UUID.generate()
+      event_id = Ecto.UUID.generate()
+
+      assert Projector.external_ref_from_payload(
+               %{"external_ref" => %{"system" => "1c", "id" => "42"}},
+               id,
+               event_id
+             ) == {:ok, %Letflow.Entities.ExternalRef{system: "1c", id: "42"}}
+
+      assert Projector.external_ref_from_payload(%{}, id, event_id) == {:ok, nil}
+
+      assert Projector.external_ref_from_payload(
+               %{"external_ref" => %{"system" => "1c"}},
+               id,
+               event_id
+             ) == {:error, {:corrupt_event_stream, {:invalid_external_ref, id, event_id}}}
+    end
+
     test "a soft-deleted row keeps holding its reference: re-inserting the same triple is a unique violation",
          %{schema: schema} do
       assert {:ok, %{num_rows: 1}} = raw_insert(schema, "item", "1c", "42")

@@ -197,6 +197,7 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.StepSource
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
+  alias Letflow.EventStore.Registry
   alias Letflow.EventStore.StoredPayload
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
@@ -280,6 +281,7 @@ defmodule Letflow.Entities.Records do
           | {:error, :external_ref_invalid}
           | {:error, {:external_ref_record_deleted, ExternalRef.t()}}
           | {:error, :external_ref_contention}
+          | {:error, :event_schema_outdated}
 
   @type command_error ::
           {:error, {:definition_not_found, entity_type :: String.t()}}
@@ -329,6 +331,8 @@ defmodule Letflow.Entities.Records do
           | EventStore.append_error()
 
   @upsert_max_attempts 3
+  @created_event_type "ENTITY_RECORD_CREATED"
+  @min_ref_schema_version 2
   @step_key_prefix "sys:step:"
   @step_key_max_bytes 255
   @step_key_format ~r/\Asys:step:[A-Za-z0-9:_.-]+\z/
@@ -460,25 +464,49 @@ defmodule Letflow.Entities.Records do
   The function is convergent, not replay-keyed: its result follows the current state first and the
   `idempotency_key` only protects an append (design section 5.3.1). `is_duplicate: true` is
   returned only when the underlying command returns it. The router (PR 3) applies the per-request
-  `TypeAccess`, field-restriction and event-schema-version checks; the primitive does not.
+  `TypeAccess` and field-restriction checks; the primitive does not.
+
+  GH #2807: only the create branch needs `ENTITY_RECORD_CREATED` at schema v2 (the version that
+  carries the ref); update and unchanged do not. The create branch therefore reads
+  `Registry.max_schema_version/2` and answers `{:error, :event_schema_outdated}` (also for an
+  absent registry row) before any write. The `/4` option `schema_checked: true` skips that read
+  for a caller that has already done it once for a whole batch (`ImportUpsert.precheck/2`); a
+  module handler calls without it. Any other option key or a non-boolean value raises
+  `ArgumentError`.
   """
   @spec upsert_record_by_external_ref(upsert_attrs(), prefix :: String.t()) ::
           {:ok, upsert_result()} | upsert_error()
   def upsert_record_by_external_ref(attrs, prefix) when is_binary(prefix),
-    do: upsert_record_by_external_ref(attrs, prefix, :tenant)
+    do: upsert_record_by_external_ref(attrs, prefix, :tenant, [])
 
   @spec upsert_record_by_external_ref(upsert_attrs(), prefix :: String.t(), ManagedTypes.owner()) ::
           {:ok, upsert_result()} | upsert_error()
+  def upsert_record_by_external_ref(attrs, prefix, authority),
+    do: upsert_record_by_external_ref(attrs, prefix, authority, [])
+
+  @doc "The lowest `ENTITY_RECORD_CREATED` schema version that carries an `external_ref`."
+  @spec min_ref_schema_version() :: pos_integer()
+  def min_ref_schema_version, do: @min_ref_schema_version
+
+  @spec upsert_record_by_external_ref(
+          upsert_attrs(),
+          prefix :: String.t(),
+          ManagedTypes.owner(),
+          schema_checked: boolean()
+        ) :: {:ok, upsert_result()} | upsert_error()
   def upsert_record_by_external_ref(
         %{entity_type: entity_type, field_values: field_values} = attrs,
         prefix,
-        authority
+        authority,
+        opts
       )
-      when is_binary(prefix) and is_authority(authority) do
+      when is_binary(prefix) and is_authority(authority) and is_list(opts) do
+    schema_checked = upsert_opts!(opts)
+
     # The definition is resolved and the values validated here (to compare before writing) and
     # again inside create_record/update_record: two cheap reads kept so the write path stays the
     # one existing command pipeline (no second copy of its checks).
-    with {:ok, ref} <- ExternalRef.parse(Map.get(attrs, :external_ref)),
+    with {:ok, ref} <- ExternalRef.from_payload(Map.get(attrs, :external_ref)),
          :ok <- reject_reserved_attributes(attrs),
          :ok <- reject_step_key(attrs),
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
@@ -494,10 +522,23 @@ defmodule Letflow.Entities.Records do
           ref: ref,
           normalised: canonical_json(normalised),
           prefix: prefix,
-          authority: authority
+          authority: authority,
+          schema_checked: schema_checked
         },
         @upsert_max_attempts
       )
+    end
+  end
+
+  defp upsert_opts!(opts) do
+    case Keyword.pop(opts, :schema_checked, false) do
+      {checked, []} when is_boolean(checked) ->
+        checked
+
+      _invalid ->
+        raise ArgumentError,
+              "upsert_record_by_external_ref/4 accepts only schema_checked: boolean, got: " <>
+                inspect(opts)
     end
   end
 
@@ -517,7 +558,18 @@ defmodule Letflow.Entities.Records do
       else: outcome
   end
 
-  defp upsert_create(%{attrs: attrs, ref: ref, prefix: prefix, authority: authority}) do
+  defp upsert_create(%{prefix: prefix, schema_checked: schema_checked} = run) do
+    if schema_checked or ref_schema_ready?(prefix),
+      do: upsert_create_checked(run),
+      else: {:error, :event_schema_outdated}
+  end
+
+  defp ref_schema_ready?(prefix) do
+    version = Registry.max_schema_version(@created_event_type, prefix)
+    is_integer(version) and version >= @min_ref_schema_version
+  end
+
+  defp upsert_create_checked(%{attrs: attrs, ref: ref, prefix: prefix, authority: authority}) do
     case do_create_record(attrs, prefix, authority, ref) do
       {:ok, %{record: record, is_duplicate: false}} ->
         {:ok, %{record: record, outcome: :created, is_duplicate: false}}
@@ -526,7 +578,7 @@ defmodule Letflow.Entities.Records do
       # created ref A and is replayed for an absent ref B with equal values would otherwise be
       # answered with A's record as a "created" duplicate (REVIEWER F1): that is key reuse.
       {:ok, %{record: record, is_duplicate: true}} ->
-        if record.external_system == ref.system and record.external_id == ref.id,
+        if Latest.external_ref(record) == ref,
           do: {:ok, %{record: record, outcome: :created, is_duplicate: true}},
           else: {:error, :idempotency_key_reuse}
 
@@ -1148,13 +1200,8 @@ defmodule Letflow.Entities.Records do
   # payload stays byte-identical to today.
   defp put_external_ref(payload, nil), do: payload
 
-  defp put_external_ref(payload, %{system: system, id: id}),
-    do: Map.put(payload, "external_ref", %{"system" => system, "id" => id})
-
-  defp external_ref_columns(nil), do: %{}
-
-  defp external_ref_columns(%{system: system, id: id}),
-    do: %{external_system: system, external_id: id}
+  defp put_external_ref(payload, %ExternalRef{} = ref),
+    do: Map.put(payload, "external_ref", ExternalRef.to_payload(ref))
 
   defp base_payload(%{entity_type: entity_type, record_id: record_id, definition: definition}) do
     %{
@@ -1185,7 +1232,7 @@ defmodule Letflow.Entities.Records do
           entity_def_version: ctx.definition.logical_shape_version,
           last_event_global_seq: fetch_global_seq(changes)
         },
-        external_ref_columns(ctx.external_ref)
+        %{external_ref: ctx.external_ref}
       )
     )
     |> repo.insert(prefix: ctx.prefix)
@@ -1819,6 +1866,11 @@ defmodule Letflow.Entities.Records do
   # matched, so a `$ref` or non-entity payload never reaches it.
   defp duplicate_result(%Event{payload: payload, event_type: event_type, global_seq: global_seq}) do
     entity_def_version_hex = Map.fetch!(payload, "entity_def_version")
+    # GH #2794: the original's ref as ONE value (`ref_from_event/1`), spelled into the two
+    # columns only by `ExternalRef.to_columns/1`, so the rebuilt `%Latest{}` can never carry a
+    # half-set pair. The duplicate path (`upsert_create/1`) then compares it with
+    # `Latest.external_ref/1`.
+    columns = payload |> ref_from_event() |> ExternalRef.to_columns()
 
     %{
       record: %Latest{
@@ -1830,8 +1882,8 @@ defmodule Letflow.Entities.Records do
         last_event_global_seq: global_seq,
         # GH #2659: the ref the ORIGINAL create carried (nil for an update, delete or ref-less
         # original), so `upsert_create/1` can tell whose record a replayed key belongs to.
-        external_system: get_in(payload, ["external_ref", "system"]),
-        external_id: get_in(payload, ["external_ref", "id"])
+        external_system: columns.external_system,
+        external_id: columns.external_id
       },
       is_duplicate: true
     }
@@ -2012,4 +2064,13 @@ defmodule Letflow.Entities.Records do
   # this is safe.
   defp search_strategy_atom(nil), do: nil
   defp search_strategy_atom(value) when is_binary(value), do: String.to_existing_atom(value)
+
+  # Absent or invalid original ref gives nil: the writer validated it at write time and the
+  # projector owns corrupt-stream detection, so a duplicate lookup never fails on it.
+  defp ref_from_event(payload) do
+    case ExternalRef.from_payload(Map.get(payload, "external_ref")) do
+      {:ok, ref} -> ref
+      {:error, _} -> nil
+    end
+  end
 end
