@@ -371,9 +371,11 @@ top-level member `"upsert_by": "external_ref"`; design
 - **Module-managed types**: the HTTP import refuses them with the constant 403 for a caller who
   can see the type (a type denied to the caller is the 404 path, section 10), with or without
   `upsert_by`. A module's write handler calls
-  `Letflow.Entities.Records.upsert_record_by_external_ref/3` with its `Owner` authority instead
-  (one read of `EventStore.Registry.max_schema_version("ENTITY_RECORD_CREATED", prefix)` before
-  its batch; the primitive does not re-read).
+  `Letflow.Entities.Records.upsert_record_by_external_ref/3` with its `Owner` authority instead.
+  The primitive refuses a create on a tenant below `ENTITY_RECORD_CREATED` v2 itself
+  (`{:error, :event_schema_outdated}`, nothing written, one registry read per created entry);
+  only a caller that already read the version once for its whole batch, as the HTTP import does,
+  passes `schema_checked: true` (arity 4) to skip that read. A module handler calls without it.
 - **Idempotency key**: server-derived per entry (`Letflow.Entities.ImportUpsert.idempotency_key/2`,
   128 bytes); the external ref, not the key, is what makes a re-import idempotent.
 

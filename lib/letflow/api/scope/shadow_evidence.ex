@@ -48,32 +48,19 @@ defmodule Letflow.Api.Scope.ShadowEvidence do
 
   require Logger
 
+  alias Letflow.Api.Scope
   alias Letflow.Api.Scope.ShadowEvidence.Counter
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
   @table :letflow_scope_shadow_evidence
-  @reasons [
-    :role_not_held,
-    :no_grant_rows,
-    :not_tenant_wide,
-    :out_of_scope,
-    :unresolvable,
-    :grants_unavailable
-  ]
+  @reasons Scope.deny_reasons()
   @metrics [:requests | @reasons]
   @metric_by_text Map.new(@metrics, &{Atom.to_string(&1), &1})
   @default_flush_interval_ms 30_000
   @default_retention_days 90
 
-  @type metric ::
-          :requests
-          | :role_not_held
-          | :no_grant_rows
-          | :not_tenant_wide
-          | :out_of_scope
-          | :unresolvable
-          | :grants_unavailable
+  @type metric :: unquote(Enum.reduce(tl(@metrics), hd(@metrics), &{:|, [], [&1, &2]}))
 
   @type state :: %{pruned: {Date.t(), MapSet.t(String.t())}}
 

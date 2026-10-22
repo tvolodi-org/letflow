@@ -1,14 +1,17 @@
 defmodule Letflow.Api.Scope.DenyReasonAgreementTest do
   @moduledoc """
   REQ-517 / GH #2535 PR 2b, AC 22, REVIEWER finding F-1 (spec `test/specs/REQ-517-2b.md`): the
-  closed set of deny reasons is spelled out in THREE places with no single source, so this test
-  makes any drift loud:
+  closed set of deny reasons is spelled out in several places, so this test makes any drift loud.
+  `Letflow.Api.Scope.deny_reasons/0` is the one source the code derives from (GH #2800); the
+  sources checked here are:
 
     1. the `Letflow.Api.Scope.deny_reason()` type (what `Scope.allowed?/3` can answer);
     2. the metrics `Letflow.Api.Scope.ShadowEvidence` accepts and reports (`counts_between/3`
        answers `:requests` plus one key per reason);
     3. the `metric` CHECK of the tenant table `scope_shadow_counters`
-       (`scope_shadow_counters_metric_check`: `requests` plus the same reasons).
+       (`scope_shadow_counters_metric_check`: `requests` plus the same reasons);
+    4. the `reason` label allow-list of `Letflow.Metrics.Registry` (family 7,
+       `letflow_scope_shadow_would_deny_total`).
 
   A seventh reason added to the type alone would make `record/3` silently swallow it (evidence
   lost, no error) and any flushed row hit the CHECK; a reason added to only one of the other two
@@ -26,6 +29,7 @@ defmodule Letflow.Api.Scope.DenyReasonAgreementTest do
   alias Letflow.Api.Scope.Grants
   alias Letflow.Api.Scope.Principal
   alias Letflow.Api.Scope.ShadowEvidence
+  alias Letflow.Metrics.Registry
   alias Letflow.TenantFixture
 
   @expected MapSet.new(
@@ -79,14 +83,35 @@ defmodule Letflow.Api.Scope.DenyReasonAgreementTest do
     |> MapSet.new(&String.to_atom/1)
   end
 
+  # 4. the reasons the metrics registry accepts as a `reason` label, read through its public
+  # handler: each reason it accepts increments `letflow_scope_shadow_would_deny_total{reason}`.
+  defp registry_reasons do
+    counter = fn reason ->
+      key = {:scope_shadow_would_deny_total, %{reason: Atom.to_string(reason)}}
+      Map.get(Registry.snapshot().counters, key, 0)
+    end
+
+    probed = MapSet.to_list(type_reasons())
+    before = Map.new(probed, &{&1, counter.(&1)})
+
+    for reason <- probed do
+      :ok = Registry.handle_scope_shadow_would_deny(%{count: 1}, %{reason: reason}, nil)
+    end
+
+    probed
+    |> Enum.filter(&(counter.(&1) - before[&1] == 1))
+    |> MapSet.new()
+  end
+
   # ===========================================================================================
-  test "the deny_reason type, the ShadowEvidence metrics and the CHECK list are the same six reasons" do
+  test "the deny_reason type, the ShadowEvidence metrics, the CHECK list and the registry are the same six reasons" do
     # counts_between reads the table, so the schema must exist
     schema = TenantFixture.provisioned_tenant!(slug_prefix: "r517-reasons").schema_name
 
     type = type_reasons()
     evidence = evidence_reasons(schema)
     check = check_reasons(schema)
+    registry = registry_reasons()
 
     assert MapSet.size(type) == 6
     assert type == @expected
@@ -96,6 +121,9 @@ defmodule Letflow.Api.Scope.DenyReasonAgreementTest do
 
     assert check == type,
            "scope_shadow_counters_metric_check differs from Scope.deny_reason(): #{inspect({check, type})}"
+
+    assert registry == type,
+           "Registry reason allow-list differs from Scope.deny_reason(): #{inspect({registry, type})}"
   end
 
   test "every reason the decision function can answer is a recordable metric" do
