@@ -329,11 +329,6 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
            "expected #{n} distinct blocked worker backend(s) within the poll bound, saw #{blocked}"
   end
 
-  defp blockers(pid) do
-    %{rows: [[pids]]} = Repo.query!("SELECT pg_blocking_pids($1)", [pid])
-    pids
-  end
-
   # first/second are :complete or :cancel; the barrier row is held until both are parked.
   defp run(base, path, barrier, order) do
     s = scenario(base, path)
@@ -356,11 +351,11 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
     {t1, pid1} = start_worker(first)
     wait_for_blocked([pid1], 1)
     # the first worker is parked on the barrier connection, nothing else
-    assert barrier_pid in blockers(pid1)
+    Letflow.LockOrderHelpers.await_blocked_by(pid1, [barrier_pid])
     {t2, pid2} = start_worker(second)
     wait_for_blocked([pid1, pid2], 2)
     # the second worker is parked behind the barrier or behind the first worker
-    assert Enum.any?(blockers(pid2), &(&1 in [barrier_pid, pid1]))
+    Letflow.LockOrderHelpers.await_blocked_by(pid2, [barrier_pid, pid1])
 
     send(holder.pid, :release)
     assert {:ok, _} = Task.await(holder, @await_ms)
