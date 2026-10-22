@@ -12,18 +12,24 @@
 #
 # All errors go to stderr and exit 1.
 
+# shellcheck source=seed_token_check.sh
+source "$(dirname "${BASH_SOURCE[0]}")/seed_token_check.sh"
+
 # Verifies QA_AUTH_TOKEN; sets QA_URL (default), API and AUTH_HEADER globals.
+# Least role for every call below: TENANT_ADMIN (UsersGroupsRolesManage for the
+# identity/users and identity/groups calls, RolesManage for identity/roles).
 persona_require_env() {
   QA_URL="${QA_URL:-https://qa.bizdala.com}"
   API="${QA_URL}/api/v1/identity"
 
   if [[ -z "${QA_AUTH_TOKEN:-}" ]]; then
     echo "ERROR: QA_AUTH_TOKEN is not set." >&2
-    echo "       Set it to a Bearer token for a PLATFORM_ADMIN user in the target tenant." >&2
+    echo "       Set it to a Bearer token for a TENANT_ADMIN user in the target tenant." >&2
     exit 1
   fi
 
   AUTH_HEADER="Authorization: Bearer ${QA_AUTH_TOKEN}"
+  seed_require_permissions TENANT_ADMIN UsersGroupsRolesManage RolesManage
 }
 
 # Look up user by EXACT username; abort if not found (Part A missing).
@@ -300,7 +306,7 @@ persona_run() {
     echo "       Part A = the Keycloak account (ai-dala-infra/scripts/qa-login.sh). letflow only creates the user when that" >&2
     echo "       account makes its first authenticated request: sign in as it once, or send one authenticated" >&2
     echo "       GET ${QA_URL}/api/v1/me/memberships with its token." >&2
-    echo "       Then re-run, with the PLATFORM_ADMIN token (not the persona's):" >&2
+    echo "       Then re-run, with the TENANT_ADMIN token (not the persona's):" >&2
     echo "       QA_URL=${QA_URL} QA_AUTH_TOKEN=<token> bash scripts/seed_${tenant_label}_persona_actors.sh" >&2
     echo "       (safe to repeat: memberships that already exist answer 200 and are left alone)." >&2
     return 1

@@ -68,6 +68,12 @@ realms/actors, deployed definitions, and specs needing local Postgres). Prepare 
    SHA, required spec files (`pipeline_test` exists and is not an unresolved
    `NOTE (ISS-05xx)` forward-reference), and no local-only dependencies (e.g. a spec that
    shells out to `docker compose exec psql`).
+1a. Tenant preparation (seed scripts) runs with a tenant token of the least role the script
+   needs, never a platform account's token (REQ-454): TENANT_ADMIN for the persona and
+   entity seeds (`seed_*_persona_actors.sh`, `seed_vortex_entities.sh`), PROCESS_DESIGNER for
+   the definition seeds (`seed_*_definition.sh`). Each script's header lists the role per call
+   and checks the token at start (`GET /api/v1/me/access`); a short token exits 1 naming the
+   missing permission before anything is written.
 2. Run the preflight (read-only):
      scripts/uat_preflight.sh --base-url <url> --environment <slug> \
         --credential-source <path> --out <preflight.json>
