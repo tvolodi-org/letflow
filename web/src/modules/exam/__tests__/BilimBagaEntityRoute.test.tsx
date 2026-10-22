@@ -21,13 +21,18 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 expect.extend(jestDomMatchers)
 
 vi.mock('@/pages/entities/EntityCrudPage', () => ({
-  EntityCrudPage: ({ entityType }: { entityType: string }) => (
-    <div data-testid="mock-entity-crud-page" data-entity-type={entityType} />
+  EntityCrudPage: ({ entityType, writes }: { entityType: string; writes?: { permission?: string } }) => (
+    <div
+      data-testid="mock-entity-crud-page"
+      data-entity-type={entityType}
+      data-write-permission={writes?.permission ?? 'default'}
+    />
   ),
 }))
 
 import BilimBagaEntityRoute from '../BilimBagaEntityRoute'
 import { BILIMBAGA_ENTITY_TYPES } from '@/config/bilimbagaEntities'
+import { BILIMBAGA_WRITES } from '../bilimbagaWrites'
 
 afterEach(() => cleanup())
 
@@ -65,5 +70,14 @@ describe('ISS-0655 — BilimBagaEntityRoute renders EntityCrudPage for every wir
 
     expect(screen.getByTestId('bilimbaga-entity-not-found')).toBeInTheDocument()
     expect(screen.queryByTestId('mock-entity-crud-page')).toBeNull()
+  })
+
+  it('GH #2680: every BilimBaga entity type is written through the exam authoring binding', () => {
+    for (const { entityType } of BILIMBAGA_ENTITY_TYPES) {
+      const { unmount } = renderAt(entityType)
+      expect(screen.getByTestId('mock-entity-crud-page').getAttribute('data-write-permission')).toBe(BILIMBAGA_WRITES.permission)
+      expect(BILIMBAGA_WRITES.permission).toBe('ExamAuthoringWrite')
+      unmount()
+    }
   })
 })

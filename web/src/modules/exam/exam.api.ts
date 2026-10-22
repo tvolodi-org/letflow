@@ -41,6 +41,7 @@
  */
 
 import { client } from '@/api/client'
+import type { EntityRecord } from '@/types/api'
 import type {
   AntiCheatSignalOutcome,
   AntiCheatSignalType,
@@ -107,4 +108,39 @@ export const examApi = {
    *  candidate role's ISS-0646 closed set). */
   listAvailableExams: (opts: { cursor?: string; page_size?: number } = {}) =>
     client.get<ExamRecordsPage>(`${BASE}/available`, opts),
+}
+
+const AUTHORING_BASE = '/api/v1/modules/exam/authoring'
+
+/** GH #2680 / REQ-510 slice 1: the exam module's write surface for the ten authoring types
+ *  (`POST/PUT/DELETE /modules/exam/authoring/:entity_type[/:record_id]`, gated by
+ *  `ExamAuthoringWrite`). Same three operations and argument shapes as `entitiesApi`'s
+ *  writes, so `EntityCrudPage` takes either one as its write API. Bodies and responses are
+ *  the generic record routes' own, so only the path changes. */
+export const examAuthoringApi = {
+  /** `POST /modules/exam/authoring/:entity_type`. */
+  createRecord: (entityType: string, fieldValues: Record<string, unknown>) =>
+    client.post<EntityRecord>(`${AUTHORING_BASE}/${encodeURIComponent(entityType)}`, {
+      field_values: fieldValues,
+    }),
+
+  /** `PUT /modules/exam/authoring/:entity_type/:record_id`. Whole-document replacement, as the
+   *  generic route. `ifMatch` is sent as `If-Match`, as `entitiesApi.updateRecord` does. */
+  updateRecord: (
+    entityType: string,
+    recordId: string,
+    fieldValues: Record<string, unknown>,
+    ifMatch?: string,
+  ) =>
+    client.putWithHeaders<EntityRecord>(
+      `${AUTHORING_BASE}/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
+      { field_values: fieldValues },
+      ifMatch ? { 'If-Match': ifMatch } : {},
+    ),
+
+  /** `DELETE /modules/exam/authoring/:entity_type/:record_id`. Bodyless. */
+  deleteRecord: (entityType: string, recordId: string) =>
+    client.delete<EntityRecord>(
+      `${AUTHORING_BASE}/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
+    ),
 }
