@@ -121,7 +121,8 @@ defmodule Letflow.Entities.HandlerWrites do
           required(:actor_id) => Ecto.UUID.t(),
           required(:activator_id) => Ecto.UUID.t(),
           required(:manifest_hash) => String.t() | nil,
-          optional(:subject_id) => Ecto.UUID.t()
+          optional(:subject_id) => Ecto.UUID.t(),
+          optional(:variable_labels) => %{optional(String.t()) => [String.t()]}
         }
 
   # ---------------------------------------------------------------------
@@ -512,7 +513,13 @@ defmodule Letflow.Entities.HandlerWrites do
 
   defp invoke(attrs, line, variables, k0) do
     with {:ok, handler} <- resolve(line),
-         {:ok, args} <- resolve_args(Map.get(line, "args", %{}), handler.args, variables),
+         {:ok, args} <-
+           resolve_args(
+             Map.get(line, "args", %{}),
+             handler.args,
+             variables,
+             Map.get(attrs, :variable_labels, %{})
+           ),
          ctx = build_context(attrs, handler),
          {:ok, built, produced} <- call_handler(handler, ctx, args),
          :ok <- check_built(built, produced, k0) do
@@ -549,13 +556,20 @@ defmodule Letflow.Entities.HandlerWrites do
 
   # Arguments: names must be declared, every `required` one present after resolution (a `var`
   # absent from the variables, or a reserved `_sys` key, resolves to nothing).
-  defp resolve_args(args, declared, variables) when is_map(args) and not is_struct(args) do
+  defp resolve_args(args, declared, variables, labels)
+       when is_map(args) and not is_struct(args) do
     resolved =
       Enum.reduce_while(args, {:ok, %{}}, fn
         {name, source}, {:ok, acc} when is_binary(name) ->
           cond do
-            not Map.has_key?(declared, name) -> {:halt, {:error, :handler_invalid_arguments}}
-            true -> {:cont, {:ok, put_arg(acc, name, source, variables)}}
+            not Map.has_key?(declared, name) ->
+              {:halt, {:error, :handler_invalid_arguments}}
+
+            true ->
+              case put_arg(acc, name, source, variables, labels) do
+                {:ok, next} -> {:cont, {:ok, next}}
+                {:error, _reason} = error -> {:halt, error}
+              end
           end
 
         _bad, _acc ->
@@ -572,25 +586,35 @@ defmodule Letflow.Entities.HandlerWrites do
     end
   end
 
-  defp resolve_args(_args, _declared, _variables), do: {:error, :handler_invalid_arguments}
+  defp resolve_args(_args, _declared, _variables, _labels),
+    do: {:error, :handler_invalid_arguments}
 
   # A `var` argument on a SERVICE_TASK node is EXTERNAL data (an HTTP response or a script output):
   # the handler must validate its type, shape and size. The platform only byte-caps the written
   # values (`StepWrites.check_service_sizes/2`).
-  defp put_arg(acc, name, %{"const" => value}, _variables), do: Map.put(acc, name, value)
+  #
+  # Decision 0062 R5: a handler decides its own target fields, so the platform cannot know their
+  # restriction set; a variable that carries any label is therefore never passed to a handler.
+  defp put_arg(acc, name, %{"const" => value}, _variables, _labels),
+    do: {:ok, Map.put(acc, name, value)}
 
-  defp put_arg(acc, name, %{"var" => var}, variables) when is_binary(var) do
-    if VariableMerge.reserved_key?(var) do
-      acc
-    else
-      case Map.fetch(variables, var) do
-        {:ok, value} -> Map.put(acc, name, value)
-        :error -> acc
-      end
+  defp put_arg(acc, name, %{"var" => var}, variables, labels) when is_binary(var) do
+    cond do
+      VariableMerge.reserved_key?(var) ->
+        {:ok, acc}
+
+      Map.get(labels, var, []) != [] ->
+        {:error, :entity_write_restriction_widened}
+
+      true ->
+        case Map.fetch(variables, var) do
+          {:ok, value} -> {:ok, Map.put(acc, name, value)}
+          :error -> {:ok, acc}
+        end
     end
   end
 
-  defp put_arg(acc, _name, _source, _variables), do: acc
+  defp put_arg(acc, _name, _source, _variables, _labels), do: {:ok, acc}
 
   # Reduces a build-time raise, throw or exit of handler code to a closed reason; ids and names
   # are logged, never the exception text (INV-4). Build time is not database-free: `create/3`

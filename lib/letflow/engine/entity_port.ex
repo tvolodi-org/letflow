@@ -15,8 +15,8 @@ defmodule Letflow.Engine.EntityPort do
   ## Read half (0053 D5)
 
   The dispatcher calls `prefetch/3` only when the manifest's `reads` is non-empty, after the
-  kill switch, tenant, version, manifest backstops (closed output schema, restricted opt-in
-  refusal, `Letflow.Scripts.Policy.check_reads/2`) and the HMAC key, and before admission.
+  kill switch, tenant, version, manifest backstops (closed output schema,
+  `Letflow.Scripts.Policy.check_reads/2`) and the HMAC key, and before admission.
 
   Contract for an implementation. These are guarantees the port gives ON ITS OWN: they hold
   whether or not the caller ran `check_reads` first (the dispatcher does; a future caller might
@@ -25,10 +25,11 @@ defmodule Letflow.Engine.EntityPort do
     * Phase 1, for EVERY read, before any record query: the type is STILL flagged readable
       (closing the window between the caller's `check_reads` and this call); the type has an
       active definition and no type restriction; every `fields` and `match.field` name is a field of it;
-      `restricted_fields` is absent or empty (hook 1 has no opt-in, C10); a `match.field` that
-      is restricted NOW is refused (SEC N1). Any failure is `{:error, :reads_not_allowed}`.
+      a `match.field` that is restricted NOW is refused (SEC N1), even when listed in
+      `restricted_fields`. Any failure is `{:error, :reads_not_allowed}`.
     * Phase 2: exactly ONE record query per read, whether it hits or misses (no existence
-      oracle); at most `limit` (<= 50) rows; a field restricted NOW is omitted from every row.
+      oracle); at most `limit` (<= 50) rows; a field restricted NOW is omitted from every row
+      unless the read lists it in `restricted_fields` (decision 0062 R6 opt-in).
       A record query the database refuses (a stored value that does not fit its field's cast)
       refuses the whole call with `{:error, :reads_not_allowed}`; it never raises.
     * The tenant prefix is the caller's run-context prefix, never derived from manifest text.
@@ -48,8 +49,9 @@ defmodule Letflow.Engine.EntityPort do
   """
 
   @typedoc """
-  One declared read (a validated manifest entry). `restricted_fields` is always empty here:
-  the restricted opt-in is refused before the port is called (C10).
+  One declared read (a validated manifest entry). `restricted_fields` lists the
+  restricted fields the script opts into (decision 0062 R6); the run is tainted by them
+  (`Letflow.Engine.ScriptInput.read_taint/1`).
   """
   @type read_spec :: %{required(String.t()) => term()}
 
@@ -143,6 +145,7 @@ defmodule Letflow.Engine.EntityPort do
           required(:authorized) => [{String.t(), String.t()}],
           required(:variables) => (map() -> map()),
           required(:skip?) => (map() -> boolean()),
+          optional(:variable_labels) => (map() -> map()),
           optional(:now_fun) => (-> integer()),
           optional(:module_writes) => [module_write_line()],
           optional(:owner) => owner_stamp() | nil,

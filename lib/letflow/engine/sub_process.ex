@@ -1109,6 +1109,10 @@ defmodule Letflow.Engine.SubProcess do
     else
       {:rejected, _unchanged_variables,
        [{:execution_error, key, rejected_value, :variable_schema_rejected, failures}]} ->
+        # decision 0062 SR-OPT-12: a labelled value is never echoed into the error details
+        {rejected_value, failures} =
+          VariableLabels.scrub_rejection(key, rejected_value, failures, merge_labels)
+
         {:error,
          %{
            instance_id: parent_token.instance_id,
