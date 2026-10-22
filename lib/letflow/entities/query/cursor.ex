@@ -29,15 +29,24 @@ defmodule Letflow.Entities.Query.Cursor do
   (REQ-230, already reviewed and merged) -- it only consumes their existing,
   unchanged output types.
 
-  ## Why field name/type never travel inside the cursor (design §2.3)
+  ## What travels inside the cursor (design §2.3, GH #2698)
 
-  The decoded resume values are positionally re-paired against the
-  *caller's own resent* `sort` list on the next request -- position `i` in
-  the decoded resume-key array always corresponds to position `i` in that
-  request's `sort`. A caller who submits a different `sort` order/length
-  than the one that minted the cursor produces
-  `{:error, :resume_key_arity_mismatch}` rather than a silently wrong resume
-  point.
+  The resume key is positional: position `i` in the decoded key pairs with
+  position `i` of the *caller's own resent* `sort` list on the next request.
+  A length mismatch produces `{:error, :resume_key_arity_mismatch}`.
+
+  A cursor minted by this module also carries a binding: the entity type and
+  the sort field names and directions, as `{"bind": [...], "key": [...]}`.
+  A binding mismatch (same length, different sort or entity type) produces
+  `{:error, :invalid_cursor}`. Legacy bare-list cursors, minted before the
+  binding existed, are accepted unbound.
+
+  The cursor is unsigned base64 JSON. The binding is defense-in-depth against
+  accidental cross-sort or cross-type replay, not a guard against a caller who
+  forges a cursor. The sort values it carries, which can be restricted ones,
+  stay readable in cleartext until the cursor expires. Remainder of #2698:
+  MAC or encrypt the payload, then drop the unbound branch after one expiry
+  window.
 
   ## The `record_id` tiebreaker (design §2.3, revised by ISS-0651)
 
@@ -120,8 +129,9 @@ defmodule Letflow.Entities.Query.Cursor do
 
     1. `Pagination.validate_page_size/1` on `opts.page_size`.
     2. Decode `opts.cursor` via `Pagination.decode_cursor/4` with this
-       module's own `cursor_prefix/0`, then JSON-parse the tail into a
-       `resume_key()`.
+       module's own `cursor_prefix/0`, then JSON-parse the tail into
+       `bound_resume_key()`: `{"bind": [...], "key": [...]}` gives
+       `{binding, key}`, a legacy bare list gives `{:unbound, key}`.
     3. Re-resolve every `sort_clause().field` against `allowlist` to learn
        each field's `type()`/`source()` for the typed resume-filter
        comparison.
