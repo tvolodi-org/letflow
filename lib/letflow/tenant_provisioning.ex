@@ -1588,6 +1588,13 @@ defmodule Letflow.TenantProvisioning do
     }
   ]
 
+  @doc false
+  # Test-support hook: the (name, schema_version) pairs the platform seed registers, so the
+  # tenant_template fingerprint changes when a seeded event type is bumped (GH #2671).
+  def platform_event_type_seed_versions do
+    Enum.map(@platform_event_type_seed_attrs, &{&1.name, &1.schema_version})
+  end
+
   defp maybe_seed_platform_event_types(false, _tenant_id), do: :ok
 
   defp maybe_seed_platform_event_types(true, tenant_id) do
