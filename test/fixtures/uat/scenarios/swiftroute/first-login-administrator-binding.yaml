@@ -38,6 +38,10 @@ description: >
        holds the TENANT_ADMIN realm role in swiftroute; if that is still so, no first-login binding
        can be observed for her and the scenario is BLOCKED until a freshly registered UAT company, or
        an unused grant, exists. No such actor or company is invented here.
+    4. The swiftroute sign-in realm is NOT set on the QA server to accept unverified e-mail addresses
+       for administrator binding (decision 0048 section 1.5; the setting
+       LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS must not name swiftroute). If it does, or this cannot
+       be confirmed, the refusal in step 1 cannot be judged and the scenario is BLOCKED.
     3. Alice's seeded e-mail address in the identity provider equals the address named in the grant
        (UAT assumption, to be confirmed by the process owner: the seed script does not set e-mail
        addresses, so this match is not established by any source I opened).
@@ -54,6 +58,12 @@ preconditions:
     detail: >
       Confirm through the identity provider's administration that the verified flag of
       swiftroute:actor-swiftroute-alice is off. If it cannot be read, the scenario is BLOCKED.
+  - description: >
+      The swiftroute sign-in realm does not accept unverified e-mail addresses for administrator binding
+    check: custom
+    detail: >
+      Confirm with the QA server configuration that the realm is not on the list of realms that bind
+      without verification. If this cannot be confirmed, the scenario is BLOCKED.
   - description: >
       The company has one open administrator grant naming Alice's address, and no administrator yet
     check: custom
@@ -78,26 +88,27 @@ steps:
       has not been used and it is listed with its age.
     via: gui
 
+  # Between step 2 and step 3 (not an actor step): the acceptance workflow runs the verification seed
+  # with "true" for swiftroute:actor-swiftroute-alice. Nobody changes the company's grant.
   - step: 3
-    actor: platform_admin
-    action: >
-      Alice's e-mail address is now marked verified in the identity provider (the verification seed
-      runs with "true" for swiftroute:actor-swiftroute-alice). No change is made to the company's
-      grant by anyone.
-    via: gui
-
-  - step: 4
     actor: pending_admin
     action: >
       Alice signs in to the swiftroute workspace again and opens the company's user and
       responsibility administration.
     via: gui
 
-  - step: 5
+  - step: 4
     actor: platform_admin
     action: >
       Looks at the administrator grants of swiftroute again. The grant naming Alice is no longer open
-      and no e-mail address is shown anywhere in the list or in the audit trail.
+      and no e-mail address is shown in the list.
+    via: gui
+
+  - step: 5
+    actor: pending_admin
+    action: >
+      Now an administrator, Alice reads the swiftroute company's own audit trail for the entries about
+      her binding. They exist and show no e-mail address.
     via: gui
 
 expected_outcomes:
@@ -138,7 +149,7 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        At step 4 the user administration opens for Alice and shows her as an administrator of
+        At step 3 the user administration opens for Alice and shows her as an administrator of
         swiftroute.
     on_fail:
       severity: BLOCKER
@@ -154,8 +165,9 @@ expected_outcomes:
     verification:
       method: audit_event
       detail: >
-        After step 5 the grant naming Alice is closed, one administrator membership exists for her,
-        and neither list nor audit entries show an e-mail address.
+        After step 4 the operator's grant list shows the grant naming Alice closed, with no e-mail
+        address. At step 5 Alice, as administrator, reads the swiftroute audit trail: one binding
+        entry exists for her and it shows no e-mail address.
     on_fail:
       severity: MAJOR
       business_impact: >
