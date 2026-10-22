@@ -53,7 +53,8 @@ defmodule Letflow.Modules.Exam do
       :ExamSessionSave,
       :ExamSessionSubmit,
       :ExamSessionReportEvent,
-      :ExamCertificateIssue
+      :ExamCertificateIssue,
+      :ExamAuthoringWrite
     ],
     role_grants: %{
       CANDIDATE: [
@@ -67,7 +68,8 @@ defmodule Letflow.Modules.Exam do
     },
     required_roles: [],
     # GH #2596: the six runtime/result types only. The ten authoring types stay unmanaged
-    # (supervisor ruling 2026-10-16) until an exam authoring write surface exists.
+    # (supervisor ruling 2026-10-16) until the authoring surface is the only writer: the surface
+    # now exists (`Letflow.Modules.Exam.Authoring`, GH #2680 slice 1); a later slice declares them.
     manages_entity_types: [
       "certificate",
       "session",
@@ -85,7 +87,10 @@ defmodule Letflow.Modules.Exam do
       {"POST", "/exam-sessions/:id/submit", :ExamSessionSubmit},
       {"POST", "/exam-sessions/:id/events", :ExamSessionReportEvent},
       {"POST", "/exam-sessions/:id/certificate", :ExamCertificateIssue},
-      {"GET", "/exam-sessions/:id/certificate/download", :ExamCertificateIssue}
+      {"GET", "/exam-sessions/:id/certificate/download", :ExamCertificateIssue},
+      {"POST", "/authoring/:entity_type", :ExamAuthoringWrite},
+      {"PUT", "/authoring/:entity_type/:record_id", :ExamAuthoringWrite},
+      {"DELETE", "/authoring/:entity_type/:record_id", :ExamAuthoringWrite}
     ]
   )
 

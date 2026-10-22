@@ -274,8 +274,8 @@ defmodule Letflow.Api.RouteScopeResolverTest do
          %{
            snapshot: snapshot
          } do
-      # 122 after 2c-ii; PR 2d removed the seven task lines (design 7.1 T1-T7); GH #2548 added the auditor source-read line (116)
-      assert length(snapshot) == 116
+      # 122 after 2c-ii; PR 2d removed the seven task lines (design 7.1 T1-T7); GH #2548 added the auditor source-read line (116); REQ-510 slice 1 added the three exam authoring lines (119)
+      assert length(snapshot) == 119
 
       for line <- @resolver_lines ++ @tenant_wide_lines do
         refute line in snapshot, line
