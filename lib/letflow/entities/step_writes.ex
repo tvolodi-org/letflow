@@ -107,6 +107,7 @@ defmodule Letflow.Entities.StepWrites do
   alias Letflow.Entities.ProcessWritable
   alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Entities.RecordAccess
   alias Letflow.Entities.Records
   alias Letflow.Entities.StepSource
   alias Letflow.Entities.TypeAccess
@@ -857,7 +858,7 @@ defmodule Letflow.Entities.StepWrites do
   defp check_restrictions(fields, entity_type, ctx) do
     case FieldGrants.load_restrictions(subject_id(ctx), entity_type, ctx.prefix) do
       {:ok, restricted} ->
-        if Enum.any?(Map.keys(fields), &MapSet.member?(restricted, &1)),
+        if RecordAccess.names_restricted?(fields, restricted),
           do: {:error, :field_restricted},
           else: :ok
 
