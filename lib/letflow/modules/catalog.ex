@@ -51,6 +51,7 @@ defmodule Letflow.Modules.Catalog do
 
   alias Letflow.Api.Authorization
   alias Letflow.Entities.ManagedTypes
+  alias Letflow.Entities.ScopeDeclaration
   alias Letflow.Modules.ManifestHash
   alias Letflow.Modules.Module
   alias Letflow.Modules.WriteHandlerSpec
@@ -547,7 +548,7 @@ defmodule Letflow.Modules.Catalog do
 
     Enum.find_value(decls, :ok, fn {name, decl} ->
       cond do
-        not (ManagedTypes.managed_name?(name) and valid_scope_declaration?(decl)) ->
+        not (ManagedTypes.managed_name?(name) and ScopeDeclaration.valid_declaration?(decl)) ->
           {:error, {:invalid_scope_declarations, decls}}
 
         not allowlisted? and name not in managed ->
@@ -558,13 +559,6 @@ defmodule Letflow.Modules.Catalog do
       end
     end)
   end
-
-  defp valid_scope_declaration?(:tenant_wide), do: true
-
-  defp valid_scope_declaration?({:column, field}),
-    do: ManagedTypes.managed_name?(field)
-
-  defp valid_scope_declaration?(_other), do: false
 
   defp declares_scope_type?(manifest, name) do
     case Map.get(manifest, :scope_declarations, %{}) do
