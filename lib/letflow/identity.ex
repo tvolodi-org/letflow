@@ -1673,7 +1673,7 @@ defmodule Letflow.Identity do
   @type suppressed_item :: %{
           group_id: Ecto.UUID.t(),
           role: String.t(),
-          kind: :has_scoped_rows | :no_scoped_rows
+          kind: SyncScopeGuard.kind()
         }
 
   @typedoc "`deduped` counts the pairs whose audit entry already existed."

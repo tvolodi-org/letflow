@@ -88,6 +88,29 @@ defmodule Letflow.Entities.DecimalStrictTest do
 
   defp events(schema), do: Repo.all(from(e in Event, order_by: e.global_seq), prefix: schema)
 
+  describe "Allowlist strict_decimal_scale (GH #2774)" do
+    test "a strict, a non-strict and a non-decimal field carry one key", %{schema: schema} do
+      fields = [
+        qty_field(%{queried: true}),
+        qty_field(%{name: "lax", decimal_strict: false, queried: true}),
+        %{name: "label", type: :string, queried: true}
+      ]
+
+      seed_type!(schema, "widget", fields)
+
+      assert {:ok, allowlist} = Letflow.Entities.Query.Allowlist.load("widget", schema)
+
+      assert %{strict_decimal_scale: 2} = allowlist["qty"]
+      assert %{strict_decimal_scale: nil} = allowlist["lax"]
+      assert %{strict_decimal_scale: nil} = allowlist["label"]
+
+      for {_name, entry} <- allowlist do
+        refute Map.has_key?(entry, :decimal_strict)
+        refute Map.has_key?(entry, :decimal_scale)
+      end
+    end
+  end
+
   describe "strict write normalisation (T1, T2, F8, T7)" do
     test "create stores, appends and returns the SAME normalised map", %{schema: schema} do
       seed_type!(schema, "widget", [qty_field()])

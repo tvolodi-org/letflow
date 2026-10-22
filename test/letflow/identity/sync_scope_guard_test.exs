@@ -75,6 +75,23 @@ defmodule Letflow.Identity.SyncScopeGuardTest do
   end
 
   # ===========================================================================================
+  describe "GH #2859 one mapping from suppression kind to audit action" do
+    test "every kind has a distinct audit action, and the kinds are the two the sync produces" do
+      kinds = Letflow.Identity.SyncScopeGuard.kinds()
+      assert Enum.sort(kinds) == [:has_scoped_rows, :no_scoped_rows]
+
+      actions = Enum.map(kinds, &Letflow.Identity.SyncScopeGuard.action_for/1)
+      assert Enum.all?(actions, &(is_binary(&1) and &1 != ""))
+      assert actions == Enum.uniq(actions)
+
+      assert Letflow.Identity.SyncScopeGuard.action_for(:has_scoped_rows) ==
+               "grant.sync_suppressed"
+
+      assert Letflow.Identity.SyncScopeGuard.action_for(:no_scoped_rows) ==
+               "binding.pending_scope"
+    end
+  end
+
   describe "T-S1 grant.sync_suppressed: a user who holds scoped rows, synced into a tenant-wide group" do
     test "no membership, login succeeds, ONE entry in the sync's transaction with exactly user/group/role/trace_id, scope unchanged" do
       fx = tenant!("req519-s1", :on)

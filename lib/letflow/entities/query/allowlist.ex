@@ -42,9 +42,9 @@ defmodule Letflow.Entities.Query.Allowlist do
           required(:source) => field_source(),
           required(:type) => Definition.field_type(),
           required(:enum_values) => [String.t()] | nil,
-          # GH #2654: a strict decimal field carries its scale; nil/false for any other field.
-          optional(:decimal_scale) => non_neg_integer() | nil,
-          optional(:decimal_strict) => boolean()
+          # GH #2654/#2774: the scale of a strict decimal field, nil for any other field. One
+          # key, so "strict without a scale" is not representable.
+          required(:strict_decimal_scale) => non_neg_integer() | nil
         }
 
   @typedoc """
@@ -296,8 +296,7 @@ defmodule Letflow.Entities.Query.Allowlist do
              source: :typed_column,
              type: type,
              enum_values: nil,
-             decimal_scale: nil,
-             decimal_strict: false
+             strict_decimal_scale: nil
            }}
         end)
 
@@ -464,10 +463,7 @@ defmodule Letflow.Entities.Query.Allowlist do
   end
 
   defp decimal_keys(decimal_info, name) do
-    case Map.fetch(decimal_info, name) do
-      {:ok, scale} -> %{decimal_scale: scale, decimal_strict: true}
-      :error -> %{decimal_scale: nil, decimal_strict: false}
-    end
+    %{strict_decimal_scale: Map.get(decimal_info, name)}
   end
 
   # REQ-301: same decode `Letflow.TenantProvisioning.field_from_persisted/1`
