@@ -143,7 +143,7 @@ defmodule Letflow.Api.ScopeGate do
   engine step can never be skipped silently. Marks the conn like `scope_set/2`.
   """
   @spec f1_principal(Plug.Conn.t(), policy_key :: atom()) ::
-          {Plug.Conn.t(), :off | {:enforce, Scope.Principal.t()}}
+          {Plug.Conn.t(), Letflow.Tasks.f1()}
   def f1_principal(%Plug.Conn{} = conn, policy_key) when is_atom(policy_key) do
     conn = Plug.Conn.put_private(conn, @marker, true)
 
