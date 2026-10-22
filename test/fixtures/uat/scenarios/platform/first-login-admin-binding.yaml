@@ -1,0 +1,153 @@
+# GH #2503 (BA, T-0199): scenario for the first-login administrator binding of GH #2493.
+# STATUS: BLOCKED, NOT PASS, until the infra change is done. The owner approved on 2026-10-22 that
+# the seeded UAT test accounts used here get email_verified=true, in the UAT realm only; the infra
+# task that names those accounts (with a rollback) is not done yet. Until it is, the runner reports
+# this scenario BLOCKED at the preconditions and must not report PASS: without a verified e-mail the
+# binding does not fire, so a run would pass or fail for the wrong reason.
+# Actors: the roster has no account for the invited administrator or for the unverified person; the
+# infra task must add them (and record them in test/fixtures/uat/actors.yaml). Until then they are
+# written as actor-any, and the scenario cannot start (BLOCKED). No account was invented here.
+---
+id: platform-first-login-admin-binding
+scope: platform
+title: An invited administrator becomes administrator at first sign-in only if their e-mail is verified
+version: "1.0"
+tags: [identity, onboarding, access, refusal, administrator, blocked]
+
+description: >
+  When the platform operator sets up a new customer, they name the person who will administer
+  it by e-mail address. That person receives the administrator role the first time they sign
+  in, but only if the identity provider confirms that the e-mail address really belongs to
+  them. This scenario checks both sides: the invited person whose e-mail is confirmed becomes
+  the customer's administrator at first sign-in, and a person whose e-mail is not confirmed,
+  signing in with the same address, is let in as an ordinary user at most and does not become
+  administrator. The unconfirmed person must not be able to tell from the screens whether an
+  administrator invitation exists.
+
+actors:
+  platform_operator: actor-platform-admin
+  invited_administrator: actor-any
+  unverified_person: actor-any
+
+preconditions:
+  - description: >
+      BLOCKED until done: the sign-in account of the invited administrator has its e-mail
+      address confirmed (email_verified is true) in the identity provider, and that address
+      is the one named in the administrator invitation
+    check: custom
+    detail: >
+      Owner decision 2026-10-22 (GH #2503): approved for the seeded UAT test accounts used by
+      this scenario, in the UAT realm only. The accounts are named in the infra task, which
+      carries a rollback. If the account is not confirmed, the first-login binding does not
+      fire and the result of step 3 means nothing: report BLOCKED, not PASS or FAIL.
+  - description: >
+      BLOCKED until done: a second sign-in account exists in the same customer's sign-in
+      realm whose e-mail address is the one named in a second administrator invitation, and
+      whose e-mail is NOT confirmed (email_verified is not true)
+    check: custom
+    detail: >
+      This account must stay unconfirmed. If the infra change confirmed it too, the refusal
+      step has nothing to test: report BLOCKED.
+  - description: >
+      The customer has no administrator invitation already used, and the realm does not
+      accept unconfirmed e-mail addresses for administrator binding (the default)
+    check: custom
+    detail: >
+      The setting that allows unconfirmed addresses for a realm is off for the realm under test.
+
+steps:
+  - step: 1
+    actor: platform_operator
+    action: >
+      The platform operator sets up the customer and names two people as administrators by
+      e-mail address: the invited administrator and the unconfirmed person.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+  - step: 2
+    actor: unverified_person
+    action: >
+      The unconfirmed person, whose e-mail address matches an administrator invitation but
+      is not confirmed by the identity provider, signs in to the customer for the first time
+      and then tries to open the customer's user management.
+    expect_refusal: true
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+  - step: 3
+    actor: invited_administrator
+    action: >
+      The invited administrator, whose e-mail address is confirmed and matches the
+      invitation, signs in to the customer for the first time and opens the customer's user
+      management.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+  - step: 4
+    actor: platform_operator
+    action: >
+      The platform operator looks at the customer's administrators and at the history of who
+      became administrator and how.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The person whose e-mail address is not confirmed is not made administrator: they are
+      turned down at the user management screen, and nothing on their screens shows that an
+      administrator invitation exists for their address.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 ends in a plain refusal screen. The screens seen before it are identical to
+        those of a person with no invitation. The person is not listed as administrator.
+      evidence: >
+        Screenshots after step 2, and the customer's administrator list as shown to the
+        platform operator at step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Anyone who can register an unconfirmed account with a stolen or guessed e-mail
+        address could take over a new customer as administrator.
+      suggested_action: route_to_security_review
+
+  - id: EO-002
+    description: >
+      The invited person with a confirmed matching e-mail address becomes the customer's
+      administrator at first sign-in and can manage the customer's users.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 shows the customer's user management with the administrator's own entry
+        listed as administrator.
+      evidence: >
+        Screenshot after step 3 of the user management screen.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A new customer cannot start using the platform because nobody can administer it.
+      suggested_action: route_to_wf03
+
+  - id: EO-003
+    description: >
+      The platform operator sees exactly one new administrator, the confirmed person, and
+      the history records who became administrator and by which invitation; the
+      unconfirmed person has no administrator entry and the second invitation is still open.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 lists the invited administrator as administrator and not the unconfirmed
+        person. The history has one entry for the binding, and none for the unconfirmed person.
+      evidence: >
+        Screenshots of the administrator list and the history at step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The operator cannot trust the list of who administers a customer, and cannot audit
+        how administrator access was granted.
+      suggested_action: route_to_wf03
