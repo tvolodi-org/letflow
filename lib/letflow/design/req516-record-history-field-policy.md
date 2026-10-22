@@ -142,11 +142,21 @@ assumption (listed below); the shorter form in the issue cannot be added without
      (deleted rows included, so the history of a deleted record is readable). Out-of-scope, hidden type and
      nonexistent record are ONE response: the same 404 body (INV-5), same code path as attachments
      (`visible_or_fresh_id`/`parent_visible?` pattern);
-  4. events: `Event` rows of the entity type's synthetic instance (`EntityTypeInstance.fetch_instance_id/2`) with
-     `payload->>'record_id' = ^record_id` (parameter binding, INV-7), ordered by `sequence_number`, keyset
-     cursor + `page_size` via `Pagination` (same cursor helpers as `Instances.history`). The query uses the tenant
-     prefix explicitly (INV-1). Resolve large payloads through the same `resolve_payloads` step `Instances.history`
-     relies on (developer verifies; do not read `event_payload_store` by hand);
+  4. events: `from(e in Event, prefix: ^prefix, left_join: sp in "event_payload_store", on: sp.event_id == e.event_id and
+     sp.event_created_at == e.created_at)` restricted to the entity type's synthetic instance
+     (`EntityTypeInstance.fetch_instance_id/2`), with
+     `fragment("COALESCE(?->>'record_id', ?->>'record_id')", e.payload, sp.payload) == ^record_id` (parameter binding,
+     INV-7) and the payload selected as `COALESCE(sp.payload, e.payload)`. This is the pattern of
+     `entities/managed_types/tamper_inventory.ex:224-237` (`record_id_of/2`). It is required because an oversized
+     payload is stored in `events.payload` as the single-key map `{"$ref": event_id}` with the real bytes in
+     `event_payload_store` (`event_store.ex:930`, `stored_payload.ex:29`, `records.ex` `resolve_original_payload`);
+     filtering `events.payload` alone would silently drop the create/update events of records with large field
+     values. `Instances.history/3` (`instances.ex:139-163`) does NOT resolve `$ref` and `EventStore.resolve_payloads/2`
+     is private (`event_store.ex:1643`), so neither is reused. Order by `sequence_number`, keyset cursor + `page_size`
+     in SQL (so pagination stays correct; no in-memory filtering). Tenant prefix explicit (INV-1).
+     Performance: there is no index on the record_id key, so the query scans the type's synthetic-instance event
+     stream per request. Accepted for this slice (no migration); a follow-up expression index on
+     `(COALESCE(payload->>'record_id', ...))` is named as later work for the operator if histories get long.
   5. `FieldPolicy.load_sets(principal, [entity_type])` once per request, then `redact_event_payload_with_sets/3` per
      item; strict-decimal rendering via `Decimals.render_field_values/2` as `Support.record_map` does.
   6. Item shape (hand-built map, INV-2): `event_id, event_type, sequence_number, created_at, actor_id,
@@ -174,7 +184,7 @@ Fixtures: tenant with a type `T`, a restriction row on field `secret`, user U1 (
 | H2 | same | the same record read by a TENANT_AUDITOR without grant -> masked; with grant -> present (the #2702 dependency path) |
 | H3 | same | restriction row removed afterwards -> U1 now sees `s3` (documents the read-time consequence of decision 0059 D2) |
 | H4 | same | INV-10/INV-5: a record id of another tenant, an id outside the caller's 0051 scope, a hidden entity type and a random uuid return byte-identical 404 bodies; cross-tenant negative test |
-| H5 | same | pagination: `page_size`, cursor continuity, deleted record's history readable, `ENTITY_RECORD_DELETED` item has no `field_values` |
+| H5 | same | oversized payload: a record whose field values exceed the inline limit (payload stored as `{"$ref": id}`) still shows its create and update events in history, redacted for U1, present for U2; pagination: `page_size`, cursor continuity, deleted record's history readable, `ENTITY_RECORD_DELETED` item has no `field_values` |
 | P1 | the existing FieldPolicy test file (find with `grep -rl FieldPolicy test`; create `test/letflow/entities/field_policy_test.exs` if none) | `redact_event_payload/3` masks for U1, passes for U2; `restricted_anywhere/2` ignores grants; loader error propagates (never "unrestricted") |
 | W1 | `test/letflow/webhooks_delivery_test.exs` (extend) | delivered body of an entity-event payload has `secret` masked; with the restriction row removed (a recipient's only "grant") the value is present; signature is computed over the masked bytes |
 | W2 | same | exhausted delivery: the `dlq_entries.source_payload` holds the masked value, never `s3`; restriction later removed -> still masked (stored already-redacted) |
@@ -182,9 +192,17 @@ Fixtures: tenant with a type `T`, a restriction row on field `secret`, user U1 (
 | G1 | `test/letflow/entities/field_values_consumers_guard_test.exs` | source scan: `service_task_dispatcher.ex`, `dlq*.ex`, `audit.ex` and every `Audit.insert_entry` attrs builder contain no `field_values`; no `Logger` call interpolates a payload; the allowed-consumer list is the table in section 4 |
 | T1 | `test/letflow/api/route_scope_resolver_test.exs`, `route_scope.ex` inventory (extend) | the new route line is registered |
 
-Tests that must change for S2 (greps run: `grep -rln "route_scope\|attachments EntitiesAttachmentsRead" test`):
-`test/letflow/api/route_scope_resolver_test.exs:37-38` (inventory list gets the new line), and any route-count pin
-(`grep -rn "length(.*routes" test/letflow/api`, developer re-runs). No `core_permissions` count test changes (no new atom).
+Tests that must change for S2 (greps run: `grep -rn "records/:entity_type/:record_id/attachments" test`, which lists
+`entities_test.exs`, `route_scope_walk_test.exs`, `authorization_test.exs`):
+- `test/letflow/routers/entities_test.exs:273-299`: title "returns exactly the eighteen designed routes" becomes
+  "nineteen"; `assert length(actual) == 18` becomes 19; add `{"GET", "/records/:entity_type/:record_id/history", :EntitiesQuery}`
+  to the exact `expected` list.
+- `test/letflow/api/route_scope_walk_test.exs:310-326`: add `{"GET", "/records/:entity_type/:record_id/history", resolver}`
+  to the Entities per-route class list and update the "eight resolver routes" comment to nine.
+- `test/letflow/api/authorization_test.exs` (around 1571, 1998, 2214): these lists are samples, not exhaustive sets, so
+  they do not break; the developer adds the history route to the `endpoint_policy_key` case list (about 2214) for coverage.
+- `test/letflow/api/route_scope_resolver_test.exs:37-38`: inventory list gets the new line (T1).
+No `core_permissions` count test changes (no new atom).
 CRLF/line pins: new handler lives in a new file; do not add lines above cited symbols in `routers/entities.ex`
 beyond one `authz_get` block (`grep -rl "entities.ex" test/` then run each hit).
 
