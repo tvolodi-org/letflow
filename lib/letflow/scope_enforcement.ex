@@ -138,8 +138,10 @@ defmodule Letflow.ScopeEnforcement do
           org_consistency: :ok | :inconsistent | :unavailable,
           tokens_exceeding_owner: non_neg_integer()
         }
-  # GH #2890: the closed set of refusal kinds `flip/4` can return. The router answers each kind by
-  # its own clause (no catch-all) and a test pins that every kind here has one.
+  # GH #2890: the closed set of refusal kinds `flip/4` can return. `refuse/2` is the only way a
+  # refusal leaves `do_flip/6` (its guard rejects a kind not listed here). The router's
+  # `flip_response/2` has a clause per kind; its catch-all is only the INV-8 fallback, and the
+  # closed-kind test fails any kind that falls through to it.
   @refusal_kinds [
     :invalid_mode,
     :reason_required,
@@ -152,6 +154,7 @@ defmodule Letflow.ScopeEnforcement do
     :audit_failed,
     :transaction_failed
   ]
+  # Pinned to `@refusal_kinds` by `TenantScopeEnforcementRefusalKindsTest` (no drift).
   @type refusal_kind ::
           :invalid_mode
           | :reason_required
@@ -432,12 +435,12 @@ defmodule Letflow.ScopeEnforcement do
 
       # `on` is reached only from `shadow` (D-6); nothing else is evaluated.
       target == :on and previous != :shadow ->
-        Repo.rollback(:shadow_required)
+        refuse(:shadow_required)
 
       # The de-escalation `on -> shadow` runs NO precondition, but its reason is mandatory
       # (AC 13; the pre-transaction check cannot know the previous mode).
       previous == :on and target == :shadow and is_nil(reason) ->
-        Repo.rollback(:reason_required)
+        refuse(:reason_required)
 
       true ->
         report = transition_report!(previous, target, tenant_id, prefix, now)
@@ -460,7 +463,7 @@ defmodule Letflow.ScopeEnforcement do
     Identity.lock_tenant_admins!(prefix)
 
     Repo.one(from(t in Tenant, where: t.id == ^tenant_id, lock: "FOR UPDATE")) ||
-      Repo.rollback(:tenant_not_found)
+      refuse(:tenant_not_found)
   end
 
   # Shared by both writers: the ONE call of `Tenant.scope_enforcement_changeset/2`, then the
@@ -477,7 +480,7 @@ defmodule Letflow.ScopeEnforcement do
 
     case Audit.insert_entry(Repo, entry, prefix) do
       {:ok, _entry} -> %{mode: target, previous: previous, changed: true}
-      {:error, audit_error} -> Repo.rollback({:audit_failed, audit_error})
+      {:error, audit_error} -> refuse(:audit_failed, [audit_error])
     end
   end
 
@@ -498,7 +501,7 @@ defmodule Letflow.ScopeEnforcement do
     :ok = ScopeNodePaths.lock!(prefix)
     {report, failed} = OnGate.evaluate(tenant_id, prefix, now)
 
-    if failed != [], do: Repo.rollback({:on_precondition_failed, failed, report})
+    if failed != [], do: refuse(:on_precondition_failed, [failed, report])
 
     report
   end
@@ -518,9 +521,17 @@ defmodule Letflow.ScopeEnforcement do
       |> Enum.filter(fn {_name, failed?} -> failed? end)
       |> Enum.map(fn {name, _failed?} -> name end)
 
-    if failed != [], do: Repo.rollback({:precondition_failed, failed, report})
+    if failed != [], do: refuse(:precondition_failed, [failed, report])
 
     report
+  end
+
+  # Every refusal of `do_flip/6` and its gates rolls back through here. The guard keeps the kind
+  # inside `@refusal_kinds`; a kind outside the closed set is a FunctionClauseError inside the
+  # transaction, which `flip/4` answers as a server fault (INV-8), never as an `unknown` refusal.
+  @spec refuse(refusal_kind(), [term()]) :: no_return()
+  defp refuse(kind, payload \\ []) when kind in @refusal_kinds do
+    Repo.rollback(if payload == [], do: kind, else: List.to_tuple([kind | payload]))
   end
 
   defp flip_entry(tenant_id, previous, target, reason, report, attrs) do

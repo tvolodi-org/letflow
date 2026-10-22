@@ -10,8 +10,12 @@ defmodule Letflow.Routers.TenantScopeEnforcementRefusalKindsTest do
       kind added to the list without a row here fails;
     * every kind answers its expected status, and a server-fault kind logs its own reason tag
       (a kind without its own clause logs `reason=unknown` and fails);
-    * the sample of each kind is built by a `case` without a catch-all, so a kind added to the
-      list without a sample fails too.
+    * the sample of each kind is built by function clauses without a catch-all, so a kind added
+      to the list without a sample fails too (FunctionClauseError);
+    * the `@type refusal_kind` of `ScopeEnforcement` names exactly the list (no drift);
+    * every error `flip/4` can produce is a kind of the list: no `refuse/2`, `Repo.rollback/1`
+      or `{:error, _}` site in `lib/letflow/scope_enforcement.ex` names a kind outside it, and
+      every raw `Repo.rollback/1` is the out-of-band writer's, so no refusal bypasses `refuse/2`.
 
   `async: false`: the `on_precondition_failed` sample is a real `OnGate` report of a fixture tenant.
   """
@@ -49,6 +53,16 @@ defmodule Letflow.Routers.TenantScopeEnforcementRefusalKindsTest do
   ]
   @fault_line "scope_enforcement_flip_failed"
 
+  # The out-of-band writer (`flip_out_of_band/3`, GH #2883) has its own closed errors; they are
+  # not flip refusals and are not in `refusal_kinds/0`.
+  @out_of_band_errors [
+    :invalid_target,
+    :operator_required,
+    :invalid_operator,
+    :lock_conflict,
+    :not_enforced
+  ]
+
   setup do
     fx = F.shadow_tenant!("refusal-kinds")
     {report, _failed} = OnGate.evaluate(fx.tenant_id, fx.schema_name, fx.now)
@@ -83,8 +97,38 @@ defmodule Letflow.Routers.TenantScopeEnforcementRefusalKindsTest do
     end
   end
 
+  test "the refusal_kind type of ScopeEnforcement names exactly the kinds of refusal_kinds/0" do
+    {:ok, types} = Code.Typespec.fetch_types(ScopeEnforcement)
+
+    {:type, {:refusal_kind, ast, []}} =
+      Enum.find(types, &match?({:type, {:refusal_kind, _ast, []}}, &1))
+
+    assert Enum.sort(Enum.uniq(typespec_atoms(ast))) ==
+             Enum.sort(ScopeEnforcement.refusal_kinds())
+  end
+
+  test "every error flip/4 produces names a kind of refusal_kinds/0, and refusals go through refuse/2" do
+    source = File.read!("lib/letflow/scope_enforcement.ex")
+
+    # `refuse(kind, ...)` calls, the `{:error, kind}` tuples and the raw `Repo.rollback` heads.
+    refused = heads(source, ~r/refuse\(:(\w+)/)
+    returned = heads(source, ~r/\{:error, \{?:(\w+)/)
+    rolled_back = heads(source, ~r/Repo\.rollback\(\{?:(\w+)/)
+
+    assert refused != [], "expected refuse/2 call sites in scope_enforcement.ex"
+
+    closed = ScopeEnforcement.refusal_kinds() ++ @out_of_band_errors
+
+    assert Enum.uniq(refused ++ returned) -- closed == [],
+           "error kinds outside refusal_kinds/0: #{inspect(Enum.uniq(refused ++ returned) -- closed)}"
+
+    # The only raw rollback left is the out-of-band writer's; every flip refusal uses refuse/2.
+    assert Enum.uniq(rolled_back) -- @out_of_band_errors == [],
+           "raw Repo.rollback of a flip refusal: #{inspect(rolled_back)}"
+  end
+
   # One representative error term per kind, the shape `flip/4` returns. No catch-all: a new kind
-  # without a clause here is a CaseClauseError.
+  # without a clause here is a FunctionClauseError.
   defp sample(:invalid_mode, _report), do: :invalid_mode
   defp sample(:reason_required, _report), do: :reason_required
   defp sample(:invalid_reason, _report), do: :invalid_reason
@@ -102,6 +146,15 @@ defmodule Letflow.Routers.TenantScopeEnforcementRefusalKindsTest do
 
   defp sample(:audit_failed, _report), do: {:audit_failed, :boom}
   defp sample(:transaction_failed, _report), do: {:transaction_failed, %RuntimeError{}}
+
+  defp heads(source, pattern) do
+    pattern |> Regex.scan(source) |> Enum.map(fn [_match, name] -> String.to_atom(name) end)
+  end
+
+  defp typespec_atoms({:atom, _line, atom}), do: [atom]
+  defp typespec_atoms(tuple) when is_tuple(tuple), do: typespec_atoms(Tuple.to_list(tuple))
+  defp typespec_atoms(list) when is_list(list), do: Enum.flat_map(list, &typespec_atoms/1)
+  defp typespec_atoms(_other), do: []
 
   defp fresh_conn, do: conn(:put, "/tenant/scope-enforcement")
 end
