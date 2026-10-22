@@ -358,7 +358,7 @@ defmodule Letflow.Engine.CancelOpenTasksRecheckTest do
     # (6) W = complete(B): locks B, queues at P_x AFTER the cancel
     {w_task, w_pid} = H.start_worker(complete_fn(base, task_b.id))
     H.wait_for_blocked([cancel_pid, w_pid], 2)
-    assert Enum.any?(H.blockers(w_pid), &(&1 in [barrier_p, cancel_pid]))
+    H.await_blocked_by(w_pid, [barrier_p, cancel_pid])
 
     # (7) release P_x: FIFO gives it to the cancel
     send(holder_p.pid, :release)

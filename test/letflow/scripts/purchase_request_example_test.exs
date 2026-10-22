@@ -141,4 +141,14 @@ defmodule Letflow.Scripts.PurchaseRequestExampleTest do
     assert projection.status == :error
     refute Map.has_key?(projection.variables, "approval_tier")
   end
+
+  # GH 2837: publish runs every stored case under the manifest's own wall-clock limit. A
+  # 500 ms limit fired under CI host load (run 39120908798, attempt 1: manager_tier_two_lines
+  # outcome "timeout"). The example must not be declared tighter than the platform default
+  # (1 s, Letflow.Engine.Lua.ScriptRunner) so that a loaded runner does not fail publish.
+  test "the example's declared wall-clock limit is no tighter than the platform default (GH 2837)" do
+    limits = json_fixture("purchase_request_pricing.manifest.json")["limits"]
+
+    assert limits["timeout_ms"] >= 1_000
+  end
 end

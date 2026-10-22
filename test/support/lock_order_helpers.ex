@@ -224,6 +224,40 @@ defmodule Letflow.LockOrderHelpers do
   end
 
   @doc """
+  Waits until one of `candidates` is among the backends blocking `pid`; bounded by the same
+  monotonic deadline as `wait_for_blocked/2`. `pg_blocking_pids` can be momentarily empty right
+  after `pg_stat_activity` reports the wait, so a single read is a race. Returns the blockers;
+  a timeout fails naming `pid`, the candidates and the last observed blockers.
+  """
+  @spec await_blocked_by(pos_integer(), [pos_integer()]) :: [pos_integer()]
+  def await_blocked_by(pid, candidates) do
+    deadline = System.monotonic_time(:millisecond) + @poll_deadline_ms
+    observed = poll_blockers(pid, candidates, deadline)
+
+    assert Enum.any?(observed, &(&1 in candidates)),
+           "backend #{pid} is not blocked by any of #{inspect(candidates)} within " <>
+             "#{@poll_deadline_ms} ms; observed blockers: #{inspect(observed)}"
+
+    observed
+  end
+
+  defp poll_blockers(pid, candidates, deadline) do
+    observed = blockers(pid)
+
+    cond do
+      Enum.any?(observed, &(&1 in candidates)) ->
+        observed
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        observed
+
+      true ->
+        Process.sleep(@poll_ms)
+        poll_blockers(pid, candidates, deadline)
+    end
+  end
+
+  @doc """
   The forced AB-BA overlap. `barrier` is a `hold_row/2` spec; `first` and `second` are
   zero-arity workers. Holds the barrier, starts `first`, waits until it is blocked, starts
   `second`, waits until both are blocked, releases the barrier and awaits both.
@@ -242,12 +276,12 @@ defmodule Letflow.LockOrderHelpers do
     {t1, pid1} = start_worker(first)
     blocked1_at = wait_for_blocked([pid1], 1)
     # the first worker is parked on the barrier connection, nothing else
-    assert barrier_pid in blockers(pid1)
+    await_blocked_by(pid1, [barrier_pid])
 
     {t2, pid2} = start_worker(second)
     blocked2_at = wait_for_blocked([pid1, pid2], 2)
     # the second worker is parked behind the barrier or behind the first worker
-    assert Enum.any?(blockers(pid2), &(&1 in [barrier_pid, pid1]))
+    await_blocked_by(pid2, [barrier_pid, pid1])
 
     released_at = System.monotonic_time(:millisecond)
     send(holder.pid, :release)
