@@ -15,12 +15,13 @@ defmodule Letflow.Modules.Exam.ExamEditLiveSessionReportTest do
   tenants on the shared database never affect them.
   """
 
-  # ExUnit.Case, not DataCase: the fixtures commit real rows and leave the sandbox in :auto mode
+  # ExUnit.Case, not DataCase: the fixtures commit real rows and need the sandbox in :auto mode
   # (setup_all cannot check out a sandbox connection that its on_exit teardown can still use).
   use ExUnit.Case, async: false
 
   alias Letflow.ExamStampFixtures, as: Fx
   alias Letflow.Repo
+  alias Letflow.Test.SandboxAutoMode
 
   @report "docs/runbooks/gh2683-exam-edit-live-session-report.sql"
   @columns ~w(tenant_id section exam_id entity_type record_id actor_id occurred_at event_type)
@@ -286,6 +287,10 @@ defmodule Letflow.Modules.Exam.ExamEditLiveSessionReportTest do
   end
 
   setup_all do
+    # The module sets its own mode (GH #2424) instead of inheriting the fixtures' leftover :auto.
+    SandboxAutoMode.enter_auto_mode!(Repo)
+    on_exit(fn -> SandboxAutoMode.exit_auto_mode!(Repo) end)
+
     a = Fx.full_tenant!("gh2683-a")
     b = Fx.full_tenant!("gh2683-b")
     actor_a = Fx.insert_user!(a.schema_name).id
