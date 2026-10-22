@@ -133,6 +133,99 @@ defmodule Letflow.Api.RouteScope do
   # committed `@self_service_routes` list below (SEC F-1).
   @self_service_routes_allowed? true
 
+  # The shape of one `@self_service_routes` entry, checked when the module compiles (GH #2825).
+  # The entries stay plain maps: the walk and the tests read them as maps, so a struct would
+  # change what `self_service_routes/0` returns. Rules the walk applies to the list (a pending
+  # ruling must not stand on a route that is not `:tenant_wide`, the REQ-519 AC 9 blocker) are
+  # still the walk's job; this module refuses only what the walk cannot state as a shape.
+  defmodule SelfServiceEntry do
+    @moduledoc false
+
+    @fields [:class, :key, :route, :ruling]
+    @methods ~w(GET POST PUT PATCH DELETE)
+    @prefixes ["/me", "/help"]
+
+    @typedoc "One ruled `/me` or `/help` route: `route` is `\"METHOD FULL_PATH\"`."
+    @type t :: %{
+            route: String.t(),
+            key: atom(),
+            class: :self_service | :tenant_wide,
+            ruling: String.t() | :pending_sec_ruling
+          }
+
+    @doc "Returns `entry` when it has the entry shape; raises `ArgumentError` naming the fault."
+    @spec validate!(term()) :: t()
+    def validate!(entry) do
+      case check(entry) do
+        :ok ->
+          entry
+
+        {:error, reason} ->
+          raise ArgumentError,
+                "malformed @self_service_routes entry #{inspect(entry)}: #{reason}"
+      end
+    end
+
+    defp check(%{} = entry) do
+      if Map.keys(entry) |> Enum.sort() == @fields do
+        check_fields(entry)
+      else
+        {:error, "fields must be exactly route, key, class and ruling"}
+      end
+    end
+
+    defp check(_entry), do: {:error, "an entry must be a map"}
+
+    defp check_fields(%{route: route, key: key, class: class, ruling: ruling}) do
+      with :ok <- check_route(route),
+           :ok <- check_key(key),
+           :ok <- check_class(class) do
+        check_ruling(class, ruling)
+      end
+    end
+
+    defp check_route(route) when is_binary(route) do
+      case String.split(route, " ", parts: 2) do
+        [method, path] ->
+          cond do
+            method not in @methods ->
+              {:error, "unknown method in route #{inspect(route)}"}
+
+            not Enum.any?(@prefixes, &(path == &1 or String.starts_with?(path, &1 <> "/"))) ->
+              {:error, "route #{inspect(route)} is not under /me or /help"}
+
+            true ->
+              :ok
+          end
+
+        _ ->
+          {:error, "route must be \"METHOD FULL_PATH\""}
+      end
+    end
+
+    defp check_route(_route), do: {:error, "route must be a string"}
+
+    defp check_key(key) when is_atom(key) and key not in [nil, true, false], do: :ok
+    defp check_key(_key), do: {:error, "key must be a policy key atom"}
+
+    defp check_class(class) when class in [:self_service, :tenant_wide], do: :ok
+    defp check_class(_class), do: {:error, "class must be :self_service or :tenant_wide"}
+
+    defp check_ruling(:tenant_wide, :pending_sec_ruling), do: :ok
+
+    defp check_ruling(_class, :pending_sec_ruling),
+      do: {:error, ":pending_sec_ruling is only valid on a :tenant_wide entry"}
+
+    defp check_ruling(_class, ruling) when is_binary(ruling) do
+      if String.trim(ruling) == "",
+        do: {:error, "ruling must be a ruling id, not blank"},
+        else: :ok
+    end
+
+    defp check_ruling(_class, _ruling),
+      do: {:error, "ruling must be a ruling id string or :pending_sec_ruling"}
+  end
+
   # REQ-518 AC 21 (design 4.2): the ONE named place where the `/me` and `/help` routes are
   # ruled. Each entry: `route` (`"METHOD FULL_PATH"`), the policy `key`, `class`
   # (`:self_service`, or `:tenant_wide` for the "SEC-ruled tenant-wide" state) and `ruling` (a
@@ -165,6 +258,10 @@ defmodule Letflow.Api.RouteScope do
     }
   ]
 
+  # Compile-time shape check of every entry above (GH #2825): a malformed entry raises here,
+  # so the build stops instead of the route walk finding it at test time.
+  Enum.each(@self_service_routes, &SelfServiceEntry.validate!/1)
+
   # The path prefixes whose every route must appear in `@self_service_routes`.
   @self_service_prefixes ["/me", "/help"]
 
@@ -173,14 +270,7 @@ defmodule Letflow.Api.RouteScope do
   def admin_plane_keys, do: @admin_plane_keys
 
   @doc "The committed ruled list of the `/me` and `/help` routes (AC 21, design 4.2)."
-  @spec self_service_routes() :: [
-          %{
-            route: String.t(),
-            key: atom(),
-            class: :self_service | :tenant_wide,
-            ruling: String.t() | :pending_sec_ruling
-          }
-        ]
+  @spec self_service_routes() :: [SelfServiceEntry.t()]
   def self_service_routes, do: @self_service_routes
 
   @doc "0051 M7: whether an issue-time scoped lookup of the attachment parent exists (false)."
