@@ -1,0 +1,82 @@
+# T-0222 (BA): FOUNDATION group of the admin-driven UAT, run first, in this order:
+#   foundation-1 operator sign-in, foundation-2 onboard a tenant, foundation-3 the administrator binds at
+#   first sign-in, then the refusals foundation-4a, 4b, 4c.
+# Approach (owner, 2026-10-22): every account is reached through the product's own admin processes. The only
+# fixed credential is the platform operator's (actor-platform-admin, from the acceptance environment; on QA
+# the seeded admin-user of the bpm-default platform tenant; seeding contract in
+# lib/letflow/design/iss0993-platform-scope-separation.md section 15; decisions 0044, 0046 D4, 0048).
+# Test-tooling steps: this scenario has none; it only reads.
+# Realms: this scenario needs no spare realm. The other foundation scenarios do, and are BLOCKED until the
+# owner/infra decisions D-1..D-4 are made (listed in foundation-2-onboard-tenant-first-administrator.yaml).
+---
+id: platform-foundation-1-operator-sign-in
+scope: platform
+title: The platform operator signs in and is recognised as platform administrator of the platform tenant
+version: "1.0"
+tags: [foundation, identity, platform, access]
+
+description: >
+  First scenario of the foundation group. The platform operator signs in with the one fixed
+  credential, and the platform shows them as platform administrator of the platform tenant, not of
+  any customer. Nothing else in the foundation group can run if this fails.
+
+actors:
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: The instance is reachable and the operator account exists in the platform tenant's sign-in realm
+    check: instance_reachable
+    detail: >
+      The operator credential comes from the acceptance environment, not from this file. If the
+      environment gives none, or the account does not hold the platform administrator role (D-4), report
+      BLOCKED, not FAIL.
+
+steps:
+  - step: 1
+    actor: platform_operator
+    action: The platform operator signs in through the platform's sign-in page and lands on the platform dashboard.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: platform_operator
+    action: >
+      The platform operator asks the platform who they are: their name, the role they hold and the
+      workspace they belong to.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: platform_operator
+    action: The platform operator opens the list of tenants and sees the platform tenant among them.
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: The platform operator holds the platform administrator role, and the workspace shown is the platform tenant.
+    verification:
+      method: system_state
+      detail: >
+        The answer at step 2 lists the platform administrator role (role names only) and names the
+        platform tenant as the workspace. No customer tenant is named.
+      evidence: The answer from step 2 (role names and workspace name) and a screenshot after step 1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Nobody can operate the platform, so no customer can be set up.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The operator sees the tenant list, which shows the platform permission is honoured in the platform tenant.
+    verification:
+      method: system_state
+      detail: The tenant list at step 3 is returned and contains the platform tenant.
+      evidence: The answer from step 3 (count and slugs only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: The operator cannot see or set up customers.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Reads only; nothing is created, so nothing to clean up.

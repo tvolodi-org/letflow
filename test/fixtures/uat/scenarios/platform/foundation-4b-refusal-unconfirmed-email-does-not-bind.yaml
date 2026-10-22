@@ -1,0 +1,102 @@
+# T-0222 (BA): foundation group, scenario 4b of 4 (order: see foundation-1-operator-sign-in.yaml).
+# STATUS: BLOCKED, NOT PASS, until a SECOND spare realm exists (D-1) and the login is approved (D-2).
+# TEST-TOOLING STEP (the only step outside the product): creating the person's login with the e-mail NOT
+# confirmed, with the UAT-only Keycloak client (UAT_KC_ADMIN_CLIENT_ID / UAT_KC_ADMIN_CLIENT_SECRET; the
+# product has no identity-provider admin client until Phase 3, decision 0044). It is an actor-system-* step.
+# Realms: needs its own spare realm and customer, because the invitation binds once per customer and a realm
+# binds to one customer for good (decision 0048 section 2); the realm must not be listed for accepting
+# unconfirmed addresses (the server setting is off by default). Cleanup: the test customer is deactivated in
+# the last step; the product cannot delete it. Details and decisions D-1..D-4: foundation-2 header.
+# Overlap: platform/first-login-admin-binding.yaml covers the same refusal with seeded accounts.
+---
+id: platform-foundation-4b-refusal-unconfirmed-email-does-not-bind
+scope: platform
+title: A person whose e-mail is not confirmed does not become administrator, and cannot tell an invitation exists
+version: "1.0"
+tags: [foundation, refusal, identity, onboarding, blocked]
+
+description: >
+  The operator sets up a second test customer and names a person by e-mail. The person's login in
+  the customer's realm has that address but the identity provider does not confirm it. They sign
+  in, are let in at most as an ordinary user, and are not made administrator. Nothing they see
+  shows that an invitation exists. The operator sees the invitation still open.
+
+actors:
+  platform_operator: actor-platform-admin
+  uat_tooling: actor-system-uat-keycloak
+  unconfirmed_person: actor-any
+
+preconditions:
+  - description: >
+      BLOCKED until D-1: a second spare realm exists, not bound to any customer, and not on the list of
+      realms whose unconfirmed addresses are accepted
+    check: custom
+    detail: If the realm accepts unconfirmed addresses, the refusal proves nothing, so report BLOCKED, not PASS.
+  - description: No customer with this run's second slug (uat-fnd-<run date>-<n>b) exists yet
+    check: custom
+    detail: A repeated slug is refused; use the next number.
+
+steps:
+  - step: 1
+    actor: uat_tooling
+    action: >
+      TEST-TOOLING STEP (outside the product): with the UAT-only identity-provider client, create the
+      person's login in the second spare realm with a fixed test e-mail address and that address NOT
+      confirmed.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: platform_operator
+    action: >
+      The platform operator sets up the second test customer on the second spare realm and names the
+      person's e-mail address as administrator.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: unconfirmed_person
+    action: >
+      The person signs in to the second customer for the first time and tries to open its user management.
+    expect_refusal: true
+    via: gui
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: platform_operator
+    action: >
+      The platform operator reads the list of pending administrators of the second customer, then
+      deactivates the second test customer.
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: The unconfirmed person is not administrator, and their screens are the same as for a person with no invitation.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 ends in a plain refusal at user management. The person is not listed as administrator.
+        The screens before the refusal match those of a person with no invitation.
+      evidence: Screenshots after step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone able to register an unconfirmed account with a guessed address could take over a new customer.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The invitation is still open, nobody is bound, and the customer is inactive after step 4.
+    verification:
+      method: system_state
+      detail: The pending list at step 4 has one entry, state open, no bound user, no binding time.
+      evidence: The pending list (state, age, count only) and the tenant status (inactive).
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot trust the record of who administers a customer.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Step 4 deactivates the second test customer. It cannot be deleted and its realm stays bound to it for
+    good. The unconfirmed login stays in the realm; the owner decides on removing it (D-1).

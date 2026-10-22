@@ -1,0 +1,118 @@
+# T-0222 (BA): foundation group, scenario 4a of 4 (order: see foundation-1-operator-sign-in.yaml).
+# STATUS: BLOCKED, NOT PASS, until foundation-3 can run (spare realm D-1, roster for the login D-2).
+# Test-tooling steps: none of its own (the login was created in foundation-2 with the UAT-only Keycloak
+# client, UAT_KC_ADMIN_CLIENT_ID / UAT_KC_ADMIN_CLIENT_SECRET; decision 0044).
+# Step 3 source: lib/letflow/identity/role_registry.ex (PLATFORM_ADMIN is never seeded or bound outside the
+# platform tenant) and lib/letflow/routers/identity.ex (role binding refused with 403).
+# Realms and cleanup: runs on the customer and realm of foundation-2/-3. It ends the run by deactivating
+# that test customer (the product cannot delete a tenant or free a realm). See foundation-2 for the rest.
+---
+id: platform-foundation-4a-refusal-customer-administrator-cannot-reach-platform
+scope: platform
+title: A customer's administrator can never act as platform administrator, and the customer is retired by deactivation
+version: "1.0"
+tags: [foundation, refusal, identity, platform, blocked]
+
+description: >
+  The administrator made in the previous scenario holds power inside their own customer only.
+  They are turned away from every platform action: listing or setting up customers, reading
+  another customer's setup record, and giving themselves or anyone the platform administrator
+  role. The pending invitation can only ever name the customer administrator role. At the end the
+  operator deactivates the test customer and the customer's administrator is turned away.
+
+actors:
+  platform_operator: actor-platform-admin
+  customer_administrator: actor-any
+
+preconditions:
+  - description: >
+      BLOCKED until D-1 and D-2: foundation-3 passed in this run, so the person is administrator of
+      the test customer
+    check: custom
+    detail: If the person never became administrator, report BLOCKED, not PASS.
+
+steps:
+  - step: 1
+    actor: customer_administrator
+    action: The customer's administrator tries to open the platform's list of customers.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: customer_administrator
+    action: The customer's administrator tries to set up a new customer.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: customer_administrator
+    action: >
+      The customer's administrator tries to give the platform administrator role to one of their
+      own customer's groups (a new role binding, and a change to an existing group's binding).
+      No group of a customer carries that role, so the product has to refuse the binding itself.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: customer_administrator
+    action: The customer's administrator asks the platform who they are, once more.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: platform_operator
+    action: The platform operator deactivates the test customer.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: customer_administrator
+    action: The administrator tries to open the customer's user management after the deactivation.
+    expect_refusal: true
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: Every platform action is refused to the customer's administrator, and the refusal reveals nothing about other customers.
+    verification:
+      method: system_state
+      detail: >
+        Steps 1 to 3 end in a refusal (forbidden). The refusal text does not name any other customer.
+        Step 3 is refused by the product's rule that only the platform's own workspace may bind the
+        platform administrator role (decision 0046 D4; role registry and the role-binding routes).
+      evidence: The three refusals (status and text only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A customer's administrator could see or control other customers, or take over the platform.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: After the attempts, the administrator still holds the tenant administrator role and not the platform administrator role.
+    verification:
+      method: system_state
+      detail: Step 4 lists the tenant administrator role in the customer's workspace and no platform administrator role.
+      evidence: The answer from step 4 (role names only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: Platform authority leaked into a customer account.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: After deactivation, the customer's administrator is turned away from the customer.
+    verification:
+      method: gui_screen
+      detail: Step 6 ends in a refusal naming an inactive customer, and the tenant status read by the operator is inactive.
+      evidence: Screenshot after step 6 and the tenant status.
+    on_fail:
+      severity: MAJOR
+      business_impact: A deactivated test customer would stay usable, so test data could not be retired.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Step 5 deactivates the test customer. It cannot be deleted and its realm stays bound to it for good.
+    If the run stops earlier, the operator deactivates it by hand.

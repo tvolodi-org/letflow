@@ -1,0 +1,137 @@
+# T-0222 (BA): foundation group, scenario 2 of 4 (see foundation-1-operator-sign-in.yaml for the order).
+# STATUS: BLOCKED, NOT PASS, until a spare sign-in realm exists (D-1).
+#
+# TEST-TOOLING STEP (the only step outside the product): creating the person's login in the customer's
+# realm. The product has no identity-provider admin client until Phase 3 (decision 0044), so the UAT-only
+# Keycloak client does it (UAT_KC_ADMIN_CLIENT_ID / UAT_KC_ADMIN_CLIENT_SECRET, the client that
+# scripts/seed_uat_email_verified.sh uses). It is an actor-system-* step and asserts nothing about the product.
+#
+# REALMS (docs/runbooks/onboarding-new-tenant-realm.md R1..R3; decision 0048 section 2). A fresh tenant needs
+# in advance: (1) a realm cloned from the platform's default realm (web client with its mappers, the
+# administrator realm role defined and not given by default, self-registration off, duplicate e-mails off),
+# (2) the realm named by the operator at onboarding or bound afterwards by the operator. The binding is
+# permanent: never changed, never cleared. Spare realm on QA: NONE documented. The QA realms of the corpus
+# (bpm-default, bilimbaga, meridian, swiftroute, vortex) each belong to a tenant already, and the UAT
+# Keycloak client has manage-users in those realms only. No realm name is invented here.
+#
+# CLEANUP: the product can deactivate a tenant (operator; the platform tenant is protected) and reactivate
+# it. It cannot delete a tenant or free a realm. Each run therefore uses a uniquely named tenant (slug
+# uat-fnd-<run date>-<n>, display name "UAT foundation <run date>, safe to deactivate"), deactivates it at
+# the end (foundation-4a), and uses up its spare realm for good. One run of the group needs two spare realms
+# (this scenario and foundation-3 share one; foundation-4b needs the second).
+#
+# OWNER/INFRA DECISIONS OPEN (none decided here; production is untouched by all of them):
+#   D-1 Provide a pool of spare UAT realms (size, who refills it), or approve the UAT Keycloak client
+#       creating realms and the script allowlist naming them.
+#   D-2 Approve the tooling-created logins (names, test e-mail addresses on a mailbox-less domain) and
+#       record them in test/fixtures/uat/actors.yaml; until then they are written as actor-any.
+#   D-3 Foundation-4c needs a platform administrator of a customer tenant, which decision 0046 D4 says
+#       must not exist. Drop that refusal from UAT (backend tests keep it) or approve a one-off account.
+#   D-4 Confirm the QA operator account holds the platform administrator role in the platform tenant and
+#       that the platform-tenant setting is in place on every QA instance.
+---
+id: platform-foundation-2-onboard-tenant-first-administrator
+scope: platform
+title: The operator sets up a new customer and names its first administrator by e-mail
+version: "1.0"
+tags: [foundation, onboarding, identity, administrator, blocked]
+
+description: >
+  The platform operator sets up a new, clearly named test customer on a spare sign-in realm and
+  names the customer's first administrator by e-mail address. The platform keeps the invitation as
+  pending: nobody is administrator yet. The person gets the role only when they sign in through
+  the customer's own realm with a confirmed e-mail address (next scenario). The operator can see
+  the pending invitation and how old it is. STATUS: BLOCKED until a spare realm exists.
+
+actors:
+  platform_operator: actor-platform-admin
+  uat_tooling: actor-system-uat-keycloak
+
+preconditions:
+  - description: >
+      BLOCKED until D-1: a spare sign-in realm exists, set up as described in the header, and
+      is not bound to any customer
+    check: custom
+    detail: >
+      The platform checks that the realm exists before binding it. If no spare realm is available,
+      report BLOCKED, not FAIL.
+  - description: >
+      Foundation 1 passed in this run, and no customer with this run's slug (uat-fnd-<run date>-<n>)
+      exists yet
+    check: custom
+    detail: A repeated slug is refused as already existing; use the next number instead of retrying.
+
+steps:
+  - step: 1
+    actor: uat_tooling
+    action: >
+      TEST-TOOLING STEP (outside the product): with the UAT-only identity-provider client, create the
+      future administrator's login in the spare realm, with a fixed test e-mail address on a
+      mailbox-less test domain and that address marked as confirmed. Keep the address for the next steps.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: platform_operator
+    action: >
+      The platform operator sets up the new customer on the New Tenant screen: this run's unique test
+      name and slug, a unique host name, the spare realm, and the administrator's e-mail address.
+    via: gui
+    produces:
+      onboarding_id: the identifier of the new customer's setup record
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: platform_operator
+    action: The platform operator opens the setup result and the list of pending administrators of the new customer.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: platform_operator
+    action: The platform operator tries to set up a second customer with the same slug as the first.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: The customer is created and active, its realm is bound, and the result says the administrator is pending.
+    verification:
+      method: system_state
+      detail: >
+        The result at step 3 shows the customer as active, signing in as possible (realm bound), and
+        the administrator as pending. The e-mail address is not shown as an administrator.
+      evidence: The setup result and a screenshot of the result screen.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A new customer cannot be set up, so nobody can ever administer it.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Exactly one invitation exists for the customer, still open, with its age shown, and nobody is bound yet.
+    verification:
+      method: system_state
+      detail: The pending list at step 3 has one entry, state open, no bound user.
+      evidence: The pending list (state, age and count only).
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot tell whether the customer's administrator invitation is waiting.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A repeated slug is refused and no second customer is created.
+    verification:
+      method: system_state
+      detail: Step 4 is refused as already existing; the tenant list still shows one customer with that slug.
+      evidence: The refusal and the tenant list (slugs only).
+    on_fail:
+      severity: MAJOR
+      business_impact: Duplicate customers could be created, and data kept apart by name would be ambiguous.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    The product cannot delete a customer. The uniquely named test customer is deactivated at the end of
+    foundation-4a. If the run stops before that, the operator deactivates the customer and withdraws the
+    open invitation by hand. The realm stays bound to it for good.
