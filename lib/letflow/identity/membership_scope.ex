@@ -24,15 +24,34 @@ defmodule Letflow.Identity.MembershipScope do
   @type snapshot :: %{optional(String.t()) => scope()}
   @type delta_entry :: %{String.t() => String.t() | map()}
 
+  @typedoc """
+  The user's held roles and applicable grant rows, read once (`read/2`). Every snapshot of one
+  step is built from one read, so a step that needs several of them does not repeat the reads.
+  """
+  @type read :: %{held: [String.t()], rows: [map()]}
+
   @doc """
-  The user's current scope per held role. Two reads (held roles, applicable rows).
+  Reads the user's held roles and applicable grant rows: two reads. The caller holds lock A and
+  must not write between this read and the snapshots built from it.
+  """
+  @spec read(user_id :: Ecto.UUID.t(), prefix :: String.t()) :: read()
+  def read(user_id, prefix) when is_binary(prefix) do
+    %{
+      held: Identity.list_effective_role_names(user_id, prefix: prefix),
+      rows: RoleScopeGrants.applicable_rows_for_user(user_id, prefix)
+    }
+  end
+
+  @doc """
+  The user's current scope per held role, from one read (`read/2`). Two reads.
   """
   @spec snapshot(user_id :: Ecto.UUID.t(), prefix :: String.t()) :: snapshot()
-  def snapshot(user_id, prefix) when is_binary(prefix) do
-    held = Identity.list_effective_role_names(user_id, prefix: prefix)
-    rows = RoleScopeGrants.applicable_rows_for_user(user_id, prefix)
-    build(held, rows)
-  end
+  def snapshot(user_id, prefix) when is_binary(prefix),
+    do: user_id |> read(prefix) |> snapshot_of()
+
+  @doc "The snapshot of a read: the same map `snapshot/2` returns, with no read."
+  @spec snapshot_of(read()) :: snapshot()
+  def snapshot_of(%{held: held, rows: rows}), do: build(held, rows)
 
   @doc """
   The scope of the user's applicable grant rows per role, ignoring whether the role is held
@@ -40,10 +59,12 @@ defmodule Letflow.Identity.MembershipScope do
   tell "already holds scoped rows" from "holds none" when classifying a suppressed sync.
   """
   @spec row_scopes(user_id :: Ecto.UUID.t(), prefix :: String.t()) :: snapshot()
-  def row_scopes(user_id, prefix) when is_binary(prefix) do
-    rows = RoleScopeGrants.applicable_rows_for_user(user_id, prefix)
-    build(rows |> Enum.map(& &1.role) |> Enum.uniq(), rows)
-  end
+  def row_scopes(user_id, prefix) when is_binary(prefix),
+    do: user_id |> read(prefix) |> row_scopes_of()
+
+  @doc "The row scopes of a read: the same map `row_scopes/2` returns, with no read."
+  @spec row_scopes_of(read()) :: snapshot()
+  def row_scopes_of(%{rows: rows}), do: build(rows |> Enum.map(& &1.role) |> Enum.uniq(), rows)
 
   @doc """
   The snapshot the user WOULD have if added to a group that binds `bound_roles` as platform
@@ -57,9 +78,17 @@ defmodule Letflow.Identity.MembershipScope do
           prefix :: String.t()
         ) :: snapshot()
   def snapshot_if_added(user_id, group_id, bound_roles, prefix) when is_binary(prefix) do
-    held = Identity.list_effective_role_names(user_id, prefix: prefix)
-    rows = RoleScopeGrants.applicable_rows_for_user(user_id, prefix)
+    user_id |> read(prefix) |> snapshot_if_added_to(group_id, bound_roles, prefix)
+  end
 
+  @doc "`snapshot_if_added/4` from a read the caller already holds (no read of the user's roles)."
+  @spec snapshot_if_added_to(
+          read(),
+          group_id :: Ecto.UUID.t(),
+          bound_roles :: [String.t()],
+          prefix :: String.t()
+        ) :: snapshot()
+  def snapshot_if_added_to(%{held: held, rows: rows}, group_id, bound_roles, prefix) do
     group_rows =
       Enum.flat_map(bound_roles, fn role ->
         :group

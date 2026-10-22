@@ -43,12 +43,12 @@ defmodule Letflow.Identity.BindingWritersMembershipRowsTest do
     ],
     m_b: [{:local, :insert_membership_audit, 6}, {:local, :lock_tenant_admins!, 1}],
     m_c: [
-      {:local, :insert_synced_membership, 4},
+      {:local, :insert_synced_membership, 5},
       {:local, :insert_membership_audit, 6},
       {:local, :lock_tenant_admins!, 1},
       {:remote, "Letflow.ScopeEnforcement", :mode_under_lock!, 1},
       {:remote, "Letflow.Identity.SyncScopeGuard", :bound_platform_roles, 2},
-      {:remote, "Letflow.Identity.SyncScopeGuard", :evaluate, 4},
+      {:remote, "Letflow.Identity.SyncScopeGuard", :evaluate, 5},
       {:remote, "Letflow.Identity.SyncScopeGuard", :record, 5}
     ],
     m_d: [{:remote, "Letflow.Identity", :add_group_member, 3}],

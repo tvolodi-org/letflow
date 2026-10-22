@@ -11,7 +11,7 @@ defmodule Letflow.Identity.SyncScopeGuard do
     * `bound_platform_roles/2` -- the platform roles each candidate group binds, read AFTER
       lock A inside the step (SEC C-3), never carried from the pre-lock resolve. A
       `:process_routing_role` binding is ignored, so a routing-role-only group never widens.
-    * `evaluate/4` -- for one candidate group the user is not yet a member of: would adding the
+    * `evaluate/5` -- for one candidate group the user is not yet a member of: would adding the
       group make the user `:tenant_wide` for a role bound to it that the user is not already
       tenant-wide for? If so the membership is SUPPRESSED (the whole group is withheld when ANY
       bound role would widen; a membership cannot be split by role). A suppressed (group,
@@ -75,22 +75,27 @@ defmodule Letflow.Identity.SyncScopeGuard do
   The decision for one candidate group: `:allow` (insert the membership as today, also when the
   user is already a member or the group binds no platform role) or `{:suppress, [{role, kind}]}`
   listing every bound role the membership would widen, sorted by role name.
+
+  `before` is the user's `MembershipScope.read/2`, taken by the caller before this call. It is
+  the only read of the user's roles and rows here (GH #2860), so the caller can reuse it for the
+  insert's before-state: nothing is written in between.
   """
   @spec evaluate(
           user_id :: Ecto.UUID.t(),
           group_id :: Ecto.UUID.t(),
           bound_roles :: [String.t()],
-          prefix :: String.t()
+          prefix :: String.t(),
+          before :: MembershipScope.read()
         ) :: :allow | {:suppress, [{String.t(), kind()}, ...]}
-  def evaluate(_user_id, _group_id, [], _prefix), do: :allow
+  def evaluate(_user_id, _group_id, [], _prefix, _before), do: :allow
 
-  def evaluate(user_id, group_id, bound_roles, prefix) do
+  def evaluate(user_id, group_id, bound_roles, prefix, before) do
     if member?(group_id, user_id, prefix) do
       :allow
     else
-      before_snapshot = MembershipScope.snapshot(user_id, prefix)
-      after_snapshot = MembershipScope.snapshot_if_added(user_id, group_id, bound_roles, prefix)
-      row_scopes = MembershipScope.row_scopes(user_id, prefix)
+      before_snapshot = MembershipScope.snapshot_of(before)
+      after_snapshot = MembershipScope.snapshot_if_added_to(before, group_id, bound_roles, prefix)
+      row_scopes = MembershipScope.row_scopes_of(before)
 
       widening =
         bound_roles
