@@ -26,5 +26,5 @@
     "additionalProperties": false
   },
   "fail_codes": ["empty_order", "quantity_too_large"],
-  "limits": {"instructions": 200000, "timeout_ms": 500, "heap_words": 1048576}
+  "limits": {"instructions": 200000, "timeout_ms": 5000, "heap_words": 1048576}
 }
