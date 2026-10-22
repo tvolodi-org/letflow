@@ -43,6 +43,10 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   terminal/CI job log sees the actual failing test's detail without needing the
   runner's own `mktemp -d` directory to still exist.
 
+  GH #2615: the reverse holds for the script-runtime budget measurement. On a passing run,
+  this task echoes every `GH2534 budget measurement` line from the partition logs, so the
+  median and p95 reach the CI job log without a workflow change.
+
   ISS-0352: after the main suite passes, this task runs the `:wasm_hang`-tagged tests
   in `test/letflow/engine/wasm/` -- tests that deliberately, genuinely hang a real
   `wasmex` NIF call to prove REQ-170's own live-verified finding that no BEAM-side
@@ -140,6 +144,9 @@ defmodule Mix.Tasks.Letflow.Check.Test do
   use Mix.Task
 
   @target_substring "default values for the optional arguments"
+  # GH #2615: the script-runtime budget measurement prints one line into its partition's
+  # log. A passing run never prints partition logs, so the passing path echoes these lines.
+  @budget_measurement_marker "GH2534 budget measurement"
   @log_dir_line_regex ~r/^test_parallel: partition logs in (.+)$/m
 
   # ISS-0697 (design doc iss0697-check-test-executable-resolver-fix.md): the injectable
@@ -333,6 +340,8 @@ defmodule Mix.Tasks.Letflow.Check.Test do
             )
 
           :ok ->
+            echo_budget_measurements(indexed_logs)
+
             Mix.shell().info(
               "mix letflow.check.test: OK -- no test failures, no ISS-0069 warnings " <>
                 "(#{length(logs)} partitions, logs: #{log_dir})."
@@ -395,6 +404,19 @@ defmodule Mix.Tasks.Letflow.Check.Test do
       [] -> :ok
       lines -> {:offending, lines}
     end
+  end
+
+  # GH #2615: prints the budget-measurement line(s) from every partition log on a passing
+  # run, so the CI job log carries the numbers (the partition logs are otherwise never shown).
+  @spec echo_budget_measurements([{pos_integer(), Path.t()}]) :: :ok
+  defp echo_budget_measurements(indexed_logs) do
+    for {index, path} <- indexed_logs,
+        line <- read_lines(path),
+        String.contains?(line, @budget_measurement_marker) do
+      Mix.shell().info("mix letflow.check.test: partition #{index} #{line}")
+    end
+
+    :ok
   end
 
   # Prints full content of every partition log showing a real `Failed:` line or a
