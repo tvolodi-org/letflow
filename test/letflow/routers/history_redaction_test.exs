@@ -58,9 +58,9 @@ defmodule Letflow.Routers.HistoryRedactionTest do
     }
   end
 
-  defp labelled_review!(t) do
+  defp labelled_review!(t, graph_fun \\ &graph/2) do
     b =
-      F.bound_graph!(t, F.doubling_source(), F.closed_manifest(), %{"amount" => 2}, &graph/2, [])
+      F.bound_graph!(t, F.doubling_source(), F.closed_manifest(), %{"amount" => 2}, graph_fun, [])
 
     {:ok, row} = ScriptTaskDispatcher.claim_next(t.schema_name)
 
@@ -79,6 +79,27 @@ defmodule Letflow.Routers.HistoryRedactionTest do
 
     assert {:ok, :applied} = Engine.apply_script_task_result(F.claim(row), result, t.schema_name)
     b
+  end
+
+  # START -> svc (script) -> review (HUMAN_TASK) -> out (SERVICE_TASK whose URL renders empty,
+  # so the completion writes an EXECUTION_ERROR on the same advance) -> END
+  defp graph_with_empty_url(key, version) do
+    graph(key, version)
+    |> Map.update!("nodes", fn nodes ->
+      List.insert_at(nodes, -2, %{
+        "id" => "out",
+        "node_type" => "SERVICE_TASK",
+        "attributes" => %{
+          "endpoint" => "{{variables.blank}}",
+          "method" => "POST",
+          "timeout_ms" => 5000
+        }
+      })
+    end)
+    |> Map.update!("edges", fn edges ->
+      List.replace_at(edges, 2, %{"id" => "e3", "source" => "review", "target" => "out"}) ++
+        [%{"id" => "e4", "source" => "out", "target" => "end"}]
+    end)
   end
 
   defp complete!(t, instance_id, output) do
@@ -192,6 +213,37 @@ defmodule Letflow.Routers.HistoryRedactionTest do
 
       assert disagreement["server_value"] == 5
       assert disagreement["submitted_value"] == 99
+    end
+  end
+
+  describe "R12 / R8h an EXECUTION_ERROR written by the completion keeps the labels of its variables" do
+    test "(e) a key computed by the completion (R14) stays hidden in the error event a completer without the grant reads",
+         %{t: t} do
+      b = labelled_review!(t, &graph_with_empty_url/2)
+
+      task =
+        Repo.one!(
+          from(x in Letflow.Engine.Task,
+            where: x.instance_id == ^b.instance_id and x.status == :pending
+          ),
+          prefix: t.schema_name
+        )
+
+      completer = Ecto.UUID.generate()
+
+      # The form submits nothing, so `y` is computed from the labelled `total` (R14) and only
+      # exists in the post-merge state; the next SERVICE_TASK renders an empty URL.
+      assert {:error, {:instance_execution_error, :service_task_url_rendered_empty, _}} =
+               Engine.complete_task(
+                 task.id,
+                 %{output_variables: %{}, actor_id: completer, idempotency_key: "e-#{completer}"},
+                 prefix: t.schema_name
+               )
+
+      [error] = payload_of(history(t, b.instance_id, MapSet.new([@label])), "EXECUTION_ERROR")
+
+      assert error["variables"]["y"] == @placeholder
+      assert error["variables"]["total"] == @placeholder
     end
   end
 end

@@ -1760,6 +1760,7 @@ defmodule Letflow.Engine do
           instance_id :: Ecto.UUID.t(),
           node_id :: String.t(),
           variables :: map(),
+          variable_labels :: map(),
           actor_id :: Ecto.UUID.t() | nil,
           idempotency_key :: String.t()
         ) :: standalone_error_attrs()
@@ -1767,6 +1768,7 @@ defmodule Letflow.Engine do
          instance_id,
          node_id,
          variables,
+         variable_labels,
          actor_id,
          idempotency_key
        ) do
@@ -1778,7 +1780,9 @@ defmodule Letflow.Engine do
       variables: variables
     }
 
-    ServiceTask.build_empty_url_error_attrs(context)
+    context
+    |> ServiceTask.build_empty_url_error_attrs()
+    |> Map.put(:labels, variable_labels)
   end
 
   # ISS-0917 -- sibling of build_service_task_empty_url_error/5 for a catalog
@@ -1788,6 +1792,7 @@ defmodule Letflow.Engine do
           node_id :: String.t(),
           reason :: term(),
           variables :: map(),
+          variable_labels :: map(),
           actor_id :: Ecto.UUID.t() | nil,
           idempotency_key :: String.t()
         ) :: standalone_error_attrs()
@@ -1796,17 +1801,20 @@ defmodule Letflow.Engine do
          node_id,
          reason,
          variables,
+         variable_labels,
          actor_id,
          idempotency_key
        ) do
-    ServiceTask.build_catalog_unresolved_error_attrs(%{
+    %{
       instance_id: instance_id,
       node_id: node_id,
       reason: reason,
       actor_id: actor_id,
       idempotency_key: idempotency_key,
       variables: variables
-    })
+    }
+    |> ServiceTask.build_catalog_unresolved_error_attrs()
+    |> Map.put(:labels, variable_labels)
   end
 
   # REQ-215 design doc §2.5 -- wires prepare_service_task_dispatch/5's own
@@ -7569,6 +7577,10 @@ defmodule Letflow.Engine do
 
         {:error, {:restricted_outbound_error, error_args}}
 
+      # GH #2616 part 2 (decision 0062 R7a, R8h): every EXECUTION_ERROR written here snapshots
+      # `variables` from the post-merge state, so it carries `variable_labels` from the same state.
+      # Without them the event would fall back to the locked projection's labels, which miss the
+      # keys a completion computes (R14), and the history of the event would show those values.
       {:script_binding_error, node_id, reason, variables} ->
         error_args = %{
           instance_id: projection.instance_id,
@@ -7576,6 +7588,7 @@ defmodule Letflow.Engine do
           affected: {:node, node_id},
           reason: "script service task has no usable script pin recorded for this instance",
           variables: variables,
+          labels: variable_labels,
           details: %{reason: reason},
           actor_id: actor_id,
           idempotency_key: idempotency_key
@@ -7590,6 +7603,7 @@ defmodule Letflow.Engine do
             node_id,
             reason,
             variables,
+            variable_labels,
             actor_id,
             idempotency_key
           )
@@ -7602,6 +7616,7 @@ defmodule Letflow.Engine do
             projection.instance_id,
             node_id,
             variables,
+            variable_labels,
             actor_id,
             idempotency_key
           )
@@ -7663,15 +7678,17 @@ defmodule Letflow.Engine do
           {:halt, {:error, reason}}
 
         {:error, failure} ->
+          # GH #2616 part 2 (decision 0062 R7a): the snapshot is the post-merge state, so its labels travel too.
           error_args =
-            SubProcess.to_error_args(
-              failure,
+            failure
+            |> SubProcess.to_error_args(
               projection.instance_id,
               node_id,
               advanced_state.variables,
               actor_id,
               idempotency_key
             )
+            |> Map.put(:labels, advanced_state.variable_labels)
 
           {:halt, {:execution_error, error_args}}
       end
