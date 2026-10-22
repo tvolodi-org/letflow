@@ -212,9 +212,10 @@ against the target QA instance, in order:
 2. **Part B:** `scripts/seed_swiftroute_persona_actors.sh` — idempotent letflow-side
    provisioning: creates the `role-ops-manager` and `role-ceo` process-routing role
    groups and tenant_role bindings, then adds each actor to their appropriate group(s).
-   Run this against the same QA instance (export `QA_AUTH_TOKEN` first — a PLATFORM_ADMIN
-   token for the swiftroute tenant, same pattern as
-   `scripts/seed_swiftroute_definition.sh`).
+   Run this against the same QA instance (export `QA_AUTH_TOKEN` first — a TENANT_ADMIN
+   token for the swiftroute tenant, the least role its calls need, REQ-454; the script
+   checks it at start and exits naming any missing permission. A platform account is not
+   used for tenant preparation).
 
 3. **Part C (this note):** documented here so UAT-RUNNER knows where to look.
 
@@ -233,7 +234,7 @@ Before executing any scenario under `test/fixtures/uat/scenarios/meridian/` or
 `.../vortex/`, the target QA instance must have had, in order: (1) the definition seed
 (`seed_<tenant>_definition.sh`), (2) Keycloak accounts for the `actor-<tenant>-*` personas
 (Part A, `ai-dala-infra`), (3) `scripts/seed_<tenant>_persona_actors.sh` with a tenant
-PLATFORM_ADMIN `QA_AUTH_TOKEN`. Detect a missing step 3 with `GET /api/v1/identity/roles`:
+TENANT_ADMIN `QA_AUTH_TOKEN` (the tenant's own admin, not a platform account; REQ-454). Detect a missing step 3 with `GET /api/v1/identity/roles`:
 no `role-*` rows of kind `process_routing_role` (e.g. `role-credit-manager` /
 `role-production-manager`), or an empty inbox plus 409 "caller does not hold the assigned
 role" on claim. Record the affected steps BLOCKED/PRECONDITION_MISSING; do not substitute

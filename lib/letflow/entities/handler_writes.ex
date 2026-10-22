@@ -80,6 +80,7 @@ defmodule Letflow.Entities.HandlerWrites do
   alias Letflow.Entities.HandlerContext
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.FieldGrants
+  alias Letflow.Entities.RecordAccess
   alias Letflow.Entities.Records
   alias Letflow.Entities.StepSource
   alias Letflow.Entities.StepWrites
@@ -282,7 +283,7 @@ defmodule Letflow.Entities.HandlerWrites do
 
     case FieldGrants.load_restrictions(subject, entity_type, ctx.prefix) do
       {:ok, restricted} ->
-        if Enum.any?(Map.keys(field_values), &MapSet.member?(restricted, &1)),
+        if RecordAccess.names_restricted?(field_values, restricted),
           do: {:error, :field_restricted},
           else: :ok
 

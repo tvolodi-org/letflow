@@ -14,18 +14,22 @@
 #
 # Prerequisites:
 #   - curl and jq installed
-#   - QA_AUTH_TOKEN: Bearer token for a user in the swiftroute tenant with
-#       DefinitionsWrite (for deployment) + InstancesStart/TasksList/TasksComplete
-#       (for verification).  A PLATFORM_ADMIN or PROCESS_OPERATOR token
-#       satisfies all four.
+#   - QA_AUTH_TOKEN: Bearer token for a PROCESS_DESIGNER user in the swiftroute tenant
+#       (TENANT_ADMIN also works). Least role per call (REQ-454; derived from
+#       Letflow.Api.Authorization):
+#         GET /api/v1/definitions          DefinitionsRead              -> PROCESS_DESIGNER
+#         POST /api/v1/definitions         DefinitionsWrite             -> PROCESS_DESIGNER
+#         POST /api/v1/definitions/:id/activate  DefinitionsWrite       -> PROCESS_DESIGNER
+#       The start-up check requires DefinitionsRead and DefinitionsWrite and exits 1 naming
+#       a missing one before anything is written. The verification calls (POST /api/v1/instances,
+#       InstancesStart) are PROCESS_DESIGNER's too.
 #   - SERVICE_TASK_MOCK_BASE_URL: optional https:// base that every SERVICE_TASK
 #       endpoint in the seeded fixture is pointed at (default:
 #       https://httpbin.org/anything). Engine service tasks need an absolute,
 #       public https URL returning 2xx JSON (ISS-0930). http:// is refused.
 #   - QA_URL: base URL of the QA instance (default: https://qa.bizdala.com)
-#   - SWIFTROUTE_TENANT_ID: UUID of the swiftroute tenant (optional; used only
-#       for the PLATFORM_ADMIN provisioning note; the actual API calls are
-#       scoped by the authenticated user's OIDC token, not this variable).
+#   - SWIFTROUTE_TENANT_ID: UUID of the swiftroute tenant (optional; not read by
+#       this script: the API calls are scoped by the authenticated user's OIDC token).
 #
 # Usage:
 #   export QA_AUTH_TOKEN="<bearer-token>"
@@ -34,9 +38,11 @@
 #   # Or override defaults:
 #   QA_URL=https://qa.bizdala.com QA_AUTH_TOKEN="<token>" bash scripts/seed_swiftroute_incident_definition.sh
 #
-# If the swiftroute tenant does not yet exist on QA, provision it first:
+# If the swiftroute tenant does not yet exist on QA, provision it first. This is a
+# platform-scope call (POST /api/v1/tenants, :TenantsManage), run with the platform
+# account's token, not by this script and not with a tenant token:
 #   curl -sf -X POST "$QA_URL/api/v1/tenants" \
-#     -H "Authorization: Bearer $PLATFORM_ADMIN_TOKEN" \
+#     -H "Authorization: Bearer $PLATFORM_ACCOUNT_TOKEN" \
 #     -H "Content-Type: application/json" \
 #     -d '{"slug":"swiftroute","display_name":"SwiftRoute Ltd","admin_email":"admin@swiftroute.example"}'
 #
@@ -64,11 +70,16 @@ AUTH_HEADER="Authorization: Bearer ${QA_AUTH_TOKEN}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/seed_service_task_base.sh
 source "${SCRIPT_DIR}/lib/seed_service_task_base.sh"
+# shellcheck source=lib/seed_token_check.sh
+source "${SCRIPT_DIR}/lib/seed_token_check.sh"
 FIXTURE_PATH="${SCRIPT_DIR}/../test/fixtures/qa/swiftroute_incident_process_definition.json"
 
 echo "=== seed_swiftroute_incident_definition.sh ==="
 echo "QA_URL: ${QA_URL}"
 echo "Service-task mock base: ${SERVICE_TASK_EFFECTIVE_BASE_URL}"
+
+# Least role: PROCESS_DESIGNER. Checked before any call, so a short token changes nothing.
+seed_require_permissions PROCESS_DESIGNER DefinitionsRead DefinitionsWrite
 
 # --- Idempotency guard ---
 # Check if a definition named "Driver Incident Report" with status ACTIVE already exists.

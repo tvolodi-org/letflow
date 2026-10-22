@@ -173,6 +173,10 @@ defmodule Letflow.MixProject do
     # REQ-517 (design req517-scoped-grants-admin-plane.md 3.13; SEC rule #2612): only
     # Letflow.Identity.RoleScopeGrants may write the role grants table. Same class of scan.
     "letflow.check_role_scope_grants_writers",
+    # GH #2787: a non-compiling textual scan of config/*.exs -- the compile-time test-seam flag
+    # `engine_test_seams` may be set only in config/test.exs, so no release config can ship the
+    # seams or the zero retry backoff. Same class as the scans above.
+    "letflow.check_engine_test_seams_config",
     "format --check-formatted",
     "compile --warnings-as-errors",
     # REQ-405: D3 backend boundary check (xref-based module boundary enforcement).
