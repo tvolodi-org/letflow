@@ -47,9 +47,9 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
   # GH #2682 PR a: the exam snapshot rollout bounds its definition writes with the same
   # literal `lock_timeout` / `statement_timeout` settings (never the stamp setting).
   @snapshot_rollout "lib/letflow/modules/exam/snapshot/rollout.ex"
-  # GH #2706 PR-2: the cancel transaction bounds its lock waits with the literal `lock_timeout`
+  # GH #2706 PR-2 / GH #2868: `Engine.Contention` holds the statements that bound lock waits with the literal `lock_timeout`
   # setting (value bound as a parameter, never the stamp setting).
-  @engine "lib/letflow/engine.ex"
+  @contention "lib/letflow/engine/contention.ex"
   # GH #2883: the operator break-glass sets a transaction-local `lock_timeout` with a bound parameter and
   # a literal setting name (reviewed by SECURITY-REVIEWER, fresh-packet code gate).
   @scope_enforcement "lib/letflow/scope_enforcement.ex"
@@ -91,7 +91,7 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
     @step_writes => ~w(lock_timeout statement_timeout),
     @stamp => ~w(letflow.managed_by_stamp lock_timeout statement_timeout),
     @snapshot_rollout => ~w(lock_timeout statement_timeout),
-    @engine => ~w(lock_timeout),
+    @contention => ~w(lock_timeout),
     @scope_enforcement => ~w(lock_timeout)
   }
   # Assertion 4
@@ -557,7 +557,7 @@ SELECT set_config('letflow.managed_by_stamp', 'exam', true)
       assert set_config_violations(stamp_elsewhere) == [@scope_enforcement]
 
       # ... and in each other allow-listed file that does not hold it today
-      for path <- [@step_writes, @snapshot_rollout, @engine] do
+      for path <- [@step_writes, @snapshot_rollout, @contention] do
         files =
           synthetic([
             {path, ~s|Repo.query!("SELECT set_config('letflow.managed_by_stamp', $1, true)", [])|}
@@ -610,7 +610,7 @@ SELECT set_config('letflow.managed_by_stamp', 'exam', true)
            ~s|Repo.query!("SELECT set_config('lock_timeout', $1, true)", [v])|},
           {@stamp,
            ~s|Repo.query!("SELECT set_config('letflow.managed_by_stamp', $1, true)", ["exam"])|},
-          {@engine, ~s|Repo.query!("SELECT set_config('lock_timeout', $1, true)", [v])|}
+          {@contention, ~s|Repo.query!("SELECT set_config('lock_timeout', $1, true)", [v])|}
         ])
 
       assert set_config_violations(files) == []
