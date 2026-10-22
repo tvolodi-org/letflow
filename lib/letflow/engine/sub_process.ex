@@ -86,6 +86,7 @@ defmodule Letflow.Engine.SubProcess do
   alias Letflow.Engine.Token
   alias Letflow.Engine.TokenRecord
   alias Letflow.Engine.Transition
+  alias Letflow.Engine.VariableLabels
   alias Letflow.Engine.VariableMerge
   alias Letflow.Engine.VariableSchema
   alias Letflow.EventStore
@@ -185,6 +186,23 @@ defmodule Letflow.Engine.SubProcess do
         {:error, {:output_schema_violation, name, failures}}
     end
   end
+
+  @doc """
+  The labels (decision 0062 R7b) that travel with `build_child_initial_variables/2`'s result:
+  exactly those of the copied keys. Interface filters select by name and never rename, so the
+  keys of `initial_variables` index `parent_labels` directly.
+  """
+  @spec child_initial_labels(map(), map()) :: VariableLabels.labels()
+  def child_initial_labels(initial_variables, parent_labels),
+    do: VariableLabels.take(parent_labels, initial_variables)
+
+  @doc """
+  The labels (decision 0062 R7b) that travel with `build_parent_merge_variables/2`'s result:
+  exactly those of the keys merged into the parent.
+  """
+  @spec parent_merge_labels(map(), map()) :: VariableLabels.labels()
+  def parent_merge_labels(merge_variables, child_labels),
+    do: VariableLabels.take(child_labels, merge_variables)
 
   # Shared filter algorithm (§3.2.1/§3.2.2 -- symmetric by design): for each
   # declared entry (declared order), an absent required entry is the first
@@ -304,7 +322,7 @@ defmodule Letflow.Engine.SubProcess do
           parent_instance_id :: Ecto.UUID.t() | nil,
           parent_variables :: map(),
           node :: Graph.Node.t(),
-          opts :: [prefix: String.t()]
+          opts :: [prefix: String.t(), parent_variable_labels: map()]
         ) ::
           {:ok,
            %{
@@ -332,6 +350,11 @@ defmodule Letflow.Engine.SubProcess do
            ),
          {:ok, initial_variables} <-
            build_child_initial_variables(parsed_interface, parent_variables),
+         initial_labels =
+           child_initial_labels(
+             initial_variables,
+             Keyword.get(opts, :parent_variable_labels, %{})
+           ),
          {:ok, start_node} <- Letflow.Engine.find_start_node(graph),
          {:ok, pins} <- resolve_child_pins(graph, definition, prefix) do
       child_instance_id = Ecto.UUID.generate()
@@ -350,6 +373,7 @@ defmodule Letflow.Engine.SubProcess do
           status: :active,
           tokens: [root_token],
           variables: initial_variables,
+          variable_labels: initial_labels,
           pending_task_nodes: []
         }
 
@@ -477,6 +501,7 @@ defmodule Letflow.Engine.SubProcess do
         definition,
         current_node_ids,
         child_initial_state.variables,
+        child_initial_state.variable_labels,
         parent_instance_id,
         parent_token_record_id,
         prefix
@@ -502,6 +527,7 @@ defmodule Letflow.Engine.SubProcess do
         child_instance_id,
         definition,
         child_initial_state.variables,
+        child_initial_state.variable_labels,
         prepared.pins,
         parent_instance_id,
         parent_token_record_id,
@@ -544,6 +570,7 @@ defmodule Letflow.Engine.SubProcess do
              child_instance_id,
              child_final_state.variables,
              parent_token,
+             child_final_labels: child_final_state.variable_labels,
              prefix: prefix,
              actor_id: Map.get(attrs, :actor_id),
              idempotency_key: Map.get(attrs, :idempotency_key)
@@ -573,6 +600,7 @@ defmodule Letflow.Engine.SubProcess do
          definition,
          current_node_ids,
          variables,
+         variable_labels,
          parent_instance_id,
          parent_token_record_id,
          prefix
@@ -584,6 +612,7 @@ defmodule Letflow.Engine.SubProcess do
       correlation_key: nil,
       current_nodes: current_node_ids,
       variables: variables,
+      variable_labels: variable_labels,
       parent_instance_id: parent_instance_id,
       parent_token_id: parent_token_record_id
     }
@@ -660,6 +689,7 @@ defmodule Letflow.Engine.SubProcess do
          child_instance_id,
          definition,
          initial_variables,
+         initial_labels,
          pins,
          parent_instance_id,
          parent_token_record_id,
@@ -668,7 +698,7 @@ defmodule Letflow.Engine.SubProcess do
          prefix
        ) do
     payload =
-      Jason.encode!(%{
+      %{
         definition_id: definition.id,
         correlation_key: nil,
         initial_variables: initial_variables,
@@ -677,7 +707,9 @@ defmodule Letflow.Engine.SubProcess do
         parent_instance_id: parent_instance_id,
         parent_token_id: parent_token_record_id,
         parent_node_id: parent_node_id
-      })
+      }
+      |> VariableLabels.put_label_field(:initial_labels, initial_labels)
+      |> Jason.encode!()
 
     event_attrs = %{
       instance_id: child_instance_id,
@@ -856,7 +888,12 @@ defmodule Letflow.Engine.SubProcess do
           child_instance_id :: Ecto.UUID.t(),
           child_final_variables :: map(),
           parent_token :: TokenRecord.t(),
-          opts :: [prefix: String.t(), actor_id: Ecto.UUID.t() | nil, idempotency_key: String.t()]
+          opts :: [
+            prefix: String.t(),
+            actor_id: Ecto.UUID.t() | nil,
+            idempotency_key: String.t(),
+            child_final_labels: map()
+          ]
         ) :: {:ok, Multi.t()} | {:error, ExecutionError.error_args()}
   def append_completion_multi(
         %Multi{} = multi,
@@ -867,6 +904,7 @@ defmodule Letflow.Engine.SubProcess do
       ) do
     prefix = Keyword.get(opts, :prefix)
     actor_id = Keyword.get(opts, :actor_id)
+    child_final_labels = Keyword.get(opts, :child_final_labels, %{})
     idempotency_key = Keyword.get(opts, :idempotency_key)
 
     # Derived, not the caller's own `idempotency_key` verbatim -- same
@@ -923,6 +961,7 @@ defmodule Letflow.Engine.SubProcess do
               multi,
               child_instance_id,
               merge_variables,
+              parent_merge_labels(merge_variables, child_final_labels),
               graph,
               parent_token,
               seed_state,
@@ -951,6 +990,7 @@ defmodule Letflow.Engine.SubProcess do
          multi,
          child_instance_id,
          merge_variables,
+         merge_labels,
          graph,
          parent_token,
          %InstanceState{} = seed_state,
@@ -969,9 +1009,15 @@ defmodule Letflow.Engine.SubProcess do
              merge_variables,
              prefix: prefix
            ),
-         {:ok, new_variables, merge_events} <-
-           VariableMerge.merge(seed_state.variables, merge_variables, variable_validations) do
-      state_with_merged = %InstanceState{seed_state | variables: new_variables}
+         {:ok, new_variables, new_labels, merge_events} <-
+           VariableMerge.merge(
+             seed_state.variables,
+             seed_state.variable_labels,
+             merge_variables,
+             merge_labels,
+             variable_validations
+           ) do
+      state_with_merged = VariableLabels.put_merged(seed_state, new_variables, new_labels)
       parent_token_id_string = to_string(parent_token.id)
 
       case Transition.transition(
@@ -988,7 +1034,8 @@ defmodule Letflow.Engine.SubProcess do
              state_with_merged.variables,
              actor_id,
              error_idempotency_key
-           )}
+           )
+           |> Map.put(:labels, state_with_merged.variable_labels)}
 
         {:ok, new_instance_state, transition_pending_events} ->
           newly_pending =
@@ -1015,7 +1062,8 @@ defmodule Letflow.Engine.SubProcess do
                  state_with_merged.variables,
                  actor_id,
                  error_idempotency_key
-               )}
+               )
+               |> Map.put(:labels, state_with_merged.variable_labels)}
 
             {:ok, final_instance_state, hop_pending_events} ->
               # ISS-0929: keep the hop chain's pending events (timer / escalation /
@@ -1035,6 +1083,7 @@ defmodule Letflow.Engine.SubProcess do
                      final_instance_state,
                      completion_pending_events,
                      merge_variables,
+                     merge_labels,
                      merge_events,
                      actor_id,
                      idempotency_key,
@@ -1052,7 +1101,8 @@ defmodule Letflow.Engine.SubProcess do
                      state_with_merged.variables,
                      actor_id,
                      error_idempotency_key
-                   )}
+                   )
+                   |> Map.put(:labels, state_with_merged.variable_labels)}
               end
           end
       end
@@ -1118,6 +1168,7 @@ defmodule Letflow.Engine.SubProcess do
          final_instance_state,
          completion_pending_events,
          merge_variables,
+         merge_labels,
          merge_events,
          actor_id,
          idempotency_key,
@@ -1212,6 +1263,7 @@ defmodule Letflow.Engine.SubProcess do
          parent_instance_id,
          final_instance_state,
          merge_variables,
+         merge_labels,
          merge_events,
          actor_id,
          idempotency_key,
@@ -1230,6 +1282,7 @@ defmodule Letflow.Engine.SubProcess do
          parent_instance_id,
          final_instance_state,
          merge_variables,
+         merge_labels,
          merge_events,
          actor_id,
          idempotency_key,
@@ -1242,6 +1295,7 @@ defmodule Letflow.Engine.SubProcess do
         parent_instance_id,
         child_instance_id,
         merge_variables,
+        merge_labels,
         merge_events,
         final_instance_state,
         actor_id,
@@ -1295,6 +1349,7 @@ defmodule Letflow.Engine.SubProcess do
                  parent_instance_id,
                  final_instance_state.variables,
                  grandparent_token,
+                 child_final_labels: final_instance_state.variable_labels,
                  prefix: prefix,
                  actor_id: actor_id,
                  idempotency_key: idempotency_key
@@ -1386,7 +1441,8 @@ defmodule Letflow.Engine.SubProcess do
             tokens: active_tokens,
             variables: projection.variables,
             pending_task_nodes: pending_task_tokens,
-            join_counters: SnapshotWriter.deserialize_join_counters(projection.join_counters)
+            join_counters: SnapshotWriter.deserialize_join_counters(projection.join_counters),
+            variable_labels: projection.variable_labels
           }
 
           node = Enum.find(graph.nodes, &(&1.id == parent_token.node_id))
@@ -1470,6 +1526,7 @@ defmodule Letflow.Engine.SubProcess do
          parent_instance_id,
          child_instance_id,
          merge_variables,
+         merge_labels,
          merge_events,
          final_instance_state,
          actor_id,
@@ -1477,12 +1534,14 @@ defmodule Letflow.Engine.SubProcess do
          prefix
        ) do
     payload =
-      Jason.encode!(%{
+      %{
         child_instance_id: child_instance_id,
         output_variables: merge_variables,
-        merged_variable_events: encode_merge_events(merge_events),
+        merged_variable_events: VariableLabels.encode_merge_events(merge_events),
         activated_nodes: Enum.map(final_instance_state.tokens, & &1.node_id)
-      })
+      }
+      |> VariableLabels.put_label_field(:output_labels, merge_labels)
+      |> Jason.encode!()
 
     event_attrs = %{
       instance_id: parent_instance_id,
@@ -1512,12 +1571,6 @@ defmodule Letflow.Engine.SubProcess do
       {:error, {:idempotent_replay, _original}} -> {:error, :idempotency_key_reuse}
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
-  end
-
-  defp encode_merge_events(merge_events) do
-    Enum.map(merge_events, fn {:variable_overwritten, key, old_value, new_value} ->
-      %{event: "variable_overwritten", key: key, old_value: old_value, new_value: new_value}
-    end)
   end
 
   defp reconcile_parent_projection(
@@ -1550,7 +1603,8 @@ defmodule Letflow.Engine.SubProcess do
           current_nodes: Enum.map(final_instance_state.tokens, & &1.node_id),
           variables: final_instance_state.variables,
           join_counters:
-            SnapshotWriter.serialize_join_counters(final_instance_state.join_counters)
+            SnapshotWriter.serialize_join_counters(final_instance_state.join_counters),
+          variable_labels: final_instance_state.variable_labels
         }
 
         attrs =

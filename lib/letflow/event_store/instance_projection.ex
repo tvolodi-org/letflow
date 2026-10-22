@@ -118,6 +118,13 @@ defmodule Letflow.EventStore.InstanceProjection do
   `deserialize_join_counters/1`, never read/written directly as a raw map by
   callers outside `Letflow.Engine`.
 
+  ## `variable_labels` (decision 0062, GH #2616)
+
+  Added by `priv/repo/migrations/20261022200001_add_variable_labels_to_instance_projections.exs`:
+  per-variable restriction labels, `%{"var" => ["entity_type.field_name"]}`, `:map` (jsonb),
+  `null: false`, `default: %{}`. Written only through `Letflow.Engine.VariableMerge.merge/5`'s
+  result; an absent key is unlabelled, and rows that predate the column read `%{}`.
+
   ## No `tenant_id` column (Decision 0006 D2)
 
   This table carried `tenant_id` until Decision 0006 D2
@@ -147,6 +154,7 @@ defmodule Letflow.EventStore.InstanceProjection do
     field(:current_nodes, Letflow.EventStore.JSONArray, default: [])
     field(:variables, :map, default: %{})
     field(:join_counters, :map, default: %{})
+    field(:variable_labels, :map, default: %{})
     field(:error_detail, :map)
     field(:completed_at, :utc_datetime_usec)
     field(:cancelled_at, :utc_datetime_usec)
@@ -181,6 +189,7 @@ defmodule Letflow.EventStore.InstanceProjection do
       :current_nodes,
       :variables,
       :join_counters,
+      :variable_labels,
       :parent_instance_id,
       :parent_token_id
     ])
@@ -204,6 +213,7 @@ defmodule Letflow.EventStore.InstanceProjection do
       :current_nodes,
       :variables,
       :join_counters,
+      :variable_labels,
       :error_detail,
       :completed_at,
       :cancelled_at

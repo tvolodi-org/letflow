@@ -95,6 +95,7 @@ defmodule Letflow.Engine.ExecutionError do
   alias Letflow.Engine.IdempotentReplay
   alias Letflow.Engine.SubProcess
   alias Letflow.Engine.TaskActivation
+  alias Letflow.Engine.VariableLabels
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
 
@@ -139,6 +140,7 @@ defmodule Letflow.Engine.ExecutionError do
           required(:reason) => String.t(),
           required(:variables) => map(),
           optional(:details) => map(),
+          optional(:labels) => map(),
           required(:actor_id) => Ecto.UUID.t() | nil,
           required(:idempotency_key) => String.t()
         }
@@ -241,8 +243,9 @@ defmodule Letflow.Engine.ExecutionError do
     |> Multi.run(:execution_error_cancel_timers, fn repo, _changes ->
       cancel_pending_timers(repo, error_args.instance_id, prefix)
     end)
-    |> Multi.run(:execution_error_event, fn _repo, _changes ->
-      append_execution_error_event(error_args, prefix)
+    |> Multi.run(:execution_error_event, fn _repo, changes ->
+      projection = locked_projection || Map.fetch!(changes, :execution_error_projection_lock)
+      append_execution_error_event(error_args, projection, prefix)
     end)
     |> maybe_land_dlq_entry(error_args, prefix, dlq_landed_externally)
     |> Multi.run(:execution_error_projection_update, fn repo, changes ->
@@ -346,15 +349,21 @@ defmodule Letflow.Engine.ExecutionError do
   # AC1's four mandatory fields (error_type, affected, reason, variables),
   # all read back verbatim from this one event's payload
   # (lib/letflow/design/req061-execution-error-handling.md §9).
-  defp append_execution_error_event(error_args, prefix) do
+  defp append_execution_error_event(error_args, %InstanceProjection{} = projection, prefix) do
+    # Decision 0062 R7a: the labels belong to `variables`; a caller that does not pass them
+    # holds the locked projection's variables, so the projection's labels are the match.
+    labels = Map.get(error_args, :labels, projection.variable_labels)
+
     payload =
-      Jason.encode!(%{
+      %{
         error_type: to_string(error_args.error_type),
         affected: encode_affected(error_args.affected),
         reason: error_args.reason,
         variables: error_args.variables,
         details: Map.get(error_args, :details, %{})
-      })
+      }
+      |> VariableLabels.put_label_field(:labels, labels)
+      |> Jason.encode!()
 
     event_attrs = %{
       instance_id: error_args.instance_id,

@@ -206,6 +206,7 @@ defmodule Letflow.Engine.Reconstruction do
   alias Letflow.Engine.SnapshotWriter
   alias Letflow.Engine.Token
   alias Letflow.Engine.Transition
+  alias Letflow.Engine.VariableLabels
   alias Letflow.Engine.VariableMerge
   alias Letflow.EventStore.ArchivedEvent
   alias Letflow.EventStore.Event
@@ -625,8 +626,15 @@ defmodule Letflow.Engine.Reconstruction do
          %{event_type: "INSTANCE_STARTED"} = event,
          _prefix
        ) do
-    with {:ok, initial_variables} <- fetch_map_field(event, "initial_variables") do
-      reseeded_state = %InstanceState{state | variables: initial_variables}
+    with {:ok, initial_variables} <- fetch_map_field(event, "initial_variables"),
+         {:ok, initial_labels} <- fetch_labels_field(event, "initial_labels") do
+      reseeded_state =
+        VariableLabels.put_merged(
+          state,
+          initial_variables,
+          VariableLabels.take(initial_labels, initial_variables)
+        )
+
       worklist = Enum.map(reseeded_state.tokens, & &1.token_id)
 
       resolve_pending_events(
@@ -643,9 +651,10 @@ defmodule Letflow.Engine.Reconstruction do
        ) do
     with {:ok, node_id} <- fetch_string_field(event, "node_id"),
          {:ok, output_variables} <- fetch_map_field(event, "output_variables"),
+         {:ok, output_labels} <- fetch_labels_field(event, "output_labels"),
          {:ok, token} <- find_task_completion_token(state.tokens, node_id) do
-      case VariableMerge.merge(state.variables, output_variables, nil) do
-        {:ok, new_variables, _merge_events} ->
+      case merge_replayed(state, output_variables, output_labels) do
+        {:ok, new_variables, new_labels, _merge_events} ->
           # Drop this token's now-completed (token_id, node_id) entry from
           # pending_task_nodes before dispatching the completion hop. The
           # live single-hop Engine.complete_task/3 path never carries this
@@ -671,9 +680,8 @@ defmodule Letflow.Engine.Reconstruction do
             )
 
           state_with_merged_variables = %InstanceState{
-            state
-            | variables: new_variables,
-              pending_task_nodes: pending_after_completion
+            VariableLabels.put_merged(state, new_variables, new_labels)
+            | pending_task_nodes: pending_after_completion
           }
 
           dispatch_task_completion(graph, state_with_merged_variables, token.token_id)
@@ -702,8 +710,14 @@ defmodule Letflow.Engine.Reconstruction do
          %{event_type: "EXECUTION_ERROR"} = event,
          _prefix
        ) do
-    with {:ok, variables} <- fetch_map_field(event, "variables") do
-      {:ok, %InstanceState{state | status: :error, variables: variables}}
+    with {:ok, variables} <- fetch_map_field(event, "variables"),
+         {:ok, labels} <- fetch_labels_field(event, "labels") do
+      # Decision 0062 R7a: the event replaces the variables AND their labels.
+      {:ok,
+       %InstanceState{
+         VariableLabels.put_merged(state, variables, VariableLabels.take(labels, variables))
+         | status: :error
+       }}
     end
   end
 
@@ -725,17 +739,17 @@ defmodule Letflow.Engine.Reconstruction do
        ) do
     with {:ok, child_instance_id} <- fetch_string_field(event, "child_instance_id"),
          {:ok, output_variables} <- fetch_map_field(event, "output_variables"),
+         {:ok, output_labels} <- fetch_labels_field(event, "output_labels"),
          {:ok, parent_node_id} <- fetch_child_parent_node_id(child_instance_id, prefix),
          {:ok, %Token{} = parked_token} <-
            find_sub_process_completion_token(state.tokens, parent_node_id, child_instance_id) do
-      case VariableMerge.merge(state.variables, output_variables, nil) do
-        {:ok, new_variables, _merge_events} ->
+      case merge_replayed(state, output_variables, output_labels) do
+        {:ok, new_variables, new_labels, _merge_events} ->
           resolved_token = %Token{parked_token | waiting_child_instance_id: child_instance_id}
 
           state_with_merged_variables = %InstanceState{
-            state
-            | variables: new_variables,
-              tokens: replace_token(state.tokens, resolved_token)
+            VariableLabels.put_merged(state, new_variables, new_labels)
+            | tokens: replace_token(state.tokens, resolved_token)
           }
 
           dispatch_sub_process_completion(
@@ -795,7 +809,7 @@ defmodule Letflow.Engine.Reconstruction do
          %{event_type: "SCRIPT_TASK_COMPLETED"} = event,
          _prefix
        ) do
-    apply_service_task_completion(graph, state, event, "output")
+    apply_service_task_completion(graph, state, event, "output", "output_labels")
   end
 
   # GH 2595: the HTTP SERVICE_TASK :advance outcome (Engine.advance_service_task_dispatch/4 ->
@@ -811,7 +825,7 @@ defmodule Letflow.Engine.Reconstruction do
          %{event_type: "SERVICE_TASK_COMPLETED"} = event,
          _prefix
        ) do
-    apply_service_task_completion(graph, state, event, "decoded_body")
+    apply_service_task_completion(graph, state, event, "decoded_body", nil)
   end
 
   # GH #2587 (decision 0054 D1a, design D-A1.13): the engine-only record of reserved
@@ -860,16 +874,22 @@ defmodule Letflow.Engine.Reconstruction do
   # Shared by SCRIPT_TASK_COMPLETED ("output") and SERVICE_TASK_COMPLETED ("decoded_body"): both
   # live routes run the same Engine.persist_service_task_advance/10 pipeline after merging their
   # map into the variables, so both replay folds are this one function.
-  defp apply_service_task_completion(graph, %InstanceState{} = state, event, output_key) do
+  defp apply_service_task_completion(
+         graph,
+         %InstanceState{} = state,
+         event,
+         output_key,
+         labels_key
+       ) do
     with {:ok, node_id} <- fetch_string_field(event, "node_id"),
          {:ok, output} <- fetch_map_field(event, output_key),
+         {:ok, output_labels} <- fetch_optional_labels(event, labels_key),
          {:ok, token} <- find_task_completion_token(state.tokens, node_id) do
-      case VariableMerge.merge(state.variables, output, nil) do
-        {:ok, new_variables, _merge_events} ->
+      case merge_replayed(state, output, output_labels) do
+        {:ok, new_variables, new_labels, _merge_events} ->
           state_with_merged_variables = %InstanceState{
-            state
-            | variables: new_variables,
-              pending_service_task_nodes:
+            VariableLabels.put_merged(state, new_variables, new_labels)
+            | pending_service_task_nodes:
                 Enum.reject(state.pending_service_task_nodes, &(&1.token_id == token.token_id))
           }
 
@@ -1084,6 +1104,40 @@ defmodule Letflow.Engine.Reconstruction do
     end
   end
 
+  # Decision 0062 R8h-4: a missing label field is "no labels"; a present one must be a map of
+  # string lists, else the event is malformed.
+  defp fetch_labels_field(event, key) do
+    case Map.get(event.payload, key) do
+      nil ->
+        {:ok, %{}}
+
+      value when is_map(value) and not is_struct(value) ->
+        if Enum.all?(value, fn {k, v} ->
+             is_binary(k) and is_list(v) and Enum.all?(v, &is_binary/1)
+           end),
+           do: {:ok, VariableLabels.sanitize(value)},
+           else: {:error, {:malformed_payload, event.event_id, {key, value}}}
+
+      other ->
+        {:error, {:malformed_payload, event.event_id, {key, other}}}
+    end
+  end
+
+  defp fetch_optional_labels(_event, nil), do: {:ok, %{}}
+  defp fetch_optional_labels(event, key), do: fetch_labels_field(event, key)
+
+  # The replay-side merge: same `VariableMerge.merge/5` call the live paths make, with the
+  # labels the event recorded as the incoming labels.
+  defp merge_replayed(%InstanceState{} = state, incoming, incoming_labels) do
+    VariableMerge.merge(
+      state.variables,
+      state.variable_labels,
+      incoming,
+      VariableLabels.take(incoming_labels, incoming),
+      nil
+    )
+  end
+
   defp fetch_string_field(event, key) do
     case Map.get(event.payload, key) do
       value when is_binary(value) -> {:ok, value}
@@ -1165,6 +1219,7 @@ defmodule Letflow.Engine.Reconstruction do
         definition_id: snapshot.definition_id,
         current_nodes: Enum.map(instance_state.tokens, & &1.node_id),
         variables: instance_state.variables,
+        variable_labels: instance_state.variable_labels,
         last_event_seq: last_sequence_number || 0
       }
 
@@ -1185,6 +1240,7 @@ defmodule Letflow.Engine.Reconstruction do
       status: instance_state.status,
       current_nodes: Enum.map(instance_state.tokens, & &1.node_id),
       variables: instance_state.variables,
+      variable_labels: instance_state.variable_labels,
       last_event_seq: last_sequence_number || projection.last_event_seq
     }
 

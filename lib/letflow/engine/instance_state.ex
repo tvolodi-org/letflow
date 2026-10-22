@@ -66,6 +66,13 @@ defmodule Letflow.Engine.InstanceState do
   `service_task_dispatches` row, a distinct schema with distinct
   pending/advanced/given_up lifecycle semantics, no human actor) — a token
   parked here never appears in `pending_task_nodes` and vice versa.
+
+  ## `variable_labels` (decision 0062, GH #2616)
+
+  Per-variable restriction labels (`"entity_type.field_name"` lists) beside `variables`. Written
+  only by `Letflow.Engine.VariableMerge.merge/5`; a struct update that replaces `variables` must
+  replace `variable_labels` in the same update (`Letflow.Engine.VariableLabels.put_merged/3`).
+  An absent key means unlabelled.
   """
 
   alias Letflow.Engine.JoinCounter
@@ -79,7 +86,8 @@ defmodule Letflow.Engine.InstanceState do
     variables: %{},
     pending_task_nodes: [],
     pending_service_task_nodes: [],
-    join_counters: %{}
+    join_counters: %{},
+    variable_labels: %{}
   ]
 
   @type status :: :active | :completed | :cancelled | :error
@@ -91,6 +99,7 @@ defmodule Letflow.Engine.InstanceState do
           variables: map(),
           pending_task_nodes: [Token.t()],
           pending_service_task_nodes: [Token.t()],
-          join_counters: %{optional(String.t()) => JoinCounter.t()}
+          join_counters: %{optional(String.t()) => JoinCounter.t()},
+          variable_labels: %{optional(String.t()) => [String.t()]}
         }
 end

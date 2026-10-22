@@ -614,7 +614,9 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
 
       # I-C9: no value and no field name in the log either
       refute log =~ "xxxxxxxxxx"
-      refute log =~ "label"
+      # `variable_labels` is an instance_projections column that appears in debug SQL
+      # (record 0062); every other form of the word `label` must stay out of the log.
+      refute log =~ ~r/(?<!variable_)label/
 
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "validation_failed"
