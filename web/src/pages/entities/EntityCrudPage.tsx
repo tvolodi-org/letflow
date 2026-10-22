@@ -69,7 +69,7 @@ function isApiError(err: unknown): err is ApiError {
   return typeof err === 'object' && err !== null && 'status' in err
 }
 
-/** GH #2815: the record write 403 for a protected (restricted) field carries the
+/** GH 2815: the record write 403 for a protected (restricted) field carries the
  *  constant detail below (routers/entities.ex `@restricted_fields_detail`); an
  *  import entry carries the code `field_restricted`. Neither names a field, so
  *  the replacement message names none either. */

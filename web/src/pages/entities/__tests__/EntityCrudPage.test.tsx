@@ -405,7 +405,7 @@ describe('GH 2238 BUILDS 5 — EntityCrudPage write controls follow EntitiesReco
   })
 })
 
-describe('GH #2815 — restricted-field write 403 shows a friendly message', () => {
+describe('GH 2815 — restricted-field write 403 shows a friendly message', () => {
   const restrictedMessage = entitiesMessages.en['entities.crud.form.restrictedFieldError']
 
   function openCreateAndFail(err: unknown) {
