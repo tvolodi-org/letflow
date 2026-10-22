@@ -15,6 +15,7 @@ defmodule Letflow.Engine.ServiceTaskRestrictedOutboundTest do
   alias Letflow.Engine
   alias Letflow.Engine.ScriptTaskDispatcher
   alias Letflow.Engine.ServiceTaskDispatcher
+  alias Letflow.ServiceCatalog
   alias Letflow.Support.ScriptTaskFixture, as: F
 
   @label "customer.salary"
@@ -70,14 +71,14 @@ defmodule Letflow.Engine.ServiceTaskRestrictedOutboundTest do
   end
 
   # The script result carries `total` labelled, so the review's computed `y` inherits the label.
-  defp labelled_review!(t, url_template) do
+  defp labelled_review!(t, graph_fun) do
     b =
       F.bound_graph!(
         t,
         F.doubling_source(),
         F.closed_manifest(),
         %{"amount" => 2},
-        graph(url_template),
+        graph_fun,
         []
       )
 
@@ -130,7 +131,7 @@ defmodule Letflow.Engine.ServiceTaskRestrictedOutboundTest do
   describe "SR-OPT-11(b) the same advance" do
     test "a labelled key computed by the completion refuses the next SERVICE_TASK; nothing is dispatched",
          %{t: t} do
-      b = labelled_review!(t, "https://example.test/orders/{{variables.y}}")
+      b = labelled_review!(t, graph("https://example.test/orders/{{variables.y}}"))
 
       assert {:error, {:instance_execution_error, :service_task_restricted_variable_outbound, _}} =
                complete_review(t, b.instance_id)
@@ -141,10 +142,75 @@ defmodule Letflow.Engine.ServiceTaskRestrictedOutboundTest do
     end
 
     test "an unlabelled placeholder renders as today: the dispatch is armed", %{t: t} do
-      b = labelled_review!(t, "https://example.test/orders/{{variables.amount}}")
+      b = labelled_review!(t, graph("https://example.test/orders/{{variables.amount}}"))
 
       assert {:ok, _result} = complete_review(t, b.instance_id)
       assert [_] = dispatch_rows(t, b.instance_id)
+    end
+  end
+
+  # START -> svc (script) -> review (HUMAN_TASK, computes y) -> out (catalog SERVICE_TASK) -> END
+  defp catalog_graph(service_id, body_template) do
+    fn key, version ->
+      %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{
+            "id" => "svc",
+            "node_type" => "SERVICE_TASK",
+            "attributes" => %{"script_key" => key, "script_version" => version}
+          },
+          %{
+            "id" => "review",
+            "node_type" => "HUMAN_TASK",
+            "attributes" => %{"role" => "REVIEWER", "form_schema" => @form}
+          },
+          %{
+            "id" => "out",
+            "node_type" => "SERVICE_TASK",
+            "attributes" => %{
+              "service_id" => service_id,
+              "method" => "POST",
+              "body_template" => body_template,
+              "timeout_ms" => 5000
+            }
+          },
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => [
+          %{"id" => "e1", "source" => "start", "target" => "svc"},
+          %{"id" => "e2", "source" => "svc", "target" => "review"},
+          %{"id" => "e3", "source" => "review", "target" => "out"},
+          %{"id" => "e4", "source" => "out", "target" => "end"}
+        ]
+      }
+    end
+  end
+
+  describe "SR-OPT-11(c) the catalog SERVICE_TASK" do
+    test "a labelled key in the catalog body refuses the dispatch; the error names the key only",
+         %{t: t} do
+      service_id = "gh2616-outbound-#{System.unique_integer([:positive])}"
+
+      assert {:ok, _entry} =
+               ServiceCatalog.register(%{
+                 service_id: service_id,
+                 endpoint_url: "https://example.test/orders",
+                 required_auth: :NONE,
+                 timeout_ms: 5_000,
+                 scope: :global
+               })
+
+      b = labelled_review!(t, catalog_graph(service_id, ~s({"amount": "{{variables.y}}"})))
+
+      assert {:error, {:instance_execution_error, :service_task_restricted_variable_outbound, _}} =
+               complete_review(t, b.instance_id)
+
+      assert dispatch_rows(t, b.instance_id) == []
+
+      assert [payload] = F.payloads(t.schema_name, b.instance_id, "EXECUTION_ERROR")
+      assert payload["error_type"] == "service_task_restricted_variable_outbound"
+      assert payload["details"] == %{"keys" => ["y"]}
     end
   end
 

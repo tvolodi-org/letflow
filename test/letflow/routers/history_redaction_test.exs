@@ -9,12 +9,14 @@ defmodule Letflow.Routers.HistoryRedactionTest do
 
   use Letflow.DataCase, async: false
 
-  import Ecto.Query, only: [from: 2]
+  import Ecto.Query, only: [from: 2, where: 3]
 
   alias Letflow.Api.Response
+  alias Letflow.Definitions
   alias Letflow.Engine
   alias Letflow.Engine.ScriptTaskDispatcher
   alias Letflow.EventStore
+  alias Letflow.EventStore.InstanceProjection
   alias Letflow.Support.ScriptTaskFixture, as: F
 
   @label "customer.salary"
@@ -59,13 +61,18 @@ defmodule Letflow.Routers.HistoryRedactionTest do
   end
 
   defp labelled_review!(t, graph_fun \\ &graph/2) do
+    labelled_script!(t, graph_fun, %{"total" => 4}, %{"total" => [@label]})
+  end
+
+  # The script task of `graph_fun` writes `result_vars`, with `labels` on the keys it names.
+  defp labelled_script!(t, graph_fun, result_vars, labels) do
     b =
       F.bound_graph!(t, F.doubling_source(), F.closed_manifest(), %{"amount" => 2}, graph_fun, [])
 
     {:ok, row} = ScriptTaskDispatcher.claim_next(t.schema_name)
 
     result =
-      {:ok, %{"total" => 4},
+      {:ok, result_vars,
        %{
          row: row,
          phase: :ran,
@@ -74,11 +81,31 @@ defmodule Letflow.Routers.HistoryRedactionTest do
          fail_code: nil,
          hmac: nil,
          stats: nil,
-         output_labels: %{"total" => [@label]}
+         output_labels: labels
        }}
 
     assert {:ok, :applied} = Engine.apply_script_task_result(F.claim(row), result, t.schema_name)
     b
+  end
+
+  # START -> svc (script: total and note, both labelled by the script) -> review (HUMAN_TASK, note
+  # is visible only when total > 10, which the script's total never is) -> END.
+  defp graph_with_visible_when(key, version) do
+    form = %{
+      "type" => "object",
+      "properties" => %{
+        "total" => %{"type" => "number"},
+        "note" => %{"type" => "string", "x-ui" => %{"visible_when" => "total > 10"}}
+      }
+    }
+
+    graph(key, version)
+    |> Map.update!("nodes", fn nodes ->
+      Enum.map(nodes, fn
+        %{"id" => "review"} = node -> put_in(node, ["attributes", "form_schema"], form)
+        node -> node
+      end)
+    end)
   end
 
   # START -> svc (script) -> review (HUMAN_TASK) -> out (SERVICE_TASK whose URL renders empty,
@@ -229,6 +256,181 @@ defmodule Letflow.Routers.HistoryRedactionTest do
 
       assert disagreement["server_value"] == 5
       assert disagreement["submitted_value"] == 99
+    end
+
+    test "a value submitted for a visible_when: false field is hidden when its stored value is labelled",
+         %{t: t} do
+      b =
+        labelled_script!(t, &graph_with_visible_when/2, %{"total" => 4, "note" => "old"}, %{
+          "note" => [@label]
+        })
+
+      complete!(t, b.instance_id, %{"note" => "secret"})
+
+      [completed] = payload_of(history(t, b.instance_id, MapSet.new([@label])), "TASK_COMPLETED")
+
+      discarded =
+        Enum.find(
+          completed["merged_variable_events"],
+          &(&1["event"] == "visible_when_false_value_discarded")
+        )
+
+      assert discarded["field"] == "note"
+      assert discarded["discarded_value"] == @placeholder
+    end
+
+    test "with the grant the discarded submission is clear", %{t: t} do
+      b =
+        labelled_script!(t, &graph_with_visible_when/2, %{"total" => 4, "note" => "old"}, %{
+          "note" => [@label]
+        })
+
+      complete!(t, b.instance_id, %{"note" => "secret"})
+
+      [completed] = payload_of(history(t, b.instance_id, MapSet.new()), "TASK_COMPLETED")
+
+      discarded =
+        Enum.find(
+          completed["merged_variable_events"],
+          &(&1["event"] == "visible_when_false_value_discarded")
+        )
+
+      assert discarded["discarded_value"] == "secret"
+    end
+  end
+
+  # ---------------------------------------------------------------------------------------------
+  # SR-OPT-13 (d): a parent and a sub-process child. The parent's `a` is labelled and its `y` is
+  # not. The child computes `y = a + 1` (R14), so its `y` inherits the label of `a`; the merge
+  # back into the parent then overwrites the parent's unlabelled `y` with a labelled value.
+  # ---------------------------------------------------------------------------------------------
+
+  defp active_definition!(t, graph) do
+    attrs = %{
+      name: "gh2616-history-sub-#{System.unique_integer([:positive])}",
+      version: "1.0.0",
+      graph: graph,
+      created_by: Ecto.UUID.generate()
+    }
+
+    assert {:ok, definition} = Definitions.create(attrs, prefix: t.schema_name)
+
+    assert {:ok, %{definition: activated}} =
+             Definitions.activate(definition.id, prefix: t.schema_name)
+
+    activated
+  end
+
+  # START -> HUMAN_TASK("worker", computes y = a + 1) -> END
+  defp sub_child_graph do
+    form = %{
+      "type" => "object",
+      "properties" => %{
+        "a" => %{"type" => "number"},
+        "y" => %{"type" => "number", "x-ui" => %{"computed" => "a + 1"}}
+      }
+    }
+
+    %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "work",
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{"role" => "worker", "form_schema" => form}
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "work"},
+        %{"id" => "e2", "source" => "work", "target" => "end"}
+      ]
+    }
+  end
+
+  # START -> HUMAN_TASK("gate") -> SUB_PROCESS("sp", the child) -> END
+  defp sub_parent_graph(child_name) do
+    %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{"id" => "gate", "node_type" => "HUMAN_TASK", "attributes" => %{"role" => "gater"}},
+        %{
+          "id" => "sp",
+          "node_type" => "SUB_PROCESS",
+          "attributes" => %{"definition_name" => child_name}
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "gate"},
+        %{"id" => "e2", "source" => "gate", "target" => "sp"},
+        %{"id" => "e3", "source" => "sp", "target" => "end"}
+      ]
+    }
+  end
+
+  # Starts the parent, labels its `a` (the part-1 fixture writes the projection the same way),
+  # completes the gate so the child starts, and returns {parent_id, child_id}.
+  defp sub_process_pair!(t) do
+    child_def = active_definition!(t, sub_child_graph())
+    parent_def = active_definition!(t, sub_parent_graph(child_def.name))
+
+    assert {:ok, %{instance_id: parent_id}} =
+             Engine.create(
+               %{
+                 definition_id: parent_def.id,
+                 initial_variables: %{"a" => 5, "y" => 7},
+                 actor_id: Ecto.UUID.generate(),
+                 idempotency_key: "sub-#{System.unique_integer([:positive])}"
+               },
+               prefix: t.schema_name
+             )
+
+    {1, _} =
+      from(p in InstanceProjection, where: p.instance_id == ^parent_id)
+      |> Repo.update_all([set: [variable_labels: %{"a" => [@label]}]], prefix: t.schema_name)
+
+    complete!(t, parent_id, %{})
+
+    child =
+      InstanceProjection
+      |> where([p], p.parent_instance_id == ^parent_id)
+      |> Repo.one!(prefix: t.schema_name)
+
+    {parent_id, child.instance_id}
+  end
+
+  describe "SR-OPT-13 (d) a value a sub-process child merges back into the parent" do
+    test "the SUB_PROCESS_COMPLETED new_value is hidden from a caller without the grant", %{t: t} do
+      {parent_id, child_id} = sub_process_pair!(t)
+      complete!(t, child_id, %{})
+
+      [sub] = payload_of(history(t, parent_id, MapSet.new([@label])), "SUB_PROCESS_COMPLETED")
+
+      overwritten =
+        Enum.find(
+          sub["merged_variable_events"],
+          &(&1["event"] == "variable_overwritten" and &1["key"] == "y")
+        )
+
+      assert overwritten["old_value"] == 7
+      assert overwritten["new_value"] == @placeholder
+    end
+
+    test "with the grant the same merge is clear", %{t: t} do
+      {parent_id, child_id} = sub_process_pair!(t)
+      complete!(t, child_id, %{})
+
+      [sub] = payload_of(history(t, parent_id, MapSet.new()), "SUB_PROCESS_COMPLETED")
+
+      overwritten =
+        Enum.find(
+          sub["merged_variable_events"],
+          &(&1["event"] == "variable_overwritten" and &1["key"] == "y")
+        )
+
+      assert overwritten["old_value"] == 7
+      assert overwritten["new_value"] == 6
     end
   end
 

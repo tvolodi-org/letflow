@@ -22,6 +22,7 @@ defmodule Letflow.Routers.VariableRedactionRoutesTest do
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.TenantRole
+  alias Letflow.Support.PlatformTenantFixture
   alias Letflow.Support.ScriptTaskFixture, as: F
 
   @placeholder "__field_redacted__"
@@ -220,6 +221,59 @@ defmodule Letflow.Routers.VariableRedactionRoutesTest do
 
       assert conn.status == 200
       assert body(conn)["variables"]["total"] == 4
+    end
+  end
+
+  describe "GET /instances/:id/history" do
+    test "a caller without the grant sees the placeholder in the labelled event payload", %{t: t} do
+      b = labelled_review!(t)
+
+      conn =
+        conn_for(
+          Letflow.Routers.Instances,
+          :get,
+          "/#{b.instance_id}/history",
+          t,
+          Ecto.UUID.generate()
+        )
+
+      assert conn.status == 200
+
+      [script] =
+        for %{"event_type" => "SCRIPT_TASK_COMPLETED"} = item <- body(conn)["items"], do: item
+
+      assert script["payload"]["output"]["total"] == @placeholder
+    end
+  end
+
+  describe "the platform principal (decision 0062 R8: no entity grants, every restricted field hidden)" do
+    test "GET /instances/:id and its history show the placeholder, not the value", %{t: t} do
+      b = labelled_review!(t)
+
+      PlatformTenantFixture.with_platform_tenant!(t.tenant_id, fn ->
+        conn =
+          conn_for(Letflow.Routers.Instances, :get, "/#{b.instance_id}", t, Ecto.UUID.generate())
+
+        assert conn.status == 200
+        assert body(conn)["variables"]["total"] == @placeholder
+
+        history =
+          conn_for(
+            Letflow.Routers.Instances,
+            :get,
+            "/#{b.instance_id}/history",
+            t,
+            Ecto.UUID.generate()
+          )
+
+        assert history.status == 200
+
+        [script] =
+          for %{"event_type" => "SCRIPT_TASK_COMPLETED"} = item <- body(history)["items"],
+              do: item
+
+        assert script["payload"]["output"]["total"] == @placeholder
+      end)
     end
   end
 end
