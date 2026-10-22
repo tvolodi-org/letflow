@@ -245,14 +245,43 @@ Letflow.Engine.Lua.ScriptAdmission)` with `slots = min(configured || 8, repo_poo
 
 ## 8. Budgets (Q11: measure, set defaults from data, never exceed D7 maxima)
 
-`test/letflow/engine/lua/script_budget_measure_test.exs` (default suite, so it runs on CI):
-50 runs of a trivial script; prints median and p95 of (a) `Sandbox.new_script/1`, (b) full
-`ScriptRunner.run/3` including both spawns; asserts only a loose sanity bound (p95 < 1 s).
-Local measurement (Windows dev host, 2026-10-14): `new_script/1` median ~0.1 ms, full run
-median ~0.1 ms, p95 ~0.2 ms, so the section-4 defaults stand; the CI numbers are quoted in
-the PR body. Rule: if the CI p95 of (b) exceeds 10% of the 1_000 ms default, the PR raises the default
-wall clock to `ceil(p95 * 10)` ms capped at 5_000, else the defaults of section 4 stand; the
-PR body quotes the numbers [CDV 12].
+`test/letflow/engine/lua/script_runtime_test.exs` ("budget measurement" describe, default suite,
+so it runs on CI): 50 runs of a trivial script; prints one line `GH2534 budget measurement (us):`
+with median and p95 of (a) `Sandbox.new_script/1` and (b) full `ScriptRunner.run/3` including
+both spawns; asserts only a loose sanity bound (p95 < 1 s). `mix letflow.check.test` echoes that
+line from the partition log on a passing run (GH #2615).
+
+Local measurement (Windows dev host, 2026-10-14, LOCAL, not CI): `new_script/1` median ~0.1 ms,
+full run median ~0.1 ms, p95 ~0.2 ms.
+
+CI measurement (GH #2615, microseconds; the figures are the median and p95 of 50 runs):
+
+| Source | `new_script/1` median | `new_script/1` p95 | full `ScriptRunner.run/3` median | full run p95 |
+|---|---|---|---|---|
+| CI, run 39751360045 (`CI`, head 9ad51b2ac), job 119732555322 `Backend shard 3/3`, partition 12 | 115 us | 547 us | 283 us | 893 us |
+| Local, Windows dev host, 2026-10-14 | ~100 us | ~200 us | ~100 us | ~200 us |
+
+Job 119732555322 completed `success`; its partition 12 reported `1545 tests, 0 failures`, and
+`mix letflow.check.test: OK`. The line is absent from the older main runs
+(39749312449, 39748928199, 39748855576): the echo landed with #3031 (9ad51b2ac).
+
+Threshold comparison against the section-4 defaults (10% = a 100 ms budget for the 1_000 ms
+wall clock default):
+
+| Default | 10% of default | CI p95 | Exceeded? |
+|---|---|---|---|
+| `timeout_ms` 1_000 ms | 100 ms (100_000 us) | full run p95 893 us (0.89 ms); new_script p95 547 us | No (under 1% of the default) |
+| `instructions` 1_000_000 | not measured by this test | n/a | n/a |
+| `heap_words` 4_194_304 | not measured by this test | n/a | n/a |
+
+The section-4 defaults stand; no default changes. The instruction and heap defaults are not
+covered by this timing measurement and are not judged by it. The sample is a single trivial
+script over 50 runs, so the p95 is a weak tail estimate; the 1_000 ms default has about 1,100x
+headroom over the CI p95, so this does not move the conclusion.
+
+Rule (unchanged): if the CI p95 of (b) exceeds 10% of the 1_000 ms default, the PR raises the
+default wall clock to `ceil(p95 * 10)` ms capped at 5_000, else the defaults of section 4 stand.
+Not triggered here. [CDV 12]
 
 ## 9. Tests (TEST-DESIGNER brief, GH 2534 AC numbers)
 
