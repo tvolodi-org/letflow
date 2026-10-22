@@ -155,22 +155,22 @@ defmodule Letflow.Identity.EnforcedAuditActionsTest do
       assert {:ok, %{items: [pending], has_more: false}} =
                list(s, "user_role", "#{pending_user.id}:AUD_ROLE_A")
 
-      assert pending.action == "binding.pending_scope"
+      assert pending.action == Letflow.Identity.SyncScopeGuard.action_for(:no_scoped_rows)
       assert pending.actor_id == pending_user.id
       assert pending.trace_id == S.trace()
 
       assert {:ok, %{items: [scoped], has_more: false}} =
                list(s, "user_role", "#{scoped_user.id}:AUD_ROLE_A")
 
-      assert scoped.action == "grant.sync_suppressed"
+      assert scoped.action == Letflow.Identity.SyncScopeGuard.action_for(:has_scoped_rows)
 
       # the resource_type filter alone returns both suppression kinds
       assert {:ok, %{items: both}} = list(s, "user_role", nil)
 
-      assert both |> Enum.map(& &1.action) |> Enum.sort() == [
-               "binding.pending_scope",
-               "grant.sync_suppressed"
-             ]
+      assert both |> Enum.map(& &1.action) |> Enum.sort() ==
+               Letflow.Identity.SyncScopeGuard.kinds()
+               |> Enum.map(&Letflow.Identity.SyncScopeGuard.action_for/1)
+               |> Enum.sort()
 
       # group_member.*: added by the sync, removed by an admin, both under the user id
       assert {:ok, %{items: members}} = list(s, "group_member", pending_user.id)
