@@ -28,6 +28,7 @@ defmodule Letflow.Modules.InstallActivationTest do
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Modules.EntityActivation
+  alias Letflow.Modules.InstallContext
   alias Letflow.Modules.FixtureCtxRecorder
   alias Letflow.Modules.FixtureFkPack
   alias Letflow.Modules.FixtureFkPackFailing
@@ -184,8 +185,12 @@ defmodule Letflow.Modules.InstallActivationTest do
 
       assert Process.get({FixtureFkPack, :on_install_2_called}) == nil
 
-      assert %{actor_id: ^actor_id, rationale: @rationale, pack_entity_definition_ids: ids} =
-               Process.get({FixtureFkPack, :on_install_3_ctx})
+      assert %InstallContext{
+               actor_id: ^actor_id,
+               rationale: @rationale,
+               tenant_prefix: ^schema,
+               pack_entity_definition_ids: ids
+             } = Process.get({FixtureFkPack, :on_install_3_ctx})
 
       # D6 origin: exactly the definitions this install's pack inserted, by id.
       assert ids |> Map.keys() |> Enum.sort() == ["fkp_child", "fkp_parent"]
@@ -252,9 +257,10 @@ defmodule Letflow.Modules.InstallActivationTest do
                Process.get({FixtureFkPack, :on_install_3_ctx})
 
       # the pack-less module gets the same installer and rationale, and no pack ids
-      assert Process.get({FixtureCtxRecorder, :ctx}) == %{
+      assert Process.get({FixtureCtxRecorder, :ctx}) == %InstallContext{
                actor_id: actor_id,
                rationale: @rationale,
+               tenant_prefix: schema,
                pack_entity_definition_ids: %{}
              }
 

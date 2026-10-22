@@ -293,3 +293,23 @@ describe('ISS-0911 — Start Instance dialog version-race fix', () => {
     )
   })
 })
+
+describe('GH 2238 BUILDS 5 — InstanceBoardPage start control follows InstancesStart', () => {
+  it('an auditor sees the board but no start-instance control', () => {
+    mockUseAuth.mockReturnValue(AUTH_VALUE)
+    mockUseDefinitions.mockReturnValue({ data: undefined, isLoading: false } as ReturnType<typeof useDefinitions>)
+    mockUseDefinition.mockReturnValue({ data: undefined, isLoading: false } as ReturnType<typeof useDefinition>)
+    mockUseStartInstance.mockReturnValue({ mutateAsync: vi.fn(), isPending: false } as unknown as ReturnType<
+      typeof useStartInstance
+    >)
+
+    render(
+      <AccessStateProvider state={accessState('auditor')}>
+        <InstanceBoardPage />
+      </AccessStateProvider>,
+    )
+
+    expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument()
+    expect(screen.queryByTestId('start-instance-button')).not.toBeInTheDocument()
+  })
+})

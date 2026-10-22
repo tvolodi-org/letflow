@@ -149,3 +149,23 @@ describe('InstanceDetailPage — Cancel dialog instanceName (ISS-0824)', () => {
     expect(dialog.textContent).not.toMatch(/\bundefined\b/)
   })
 })
+
+describe('GH 2238 BUILDS 5 — InstanceDetailPage cancel control follows InstancesCancel', () => {
+  it('an auditor sees an ACTIVE instance but no cancel control', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    renderWithAccess(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[`/instances/${INSTANCE_ID}`]}>
+          <Routes>
+            <Route path="/instances/:id" element={<InstanceDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+      'auditor',
+    )
+
+    await screen.findByRole('button', { name: /refresh/i })
+    expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument()
+  })
+})

@@ -2350,7 +2350,12 @@ defmodule Letflow.Definitions do
   # -----------------------------------------------------------------------------------
 
   defp validate_since(nil), do: {:ok, 0}
-  defp validate_since(since) when is_integer(since) and since >= 0, do: {:ok, since}
+  # A value above int64 cannot be bound as the sequence_number comparison
+  # (Postgrex raises), so it is refused here as the same typed 400 as a negative one.
+  defp validate_since(since) when is_integer(since) and since >= 0 do
+    if Pagination.int64?(since), do: {:ok, since}, else: {:error, :invalid_since}
+  end
+
   defp validate_since(_since), do: {:error, :invalid_since}
 
   # design §6.1 -- always the tenant's current high-water mark

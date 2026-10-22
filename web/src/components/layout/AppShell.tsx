@@ -12,9 +12,20 @@ import { useBranding } from '@/theming/BrandingContext'
 import { useInstalledModules } from '@/hooks/useInstalledModules'
 import { getInstalledModuleNavItems } from '@/modules/registry'
 
+export type NavGroup = 'work' | 'tenantAdmin' | 'platform'
+
+/** Sidebar groups in render order (REQ-450). A group renders only when it has a visible entry. */
+export const NAV_GROUPS: { id: NavGroup; label: string }[] = [
+  { id: 'work', label: 'Work' },
+  { id: 'tenantAdmin', label: 'Tenant administration' },
+  { id: 'platform', label: 'Platform' },
+]
+
 interface NavItem {
   to: string
   label: string
+  /** Sidebar group; module entries (no group) go to Work. */
+  group: NavGroup
   /** What the server enforces for the page's own calls (see the PR's element-to-permission table). */
   permission: Permission
   /** Also require the platform tenant (platform-only entries). */
@@ -22,9 +33,9 @@ interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { to: '/instances',     label: 'Instances', permission: P.InstancesRead },
-  { to: '/tasks',         label: 'My Tasks', permission: P.TasksRead },
-  { to: '/definitions',  label: 'Definitions', permission: P.DefinitionsRead },
+  { to: '/instances', group: 'work', label: 'Instances', permission: P.InstancesRead },
+  { to: '/tasks', group: 'work', label: 'My Tasks', permission: P.TasksRead },
+  { to: '/definitions', group: 'work', label: 'Definitions', permission: P.DefinitionsRead },
   // REQ-398: promotion-review list/queue page. Supersedes ISS-0730 §1's
   // "no nav entry, no contextual link -- direct URL only" decision for
   // PromotionReviewPage.tsx, now that REQ-397's list endpoint exists --
@@ -33,33 +44,33 @@ export const NAV_ITEMS: NavItem[] = [
   // contextual per-definition link ISS-0730 §1 separately declined. Same
   // platform-admin role-only class as REQ-397's server-side authorization and
   // this page's own client-side redirect (ISS-0730 §3.1 pattern, reused).
-  { to: '/promotions',   label: 'Promotion Reviews', permission: P.PromotionsRead },
-  { to: '/dlq',           label: 'DLQ', permission: P.DlqOperate },
-  { to: '/webhooks',      label: 'Webhooks', permission: P.WebhooksManage },
-  { to: '/admin/users',   label: 'Users', permission: P.UsersGroupsRolesManage },
-  { to: '/admin/groups',  label: 'Groups', permission: P.UsersGroupsRolesManage },
-  { to: '/admin/tokens',  label: 'Tokens', permission: P.TokensManage },
-  { to: '/admin/audit',   label: 'Audit', permission: P.AuditRead },
-  { to: '/admin/health',  label: 'Health', permission: P.TenantsManage, platformOnly: true },
-  { to: '/admin/metrics', label: 'Metrics', permission: P.MetricsRead },
-  { to: '/admin/onboarding/new', label: 'Register Tenant', permission: P.TenantsManage, platformOnly: true },
-  { to: '/admin/tenants',       label: 'Tenants', permission: P.TenantsManage, platformOnly: true },
-  { to: '/admin/services',       label: 'Services', permission: P.PlatformServicesManage, platformOnly: true },
+  { to: '/promotions', group: 'tenantAdmin', label: 'Promotion Reviews', permission: P.PromotionsRead },
+  { to: '/dlq', group: 'tenantAdmin', label: 'DLQ', permission: P.DlqOperate },
+  { to: '/webhooks', group: 'tenantAdmin', label: 'Webhooks', permission: P.WebhooksManage },
+  { to: '/admin/users', group: 'tenantAdmin', label: 'Users', permission: P.UsersGroupsRolesManage },
+  { to: '/admin/groups', group: 'tenantAdmin', label: 'Groups', permission: P.UsersGroupsRolesManage },
+  { to: '/admin/tokens', group: 'tenantAdmin', label: 'Tokens', permission: P.TokensManage },
+  { to: '/admin/audit', group: 'tenantAdmin', label: 'Audit', permission: P.AuditRead },
+  { to: '/admin/health', group: 'platform', label: 'Health', permission: P.TenantsManage, platformOnly: true },
+  { to: '/admin/metrics', group: 'tenantAdmin', label: 'Metrics', permission: P.MetricsRead },
+  { to: '/admin/onboarding/new', group: 'platform', label: 'Register Tenant', permission: P.TenantsManage, platformOnly: true },
+  { to: '/admin/tenants', group: 'platform', label: 'Tenants', permission: P.TenantsManage, platformOnly: true },
+  { to: '/admin/services', group: 'platform', label: 'Services', permission: P.PlatformServicesManage, platformOnly: true },
   // REQ-375: operator-facing rollout-status screen for REQ-374's
   // platform-wide tenant-migration fanout runner. Same :TenantsManage
   // (platform-admin role-only) risk class as admin/tenants, admin/onboarding.
-  { to: '/admin/platform-migrations', label: 'Platform Migrations', permission: P.TenantsManage, platformOnly: true },
+  { to: '/admin/platform-migrations', group: 'platform', label: 'Platform Migrations', permission: P.TenantsManage, platformOnly: true },
   // REQ-381: solution-pack update review screen. `/solution-packs` needs a
   // discoverable nav link (unlike PromotionReviewPage.tsx's deliberate
   // no-nav-entry choice) -- REQ-381's own text requires the review screen
   // be "reachable from the company's pack screen," and the launcher page
   // serves that role (design §7). platform-admin role-only, same OQ-3 judgment
   // call as the launcher/review pages' own role gate (design §4.1).
-  { to: '/solution-packs', label: 'Solution Packs', permission: P.ModulesManage },
+  { to: '/solution-packs', group: 'tenantAdmin', label: 'Solution Packs', permission: P.ModulesManage },
   // REQ-377: operator-facing history-retirement screen for REQ-376's
   // whole-partition retirement mechanism. Same :TenantsManage
   // (platform-admin role-only) risk class as admin/platform-migrations.
-  { to: '/admin/event-retention', label: 'Event Retention', permission: P.TenantsManage, platformOnly: true },
+  { to: '/admin/event-retention', group: 'platform', label: 'Event Retention', permission: P.TenantsManage, platformOnly: true },
 ]
 
 export function AppShell() {
@@ -82,9 +93,13 @@ export function AppShell() {
 
   const moduleNavItems = getInstalledModuleNavItems(installedModules)
   // Nothing gated renders until /me/access is ready: can() is false while loading or failed.
-  const visibleNav = [...NAV_ITEMS, ...moduleNavItems].filter(
-    (n) => access.can(n.permission) && (!n.platformOnly || access.isPlatformTenant),
-  )
+  const visibleNav = [
+    ...NAV_ITEMS,
+    ...moduleNavItems.map((n) => ({ ...n, group: 'work' as const })),
+  ].filter((n) => access.can(n.permission) && (!n.platformOnly || access.isPlatformTenant))
+  const visibleGroups = NAV_GROUPS
+    .map((g) => ({ ...g, items: visibleNav.filter((n) => n.group === g.id) }))
+    .filter((g) => g.items.length > 0)
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
@@ -111,7 +126,12 @@ export function AppShell() {
         <TenantSwitcher />
 
         <nav style={{ flex: 1 }}>
-          {visibleNav.map((n) => (
+          {visibleGroups.map((g) => (
+            <div key={g.id} role="group" aria-label={g.label} data-testid={`nav-group-${g.id}`}>
+              <div style={{ padding: '.75rem 1.25rem .25rem', fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-secondary)' }}>
+                {g.label}
+              </div>
+              {g.items.map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
@@ -147,6 +167,8 @@ export function AppShell() {
                 )}
               </span>
             </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
 

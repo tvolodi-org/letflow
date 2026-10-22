@@ -34,6 +34,7 @@
  */
 
 import { useMemo, useRef, useState } from 'react'
+import { P, useAccess } from '@/auth/access'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useIntl, type IntlShape } from 'react-intl'
 import { entitiesApi } from '@/api/entities'
@@ -95,6 +96,7 @@ export interface EntityCrudPageProps {
 
 function EntityCrudPageInner({ entityType }: EntityCrudPageProps) {
   const intl = useIntl()
+  const canWrite = useAccess().can(P.EntitiesRecordsWrite)
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
   const uiLocale = resolveUiLocale([intl.locale])
@@ -261,6 +263,7 @@ function EntityCrudPageInner({ entityType }: EntityCrudPageProps) {
         id: 'actions',
         header: intl.formatMessage({ id: 'entities.crud.list.column.actions' }),
         accessor: (row) => (
+          canWrite ? (
           <div style={{ display: 'flex', gap: '.4rem' }} onClick={(e) => e.stopPropagation()}>
             <Button
               variant="secondary"
@@ -279,20 +282,23 @@ function EntityCrudPageInner({ entityType }: EntityCrudPageProps) {
               {intl.formatMessage({ id: 'entities.crud.list.deleteAction' })}
             </Button>
           </div>
+          ) : null
         ),
       },
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fields, fieldTitles, intl.locale])
+  }, [fields, fieldTitles, intl.locale, canWrite])
 
   return (
     <div data-testid="entity-crud-page" data-entity-type={entityType}>
       <PageLayout
         title={definition?.display_name ?? entityType}
         actions={
-          <Button variant="primary" size="md" data-testid="entity-create-action" onClick={openCreate}>
-            {intl.formatMessage({ id: 'entities.crud.list.createAction' })}
-          </Button>
+          canWrite ? (
+            <Button variant="primary" size="md" data-testid="entity-create-action" onClick={openCreate}>
+              {intl.formatMessage({ id: 'entities.crud.list.createAction' })}
+            </Button>
+          ) : undefined
         }
       >
         <QueryStateBoundary
