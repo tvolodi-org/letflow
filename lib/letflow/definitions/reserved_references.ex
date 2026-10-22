@@ -179,6 +179,12 @@ defmodule Letflow.Definitions.ReservedReferences do
 
   # ── L5-L6 templates ───────────────────────────────────────────────────────
 
+  # The KEY class is dot-free (`ServiceTask.template_placeholder/0`), so `{{variables._sys.x}}`
+  # matches no placeholder: it renders as literal text and reads no variable. It is NOT reported
+  # here on purpose. `reserved_template_names/1` (the catalog side, #2623) uses the dot-widened
+  # grammar and does report it. Pinned by the test "is not reported by the definition side" in
+  # reserved_references_test.exs: it fails if the renderer's key class gains a dot, which is the
+  # moment this must start reporting.
   defp template_refs(id, location, template) when is_binary(template) do
     template
     |> ServiceTask.template_variable_keys()
@@ -271,7 +277,15 @@ defmodule Letflow.Definitions.ReservedReferences do
   defp attributes(%{} = attributes), do: attributes
   defp attributes(_nil_or_malformed), do: %{}
 
-  defp reference(element, id, location, field, name),
+  @doc """
+  The one constructor of a `reserved_reference()`. Every site that reports a reserved name builds
+  it here: L1-L8 in this module and L9 in `Letflow.Scripts.Runtime.check_bindings/2`. A plain map,
+  not a struct, so the external representation (422 bodies, `ReservedReferences.violations/1`)
+  stays exactly `%{element, id, location, field, name}`; the spec pins that shape.
+  """
+  @spec reference(:node | :edge, String.t(), location(), String.t() | nil, String.t()) ::
+          reserved_reference()
+  def reference(element, id, location, field, name),
     do: %{element: element, id: id, location: location, field: field, name: name}
 
   defp message(%{element: element, id: id, location: location, field: field, name: name}) do
