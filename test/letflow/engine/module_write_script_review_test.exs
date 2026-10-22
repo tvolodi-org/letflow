@@ -151,7 +151,10 @@ defmodule Letflow.Engine.ModuleWriteScriptReviewTest do
     assert rule.status == :draft
 
     draft = bound_draft!(ctx.schema, ctx.activator, "gh2725_unpub")
-    assert {:error, _reason} = activate(ctx.schema, ctx.activator, draft)
+
+    assert {:error, {:script_binding_invalid, "svc", :script_not_published}} =
+             activate(ctx.schema, ctx.activator, draft)
+
     assert Fx.all_records(ctx.schema) == []
   end
 
@@ -168,7 +171,8 @@ defmodule Letflow.Engine.ModuleWriteScriptReviewTest do
     assert Repo.get_by!(ScriptRule, [key: "gh2725_sod", version: 1], prefix: ctx.schema).status ==
              :draft
 
-    assert {:error, _reason} = activate(ctx.schema, ctx.activator, draft)
+    assert {:error, {:script_binding_invalid, "svc", :script_not_published}} =
+             activate(ctx.schema, ctx.activator, draft)
 
     # a publisher outside the contributors publishes; only then does the definition activate
     assert {:ok, published} = publish(ctx.schema, rule, ctx.reviewer)
