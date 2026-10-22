@@ -587,7 +587,9 @@ defmodule Letflow.Scripts.SeedScriptsNoArgvPayloadTest do
     if [[ "${method}" == POST && "${last}" != */activate && -n "${STUB_CURL_FAIL_POST:-}" ]]; then
       exit 22
     fi
-    if [[ "${last}" == */activate ]]; then
+    if [[ "${last}" == */me/access ]]; then
+      printf '%s' '{"permissions":["DefinitionsRead","DefinitionsWrite"]}'
+    elif [[ "${last}" == */activate ]]; then
       printf '%s' '{"id":"def-stub-1","name":"Stub","version":"1","status":"ACTIVE"}'
     elif [[ "${method}" == POST ]]; then
       printf '%s' '{"id":"def-stub-1","name":"Stub","version":"1","status":"DRAFT"}'

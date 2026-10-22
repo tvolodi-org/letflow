@@ -17,8 +17,12 @@
 #
 # Prerequisites:
 #   - curl and jq installed
-#   - QA_AUTH_TOKEN: Bearer token for a user in the meridian tenant with
-#       DefinitionsWrite. Provisioned via
+#   - QA_AUTH_TOKEN: Bearer token for a PROCESS_DESIGNER user in the meridian tenant
+#       (TENANT_ADMIN also works). Least role per call (REQ-454; derived from
+#       Letflow.Api.Authorization): GET /api/v1/definitions (DefinitionsRead), POST
+#       /api/v1/definitions and POST /api/v1/definitions/:id/activate (DefinitionsWrite),
+#       all PROCESS_DESIGNER. The start-up check requires DefinitionsRead and DefinitionsWrite
+#       and exits 1 naming a missing one before anything is written. Provisioned via
 #       `qa-uat-env.sh token meridian-admin-user` (ai-dala-infra, sibling repo).
 #   - SERVICE_TASK_MOCK_BASE_URL: optional https:// base that every SERVICE_TASK
 #       endpoint in the seeded fixtures is pointed at (default:
@@ -54,10 +58,15 @@ AUTH_HEADER="Authorization: Bearer ${QA_AUTH_TOKEN}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/seed_service_task_base.sh
 source "${SCRIPT_DIR}/lib/seed_service_task_base.sh"
+# shellcheck source=lib/seed_token_check.sh
+source "${SCRIPT_DIR}/lib/seed_token_check.sh"
 
 echo "=== seed_meridian_definition.sh ==="
 echo "QA_URL: ${QA_URL}"
 echo "Service-task mock base: ${SERVICE_TASK_EFFECTIVE_BASE_URL}"
+
+# Least role: PROCESS_DESIGNER. Checked before any call, so a short token changes nothing.
+seed_require_permissions PROCESS_DESIGNER DefinitionsRead DefinitionsWrite
 
 seed_definition() {
   local display_name="$1"

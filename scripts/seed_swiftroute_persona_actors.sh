@@ -34,8 +34,16 @@
 #
 # Prerequisites:
 #   - curl and jq installed
-#   - QA_AUTH_TOKEN: Bearer token for a PLATFORM_ADMIN user in the swiftroute tenant.
-#       Must grant GroupsManage + RolesManage + UsersManage.
+#   - QA_AUTH_TOKEN: Bearer token for a TENANT_ADMIN user in the swiftroute tenant.
+#       Least role per call (REQ-454; derived from Letflow.Api.Authorization):
+#         GET /api/v1/me/access            any token (start-up check, REQ-449)
+#         GET /api/v1/identity/roles       RolesManage                  -> TENANT_ADMIN
+#         POST /api/v1/identity/roles      RolesManage                  -> TENANT_ADMIN
+#         GET /api/v1/identity/users       UsersManage                  -> TENANT_ADMIN
+#         GET/POST /api/v1/identity/groups GroupsManage                 -> TENANT_ADMIN
+#         POST .../groups/:id/members      GroupsManage                 -> TENANT_ADMIN
+#       The start-up check requires UsersGroupsRolesManage and RolesManage and exits 1
+#       naming a missing one before anything is written. No platform account is needed.
 #   - QA_URL: base URL of the QA instance (default: https://qa.bizdala.com)
 #
 # Usage:

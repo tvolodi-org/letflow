@@ -169,7 +169,9 @@ defmodule Letflow.Scripts.SwiftrouteIncidentQaFixtureTest do
       esac
     done
     printf '%s %s\n' "${method}" "${last}" >> "${dir}/calls"
-    if [[ "${last}" == */activate ]]; then
+    if [[ "${last}" == */me/access ]]; then
+      printf '%s' '{"permissions":["DefinitionsRead","DefinitionsWrite"]}'
+    elif [[ "${last}" == */activate ]]; then
       printf '%s' '{"id":"d1","name":"Driver Incident Report","version":"1.0","status":"ACTIVE"}'
     elif [[ "${method}" == POST ]]; then
       printf '%s' '{"id":"d1","name":"Driver Incident Report","version":"1.0","status":"DRAFT"}'

@@ -50,15 +50,19 @@
 #
 # Prerequisites:
 #   - curl and jq installed
-#   - QA_AUTH_TOKEN: Bearer token for a user in the vortex tenant holding
-#       ALL THREE of:
-#         EntitiesDefinitionsWrite   (create + activate both definitions)
-#         EntitiesRecordsImport      (bulk-import both record sets)
-#         EntitiesRestrictionsManage (POST /entities/restrictions/import)
-#       plus whatever identity-read permission `GET /api/v1/identity/users`
-#       requires, to resolve actor-vortex-anna's and actor-vortex-karl's
-#       user ids (same requirement seed_swiftroute_persona_actors.sh already
-#       states for its own user lookups).
+#   - QA_AUTH_TOKEN: Bearer token for a TENANT_ADMIN user in the vortex tenant (REQ-454).
+#       Least role per call (derived from Letflow.Api.Authorization):
+#         GET /api/v1/entities/definitions/by-name/:name   EntitiesDefinitionsRead  (PROCESS_DESIGNER, PROCESS_OPERATOR, TENANT_ADMIN)
+#         POST /api/v1/entities/definitions                EntitiesDefinitionsWrite -> TENANT_ADMIN
+#         POST /api/v1/entities/definitions/:name/activate EntitiesDefinitionsWrite -> TENANT_ADMIN
+#         POST /api/v1/entities/records/:type/import       EntitiesRecordsImport    -> TENANT_ADMIN
+#         POST /api/v1/entities/restrictions/import        EntitiesRestrictionsManage -> TENANT_ADMIN
+#         GET /api/v1/identity/users                       UsersManage              -> TENANT_ADMIN
+#       The start-up check requires all of EntitiesDefinitionsWrite, EntitiesRecordsImport,
+#       EntitiesRestrictionsManage and UsersGroupsRolesManage, and exits 1 naming a missing one.
+#       Token-owner check: the token must belong to SEED_ACTOR_USERNAME (below).
+#       No built-in role below TENANT_ADMIN holds EntitiesRecordsImport and
+#       EntitiesRestrictionsManage (grep core_role_allows? in authorization.ex).
 #   - SEED_ACTOR_USERNAME (REQUIRED, GH #2784): the username of the account QA_AUTH_TOKEN
 #       belongs to. It MUST be a DEDICATED non-persona account (a service/seeder user),
 #       never actor-vortex-anna, actor-vortex-karl or an admin persona the UAT
@@ -104,9 +108,17 @@ fi
 AUTH_HEADER="Authorization: Bearer ${QA_AUTH_TOKEN}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}/.."
+# shellcheck source=lib/seed_token_check.sh
+source "${SCRIPT_DIR}/lib/seed_token_check.sh"
 
 echo "=== seed_vortex_entities.sh ==="
 echo "QA_URL: ${QA_URL}"
+
+# Least role: TENANT_ADMIN (no built-in role below it holds all of these: PROCESS_OPERATOR
+# withholds EntitiesDefinitionsWrite, PROCESS_DESIGNER has no EntitiesRecordsImport).
+# Checked before any write, so a short token changes nothing.
+seed_require_permissions TENANT_ADMIN EntitiesDefinitionsWrite EntitiesRecordsImport \
+  EntitiesRestrictionsManage UsersGroupsRolesManage
 
 # ---------------------------------------------------------------------------
 # Step 1: entity-type definitions (§4.1) -- exists by name -> skip,
