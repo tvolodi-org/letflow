@@ -348,15 +348,25 @@ VERIFIED: the chain accepts new event types without a code change. The `action` 
 (`lib/letflow/audit.ex:123` type `action: String.t()`, `lib/letflow/audit/entry.ex:30` `field(:action,
 :string)`, required but not enumerated at `entry.ex:44-52`); the table column is `:string, null: false`
 (`priv/repo/migrations/20260830020001_create_audit_entries_tenant_scoped.exs:50`) and no registry or
-check constraint on `action` was found there. Caveat: only the table migration was grepped for a CHECK;
-other consumers that filter by action (reporting UI, `Audit.list_entries/1` params) were not read: NOT
-VERIFIED. `resource_id` is a string, so org-unit and grant ids fit (design REQ-195 §1.2).
+check constraint on `action` was found there. `resource_id` is a string, so org-unit and grant ids fit
+(design REQ-195 §1.2).
+
+VERIFIED (GH #2669): every consumer of audit entries tolerates an action name it does not know.
+`Letflow.Audit.list_entries/1` (`lib/letflow/audit.ex:355`) has no `action` filter; it returns the entry
+unchanged. The `GET /api/v1/audit` route (`lib/letflow/routers/audit.ex:182`, `:316`) passes `action`
+through as text and reads no `action` query parameter. The web audit view
+(`web/src/pages/admin/AuditLogPage.tsx:194`) renders `e.action` as plain text with no action-keyed lookup.
+Code that matches on action names (`lib/letflow/identity/role_revocations.ex:75`) matches a fixed list and
+ignores the rest. No audit export exists on main. The test `test/letflow/routers/gh2669_unknown_audit_action_test.exs`
+writes `example_subject.tested` and shows `list_entries/1`, the `resource_type` filter and `GET /audit` return it
+without error. An `action` query parameter is silently ignored (200, unfiltered page), not rejected: that is a
+missing filter, not a tolerance failure, and is recorded as a finding for the owner.
 
 **Amendment to D8, additive (advisor letflow-ec ruling under the user's delegation, relayed by the supervisor, 2026-10-16; recorded by letflow-2).** The list above is extended with one action, `idempotency_squat.remediated` (GH #2597: the explicit removal of a pre-#2550 idempotency-key squat; it was outside this list). D8 is otherwise unchanged. The ruling also fixes the rules for every audit action added from now on:
 
 1. **Naming.** An action is `<subject>.<past_tense_verb>`, lower-case snake_case, exactly one dot (`grant.created`, `org_unit.moved`). The subject is the object concerned. A new action is a new name: an existing action is never overloaded with a payload flag. Remediations of a security finding use the verb `remediated`; detections use `detected`; so the trail can be filtered by finding class. (The pre-existing names `token.create`, `token.revoke` and the like keep their names, as D8 already states.)
 2. **Payload.** Affected record ids and counts only. Never an idempotency key value or any client-supplied content (a squatted key is attacker-controlled text). The payload carries the finding reference (for example GH #2597), the actor (the operator, or the migration name), and the before and after state. The audit entry is written in the SAME transaction as the remediation it records.
-3. **Consumers (NOT VERIFIED, carried as a test requirement).** Whether every consumer that filters by action (the reporting UI, `Audit.list_entries/1` params) tolerates an action name it does not know was not read (see the VERIFIED paragraph above). Until it is verified, the implementing requirement of each new action includes a one-time test showing that the audit listing and any action filter return the new action without error; this is tracked in a separate issue.
+3. **Consumers.** Every consumer tolerates an unknown action name (verified under GH #2669, see the VERIFIED paragraph above). The implementing requirement of each new action still includes a one-time test showing that the audit listing returns the new action without error, as the rule for future actions.
 ### D9. Defaults, the approver model, and the pilot limit (Q9 (d))
 
 `TENANT_AUDITOR` stays tenant-wide by default (0046 D6); an admin may scope it by grant (AuditRead is
