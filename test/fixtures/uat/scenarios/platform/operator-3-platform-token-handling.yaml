@@ -1,0 +1,128 @@
+# T-0224 (BA): OPERATOR group, scenario 3 of 3 (order: see operator-1-manage-tenants.yaml).
+# Sources: docs/runbooks/platform-admin-token-reissue.md (tokens minted over HTTP have a capped expiry, 90 days by
+# default; the inventory and re-issue are release-operator commands run with bin/letflow eval, one token at a time,
+# decided by a person), docs/roles.md (TENANT_ADMIN paragraph: in the platform tenant a PLATFORM_ADMIN may mint, but
+# only for themself, expiry at most 90 days; only a TENANT_ADMIN holder through a group mints in a customer tenant).
+# TEST-TOOLING STEP (outside the product): step 6, the read-only inventory on the host
+# (Letflow.Release.platform_admin_token_inventory()). It needs shell access to a release node. If the acceptance
+# environment has none, step 6 is reported BLOCKED and the rest of the scenario still runs.
+# NOT RUN HERE: the re-issue act itself (runbook step 3). It changes a live legacy token, needs the owner's decision
+# per token, and a legacy non-expiring token cannot be made through the product any more. No such token is created
+# for the test, and the act is not probed. Finding: the re-issue has no product-level UAT; see the task summary.
+---
+id: platform-operator-3-platform-token-handling
+scope: platform
+title: The operator's own access token is time-limited, only for themself, and no customer can hold a platform token
+version: "1.0"
+tags: [operator, tokens, platform, access, refusal]
+
+description: >
+  The platform operator creates a personal access token for themself with a limited life, sees it
+  listed, and revokes it. The operator is then refused when asking for a token that never ends or
+  lasts longer than the platform's cap, and when asking for a token for another person. A
+  customer's administrator is refused when asking for a token that carries the platform
+  administrator role. Finally the host-side inventory shows that no platform token without an end
+  date exists.
+
+actors:
+  platform_operator: actor-platform-admin
+  customer_administrator: actor-any
+  release_host: actor-system-release-host
+
+preconditions:
+  - description: Foundation 1 to 3 passed in this run; the operator's cap is the platform default (90 days)
+    check: custom
+    detail: >
+      The cap is server configuration. If the environment has changed it, read it from the
+      environment owner and use that value instead of 90; do not guess.
+
+steps:
+  - step: 1
+    actor: platform_operator
+    action: The platform operator creates a personal access token for themself that ends in 30 days, and notes only its identifier.
+    via: api
+    produces:
+      token_id: the identifier of the new token
+  - step: 2
+    actor: platform_operator
+    action: The platform operator opens the list of tokens and sees the new token with its end date and its issuer, and no secret value.
+    via: api
+  - step: 3
+    actor: platform_operator
+    action: The platform operator asks for a personal access token that never ends.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: platform_operator
+    action: The platform operator asks for a personal access token that ends in 200 days, longer than the cap.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: platform_operator
+    action: The platform operator asks for a platform-level token on behalf of another person.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: customer_administrator
+    action: The customer's administrator asks for an access token that carries the platform administrator role.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: release_host
+    action: >
+      TEST-TOOLING STEP (outside the product): on the release host, run the read-only inventory of
+      platform tokens without an end date and read its summary line only.
+    via: api
+  - step: 8
+    actor: platform_operator
+    action: The platform operator revokes the token from step 1 and sees it gone from the list.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The operator's own token is created with an end date inside the cap, listed without a secret, and revoked.
+    verification:
+      method: system_state
+      detail: Steps 1, 2 and 8 succeed; the listed token has an end date within 30 days and an issuer; its value is never shown after step 1.
+      evidence: The token list entry (identifier, end date, issuer) before and after step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot work through scripts, or leaves a credential that cannot be withdrawn.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A platform token that never ends, lasts too long, or is for somebody else is not created.
+    verification:
+      method: system_state
+      detail: >
+        Steps 4 and 5 are refused. Step 3 is either refused or answered with a token whose end date
+        is inside the cap; in no case does a token without an end date exist afterwards. If the
+        source does not settle which of the two applies to step 3, record it as a finding.
+      evidence: The answers to steps 3 to 5 and the token list afterwards (end dates only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A full-platform credential that never ends exists, as the runbook warns.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A customer's administrator cannot obtain a platform-level token.
+    verification:
+      method: system_state
+      detail: Step 6 is refused and no token is created in the customer.
+      evidence: The refusal and the customer's token list (count only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A customer could hold platform authority.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: The host inventory reports no platform token without an end date.
+    verification:
+      method: system_state
+      detail: The summary line shows non_expiring_platform_admin=0 and errored=0. A non-zero value is a finding for the operator and the owner (runbook section 2), not a reason to act in this test.
+      evidence: The summary line only (counts). No token value is read or kept.
+    on_fail:
+      severity: MAJOR
+      business_impact: A legacy credential without an end date is still live.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The step 1 token is revoked in step 8. If the run stops earlier, the operator revokes it by its identifier.

@@ -1,0 +1,87 @@
+# T-0224 (BA): ROLE MATRIX, the PLATFORM_ADMIN row (scope platform, because the actor is the platform operator; this is
+# why it is a separate file from tenant-administration-matrix-1..4). The eighth built-in role.
+# Sources: docs/roles.md PLATFORM_ADMIN ("Does: everything, including create, change and deactivate tenants ... Must
+# not: act inside a customer tenant or read a customer's business data"), decision 0046 D4 (no power inside a customer
+# tenant). In the roles matrix a "yes" for PLATFORM_ADMIN means as evaluated in the platform tenant.
+# Allowed counterpart, per sensitive action (in the platform's own workspace, or none):
+#   approve         allowed: none (the platform workspace has no approval process)   refused: approve in the customer
+#   pay or release  allowed: none (no payment process in the platform workspace)     refused: release in the customer
+#   see sensitive   allowed: read the platform workspace's own audit trail           refused: read the customer's records unmasked
+#   change users    allowed: read the platform workspace's own people                refused: change the customer's groups
+# Test-tooling steps: none. Aliases and the matrix process: see tenant-administration group files.
+---
+id: platform-matrix-5-platform-administrator-row
+scope: platform
+title: Role matrix, the platform operator's row - full power over the platform, no power inside a customer
+version: "1.0"
+tags: [matrix, platform, roles, refusal, access]
+
+description: >
+  The platform operator uses their authority in the platform's own workspace (the audit trail and
+  the people there). They then try each of the four sensitive actions inside the test customer:
+  approve a request, release a payment, read the protected bank account in full, and change the
+  customer's groups. All four must be refused.
+
+actors:
+  platform_operator: actor-platform-admin
+  customer_administrator: actor-any
+
+preconditions:
+  - description: tenant-administration matrix-0 passed in this run, and one request waits for approval in the test customer (start R5 with the customer's operator if none does)
+    check: custom
+
+steps:
+  - step: 1
+    actor: platform_operator
+    action: The platform operator opens the audit trail of the platform's own workspace and the list of its people.
+    via: api
+  - step: 2
+    actor: platform_operator
+    action: The platform operator tries to approve the waiting request in the test customer.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: platform_operator
+    action: The platform operator tries to release the payment of a request in the test customer (or stop one, if none waits for release).
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: platform_operator
+    action: The platform operator tries to export the test customer's payee records with the bank account in full.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: platform_operator
+    action: The platform operator tries to add a person to a group of the test customer.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: customer_administrator
+    action: The customer's administrator checks that the request, the payments, the records and the groups of the customer are exactly as before.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The platform operator can see the audit trail and people of the platform's own workspace.
+    verification:
+      method: system_state
+      detail: Step 1 returns both.
+      evidence: Entry and people counts.
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot oversee the platform's own workspace.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: None of the four sensitive actions works for the platform operator inside a customer.
+    verification:
+      method: system_state
+      detail: Steps 2 to 5 are refused and step 6 finds no change.
+      evidence: The four refusals and the state check of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The organisation that runs the platform can approve, pay, read protected data and change users in a customer's company.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel R5, if started for this scenario, as the customer's administrator.

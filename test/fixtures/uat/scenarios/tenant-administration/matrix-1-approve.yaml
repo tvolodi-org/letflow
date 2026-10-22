@@ -1,0 +1,137 @@
+# T-0224 (BA): ROLE MATRIX, sensitive action 1 of 4: APPROVE. Seven tenant roles here; PLATFORM_ADMIN is in matrix-5.
+# Per role, one allowed and one refused operation (sources: docs/roles.md roles matrix and per-role "Does / Must not";
+# docs/roles.md "Known limitation" para: the routing-role checks stay in force even for a holder of the permission
+# tenant-wide). Roles with no allowed approve operation say so in the step list; that is the charter, not a gap.
+#   PROCESS_DESIGNER  allowed: none                       refused: complete an approval (TasksComplete = no)
+#   PROCESS_OPERATOR  allowed: complete an approval       refused: change the process so the approval is skipped (DefinitionsWrite = no)
+#   TASK_WORKER       allowed: complete an approval       refused: complete an approval they are not routed to
+#   AGENT_RUNNER      allowed: none                       refused: complete an approval
+#   CANDIDATE         allowed: none                       refused: complete an approval
+#   TENANT_ADMIN      allowed: reassign an approval task  refused: complete an approval without being in the approvers group (routing role in force)
+#   TENANT_AUDITOR    allowed: none (reads only)          refused: complete an approval
+# Test-tooling steps: none. Aliases: see tenant-admin-1-people-groups-and-roles.yaml. A step the product lets through
+# is a finding, not a reason to reword the step.
+---
+id: tenant-administration-matrix-1-approve
+scope: tenant-administration
+title: Role matrix, approving - who may approve a request and who is turned away
+version: "1.0"
+tags: [matrix, approve, roles, refusal, access]
+
+description: >
+  The process operator starts three requests. A task worker and the process operator each approve one
+  (they sit in the approvers group). The administrator reassigns the third request's approval to the
+  task worker. Then every role without the right to approve, and the two who have the role but not
+  the routing, try to approve the third request and are turned away. The third request is still
+  waiting at the end.
+
+actors:
+  tenant_admin: actor-any
+  designer: actor-any
+  operator: actor-any
+  worker_a: actor-any
+  worker_b: actor-any
+  agent_runner: actor-any
+  candidate: actor-any
+  auditor: actor-any
+
+preconditions:
+  - description: tenant-administration-1 and matrix-0 passed in this run
+    check: custom
+  - description: The agent_runner and candidate accounts exist and can sign in; if the product cannot give AGENT_RUNNER to an account (assumption A-2), the agent_runner step is BLOCKED
+    check: custom
+
+steps:
+  - step: 1
+    actor: operator
+    action: The process operator starts three requests of the "UAT matrix request" process, R1, R2 and R3.
+    via: api
+    produces:
+      request_ids: the identifiers of R1, R2 and R3
+  - step: 2
+    actor: worker_a
+    action: worker_a (task worker in the approvers group) claims and approves R1.
+    via: api
+  - step: 3
+    actor: operator
+    action: The process operator (in the approvers group) claims and approves R2.
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: The administrator reassigns the open approval of R3 to worker_a. worker_a does not act on it.
+    via: api
+  - step: 5
+    actor: designer
+    action: The process designer tries to approve R3.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: operator
+    action: The process operator tries to change the "UAT matrix request" process so that R3 skips the approval.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: worker_b
+    action: worker_b (task worker, only in the releasers group) tries to approve R3.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: agent_runner
+    action: The agent runner tries to approve R3.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: candidate
+    action: The candidate tries to approve R3.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: The administrator (not in the approvers group) tries to approve R3 themselves.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: auditor
+    action: The tenant auditor tries to approve R3.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin
+    action: The administrator checks R3 - its approval is still open, assigned to worker_a, and R1 and R2 are approved and waiting for release.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Those who may approve, can - worker_a approves R1, the operator approves R2, the administrator reassigns R3's approval.
+    verification:
+      method: system_state
+      detail: R1 and R2 have moved on to the release task; R3's approval is assigned to worker_a.
+      evidence: The state of R1, R2 and R3 (task name and assignee only).
+    on_fail:
+      severity: MAJOR
+      business_impact: Approvals cannot be given, so no request ever moves on.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The designer, auditor, agent runner and candidate cannot approve, and the operator cannot remove the approval from the process.
+    verification:
+      method: system_state
+      detail: Steps 5, 6, 8, 9 and 11 are refused; R3's approval is unchanged after each.
+      evidence: The five refusals and the state of R3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person with no approval authority can approve, or the approval step can be taken out of the process.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Having the task-completing role is not enough. A task worker outside the approvers group and the administrator outside it are turned away.
+    verification:
+      method: system_state
+      detail: Steps 7 and 10 are refused; R3 still waits for worker_a.
+      evidence: The two refusals and the state of R3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anybody with a general role can approve what is routed to somebody else, so the separation of duties is void.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: R1 and R2 are used by matrix-2 (release); R3 is cancelled at the end of matrix-2.
