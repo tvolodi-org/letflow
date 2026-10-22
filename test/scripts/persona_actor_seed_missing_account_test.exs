@@ -24,6 +24,7 @@ defmodule Letflow.Scripts.PersonaActorSeedMissingAccountTest do
   done
   echo "$method $url" >> "$STUB_LOG"
   case "$method $url" in
+    "GET "*"/api/v1/me/access") echo '{"permissions":["RolesManage","UsersGroupsRolesManage"]}' ;;
     "GET "*"/identity/roles") echo '{"items":[{"name":"TASK_WORKER","group_id":"g-tw"}]}' ;;
     "GET "*"/identity/groups") echo '{"items":[]}' ;;
     "POST "*"/identity/groups") echo '{"id":"g-new"}' ;;
