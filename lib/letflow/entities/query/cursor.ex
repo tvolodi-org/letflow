@@ -29,15 +29,24 @@ defmodule Letflow.Entities.Query.Cursor do
   (REQ-230, already reviewed and merged) -- it only consumes their existing,
   unchanged output types.
 
-  ## Why field name/type never travel inside the cursor (design §2.3)
+  ## What travels inside the cursor (design §2.3, GH #2698)
 
-  The decoded resume values are positionally re-paired against the
-  *caller's own resent* `sort` list on the next request -- position `i` in
-  the decoded resume-key array always corresponds to position `i` in that
-  request's `sort`. A caller who submits a different `sort` order/length
-  than the one that minted the cursor produces
-  `{:error, :resume_key_arity_mismatch}` rather than a silently wrong resume
-  point.
+  The resume key is positional: position `i` in the decoded key pairs with
+  position `i` of the *caller's own resent* `sort` list on the next request.
+  A length mismatch produces `{:error, :resume_key_arity_mismatch}`.
+
+  A cursor minted by this module also carries a binding: the entity type and
+  the sort field names and directions, as `{"bind": [...], "key": [...]}`.
+  A binding mismatch (same length, different sort or entity type) produces
+  `{:error, :invalid_cursor}`. Legacy bare-list cursors, minted before the
+  binding existed, are accepted unbound.
+
+  The cursor is unsigned base64 JSON. The binding is defense-in-depth against
+  accidental cross-sort or cross-type replay, not a guard against a caller who
+  forges a cursor. The sort values it carries, which can be restricted ones,
+  stay readable in cleartext until the cursor expires. Remainder of #2698:
+  MAC or encrypt the payload, then drop the unbound branch after one expiry
+  window.
 
   ## The `record_id` tiebreaker (design §2.3, revised by ISS-0651)
 
@@ -92,6 +101,10 @@ defmodule Letflow.Entities.Query.Cursor do
   """
   @type resume_key :: [term()]
 
+  # A decoded resume key with its binding (GH #2698): the `[entity_type | sort]`
+  # binding a minted cursor carries, or `:unbound` for a legacy bare list.
+  @type bound_resume_key :: {[term()] | :unbound, resume_key()}
+
   @typedoc "`paginate/5`'s `opts` shape (design §2.4)."
   @type paginate_opts :: %{
           optional(:cursor) => String.t() | nil,
@@ -116,18 +129,23 @@ defmodule Letflow.Entities.Query.Cursor do
 
     1. `Pagination.validate_page_size/1` on `opts.page_size`.
     2. Decode `opts.cursor` via `Pagination.decode_cursor/4` with this
-       module's own `cursor_prefix/0`, then JSON-parse the tail into a
-       `resume_key()`.
+       module's own `cursor_prefix/0`, then JSON-parse the tail into
+       `bound_resume_key()`: `{"bind": [...], "key": [...]}` gives
+       `{binding, key}`, a legacy bare list gives `{:unbound, key}`.
     3. Re-resolve every `sort_clause().field` against `allowlist` to learn
        each field's `type()`/`source()` for the typed resume-filter
        comparison.
     4. If a decoded `resume_key()` is present, check its length equals
        `length(sort) + 1` -- `{:error, :resume_key_arity_mismatch}`
        otherwise.
-    5. Build the row-wise resume filter and add it to `compiled_query`, add
+    5. A cursor minted by this module binds its `entity_type` and sort
+       clause (`binding/2`, GH #2698); a bound cursor replayed under another
+       entity type or sort is `{:error, :invalid_cursor}`. A legacy cursor
+       without a binding is accepted as before.
+    6. Build the row-wise resume filter and add it to `compiled_query`, add
        the implicit `record_id` ascending tiebreak order (ISS-0651: was
        `id`), add `limit(page_size + 1)`.
-    6. `Repo.all(query, prefix: prefix)`, split off the possible extra row,
+    7. `Repo.all(query, prefix: prefix)`, split off the possible extra row,
        and -- if a next page exists -- mint the next cursor.
   """
   @spec paginate(
@@ -149,9 +167,11 @@ defmodule Letflow.Entities.Query.Cursor do
     sort = Map.get(request, :sort, [])
 
     with {:ok, page_size} <- Pagination.validate_page_size(Map.get(opts, :page_size)),
-         {:ok, raw_resume_key} <- decode_resume_key(Map.get(opts, :cursor)),
+         {:ok, bound_resume_key} <- decode_resume_key(Map.get(opts, :cursor)),
          {:ok, resolved_sort} <- resolve_sort(sort, allowlist),
-         {:ok, resume_terms} <- build_resume_terms(raw_resume_key, resolved_sort) do
+         {:ok, resume_terms} <-
+           build_resume_terms(resume_list(bound_resume_key), resolved_sort),
+         :ok <- check_binding(bound_resume_key, request.entity_type, resolved_sort) do
       rows =
         compiled_query
         |> apply_resume_filter(resume_terms)
@@ -163,7 +183,7 @@ defmodule Letflow.Entities.Query.Cursor do
 
       next_cursor =
         if extra? do
-          build_next_cursor(List.last(page_rows), resolved_sort)
+          build_next_cursor(List.last(page_rows), request.entity_type, resolved_sort)
         else
           nil
         end
@@ -175,7 +195,7 @@ defmodule Letflow.Entities.Query.Cursor do
   # ── Step 2 -- decode the opaque cursor into a raw resume_key() (design §2.2) ──
 
   @spec decode_resume_key(String.t() | nil) ::
-          {:ok, resume_key() | nil}
+          {:ok, bound_resume_key() | nil}
           | {:error, :invalid_cursor}
           | {:error, :wrong_endpoint}
           | {:error, :expired}
@@ -203,7 +223,8 @@ defmodule Letflow.Entities.Query.Cursor do
     case String.split(rest, ":", parts: 2) do
       [_mint_time_us_str, resume_key_json] ->
         case Jason.decode(resume_key_json) do
-          {:ok, list} when is_list(list) -> {:ok, list}
+          {:ok, %{"bind" => binding, "key" => list}} when is_list(list) -> {:ok, {binding, list}}
+          {:ok, list} when is_list(list) -> {:ok, {:unbound, list}}
           _ -> {:error, :invalid_cursor}
         end
 
@@ -211,6 +232,34 @@ defmodule Letflow.Entities.Query.Cursor do
         {:error, :invalid_cursor}
     end
   end
+
+  # ── Step 2b -- the binding of a minted cursor (GH #2698) ─────────────────────
+
+  # A next cursor carries the sort values of its last row. Those values are
+  # only meaningful for the entity type and sort clause that produced them;
+  # replayed under another sort they become a threshold on a field the
+  # replaying caller may not read (the walker checks only the replayed
+  # request's own clauses). So a minted key names both, and a replay must
+  # match. A key without a binding is a legacy cursor and is accepted as
+  # before; the walker still checks its sort.
+  @spec binding(String.t(), [resolved_sort_term()]) :: [term()]
+  defp binding(entity_type, resolved_sort) do
+    [entity_type | Enum.map(resolved_sort, &[&1.name, to_string(&1.dir)])]
+  end
+
+  @spec check_binding(bound_resume_key() | nil, String.t(), [resolved_sort_term()]) ::
+          :ok | {:error, :invalid_cursor}
+  defp check_binding(nil, _entity_type, _resolved_sort), do: :ok
+  defp check_binding({:unbound, _key}, _entity_type, _resolved_sort), do: :ok
+
+  defp check_binding({bound, _key}, entity_type, resolved_sort) do
+    if bound == binding(entity_type, resolved_sort),
+      do: :ok,
+      else: {:error, :invalid_cursor}
+  end
+
+  defp resume_list(nil), do: nil
+  defp resume_list({_binding_or_unbound, key}), do: key
 
   # ── Step 3 -- resolve every sort clause against the allowlist ──────────────
 
@@ -465,7 +514,7 @@ defmodule Letflow.Entities.Query.Cursor do
   # module's moduledoc "The `record_id` tiebreaker") is read via the exact
   # same two-clause idiom those functions use, rather than inventing a
   # third pattern.
-  defp build_next_cursor(row, resolved_sort) do
+  defp build_next_cursor(row, entity_type, resolved_sort) do
     mint_time_us = System.system_time(:microsecond)
     record_id = read_record_id(row)
 
@@ -476,7 +525,11 @@ defmodule Letflow.Entities.Query.Cursor do
         |> encode_component(term.type)
       end)
 
-    resume_key_json = Jason.encode!(resume_values ++ [record_id])
+    resume_key_json =
+      Jason.encode!(%{
+        "bind" => binding(entity_type, resolved_sort),
+        "key" => resume_values ++ [record_id]
+      })
 
     @cursor_prefix
     |> Pagination.build_raw_cursor(mint_time_us, resume_key_json)
