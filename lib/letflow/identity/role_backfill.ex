@@ -87,10 +87,10 @@ defmodule Letflow.Identity.RoleBackfill do
   from TENANT_ADMIN does not regain it, while still receiving newly seeded roles. The
   `role_claims_sync.reset` audit row lists those users in `revocation_honored_user_ids`.
 
-  GH 2547 (FU-1, known limitation): the marker reset runs in its own transaction after
-  the seed committed. If it fails (now also on an audit failure), a re-run classifies
-  the tenant `:unchanged` (its bindings exist) and never resets its markers. Same shape
-  as any earlier reset failure; tracked as a follow-up, not handled here.
+  GH 2572 (closes GH 2547 FU-1): each tenant's seed, marker reset and audit row run in ONE
+  transaction (`backfill_tenant/2`). If the reset or its audit fails, the seed rolls back with
+  it, so the tenant is never left seeded-but-unreset: a re-run classifies it `:seeded` again and
+  completes it. Nothing is recorded per tenant outside that transaction.
   """
 
   import Ecto.Query
@@ -109,29 +109,29 @@ defmodule Letflow.Identity.RoleBackfill do
   Sweeps every tenant registered in `Letflow.TenantProvisioning.list_registrations/0`,
   seeding the platform-role bindings (REQ-448: eight roles, `PLATFORM_ADMIN` only in the
   platform tenant) for each via
-  `Letflow.Identity.RoleRegistry.seed_default_platform_role_groups/1`.
+  `Letflow.Identity.RoleRegistry.seed_default_platform_role_groups_report/1`.
 
-  For every tenant this call genuinely seeds (`:seeded`, per `classify/3`'s
-  existing "missed a role of `RoleRegistry.seedable_role_names/1` before this call" test),
-  ISS-0910 additionally bulk-resets `role_claims_synced_at` to `nil` for every
-  user row in that tenant's own schema
-  (`reset_role_claims_sync_markers/1`, in a transaction separate from
-  `seed_default_platform_role_groups/1`'s own — see
-  `lib/letflow/design/iss0910-role-backfill-resync-marker-reset.md` §2), so
-  that tenant's existing users re-run `Letflow.Identity.sync_role_claims_from_token/3`
-  on their next login/token verification instead of staying stuck with
-  whatever (possibly stale, pre-backfill) claims their marker last recorded.
-  `:unchanged` tenants are never touched by this reset (design §0/§7 INV-BF5).
+  Each tenant is one transaction (`backfill_tenant/2`): the seed, and for a tenant this call
+  genuinely seeds (`:seeded`, per `classify/4`'s existing "missed a role of
+  `RoleRegistry.seedable_role_names/1` before this call" test) the bulk reset of
+  `role_claims_synced_at` to `nil` for every user row in that tenant's own schema
+  (`reset_role_claims_sync_markers/2`, ISS-0910, audited by GH 2547), commit or roll back
+  together (GH 2572). `:unchanged` tenants are never touched by the reset (design §0/§7 INV-BF5).
+
+  `opts[:report]`, when given, is called once per tenant as the sweep reaches it, with
+  `{tenant_id, :unchanged}`, `{tenant_id, {:seeded, markers_reset}}` or
+  `{tenant_id, {:failed, reason_class}}` (see `reason_class/1`; no user data). The mix task
+  prints these lines.
 
   Returns `{:ok, %{seeded: [tenant_id], unchanged: [tenant_id], role_claims_markers_reset: count}}`
   on success — `seeded`/`unchanged` in the same order `list_registrations/0`
   returned them (design §2.1 step 3), `role_claims_markers_reset` the sum
   across every `:seeded` tenant of that tenant's own reset row count (design
   §5) — or the halted `{:error, {:backfill_failed, tenant_id, reason}}` from
-  the first tenant whose `seed_default_platform_role_groups/1` call, or
-  whose marker reset, failed.
+  the first tenant that fails. A halted run is safe to re-run: the failed tenant was rolled
+  back, and every tenant before it is already complete.
   """
-  @spec run() ::
+  @spec run(opts :: [report: (term() -> any())]) ::
           {:ok,
            %{
              seeded: [Ecto.UUID.t()],
@@ -140,7 +140,9 @@ defmodule Letflow.Identity.RoleBackfill do
              skipped_enforced: [Ecto.UUID.t()]
            }}
           | {:error, {:backfill_failed, tenant_id :: Ecto.UUID.t(), reason :: term()}}
-  def run do
+  def run(opts \\ []) do
+    report = Keyword.get(opts, :report, fn _outcome -> :ok end)
+
     # GH 2547 (design 2.5): one generated trace id per run, shared by every
     # `role_claims_sync.reset` audit row of the sweep and its log lines.
     Letflow.Obs.Logger.with_trace(fn ->
@@ -148,40 +150,98 @@ defmodule Letflow.Identity.RoleBackfill do
       |> Enum.reduce_while(
         {:ok, %{seeded: [], unchanged: [], role_claims_markers_reset: 0, skipped_enforced: []}},
         fn registration, {:ok, acc} ->
-          process_registration(registration, acc)
+          process_registration(registration, acc, report)
         end
       )
       |> finalize()
     end)
   end
 
-  @spec process_registration(Registration.t(), %{
-          seeded: [Ecto.UUID.t()],
-          unchanged: [Ecto.UUID.t()],
-          role_claims_markers_reset: non_neg_integer(),
-          skipped_enforced: [Ecto.UUID.t()]
-        }) ::
+  @spec process_registration(Registration.t(), map(), (term() -> any())) ::
           {:cont, {:ok, map()}} | {:halt, {:error, {:backfill_failed, Ecto.UUID.t(), term()}}}
-  defp process_registration(%Registration{tenant_id: tenant_id, schema_name: schema_name}, acc) do
-    held_platform_role_names_before = held_platform_role_names(schema_name)
+  defp process_registration(
+         %Registration{tenant_id: tenant_id, schema_name: schema_name},
+         acc,
+         report
+       ) do
+    case backfill_tenant(tenant_id, schema_name) do
+      {:ok, outcome} ->
+        report.({tenant_id, report_outcome(outcome)})
+        {:cont, {:ok, record(acc, tenant_id, outcome)}}
 
-    with {:ok, %{skipped_enforced: skipped}} <-
-           RoleRegistry.seed_default_platform_role_groups_report(prefix: schema_name),
-         acc = note_skipped_enforced(acc, tenant_id, skipped),
-         {:ok, acc} <- classify(acc, tenant_id, schema_name, held_platform_role_names_before) do
-      {:cont, {:ok, acc}}
-    else
-      {:error, reason} -> {:halt, {:error, {:backfill_failed, tenant_id, reason}}}
+      {:error, reason} ->
+        report.({tenant_id, {:failed, reason_class(reason)}})
+        {:halt, {:error, {:backfill_failed, tenant_id, reason}}}
     end
+  end
+
+  # GH 2572: the seed, the marker reset and its audit row are ONE transaction per tenant. A
+  # failure at any step takes the seed back with it, so a tenant is never left seeded but
+  # unreset: a returned error rolls back via Repo.rollback/1, and a raise rolls back as Ecto
+  # re-raises it into the rescue below. A re-run then starts from the same state and classifies
+  # the tenant :seeded again. Nothing is written outside this transaction.
+  @spec backfill_tenant(Ecto.UUID.t(), String.t()) ::
+          {:ok,
+           %{
+             status: :seeded | :unchanged,
+             markers_reset: non_neg_integer(),
+             skipped: [String.t()]
+           }}
+          | {:error, term()}
+  defp backfill_tenant(tenant_id, schema_name) do
+    Repo.transaction(
+      fn ->
+        held_platform_role_names_before = held_platform_role_names(schema_name)
+
+        with {:ok, %{skipped_enforced: skipped}} <-
+               RoleRegistry.seed_default_platform_role_groups_report(prefix: schema_name),
+             {:ok, outcome} <-
+               classify(tenant_id, schema_name, held_platform_role_names_before, skipped) do
+          outcome
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end,
+      prefix: schema_name
+    )
   rescue
     # See this module's moduledoc "Deviation from the design doc" section --
     # mirrors Letflow.TenantProvisioning.replay_all_pending/0's identical
     # try/rescue for the same "tenant schema vanished mid-sweep" case, which
     # seed_default_platform_role_groups/1 (unlike Registry.register_type/2)
     # does not itself guard against.
-    exception ->
-      {:halt, {:error, {:backfill_failed, tenant_id, {:unexpected_exception, exception}}}}
+    exception -> {:error, {:unexpected_exception, exception}}
   end
+
+  defp record(acc, tenant_id, %{status: status, markers_reset: reset_count, skipped: skipped}) do
+    acc = note_skipped_enforced(acc, tenant_id, skipped)
+
+    case status do
+      :seeded ->
+        %{
+          acc
+          | seeded: [tenant_id | acc.seeded],
+            role_claims_markers_reset: acc.role_claims_markers_reset + reset_count
+        }
+
+      :unchanged ->
+        %{acc | unchanged: [tenant_id | acc.unchanged]}
+    end
+  end
+
+  defp report_outcome(%{status: :seeded, markers_reset: reset_count}), do: {:seeded, reset_count}
+  defp report_outcome(%{status: :unchanged}), do: :unchanged
+
+  @doc """
+  The class of a `run/0` failure reason, safe to print: the exception module of an unexpected
+  exception, or the tag of the reason. Never the message, which can carry tenant data.
+  """
+  @spec reason_class(term()) :: atom()
+  def reason_class({:unexpected_exception, %{__struct__: module}}), do: module
+  def reason_class({:audit_failed, _reason}), do: :audit_failed
+  def reason_class({tag, _detail}) when is_atom(tag), do: tag
+  def reason_class(reason) when is_atom(reason), do: reason
+  def reason_class(_reason), do: :unknown
 
   # REQ-519 2e-a (S-1): a tenant stored `on` gets a missing binding WITHOUT a grant row; it is
   # listed (once) so the sweep result shows it. The sweep itself carries on.
@@ -192,13 +252,11 @@ defmodule Letflow.Identity.RoleBackfill do
 
   # Only a genuinely `:seeded` tenant (missed a role of
   # RoleRegistry.seedable_role_names/1 before this call) gets its users'
-  # role_claims_synced_at markers
-  # reset -- design §2 shape (a): the gate stays visible here, at the same
-  # call site classify/3 already uses, rather than hidden inside
-  # reset_role_claims_sync_markers/1 itself.
-  @spec classify(map(), Ecto.UUID.t(), String.t(), [String.t()]) ::
+  # role_claims_synced_at markers reset -- design §2 shape (a): the gate stays visible here,
+  # at the same call site, rather than hidden inside reset_role_claims_sync_markers/2 itself.
+  @spec classify(Ecto.UUID.t(), String.t(), [String.t()], [String.t()]) ::
           {:ok, map()} | {:error, {:audit_failed, term()}}
-  defp classify(acc, tenant_id, schema_name, held_platform_role_names_before) do
+  defp classify(tenant_id, schema_name, held_platform_role_names_before, skipped) do
     # REQ-447: no hard-coded count; PLATFORM_ADMIN is only seedable in the
     # platform tenant, so the entitled set differs per tenant.
     missing? =
@@ -208,15 +266,10 @@ defmodule Letflow.Identity.RoleBackfill do
 
     if missing? do
       with {:ok, reset_count} <- reset_role_claims_sync_markers(schema_name, tenant_id) do
-        {:ok,
-         %{
-           acc
-           | seeded: [tenant_id | acc.seeded],
-             role_claims_markers_reset: acc.role_claims_markers_reset + reset_count
-         }}
+        {:ok, %{status: :seeded, markers_reset: reset_count, skipped: skipped}}
       end
     else
-      {:ok, %{acc | unchanged: [tenant_id | acc.unchanged]}}
+      {:ok, %{status: :unchanged, markers_reset: 0, skipped: skipped}}
     end
   end
 
@@ -226,73 +279,66 @@ defmodule Letflow.Identity.RoleBackfill do
     |> Repo.all(prefix: schema_name)
   end
 
-  # ISS-0910: bulk-clears role_claims_synced_at for every user in this
-  # tenant's own schema, in its own transaction separate from
-  # seed_default_platform_role_groups/1's (design §2). "Every user with a
-  # membership in tenant X" is exactly "every row of tenant X's own `users`
-  # table" -- users carries no tenant_id column (Decision 0006 D1/D2); the
-  # tenant's own Postgres schema is the entire scoping mechanism, so no
-  # `where` clause is needed (design §0/§1). Naturally idempotent at the SQL
-  # level (design §3): re-nulling an already-nil column is a no-op write.
+  # ISS-0910: bulk-clears role_claims_synced_at for every user in this tenant's own schema.
+  # "Every user with a membership in tenant X" is exactly "every row of tenant X's own `users`
+  # table" -- users carries no tenant_id column (Decision 0006 D1/D2); the tenant's own Postgres
+  # schema is the entire scoping mechanism, so no `where` clause is needed (design §0/§1).
+  # Naturally idempotent at the SQL level (design §3): re-nulling an already-nil column is a no-op.
   #
-  # GH 2547 (design 3.8): the reset re-opens the one-time IdP sync, which can re-grant
-  # a TENANT_ADMIN membership an admin removed, so it is audited: one
-  # `role_claims_sync.reset` row per tenant (one operator act; per-user rows would take
-  # the chain lock once per user), in the same transaction as the update. A non-raising
-  # audit failure rolls back; a raise reaches process_registration/2's rescue. Either
-  # way the markers are unchanged. Same update, same count as before.
+  # GH 2547 (design 3.8): the reset re-opens the one-time IdP sync, which can re-grant a
+  # TENANT_ADMIN membership an admin removed, so it is audited: one `role_claims_sync.reset` row
+  # per tenant (one operator act; per-user rows would take the chain lock once per user).
+  #
+  # GH 2572: runs inside backfill_tenant/2's transaction, not its own. An `{:error, _}` return
+  # is rolled back by the caller; a raise (a non-raising audit failure is returned, a raising one
+  # is not) propagates the same way. Either way the markers and the seed are unchanged.
   @spec reset_role_claims_sync_markers(schema_name :: String.t(), tenant_id :: Ecto.UUID.t()) ::
           {:ok, non_neg_integer()} | {:error, {:audit_failed, term()}}
   defp reset_role_claims_sync_markers(schema_name, tenant_id) do
-    Repo.transaction(
-      fn ->
-        with_marker =
-          from(u in User,
-            where: not is_nil(u.role_claims_synced_at),
-            select: u.id,
-            order_by: u.id
-          )
-          |> Repo.all(prefix: schema_name)
+    with_marker =
+      from(u in User,
+        where: not is_nil(u.role_claims_synced_at),
+        select: u.id,
+        order_by: u.id
+      )
+      |> Repo.all(prefix: schema_name)
 
-        {reset_count, reset_ids} =
-          Repo.update_all(from(u in User, select: u.id), [set: [role_claims_synced_at: nil]],
-            prefix: schema_name
-          )
+    {reset_count, reset_ids} =
+      Repo.update_all(from(u in User, select: u.id), [set: [role_claims_synced_at: nil]],
+        prefix: schema_name
+      )
 
-        reset_ids = Enum.sort(reset_ids)
+    reset_ids = Enum.sort(reset_ids)
 
-        # GH 2558: informational only. The reset set is unchanged (every user re-syncs, so newly
-        # seeded roles still arrive); the next sync withholds a group whose explicit revocation
-        # is in force, so these users do not regain it.
-        honored_ids =
-          reset_ids
-          |> RoleRevocations.users_with_revocation(schema_name)
-          |> Enum.sort()
+    # GH 2558: informational only. The reset set is unchanged (every user re-syncs, so newly
+    # seeded roles still arrive); the next sync withholds a group whose explicit revocation
+    # is in force, so these users do not regain it.
+    honored_ids =
+      reset_ids
+      |> RoleRevocations.users_with_revocation(schema_name)
+      |> Enum.sort()
 
-        attrs = %{
-          actor_id: nil,
-          action: "role_claims_sync.reset",
-          resource_type: "tenant",
-          resource_id: tenant_id,
-          trace_id: AuditContext.current_trace_id(),
-          before_state: %{"users_with_marker" => with_marker, "count" => length(with_marker)},
-          after_state: %{
-            "reset_user_ids" => reset_ids,
-            "reset_count" => reset_count,
-            "revocation_honored_user_ids" => honored_ids,
-            "revocation_honored_count" => length(honored_ids),
-            "source" => "role_backfill",
-            "effect" => "next_login_resyncs_idp_role_claims"
-          }
-        }
+    attrs = %{
+      actor_id: nil,
+      action: "role_claims_sync.reset",
+      resource_type: "tenant",
+      resource_id: tenant_id,
+      trace_id: AuditContext.current_trace_id(),
+      before_state: %{"users_with_marker" => with_marker, "count" => length(with_marker)},
+      after_state: %{
+        "reset_user_ids" => reset_ids,
+        "reset_count" => reset_count,
+        "revocation_honored_user_ids" => honored_ids,
+        "revocation_honored_count" => length(honored_ids),
+        "source" => "role_backfill",
+        "effect" => "next_login_resyncs_idp_role_claims"
+      }
+    }
 
-        case Audit.insert_entry(Repo, attrs, schema_name) do
-          {:ok, _entry} -> reset_count
-          {:error, reason} -> Repo.rollback({:audit_failed, reason})
-        end
-      end,
-      prefix: schema_name
-    )
+    case Audit.insert_entry(Repo, attrs, schema_name) do
+      {:ok, _entry} -> {:ok, reset_count}
+      {:error, reason} -> {:error, {:audit_failed, reason}}
+    end
   end
 
   @spec finalize({:ok, map()} | {:error, term()}) ::

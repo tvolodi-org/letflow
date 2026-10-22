@@ -295,6 +295,77 @@ defmodule Letflow.Identity.RoleBackfillTest do
   end
 
   # ---------------------------------------------------------------------------------
+  # GH 2572: a failed marker reset must not leave a seeded-but-unreset tenant behind
+  # ---------------------------------------------------------------------------------
+
+  # Injected failure (same shape as gh2547_ta_audit_paths_test.exs T-19): a trigger on this
+  # tenant's audit_entries that raises on the marker reset's audit row only.
+  defp create_reset_fault_trigger!(schema_name) do
+    Repo.query!(
+      ~s|CREATE FUNCTION "#{schema_name}".gh2572_fail_reset() RETURNS trigger LANGUAGE plpgsql AS $$ | <>
+        ~s|BEGIN IF NEW.action = 'role_claims_sync.reset' THEN RAISE EXCEPTION 'injected fault (GH 2572 test)'; END IF; | <>
+        ~s|RETURN NEW; END $$|
+    )
+
+    Repo.query!(
+      ~s|CREATE TRIGGER gh2572_fail_reset BEFORE INSERT ON "#{schema_name}".audit_entries | <>
+        ~s|FOR EACH ROW EXECUTE FUNCTION "#{schema_name}".gh2572_fail_reset()|
+    )
+  end
+
+  defp drop_reset_fault_trigger!(schema_name) do
+    Repo.query!(~s|DROP TRIGGER IF EXISTS gh2572_fail_reset ON "#{schema_name}".audit_entries|)
+    Repo.query!(~s|DROP FUNCTION IF EXISTS "#{schema_name}".gh2572_fail_reset()|)
+  end
+
+  describe "run/0 completes a tenant whose marker reset failed on an earlier run (GH 2572)" do
+    test "the failed reset rolls the tenant's seed back; the re-run seeds it, resets its markers and reports it, and a fully seeded tenant stays unchanged" do
+      past = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:microsecond)
+
+      %{tenant_id: failing_tenant_id, schema_name: failing_schema} =
+        platform_admin_only_tenant_fixture!("gh2572-failing")
+
+      failing_user = insert_user!(failing_schema)
+      stamp_role_claims_synced_at!(failing_user, failing_schema, past)
+
+      %{tenant_id: intact_tenant_id, schema_name: intact_schema} =
+        TenantFixture.provisioned_tenant!(
+          slug_prefix: "gh2572-intact",
+          display_name: "GH 2572 fully seeded fixture"
+        )
+
+      {:ok, _} = RoleRegistry.seed_default_platform_role_groups(prefix: intact_schema)
+      intact_user = insert_user!(intact_schema)
+      stamp_role_claims_synced_at!(intact_user, intact_schema, past)
+
+      create_reset_fault_trigger!(failing_schema)
+
+      try do
+        assert {:error, {:backfill_failed, ^failing_tenant_id, _reason}} = RoleBackfill.run()
+
+        # The seed and the reset are one unit: the failed reset took the seed with it, so the
+        # tenant is exactly as it was before the run.
+        refute "TENANT_ADMIN" in platform_role_names(failing_schema)
+
+        assert reload_user!(failing_user, failing_schema).role_claims_synced_at ==
+                 past
+      after
+        drop_reset_fault_trigger!(failing_schema)
+      end
+
+      # The re-run classifies the failing tenant from the same starting point as a first run:
+      # :seeded, markers reset, reported. The intact tenant is :unchanged and keeps its marker.
+      assert {:ok, %{seeded: seeded, unchanged: unchanged}} = RoleBackfill.run()
+      assert failing_tenant_id in seeded
+      assert intact_tenant_id in unchanged
+
+      assert reload_user!(failing_user, failing_schema).role_claims_synced_at == nil
+      assert reload_user!(intact_user, intact_schema).role_claims_synced_at == past
+      assert "TENANT_ADMIN" in platform_role_names(failing_schema)
+    end
+  end
+
+  # ---------------------------------------------------------------------------------
   # ISS-0910: role_claims_synced_at reset on the seeded/:unchanged split
   # ---------------------------------------------------------------------------------
   #
