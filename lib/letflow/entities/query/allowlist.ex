@@ -42,9 +42,9 @@ defmodule Letflow.Entities.Query.Allowlist do
           required(:source) => field_source(),
           required(:type) => Definition.field_type(),
           required(:enum_values) => [String.t()] | nil,
-          # GH #2654: a strict decimal field carries its scale; nil/false for any other field.
-          optional(:decimal_scale) => non_neg_integer() | nil,
-          optional(:decimal_strict) => boolean()
+          # GH #2654/#2774: the scale of a strict decimal field, nil for any other field. One
+          # key, so "strict without a scale" is not representable.
+          required(:strict_decimal_scale) => non_neg_integer() | nil
         }
 
   @typedoc """
@@ -252,6 +252,21 @@ defmodule Letflow.Entities.Query.Allowlist do
           | {:error, :invalid_schema_name}
           | {:error, :entity_type_not_found}
   def load(entity_type, prefix) when is_binary(entity_type) and is_binary(prefix) do
+    with {:ok, allowlist, _strict_specs} <- load(entity_type, prefix, :with_specs),
+         do: {:ok, allowlist}
+  end
+
+  @doc """
+  `load/2` plus the strict decimal specs (`Decimals.specs()`) of the SAME active definition row,
+  as `{:ok, allowlist, strict_specs}` (GH #2773). A read response renders a strict field that is
+  not `queried` too, so the specs come from the definition, not from the allowlist entries; this
+  hands them to the router without a second definition read. Same errors as `load/2`.
+  """
+  @spec load(entity_type :: String.t(), prefix :: String.t(), :with_specs) ::
+          {:ok, allowlist(), Decimals.specs()}
+          | {:error, :invalid_schema_name}
+          | {:error, :entity_type_not_found}
+  def load(entity_type, prefix, :with_specs) when is_binary(entity_type) and is_binary(prefix) do
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, entity_definition} <- fetch_active_definition(entity_type, prefix) do
       structural_names = MapSet.new(Map.keys(typed_columns()))
@@ -281,8 +296,7 @@ defmodule Letflow.Entities.Query.Allowlist do
              source: :typed_column,
              type: type,
              enum_values: nil,
-             decimal_scale: nil,
-             decimal_strict: false
+             strict_decimal_scale: nil
            }}
         end)
 
@@ -324,7 +338,7 @@ defmodule Letflow.Entities.Query.Allowlist do
         |> Map.merge(typed_column_entries)
         |> Map.merge(promoted_typed_column_entries)
 
-      {:ok, allowlist}
+      {:ok, allowlist, Decimals.specs_from_definition_json(entity_definition.definition_json)}
     end
   end
 
@@ -449,10 +463,7 @@ defmodule Letflow.Entities.Query.Allowlist do
   end
 
   defp decimal_keys(decimal_info, name) do
-    case Map.fetch(decimal_info, name) do
-      {:ok, scale} -> %{decimal_scale: scale, decimal_strict: true}
-      :error -> %{decimal_scale: nil, decimal_strict: false}
-    end
+    %{strict_decimal_scale: Map.get(decimal_info, name)}
   end
 
   # REQ-301: same decode `Letflow.TenantProvisioning.field_from_persisted/1`

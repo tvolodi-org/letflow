@@ -38,7 +38,7 @@ defmodule Letflow.ScopeEnforcement.RefusedAudit do
           tenant_id :: Ecto.UUID.t(),
           prefix :: String.t(),
           previous :: Letflow.ScopeEnforcement.stored_mode(),
-          failed :: [atom()],
+          failed :: [OnGate.on_precondition() | :shadow_required],
           detail :: OnGate.report() | nil,
           attrs :: map()
         ) :: :ok

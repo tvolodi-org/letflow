@@ -280,6 +280,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.DefinitionAccess
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
+  alias Letflow.Entities.ImportAccess
   alias Letflow.Entities.ImportUpsert
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Allowlist
@@ -298,6 +299,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.ScopedWrites
   alias Letflow.Entities.ScopeResolver
   alias Letflow.Entities.TypeAccess
+  alias Letflow.Entities.WriteScope
   alias Letflow.EventStore.Registry.ValidationFailure
   alias Letflow.Idempotency
   alias Letflow.Repository.Artifact
@@ -1123,7 +1125,12 @@ defmodule Letflow.Routers.Entities do
       access ->
         case write_type_gate(access, entity_type, scope, prefix) do
           {:ok, declaration} ->
-            create_record_with_access(conn, entity_type, access, {scope, declaration})
+            create_record_with_access(
+              conn,
+              entity_type,
+              access,
+              WriteScope.new(scope, declaration)
+            )
 
           :refused ->
             scope_refused(conn, :EntitiesRecordsWrite, :write_value)
@@ -1160,7 +1167,13 @@ defmodule Letflow.Routers.Entities do
   # C-3: the pure new-value check, then the reference resolution (SEC BUG-1: a reference to an
   # out-of-scope record must answer like one to a nonexistent record); both run before the
   # idempotency claim and share the one refusal and telemetry kind.
-  defp check_new_scope_value({scope, declaration}, field_values, policy, entity_type, prefix) do
+  defp check_new_scope_value(
+         %WriteScope{scope: scope, declaration: declaration},
+         field_values,
+         policy,
+         entity_type,
+         prefix
+       ) do
     with :ok <- ScopedWrites.check_new_value(field_values, declaration, scope),
          :ok <- ScopedWrites.check_references_of_type(entity_type, field_values, scope, prefix) do
       :ok
@@ -1176,7 +1189,7 @@ defmodule Letflow.Routers.Entities do
     Response.not_found(conn)
   end
 
-  defp create_record_with_access(conn, entity_type, access, {scope, _declaration} = scoped) do
+  defp create_record_with_access(conn, entity_type, access, %WriteScope{scope: scope} = scoped) do
     prefix = prefix!(conn)
 
     actor_id = conn.assigns.auth_context.user_id
@@ -1292,7 +1305,7 @@ defmodule Letflow.Routers.Entities do
          {:ok, attrs} <- validate_schema(@record_update_schema, body),
          :ok <-
            check_new_scope_value(
-             {scope, declaration},
+             WriteScope.new(scope, declaration),
              Map.fetch!(attrs, "field_values"),
              :EntitiesRecordsWrite,
              entity_type,
@@ -1551,7 +1564,7 @@ defmodule Letflow.Routers.Entities do
              actor_id,
              import_request_id,
              prefix,
-             {access, scope}
+             ImportAccess.new(access, scope)
            ) do
         {:ok, results} ->
           Response.ok(conn, %{"results" => Enum.map(results, &import_entry_result_json/1)})
@@ -1687,7 +1700,7 @@ defmodule Letflow.Routers.Entities do
          actor_id,
          import_request_id,
          prefix,
-         access_and_scope
+         import_access
        ),
        do:
          run_import(
@@ -1696,12 +1709,12 @@ defmodule Letflow.Routers.Entities do
            actor_id,
            import_request_id,
            prefix,
-           access_and_scope
+           import_access
          )
 
   # Pre-check once (the schema-version read, then the decision `RecordAccess.write/3` already
   # made), then the per-entry upsert. A scoped caller never reaches it (`import_scope_check/6`
-  # refuses upsert mode for it), so the scope in the pair is always `:all`.
+  # refuses upsert mode for it), so the scope in the struct is always `:all`.
   defp run_import_mode(
          :upsert,
          records,
@@ -1709,7 +1722,7 @@ defmodule Letflow.Routers.Entities do
          actor_id,
          import_request_id,
          prefix,
-         {access, :all}
+         %ImportAccess{access: access, scope: :all}
        ) do
     with {:ok, restricted} <- ImportUpsert.precheck(access, prefix) do
       {:ok,
@@ -1772,7 +1785,7 @@ defmodule Letflow.Routers.Entities do
          actor_id,
          import_request_id,
          prefix,
-         {access, scope}
+         %ImportAccess{access: access, scope: scope}
        ) do
     source_record_id = Map.get(entry, "record_id")
     field_values = Map.get(entry, "field_values", %{})
@@ -2005,10 +2018,15 @@ defmodule Letflow.Routers.Entities do
   @doc false
   @spec render_record_command(Plug.Conn.t(), term(), :created | :ok, MapSet.t(String.t())) ::
           Plug.Conn.t()
-  def render_record_command(conn, {:ok, %{record: %Latest{} = record}}, status, restricted)
+  def render_record_command(
+        conn,
+        {:ok, %{record: %Latest{} = record} = result},
+        status,
+        restricted
+      )
       when status in [:created, :ok] do
     record = redact_record(record, restricted)
-    body = record_map(record, strict_specs_for(record.entity_type, prefix!(conn)))
+    body = record_map(record, command_specs(result, record, conn))
 
     case status do
       :created -> Response.created(conn, body)
@@ -2018,6 +2036,13 @@ defmodule Letflow.Routers.Entities do
 
   def render_record_command(conn, result, status, _restricted),
     do: render_record_command(conn, result, status)
+
+  # GH #2773: the specs the command validated against (`Records` result); a result built without
+  # them (a hand-made one in a unit test) falls back to one definition read.
+  defp command_specs(%{strict_specs: specs}, _record, _conn) when is_map(specs), do: specs
+
+  defp command_specs(_result, %Latest{entity_type: entity_type}, conn),
+    do: strict_specs_for(entity_type, prefix!(conn))
 
   defp redact_record(%Latest{field_values: field_values} = record, restricted)
        when is_map(field_values) do
@@ -2629,10 +2654,11 @@ defmodule Letflow.Routers.Entities do
              exempt?: false
            }),
          {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
-         {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
+         {:ok, allowlist, primary_specs} <-
+           Allowlist.load(request.entity_type, prefix, :with_specs),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
          {:ok, redacted} <- redact(page, request, sets) do
-      specs = read_specs(request, prefix)
+      specs = read_specs(request, primary_specs, prefix)
 
       Response.ok(conn, %{
         "items" => Enum.map(redacted.items, &query_item_map(&1, specs)),
@@ -3070,10 +3096,11 @@ defmodule Letflow.Routers.Entities do
            ),
          {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
          :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
-         {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
+         {:ok, allowlist, primary_specs} <-
+           Allowlist.load(request.entity_type, prefix, :with_specs),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
          {:ok, redacted} <- export_redact(page, request, guard.sets, unredacted?) do
-      specs = read_specs(request, prefix)
+      specs = read_specs(request, primary_specs, prefix)
 
       Response.ok(conn, %{
         "record_export_schema_version" => @record_export_schema_version,
@@ -3467,7 +3494,11 @@ defmodule Letflow.Routers.Entities do
   # query allowlist: a strict field that is not queried must still be rendered. One lookup per
   # distinct type per request; `%{}` (a no-op renderer) when the type has no strict field or has
   # no active definition.
-  defp read_specs(request, prefix) do
+  #
+  # GH #2773: the primary's specs arrive from `Allowlist.load/3` (the definition row it already
+  # read for the allowlist); the router reads only the join targets, once per distinct type other
+  # than the primary.
+  defp read_specs(request, primary_specs, prefix) do
     joined_types =
       request
       |> Map.get(:join, [])
@@ -3475,8 +3506,12 @@ defmodule Letflow.Routers.Entities do
       |> Enum.uniq()
 
     %{
-      primary: strict_specs_for(request.entity_type, prefix),
-      joined: Map.new(joined_types, &{&1, strict_specs_for(&1, prefix)})
+      primary: primary_specs,
+      joined:
+        Map.new(joined_types, fn
+          entity_type when entity_type == request.entity_type -> {entity_type, primary_specs}
+          entity_type -> {entity_type, strict_specs_for(entity_type, prefix)}
+        end)
     }
   end
 

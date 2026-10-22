@@ -248,6 +248,140 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
     end
   end
 
+  defp recorded_queries_with(fun) do
+    parent = self()
+    handler = "gh2773-queries-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      Repo.config()[:telemetry_prefix] ++ [:query],
+      fn _event, _measurements, metadata, _config ->
+        if self() == parent, do: send(parent, {:query, Map.get(metadata, :query, "")})
+      end,
+      nil
+    )
+
+    result =
+      try do
+        fun.()
+      after
+        :telemetry.detach(handler)
+      end
+
+    {result, drain_queries([])}
+  end
+
+  defp drain_queries(acc) do
+    receive do
+      {:query, q} -> drain_queries([q | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  describe "GH #2773 -- the response renders with the definition the command already read" do
+    # `get_active_definition_by_name/2` is the only reader of `entity_definitions` on these paths.
+    defp definition_reads(queries, ctx) do
+      Enum.count(queries, &String.contains?(&1, ~s("#{ctx.schema_name}"."entity_definitions")))
+    end
+
+    defp attrs(ctx, extra) do
+      Map.merge(
+        %{entity_type: "ledger", actor_id: ctx.user_id, idempotency_key: Ecto.UUID.generate()},
+        extra
+      )
+    end
+
+    # Renders `result` exactly as the router does for a create/update/delete and returns the
+    # body with the number of definition reads the rendering issued.
+    defp render_reads(ctx, result, status) do
+      conn = conn(:get, "/")
+
+      {conn, queries} =
+        recorded_queries_with(fn ->
+          Letflow.Routers.Entities.render_record_command(conn, result, status, MapSet.new())
+        end)
+
+      {body_of(conn), definition_reads(queries, ctx)}
+    end
+
+    test "create, update and delete results carry the specs; rendering them issues no definition read" do
+      ctx = tenant_ctx("gh2773-w")
+
+      assert {:ok, %{strict_specs: %{"qty" => _, "hidden" => _}} = created} =
+               Letflow.Entities.Records.create_record(
+                 attrs(ctx, %{field_values: %{"qty" => "2.5", "hidden" => 7}}),
+                 ctx.schema_name
+               )
+
+      assert {%{"field_values" => %{"qty" => "2.50", "hidden" => "7.00"}}, 0} =
+               render_reads(ctx, {:ok, created}, :created)
+
+      id = created.record.record_id
+
+      assert {:ok, %{strict_specs: %{"qty" => _}} = updated} =
+               Letflow.Entities.Records.update_record(
+                 attrs(ctx, %{record_id: id, field_values: %{"qty" => 4}}),
+                 ctx.schema_name
+               )
+
+      assert {%{"field_values" => %{"qty" => "4.00"}}, 0} =
+               render_reads(ctx, {:ok, updated}, :ok)
+
+      assert {:ok, %{strict_specs: %{"qty" => _}} = deleted} =
+               Letflow.Entities.Records.delete_record(
+                 attrs(ctx, %{record_id: id}),
+                 ctx.schema_name
+               )
+
+      assert {%{"field_values" => %{"qty" => "4.00"}}, 0} =
+               render_reads(ctx, {:ok, deleted}, :ok)
+
+      # the already-deleted no-op success carries them as well
+      assert {:ok, %{strict_specs: %{"qty" => _}}} =
+               Letflow.Entities.Records.delete_record(
+                 attrs(ctx, %{record_id: id}),
+                 ctx.schema_name
+               )
+    end
+
+    test "a type with no strict field gets empty specs and an unchanged body" do
+      ctx = tenant_ctx("gh2773-p")
+
+      assert {:ok, %{strict_specs: specs} = result} =
+               Letflow.Entities.Records.create_record(
+                 attrs(ctx, %{entity_type: "plain", field_values: %{"amount" => 2.5}}),
+                 ctx.schema_name
+               )
+
+      assert specs == %{}
+
+      assert {%{"field_values" => %{"amount" => 2.5}}, 0} =
+               render_reads(ctx, {:ok, result}, :created)
+    end
+
+    test "Allowlist.load/3 hands back the specs of the definition it loaded, in the same reads" do
+      ctx = tenant_ctx("gh2773-a")
+      alias Letflow.Entities.Query.Allowlist
+
+      {{:ok, allowlist}, plain_queries} =
+        recorded_queries_with(fn -> Allowlist.load("ledger", ctx.schema_name) end)
+
+      {{:ok, with_specs, specs}, spec_queries} =
+        recorded_queries_with(fn -> Allowlist.load("ledger", ctx.schema_name, :with_specs) end)
+
+      assert with_specs == allowlist
+      assert specs == Definitions.strict_specs("ledger", ctx.schema_name)
+      # strict but not queried: the allowlist lacks it, the specs have it
+      assert %{"qty" => _, "hidden" => _} = specs
+      refute Map.has_key?(allowlist, "hidden")
+      assert length(spec_queries) == length(plain_queries)
+
+      assert {:error, :entity_type_not_found} =
+               Allowlist.load("nope", ctx.schema_name, :with_specs)
+    end
+  end
+
   describe "FieldGrants -- a restricted strict field stays redacted" do
     test "the renderer neither unmasks nor crashes on the redaction sentinel" do
       ctx = tenant_ctx("gh2654r-fg", ["TASK_WORKER"])
@@ -592,6 +726,49 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
     )
   end
 
+  # GH #2773: runs `fun` and returns the number of active-definition lookups (one `artifact_activations` read each) per type name
+  # (the type is told apart by the query's bound parameters).
+  defp definition_reads_by_type(fun, ctx) do
+    parent = self()
+    handler = "gh2773-by-type-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      Repo.config()[:telemetry_prefix] ++ [:query],
+      fn _event, _measurements, metadata, _config ->
+        query = Map.get(metadata, :query, "")
+
+        if self() == parent and
+             String.contains?(query, ~s("#{ctx.schema_name}"."artifact_activations")) do
+          send(parent, {:definition_read, Map.get(metadata, :params, [])})
+        end
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler)
+    end
+
+    ["ledger", "line", "tag"]
+    |> Map.new(fn type -> {type, 0} end)
+    |> Map.merge(
+      Enum.frequencies_by(drain_definition_reads([]), fn params ->
+        Enum.find(["ledger", "line", "tag"], &(&1 in params))
+      end)
+    )
+  end
+
+  defp drain_definition_reads(acc) do
+    receive do
+      {:definition_read, params} -> drain_definition_reads([params | acc])
+    after
+      0 -> acc
+    end
+  end
+
   describe "joined rows (review 1)" do
     setup do
       ctx = tenant_ctx("gh2654r-join")
@@ -664,6 +841,42 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
       assert item["tag"]["field_values"]["label"] == "t"
     end
 
+    # Pinned lookup counts per type (one `artifact_activations` read per active-definition
+    # lookup). The compiler, allowlist and cursor read definitions themselves; the router's
+    # specs step adds NO read for the primary type ("ledger") and exactly ONE per distinct join
+    # target ("line", "tag"). Restoring a router read of the primary raises "ledger" above 8.
+    @expected_join_reads %{"ledger" => 8, "line" => 4, "tag" => 4}
+
+    test "GH #2773: the query route adds no primary definition read, one per join target",
+         %{ctx: ctx} do
+      reads =
+        definition_reads_by_type(
+          fn ->
+            conn = query(ctx, %{"entity_type" => "ledger", "join" => @joins})
+            assert conn.status == 200, conn.resp_body
+          end,
+          ctx
+        )
+
+      assert reads == @expected_join_reads
+    end
+
+    test "GH #2773: the export route adds no primary definition read, one per join target",
+         %{ctx: ctx} do
+      reads =
+        definition_reads_by_type(
+          fn ->
+            conn =
+              request(:post, "/api/v1/entities/records/ledger/export", ctx, %{"join" => @joins})
+
+            assert conn.status == 200, conn.resp_body
+          end,
+          ctx
+        )
+
+      assert reads == @expected_join_reads
+    end
+
     test "export with a join renders the primary side", %{ctx: ctx} do
       conn = request(:post, "/api/v1/entities/records/ledger/export", ctx, %{"join" => @joins})
       assert conn.status == 200, conn.resp_body
@@ -684,8 +897,7 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
 
     test "the allowlist treats qty as a promoted typed column (non-vacuous)", %{ctx: ctx} do
       {:ok, allowlist} = Letflow.Entities.Query.Allowlist.load("ledger", ctx.schema_name)
-      assert %{source: :typed_column, type: :decimal, decimal_strict: true} = allowlist["qty"]
-      assert allowlist["qty"].decimal_scale == 2
+      assert %{source: :typed_column, type: :decimal, strict_decimal_scale: 2} = allowlist["qty"]
     end
 
     test "filters coerce exactly on the typed column", %{ctx: ctx} do

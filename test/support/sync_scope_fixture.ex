@@ -56,7 +56,7 @@ defmodule Letflow.Support.SyncScopeFixture do
 
   @doc "One run of the typed sync for `user` with `roles` claimed, under the fixed trace id."
   @spec sync(String.t(), User.t(), [String.t()]) ::
-          {:ok, User.t()} | {:suppressed, User.t(), map()}
+          {:ok, User.t()} | {:suppressed, User.t(), map()} | {:failed, User.t(), atom()}
   def sync(schema, %User{} = user, roles) do
     Identity.sync_role_claims_report(user, claims(roles),
       prefix: schema,
@@ -64,10 +64,16 @@ defmodule Letflow.Support.SyncScopeFixture do
     )
   end
 
-  @doc "The user (struct) of either result shape of the typed sync."
-  @spec result_user({:ok, User.t()} | {:suppressed, User.t(), map()}) :: User.t()
+  @doc "The user (struct) of any result shape of the typed sync."
+  @spec result_user(
+          {:ok, User.t()}
+          | {:suppressed, User.t(), map()}
+          | {:failed, User.t(), atom()}
+        ) ::
+          User.t()
   def result_user({:ok, %User{} = user}), do: user
   def result_user({:suppressed, %User{} = user, _summary}), do: user
+  def result_user({:failed, %User{} = user, _step}), do: user
 
   @doc """
   A fresh group bound as the PLATFORM role `role` (raw binding), with one raw group row per

@@ -411,7 +411,7 @@ defmodule Letflow.Identity.EnforcedWritersLockTest do
 
           assert {:ok, :ok} =
                    Repo.transaction(fn ->
-                     RoleScopeGrants.reconcile_binding!(pa, nil, renamed)
+                     RoleScopeGrants.reconcile_non_widening!(pa, nil, renamed)
                    end)
         end)
       end)
