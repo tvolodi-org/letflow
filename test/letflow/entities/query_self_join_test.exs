@@ -91,7 +91,7 @@ defmodule Letflow.Entities.QuerySelfJoinTest do
     record
   end
 
-  defp promote_and_create_table!(schema, tenant_id, entity_type, attribute, pg_type, opts \\ []) do
+  defp promote_and_create_table!(_schema, tenant_id, entity_type, attribute, pg_type, opts \\ []) do
     references_entity = Keyword.get(opts, :references_entity)
 
     column_spec =
@@ -163,14 +163,12 @@ defmodule Letflow.Entities.QuerySelfJoinTest do
       root = create_record!(schema, "node", %{"label" => "root"})
       unrelated_root = create_record!(schema, "node", %{"label" => "unrelated-root"})
 
-      child =
-        create_record!(schema, "node", %{"label" => "child", "parent_id" => root.record_id})
+      create_record!(schema, "node", %{"label" => "child", "parent_id" => root.record_id})
 
-      unrelated_child =
-        create_record!(schema, "node", %{
-          "label" => "unrelated-child",
-          "parent_id" => unrelated_root.record_id
-        })
+      create_record!(schema, "node", %{
+        "label" => "unrelated-child",
+        "parent_id" => unrelated_root.record_id
+      })
 
       # No `filters` here -- see the next test/this file's moduledoc-adjacent
       # comment for why a primary-side filter is a SEPARATE, pre-existing

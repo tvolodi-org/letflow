@@ -774,7 +774,7 @@ defmodule Letflow.IdentityMigrationTest do
     end
 
     test "ISS-0050 regression: a tenant schema missing one identity table makes the guard SKIP the drop, not raise 42P01" do
-      %{tenant: tenant, schema_name: schema_name} = provisioned_tenant!()
+      %{tenant: _tenant, schema_name: schema_name} = provisioned_tenant!()
 
       # Simulate the ISS-0050 scenario: a tenant_schemas registry row exists and
       # its schema is genuinely CREATE SCHEMA'd (provisioned_tenant!/0 already did

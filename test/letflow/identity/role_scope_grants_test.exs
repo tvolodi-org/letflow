@@ -80,7 +80,11 @@ defmodule Letflow.Identity.RoleScopeGrantsTest do
 
       assert_raise ArgumentError, ~r/use reconcile_non_widening!\/3/, fn ->
         in_tx(s, fn ->
-          RoleScopeGrants.reconcile_widening!(p("TASK_WORKER", g), p("TASK_WORKER", g), s)
+          apply(RoleScopeGrants, :reconcile_widening!, [
+            p("TASK_WORKER", g),
+            p("TASK_WORKER", g),
+            s
+          ])
         end)
       end
 

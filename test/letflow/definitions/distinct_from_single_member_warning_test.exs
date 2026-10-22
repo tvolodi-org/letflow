@@ -25,7 +25,6 @@ defmodule Letflow.Definitions.DistinctFromSingleMemberWarningTest do
   alias Letflow.Definitions.SolutionPackArtefactBase
   alias Letflow.Definitions.SolutionPackInstall
   alias Letflow.Definitions.ValidationWarnings
-  alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
   alias Letflow.Repo
   alias Letflow.SodSupport, as: S

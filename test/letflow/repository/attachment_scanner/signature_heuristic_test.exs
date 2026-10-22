@@ -48,7 +48,7 @@ defmodule Letflow.Repository.AttachmentScanner.SignatureHeuristicTest do
 
     test "never returns {:error, _} -- this adapter performs no I/O and cannot fail" do
       for bytes <- ["", "x", @eicar_signature, :binary.copy("a", 10_000)] do
-        refute match?({:error, _}, SignatureHeuristic.scan(bytes, "text/plain"))
+        assert elem(SignatureHeuristic.scan(bytes, "text/plain"), 0) == :ok
       end
     end
   end

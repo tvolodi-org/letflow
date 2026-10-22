@@ -116,7 +116,7 @@ defmodule Letflow.TenantProvisioning.ConstraintFkActivationTest do
   # idempotent-lookup-then-run shape
   # `Letflow.Entities.Definitions.ensure_column_promotions/2` itself now
   # uses.
-  defp promote_and_create_table!(schema, tenant_id, entity_type, attribute, pg_type) do
+  defp promote_and_create_table!(_schema, tenant_id, entity_type, attribute, pg_type) do
     row =
       case Repo.get_by(ColumnPromotion,
              tenant_id: tenant_id,

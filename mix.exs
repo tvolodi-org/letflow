@@ -8,6 +8,9 @@ defmodule Letflow.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      # Shared fixtures (`*_fixture.exs`) are loaded by Code.require_file/2 from the tests
+      # that use them; they are not test files and must not trip the filter warning.
+      test_ignore_filters: [~r/_fixture\.exs$/],
       deps: deps(),
       aliases: aliases()
     ]

@@ -18,7 +18,6 @@ defmodule Letflow.Modules.SolutionsTest do
 
   alias Letflow.Modules.Installs
   alias Letflow.Modules.Solutions
-  alias Letflow.Modules.TenantModule
   alias Letflow.TenantFixture
 
   # ═══════════════════════════════════════════════════════════════════════

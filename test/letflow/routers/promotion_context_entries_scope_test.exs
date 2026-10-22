@@ -30,8 +30,6 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
   alias Letflow.Support.PromotionScopeFixture, as: Scope
 
-  @allowlisted ~w(process_key base_version source_tenant_id target_tenant_id source_definition_id target_definition_id entries)
-  @envelope ~w(review_id plan_digest serialised_plan status requested_by def_type def_id created_at row_version)
   @reader ["TENANT_ADMIN"]
   @operator ["PLATFORM_ADMIN"]
 
