@@ -1419,17 +1419,21 @@ defmodule Letflow.Modules.Exam.Session do
       outcome = maybe_override_status(outcome0, status_override)
 
       with :ok <- persist_scores(session.record_id, scores, fv(session, "user_id"), prefix),
-           :ok <- update_session_after_submit(session_after, outcome, submitted_at, prefix),
-           :ok <- record_late_snapshot(provenance, session, snapshot, audit_actor_id, prefix) do
+           :ok <-
+             Snapshot.record_late_after_persist(
+               provenance,
+               session,
+               snapshot,
+               audit_actor_id,
+               prefix,
+               fn ->
+                 update_session_after_submit(session_after, outcome, submitted_at, prefix)
+               end
+             ) do
         {:ok, outcome}
       end
     end
   end
-
-  defp record_late_snapshot(:existing, _session, _snapshot, _actor_id, _prefix), do: :ok
-
-  defp record_late_snapshot(:late, session, snapshot, actor_id, prefix),
-    do: Snapshot.record_late(session, snapshot, actor_id, prefix)
 
   # `Scoring` returns only the atom for a keyless question; the id comes from the validated
   # snapshot rows (defence in depth: `Snapshot.to_scoring_questions/1` already rejects these).
