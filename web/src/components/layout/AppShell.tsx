@@ -21,7 +21,7 @@ interface NavItem {
   platformOnly?: boolean
 }
 
-const NAV_ITEMS: NavItem[] = [
+export const NAV_ITEMS: NavItem[] = [
   { to: '/instances',     label: 'Instances', permission: P.InstancesRead },
   { to: '/tasks',         label: 'My Tasks', permission: P.TasksRead },
   { to: '/definitions',  label: 'Definitions', permission: P.DefinitionsRead },
