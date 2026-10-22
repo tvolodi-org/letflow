@@ -237,6 +237,7 @@ Pass 1 MUSTs B-M1..B-M9 are folded in as: B-M1 -> D3 fence (wrapper, lint, tripw
    **RESOLVED.** Ruled by the advisor (letflow-ec) under the user's delegation, recorded by the supervisor, 2026-10-15. No new `entity_def_version` on MIGRATED; the event records the step separately. Moved into D3.
 14. Enumerating event consumers and the exact table names the wrapper refuses (D3), `pg_stat_xact_user_tables` behaviour and its per-read cost with many tenants: implementation-time verification, NOT VERIFIED here (the role enumeration source is now verified, D7.1).
    **Decided by the BA under delegation (2026-10-15); the advisor may veto.** Decision: implementation-time verification task with a CI test; remains NOT VERIFIED in this draft.
+15. Pilot note (GH #2671): `tenant_modules` has NO status column (`lib/letflow/entities/handler_writes.ex` ~:496, comment above the module recheck), so the run-time recheck of a module write handler's owning module only checks that the `tenant_modules` row exists. An uninstall or disable design under this record MUST either add a state column or delete the row, and keep that recheck correct (a disabled module must not pass it). Open until the uninstall record is written.
 
 ## Sign-off
 

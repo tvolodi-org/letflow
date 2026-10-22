@@ -77,6 +77,7 @@ defmodule Letflow.Engine.SubProcess do
   alias Letflow.Definitions.SnapshotStore
   alias Letflow.Definitions.SubProcessInterface
   alias Letflow.Engine.ExecutionError
+  alias Letflow.Engine.IdempotentReplay
   alias Letflow.Engine.InstanceState
   alias Letflow.Engine.PinResolver
   alias Letflow.Engine.Task
@@ -706,8 +707,11 @@ defmodule Letflow.Engine.SubProcess do
         )
     }
 
-    case EventStore.append(event_attrs, prefix: prefix) do
+    # GH #2577 (D-2): a key claimed by another request is reuse; the Multi fails before the
+    # parent projection is reconciled, so no write follows the aborted connection.
+    case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
+      {:error, {:idempotent_replay, _original}} -> {:error, :idempotency_key_reuse}
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end
@@ -1501,8 +1505,11 @@ defmodule Letflow.Engine.SubProcess do
         )
     }
 
-    case EventStore.append(event_attrs, prefix: prefix) do
+    # GH #2577 (D-2): a key claimed by another request is reuse; the Multi fails before the
+    # parent projection is reconciled, so no write follows the aborted connection.
+    case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
+      {:error, {:idempotent_replay, _original}} -> {:error, :idempotency_key_reuse}
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end

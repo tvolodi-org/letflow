@@ -492,6 +492,26 @@ defmodule Letflow.EventStore.Registry.JsonSchemaTest do
   # not rejected as unknown, silently ignored.
   # ---------------------------------------------------------------------
 
+  describe "validate/2 — dependentRequired (GH #2671)" do
+    @dependent %{
+      "type" => "object",
+      "dependentRequired" => %{"a" => ["b", "c"], "b" => "not-a-list"}
+    }
+
+    test "a present key demands its dependents; an absent key demands nothing" do
+      assert JsonSchema.validate(%{}, @dependent) == []
+      assert JsonSchema.validate(%{"a" => 1, "b" => 2, "c" => 3}, @dependent) == []
+
+      assert [%{constraint: "required"}, %{constraint: "required"}] =
+               JsonSchema.validate(%{"a" => 1}, @dependent)
+    end
+
+    test "a malformed dependents value is inert" do
+      assert JsonSchema.validate(%{"b" => 1}, @dependent) == []
+      assert JsonSchema.validate(%{"a" => 1}, %{"dependentRequired" => "x"}) == []
+    end
+  end
+
   describe "validate/2 — unsupported keywords are permitted and inert" do
     test "$ref, pattern, format, allOf/anyOf/oneOf/not, patternProperties are all silently ignored" do
       schema = %{

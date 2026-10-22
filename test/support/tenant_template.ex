@@ -953,6 +953,7 @@ defmodule Letflow.Test.TenantTemplate do
       |> Enum.map(fn {version, _module} -> version end)
       |> Enum.sort()
       |> Enum.join(",")
+      |> Kernel.<>("|" <> inspect(TenantProvisioning.platform_event_type_seed_versions()))
       |> then(&:crypto.hash(:md5, &1))
       |> Base.encode16(case: :lower)
 

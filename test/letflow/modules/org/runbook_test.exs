@@ -104,7 +104,7 @@ defmodule Letflow.Modules.Org.RunbookTest do
       {"lib/letflow/entities/records.ex", 336, "step_key_prefix"},
       {"lib/letflow/routers/entities.ex", 536, "entity_type_managed"},
       {"lib/letflow/entities/step_writes.ex", 754, "command_multi"},
-      {"lib/letflow/entities/handler_writes.ex", 245, "command_multi"}
+      {"lib/letflow/entities/handler_writes.ex", 248, "command_multi"}
     ]
 
     runbook = File.read!(@runbook)

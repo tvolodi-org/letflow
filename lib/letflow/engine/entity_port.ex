@@ -159,7 +159,7 @@ defmodule Letflow.Engine.EntityPort do
           required(:event_global_seq) => non_neg_integer(),
           optional(:output_var) => String.t() | nil,
           optional(:handler_module) => String.t(),
-          optional(:handler) => String.t(),
+          optional(:handler_name) => String.t(),
           optional(:write_ordinal) => pos_integer()
         }
 

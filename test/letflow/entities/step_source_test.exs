@@ -119,7 +119,9 @@ defmodule Letflow.Entities.StepSourceTest do
 
     neither = struct!(StepSource, base)
     both = struct!(StepSource, Map.merge(base, %{task_id: @task, dispatch_id: @dispatch}))
-    bad_ordinal = struct!(StepSource, Map.merge(base, %{task_id: @task, write_ordinal: "x"}))
+
+    bad_ordinal =
+      struct!(StepSource, Map.merge(base, %{task_id: @task, handler: %{ordinal: "x"}}))
 
     for malformed <- [neither, both] do
       assert_raise ArgumentError, ~r/malformed step source/, fn ->
@@ -207,25 +209,29 @@ defmodule Letflow.Entities.StepSourceTest do
   end
 
   describe "handler writes (GH #2590 / REQ-501 R4a, design 4.4)" do
+    defp handler_map(ordinal, overrides \\ %{}),
+      do:
+        Map.merge(%{module_id: "fixture_ledger", name: "post_entry", ordinal: ordinal}, overrides)
+
     defp handler_attrs(overrides \\ %{}) do
       attrs(
         Map.merge(
-          %{handler: %{module_id: "fixture_ledger", name: "post_entry"}, write_ordinal: 2},
+          %{handler: handler_map(2)},
           overrides
         )
       )
     end
 
-    test "a declarative line is unchanged: nil handler and ordinal, key = line_index, 8 keys" do
+    test "a declarative line is unchanged: nil handler, key = line_index, 8 keys" do
       assert {:ok, source} = StepSource.new(attrs())
-      assert source.handler == nil and source.write_ordinal == nil
+      assert source.handler == nil
       assert StepSource.line_key(source) == 2
       assert StepSource.idempotency_key(source) == "sys:step:" <> @task <> ":2"
       assert map_size(StepSource.to_metadata(source)) == 8
     end
 
-    test "explicit nil handler and ordinal are the declarative line (Records re-runs new/1)" do
-      assert {:ok, source} = StepSource.new(attrs(%{handler: nil, write_ordinal: nil}))
+    test "explicit nil handler is the declarative line (Records re-runs new/1)" do
+      assert {:ok, source} = StepSource.new(attrs(%{handler: nil}))
       assert {:ok, ^source} = StepSource.new(Map.from_struct(source))
     end
 
@@ -264,7 +270,9 @@ defmodule Letflow.Entities.StepSourceTest do
           if ordinal == 0 do
             StepSource.call_key(index)
           else
-            {:ok, s} = StepSource.new(handler_attrs(%{line_index: index, write_ordinal: ordinal}))
+            {:ok, s} =
+              StepSource.new(handler_attrs(%{line_index: index, handler: handler_map(ordinal)}))
+
             StepSource.line_key(s)
           end
         end
@@ -292,32 +300,44 @@ defmodule Letflow.Entities.StepSourceTest do
     end
 
     test "the handler idempotency key stays in the closed charset and under 255 bytes" do
-      assert {:ok, source} = StepSource.new(handler_attrs(%{line_index: 19, write_ordinal: 49}))
+      assert {:ok, source} =
+               StepSource.new(handler_attrs(%{line_index: 19, handler: handler_map(49)}))
+
       key = StepSource.idempotency_key(source)
       assert key =~ ~r/\Asys:step:[A-Za-z0-9:_.-]+\z/
       assert byte_size(key) <= 255
     end
 
-    test "handler and write_ordinal are both-or-neither, well formed, and closed" do
+    test "the half-set input is refused: a handler without an ordinal, an ordinal without a handler" do
+      assert {:ok, _} = StepSource.new(handler_attrs())
+
+      assert StepSource.new(
+               handler_attrs(%{handler: %{module_id: "fixture_ledger", name: "post_entry"}})
+             ) == {:error, :invalid_step_source}
+
+      # the old separate field is no longer a key at all
+      assert StepSource.new(attrs(%{write_ordinal: 2})) == {:error, :invalid_step_source}
+      assert StepSource.new(handler_attrs(%{write_ordinal: 2})) == {:error, :invalid_step_source}
+      refute :write_ordinal in Enum.map(StepSource.__info__(:struct), & &1.field)
+    end
+
+    test "the handler map is well formed and closed" do
       invalid = [
-        handler_attrs(%{write_ordinal: nil}),
-        attrs(%{write_ordinal: 2}),
-        handler_attrs(%{write_ordinal: 0}),
-        handler_attrs(%{write_ordinal: 50}),
-        handler_attrs(%{write_ordinal: "2"}),
-        handler_attrs(%{write_ordinal: 1.0}),
-        handler_attrs(%{handler: %{module_id: "fixture_ledger"}}),
+        handler_attrs(%{handler: handler_map(0)}),
+        handler_attrs(%{handler: handler_map(50)}),
+        handler_attrs(%{handler: handler_map("2")}),
+        handler_attrs(%{handler: handler_map(1.0)}),
+        handler_attrs(%{handler: handler_map(nil)}),
+        handler_attrs(%{handler: %{module_id: "fixture_ledger", ordinal: 2}}),
+        handler_attrs(%{handler: handler_map(2, %{targets: []})}),
+        handler_attrs(%{handler: handler_map(2, %{module_id: "Fixture"})}),
+        handler_attrs(%{handler: handler_map(2, %{name: "9bad"})}),
+        handler_attrs(%{handler: handler_map(2, %{name: ""})}),
+        handler_attrs(%{handler: handler_map(2, %{name: String.duplicate("a", 65)})}),
+        handler_attrs(%{handler: handler_map(2, %{module_id: :fixture_ledger})}),
         handler_attrs(%{
-          handler: %{module_id: "fixture_ledger", name: "post_entry", targets: []}
+          handler: %{"module_id" => "fixture_ledger", "name" => "post_entry", "ordinal" => 2}
         }),
-        handler_attrs(%{handler: %{module_id: "Fixture", name: "post_entry"}}),
-        handler_attrs(%{handler: %{module_id: "fixture_ledger", name: "9bad"}}),
-        handler_attrs(%{handler: %{module_id: "fixture_ledger", name: ""}}),
-        handler_attrs(%{
-          handler: %{module_id: "fixture_ledger", name: String.duplicate("a", 65)}
-        }),
-        handler_attrs(%{handler: %{module_id: :fixture_ledger, name: "post_entry"}}),
-        handler_attrs(%{handler: %{"module_id" => "fixture_ledger", "name" => "post_entry"}}),
         handler_attrs(%{handler: "fixture_ledger/post_entry"})
       ]
 

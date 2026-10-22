@@ -92,6 +92,7 @@ defmodule Letflow.Engine.ExecutionError do
 
   alias Ecto.Multi
   alias Letflow.Dlq
+  alias Letflow.Engine.IdempotentReplay
   alias Letflow.Engine.SubProcess
   alias Letflow.Engine.TaskActivation
   alias Letflow.EventStore
@@ -363,8 +364,11 @@ defmodule Letflow.Engine.ExecutionError do
       idempotency_key: error_args.idempotency_key
     }
 
-    case EventStore.append(event_attrs, prefix: prefix) do
+    # GH #2577 (D-2): a key claimed by another request is reuse. No payload is returned, and
+    # the Multi fails before update_projection_to_error runs on the aborted connection.
+    case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
+      {:error, {:idempotent_replay, _original}} -> {:error, :idempotency_key_reuse}
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end
