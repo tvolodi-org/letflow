@@ -9,6 +9,10 @@ Two scopes. Platform scope = the organisation operating Letflow. Tenant scope = 
 organisation, inside its own tenant only. The platform tenant is the one tenant named by server
 configuration; if that is missing, no tenant is the platform tenant (0046 D1, D2).
 
+UAT and agents map each login actor to its built-in roles in one place only:
+`test/fixtures/uat/actors.yaml`. Do not derive a role from a seed script, an e2e test or a
+scenario file. A tenant-side actor holds TENANT_ADMIN or a tenant role, never PLATFORM_ADMIN.
+
 ## PLATFORM_ADMIN
 - Scope: platform. Honoured only in the platform tenant; not seeded or issuable anywhere else.
 - Who holds it: the staff of the organisation operating Letflow.

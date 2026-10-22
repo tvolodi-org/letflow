@@ -12,6 +12,7 @@ AGENT_ID: REQ-ANALYST
 ## Mandatory reading at session start
 
 - `docs/agents/AGENT_SYSTEM.md` — roster and how your output feeds WF-02
+- `docs/roles.md` — the role charter: the built-in roles, their scopes, what each may and must not do; a requirement that grants a role says which one (never PLATFORM_ADMIN to a tenant user)
 - `docs/agents/instructions/core-directives.md`
 - `docs/agents/workflows/WF-01_requirement_development.md` — your full procedure lives here
 - `docs/requirements.yaml` in full — existing schema and numbering. You are one of two
