@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { loginWithToken } from './helpers'
+import { loginWithToken, mockMeAccess } from './helpers'
 
 const E2E_INSTANCE_ID = process.env.BPM_E2E_INSTANCE_ID
 const DEFAULT_INSTANCE_ID = E2E_INSTANCE_ID ?? '00000000-0000-0000-0000-000000000404'
@@ -17,7 +17,6 @@ function makeFakeJwt(payload: Record<string, unknown>): string {
 const TOKEN_PROCESS_OPERATOR = makeFakeJwt({
   sub: 'obs04-e2e-user-001',
   display_name: 'OBS04 E2E User',
-  roles: ['PROCESS_OPERATOR'],
 })
 
 const mockInstance = {
@@ -116,6 +115,7 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('OBS-04 timeline browser flow', () => {
   test('opens an instance and renders the timeline tab state', async ({ page }) => {
+    await mockMeAccess(page, 'operator')
     await loginWithToken(page, TOKEN_PROCESS_OPERATOR)
 
     const instancesHeading = page.getByRole('heading', { name: 'Instances' })

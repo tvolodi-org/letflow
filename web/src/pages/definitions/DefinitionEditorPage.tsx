@@ -150,7 +150,9 @@ export default function DefinitionEditorPage() {
 
   // Graph data
   const currentGraph = def?.graph ?? EMPTY_GRAPH
-  const isReadOnly = !isNew && def?.status !== 'DRAFT' && def?.status !== undefined
+  // Read-only when the definition is past DRAFT, or when the caller lacks DefinitionsWrite (a direct URL
+  // must not expose save, edit or release controls to a read-only role such as the auditor).
+  const isReadOnly = !hasDesignerRole || (!isNew && def?.status !== 'DRAFT' && def?.status !== undefined)
 
   // Convert API graph → React Flow on definition load. Computed ONCE here and
   // reused everywhere else in this component that needs the "as-stored"
@@ -796,7 +798,7 @@ export default function DefinitionEditorPage() {
               definitions only (mirrors DefinitionListPage's own Activate
               gating). Deliberately on this same screen so the scenario's
               steps 1/3/4/5 all stay on one continuous screen. */}
-          {!isNew && def?.status === 'DRAFT' && (
+          {!isReadOnly && !isNew && def?.status === 'DRAFT' && (
             <Button
               variant="primary"
               size="sm"
@@ -829,7 +831,7 @@ export default function DefinitionEditorPage() {
                 borderRadius: 4,
               }}
             >
-              Read-only — {def?.status ?? 'UNKNOWN'} status
+              {hasDesignerRole ? `Read-only — ${def?.status ?? 'UNKNOWN'} status` : 'Read-only — no edit permission'}
             </span>
           )}
         </div>
@@ -944,6 +946,7 @@ export default function DefinitionEditorPage() {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
+              readOnly={isReadOnly}
               placeholder="Definition name"
               style={inlineInputStyle}
             />
@@ -955,6 +958,7 @@ export default function DefinitionEditorPage() {
             <input
               value={version}
               onChange={(e) => setVersion(e.target.value)}
+              readOnly={isReadOnly}
               style={{ ...inlineInputStyle, maxWidth: 120 }}
             />
           </div>
@@ -965,6 +969,7 @@ export default function DefinitionEditorPage() {
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              readOnly={isReadOnly}
               placeholder="Optional description"
               style={inlineInputStyle}
             />

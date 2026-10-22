@@ -55,7 +55,6 @@ async function shot(page: Page, name: string): Promise<void> {
 function decodeJwt(token: string): {
   sub: string
   iss?: string
-  roles?: string[]
   preferred_username?: string
   name?: string
   email?: string
@@ -96,13 +95,11 @@ async function loginWithTenantToken(
 
   const payload = decodeJwt(token)
   const displayName = payload.preferred_username ?? payload.name ?? payload.email ?? payload.sub
-  const roles = payload.roles ?? []
 
   await page.addInitScript(
     (args: {
       token: string
       displayName: string
-      roles: string[]
       tenantSlug: string
       tenantDisplayName: string
     }) => {
@@ -111,14 +108,13 @@ async function loginWithTenantToken(
         JSON.stringify({
           token: args.token,
           display_name: args.displayName,
-          roles: args.roles,
           loginSource: 'oidc' as const,
           tenant_slug: args.tenantSlug,
           tenant_display_name: args.tenantDisplayName,
         }),
       )
     },
-    { token, displayName, roles, tenantSlug, tenantDisplayName },
+    { token, displayName, tenantSlug, tenantDisplayName },
   )
 
   await page.goto('/', { waitUntil: 'domcontentloaded' })
@@ -137,22 +133,20 @@ async function loginWithTenantToken(
 async function loginWithoutTenantContext(page: Page, token: string): Promise<void> {
   const payload = decodeJwt(token)
   const displayName = payload.preferred_username ?? payload.name ?? payload.email ?? payload.sub
-  const roles = payload.roles ?? []
 
   await page.addInitScript(
-    (args: { token: string; displayName: string; roles: string[] }) => {
+    (args: { token: string; displayName: string }) => {
       // Intentionally omit tenant_slug and tenant_display_name
       sessionStorage.setItem(
         '__e2e_session',
         JSON.stringify({
           token: args.token,
           display_name: args.displayName,
-          roles: args.roles,
           loginSource: 'oidc' as const,
         }),
       )
     },
-    { token, displayName, roles },
+    { token, displayName },
   )
 
   await page.goto('/', { waitUntil: 'domcontentloaded' })

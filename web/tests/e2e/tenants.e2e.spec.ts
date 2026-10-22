@@ -19,7 +19,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { randomUUID } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
-import { getKeycloakToken, loginWithToken, assertServiceReadiness } from './helpers'
+import { getKeycloakToken, loginWithToken, mockMeAccess, assertServiceReadiness } from './helpers'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -63,22 +63,12 @@ async function navigateSpa(page: Page, targetPath: string): Promise<void> {
 
 /**
  * Inject a non-PLATFORM_ADMIN session (PROCESS_OPERATOR) for frontend role-gating tests.
- * Uses the admin token so API calls succeed if made, but the roles array in sessionStorage
- * is restricted — matching what the app would see for a non-admin Keycloak user.
+ * Uses the admin token so API calls succeed if made, but /me/access is mocked with the operator
+ * fixture — matching what the app would see for a non-admin Keycloak user.
  */
 async function loginAsNonAdmin(page: Page, adminToken: string): Promise<void> {
-  await page.addInitScript((args: { token: string }) => {
-    const session = {
-      token: args.token,
-      display_name: 'Process Operator',
-      roles: ['PROCESS_OPERATOR'],
-      loginSource: 'oidc' as const,
-    }
-    sessionStorage.setItem('__e2e_session', JSON.stringify(session))
-  }, { token: adminToken })
-  await page.goto('/', { waitUntil: 'domcontentloaded' })
-  // Wait for app shell to render
-  await page.waitForSelector('[data-testid="user-display-name"]', { timeout: 15_000 }).catch(() => {})
+  await mockMeAccess(page, 'operator')
+  await loginWithToken(page, adminToken)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
