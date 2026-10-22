@@ -1,4 +1,4 @@
-defmodule Letflow.Entities.Query.FieldGrantsTest do
+defmodule Letflow.Entities.HiddenLabelsTest do
   @moduledoc """
   The hidden-label loaders of decision 0062 R8 (GH #2616 part 2): `load_hidden_labels/2` is the
   caller's own hidden set (every restricted field the user holds no grant for), and
@@ -8,7 +8,7 @@ defmodule Letflow.Entities.Query.FieldGrantsTest do
 
   use Letflow.DataCase, async: false
 
-  alias Letflow.Entities.Query.FieldGrants
+  alias Letflow.Entities.HiddenLabels
   alias Letflow.Identity.User
   alias Letflow.Support.ScriptTaskFixture, as: F
 
@@ -68,7 +68,7 @@ defmodule Letflow.Entities.Query.FieldGrantsTest do
 
   describe "load_platform_hidden_labels/1" do
     test "returns every restriction row as a label, whoever asks", %{t: t} do
-      assert {:ok, hidden} = FieldGrants.load_platform_hidden_labels(t.schema_name)
+      assert {:ok, hidden} = HiddenLabels.load_platform_hidden_labels(t.schema_name)
 
       assert hidden == MapSet.new(["customer.salary", "customer.ssn"])
     end
@@ -79,7 +79,7 @@ defmodule Letflow.Entities.Query.FieldGrantsTest do
       user = user!(t)
       grant!(t, user, "salary")
 
-      assert {:ok, hidden} = FieldGrants.load_hidden_labels(user.id, t.schema_name)
+      assert {:ok, hidden} = HiddenLabels.load_hidden_labels(user.id, t.schema_name)
 
       assert hidden == MapSet.new(["customer.ssn"])
     end
@@ -87,7 +87,7 @@ defmodule Letflow.Entities.Query.FieldGrantsTest do
     test "a user with no grant hides every restricted field", %{t: t} do
       user = user!(t)
 
-      assert {:ok, hidden} = FieldGrants.load_hidden_labels(user.id, t.schema_name)
+      assert {:ok, hidden} = HiddenLabels.load_hidden_labels(user.id, t.schema_name)
 
       assert hidden == MapSet.new(["customer.salary", "customer.ssn"])
     end

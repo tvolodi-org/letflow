@@ -129,7 +129,7 @@ defmodule Letflow.Routers.Tasks do
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
   alias Letflow.Engine
-  alias Letflow.Entities.Query.FieldGrants
+  alias Letflow.Entities.HiddenLabels
   alias Letflow.Tasks
 
   # REQ-518 PR 2d (AC 20, design 7.1 T1-T7): the two list routes are `:filter` (the handler passes
@@ -790,7 +790,7 @@ defmodule Letflow.Routers.Tasks do
     prefix = conn.assigns.scoped_opts[:prefix]
 
     if Letflow.PlatformTenant.platform_tenant?(Map.get(auth_context, :tenant_id)),
-      do: FieldGrants.load_platform_hidden_labels(prefix),
-      else: FieldGrants.load_hidden_labels(auth_context.user_id, prefix)
+      do: HiddenLabels.load_platform_hidden_labels(prefix),
+      else: HiddenLabels.load_hidden_labels(auth_context.user_id, prefix)
   end
 end

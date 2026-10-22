@@ -338,9 +338,9 @@ defmodule Letflow.Routers.Instances do
   alias Letflow.Engine.PinRebind
   alias Letflow.Engine.PinResolver
   alias Letflow.Engine.Reconstruction
+  alias Letflow.Entities.HiddenLabels
   alias Letflow.EventStore.InstanceVisibility
   alias Letflow.Idempotency
-  alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Instances
   alias Letflow.PlatformTenant
   alias Letflow.Repository.Artifact
@@ -897,8 +897,8 @@ defmodule Letflow.Routers.Instances do
 
     loaded =
       if PlatformTenant.platform_tenant?(Map.get(auth_context, :tenant_id)),
-        do: FieldGrants.load_platform_hidden_labels(prefix),
-        else: FieldGrants.load_hidden_labels(auth_context.user_id, prefix)
+        do: HiddenLabels.load_platform_hidden_labels(prefix),
+        else: HiddenLabels.load_hidden_labels(auth_context.user_id, prefix)
 
     case loaded do
       {:ok, hidden} -> fun.(hidden)

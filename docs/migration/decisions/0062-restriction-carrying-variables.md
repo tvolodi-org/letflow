@@ -164,6 +164,7 @@ test/letflow/routers/sys_variables_response_test.exs:423:  test "public_event_pa
 * **Helper arity.** `Letflow.Api.Response.public_variables/3` and `public_event_payload/3` take the caller's grant-resolved hidden label set. The `/1` and `/2` arities are removed.
 * **R14 deviation (Q3).** A computed field's server value always wins, as it did before. A submitted value is recorded only in the disagreement event, with `submitted_labels: []`. The stored label is the union of the labels of the computed field's inputs, taken in topological order.
 * **Sentinel ruling (R8/R9).** A completion that submits the redaction placeholder for a labelled key the caller cannot read is refused with 422 `redacted_value_submitted` (key names only), before any write. A real value is accepted and removes the label. Omitting the key keeps the stored value.
+* **Loader location.** The two hidden-label loaders (`load_hidden_labels/2`, `load_platform_hidden_labels/1`) live in `Letflow.Entities.HiddenLabels`, not in `Letflow.Entities.Query.FieldGrants`. The routers that redact instance variables call them, and `routers_variables_helper_test` and the query-pipeline pin (`query_cursor_field_grants_test` AC4) allow only `Letflow.Routers.Entities` to reference `Query.Cursor`/`Query.FieldGrants`. The redaction sentinel stays in `FieldGrants`.
 * **Deferred.** SR-OPT-3(b) (script input omission) belongs to part 3, with the opt-in. No production path yields a label before then.
 
 ## Consequences
