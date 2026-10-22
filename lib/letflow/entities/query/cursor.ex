@@ -35,18 +35,19 @@ defmodule Letflow.Entities.Query.Cursor do
   position `i` of the *caller's own resent* `sort` list on the next request.
   A length mismatch produces `{:error, :resume_key_arity_mismatch}`.
 
-  A cursor minted by this module also carries a binding: the entity type and
-  the sort field names and directions, as `{"bind": [...], "key": [...]}`.
-  A binding mismatch (same length, different sort or entity type) produces
-  `{:error, :invalid_cursor}`. Legacy bare-list cursors, minted before the
-  binding existed, are accepted unbound.
+  The resume key travels sealed (`Letflow.Entities.Query.CursorSeal`,
+  AES-256-GCM): `EQ:<mint_us>:<sealed token>`. The seal's associated data
+  binds the tenant schema, the user, the entity type, the sort clause list
+  and `mint_us`, so a tampered cursor, or one replayed by another user, under
+  another tenant, sort or entity type, is `{:error, :invalid_cursor}`. The
+  sort values (which can be restricted ones) are encrypted, not readable in a
+  held cursor.
 
-  The cursor is unsigned base64 JSON. The binding is defense-in-depth against
-  accidental cross-sort or cross-type replay, not a guard against a caller who
-  forges a cursor. The sort values it carries, which can be restricted ones,
-  stay readable in cleartext until the cursor expires. Remainder of #2698:
-  MAC or encrypt the payload, then drop the unbound branch after one expiry
-  window.
+  Legacy cursors (bare list, or the unsealed `{"bind","key"}` JSON) are no
+  longer accepted: they fail to open and return `:invalid_cursor`. Expiry
+  note: every cursor minted before this change expires within 24 h
+  (`Pagination.cursor_expiry_us/0`), so the only cost is one failed "next
+  page" for a client mid-pagination, who restarts.
 
   ## The `record_id` tiebreaker (design §2.3, revised by ISS-0651)
 
@@ -84,6 +85,7 @@ defmodule Letflow.Entities.Query.Cursor do
 
   alias Letflow.Api.Pagination
   alias Letflow.Entities.Query.Allowlist
+  alias Letflow.Entities.Query.CursorSeal
   alias Letflow.Entities.Query.Types
   alias Letflow.Entities.Record.Latest
   alias Letflow.Repo
@@ -101,12 +103,9 @@ defmodule Letflow.Entities.Query.Cursor do
   """
   @type resume_key :: [term()]
 
-  # A decoded resume key with its binding (GH #2698): the `[entity_type | sort]`
-  # binding a minted cursor carries, or `:unbound` for a legacy bare list.
-  @type bound_resume_key :: {[term()] | :unbound, resume_key()}
-
-  @typedoc "`paginate/5`'s `opts` shape (design §2.4)."
+  @typedoc "`paginate/5`'s `opts` shape (design §2.4). `:user_id` seals the cursor (GH #2698)."
   @type paginate_opts :: %{
+          required(:user_id) => String.t(),
           optional(:cursor) => String.t() | nil,
           optional(:page_size) => pos_integer() | nil
         }
@@ -129,19 +128,17 @@ defmodule Letflow.Entities.Query.Cursor do
 
     1. `Pagination.validate_page_size/1` on `opts.page_size`.
     2. Decode `opts.cursor` via `Pagination.decode_cursor/4` with this
-       module's own `cursor_prefix/0`, then JSON-parse the tail into
-       `bound_resume_key()`: `{"bind": [...], "key": [...]}` gives
-       `{binding, key}`, a legacy bare list gives `{:unbound, key}`.
+       module's own `cursor_prefix/0` (prefix, expiry), and split off the
+       mint time and the sealed token.
     3. Re-resolve every `sort_clause().field` against `allowlist` to learn
        each field's `type()`/`source()` for the typed resume-filter
        comparison.
-    4. If a decoded `resume_key()` is present, check its length equals
+    4. Open the sealed token (GH #2698) bound to `prefix`, `opts.user_id`,
+       the entity type, the resolved sort and the mint time; failure is
+       `{:error, :invalid_cursor}`. `opts.user_id` is required.
+    5. If a resume key is present, check its length equals
        `length(sort) + 1` -- `{:error, :resume_key_arity_mismatch}`
-       otherwise.
-    5. A cursor minted by this module binds its `entity_type` and sort
-       clause (`binding/2`, GH #2698); a bound cursor replayed under another
-       entity type or sort is `{:error, :invalid_cursor}`. A legacy cursor
-       without a binding is accepted as before.
+       otherwise (unreachable with a genuine seal for the same sort).
     6. Build the row-wise resume filter and add it to `compiled_query`, add
        the implicit `record_id` ascending tiebreak order (ISS-0651: was
        `id`), add `limit(page_size + 1)`.
@@ -166,12 +163,14 @@ defmodule Letflow.Entities.Query.Cursor do
       when is_map(request) and is_map(allowlist) and is_map(opts) and is_binary(prefix) do
     sort = Map.get(request, :sort, [])
 
+    user_id = fetch_user_id!(opts)
+
     with {:ok, page_size} <- Pagination.validate_page_size(Map.get(opts, :page_size)),
-         {:ok, bound_resume_key} <- decode_resume_key(Map.get(opts, :cursor)),
+         {:ok, sealed} <- decode_resume_key(Map.get(opts, :cursor)),
          {:ok, resolved_sort} <- resolve_sort(sort, allowlist),
-         {:ok, resume_terms} <-
-           build_resume_terms(resume_list(bound_resume_key), resolved_sort),
-         :ok <- check_binding(bound_resume_key, request.entity_type, resolved_sort) do
+         ctx = seal_ctx(prefix, user_id, request.entity_type, resolved_sort),
+         {:ok, resume_key} <- open_resume_key(sealed, ctx),
+         {:ok, resume_terms} <- build_resume_terms(resume_key, resolved_sort) do
       rows =
         compiled_query
         |> apply_resume_filter(resume_terms)
@@ -183,7 +182,13 @@ defmodule Letflow.Entities.Query.Cursor do
 
       next_cursor =
         if extra? do
-          build_next_cursor(List.last(page_rows), request.entity_type, resolved_sort)
+          build_next_cursor(
+            List.last(page_rows),
+            request.entity_type,
+            resolved_sort,
+            prefix,
+            user_id
+          )
         else
           nil
         end
@@ -192,10 +197,19 @@ defmodule Letflow.Entities.Query.Cursor do
     end
   end
 
-  # ── Step 2 -- decode the opaque cursor into a raw resume_key() (design §2.2) ──
+  # A cursor is always sealed for a user; a missing user is a programmer error, never
+  # an unbound cursor.
+  defp fetch_user_id!(opts) do
+    case Map.fetch(opts, :user_id) do
+      {:ok, user_id} when is_binary(user_id) -> user_id
+      _ -> raise ArgumentError, "Cursor.paginate/5 requires a binary :user_id in opts"
+    end
+  end
+
+  # ── Step 2 -- decode the opaque cursor envelope (design §2.2) ──
 
   @spec decode_resume_key(String.t() | nil) ::
-          {:ok, bound_resume_key() | nil}
+          {:ok, {integer(), String.t()} | nil}
           | {:error, :invalid_cursor}
           | {:error, :wrong_endpoint}
           | {:error, :expired}
@@ -203,63 +217,84 @@ defmodule Letflow.Entities.Query.Cursor do
 
   defp decode_resume_key(raw) when is_binary(raw) do
     case Pagination.decode_cursor(raw, @cursor_prefix, byte_size(@cursor_prefix)) do
-      {:ok, %Pagination.Cursor{inner: inner}} -> parse_resume_key_json(inner)
+      {:ok, %Pagination.Cursor{inner: inner}} -> split_sealed(inner)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
     end
   end
 
-  # `inner` is `"EQ:<mint_time_us>:<resume_key_json>"` -- the first slot
-  # after the prefix is always the mint-time timestamp `decode_cursor/4`'s
-  # own expiry check already read, never a domain value (same idiom
-  # `list_definitions/3`'s cursor helpers use). The JSON tail may itself
-  # legitimately contain colons (e.g. an ISO-8601 datetime string), so this
-  # splits on the FIRST colon only.
-  defp parse_resume_key_json(inner) do
+  # `inner` is `"EQ:<mint_time_us>:<sealed token>"`. The token is URL-safe base64, so
+  # it holds no colon; split on the first colon after the prefix.
+  defp split_sealed(inner) do
     prefix_len = byte_size(@cursor_prefix)
     rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
 
-    case String.split(rest, ":", parts: 2) do
-      [_mint_time_us_str, resume_key_json] ->
-        case Jason.decode(resume_key_json) do
-          {:ok, %{"bind" => binding, "key" => list}} when is_list(list) -> {:ok, {binding, list}}
-          {:ok, list} when is_list(list) -> {:ok, {:unbound, list}}
-          _ -> {:error, :invalid_cursor}
-        end
-
-      _ ->
-        {:error, :invalid_cursor}
+    with [mint_str, token] <- String.split(rest, ":", parts: 2),
+         {mint_us, ""} <- Integer.parse(mint_str) do
+      {:ok, {mint_us, token}}
+    else
+      _ -> {:error, :invalid_cursor}
     end
   end
 
-  # ── Step 2b -- the binding of a minted cursor (GH #2698) ─────────────────────
+  # ── Step 2b -- open the sealed resume key (GH #2698) ─────────────────────────
 
-  # A next cursor carries the sort values of its last row. Those values are
-  # only meaningful for the entity type and sort clause that produced them;
-  # replayed under another sort they become a threshold on a field the
-  # replaying caller may not read (the walker checks only the replayed
-  # request's own clauses). So a minted key names both, and a replay must
-  # match. A key without a binding is a legacy cursor and is accepted as
-  # before; the walker still checks its sort.
-  @spec binding(String.t(), [resolved_sort_term()]) :: [term()]
-  defp binding(entity_type, resolved_sort) do
-    [entity_type | Enum.map(resolved_sort, &[&1.name, to_string(&1.dir)])]
+  # The seal's associated data binds the tenant schema, user, entity type, sort and
+  # mint time; any mismatch, tamper or legacy (unsealed) cursor fails to open.
+  @spec open_resume_key({integer(), String.t()} | nil, map()) ::
+          {:ok, resume_key() | nil} | {:error, :invalid_cursor}
+  defp open_resume_key(nil, _ctx), do: {:ok, nil}
+
+  defp open_resume_key({mint_us, token}, ctx) do
+    with {:ok, json} <- CursorSeal.open(token, Map.put(ctx, :mint_us, mint_us)),
+         {:ok, %{"key" => list}} when is_list(list) <- Jason.decode(json) do
+      {:ok, list}
+    else
+      _ -> {:error, :invalid_cursor}
+    end
   end
 
-  @spec check_binding(bound_resume_key() | nil, String.t(), [resolved_sort_term()]) ::
-          :ok | {:error, :invalid_cursor}
-  defp check_binding(nil, _entity_type, _resolved_sort), do: :ok
-  defp check_binding({:unbound, _key}, _entity_type, _resolved_sort), do: :ok
-
-  defp check_binding({bound, _key}, entity_type, resolved_sort) do
-    if bound == binding(entity_type, resolved_sort),
-      do: :ok,
-      else: {:error, :invalid_cursor}
+  defp seal_ctx(prefix, user_id, entity_type, resolved_sort) do
+    %{
+      prefix: prefix,
+      user_id: user_id,
+      entity_type: entity_type,
+      sort: Enum.map(resolved_sort, &[&1.name, to_string(&1.dir)])
+    }
   end
 
-  defp resume_list(nil), do: nil
-  defp resume_list({_binding_or_unbound, key}), do: key
+  @doc """
+  Mints a cursor for `values` (the sort values followed by the trailing `record_id`)
+  sealed for `prefix`, `user_id`, `entity_type` and `sort_names_dirs` (`[[name, dir], ...]`,
+  `dir` as a string). Used by `paginate/5` and by tests that need a validly sealed
+  hand-built cursor.
+  """
+  @spec mint_cursor([term()], String.t(), [[String.t()]], String.t(), String.t(), integer()) ::
+          String.t()
+  def mint_cursor(
+        values,
+        entity_type,
+        sort_names_dirs,
+        prefix,
+        user_id,
+        mint_us \\ System.system_time(:microsecond)
+      )
+      when is_list(values) do
+    ctx = %{
+      prefix: prefix,
+      user_id: user_id,
+      entity_type: entity_type,
+      sort: sort_names_dirs,
+      mint_us: mint_us
+    }
+
+    token = CursorSeal.seal(Jason.encode!(%{"key" => values}), ctx)
+
+    @cursor_prefix
+    |> Pagination.build_raw_cursor(mint_us, token)
+    |> Pagination.encode_cursor()
+  end
 
   # ── Step 3 -- resolve every sort clause against the allowlist ──────────────
 
@@ -514,8 +549,7 @@ defmodule Letflow.Entities.Query.Cursor do
   # module's moduledoc "The `record_id` tiebreaker") is read via the exact
   # same two-clause idiom those functions use, rather than inventing a
   # third pattern.
-  defp build_next_cursor(row, entity_type, resolved_sort) do
-    mint_time_us = System.system_time(:microsecond)
+  defp build_next_cursor(row, entity_type, resolved_sort, prefix, user_id) do
     record_id = read_record_id(row)
 
     resume_values =
@@ -525,15 +559,13 @@ defmodule Letflow.Entities.Query.Cursor do
         |> encode_component(term.type)
       end)
 
-    resume_key_json =
-      Jason.encode!(%{
-        "bind" => binding(entity_type, resolved_sort),
-        "key" => resume_values ++ [record_id]
-      })
-
-    @cursor_prefix
-    |> Pagination.build_raw_cursor(mint_time_us, resume_key_json)
-    |> Pagination.encode_cursor()
+    mint_cursor(
+      resume_values ++ [record_id],
+      entity_type,
+      Enum.map(resolved_sort, &[&1.name, to_string(&1.dir)]),
+      prefix,
+      user_id
+    )
   end
 
   defp read_record_id(%Latest{record_id: record_id}), do: record_id
