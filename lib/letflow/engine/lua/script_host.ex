@@ -33,18 +33,28 @@ defmodule Letflow.Engine.Lua.ScriptHost do
   @print_max_line_bytes 256
   @too_large "resulting string too large"
 
-  @typedoc "What `install/2` needs for one run."
-  @type run :: %{
-          run_ref: reference(),
-          ctx: %{
-            required(:instance_id) => String.t(),
-            required(:node_id) => String.t(),
-            required(:token_id) => String.t(),
-            required(:now) => DateTime.t()
-          },
-          input: map(),
-          fail_codes: [String.t()] | nil
-        }
+  defmodule Run do
+    @moduledoc """
+    GH 2534 / GH 2545: what `ScriptHost.install/2` needs for one run, as a struct. The worker
+    builds it from the validated `ScriptRunner.Config`; a missing field is a construction
+    error, not a `nil` met inside the VM.
+    """
+
+    @enforce_keys [:run_ref, :ctx, :input]
+    defstruct [:run_ref, :ctx, :input, fail_codes: nil]
+
+    @type t :: %__MODULE__{
+            run_ref: reference(),
+            ctx: %{
+              required(:instance_id) => String.t(),
+              required(:node_id) => String.t(),
+              required(:token_id) => String.t(),
+              required(:now) => DateTime.t()
+            },
+            input: map(),
+            fail_codes: [String.t()] | nil
+          }
+  end
 
   @doc "The fixed UUIDv5 namespace of `ctx.uuid()` (0053 D5)."
   @spec uuid_namespace() :: String.t()
@@ -54,8 +64,8 @@ defmodule Letflow.Engine.Lua.ScriptHost do
   Installs the host globals and host library members into `lua` for `run`. The input's
   dropped-term count is recorded in the run state (`run_state/1`) for the runner's stats.
   """
-  @spec install(Lua.t(), run()) :: Lua.t()
-  def install(lua, run) do
+  @spec install(Lua.t(), Run.t()) :: Lua.t()
+  def install(lua, %Run{} = run) do
     {input, dropped} = ScriptValue.encode(run.input)
     put(run, :input_dropped, dropped)
     put(run, :uuid_counter, 0)
