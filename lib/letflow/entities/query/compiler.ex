@@ -473,8 +473,12 @@ defmodule Letflow.Entities.Query.Compiler do
   # Bound on an `in`/`not_in` list for a strict decimal field only (each element is parsed).
   @max_strict_decimal_list 1000
 
-  defp coerce_strict_decimal(%{type: :decimal, decimal_strict: true, name: name}, op, value)
-       when op in @strict_decimal_ops do
+  defp coerce_strict_decimal(
+         %{type: :decimal, strict_decimal_scale: scale, name: name},
+         op,
+         value
+       )
+       when is_integer(scale) and op in @strict_decimal_ops do
     if op in [:in, :not_in] do
       if length(value) > @max_strict_decimal_list do
         {:error, {:invalid_decimal_value, name}}
@@ -1046,7 +1050,7 @@ defmodule Letflow.Entities.Query.Compiler do
   end
 
   # GH #2654: the scale of a `decimal_strict` allowlisted field, else nil.
-  defp strict_scale(%{type: :decimal, decimal_strict: true, decimal_scale: scale})
+  defp strict_scale(%{type: :decimal, strict_decimal_scale: scale})
        when is_integer(scale),
        do: scale
 

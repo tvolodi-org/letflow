@@ -12,6 +12,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.ScopeGate
+  alias Letflow.Entities.ImportAccess
   alias Letflow.Entities.ImportUpsert
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.RecordAccess
@@ -75,7 +76,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
              actor_id,
              import_request_id,
              prefix,
-             {access, scope}
+             ImportAccess.new(access, scope)
            ) do
         {:ok, results} ->
           Response.ok(conn, %{"results" => Enum.map(results, &import_entry_result_json/1)})
@@ -225,7 +226,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
   # Pre-check once (the schema-version read, then the decision `RecordAccess.write/3` already
   # made), then the per-entry upsert. A scoped caller never reaches it (`import_scope_check/6`
-  # refuses upsert mode for it), so the scope in the pair is always `:all`.
+  # refuses upsert mode for it), so the scope in the struct is always `:all`.
   defp run_import_mode(
          :upsert,
          records,
@@ -233,7 +234,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
          actor_id,
          import_request_id,
          prefix,
-         {access, :all}
+         %ImportAccess{access: access, scope: :all}
        ) do
     with {:ok, restricted} <- ImportUpsert.precheck(access, prefix) do
       {:ok,
@@ -296,7 +297,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
          actor_id,
          import_request_id,
          prefix,
-         {access, scope}
+         %ImportAccess{access: access, scope: scope}
        ) do
     source_record_id = Map.get(entry, "record_id")
     field_values = Map.get(entry, "field_values", %{})

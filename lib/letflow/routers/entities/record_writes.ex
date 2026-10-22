@@ -20,6 +20,7 @@ defmodule Letflow.Routers.Entities.RecordWrites do
   alias Letflow.Entities.Records
   alias Letflow.Entities.ScopedLookup
   alias Letflow.Entities.ScopedWrites
+  alias Letflow.Entities.WriteScope
   alias Letflow.Idempotency
 
   import Letflow.Routers.Entities.Support
@@ -69,7 +70,12 @@ defmodule Letflow.Routers.Entities.RecordWrites do
       access ->
         case write_type_gate(access, entity_type, scope, prefix) do
           {:ok, declaration} ->
-            create_record_with_access(conn, entity_type, access, {scope, declaration})
+            create_record_with_access(
+              conn,
+              entity_type,
+              access,
+              WriteScope.new(scope, declaration)
+            )
 
           :refused ->
             scope_refused(conn, :EntitiesRecordsWrite, :write_value)
@@ -97,7 +103,13 @@ defmodule Letflow.Routers.Entities.RecordWrites do
   # C-3: the pure new-value check, then the reference resolution (SEC BUG-1: a reference to an
   # out-of-scope record must answer like one to a nonexistent record); both run before the
   # idempotency claim and share the one refusal and telemetry kind.
-  defp check_new_scope_value({scope, declaration}, field_values, policy, entity_type, prefix) do
+  defp check_new_scope_value(
+         %WriteScope{scope: scope, declaration: declaration},
+         field_values,
+         policy,
+         entity_type,
+         prefix
+       ) do
     with :ok <- ScopedWrites.check_new_value(field_values, declaration, scope),
          :ok <- ScopedWrites.check_references_of_type(entity_type, field_values, scope, prefix) do
       :ok
@@ -113,7 +125,7 @@ defmodule Letflow.Routers.Entities.RecordWrites do
     Response.not_found(conn)
   end
 
-  defp create_record_with_access(conn, entity_type, access, {scope, _declaration} = scoped) do
+  defp create_record_with_access(conn, entity_type, access, %WriteScope{scope: scope} = scoped) do
     prefix = prefix!(conn)
 
     actor_id = conn.assigns.auth_context.user_id
@@ -230,7 +242,7 @@ defmodule Letflow.Routers.Entities.RecordWrites do
          {:ok, attrs} <- validate_schema(@record_update_schema, body),
          :ok <-
            check_new_scope_value(
-             {scope, declaration},
+             WriteScope.new(scope, declaration),
              Map.fetch!(attrs, "field_values"),
              :EntitiesRecordsWrite,
              entity_type,
