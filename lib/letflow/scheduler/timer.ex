@@ -45,7 +45,7 @@ defmodule Letflow.Scheduler.Timer do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @timer_types ["deadline", "reminder", "escalation", "scheduled_transition"]
+  @timer_types Letflow.Scheduler.TimerTypes.all()
 
   @primary_key {:id, :binary_id, autogenerate: false}
   schema "timers" do

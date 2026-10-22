@@ -79,6 +79,7 @@ defmodule Letflow.Scheduler do
   """
 
   import Ecto.Query
+  require Letflow.Scheduler.TimerTypes
   require Logger
 
   alias Ecto.Multi
@@ -89,6 +90,7 @@ defmodule Letflow.Scheduler do
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Repo
   alias Letflow.Scheduler.Timer
+  alias Letflow.Scheduler.TimerTypes
   alias Letflow.TenantProvisioning
 
   @default_poll_interval_ms 5_000
@@ -611,12 +613,12 @@ defmodule Letflow.Scheduler do
           {:ok, :advanced | :reminded | :reminder_stale} | {:error, term()}
   defp route_fire(%Timer{} = timer, tenant_schema) do
     case timer.timer_type do
-      "escalation" ->
+      TimerTypes.escalation() ->
         timer
         |> Letflow.Engine.advance_after_escalation_timer_fired(Repo, tenant_schema)
         |> advanced_outcome()
 
-      "reminder" ->
+      TimerTypes.reminder() ->
         Letflow.Engine.record_reminder_fired(timer, Repo, tenant_schema)
 
       _ ->
@@ -792,7 +794,7 @@ defmodule Letflow.Scheduler do
   # the instance projection, so the reads are consistent with cancel / completion). Without the
   # check a successor armed after cancel or completion would be an orphan that fires later into
   # the dead-letter queue. Other timer types are unchanged. Prefix-scoped (INV-1).
-  defp rearm_target_open?(%Timer{timer_type: "reminder"} = timer, tenant_schema) do
+  defp rearm_target_open?(%Timer{timer_type: TimerTypes.reminder()} = timer, tenant_schema) do
     instance_active? =
       InstanceProjection
       |> where([p], p.instance_id == ^timer.instance_id and p.status == :active)
