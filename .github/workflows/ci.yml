@@ -725,9 +725,9 @@ jobs:
           # must be N*M = 16). Unset, the partitions use Mix's round-robin over the file list.
           TEST_PARALLEL_MANIFEST: scripts/test_shard_manifest.txt
           # GH #2380 step 1 (log-only): per-file test times for rebalancing the shards. The
-          # --slowest-modules value is at least the largest partition: 878 test/**/*_test.exs
-          # files over 16 partitions (TEST_PARALLEL_N=4 x matrix M=4) = 54.9, so 55 files on the
-          # busiest partition; 80 leaves room for growth. Recompute if M or the file count changes.
+          # --slowest-modules value is at least the largest partition: the manifest
+          # (884 files in 16 partitions, TEST_PARALLEL_N=4 x matrix M=4) puts 62 files on the
+          # busiest one; 80 leaves room for growth. Recheck after --append or a rebuild.
           TEST_PARALLEL_EXTRA_ARGS: "--slowest 40 --slowest-modules 80"
           TEST_PARALLEL_PRINT_SLOWEST: 1
 

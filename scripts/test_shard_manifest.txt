@@ -1,6 +1,6 @@
 # partitions: 16
 # weights: estimated ms (mean share of each run's module total, scaled to run 39846013573)
-# update: --append when test files are added or removed; --from-tsv to rebuild from fresh timings
+# update: --append when test files are added or removed; --from-logs to rebuild from fresh CI job logs
 # source: run 39840121233 jobs 120038722428 120038722470 120038722588
 # source: run 39842976825 jobs 120048794078 120048794089 120048794342
 # source: run 39843527567 jobs 120050747449 120050747578 120050747605
@@ -19,6 +19,7 @@
 1 test/letflow/engine/pin_resolver_script_test.exs 4860.22
 1 test/letflow/engine/plugin_registry_test.exs 4.38
 1 test/letflow/engine/replay_paths_no_entity_write_test.exs 7748.14
+1 test/letflow/engine/restricted_variable_entity_writes_test.exs 5302.86
 1 test/letflow/engine/script_task_entity_writes_test.exs 16875.60
 1 test/letflow/engine/script_task_replay_test.exs 881.78
 1 test/letflow/engine/variable_labels_replay_test.exs 5645.95
@@ -76,6 +77,7 @@
 2 test/letflow/engine/service_task_entity_writes_lock_order_test.exs 25911.35
 2 test/letflow/engine/shipped_definition_variable_schemas_engine_test.exs 9259.53
 2 test/letflow/engine/snapshot_writer_test.exs 5964.73
+2 test/letflow/engine/variable_labels_write_rule_test.exs 5302.86
 2 test/letflow/engine/variable_merge_callers_test.exs 6140.29
 2 test/letflow/engine_complete_task_test.exs 6963.33
 2 test/letflow/entities/handler_writes_callers_test.exs 17287.38
@@ -224,6 +226,7 @@
 5 test/letflow/documents/constraints_test.exs 4665.05
 5 test/letflow/engine/parallel_gateway_test.exs 4.23
 5 test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs 7943.02
+5 test/letflow/engine/script_input_test.exs 5302.86
 5 test/letflow/engine/script_task_cancel_race_test.exs 3870.68
 5 test/letflow/engine/service_task_entity_writes_test.exs 34346.09
 5 test/letflow/engine/service_task_restricted_outbound_test.exs 5312.60
@@ -645,6 +648,7 @@
 12 test/letflow/scope_enforcement/on_gate_test.exs 26489.08
 12 test/letflow/scripts/hmac_secret_test.exs 8801.64
 12 test/letflow/scripts/runtime_test.exs 5458.20
+12 test/letflow/scripts/validation_restricted_inputs_test.exs 5302.86
 12 test/letflow/secrets_runtime_config_test.exs 1508.37
 12 test/letflow/secrets_test.exs 6893.32
 12 test/letflow/service_catalog/endpoint_url_reserved_test.exs 115.65

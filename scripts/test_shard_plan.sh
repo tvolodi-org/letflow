@@ -6,9 +6,16 @@
 # TEST_PARALLEL_MANIFEST is set, and then runs each partition on exactly the files listed for it.
 #
 # Modes (exactly one):
+#   --from-logs LOG...     Build a manifest straight from backend shard job logs. Each LOG is
+#                          named <run id>-<job id>.log, for example from
+#                            gh api repos/OWNER/REPO/actions/jobs/<job id>/logs > <run id>-<job id>.log
+#                          and carries the step-1 instrumentation's per-module blocks
+#                          (`test_parallel: partition N slowest: <Module> (<ms>ms)` followed by
+#                          `... slowest:  [test/...exs]`). The rows are extracted into the
+#                          --from-tsv columns and planned exactly as --from-tsv does.
 #   --from-tsv RUN.tsv...  Build a manifest from per-module timings. Each RUN.tsv has the
-#                          columns run, job, partition, module, ms, file (the step-1 log
-#                          instrumentation, one row per module, extracted from the job logs).
+#                          columns run, job, partition, module, ms, file (one row per module,
+#                          as --from-logs extracts them from the job logs).
 #                          A file's weight is the mean of its share of each run's total,
 #                          scaled to the total of the LAST run given. Files are placed with
 #                          LPT (longest processing time first) into --partitions bins. Files
@@ -34,13 +41,15 @@ root="."
 inputs=()
 
 usage() {
-  echo "usage: $0 --from-tsv RUN.tsv... [--partitions P] [--root DIR]" >&2
+  echo "usage: $0 --from-logs RUN-JOB.log... [--partitions P] [--root DIR]" >&2
+  echo "       $0 --from-tsv RUN.tsv... [--partitions P] [--root DIR]" >&2
   echo "       $0 --append MANIFEST [--root DIR]" >&2
   exit 2
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --from-logs) mode=from-logs; shift ;;
     --from-tsv) mode=from-tsv; shift ;;
     --append) mode=append; shift ;;
     --partitions) partitions="${2:-}"; shift 2 ;;
@@ -58,6 +67,42 @@ trap 'rm -rf "$tmp"' EXIT
 
 # Every test file on disk, repo-relative, sorted in the C locale so the output does not depend on the host locale.
 (cd "$root" && find test -name '*_test.exs' | LC_ALL=C sort) > "$tmp/universe"
+
+if [ "$mode" = from-logs ]; then
+  [ "${#inputs[@]}" -gt 0 ] || usage
+  : > "$tmp/from-logs.tsv"
+  for f in "${inputs[@]}"; do
+    [ -r "$f" ] || { echo "test_shard_plan: ERROR cannot read '$f'" >&2; exit 2; }
+    name=$(basename "$f"); name="${name%.*}"
+    printf '%s' "$name" | grep -Eq '^[^-]+-[^-]+$' || { echo "test_shard_plan: ERROR log '$f' is not named <run id>-<job id>.log" >&2; exit 2; }
+    # A module line, then its file line; the per-test lines ("  * test ...") match neither.
+    awk -v run="${name%%-*}" -v job="${name#*-}" '
+      {
+        sub(/\r$/, "")
+        i = index($0, "test_parallel: partition ")
+        if (!i) next
+        s = substr($0, i + 25)
+        if (!match(s, /^[0-9]+ slowest: /)) next
+        p = substr(s, 1, index(s, " ") - 1)
+        rest = substr(s, RLENGTH + 1)
+        if (rest ~ /^[A-Za-z][A-Za-z0-9_.]* \([0-9.]+ms\)$/) {
+          mod = rest; sub(/ \(.*$/, "", mod)
+          ms = rest; sub(/^.* \(/, "", ms); sub(/ms\)$/, "", ms)
+          pend = 1
+          next
+        }
+        if (pend && rest ~ /^ \[test\/[^]]*\]$/) {
+          file = rest; sub(/^ \[/, "", file); sub(/\]$/, "", file)
+          printf "%s\t%s\t%s\t%s\t%s\t%s\n", run, job, p, mod, ms, file
+        }
+        pend = 0
+      }
+    ' "$f" >> "$tmp/from-logs.tsv"
+  done
+  [ -s "$tmp/from-logs.tsv" ] || { echo "test_shard_plan: ERROR no per-module timings in the logs (was TEST_PARALLEL_PRINT_SLOWEST=1 with --slowest-modules set?)" >&2; exit 2; }
+  inputs=("$tmp/from-logs.tsv")
+  mode=from-tsv
+fi
 
 if [ "$mode" = from-tsv ]; then
   printf '%s' "$partitions" | grep -Eq '^[1-9][0-9]*$' || { echo "test_shard_plan: ERROR --partitions '$partitions' is not a positive integer" >&2; exit 2; }
@@ -107,7 +152,7 @@ if [ "$mode" = from-tsv ]; then
 
   echo "# partitions: $partitions"
   echo "# weights: estimated ms (mean share of each run's module total, scaled to run $headrun)"
-  echo "# update: --append when test files are added or removed; --from-tsv to rebuild from fresh timings"
+  echo "# update: --append when test files are added or removed; --from-logs to rebuild from fresh CI job logs"
   while IFS=$'\t' read -r run jobs; do
     echo "# source: run $run jobs$jobs"
   done < "$tmp/sources"
