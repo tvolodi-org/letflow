@@ -247,11 +247,11 @@ defmodule Letflow.Support.BreakGlassFixture do
 
     {t1, pid1} = Locks.start_worker(first)
     Locks.wait_for_blocked([pid1], 1)
-    assert barrier_pid in Locks.blockers(pid1)
+    Locks.await_blocked_by(pid1, [barrier_pid])
 
     {t2, pid2} = Locks.start_worker(second)
     Locks.wait_for_blocked([pid1, pid2], 2)
-    assert Enum.any?(Locks.blockers(pid2), &(&1 in [barrier_pid, pid1]))
+    Locks.await_blocked_by(pid2, [barrier_pid, pid1])
 
     release!(holder)
 
