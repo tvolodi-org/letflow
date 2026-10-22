@@ -2639,6 +2639,8 @@ defmodule Letflow.Engine do
           | {:error, {:new_token_during_resume_not_supported, token_id :: String.t()}}
           | {:error, {:task_activation_failed, term()}}
           | {:error, {:event_append_failed, term()}}
+          # GH #2577 (D-1, D-2): the key is claimed by another request (not a same-task retry).
+          | {:error, :idempotency_key_reuse}
           | {:error, :missing_actor_id}
           | {:error, :missing_idempotency_key}
           | {:error,
@@ -3524,6 +3526,7 @@ defmodule Letflow.Engine do
              |> IdempotentReplay.fresh() do
         {:ok, result}
       else
+        {:error, {:idempotent_replay, _original}} = replay -> replay
         {:error, _reason} -> {:error, {:entity_write_failed, 0, :sys_value}}
       end
     end)
@@ -3570,6 +3573,7 @@ defmodule Letflow.Engine do
            )
            |> IdempotentReplay.fresh() do
         {:ok, result} -> {:ok, result}
+        {:error, {:idempotent_replay, _original}} = replay -> replay
         {:error, _reason} -> {:error, {:entity_write_failed, 0, :applied_event}}
       end
     end)
@@ -5526,6 +5530,7 @@ defmodule Letflow.Engine do
 
     case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
+      {:error, {:idempotent_replay, _original}} = replay -> replay
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end
@@ -5908,6 +5913,11 @@ defmodule Letflow.Engine do
       {:transaction_failed, %DBConnection.ConnectionError{}} ->
         :contention
 
+      # GH #2577: a derived key of this apply was already claimed. The apply's own completion
+      # was written by the first claimant, so the answer is the existing one (D-3).
+      {:idempotent_replay, _original} ->
+        {:final, {:ok, :already_final}}
+
       _not_an_entity_write_class ->
         {:final, error}
     end
@@ -6068,6 +6078,7 @@ defmodule Letflow.Engine do
            )
            |> IdempotentReplay.fresh() do
         {:ok, result} -> {:ok, result}
+        {:error, {:idempotent_replay, _original}} = replay -> replay
         {:error, _reason} -> {:error, {:entity_write_failed, 0, :applied_event}}
       end
     end)
@@ -6500,7 +6511,14 @@ defmodule Letflow.Engine do
       end)
     end
 
-    if plan == nil, do: run.(), else: rescue_service_contention(run)
+    # GH #2577 (D-4): the replay is mapped here, after the transaction has returned. Inside it,
+    # ScriptTaskDispatcher.apply_with_followup/3 would turn any error into a script_rejected row.
+    outcome = if plan == nil, do: run.(), else: rescue_service_contention(run)
+
+    case outcome do
+      {:error, {:idempotent_replay, _original}} -> {:ok, :stale}
+      outcome -> outcome
+    end
   rescue
     # SEC S3: nothing caught is bound, formatted or logged (a 40P01 deadlock lands here too;
     # the dispatcher's follow-up B' then re-evaluates the same CAS).
@@ -6731,6 +6749,7 @@ defmodule Letflow.Engine do
       |> IdempotentReplay.fresh()
       |> case do
         {:ok, appended} -> {:ok, appended}
+        {:error, {:idempotent_replay, _original}} = replay -> replay
         {:error, reason} -> {:error, {:event_append_failed, reason}}
       end
     end)
@@ -8439,6 +8458,7 @@ defmodule Letflow.Engine do
 
     case EventStore.append(event_attrs, prefix: prefix) |> IdempotentReplay.fresh() do
       {:ok, result} -> {:ok, result}
+      {:error, {:idempotent_replay, _original}} = replay -> replay
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end
@@ -8673,6 +8693,18 @@ defmodule Letflow.Engine do
       :not_a_line_failure ->
         {:error, reason}
     end
+  end
+
+  # GH #2577 (D-1): a complete_task key claimed by another request (another task's
+  # TASK_COMPLETED, or a derived sys_vars / entity_writes key). A same-task retry never gets
+  # here: fetch_and_lock_task answers task_not_pending first. This call is not the claimant,
+  # so the original is not returned; the answer is key reuse (#2543).
+  defp interpret_complete_result(
+         {:error, _failed_step, {:idempotent_replay, _original}, _changes},
+         _actor_id,
+         _prefix
+       ) do
+    {:error, :idempotency_key_reuse}
   end
 
   # Catch-all -- every Multi step's own callback above already maps its
@@ -9450,6 +9482,8 @@ defmodule Letflow.Engine do
           | {:error, {:instance_already_error, error_detail :: map()}}
           | {:error, {:event_append_failed, term()}}
           | {:error, {:execution_error_contention, :lock_not_available | :deadlock_detected}}
+          # GH #2577 (D-2): the EXECUTION_ERROR key is claimed by another request.
+          | {:error, :idempotency_key_reuse}
           | {:error, Ecto.Changeset.t()}
           | {:error, term()}
 
