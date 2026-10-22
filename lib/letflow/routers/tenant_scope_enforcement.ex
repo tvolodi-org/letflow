@@ -123,7 +123,12 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
   defp flip(conn, target, attrs),
     do: ScopeEnforcement.flip(tenant_id(conn), prefix(conn), target, attrs)
 
-  defp flip_response({:ok, %{mode: mode, previous: previous, changed: changed}}, conn) do
+  # `@doc false` and public only so `TenantScopeEnforcementRefusalKindsTest` can answer every
+  # `ScopeEnforcement.refusal_kinds/0` through the same clauses the route uses (GH #2890).
+  @doc false
+  @spec flip_response({:ok, map()} | {:error, ScopeEnforcement.flip_error()}, Plug.Conn.t()) ::
+          Plug.Conn.t()
+  def flip_response({:ok, %{mode: mode, previous: previous, changed: changed}}, conn) do
     Response.ok(conn, %{
       "mode" => Atom.to_string(mode),
       "previous" => Atom.to_string(previous),
@@ -131,18 +136,18 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
     })
   end
 
-  defp flip_response({:error, :invalid_mode}, conn),
+  def flip_response({:error, :invalid_mode}, conn),
     do: Response.unprocessable(conn, "invalid_enforcement_mode")
 
-  defp flip_response({:error, :reason_required}, conn),
+  def flip_response({:error, :reason_required}, conn),
     do: Response.unprocessable(conn, "reason_required")
 
-  defp flip_response({:error, :invalid_reason}, conn),
+  def flip_response({:error, :invalid_reason}, conn),
     do: Response.unprocessable(conn, "invalid_reason")
 
   # `shadow_required` is only ever returned for a tenant stored `off` (same-mode and `shadow ->
   # on` never reach it), so the current mode is a constant, not a second read.
-  defp flip_response({:error, :shadow_required}, conn) do
+  def flip_response({:error, :shadow_required}, conn) do
     problem = %{Error.conflict("shadow_required") | extensions: %{"current_mode" => "off"}}
 
     Response.send_problem(conn, problem)
@@ -151,7 +156,7 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
   # `on` from the gate: the failing codes plus the counts and the evidence summary (the one
   # `OnGate` serialisation shared with the audit entries). Counts, enums and booleans only: no
   # ids, no names (INV-2).
-  defp flip_response({:error, {:on_precondition_failed, failed, report}}, conn) do
+  def flip_response({:error, {:on_precondition_failed, failed, report}}, conn) do
     problem = %{
       Error.conflict("enforcement_precondition_failed")
       | extensions: %{
@@ -165,7 +170,7 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
   end
 
   # Names the failing checks and the three counts/status only: no ids, no names (INV-2).
-  defp flip_response({:error, {:precondition_failed, failed, report}}, conn) do
+  def flip_response({:error, {:precondition_failed, failed, report}}, conn) do
     problem = %{
       Error.conflict("enforcement_precondition_failed")
       | extensions: %{
@@ -182,8 +187,9 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
   end
 
   # SEC C-5: the 500 path logs ONE constant line, the reason tag and the exception module
-  # only (no ids, no values, no exception message).
-  defp flip_response({:error, server_fault}, conn) do
+  # only (no ids, no values, no exception message). The catch-all is the INV-8 fallback for an
+  # unrecognised tag; GH #2890's closed-kind test checks every known kind reaches its own clause.
+  def flip_response({:error, server_fault}, conn) do
     {reason, exception} = fault_tags(server_fault)
     Logger.error("scope_enforcement_flip_failed reason=#{reason} exception=#{exception}")
     Response.internal_error(conn)
