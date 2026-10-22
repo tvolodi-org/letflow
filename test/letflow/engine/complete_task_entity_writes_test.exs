@@ -608,6 +608,30 @@ defmodule Letflow.Engine.CompleteTaskEntityWritesTest do
       end
     end
 
+    # GH #2646 (#2633 run-time half): `run_time_line/1` refuses a pinned line whose `entity_type`
+    # was removed, as `validation_failed` at that line's index; nothing is written.
+    for index <- [0, 1] do
+      test "a pinned line #{index} without entity_type is validation_failed at index #{index} and writes nothing" do
+        ctx = case!()
+        index = unquote(index)
+
+        edit_pinned_lines!(ctx, fn lines ->
+          List.update_at(lines, index, &Map.delete(&1, "entity_type"))
+        end)
+
+        before = event_count(ctx)
+
+        assert {:error, {:entity_write_refused, ^index, :validation_failed}} =
+                 Fx.complete(ctx, %{"label" => "L1", "note" => "N1"})
+
+        assert_nothing_written(ctx, before)
+
+        assert [entry] = Fx.audit_rows(ctx.schema, "entity_write.refused")
+        assert entry.after_state["line_index"] == index
+        assert entry.after_state["code"] == "validation_failed"
+      end
+    end
+
     test "an update op in a pinned line is entity_append_only (D7/D8)" do
       ctx = case!()
 
