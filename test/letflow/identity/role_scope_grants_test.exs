@@ -5,7 +5,8 @@ defmodule Letflow.Identity.RoleScopeGrantsTest do
   `lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md` sections 2.1, 2.2 and
   6.2, T-C1..T-C4; spec `test/specs/REQ-497-1a.md`).
 
-  T-C1 drives `reconcile_binding!/3` through every row of the decision table with in-memory
+  T-C1 drives `reconcile_widening!/3` and `reconcile_non_widening!/3` (GH #2848: the split of
+  the former `reconcile_binding!/3`) through every row of the decision table with in-memory
   `TenantRole` structs (the function reads only `kind`, `group_id` and `name`; `principal_id`
   has no FK), each inside a transaction that holds lock A, as every binding writer calls it.
   The r1 cases (j)-(l) pin SEC B1: a repair never widens a group holding only a scoped row.
@@ -46,9 +47,18 @@ defmodule Letflow.Identity.RoleScopeGrantsTest do
     result
   end
 
+  defp platform?(%TenantRole{kind: :platform_role}), do: true
+  defp platform?(_binding), do: false
+
+  # The entry point each binding writer picks: a write that creates a platform binding is the
+  # widening one, every other shape is the non-widening one.
   defp reconcile!(schema, before_binding, after_binding) do
     in_tx(schema, fn ->
-      RoleScopeGrants.reconcile_binding!(before_binding, after_binding, schema)
+      if platform?(after_binding) and not platform?(before_binding) do
+        RoleScopeGrants.reconcile_widening!(before_binding, after_binding, schema)
+      else
+        RoleScopeGrants.reconcile_non_widening!(before_binding, after_binding, schema)
+      end
     end)
   end
 
@@ -60,7 +70,54 @@ defmodule Letflow.Identity.RoleScopeGrantsTest do
     do: schema |> group_structs(group_id) |> Enum.map(&{&1.id, &1.updated_at})
 
   # ===========================================================================================
-  describe "T-C1: reconcile_binding!/3 decision table" do
+  describe "GH #2848: the entry points refuse the other direction (no row is written)" do
+    test "reconcile_widening!/3 raises on a binding that was already a platform role", %{
+      schema: s
+    } do
+      g = Ecto.UUID.generate()
+      raw_tenant_wide_row!(s, g, "TASK_WORKER")
+      before = rows(s)
+
+      assert_raise ArgumentError, ~r/use reconcile_non_widening!\/3/, fn ->
+        in_tx(s, fn ->
+          RoleScopeGrants.reconcile_widening!(p("TASK_WORKER", g), p("TASK_WORKER", g), s)
+        end)
+      end
+
+      assert rows(s) == before
+    end
+
+    test "reconcile_widening!/3 answers :ok for a removal shape (routing or nil after)", %{
+      schema: s
+    } do
+      g = Ecto.UUID.generate()
+      assert in_tx(s, fn -> RoleScopeGrants.reconcile_widening!(r("rsg-x", g), nil, s) end) == :ok
+      assert group_rows(s, g) == []
+    end
+
+    test "reconcile_non_widening!/3 raises on a binding that becomes a platform role", %{
+      schema: s
+    } do
+      g = Ecto.UUID.generate()
+      before = rows(s)
+
+      assert_raise ArgumentError, ~r/use reconcile_widening!\/3/, fn ->
+        in_tx(s, fn ->
+          RoleScopeGrants.reconcile_non_widening!(nil, p("TASK_WORKER", g), s)
+        end)
+      end
+
+      assert_raise ArgumentError, ~r/use reconcile_widening!\/3/, fn ->
+        in_tx(s, fn ->
+          RoleScopeGrants.reconcile_non_widening!(r("rsg-y", g), p("TASK_WORKER", g), s)
+        end)
+      end
+
+      assert rows(s) == before
+    end
+  end
+
+  describe "T-C1: reconcile_widening!/3 and reconcile_non_widening!/3 decision table" do
     test "nil -> P inserts one tenant-wide row; nil -> not P writes nothing", %{schema: s} do
       g = Ecto.UUID.generate()
       assert reconcile!(s, nil, p("TASK_WORKER", g)) == :ok
@@ -193,7 +250,7 @@ defmodule Letflow.Identity.RoleScopeGrantsTest do
       other = Ecto.UUID.generate()
 
       assert_raise ArgumentError, fn ->
-        RoleScopeGrants.reconcile_binding!(nil, p("CANDIDATE", other), s)
+        RoleScopeGrants.reconcile_widening!(nil, p("CANDIDATE", other), s)
       end
 
       assert_raise ArgumentError, fn ->

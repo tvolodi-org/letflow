@@ -1827,7 +1827,7 @@ defmodule Letflow.Routers.Entities do
             record_id: record_id,
             source_record_id: source_record_id,
             outcome: outcome,
-            external_ref: %{system: system, id: id}
+            external_ref: %Letflow.Entities.ExternalRef{} = external_ref
           }}
        ) do
     %{
@@ -1835,7 +1835,7 @@ defmodule Letflow.Routers.Entities do
       "record_id" => record_id,
       "source_record_id" => source_record_id,
       "outcome" => Atom.to_string(outcome),
-      "external_ref" => %{"system" => system, "id" => id}
+      "external_ref" => Letflow.Entities.ExternalRef.to_payload(external_ref)
     }
   end
 

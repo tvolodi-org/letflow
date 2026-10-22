@@ -9048,47 +9048,10 @@ defmodule Letflow.Engine do
     end
   end
 
-  # GH #2706 (design 3.1): the first statement of the transaction bounds every later lock wait.
-  # `set_config(..., true)` is transaction-local (`SET LOCAL`); the value is a BOUND parameter
-  # (INV-7: no runtime value in SQL text). Skipped when the caller already holds a transaction:
-  # Ecto nested transactions use no savepoint, so the setting would outlive this call.
-  defp set_cancel_lock_timeout(_repo, true), do: {:ok, nil}
-
-  defp set_cancel_lock_timeout(repo, false) do
-    repo.query!("SELECT set_config('lock_timeout', $1, true)", [Contention.lock_timeout_setting()])
-
-    {:ok, :set}
-  end
-
-  # GH #2707 (PR-3): the FIRST statement of a timer-fire transaction, `Letflow.Scheduler.fire_timer/2`.
-  # The same bound-parameter `set_config(..., true)` as the cancel's, with the dedicated PER-WAIT
-  # value `Contention.timer_fire_lock_timeout_setting/0` (it bounds each lock wait of the fire, not
-  # the transaction as a whole). Skipped when the caller already holds a transaction.
-  @doc false
-  @spec set_timer_fire_lock_timeout(Ecto.Repo.t() | module(), nested? :: boolean()) ::
-          {:ok, nil | :set}
-  def set_timer_fire_lock_timeout(_repo, true), do: {:ok, nil}
-
-  def set_timer_fire_lock_timeout(repo, false) do
-    repo.query!("SELECT set_config('lock_timeout', $1, true)", [
-      Contention.timer_fire_lock_timeout_setting()
-    ])
-
-    {:ok, :set}
-  end
-
-  # GH #2707 (PR-2): the same statement for `EventStore.append/2`'s `:lock_timeout_ms` option (a
-  # cold appender's bound). It lives here only so the set-config string stays inside the T-11
-  # whitelist (`stamp_opener_scan_test`); the value is a bound parameter, transaction-local.
-  @doc false
-  @spec set_lock_timeout_ms(Ecto.Repo.t() | module(), pos_integer()) :: {:ok, :set}
-  def set_lock_timeout_ms(repo, timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0 do
-    repo.query!("SELECT set_config('lock_timeout', $1, true)", [
-      Integer.to_string(timeout_ms) <> "ms"
-    ])
-
-    {:ok, :set}
-  end
+  # GH #2706 (design 3.1): the first statement of the cancel transaction bounds every later lock
+  # wait; the statement itself lives in `Contention.set_cancel_lock_timeout/2` (GH #2868).
+  defp set_cancel_lock_timeout(repo, nested?),
+    do: Contention.set_cancel_lock_timeout(repo, nested?)
 
   defp cancel_multi(instance_id, actor_id, idempotency_key, cancelled_at, prefix, nested?) do
     Multi.new()

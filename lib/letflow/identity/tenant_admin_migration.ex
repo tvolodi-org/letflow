@@ -386,7 +386,7 @@ defmodule Letflow.Identity.TenantAdminMigration do
   defp ensure_binding(%TenantRole{group_id: group_id} = ta, schema) do
     # Unreachable in an `on` tenant through real_tenant/4 (skipped); a direct caller gets
     # the NO-ROW answer, which is not an error here.
-    _ = RoleScopeGrants.reconcile_binding!(ta, ta, schema)
+    _ = RoleScopeGrants.reconcile_non_widening!(ta, ta, schema)
     group_id
   end
 
@@ -436,7 +436,7 @@ defmodule Letflow.Identity.TenantAdminMigration do
     # REQ-497 W5 (c): the binding's grant rows go with it, before its audit entry. Removal
     # never widens: always `:ok`, in every mode.
     Repo.delete_all(from(t in TenantRole, where: t.id == ^id), prefix: schema)
-    :ok = RoleScopeGrants.reconcile_binding!(pa, nil, schema)
+    :ok = RoleScopeGrants.reconcile_non_widening!(pa, nil, schema)
 
     audit!(schema, "role_binding.removed", "tenant_role", id, %{"name" => @legacy}, nil)
   end
