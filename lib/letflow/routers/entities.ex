@@ -2018,10 +2018,15 @@ defmodule Letflow.Routers.Entities do
   @doc false
   @spec render_record_command(Plug.Conn.t(), term(), :created | :ok, MapSet.t(String.t())) ::
           Plug.Conn.t()
-  def render_record_command(conn, {:ok, %{record: %Latest{} = record}}, status, restricted)
+  def render_record_command(
+        conn,
+        {:ok, %{record: %Latest{} = record} = result},
+        status,
+        restricted
+      )
       when status in [:created, :ok] do
     record = redact_record(record, restricted)
-    body = record_map(record, strict_specs_for(record.entity_type, prefix!(conn)))
+    body = record_map(record, command_specs(result, record, conn))
 
     case status do
       :created -> Response.created(conn, body)
@@ -2031,6 +2036,13 @@ defmodule Letflow.Routers.Entities do
 
   def render_record_command(conn, result, status, _restricted),
     do: render_record_command(conn, result, status)
+
+  # GH #2773: the specs the command validated against (`Records` result); a result built without
+  # them (a hand-made one in a unit test) falls back to one definition read.
+  defp command_specs(%{strict_specs: specs}, _record, _conn) when is_map(specs), do: specs
+
+  defp command_specs(_result, %Latest{entity_type: entity_type}, conn),
+    do: strict_specs_for(entity_type, prefix!(conn))
 
   defp redact_record(%Latest{field_values: field_values} = record, restricted)
        when is_map(field_values) do
@@ -2642,10 +2654,11 @@ defmodule Letflow.Routers.Entities do
              exempt?: false
            }),
          {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
-         {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
+         {:ok, allowlist, primary_specs} <-
+           Allowlist.load(request.entity_type, prefix, :with_specs),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
          {:ok, redacted} <- redact(page, request, sets) do
-      specs = read_specs(request, prefix)
+      specs = read_specs(request, primary_specs, prefix)
 
       Response.ok(conn, %{
         "items" => Enum.map(redacted.items, &query_item_map(&1, specs)),
@@ -3083,10 +3096,11 @@ defmodule Letflow.Routers.Entities do
            ),
          {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
          :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
-         {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
+         {:ok, allowlist, primary_specs} <-
+           Allowlist.load(request.entity_type, prefix, :with_specs),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
          {:ok, redacted} <- export_redact(page, request, guard.sets, unredacted?) do
-      specs = read_specs(request, prefix)
+      specs = read_specs(request, primary_specs, prefix)
 
       Response.ok(conn, %{
         "record_export_schema_version" => @record_export_schema_version,
@@ -3480,7 +3494,11 @@ defmodule Letflow.Routers.Entities do
   # query allowlist: a strict field that is not queried must still be rendered. One lookup per
   # distinct type per request; `%{}` (a no-op renderer) when the type has no strict field or has
   # no active definition.
-  defp read_specs(request, prefix) do
+  #
+  # GH #2773: the primary's specs arrive from `Allowlist.load/3` (the definition row it already
+  # read for the allowlist); the router reads only the join targets, once per distinct type other
+  # than the primary.
+  defp read_specs(request, primary_specs, prefix) do
     joined_types =
       request
       |> Map.get(:join, [])
@@ -3488,8 +3506,12 @@ defmodule Letflow.Routers.Entities do
       |> Enum.uniq()
 
     %{
-      primary: strict_specs_for(request.entity_type, prefix),
-      joined: Map.new(joined_types, &{&1, strict_specs_for(&1, prefix)})
+      primary: primary_specs,
+      joined:
+        Map.new(joined_types, fn
+          entity_type when entity_type == request.entity_type -> {entity_type, primary_specs}
+          entity_type -> {entity_type, strict_specs_for(entity_type, prefix)}
+        end)
     }
   end
 

@@ -61,7 +61,7 @@ Applied in memory only (the edited source of each file compiled into the test VM
 ## Not covered here (by design)
 
 * A non-raising failure of the suppression audit write (`{:error, {:audit_failed, _}}` out of `Audit.insert_entry/3`): with a valid schema name and a normalised trace id no input makes the insert return an error tuple instead of raising, so only the raising variant (T-S12) is reachable from a test. A mutant that turns that branch into success is not killable (reported).
-* TS-1 (REVIEWER): the typed report has no failure variant. T-S12 pins the CURRENT behaviour (`{:ok, original_user}` for a swallowed failure) and says so; a future `{:failed, user}` variant changes that test on purpose.
+* TS-1 (REVIEWER, GH 2858): the typed report has a failure variant. A swallowed failure is `{:failed, original_user, step}` (step `:raised` or the Multi step name), never `{:ok, _}`; T-S12, T-S1 and T-S18 pin it.
 * 2f: the flag value `on`, the gate, the flip route; `Audit.latest_matching/4` (the dedup uses a private `Repo.exists?` until 2f-a).
 
 ### Measured mutants (32 applied, 32 killed; failed tests of 83; every anchor occurred exactly once; nothing on disk changed, so there is nothing to revert, verified with git status)
