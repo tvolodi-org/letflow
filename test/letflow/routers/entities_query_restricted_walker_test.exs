@@ -1493,4 +1493,132 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
              |> Enum.all?(&(&1 =~ "exempt?: false" or &1 =~ "exempt?: unredacted?"))
     end
   end
+
+  # ==========================================================================
+  # GH #2698 -- counts and pagination metadata
+  # ==========================================================================
+
+  describe "GH #2698 pagination metadata carries no total" do
+    test "a query page is items and next_cursor only: no total, no count, no aggregate of hidden rows" do
+      ctx = exam_ctx!("w-meta", ["TASK_WORKER"], false)
+
+      conn =
+        query(ctx, %{
+          "entity_type" => "answer_option",
+          "sort" => [%{"field" => "text", "dir" => "asc"}],
+          "page_size" => 1
+        })
+
+      assert conn.status == 200
+      doc = body_of(conn)
+      assert Enum.sort(Map.keys(doc)) == ["items", "next_cursor"]
+      assert is_binary(doc["next_cursor"])
+    end
+  end
+
+  # ==========================================================================
+  # GH #2698 -- a next cursor is bound to the request that minted it
+  #
+  # The cursor carries the sort values of its last row. Replayed under another
+  # sort (or on another entity type) those values become a threshold on a
+  # field the replaying caller may read, which is an oracle on the restricted
+  # value. The walker checks the replayed request's own sort, so the binding
+  # must refuse the mismatch.
+  # ==========================================================================
+
+  describe "GH #2698 cursor binding" do
+    setup do
+      ctx = tenant_ctx("w-bind", ["TASK_WORKER"])
+
+      create_active_definition!(ctx, %{
+        name: "question",
+        display_name: "Question",
+        fields: [
+          %{name: "stem", type: :string, queried: true},
+          %{name: "explanation", type: :string, queried: true}
+        ]
+      })
+
+      create_active_definition!(ctx, %{
+        name: "note",
+        display_name: "Note",
+        fields: [%{name: "stem", type: :string, queried: true}]
+      })
+
+      insert_restriction!(ctx, "question", "explanation")
+      insert_grant!(ctx, ctx.user_id, "question", "explanation")
+
+      seed_record!(ctx, "question", %{"stem" => "a", "explanation" => "m-secret"})
+      seed_record!(ctx, "question", %{"stem" => "z", "explanation" => "x"})
+      seed_record!(ctx, "note", %{"stem" => "q"})
+
+      %{ctx: ctx}
+    end
+
+    test "a cursor minted under a sort on a field the caller lost is refused under another sort",
+         %{ctx: ctx} do
+      by_explanation = [%{"field" => "explanation", "dir" => "asc"}]
+      by_stem = [%{"field" => "stem", "dir" => "asc"}]
+
+      page1 =
+        query(ctx, %{"entity_type" => "question", "sort" => by_explanation, "page_size" => 1})
+
+      assert page1.status == 200
+      cursor = body_of(page1)["next_cursor"]
+      assert is_binary(cursor)
+
+      # The minting request still resumes under its own sort (positive control).
+      same_sort =
+        query(ctx, %{
+          "entity_type" => "question",
+          "sort" => by_explanation,
+          "page_size" => 1,
+          "cursor" => cursor
+        })
+
+      assert same_sort.status == 200
+
+      # The grant goes away: explanation is restricted for this caller again.
+      Repo.delete_all("user_entity_grants", prefix: ctx.schema_name)
+
+      query(ctx, %{
+        "entity_type" => "question",
+        "sort" => by_explanation,
+        "page_size" => 1,
+        "cursor" => cursor
+      })
+      |> assert_refused(["m-secret"])
+
+      # Under a permitted sort the restricted value must not become a threshold.
+      replay =
+        query(ctx, %{
+          "entity_type" => "question",
+          "sort" => by_stem,
+          "page_size" => 10,
+          "cursor" => cursor
+        })
+
+      assert replay.status == 400
+      assert body_of(replay)["detail"] == "invalid cursor"
+    end
+
+    test "a cursor minted on one entity type is refused on another", %{ctx: ctx} do
+      by_stem = [%{"field" => "stem", "dir" => "asc"}]
+
+      page1 = query(ctx, %{"entity_type" => "question", "sort" => by_stem, "page_size" => 1})
+      cursor = body_of(page1)["next_cursor"]
+      assert is_binary(cursor)
+
+      replay =
+        query(ctx, %{
+          "entity_type" => "note",
+          "sort" => by_stem,
+          "page_size" => 10,
+          "cursor" => cursor
+        })
+
+      assert replay.status == 400
+      assert body_of(replay)["detail"] == "invalid cursor"
+    end
+  end
 end

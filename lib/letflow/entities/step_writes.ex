@@ -99,11 +99,13 @@ defmodule Letflow.Entities.StepWrites do
 
   alias Ecto.Multi
   alias Letflow.Engine.EntityPort
+  alias Letflow.Engine.VariableLabels
   alias Letflow.Engine.VariableMerge
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EntityTypeInstance
   alias Letflow.Entities.HandlerWrites
+  alias Letflow.Entities.HiddenLabels
   alias Letflow.Entities.ProcessWritable
   alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.Record.Latest
@@ -580,13 +582,26 @@ defmodule Letflow.Entities.StepWrites do
           if ctx.skip?.(changes) do
             Multi.run(Multi.new(), :entity_writes, fn _repo, _changes -> {:ok, :skipped} end)
           else
-            build_lines(lines, module_lines, ctx, ctx.variables.(changes))
+            build_lines(
+              lines,
+              module_lines,
+              ctx,
+              ctx.variables.(changes),
+              variable_labels(ctx, changes)
+            )
           end
         end)
     end
   end
 
-  defp build_lines(lines, module_lines, ctx, variables) do
+  # Decision 0062: the labels of the variables the lines read. A ctx without the closure (a test
+  # double) carries none.
+  defp variable_labels(%{variable_labels: fun}, changes) when is_function(fun, 1),
+    do: VariableLabels.sanitize(fun.(changes))
+
+  defp variable_labels(_ctx, _changes), do: %{}
+
+  defp build_lines(lines, module_lines, ctx, variables, labels) do
     now_fun = Map.get(ctx, :now_fun, fn -> System.monotonic_time(:millisecond) end)
 
     indexed =
@@ -613,7 +628,7 @@ defmodule Letflow.Entities.StepWrites do
 
     indexed
     |> Enum.reduce_while({:ok, locked}, fn {line, index}, {:ok, acc} ->
-      case build_line(line, index, ctx, variables) do
+      case build_line(line, index, ctx, variables, labels) do
         {:ok, line_multi} ->
           acc =
             acc
@@ -632,7 +647,7 @@ defmodule Letflow.Entities.StepWrites do
     |> case do
       {:ok, acc} ->
         acc
-        |> append_handler_calls(lines, module_lines, ctx, variables, guard)
+        |> append_handler_calls(lines, module_lines, ctx, variables, labels, guard)
         |> Multi.run(:entity_writes, fn _repo, changes ->
           {:ok, assemble_result(indexed, lines, module_lines, changes)}
         end)
@@ -687,9 +702,9 @@ defmodule Letflow.Entities.StepWrites do
 
   # Handler calls, in declared order, after every declarative line. Call `j` has
   # `line_index = length(lines) + j`; its call-level key is `StepSource.call_key/1`.
-  defp append_handler_calls(multi, _lines, [], _ctx, _variables, _guard), do: multi
+  defp append_handler_calls(multi, _lines, [], _ctx, _variables, _labels, _guard), do: multi
 
-  defp append_handler_calls(multi, lines, module_lines, ctx, variables, guard) do
+  defp append_handler_calls(multi, lines, module_lines, ctx, variables, labels, guard) do
     base = %{
       prefix: ctx.prefix,
       instance_id: ctx.instance_id,
@@ -702,7 +717,8 @@ defmodule Letflow.Entities.StepWrites do
       # ACTIVATOR on the service origin, where the event actor is the platform sentinel.
       subject_id: subject_id(ctx),
       activator_id: ctx.activator_id,
-      manifest_hash: owner_manifest_hash(ctx)
+      manifest_hash: owner_manifest_hash(ctx),
+      variable_labels: labels
     }
 
     module_lines
@@ -723,13 +739,14 @@ defmodule Letflow.Entities.StepWrites do
   # One line: run-time re-normalization of the pinned line, authorization, field
   # restrictions, then the A2 command. PR C2: the origin is `{:task, id}` (HUMAN) or `{:dispatch, id}` (SERVICE_TASK); the
   # restriction subject is `ctx.subject_id` (the activator on the service origin, the completer on the human one).
-  defp build_line(line, index, ctx, variables) do
+  defp build_line(line, index, ctx, variables, labels) do
     origin = origin(ctx)
 
     with {:ok, normalized} <- run_time_line(line),
          :ok <- check_authorized(normalized.entity_type, ctx.authorized),
          :ok <- check_type_access(normalized.entity_type, ctx),
          :ok <- check_restrictions(normalized.fields, normalized.entity_type, ctx),
+         :ok <- check_taint(normalized, labels, ctx),
          values = resolve_values(normalized.fields, variables),
          :ok <- check_service_sizes(values, origin),
          {:ok, source} <-
@@ -863,6 +880,35 @@ defmodule Letflow.Entities.StepWrites do
 
       {:error, _reason} ->
         {:error, :field_restricted}
+    end
+  end
+
+  # Decision 0062 R5 (Q5 narrow predicate): a variable that carries labels may be written into a
+  # field only when its labels are within that field restriction set. Loaded only when some `var`
+  # field is labelled; a load error refuses (fail closed, as `check_restrictions/3`).
+  defp check_taint(normalized, labels, ctx) do
+    labelled =
+      for {field, {:var, var}} <- normalized.fields,
+          is_binary(var),
+          not VariableMerge.reserved_key?(var),
+          taint = Map.get(labels, var, []),
+          taint != [],
+          do: {"#{normalized.entity_type}.#{field}", taint}
+
+    if labelled == [] do
+      :ok
+    else
+      case HiddenLabels.load_platform_hidden_labels(ctx.prefix) do
+        {:ok, restricted} ->
+          if Enum.all?(labelled, fn {target, taint} ->
+               VariableLabels.write_allowed?(taint, target, restricted)
+             end),
+             do: :ok,
+             else: {:error, :entity_write_restriction_widened}
+
+        {:error, _reason} ->
+          {:error, :entity_write_restriction_widened}
+      end
     end
   end
 
@@ -1028,26 +1074,55 @@ defmodule Letflow.Entities.StepWrites do
 
   defp interpret_line(i, _name, :build, reason) do
     case reason do
-      :line_malformed -> {:refused, i, :validation_failed, :malformed}
-      :op_unsupported -> {:refused, i, :entity_append_only, :op_unsupported}
-      :line_not_authorized -> {:refused, i, :write_not_permitted, :not_authorized}
-      :field_restricted -> {:refused, i, :write_not_permitted, :field_restricted}
+      :line_malformed ->
+        {:refused, i, :validation_failed, :malformed}
+
+      :op_unsupported ->
+        {:refused, i, :entity_append_only, :op_unsupported}
+
+      :line_not_authorized ->
+        {:refused, i, :write_not_permitted, :not_authorized}
+
+      :field_restricted ->
+        {:refused, i, :write_not_permitted, :field_restricted}
+
+      # Decision 0062 R5: uniform 403; the detail atom is for the audit entry only.
+      :entity_write_restriction_widened ->
+        {:refused, i, :write_not_permitted, :entity_write_restriction_widened}
+
       # PR C2 (D-C.7): a service-origin value over the byte cap. No field name (INV-2).
-      :value_too_large -> {:refused, i, :validation_failed, :value_too_large}
-      :entity_type_managed -> {:refused, i, :write_not_permitted, :managed}
+      :value_too_large ->
+        {:refused, i, :validation_failed, :value_too_large}
+
+      :entity_type_managed ->
+        {:refused, i, :write_not_permitted, :managed}
+
       # GH #2808: a type TypeAccess hides from the subject answers as a non-writable type.
-      :type_denied -> {:refused, i, :write_not_permitted, :not_writable}
+      :type_denied ->
+        {:refused, i, :write_not_permitted, :not_writable}
+
       # GH #2590 R4b, handler call build failures (design 8): a handler that is no longer
       # registered or said "not permitted" is the uniform 403; bad arguments are a 422; a
       # contract violation or a raise is an internal failure (the body carries no detail).
-      :handler_unknown -> {:refused, i, :write_not_permitted, :handler_unknown}
-      :handler_not_permitted -> {:refused, i, :write_not_permitted, :handler_not_permitted}
-      :handler_invalid_arguments -> {:refused, i, :validation_failed, :handler_invalid_arguments}
-      shape when shape in [:handler_shape, :handler_raised] -> {:failed, i, :handler}
+      :handler_unknown ->
+        {:refused, i, :write_not_permitted, :handler_unknown}
+
+      :handler_not_permitted ->
+        {:refused, i, :write_not_permitted, :handler_not_permitted}
+
+      :handler_invalid_arguments ->
+        {:refused, i, :validation_failed, :handler_invalid_arguments}
+
+      shape when shape in [:handler_shape, :handler_raised] ->
+        {:failed, i, :handler}
+
       # `prepare/2` skips a type that is not process-writable, so it has no synthetic
       # instance: the same refusal as the `:process_policy` check (uniform body, INV-5).
-      {:entity_type_instance_missing, _type} -> {:refused, i, :write_not_permitted, :not_writable}
-      other -> classify(i, :build, other)
+      {:entity_type_instance_missing, _type} ->
+        {:refused, i, :write_not_permitted, :not_writable}
+
+      other ->
+        classify(i, :build, other)
     end
   end
 

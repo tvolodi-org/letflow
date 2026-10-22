@@ -18,10 +18,11 @@ defmodule Letflow.Scripts.Runtime do
   7c-2 (design 11.3): a binding may declare `reads`. Activation no longer refuses them; every
   run re-checks them against the tenant's CURRENT policy (`Policy.check_reads/2`: flagged type,
   active definition, no type restriction, known fields, and SEC N1 / P12: a `match.field`
-  restricted now is refused), after the closed-output-schema and restricted-opt-in refusals.
+  restricted now is refused), after the closed-output-schema refusal.
   The rows themselves are pre-fetched by the dispatcher through `Letflow.Engine.EntityPort`
-  (`run_spec.reads`). The restricted opt-in stays REFUSED at activation and at run time (C10):
-  there is no opt-in path.
+  (`run_spec.reads`). The restricted opt-in (`restricted_inputs`, `reads[].restricted_fields`) is allowed since
+  decision 0062 part 3 (the 0053 C10 limit is lifted): its outputs carry the run taint and
+  `check_bindings/2` refuses a definition that would widen it (R5a).
 
   This module never calls `Letflow.Obs.Alerts` (C18: the dispatcher does) and holds no state.
   Every query is Ecto with bound parameters (INV-7), always in the caller's tenant prefix.
@@ -32,6 +33,9 @@ defmodule Letflow.Scripts.Runtime do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.ReservedReferences
+  alias Letflow.Engine.ScriptInput
+  alias Letflow.Engine.VariableLabels
+  alias Letflow.Entities.HiddenLabels
   alias Letflow.Engine.VariableMerge
   alias Letflow.EventStore.Registry.JsonSchema
   alias Letflow.Identity
@@ -47,7 +51,8 @@ defmodule Letflow.Scripts.Runtime do
           :script_not_published
           | :script_version_conflict
           | :script_output_schema_open
-          | :script_restricted_opt_in_unsupported
+          | :script_output_restriction_widened
+          | :service_task_restricted_variable_reference
 
   @type binding :: %{
           script_key: String.t(),
@@ -78,7 +83,6 @@ defmodule Letflow.Scripts.Runtime do
           | :script_revoked
           | :pin_mismatch
           | :output_schema_open
-          | :restricted_opt_in_unsupported
           | :reads_not_allowed
           | :hmac_secret_missing
 
@@ -114,13 +118,14 @@ defmodule Letflow.Scripts.Runtime do
   node order: a key already bound with a different version is `:script_version_conflict`;
   the row is read `FOR SHARE` (so a concurrent retire, which locks it `FOR UPDATE`, waits);
   anything but a `published` `service_task` version is `:script_not_published`; then the
-  closed output schema (C11a) and the restricted opt-in (C10). Declared `reads` are allowed
+  closed output schema (C11a). Declared `reads` are allowed
   (7c-2) and re-checked on every run (`prepare_run/3`). Last (GH #2587 PR A1b, design 2A.2
   L9): a declared `input_schema` property in the reserved engine namespace
   (`VariableMerge.reserved_key?/1`) is `{:expression_references_reserved_variable, [ref]}`,
   `ref` naming the node and the property (`location: :script_input`), because
-  `ScriptInput.build/3` reads declared inputs as exact flat keys. The first failing node is
-  reported. MUST run inside the caller's transaction.
+  `ScriptInput.build/4` reads declared inputs as exact flat keys. The first failing node is
+  reported. Then the restriction flow (decision 0062 R5a, R12): `:script_output_restriction_widened`
+  and `:service_task_restricted_variable_reference`. MUST run inside the caller's transaction.
   """
   @spec check_bindings(Graph.t(), String.t()) ::
           :ok
@@ -153,8 +158,129 @@ defmodule Letflow.Scripts.Runtime do
       end
     end)
     |> case do
-      {:ok, _seen} -> :ok
+      {:ok, _seen} -> check_restriction_flow(nodes, prefix)
       {:error, _} = error -> error
+    end
+  end
+
+  # ── restriction flow (decision 0062 R5a, R12; part 3) ────────────────────────
+
+  # Static taint: every declared output of an opted-in script (a `restricted_inputs` `from` pair
+  # or a declared read `restricted_fields`) is tainted with those labels wherever the graph reads
+  # it (name based, no data flow: a name collision is a refusal the author fixes by renaming).
+  # A tainted variable may not reach an entity write field outside its restriction set, a
+  # `module_writes` argument, or a SERVICE_TASK URL / body template.
+  defp check_restriction_flow(nodes, prefix) do
+    tainted = tainted_outputs(nodes, prefix)
+
+    if map_size(tainted) == 0 do
+      :ok
+    else
+      restricted = HiddenLabels.load_platform_hidden_labels(prefix)
+
+      Enum.find_value(nodes, :ok, fn node ->
+        case flow_violation(node, tainted, restricted) do
+          nil -> nil
+          reason -> {:error, {:script_binding_invalid, node.id, reason}}
+        end
+      end)
+    end
+  end
+
+  defp tainted_outputs(nodes, prefix) do
+    nodes
+    |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
+    |> Enum.reduce(%{}, fn node, acc ->
+      with {key, version} <- script_binding(node.attributes),
+           %{} = manifest <- bound_manifest(prefix, key, version),
+           [_ | _] = taint <- manifest_taint(manifest) do
+        manifest
+        |> declared_outputs()
+        |> Enum.reduce(acc, fn name, acc ->
+          Map.update(acc, name, taint, &Enum.uniq(Enum.sort(&1 ++ taint)))
+        end)
+      else
+        _ -> acc
+      end
+    end)
+  end
+
+  defp bound_manifest(prefix, key, version) do
+    if Validation.key?(key) and is_integer(version) and version > 0 do
+      Repo.one(
+        from(r in ScriptRule,
+          where: r.key == ^key and r.version == ^version and r.status == :published,
+          select: r.manifest,
+          lock: "FOR SHARE"
+        ),
+        prefix: prefix
+      )
+    end
+  end
+
+  defp manifest_taint(manifest) do
+    from_labels =
+      manifest
+      |> Validation.restricted_input_entries()
+      |> Enum.flat_map(& &1["from"])
+      |> Enum.map(&(&1["entity_type"] <> "." <> &1["field"]))
+
+    (from_labels ++ ScriptInput.read_taint(Validation.declared_reads(manifest)))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp flow_violation(%{attributes: attrs} = node, tainted, restricted) when is_map(attrs) do
+    cond do
+      Enum.any?(entity_write_vars(attrs), &widened?(&1, tainted, restricted)) ->
+        :script_output_restriction_widened
+
+      Enum.any?(module_write_vars(attrs), &Map.has_key?(tainted, &1)) ->
+        :script_output_restriction_widened
+
+      node.node_type == :SERVICE_TASK and
+          ReservedReferences.restricted_reference_keys(
+            [Map.get(attrs, "endpoint"), Map.get(attrs, "body_template")],
+            MapSet.new(Map.keys(tainted))
+          ) != [] ->
+        :service_task_restricted_variable_reference
+
+      true ->
+        nil
+    end
+  end
+
+  defp flow_violation(_node, _tainted, _restricted), do: nil
+
+  # `{target label, variable}` of every `var` field of the node's entity_writes lines.
+  defp entity_write_vars(attrs) do
+    for %{"entity_type" => type, "fields" => %{} = fields} <- list_of(attrs["entity_writes"]),
+        is_binary(type),
+        {field, %{"var" => var}} <- fields,
+        is_binary(var),
+        do: {type <> "." <> to_string(field), var}
+  end
+
+  defp module_write_vars(attrs) do
+    for %{"args" => %{} = args} <- list_of(attrs["module_writes"]),
+        {_name, %{"var" => var}} <- args,
+        is_binary(var),
+        do: var
+  end
+
+  defp list_of(list) when is_list(list), do: list
+  defp list_of(_other), do: []
+
+  defp widened?({target, var}, tainted, restricted) do
+    case Map.fetch(tainted, var) do
+      {:ok, taint} ->
+        case restricted do
+          {:ok, set} -> not VariableLabels.write_allowed?(taint, target, set)
+          _error -> true
+        end
+
+      :error ->
+        false
     end
   end
 
@@ -189,11 +315,9 @@ defmodule Letflow.Scripts.Runtime do
 
     case rule do
       %ScriptRule{status: :published, hook_kind: @hook_kind, manifest: manifest} ->
-        cond do
-          not closed_output_schema?(manifest) -> {:error, :script_output_schema_open}
-          restricted_opt_in?(manifest) -> {:error, :script_restricted_opt_in_unsupported}
-          true -> check_reserved_inputs(manifest)
-        end
+        if closed_output_schema?(manifest),
+          do: check_reserved_inputs(manifest),
+          else: {:error, :script_output_schema_open}
 
       _absent_or_not_published ->
         {:error, :script_not_published}
@@ -256,9 +380,8 @@ defmodule Letflow.Scripts.Runtime do
        `script_revoked`, a sha256 or hook-kind mismatch `pin_mismatch` (published and retired
        run, D1);
     3. manifest backstops, in this order (design 11.3, first failure wins): open output schema
-       `output_schema_open`; restricted opt-in `restricted_opt_in_unsupported` (C10, a
-       refusal: there is no opt-in path); then `Policy.check_reads/2` against the CURRENT
-       policy `reads_not_allowed` (including SEC N1: a `match.field` restricted after publish
+       `output_schema_open`; then `Policy.check_reads/2` (reads and `restricted_inputs` `from`
+       pairs) against the CURRENT policy `reads_not_allowed` (including SEC N1: a `match.field` restricted after publish
        is refused here, before any record query);
     4. the tenant HMAC key: `hmac_secret_missing` when absent. Nothing creates a key here.
 
@@ -322,12 +445,12 @@ defmodule Letflow.Scripts.Runtime do
     end
   end
 
-  # Design 11.3 step order: 3a closed output schema, 3b restricted opt-in (a refusal, C10),
-  # 3c the run-time read re-check against the CURRENT policy (never cached).
+  # Design 11.3 step order: 3a closed output schema, 3b the run-time re-check of the reads and
+  # the restricted_inputs `from` pairs against the CURRENT policy (never cached). The restricted
+  # opt-in itself is allowed since decision 0062 part 3 (C10 lifted).
   defp check_manifest(prefix, manifest) do
     cond do
       not closed_output_schema?(manifest) -> {:rejected, :output_schema_open}
-      restricted_opt_in?(manifest) -> {:rejected, :restricted_opt_in_unsupported}
       Policy.check_reads(prefix, manifest) != :ok -> {:rejected, :reads_not_allowed}
       true -> :ok
     end
@@ -359,15 +482,6 @@ defmodule Letflow.Scripts.Runtime do
   @doc "Whether the 7b/7c test seams are honoured (`:scripts_test_hooks` exactly `true`)."
   @spec test_hooks?() :: boolean()
   def test_hooks?, do: Application.get_env(:letflow, :scripts_test_hooks, false) == true
-
-  # C10: a non-empty `restricted_inputs`, or any read with a non-empty `restricted_fields`.
-  defp restricted_opt_in?(manifest) when is_map(manifest) do
-    Map.get(manifest, "restricted_inputs", []) not in [[], nil] or
-      Enum.any?(
-        Validation.declared_reads(manifest),
-        &(is_map(&1) and Map.get(&1, "restricted_fields", []) not in [[], nil])
-      )
-  end
 
   # ── output rules (design 5.3 step 8, 8.2; C11, C11a) ─────────────────────────
 

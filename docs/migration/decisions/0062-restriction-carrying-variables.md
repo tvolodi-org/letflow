@@ -88,7 +88,7 @@ A key name is not a value and is never redacted.
 
 ## Amends
 * **0053 D5 "Input redaction".** "The host refuses activation/publish if it maps to a target field with fewer restrictions" binds ENTITY-FIELD targets, with the predicate and the activation and run-time checks of R5. A process-variable target is not a field: it inherits the taint (R4, R7). 0053 carries a pointer to this record.
-* **0053 D6 "7c rulings" C10.** Lifted by this record AT THE MERGE of the implementing requirement's part 3, not before. Until then the activation refusal (`script_restricted_opt_in_unsupported`) and the run-time backstop (`restricted_opt_in_unsupported`) stay, with their tests.
+* **0053 D6 "7c rulings" C10.** Lifted by this record at the merge of the implementing requirement's part 3 (T-0188): the activation refusal (`script_restricted_opt_in_unsupported`) and the run-time backstop (`restricted_opt_in_unsupported`) are removed, and their three tests are replaced (see "Part 3 as landed").
 
 ## Tests to replace when C10 is lifted
 Grep (worktree at main 6e2a61bf1): `grep -rn "restricted_opt_in_unsupported\|script_restricted_opt_in_unsupported\|restricted_inputs\|restricted_fields\|C10" test --include=*.exs`, restricted/C10 hits:
@@ -165,7 +165,17 @@ test/letflow/routers/sys_variables_response_test.exs:423:  test "public_event_pa
 * **R14 deviation (Q3).** A computed field's server value always wins, as it did before. A submitted value is recorded only in the disagreement event, with `submitted_labels: []`. The stored label is the union of the labels of the computed field's inputs, taken in topological order.
 * **Sentinel ruling (R8/R9).** A completion that submits the redaction placeholder for a labelled key the caller cannot read is refused with 422 `redacted_value_submitted` (key names only), before any write. A real value is accepted and removes the label. Omitting the key keeps the stored value.
 * **Loader location.** The two hidden-label loaders (`load_hidden_labels/2`, `load_platform_hidden_labels/1`) live in `Letflow.Entities.HiddenLabels`, not in `Letflow.Entities.Query.FieldGrants`. The routers that redact instance variables call them, and `routers_variables_helper_test` and the query-pipeline pin (`query_cursor_field_grants_test` AC4) allow only `Letflow.Routers.Entities` to reference `Query.Cursor`/`Query.FieldGrants`. The redaction sentinel stays in `FieldGrants`.
-* **Deferred.** SR-OPT-3(b) (script input omission) belongs to part 3, with the opt-in. No production path yields a label before then.
+* **Deferred.** SR-OPT-3(b) (script input omission) belongs to part 3, with the opt-in (delivered there).
+
+### Part 3 as landed (GH #2616, T-0188)
+
+* **Manifest shape (R6, Q4).** `restricted_inputs` is a list of `{name, from: [{entity_type, field}]}` objects (`from` non-empty, at most 8 pairs); the bare-name list is `invalid_manifest`. A stored legacy bare name reads as `from: []`, so it is never delivered. `Policy.check_reads/3` also checks every `from` pair against an active definition (`reads_not_allowed`), at save, publish and every run.
+* **Input and taint (R4, R6).** `ScriptInput.build/4` admits a labelled variable only when a `restricted_inputs` entry names it and every label is in `from`; otherwise it is omitted. The run taint is the labels of the admitted variables plus every declared `reads[].restricted_fields` pair (a deliberate over-approximation). The dispatcher gives every declared output key the taint through the `output_labels` seam of part 1.
+* **Port.** `ScriptReads` delivers a field the read lists in `restricted_fields` and still omits every other restricted field; a restricted `match.field` stays refused (SEC N1).
+* **R5 at run time.** `VariableLabels.write_allowed?/3` is the narrow predicate (taint empty, or exactly the restricted target field). `StepWrites` refuses a violating line with the uniform `write_not_permitted` 403 and audit detail `entity_write_restriction_widened`. A handler cannot name its target fields, so `HandlerWrites` refuses any `var` argument whose variable carries a label.
+* **R5 and R12 at activation.** `Runtime.check_bindings/2` refuses `script_output_restriction_widened` (a tainted output variable mapped into a field outside the narrow predicate, or into a `module_writes` argument) and `service_task_restricted_variable_reference` (a SERVICE_TASK URL or body template naming a tainted variable). Taint is by variable name, with no data-flow analysis.
+* **SR-OPT-12.** The sub-process child merge and the `apply_variable_merge` guard scrub a labelled value and each failure's `actual` out of EXECUTION_ERROR details (`VariableLabels.scrub_rejection/4`).
+* **C10 lifted.** `script_restricted_opt_in_unsupported` and `restricted_opt_in_unsupported` are removed; the three C10 tests are replaced by SR-OPT-1, -2, -3, -4, -5, -9 and -12.
 
 ## Consequences
 * Every surface that shows instance variables gains a grant check; a caller without the grant sees `:__field_redacted__` (or absence on WASM) where a script delivered a restricted value. Callers with the grant, and every instance without labelled variables, see no change.
