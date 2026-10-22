@@ -73,6 +73,7 @@ defmodule Letflow.Engine.PluginInterface do
   """
 
   alias Letflow.Engine.ExecutionError
+  alias Letflow.Engine.VariableLabels
 
   defmodule ExecutionContext do
     @moduledoc """
@@ -94,6 +95,9 @@ defmodule Letflow.Engine.PluginInterface do
       :node_config,
       :trace_id
     ]
+    # GH #2616 part 2 (decision 0062 R8): `variable_labels` and `hidden_labels` are filled by the
+    # builder that constructs the context. A missing `hidden_labels` (`nil`) hides every labelled
+    # variable, so an unfilled context fails closed. Neither field is required.
     defstruct [
       :instance_id,
       :definition_id,
@@ -101,7 +105,9 @@ defmodule Letflow.Engine.PluginInterface do
       :node_type,
       :variables,
       :node_config,
-      :trace_id
+      :trace_id,
+      variable_labels: %{},
+      hidden_labels: nil
     ]
 
     @type t :: %__MODULE__{
@@ -111,7 +117,9 @@ defmodule Letflow.Engine.PluginInterface do
             node_type: String.t(),
             variables: map(),
             node_config: map(),
-            trace_id: String.t()
+            trace_id: String.t(),
+            variable_labels: %{optional(String.t()) => [String.t()]},
+            hidden_labels: MapSet.t(String.t()) | nil
           }
   end
 
@@ -183,6 +191,17 @@ defmodule Letflow.Engine.PluginInterface do
   def invoke(handler, %ExecutionContext{} = context, opts)
       when is_atom(handler) and is_list(opts) do
     timeout_ms = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
+
+    # GH #2616 part 2 (decision 0062 R8): a handler never receives a value its caller may not read.
+    context = %{
+      context
+      | variables:
+          VariableLabels.redact_map(
+            context.variables,
+            context.variable_labels,
+            context.hidden_labels
+          )
+    }
 
     task =
       Task.Supervisor.async_nolink(Letflow.Engine.PluginTaskSupervisor, fn ->
