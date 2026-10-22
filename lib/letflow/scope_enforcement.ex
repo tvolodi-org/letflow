@@ -138,6 +138,31 @@ defmodule Letflow.ScopeEnforcement do
           org_consistency: :ok | :inconsistent | :unavailable,
           tokens_exceeding_owner: non_neg_integer()
         }
+  # GH #2890: the closed set of refusal kinds `flip/4` can return. The router answers each kind by
+  # its own clause (no catch-all) and a test pins that every kind here has one.
+  @refusal_kinds [
+    :invalid_mode,
+    :reason_required,
+    :invalid_reason,
+    :tenant_not_found,
+    :tenant_prefix_mismatch,
+    :precondition_failed,
+    :shadow_required,
+    :on_precondition_failed,
+    :audit_failed,
+    :transaction_failed
+  ]
+  @type refusal_kind ::
+          :invalid_mode
+          | :reason_required
+          | :invalid_reason
+          | :tenant_not_found
+          | :tenant_prefix_mismatch
+          | :precondition_failed
+          | :shadow_required
+          | :on_precondition_failed
+          | :audit_failed
+          | :transaction_failed
   @type flip_error ::
           :invalid_mode
           | :reason_required
@@ -190,6 +215,10 @@ defmodule Letflow.ScopeEnforcement do
   @doc "The audit actions of a successful flip: `[enabled, disabled]`."
   @spec flip_actions() :: [String.t()]
   def flip_actions, do: [@enabled_action, @disabled_action]
+
+  @doc "Every kind a `flip/4` error can carry (the closed set behind `t:refusal_kind/0`)."
+  @spec refusal_kinds() :: [refusal_kind()]
+  def refusal_kinds, do: @refusal_kinds
 
   @doc "The settable modes, `[:off, :shadow, :on]`."
   @spec modes() :: [mode()]
@@ -318,7 +347,7 @@ defmodule Letflow.ScopeEnforcement do
   @spec flip(
           tenant_id :: Ecto.UUID.t(),
           prefix :: String.t(),
-          target :: mode(),
+          target :: stored_mode(),
           attrs :: %{
             :actor_id => Ecto.UUID.t() | nil,
             :reason => term(),
