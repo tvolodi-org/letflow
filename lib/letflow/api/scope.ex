@@ -46,18 +46,30 @@ defmodule Letflow.Api.Scope do
   alias Letflow.ScopeNodePaths
   alias Letflow.TenantProvisioning
 
+  # The closed set of deny reasons, the one literal list in lib/. `deny_reason()` is built from it
+  # and `deny_reasons/0` exposes it, so ShadowEvidence and the metrics registry derive from here.
+  # The migration CHECK of scope_shadow_counters is frozen history and stays literal; the
+  # agreement test (test/letflow/api/scope/deny_reason_agreement_test.exs) guards it.
+  @deny_reasons [
+    :role_not_held,
+    :no_grant_rows,
+    :not_tenant_wide,
+    :out_of_scope,
+    :unresolvable,
+    :grants_unavailable
+  ]
+  @deny_reason_union Enum.reduce(tl(@deny_reasons), hd(@deny_reasons), &{:|, [], [&1, &2]})
+
   @type node_id :: String.t()
   @type resource_scope :: :tenant_wide | {:node, node_id()} | :unresolvable
   @type allow_basis :: :tenant_wide | :subtree | :token | :platform
-  @type deny_reason ::
-          :role_not_held
-          | :no_grant_rows
-          | :not_tenant_wide
-          | :out_of_scope
-          | :unresolvable
-          | :grants_unavailable
+  @type deny_reason :: unquote(@deny_reason_union)
   @type decision :: {:allow, allow_basis()} | {:deny, deny_reason()}
   @type effective :: :tenant_wide | {:nodes, [node_id()]} | :deny
+
+  @doc "The closed set of six deny reasons (`deny_reason()`), in declaration order."
+  @spec deny_reasons() :: [deny_reason()]
+  def deny_reasons, do: @deny_reasons
 
   defmodule ScopeSetError do
     @moduledoc """
