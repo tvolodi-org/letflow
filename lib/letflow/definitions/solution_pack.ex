@@ -185,6 +185,7 @@ defmodule Letflow.Definitions.SolutionPack do
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.ProcessWritable
+  alias Letflow.Entities.TypeAccess
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -278,7 +279,8 @@ defmodule Letflow.Definitions.SolutionPack do
 
   @type export_error ::
           {:error, {:definition_not_found, definition_id :: String.t()}}
-          | {:error, {:entity_definition_not_found, name :: String.t()}}
+          | {:error, :entity_definition_not_found}
+          | {:error, :missing_subject}
           | {:error, :empty_definition_ids}
           | Definitions.common_error()
 
@@ -379,15 +381,18 @@ defmodule Letflow.Definitions.SolutionPack do
   `{:error, :empty_definition_ids}`; naming only entity definitions (empty
   `definition_ids`) is a legitimate entity-definitions-only pack.
 
-  An unresolvable name becomes `{:error, {:entity_definition_not_found, name}}`
-  and no document is produced -- same cross-tenant-invisibility reasoning as
-  `{:error, {:definition_not_found, id}}` above (INV-1/INV-5).
+  Every entity definition read is gated by `Letflow.Entities.TypeAccess` for the
+  caller's `opts[:user_id]` (GH #2746). Naming entity definitions without a
+  `user_id` is `{:error, :missing_subject}` before any read: "no subject" must
+  not mean "ungated". A name that is absent OR denied to the caller becomes the
+  same bare `{:error, :entity_definition_not_found}`, with no name echoed, so the
+  two cases are indistinguishable (INV-1/INV-5).
   """
   @spec export(
           definition_ids :: [String.t()],
           entity_definition_names :: [String.t()],
           version :: String.t() | nil,
-          opts :: Definitions.opts()
+          opts :: Definitions.opts() | [prefix: String.t(), user_id: String.t()]
         ) :: {:ok, pack_document()} | export_error()
   def export([], [], _version, _opts), do: {:error, :empty_definition_ids}
 
@@ -906,20 +911,47 @@ defmodule Letflow.Definitions.SolutionPack do
     }
   end
 
-  # Reads in the order the caller listed the names, so a not-found error names
-  # the first offending name deterministically -- mirrors pack_each_definition/2.
-  @spec pack_each_entity_definition([String.t()], Definitions.opts()) ::
+  # Reads in the order the caller listed the names, so the first hidden name
+  # wins deterministically -- mirrors pack_each_definition/2.
+  #
+  # GH #2746: each name is read AND gated by TypeAccess, both always made, before
+  # one decision. Absent and denied fold into the same bare not-found atom (no
+  # name echoed), so a caller cannot tell a denied type from an absent one.
+  # Failures that do not depend on the name (e.g. :invalid_schema_name) pass
+  # through unchanged.
+  @spec pack_each_entity_definition([String.t()], keyword()) ::
           {:ok, [EntityDefinition.t()]} | export_error()
+  defp pack_each_entity_definition([], _opts), do: {:ok, []}
+
   defp pack_each_entity_definition(entity_definition_names, opts) do
+    case Keyword.get(opts, :user_id) do
+      user_id when is_binary(user_id) ->
+        read_each_entity_definition(entity_definition_names, user_id, prefix(opts))
+
+      _no_subject ->
+        {:error, :missing_subject}
+    end
+  end
+
+  defp read_each_entity_definition(entity_definition_names, user_id, prefix) do
     Enum.reduce_while(entity_definition_names, {:ok, []}, fn name, {:ok, acc} ->
-      case Letflow.Entities.Definitions.get_definition_by_name(name, prefix(opts)) do
-        {:ok, %EntityDefinition{} = entity_definition} ->
+      definition = Letflow.Entities.Definitions.get_definition_by_name(name, prefix)
+      access = TypeAccess.authorized?(user_id, name, prefix)
+
+      case {definition, access} do
+        {{:ok, %EntityDefinition{} = entity_definition}, {:ok, :allowed}} ->
           {:cont, {:ok, [entity_definition | acc]}}
 
-        {:error, :not_found} ->
-          {:halt, {:error, {:entity_definition_not_found, name}}}
+        {{:error, :not_found}, _access} ->
+          {:halt, {:error, :entity_definition_not_found}}
 
-        {:error, _reason} = error ->
+        {_definition, {:ok, :denied}} ->
+          {:halt, {:error, :entity_definition_not_found}}
+
+        {{:error, _reason} = error, _access} ->
+          {:halt, error}
+
+        {_definition, {:error, _reason} = error} ->
           {:halt, error}
       end
     end)

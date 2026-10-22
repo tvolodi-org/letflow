@@ -1,5 +1,7 @@
+import type { ReactNode } from 'react'
 import { createBrowserRouter } from 'react-router-dom'
 import { ProtectedRoute } from '@/auth/ProtectedRoute'
+import { P, RequirePermission, type Permission } from '@/auth/access'
 import OidcCallbackPage from '@/pages/OidcCallbackPage'
 import { LoginRoute } from '@/pages/LoginPage'
 import { AuthenticatedShellRoot } from '@/components/layout/AuthenticatedShellRoot'
@@ -40,6 +42,19 @@ import EventRetentionPage from '@/pages/admin/event-retention/EventRetentionPage
 import EntityListBrowserPage from '@/pages/entities/EntityListBrowserPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { REGISTERED_MODULE_ROUTE_OBJECTS } from '@/modules/registry'
+
+/**
+ * GH #2238 slice 2a (REQ-450): a platform page mounts only when the server-reported permission
+ * and the platform tenant both grant it. A direct URL otherwise renders PermissionDenied and the
+ * page's data hooks never run. Each call mirrors the platformOnly NAV_ITEMS entry for the route.
+ */
+function platformPage(permission: Permission, page: ReactNode) {
+  return (
+    <RequirePermission permission={permission} platformOnly>
+      {page}
+    </RequirePermission>
+  )
+}
 
 export const router = createBrowserRouter([
   {
@@ -83,19 +98,19 @@ export const router = createBrowserRouter([
       { path: 'admin/tokens', element: <TokensPage /> },
       { path: 'admin/audit', element: <AuditLogPage /> },
       { path: 'admin/appearance', element: <AppearanceSettingsPage /> },
-      { path: 'admin/health', element: <HealthDashboardPage /> },
+      { path: 'admin/health', element: platformPage(P.TenantsManage, <HealthDashboardPage />) },
       { path: 'admin/metrics', element: <MetricsPage /> },
-      { path: 'admin/onboarding', element: <RegisterTenantPage /> },
-      { path: 'admin/onboarding/new', element: <RegisterTenantPage /> },
+      { path: 'admin/onboarding', element: platformPage(P.TenantsManage, <RegisterTenantPage />) },
+      { path: 'admin/onboarding/new', element: platformPage(P.TenantsManage, <RegisterTenantPage />) },
       { path: 'admin/onboarding/:onboardingId/progress', element: <OnboardingProgressPage /> },
       { path: 'admin/onboarding/:onboardingId/result', element: <OnboardingResultPage /> },
-      { path: 'admin/tenants', element: <TenantsPage /> },
-      { path: 'admin/tenants/:slug/edit', element: <EditTenantPage /> },
-      { path: 'admin/services', element: <ServicesPage /> },
+      { path: 'admin/tenants', element: platformPage(P.TenantsManage, <TenantsPage />) },
+      { path: 'admin/tenants/:slug/edit', element: platformPage(P.TenantsManage, <EditTenantPage />) },
+      { path: 'admin/services', element: platformPage(P.PlatformServicesManage, <ServicesPage />) },
       // admin/modules route removed in ISS-0822: Letflow.Routers.ProcessModules is
       // deferred to S5 — no backend exists, every API call 404s. Restore this route
       // when S5's backend is implemented (see router.ex's deferred table).
-      { path: 'admin/platform-migrations', element: <PlatformMigrationConsolePage /> },
+      { path: 'admin/platform-migrations', element: platformPage(P.TenantsManage, <PlatformMigrationConsolePage />) },
       // REQ-381: solution-pack update review screen. `/solution-packs` IS
       // the minimal "company's pack screen" entry point (design §4.1, no
       // real pack inventory exists yet -- OQ-2); the review route is
@@ -104,7 +119,7 @@ export const router = createBrowserRouter([
       // `definitions/:id/promotions/:reviewId`.
       { path: 'solution-packs', element: <SolutionPackUpdateLauncherPage /> },
       { path: 'solution-packs/:packId/update-review', element: <SolutionPackUpdateReviewPage /> },
-      { path: 'admin/event-retention', element: <EventRetentionPage /> },
+      { path: 'admin/event-retention', element: platformPage(P.TenantsManage, <EventRetentionPage />) },
       { path: 'dlq', element: <DlqPage /> },
       { path: 'webhooks', element: <WebhooksPage /> },
       // REQ-393: tenant-agnostic entity-list browse screen (filter/sort/page-size)
