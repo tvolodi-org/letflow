@@ -43,7 +43,10 @@
 #                                        instead of performing its own OIDC grant.
 #                                        See ISS-0909(d), ISS-0936.
 #   --scenarios          corpus dir (default test/fixtures/uat/scenarios); _throwaway skipped
-#   --sha                expected deployed build (default: `git rev-parse origin/main`)
+#   --sha                expected deployed build (default: `git rev-parse origin/main`). A deployed
+#                        build that differs from it is OK when `git diff --name-only` between the
+#                        two has no runtime path (GH #3044; docs/, test/, handoffs/, .github/,
+#                        scripts/*uat*, *.md, web test files, mix.exs test_ignore_filters only)
 #   --idp-url            Keycloak base (default: derived, https://auth.<host minus first label
 #                        if it is 'qa'... i.e. https://auth.qa.bizdala.com for qa.bizdala.com)
 #   --out FILE           also write a machine-readable JSON summary (never contains secrets)
@@ -422,8 +425,78 @@ if admin_user:
     s_, realm_ = try_login("actor-platform-admin", admin_user, ["bpm-default"])
     if s_ == "OK": admin_tok = tokens[("actor-platform-admin", realm_)]
 
-# deployed SHA
-sha_state = ("UNKNOWN", "no version endpoint exposes a build SHA (tried /health, /api/v1/version)", "ai-dala-infra (expose build SHA)")
+# deployed SHA. A deployed build that differs from the expected one is still OK when the git
+# diff between the two touches no runtime path (GH #3044): docs, tests, handoffs, CI config,
+# scripts/*uat* files, markdown, web test files, and a mix.exs change confined to test_ignore_filters.
+NON_RUNTIME_PREFIXES = ("docs/", "test/", "handoffs/", ".github/")
+WEB_TEST_RE = re.compile(r"^web/(?:.*/)?(?:__tests__|tests?|e2e)/|^web/.*\.(?:test|spec)\.[cm]?[jt]sx?$")
+
+def git_out(*args):
+    """stdout of `git -C REPO <args>` as text, or None when git fails."""
+    r = subprocess.run(["git", "-C", REPO] + list(args), capture_output=True)
+    return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else None
+
+def git_commit(rev):
+    """Full SHA of `rev` when the local git knows it as a commit, else None."""
+    out = git_out("rev-parse", "--verify", "-q", rev + "^{commit}")
+    return out.strip() if out else None
+
+def non_runtime(path):
+    """Denylist: everything not matched here is runtime (deploy/, rel/, lib/, priv/, config/,
+    mix.lock, web/ outside its test files, ...)."""
+    return (path.startswith(NON_RUNTIME_PREFIXES) or re.fullmatch(r"scripts/[^/]*uat[^/]*", path) is not None
+            or path.endswith(".md") or WEB_TEST_RE.match(path) is not None)
+
+def mix_exs_without_filters(text):
+    """mix.exs text with its `test_ignore_filters: [...]` entry cut out, together with the comment
+    lines directly above it and its trailing comma and newline. None when the entry is repeated or
+    the brackets do not balance. Bracket matching does not skip brackets inside string literals."""
+    found = list(re.finditer(r"test_ignore_filters:\s*\[", text))
+    if len(found) > 1: return None
+    if not found: return text
+    depth = 0
+    for i in range(found[0].end() - 1, len(text)):
+        if text[i] == "[": depth += 1
+        elif text[i] == "]":
+            depth -= 1
+            if depth == 0: break
+    else:
+        return None
+    start = text.rfind("\n", 0, found[0].start()) + 1
+    while start > 0:
+        prev = text.rfind("\n", 0, start - 1) + 1
+        if not text[prev:start].lstrip().startswith("#"): break
+        start = prev
+    end = re.match(r",?[ \t]*\n?", text[i + 1:]).end() + i + 1
+    return text[:start] + text[end:]
+
+def mix_exs_filters_only(dep, exp):
+    """True when mix.exs differs between the two commits only inside test_ignore_filters (the entry
+    may be added or removed, with its comment lines)."""
+    before = git_out("show", dep + ":mix.exs")
+    after = git_out("show", exp + ":mix.exs")
+    if before is None or after is None: return False
+    b = mix_exs_without_filters(before)
+    return b is not None and b == mix_exs_without_filters(after)
+
+def deployed_vs_expected(dep, exp):
+    """(status, why, owner) for a deployed SHA that differs from the expected one."""
+    dep_full, exp_full = git_commit(dep), git_commit(exp)
+    if not (dep_full and exp_full):
+        return ("GAP", "deployed %s != expected %s (not both known to local git, runtime diff not checked)"
+                % (dep[:12], exp[:12]), "ai-dala-infra (redeploy)")
+    changed = git_out("-c", "core.quotepath=off", "diff", "--no-renames", "--name-only", dep_full, exp_full)
+    if changed is None:
+        return ("GAP", "deployed %s != expected %s (git diff failed, runtime diff not checked)"
+                % (dep[:12], exp[:12]), "ai-dala-infra (redeploy)")
+    for path in filter(None, changed.splitlines()):
+        if path == "mix.exs" and mix_exs_filters_only(dep_full, exp_full): continue
+        if non_runtime(path): continue
+        return ("GAP", "deployed %s != expected %s: runtime diff, first runtime path %s"
+                % (dep[:12], exp[:12], path), "ai-dala-infra (redeploy)")
+    return ("OK", "deployed %s, expected %s, no runtime diff" % (dep[:12], exp[:12]), "")
+
+sha_state = ("UNKNOWN","no version endpoint exposes a build SHA (tried /health, /api/v1/version)", "ai-dala-infra (expose build SHA)")
 cands = [("/health", None)]
 if admin_tok: cands.append(("/api/v1/version", admin_tok))
 for path, tok in cands:
@@ -435,7 +508,7 @@ for path, tok in cands:
             if exp_sha and (v.startswith(exp_sha[:7]) or exp_sha.startswith(v[:7])):
                 sha_state = ("OK", "deployed %s == origin/main %s" % (v[:12], exp_sha[:12]), "")
             elif exp_sha and re.fullmatch(r"[0-9a-f]{7,40}", v):
-                sha_state = ("GAP", "deployed %s != expected %s" % (v[:12], exp_sha[:12]), "ai-dala-infra (redeploy)")
+                sha_state = deployed_vs_expected(v, exp_sha)
             else:
                 sha_state = ("UNKNOWN", "endpoint reports version %s; not comparable to a git SHA" % v[:40], "ai-dala-infra (expose build SHA)")
             break
