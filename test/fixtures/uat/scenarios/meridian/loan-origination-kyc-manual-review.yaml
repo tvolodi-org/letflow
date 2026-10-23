@@ -2,10 +2,11 @@
 # Written against test/fixtures/qa/meridian_loan_origination_process_definition.json on main.
 # Covers the human task kyc-manual-review (role-compliance-officer): kyc-aml-check -> kyc-routing
 # (kyc_status 'hit') -> kyc-manual-review -> assessment-join.
-# DEPENDENCY: the deployed kyc-aml-check stub always answers kyc_status=clear (Q-980), so a KYC hit
-# cannot happen on its own; the run needs the screening result forced to 'hit' (a stub or test hook).
-# Until that exists this scenario is BLOCKED at the precondition, not passed. The l1-approval actor
-# follows the independent-approver rule of ISS-1014 (see loan-origination-below-threshold.yaml).
+# DEPENDENCY: the deployed kyc-aml-check stub always answers kyc_status=clear, so a KYC hit cannot
+# happen on QA. This gap is permanent and recorded in test/fixtures/uat/scenario-env-limitations/
+# meridian-loan-origination-kyc-manual-review.yaml (GH #3076): preflight reports the scenario as
+# ENV_NOT_SUPPORTED; it runs only where a screening mock maps borrower-kyc-hit-001 to hit.
+# The l1-approval actor follows the independent-approver rule of ISS-1014 (see loan-origination-below-threshold.yaml).
 ---
 id: meridian-loan-origination-kyc-manual-review
 company_id: meridian
@@ -38,8 +39,10 @@ preconditions:
   - description: The KYC/AML screening is set up to return a hit for the test applicant
     check: custom
     detail: >
-      The deployed screening stub returns clear for everyone; a hit must be forced
-      for borrower-kyc-hit-001 or the scenario cannot start (BLOCKED).
+      The deployed screening stub returns clear for everyone and this cannot be fixed
+      on QA (permanent gap, scenario-env-limitations sidecar, GH #3076); a hit must be
+      forced for borrower-kyc-hit-001 by a screening mock, otherwise preflight reports
+      ENV_NOT_SUPPORTED.
 
 steps:
   - step: 1
