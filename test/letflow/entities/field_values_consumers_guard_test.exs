@@ -28,8 +28,12 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
     |> Path.join("**/*.ex")
     |> Path.wildcard()
     |> Enum.reject(&String.contains?(&1, "/lib/letflow/design/"))
-    |> Enum.reject(&String.contains?(&1, "/design/"))
   end
+
+  # A file writes audit entries through `Audit.insert_entry` or the public wrapper
+  # `Audit.append_multi/4`. A bare `append_multi` is not matched: `EventStore.append_multi`
+  # is the record event store, not the audit.
+  @audit_write ~r/insert_entry|Audit\.append_multi/
 
   defp rel(path), do: Path.relative_to(path, @lib)
 
@@ -54,7 +58,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
         lib_files()
         |> Enum.filter(fn path ->
           source = File.read!(path)
-          source =~ "insert_entry" and source =~ "field_values"
+          source =~ @audit_write and source =~ "field_values"
         end)
         |> Enum.map(&rel/1)
         |> Enum.sort()
@@ -64,6 +68,15 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
                "check its before_state/after_state holds no raw event values, then update " <>
                "@audit_writers_mentioning_field_values (REQ-516 design 4, C10)"
     end
+  end
+
+  test "the writer filter sees append_multi-only audit writers (it is not vacuous for that API)" do
+    path = Path.join(@lib, "letflow/tasks.ex")
+    source = File.read!(path)
+
+    assert path in lib_files()
+    assert source =~ @audit_write
+    refute source =~ "insert_entry"
   end
 
   describe "G1 (C9): the DLQ stores already-redacted payloads and cannot redact on read" do
@@ -78,7 +91,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
   describe "G1 (C12): logs never carry a payload or field_values" do
     # A Logger call (to the closing paren at the call's indentation, or a blank line)
     # that mentions field_values or interpolates/inspects a payload.
-    @logger_call ~r/Logger\.(?:debug|info|notice|warn|warning|error|critical|alert|emergency)\((?:(?!\n\s*\n).){0,600}/s
+    @logger_call ~r/Logger\.(?:debug|info|notice|warn|warning|error|critical|alert|emergency|log|bare_log)\((?:(?!\n\s*\n).){0,600}/s
     @leak ~r/field_values|#\{[^}]*\bpayload\b|inspect\([^)]*\b(?:payload|field_values)\b/
 
     test "no Logger call mentions field_values or interpolates a payload" do
