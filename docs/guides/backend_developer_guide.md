@@ -317,6 +317,9 @@ did). Retrying is safe.
   passes an unparseable value through untouched. Record history (0059, REQ-516) must call
   the same decoder on event `field_values`; the record history route
   (`GET /entities/records/:entity_type/:record_id/history`, REQ-516 S2) does so.
+  The history query filters a type's whole synthetic-instance event stream by
+  `payload->>'record_id'`, so its cost grows with the number of records of the type. An
+  expression index on that key is the follow-up if histories get long (not added in S2).
 - Filters (`eq neq gt gte lt lte in not_in`) take a canonical decimal string (at most 1100
   bytes) or an integer and compare as an exact `Decimal` (`"2.5"` equals the stored
   `"2.50"`; `gt "2.4999"` is fine, scale is not enforced on a filter). A JSON float, a

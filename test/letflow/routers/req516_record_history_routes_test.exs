@@ -25,6 +25,7 @@ defmodule Letflow.Routers.Req516RecordHistoryRoutesTest do
 
   alias Letflow.Entities.EntityTypeInstance
   alias Letflow.Support.RecordHistoryFixture, as: R
+  alias Letflow.Support.ScopeSetFixture, as: F
   alias Letflow.Support.ScopeWritesFixture, as: W
 
   @restricted "__field_redacted__"
@@ -130,6 +131,7 @@ defmodule Letflow.Routers.Req516RecordHistoryRoutesTest do
 
       assert {:ok, _} = Ecto.UUID.cast(first["event_id"])
       assert first["event_type"] == "ENTITY_RECORD_CREATED"
+      assert first["actor_display_name"] == "REQ-516 History Test User"
     end
   end
 
@@ -397,8 +399,45 @@ defmodule Letflow.Routers.Req516RecordHistoryRoutesTest do
         )
 
       assert in_scope.status == 200, in_scope.resp_body
+      assert body_of(in_scope)["items"] != []
       assert out_of_scope.status == 404
       assert normalised(out_of_scope) == normalised(absent)
+    end
+
+    # H4b: `scoped_master` is declared :tenant_wide in fixture_scoped, so a scoped caller reads
+    # any existing record of it (matching all_in_scope?/4); a nonexistent id is the same 404.
+    test "a tenant-wide record answers 200 for a scoped caller; a nonexistent id is the same 404",
+         %{fx: fx} do
+      master = F.create!(fx.schema_name, "scoped_master", %{"name" => "master"})
+
+      visible =
+        W.request(
+          fx,
+          :get,
+          "/api/v1/entities/records/scoped_master/#{master.record_id}/history",
+          nil
+        )
+
+      absent_master =
+        W.request(
+          fx,
+          :get,
+          "/api/v1/entities/records/scoped_master/#{Ecto.UUID.generate()}/history",
+          nil
+        )
+
+      absent_item =
+        W.request(
+          fx,
+          :get,
+          "/api/v1/entities/records/scoped_item/#{Ecto.UUID.generate()}/history",
+          nil
+        )
+
+      assert visible.status == 200, visible.resp_body
+      assert [%{"event_type" => "ENTITY_RECORD_CREATED"}] = body_of(visible)["items"]
+      assert absent_master.status == 404
+      assert normalised(absent_master) == normalised(absent_item)
     end
   end
 end
