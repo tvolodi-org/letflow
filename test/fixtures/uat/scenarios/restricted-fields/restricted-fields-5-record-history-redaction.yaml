@@ -1,0 +1,135 @@
+# T-0279 (BA): the HISTORY OF A RECORD hides a protected field from a reader without the right (GH #2701, REQ-516,
+# decision 0059; delivered in slice S2, merged as #3070).
+# Sources: GH #2701 body ("each implementation proves: a restricted field's value is absent for a caller without access and
+# present for a caller with a grant"; "a restriction removed later exposes history written while it applied" is the
+# stated consequence), decision 0059 (read-time redaction by the CURRENT restriction rows and the caller's grants; existing
+# events are untouched), design lib/letflow/design/req516-record-history-field-policy.md section 5.4 (what an item of the
+# history shows and does not show) and section 3 (the tenant auditor reads record history through this route),
+# docs/roles.md (EntitiesQuery is held by tenant auditor, task worker and administrator; EntitiesRestrictionsManage).
+# Uses the "UAT payee" record type with the protected "bank account" field prepared in tenant-administration matrix-0.
+# Test-tooling steps: none. The product offers no way to remove a restriction (the restrictions import only inserts), so decision 0059 D2 consequence "a restriction removed later shows older history again" cannot be run as a UAT step; unit test H3 of the design carries it.
+# Who sees the value: only a person who holds a field grant on "bank account" (a user_entity_grants row; roles play no part,
+# lib/letflow/entities/field_policy.ex). The administrator is therefore a reader WITH a grant only if the test environment
+# (or matrix-0 step 3, through the restrictions import) has given that grant; see the precondition. Without it step 2
+# is BLOCKED, not PASS.
+# Not covered here (stated, not hidden): (a) a grant for the task worker or the auditor (none is given on purpose); (b) webhook and
+# dead-letter masking: nothing in the product starts a webhook delivery by itself yet (design assumption A4), so a real
+# instance cannot trigger it; the unit tests of slice S1 carry that; (c) oversized values and paging limits.
+# UAT assumption, to be confirmed by the process owner: the scenario checks that the real value is absent and a hidden
+# placeholder stands in its place, not the placeholder's exact look.
+# Every refused step is expected to be refused. A step the product lets through is a finding, not a reason to reword the step.
+---
+id: restricted-fields-5-record-history-redaction
+scope: tenant-administration
+title: Restricted field - the history of a record hides the protected value from a reader without the right, and follows the current protection
+version: "1.2"
+tags: [restricted-field, redaction, history, sensitive-data, refusal, access]
+
+description: >
+  Every change to a record is kept as an event, and the history of the record lists those events with the values they
+  carried. The payee record holds a protected bank account number. The administrator, who holds a grant on the field, sees the
+  number in the history of a payee, in the first entry and in the entry written when the number was changed. A task
+  worker and a tenant auditor, who hold no such right, see the entries, the time, the author and the other values, but a hidden placeholder where
+  the bank account number stands, in every entry. Hiding is decided when the history is read, by the protection in force
+  at that moment (the product offers no way to remove a protection, so this is not run here).
+  Nothing the history shows names a hidden value in another form.
+
+actors:
+  tenant_admin: actor-any
+  operator: actor-any
+  worker_a: actor-any
+  auditor: actor-any
+
+preconditions:
+  - description: tenant-administration matrix-0 passed in this run (record type "UAT payee", bank account protected, "Payee One" saved with the invented bank account "UAT-ACCT-0001")
+    check: custom
+  - description: >
+      The administrator holds a field grant on "bank account" of "UAT payee" (given through the restrictions import in
+      matrix-0 step 3 or by the test environment). If not, step 2 is BLOCKED
+    check: custom
+  - description: The task worker holds no special right on the bank account field, and the tenant auditor is a tenant auditor with no special right on it either
+    check: custom
+  - description: The platform build includes the record history route (REQ-516 slice S2); otherwise every step is BLOCKED
+    check: custom
+
+steps:
+  - step: 1
+    actor: operator
+    action: >
+      The process operator changes the bank account of Payee One to a second invented value "UAT-ACCT-0001-B" and the
+      name of Payee One to "Payee One Ltd", so that the history of the payee holds a first entry and an entry for the change.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: The administrator opens the history of Payee One and reads each entry.
+    via: api
+  - step: 3
+    actor: worker_a
+    action: The task worker opens the history of Payee One and reads each entry.
+    via: api
+  - step: 4
+    actor: auditor
+    action: The tenant auditor opens the history of Payee One and reads each entry.
+    via: api
+  - step: 5
+    actor: worker_a
+    action: >
+      The task worker opens the history of Payee One a second time, first with a page size of 1, then continuing from the page marker the product gave for the first page (so that every entry after the first is read),
+      and looks for either bank account value anywhere in the answer, including the text of any other part of the entry.
+    via: api
+  - step: 6
+    actor: worker_a
+    action: >
+      The task worker, who may not see the bank account, tries to read the history of Payee One using a page marker taken
+      from another list (the page marker of the process instance history) instead of one given by the record history, and
+      keeps the answer.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator sees both bank account values in the history; the worker and the auditor see neither.
+    verification:
+      method: system_state
+      detail: >
+        The answer at step 2 contains "UAT-ACCT-0001" in the first entry and "UAT-ACCT-0001-B" in the entry for the change.
+        The answers at steps 3, 4 and 5 contain neither string anywhere, and show the hidden placeholder in the position of
+        the bank account in every entry that carried one.
+      evidence: Whether each invented value appears in each answer (yes or no only), and whether the placeholder appears (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A protected bank account number is shown to people who must not see it, through the history of the record.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A reader without the right still sees the rest of the history.
+    verification:
+      method: system_state
+      detail: >
+        The answers at steps 3 and 4 list the same number of entries as the answer at step 2, in the same order, each with
+        its time and author, and the name of the payee in the entry for the change reads "Payee One Ltd".
+      evidence: The number of entries in each answer, and whether "Payee One Ltd" appears (yes or no).
+    on_fail:
+      severity: MAJOR
+      business_impact: Hiding one field also hides the audit history of the record from the people who must be able to follow it.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      A reader without the right who tries to get at the history by a way the product does not offer is refused, and the
+      refusal holds no protected value.
+    verification:
+      method: system_state
+      detail: >
+        The answer at step 6 is a refusal of the page marker as invalid (not a list of entries), and it contains neither
+        "UAT-ACCT-0001" nor "UAT-ACCT-0001-B". Together with steps 3 to 5 this shows that the worker never obtains the
+        value from the history route, by a normal read or by a malformed one.
+      evidence: Whether the answer is a refusal (yes or no) and whether either invented value appears in it (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A reader without the right can get a protected number out of the history by a malformed request.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    The bank account field is never changed by this scenario; if it is found unprotected, record a finding.
+    The changed values of Payee One stay until the test customer is retired.
