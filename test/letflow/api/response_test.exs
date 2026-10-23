@@ -411,4 +411,46 @@ defmodule Letflow.Api.ResponseTest do
       assert doc =~ "INV-5"
     end
   end
+
+  # GH #2701 (REQ-516 S3) — record events carry `field_values`; the history item shaping drops
+  # them for every caller, and no other event type is touched by the new arm.
+  describe "public_event_payload/3 for entity record events (REQ-516 S3)" do
+    @record_payload %{
+      "entity_type" => "customer",
+      "record_id" => "r-1",
+      "field_values" => %{"name" => "Ada", "secret" => "s3"}
+    }
+
+    # R1 — ENTITY_RECORD_CREATED and ENTITY_RECORD_UPDATED return the payload without field_values.
+    test "R1: ENTITY_RECORD_CREATED and ENTITY_RECORD_UPDATED drop field_values" do
+      for event_type <- ["ENTITY_RECORD_CREATED", "ENTITY_RECORD_UPDATED"] do
+        shaped = Response.public_event_payload(event_type, @record_payload, MapSet.new())
+
+        refute Map.has_key?(shaped, "field_values")
+        assert shaped == %{"entity_type" => "customer", "record_id" => "r-1"}
+      end
+    end
+
+    test "R1: the drop holds whatever hidden set the caller holds" do
+      shaped =
+        Response.public_event_payload(
+          "ENTITY_RECORD_UPDATED",
+          @record_payload,
+          MapSet.new(["secret"])
+        )
+
+      refute Map.has_key?(shaped, "field_values")
+      refute shaped |> inspect() |> String.contains?("s3")
+    end
+
+    test "R1: other event types keep field_values unchanged" do
+      shaped =
+        Response.public_event_payload("ENTITY_RECORD_DELETED", @record_payload, MapSet.new())
+
+      assert Map.has_key?(shaped, "field_values")
+
+      other = Response.public_event_payload("INSTANCE_CREATED", @record_payload, MapSet.new())
+      assert Map.has_key?(other, "field_values")
+    end
+  end
 end
