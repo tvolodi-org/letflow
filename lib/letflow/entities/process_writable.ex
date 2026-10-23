@@ -33,9 +33,11 @@ defmodule Letflow.Entities.ProcessWritable do
   itself. A class is not a name, so a new type such as `user_feedback` created
   after the change is `ordinary` and may take the flag.
 
-  A solution pack cannot carry the flag at all (GH #2619); an administrator
-  sets it after install, by creating and activating a new version under the
-  `:EntitiesDefinitionsWrite` permission.
+  A solution pack may carry the flag only when the installer holds
+  `:EntitiesDefinitionsWrite` (GH #2619, decision 0054 amendment, option (b));
+  the router passes that as `:process_writable_authorized`, and the flag still
+  goes through `create_definition/3`, so `check_settable/3` applies. The
+  installed version is `:inactive` until activated under the same permission.
   """
 
   alias Letflow.Entities.Definition.Validator
@@ -87,14 +89,18 @@ defmodule Letflow.Entities.ProcessWritable do
   end
 
   @doc """
-  The refusal violation for a solution pack that carries the flag
-  (decision D-A4.6): a pack never carries `writable_by_process: true`.
+  The refusal violation for a solution pack that carries the flag when the
+  installer is not authorised (decision D-A4.6, GH #2619).
   """
   @spec pack_refusal() :: {:error, {:validation, [Validator.violation()]}}
   def pack_refusal do
     {:error,
      {:validation,
-      [violation("writable_by_process cannot be set by a solution pack; set it after install")]}}
+      [
+        violation(
+          "writable_by_process in a solution pack requires the installer to hold EntitiesDefinitionsWrite"
+        )
+      ]}}
   end
 
   @doc """

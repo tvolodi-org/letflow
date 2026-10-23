@@ -115,6 +115,12 @@ defmodule Letflow.Routers.SolutionPacks do
   `scoped_repo_opts/1`), but **not permission-gated**. **REQ-131 is the
   closer.** This gap is stated here so it is visible rather than silent.
 
+  One permission is checked here (GH #2619): an entity definition of the pack
+  may carry `writable_by_process: true` only when the caller holds
+  `:EntitiesDefinitionsWrite` (computed from the server-side roles and passed
+  to `SolutionPack.install/3` as `:process_writable_authorized`); otherwise the
+  install is refused with the generic 422 and nothing is written.
+
   ## Ordering guarantee
 
   Honours the contract stated in `Letflow.Routers.Tenants`'s moduledoc section
@@ -155,6 +161,7 @@ defmodule Letflow.Routers.SolutionPacks do
 
   use Letflow.Api.AuthorizedRouter
 
+  alias Letflow.Api.Authorization
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.Validation
@@ -164,6 +171,7 @@ defmodule Letflow.Routers.SolutionPacks do
   alias Letflow.Definitions.SolutionPack
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.Catalog
+  alias Letflow.PlatformTenant
   alias Letflow.TenantProvisioning
 
   # REQ-131: endpoint_policy_key/2 has no clause for either route (see
@@ -293,7 +301,14 @@ defmodule Letflow.Routers.SolutionPacks do
     else
       case actor_id(conn) do
         actor_id when is_binary(actor_id) ->
-          render_install(conn, SolutionPack.install(document, actor_id, conn.assigns.scoped_opts))
+          opts =
+            Keyword.put(
+              conn.assigns.scoped_opts,
+              :process_writable_authorized,
+              holds_entities_definitions_write?(conn)
+            )
+
+          render_install(conn, SolutionPack.install(document, actor_id, opts))
 
         # No user id on the auth context -- not a caller error, it means this
         # route was reached without `Letflow.Plugs.AuthPipeline` having done
@@ -302,6 +317,21 @@ defmodule Letflow.Routers.SolutionPacks do
           Response.internal_error(conn)
       end
     end
+  end
+
+  # GH #2619, decision 0054 D4a.2(a) amendment: a pack may declare
+  # `writable_by_process` only when the installer holds
+  # `:EntitiesDefinitionsWrite`. Derived from the DB-resolved auth context
+  # (never the body or a header), same recipe as `Routers.ScriptRules.holds?/2`.
+  defp holds_entities_definitions_write?(conn) do
+    context = conn.assigns.auth_context
+    platform_tenant? = PlatformTenant.platform_tenant?(Map.get(context, :tenant_id))
+
+    Authorization.has_permission_in_scope?(
+      Authorization.effective_roles(Map.get(context, :roles, []), platform_tenant?),
+      :EntitiesDefinitionsWrite,
+      platform_tenant?
+    ) == true
   end
 
   defp render_install(conn, {:ok, result}), do: Response.ok(conn, install_result_map(result))

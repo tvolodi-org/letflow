@@ -267,12 +267,16 @@ document. Absent or `false` means a process step may NOT write records of the ty
 - **Module-managed types never carry it.** `Letflow.Entities.Definitions.create_definition/3`
   refuses `true` on a type with a `managed_by` stamp, so a module's packed types must
   not declare it.
-- **A solution pack cannot carry it.** A pack install (`:DefinitionsCreate`) containing
-  `writable_by_process: true` is refused and nothing is installed (GH #2619 tracks a
-  reviewed pack path). Until then an administrator sets the flag AFTER install, by
-  creating and activating a new version under `:EntitiesDefinitionsWrite`. Pack export
-  emits `definition_json` verbatim, so an exported pack that carries the flag is refused
-  on re-import until #2619.
+- **A solution pack may carry it only for an `:EntitiesDefinitionsWrite` installer (GH #2619,
+  0054 amendment).** The install route admits `writable_by_process: true` in a pack entity only
+  when the caller holds `:EntitiesDefinitionsWrite` (TENANT_ADMIN, PROCESS_DESIGNER, or
+  PLATFORM_ADMIN on the platform tenant). Otherwise the install is refused with a 422 and nothing
+  is installed. The installed version is `:inactive`; an `:EntitiesDefinitionsWrite` holder must
+  activate it (`POST /entities/definitions/:name/activate`). Module packs never carry it. Manual
+  post-install step for an installer without that permission: install the pack without the flag,
+  then an administrator creates and activates a new version with the flag under
+  `:EntitiesDefinitionsWrite`. Pack export emits `definition_json` verbatim, so an exported pack
+  that carries the flag re-imports for an `:EntitiesDefinitionsWrite` holder.
 - **Write class (fail closed, GH #2618).** Every entity type has a write class, stored in
   the `write_class` column of its rows (never in the document, never set by a tenant):
   `managed`, `org_tree`, `identity_adjacent`, `attachment_metadata` or `ordinary`.
