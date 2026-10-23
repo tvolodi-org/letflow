@@ -1,0 +1,139 @@
+# T-0272 (BA): a script's OPT-IN to restricted fields (GH #2616 acceptance: "opt in"; decision 0062 R4, R6; "Part 3 as landed").
+# Sources: decision 0062 R6 (manifest names the variable and the fields it may receive; publisher needs the right to manage
+# field restrictions), R4 (every output of a run that received a restricted value is itself restricted), "Part 3 as landed"
+# (a value not named in the opt-in is left out; a required input then missing, the run is rejected); docs/roles.md
+# (ScriptsWrite: designer and administrator; ScriptsPublish and EntitiesRestrictionsManage: administrator only).
+# Uses the "UAT payee" record type with the protected "bank account" field (tenant-administration matrix-0).
+# Precondition the test environment must provide: a process with one script step that reads the payee record; the bank account reaches the script through the read's list of protected fields it may receive (decision 0062 "Part 3 as landed", Port). No labelled process variable is needed for this scenario. If it cannot,
+# this scenario is BLOCKED, not PASS.
+# Test-tooling steps: none.
+# UAT assumption, to be confirmed by the process owner: the example script only compares the bank account with a
+# reference and returns "matched" or "not matched"; it is invented test material and moves no money.
+---
+id: restricted-fields-2-script-opt-in
+scope: tenant-administration
+title: Restricted field - a script receives a protected value only when its publisher opted in, and its results stay protected
+version: "1.0"
+tags: [restricted-field, script, opt-in, refusal, access]
+
+description: >
+  A script step in a process may read a payee record. By default it never receives the protected bank account. The
+  administrator, who holds the right to manage protected fields, can publish a version of the script that names the
+  one protected field its read may receive. The designer, who can write scripts but not publish them, is turned
+  away because publishing needs a right the designer lacks. A version whose read lists a different field than the
+  bank account never receives the bank account; a version listing a field that exists nowhere is not published. Whatever the script produces from a
+  protected value is protected too.
+
+actors:
+  designer: actor-any
+  tenant_admin: actor-any
+  operator: actor-any
+
+preconditions:
+  - description: tenant-administration matrix-0 passed in this run (payee records exist, bank account protected, values invented)
+    check: custom
+  - description: A process exists with one script step that reads the payee record, and a start form that selects the payee
+    check: custom
+    detail: Provided by the test environment; otherwise BLOCKED.
+
+steps:
+  - step: 1
+    actor: operator
+    action: The process operator starts the process with a version of the script that has not opted in, selecting Payee One.
+    via: api
+  - step: 2
+    actor: designer
+    action: The process designer writes a new version of the script that asks to receive the bank account of Payee One, and saves it as a draft.
+    via: api
+  - step: 3
+    actor: designer
+    action: The process designer tries to publish that version.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator publishes the version, whose read lists the bank account field of the
+      payee record as the only protected field it may receive.
+    via: api
+  - step: 5
+    actor: operator
+    action: The process operator starts the process again, selecting Payee One.
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator publishes a further version of the script whose read of the payee record lists only a
+      different field of the payee than the bank account as the protected field it may receive.
+    via: api
+  - step: 7
+    actor: operator
+    action: The process operator starts the process with that further version, selecting Payee One.
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator tries to publish a version whose read lists a protected field that exists in no active
+      record type.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Without an opt-in the script runs but never receives the protected number.
+    verification:
+      method: instance_state
+      detail: The run of step 1 completes and its script input and result do not contain "UAT-ACCT-0001".
+      evidence: Whether the invented value appears in the run's script input and result (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A script reads protected data nobody agreed it could read.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The designer cannot publish a version that asks for protected data; the draft stays unpublished.
+    verification:
+      method: system_state
+      detail: Step 3 is refused and the version is still a draft afterwards; the active version is still the one used in step 1.
+      evidence: The refusal (status and wording only) and the version state before and after.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Someone without the publishing right can activate a script version that asks for protected data (this refusal proves the missing publish right; the administrator holds both rights, so it cannot isolate the restriction-manage gate).
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: After the administrator's opt-in the script receives the number, and its result is marked protected.
+    verification:
+      method: instance_state
+      detail: >
+        The run of step 5 completes and the script's result shows the number was matched. The instance lists the
+        result as derived from the bank account field of the payee record.
+      evidence: The check result (matched or not) and the names of the protected fields listed for the result; no value is kept.
+    on_fail:
+      severity: MAJOR
+      business_impact: The opt-in does not work, or its result is not marked protected and could later be shown to anyone.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A version that lists a different field never receives the bank account.
+    verification:
+      method: instance_state
+      detail: >
+        The run of step 7 completes (or ends in a stored input error); the script input and result never contain
+        "UAT-ACCT-0001"; any error text names the variable and not the value.
+      evidence: The run outcome, and whether the invented value appears in the run's script input, result or error (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A script gets protected data it was not named for, or the error text leaks the value.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A version listing a protected field that exists nowhere is not published, even by the administrator who holds every right needed.
+    verification:
+      method: system_state
+      detail: Step 8 is refused and no new active version exists after it.
+      evidence: The refusal (status and wording only) and the active version before and after.
+    on_fail:
+      severity: MAJOR
+      business_impact: A typing mistake silently decides what a script receives.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the runs started in steps 1, 5 and 7 if still open; leave the published versions for the following scenarios.

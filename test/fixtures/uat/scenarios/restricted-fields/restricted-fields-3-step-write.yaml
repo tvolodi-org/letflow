@@ -1,0 +1,134 @@
+# T-0272 (BA): a STEP WRITE of a restricted value (GH #2616 acceptance: "step write of a restricted value"; decision 0062
+# R5, R12 and "Part 3 as landed").
+# Sources: decision 0062 R5 (a protected value may be written only into the protected field it came from; any other record
+# field is refused, when the process is activated where that can be seen and when the step runs otherwise), R12 (a
+# protected value never leaves through an outbound service call), "Part 3 as landed" (the refusal at the step is the
+# uniform "not permitted" answer, with the reason in the audit trail; a line that is refused writes nothing).
+# Follows restricted-fields-2 in the same run (an opted-in script whose result is protected).
+# Precondition the test environment must provide: three processes built on the script of restricted-fields-2, each with
+# a person task that writes the script result into a record: (A) into the bank account field of the payee record,
+# (B) into the "notes" field of the payee record, which is not protected, (C) a process whose service call puts the
+# result into its address. If the environment cannot provide them, this scenario is BLOCKED, not PASS.
+# Test-tooling steps: none.
+---
+id: restricted-fields-3-step-write
+scope: tenant-administration
+title: Restricted field - a protected value may be written back only into its own protected field and never sent out
+version: "1.0"
+tags: [restricted-field, step-write, refusal, regression, access]
+
+description: >
+  After a script has received the protected bank account, the process may want to store something derived from it.
+  The only place it may go is the same protected field it came from. Writing it into the plain notes field of the
+  record is refused, and the notes stay as they were. A process that would put it into a service call to an outside
+  address is refused when it is published, and when the step runs it fails without sending anything. A person who
+  completes the task without the right to the protected field cannot use the task to write it either.
+
+actors:
+  designer: actor-any
+  tenant_admin: actor-any
+  operator: actor-any
+  worker_a: actor-any
+
+preconditions:
+  - description: restricted-fields-2 passed in this run (script with opt-in published; its result is protected)
+    check: custom
+  - description: Processes A and C described in the header exist as drafts; process B exists as a draft and also as an already active version; the task worker and the administrator are both members of the group the person tasks of process A and B are routed to, so that a refusal can only come from the field rule and not from task routing
+    check: custom
+    detail: >
+      Provided by the test environment; otherwise BLOCKED. If the environment cannot provide an already active
+      process B, steps 6 and 7 and EO-003 are BLOCKED, and the other steps still run.
+
+steps:
+  - step: 1
+    actor: designer
+    action: The process designer publishes process A, whose person task writes the script result into the bank account field of the payee record.
+    via: api
+  - step: 2
+    actor: designer
+    action: The process designer tries to publish process B, whose person task writes the script result into the notes field of the payee record.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: designer
+    action: The process designer tries to publish process C, whose service call to an outside address uses the script result in its address.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: operator
+    action: The process operator starts process A for Payee One.
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: The administrator completes the person task of process A, which writes the result into the bank account field.
+    via: api
+  - step: 6
+    actor: operator
+    action: >
+      The process operator starts process B for Payee One. Process B is a version that was already active before the
+      check at publishing existed (a precondition), so only the check at the step can stop it.
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: The administrator completes the person task of process B, which tries to write the result into the notes field.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: operator
+    action: The process operator starts process A for Payee Two and lets the opted-in script run, so that the instance holds a protected value.
+    via: api
+  - step: 9
+    actor: worker_a
+    action: >
+      The task worker completes the person task of process A for Payee Two, whose bank account value is hidden from the
+      worker, and so tries to write it into the bank account field.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Processes B and C are not published, and no outside request is made for C.
+    verification:
+      method: system_state
+      detail: Steps 2 and 3 are refused; neither process has an active version afterwards.
+      evidence: The two refusals (status and wording only) and the active versions of B and C (none).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A process could be published that copies a protected number into an open field or sends it to an outside address.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The write into the protected field itself works for the administrator.
+    verification:
+      method: instance_state
+      detail: Steps 4 and 5 end with process A completed; the bank account field of Payee One holds a value afterwards.
+      evidence: That process A completed, and whether the field is non-empty (yes or no); no value is kept.
+    on_fail:
+      severity: MAJOR
+      business_impact: The permitted use of a protected value does not work.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: When the check at publishing is bypassed, the step still refuses to write into the notes field and writes nothing.
+    verification:
+      method: system_state
+      detail: >
+        Step 7 is refused with the plain "not permitted" answer, which does not describe the reason; the notes field of
+        Payee One is unchanged; the audit trail names the reason (a protected value into an unprotected field) and holds no value.
+      evidence: The refusal (status and wording only), the notes field before and after, and whether the invented value appears in the audit entry (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A protected value is copied into a field that every reader may see.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A person who may not read the protected value cannot use a task to write it.
+    verification:
+      method: system_state
+      detail: Step 9 is refused and the bank account field of Payee Two is the same as before.
+      evidence: The refusal (status and wording only) and whether the field changed (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A worker without the right changes or moves protected data through a task.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the instances of processes A and B if still open. Restore the notes field of Payee One only if step 7 was not refused, and record that as a finding first.
