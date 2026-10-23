@@ -8,8 +8,11 @@
 # docs/roles.md (EntitiesQuery is held by tenant auditor, task worker and administrator; EntitiesRestrictionsManage).
 # Uses the "UAT payee" record type with the protected "bank account" field prepared in tenant-administration matrix-0.
 # Test-tooling steps: none.
-# Not covered here (stated, not hidden): (a) a person who holds a special right on the field (a grant) - no roster actor
-# holds one, so "present for a caller with a grant" is shown by the administrator, who holds the right; (b) webhook and
+# Who sees the value: only a person who holds a field grant on "bank account" (a user_entity_grants row; roles play no part,
+# lib/letflow/entities/field_policy.ex). The administrator is therefore a reader WITH a grant only if the test environment
+# (or matrix-0 step 3, through the restrictions import) has given that grant; see the precondition. Without it steps 2, 6
+# and 7 are BLOCKED, not PASS.
+# Not covered here (stated, not hidden): (a) a grant for the task worker or the auditor (none is given on purpose); (b) webhook and
 # dead-letter masking: nothing in the product starts a webhook delivery by itself yet (design assumption A4), so a real
 # instance cannot trigger it; the unit tests of slice S1 carry that; (c) oversized values and paging limits.
 # UAT assumption, to be confirmed by the process owner: the scenario checks that the real value is absent and a hidden
@@ -24,9 +27,9 @@ tags: [restricted-field, redaction, history, sensitive-data, refusal, access]
 
 description: >
   Every change to a record is kept as an event, and the history of the record lists those events with the values they
-  carried. The payee record holds a protected bank account number. The administrator, who holds the right, sees the
+  carried. The payee record holds a protected bank account number. The administrator, who holds a grant on the field, sees the
   number in the history of a payee, in the first entry and in the entry written when the number was changed. A task
-  worker and a tenant auditor see the entries, the time, the author and the other values, but a hidden placeholder where
+  worker and a tenant auditor, who hold no such right, see the entries, the time, the author and the other values, but a hidden placeholder where
   the bank account number stands, in every entry. Hiding is decided when the history is read, by the protection in force
   at that moment: if the administrator removes the protection the earlier entries show the number again, and when it is
   protected again they are hidden again. Nothing the history shows names a hidden value in another form.
@@ -39,6 +42,10 @@ actors:
 
 preconditions:
   - description: tenant-administration matrix-0 passed in this run (record type "UAT payee", bank account protected, "Payee One" saved with the invented bank account "UAT-ACCT-0001")
+    check: custom
+  - description: >
+      The administrator holds a field grant on "bank account" of "UAT payee" (given through the restrictions import in
+      matrix-0 step 3 or by the test environment). If not, steps 2, 6 and 7 are BLOCKED
     check: custom
   - description: The task worker holds no special right on the bank account field, and the tenant auditor is a tenant auditor with no special right on it either
     check: custom
@@ -78,6 +85,14 @@ steps:
     actor: tenant_admin
     action: The administrator protects the bank account field again, and the task worker opens the history of Payee One again.
     via: api
+  - step: 8
+    actor: worker_a
+    action: >
+      The task worker, who may not see the bank account, tries to read the history of Payee One using a page marker taken
+      from another list (the page marker of the process instance history) instead of one given by the record history, and
+      keeps the answer.
+    expect_refusal: true
+    via: api
 
 expected_outcomes:
   - id: EO-001
@@ -116,6 +131,21 @@ expected_outcomes:
     on_fail:
       severity: BLOCKER
       business_impact: A change of protection either does not reach the history (the number stays visible) or hides it for good.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: >
+      A reader without the right who tries to get at the history by a way the product does not offer is refused, and the
+      refusal holds no protected value.
+    verification:
+      method: system_state
+      detail: >
+        The answer at step 8 is a refusal of the page marker as invalid (not a list of entries), and it contains neither
+        "UAT-ACCT-0001" nor "UAT-ACCT-0001-B". Together with steps 3 to 5 this shows that the worker never obtains the
+        value from the history route, by a normal read or by a malformed one.
+      evidence: Whether the answer is a refusal (yes or no) and whether either invented value appears in it (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A reader without the right can get a protected number out of the history by a malformed request.
       suggested_action: route_to_security_review
 
 cleanup:
