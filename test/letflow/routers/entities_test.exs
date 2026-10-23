@@ -270,7 +270,7 @@ defmodule Letflow.Routers.EntitiesTest do
     # SEVENTEEN to EIGHTEEN (POST /restrictions/import). The count is
     # asserted explicitly so appending a nineteenth route without updating
     # design §1's table fails here rather than silently.
-    test "__authz_routes__/0 returns exactly the eighteen designed routes, with their designed policy keys" do
+    test "__authz_routes__/0 returns exactly the nineteen designed routes, with their designed policy keys" do
       expected = [
         {"POST", "/definitions/:name/activate", :EntitiesDefinitionsWrite},
         {"POST", "/definitions", :EntitiesDefinitionsWrite},
@@ -291,12 +291,13 @@ defmodule Letflow.Routers.EntitiesTest do
          :EntitiesAttachmentsRead},
         {"DELETE", "/records/:entity_type/:record_id/attachments/:attachment_id",
          :EntitiesAttachmentsManage},
-        {"POST", "/records/:entity_type/export", :EntitiesRecordsExport}
+        {"POST", "/records/:entity_type/export", :EntitiesRecordsExport},
+        {"GET", "/records/:entity_type/:record_id/history", :EntitiesQuery}
       ]
 
       actual = Letflow.Routers.Entities.__authz_routes__()
 
-      assert length(actual) == 18
+      assert length(actual) == 19
       assert Enum.sort(actual) == Enum.sort(expected)
       assert {"POST", "/records/:entity_type/import", :EntitiesRecordsImport} in actual
       assert {"POST", "/query", :EntitiesQuery} in actual
@@ -316,11 +317,16 @@ defmodule Letflow.Routers.EntitiesTest do
       # (/records/:entity_type/:record_id/attachments...), not the record
       # itself -- excluded here so this assertion still proves what it always
       # proved: no GET reads a record's own field_values.
+      # REQ-516 S2 adds the record HISTORY GET, excluded by its exact path: its
+      # field_values pass through FieldPolicy.redact_event_payload_with_sets/3
+      # (proven by H1 in req516_record_history_routes_test.exs), so it is not a
+      # redaction bypass. Any other GET under /records still fails here.
       record_gets =
         Letflow.Routers.Entities.__authz_routes__()
         |> Enum.filter(fn {method, path, _key} ->
           method == "GET" and String.starts_with?(path, "/records") and
-            not String.contains?(path, "attachments")
+            not String.contains?(path, "attachments") and
+            path != "/records/:entity_type/:record_id/history"
         end)
 
       assert record_gets == []

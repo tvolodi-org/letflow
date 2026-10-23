@@ -1566,7 +1566,7 @@ defmodule Letflow.Api.AuthorizationTest do
              """
     end
 
-    test "endpoint_policy_key/2 resolves the four new routes, never :Unknown" do
+    test "endpoint_policy_key/2 resolves the five new routes, never :Unknown" do
       cases = [
         {"POST", "/entities/records/:entity_type/:record_id/attachments",
          :EntitiesAttachmentsManage},
@@ -1575,7 +1575,8 @@ defmodule Letflow.Api.AuthorizationTest do
         {"GET", "/entities/records/:entity_type/:record_id/attachments/:attachment_id",
          :EntitiesAttachmentsRead},
         {"DELETE", "/entities/records/:entity_type/:record_id/attachments/:attachment_id",
-         :EntitiesAttachmentsManage}
+         :EntitiesAttachmentsManage},
+        {"GET", "/entities/records/:entity_type/:record_id/history", :EntitiesQuery}
       ]
 
       for {method, path, expected} <- cases do
@@ -2219,6 +2220,7 @@ defmodule Letflow.Api.AuthorizationTest do
          :EntitiesAttachmentsRead},
         {"DELETE", "/entities/records/:entity_type/:record_id/attachments/:attachment_id",
          :EntitiesAttachmentsManage},
+        {"GET", "/entities/records/:entity_type/:record_id/history", :EntitiesQuery},
         {"POST", "/modules/exam/exam-sessions", :ExamSessionStart},
         {"GET", "/modules/exam/exam-sessions/available", :ExamSessionStart},
         {"GET", "/modules/exam/exam-sessions/:id", :ExamSessionRead},

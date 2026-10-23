@@ -105,14 +105,16 @@ defmodule Letflow.Api.RouteScope do
   ]
 
   # The committed expectation of `{:resolver, _}` routes (SEC F-1, same line format), REQ-518
-  # PR 2c-ii (AC 19): the eight entity record write and attachment routes; PR 2d adds the five
-  # task routes. The walk fails a resolver route that is not listed AND a listed route that is
-  # mounted with another class (a resolver silently dropped).
+  # PR 2c-ii (AC 19): the nine entity record write, history and attachment routes (REQ-516 S2
+  # adds the record history read); PR 2d adds the five task routes. The walk fails a resolver
+  # route that is not listed AND a listed route that is mounted with another class (a resolver
+  # silently dropped).
   @expected_resolver_routes [
     "DELETE /entities/records/:entity_type/:record_id EntitiesRecordsWrite",
     "DELETE /entities/records/:entity_type/:record_id/attachments/:attachment_id EntitiesAttachmentsManage",
     "GET /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsRead",
     "GET /entities/records/:entity_type/:record_id/attachments/:attachment_id EntitiesAttachmentsRead",
+    "GET /entities/records/:entity_type/:record_id/history EntitiesQuery",
     "POST /entities/records/:entity_type EntitiesRecordsWrite",
     "POST /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsManage",
     "POST /entities/records/:entity_type/import EntitiesRecordsImport",

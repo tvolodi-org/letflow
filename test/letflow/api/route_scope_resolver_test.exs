@@ -8,14 +8,14 @@ defmodule Letflow.Api.RouteScopeResolverTest do
   REAL route table.
 
     * `:unexpected_resolver_route` in BOTH directions: a `{:resolver, _}` route that is not on the
-      committed expectation (`@expected_resolver_routes`, the eight entity record write and
+      committed expectation (`@expected_resolver_routes`, the nine entity record write, history and
       attachment routes), and a listed route mounted with ANOTHER class (the resolver silently
       dropped, or the route left on the default);
     * `:data_route_default`: a default-sourced route of a data router (`Letflow.Routers.Entities`
       now) fails the walk; declared and key-table routes, and the default-sourced routes of other
       routers, do not (`Letflow.Routers.Tasks` is deliberately NOT a data router until PR 2d
       classifies its seven routes: pinned here so 2d has to change this test with its change);
-    * the real table: the eight resolver routes mounted exactly as listed with the exported
+    * the real table: the nine resolver routes mounted exactly as listed with the exported
       `ScopeResolver.record_scope/1`, the seven definition/restriction routes declared
       `:tenant_wide`, no default-sourced route in `Routers.Entities`, and the committed snapshot
       lost exactly those fifteen lines (137 to 122).
@@ -35,6 +35,7 @@ defmodule Letflow.Api.RouteScopeResolverTest do
     "DELETE /entities/records/:entity_type/:record_id EntitiesRecordsWrite",
     "DELETE /entities/records/:entity_type/:record_id/attachments/:attachment_id EntitiesAttachmentsManage",
     "GET /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsRead",
+    "GET /entities/records/:entity_type/:record_id/history EntitiesQuery",
     "GET /entities/records/:entity_type/:record_id/attachments/:attachment_id EntitiesAttachmentsRead",
     "POST /entities/records/:entity_type EntitiesRecordsWrite",
     "POST /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsManage",
@@ -75,7 +76,7 @@ defmodule Letflow.Api.RouteScopeResolverTest do
 
   # ===========================================================================================
   describe ":unexpected_resolver_route (SEC step-12 F-1 / step-17 F-1), seeded" do
-    test "the eight committed routes mounted as the resolver class are accepted" do
+    test "the nine committed routes mounted as the resolver class are accepted" do
       for line <- @resolver_lines do
         assert kinds(audit([resolver_row(line)]), :unexpected_resolver_route) == [], line
       end
@@ -224,7 +225,7 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       assert RouteScope.audit_routes(routes, snapshot) == []
     end
 
-    test "the {:resolver, _} routes of the table are EXACTLY the eight entity routes and the five task routes (PR 2d), with the exported resolvers",
+    test "the {:resolver, _} routes of the table are EXACTLY the nine entity routes and the five task routes (PR 2d), with the exported resolvers",
          %{
            routes: routes
          } do
@@ -266,7 +267,7 @@ defmodule Letflow.Api.RouteScopeResolverTest do
 
     test "NO route of Routers.Entities is default-sourced", %{routes: routes} do
       entity_rows = Enum.filter(routes, &(&1.router == Letflow.Routers.Entities))
-      assert length(entity_rows) == 18
+      assert length(entity_rows) == 19
       assert Enum.filter(entity_rows, &(&1.source == :default)) == []
     end
 

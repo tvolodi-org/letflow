@@ -315,7 +315,8 @@ did). Retrying is safe.
 - Stored numbers under a strict flag cannot exist by contract (the flag is immutable once
   records exist), so the renderer is a defensive decoder: it pads any stored number and
   passes an unparseable value through untouched. Record history (0059, REQ-516) must call
-  the same decoder on event `field_values`.
+  the same decoder on event `field_values`; the record history route
+  (`GET /entities/records/:entity_type/:record_id/history`, REQ-516 S2) does so.
 - Filters (`eq neq gt gte lt lte in not_in`) take a canonical decimal string (at most 1100
   bytes) or an integer and compare as an exact `Decimal` (`"2.5"` equals the stored
   `"2.50"`; `gt "2.4999"` is fine, scale is not enforced on a filter). A JSON float, a
