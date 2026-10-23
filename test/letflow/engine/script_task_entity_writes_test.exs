@@ -79,6 +79,10 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
         DateTime.utc_now()
       )
 
+    # T-0250: the hand-built document is signed for this row, as activation would sign it.
+    row = Repo.get!(ProcessDefinition, b.definition.id, prefix: schema)
+    {:ok, record} = Letflow.Definitions.ActivatedBy.sign(record, row, schema)
+
     {1, _} =
       from(d in ProcessDefinition, where: d.id == ^b.definition.id)
       |> Repo.update_all([set: [activated_by: record]], prefix: schema)

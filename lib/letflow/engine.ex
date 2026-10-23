@@ -501,6 +501,7 @@ defmodule Letflow.Engine do
   alias Ecto.Multi
   alias Letflow.Audit
   alias Letflow.Definitions
+  alias Letflow.Definitions.ActivatedBy
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.InstanceDefinitionSnapshot
   alias Letflow.Definitions.SnapshotStore
@@ -3245,7 +3246,7 @@ defmodule Letflow.Engine do
          %InstanceProjection{definition_id: definition_id} <-
            Repo.get_by(InstanceProjection, [instance_id: task.instance_id], prefix: prefix),
          {:ok, definition} <- Definitions.get_by_id(definition_id, prefix: prefix),
-         {:ok, activator_id, authorized} <- recorded_activator(definition.activated_by),
+         {:ok, activator_id, authorized} <- recorded_activator(definition, prefix),
          :ok <- check_activator_active(activator_id, prefix),
          # INV-3 (design 6.1 P0b): stamp, install state, hashes, handler and arguments are
          # authorized against the tenant's CURRENT state BEFORE `prepare/2` and every lock.
@@ -3381,11 +3382,21 @@ defmodule Letflow.Engine do
   end
 
   # SEC INFO-1: `activated_by` is UNTRUSTED data at run time (a stored jsonb document). It is
-  # re-validated here: a UUID user id, the `EntitiesRecordsWrite` permission recorded, and
-  # well-formed `(entity_type, op)` pairs. `DefinitionsActivate` is NOT assumed (a rollback
-  # or promotion may record a different permission set). Anything else is the
-  # re-activation refusal stub (fail closed).
-  defp recorded_activator(%{
+  # re-validated here: the structure (below), then the signature (T-0250, GH #2644:
+  # `Letflow.Definitions.ActivatedBy.verify/3`, bound to this row's id, version and graph).
+  # Anything unsigned, forged, copied or unverifiable is the re-activation refusal (fail closed).
+  defp recorded_activator(%{activated_by: activated_by} = definition, prefix) do
+    with {:ok, uuid, pairs} <- recorded_activator_document(activated_by),
+         {:ok, :verified} <- ActivatedBy.verify(activated_by, definition, prefix) do
+      {:ok, uuid, pairs}
+    else
+      _invalid -> {:error, :entity_write_needs_reactivation}
+    end
+  end
+
+  # `DefinitionsActivate` is NOT assumed (a rollback or promotion may record a different
+  # permission set).
+  defp recorded_activator_document(%{
          "user_id" => user_id,
          "permissions" => permissions,
          "authorized" => authorized
@@ -3400,7 +3411,8 @@ defmodule Letflow.Engine do
     end
   end
 
-  defp recorded_activator(_activated_by), do: {:error, :entity_write_needs_reactivation}
+  defp recorded_activator_document(_activated_by),
+    do: {:error, :entity_write_needs_reactivation}
 
   defp authorized_pairs(authorized) do
     Enum.reduce_while(authorized, {:ok, []}, fn
@@ -5778,7 +5790,7 @@ defmodule Letflow.Engine do
 
   # ---- plan phase (P0 + P1): read-only except `prepare/2`'s own short transaction ------------
 
-  # Same read set and the same `recorded_activator/1` + `check_activator_active/2` as
+  # Same read set and the same `recorded_activator/2` + `check_activator_active/2` as
   # `plan_entity_writes/3` (D-C.5). `{:ok, nil}` for a node without lines AND for a read problem
   # (the in-transaction S4 guard then fails closed for a node that has lines).
   @spec plan_service_entity_writes(
@@ -5830,7 +5842,7 @@ defmodule Letflow.Engine do
          %InstanceProjection{definition_id: definition_id} <-
            Repo.get_by(InstanceProjection, [instance_id: row.instance_id], prefix: prefix),
          {:ok, definition} <- Definitions.get_by_id(definition_id, prefix: prefix),
-         {:ok, activator_id, authorized} <- recorded_activator(definition.activated_by),
+         {:ok, activator_id, authorized} <- recorded_activator(definition, prefix),
          :ok <- check_activator_active(activator_id, prefix),
          owner = owner_stamp(definition),
          :ok <- authorize_service_module_writes(module_lines, owner, raw_graph, lines, prefix),

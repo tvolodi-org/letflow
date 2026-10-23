@@ -18,6 +18,7 @@ defmodule Letflow.Engine.EntityWritesGatesTest do
   import Plug.Test
 
   alias Ecto.Multi
+  alias Letflow.Definitions.ActivatedBy
   alias Letflow.Definitions.InstanceDefinitionSnapshot
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Engine
@@ -151,10 +152,22 @@ defmodule Letflow.Engine.EntityWritesGatesTest do
   defp task_completed_condition,
     do: "lower(OLD.status::text) = 'pending' AND lower(NEW.status::text) <> 'pending'"
 
+  # T-0250: a valid-looking document is signed through the product path (non-maps pass as they are).
+
+  defp signed_for(ctx, doc) when is_map(doc) do
+    row = Repo.get!(ProcessDefinition, ctx.definition.id, prefix: ctx.schema)
+
+    {:ok, signed} = ActivatedBy.sign(doc, row, ctx.schema)
+
+    signed
+  end
+
+  defp signed_for(_ctx, doc), do: doc
+
   defp set_activated_by!(ctx, activated_by) do
     {1, _} =
       from(d in ProcessDefinition, where: d.id == ^ctx.definition.id)
-      |> Repo.update_all([set: [activated_by: activated_by]], prefix: ctx.schema)
+      |> Repo.update_all([set: [activated_by: signed_for(ctx, activated_by)]], prefix: ctx.schema)
   end
 
   defp valid_activated_by(user_id) do

@@ -117,6 +117,8 @@ defmodule Letflow.TestSupport.DefinitionsListFixture do
           logical_shape_version: hash,
           artifact_version_id: artifact_version_id,
           status: status,
+          # GH #2618: every fixture name is `ordinary` (not a backfill-refused name).
+          write_class: "ordinary",
           inserted_at: timestamp_for(n)
         },
         prefix: schema_name

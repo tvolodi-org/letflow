@@ -530,7 +530,13 @@ defmodule Letflow.Definitions.Promotion do
     # GH #2587 PR B1: the promoting principal's authority, recorded in the same write that
     # activates the row (NULL for a graph without `entity_writes`).
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-    activated_by = Letflow.Definitions.entity_writes_activated_by(new_row, activator, now)
+    # T-0250: the document is signed for the NEW row (its own id, version and graph) in the
+    # target tenant; a failed sign rolls the promotion back, so the row is never ACTIVE unsigned.
+    activated_by =
+      case Letflow.Definitions.entity_writes_activated_by(new_row, activator, now, target_prefix) do
+        {:ok, activated_by} -> activated_by
+        {:error, reason} -> Repo.rollback(reason)
+      end
 
     {1, [activated_row]} =
       Repo.update_all(query, [set: [status: :active, activated_by: activated_by]],
