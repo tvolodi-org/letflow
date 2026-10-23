@@ -130,7 +130,7 @@ defmodule Letflow.Routers.Entities.RecordHistory do
     |> put_field_values(payload, specs)
   end
 
-  # ENTITY_RECORD_DELETED carries no `field_values`, so its item has none either.
+  # The delete event carries no `field_values`, so its item has none either.
   defp put_field_values(item, %{"field_values" => field_values}, specs),
     do: Map.put(item, "field_values", Decimals.render_field_values(field_values, specs))
 

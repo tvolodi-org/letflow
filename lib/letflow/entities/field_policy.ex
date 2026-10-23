@@ -117,7 +117,7 @@ defmodule Letflow.Entities.FieldPolicy do
 
   @doc """
   Redacts the `"field_values"` of a record event payload (REQ-516 S2, record history).
-  A payload without `"field_values"` (ENTITY_RECORD_DELETED) is returned unchanged and
+  A payload without `"field_values"` (the delete event) is returned unchanged and
   loads no set. Any loader error propagates, never "unrestricted".
   """
   @spec redact_event_payload(principal(), String.t(), map()) ::

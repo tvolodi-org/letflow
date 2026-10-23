@@ -27,6 +27,7 @@ defmodule Letflow.Entities.RecordHistory do
   import Ecto.Query
 
   alias Letflow.Entities.EntityTypeInstance
+  alias Letflow.Entities.EventTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Query.Types
   alias Letflow.Entities.ScopeDeclaration
@@ -45,7 +46,6 @@ defmodule Letflow.Entities.RecordHistory do
         }
 
   @telemetry {:entity_record_history, :by_id}
-  @record_event_types ["ENTITY_RECORD_CREATED", "ENTITY_RECORD_UPDATED", "ENTITY_RECORD_DELETED"]
 
   @doc """
   Whether the caller may read the history of `record_id` of `entity_type` (see the moduledoc).
@@ -139,7 +139,7 @@ defmodule Letflow.Entities.RecordHistory do
       left_join: sp in "event_payload_store",
       on: sp.event_id == e.event_id and sp.event_created_at == e.created_at,
       where: e.instance_id == type(^instance_id, Ecto.UUID),
-      where: e.event_type in ^@record_event_types,
+      where: e.event_type in ^EventTypes.record_event_names(),
       where: fragment("(COALESCE(?, ?)) ->> 'record_id'", sp.payload, e.payload) == ^record_id,
       order_by: [asc: e.sequence_number],
       limit: ^limit,
