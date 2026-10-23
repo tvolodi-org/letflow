@@ -99,6 +99,7 @@ defmodule Letflow.Scripts.SeedScriptsNoArgvPayloadTest do
     seed_swiftroute_persona_actors.sh
     seed_vortex_definition.sh
     seed_vortex_entities.sh
+    seed_meridian_entities.sh
     seed_vortex_persona_actors.sh
     seed_persona_actors_base.sh
     seed_service_task_base.sh

@@ -1,0 +1,39 @@
+{
+  "entity_type": "borrower",
+  "record_export_schema_version": "entities/record-export/v1",
+  "records": [
+    {
+      "record_id": "borrower-corp-001",
+      "field_values": {
+        "borrower_ref": "borrower-corp-001",
+        "legal_name": "Alder Logistics GmbH",
+        "segment": "corporate",
+        "national_id": "DE-HRB-100201",
+        "date_of_birth": "1978-04-12",
+        "contact_email": "finance@alder-logistics.example"
+      }
+    },
+    {
+      "record_id": "borrower-corp-002",
+      "field_values": {
+        "borrower_ref": "borrower-corp-002",
+        "legal_name": "Northgate Warehousing BV",
+        "segment": "corporate",
+        "national_id": "NL-KVK-200302",
+        "date_of_birth": "1971-09-30",
+        "contact_email": "cfo@northgate-warehousing.example"
+      }
+    },
+    {
+      "record_id": "borrower-sme-001",
+      "field_values": {
+        "borrower_ref": "borrower-sme-001",
+        "legal_name": "Kowalska Bakery sp. z o.o.",
+        "segment": "sme",
+        "national_id": "PL-KRS-300403",
+        "date_of_birth": "1985-01-22",
+        "contact_email": "owner@kowalska-bakery.example"
+      }
+    }
+  ]
+}
