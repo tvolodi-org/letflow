@@ -1517,13 +1517,13 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
   end
 
   # ==========================================================================
-  # GH #2698 -- a next cursor is bound to the request that minted it
+  # GH #2698 -- a next cursor is sealed and bound to the request that minted it
   #
   # The cursor carries the sort values of its last row. Replayed under another
   # sort (or on another entity type) those values become a threshold on a
   # field the replaying caller may read, which is an oracle on the restricted
-  # value. The walker checks the replayed request's own sort, so the binding
-  # must refuse the mismatch.
+  # value. The walker checks the replayed request's own sort, so the seal's associated
+  # data (tenant, user, entity type, sort) must refuse the mismatch (AEAD failure -> 400).
   # ==========================================================================
 
   describe "GH #2698 cursor binding" do
@@ -1611,6 +1611,38 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
 
       replay =
         query(ctx, %{
+          "entity_type" => "note",
+          "sort" => by_stem,
+          "page_size" => 10,
+          "cursor" => cursor
+        })
+
+      assert replay.status == 400
+      assert body_of(replay)["detail"] == "invalid cursor"
+    end
+
+    test "T4 (INV-10): a cursor minted in tenant A, replayed in tenant B, is 400 invalid cursor",
+         %{ctx: ctx} do
+      by_stem = [%{"field" => "stem", "dir" => "asc"}]
+
+      seed_record!(ctx, "note", %{"stem" => "r"})
+      page1 = query(ctx, %{"entity_type" => "note", "sort" => by_stem, "page_size" => 1})
+      cursor = body_of(page1)["next_cursor"]
+      assert is_binary(cursor)
+
+      other = tenant_ctx("w-bind-b", ["TASK_WORKER"])
+
+      create_active_definition!(other, %{
+        name: "note",
+        display_name: "Note",
+        fields: [%{name: "stem", type: :string, queried: true}]
+      })
+
+      seed_record!(other, "note", %{"stem" => "q"})
+      seed_record!(other, "note", %{"stem" => "r"})
+
+      replay =
+        query(other, %{
           "entity_type" => "note",
           "sort" => by_stem,
           "page_size" => 10,

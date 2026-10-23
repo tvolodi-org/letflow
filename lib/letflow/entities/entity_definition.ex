@@ -51,6 +51,10 @@ defmodule Letflow.Entities.EntityDefinition do
     # REQ-496 (0050 D7): the owning module id, or nil. Never cast; set only by
     # `put_managed_by/2` on a new row, and immutable in the DB (trigger).
     field(:managed_by, :string)
+    # GH #2618 (decision 0054 D4a.2 amendment): the write class of the type, one of
+    # `Letflow.Entities.ProcessWritable.classes/0`. Never cast; set only by `put_write_class/2` on a
+    # new row by `Letflow.Entities.Definitions.create_definition/3`, and immutable in the DB (trigger).
+    field(:write_class, :string)
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
@@ -116,6 +120,21 @@ defmodule Letflow.Entities.EntityDefinition do
     case Ecto.get_meta(data, :state) do
       :built -> put_change(changeset, :managed_by, module_id)
       _loaded -> add_error(changeset, :managed_by, "is immutable")
+    end
+  end
+
+  @doc """
+  Sets `write_class` on a changeset for a NEW row (GH #2618, decision 0054 D4a.2 amendment), the only
+  code that can set the column; `changeset/2` never casts it. The DB refuses an update of the column
+  (trigger) and a value outside the classes (CHECK). On a changeset over a loaded row it adds an
+  `"is immutable"` error instead.
+  """
+  @spec put_write_class(Ecto.Changeset.t(), write_class :: String.t()) :: Ecto.Changeset.t()
+  def put_write_class(%Ecto.Changeset{data: data} = changeset, write_class)
+      when is_binary(write_class) do
+    case Ecto.get_meta(data, :state) do
+      :built -> put_change(changeset, :write_class, write_class)
+      _loaded -> add_error(changeset, :write_class, "is immutable")
     end
   end
 end

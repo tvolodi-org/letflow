@@ -50,6 +50,8 @@ defmodule Letflow.SecretsTest do
   alias Letflow.Secrets.Secret
   alias Letflow.Webhooks
 
+  import Ecto.Query, only: [from: 2]
+
   # ---------------------------------------------------------------------------------
   # Fixtures / helpers
   # ---------------------------------------------------------------------------------
@@ -289,6 +291,26 @@ defmodule Letflow.SecretsTest do
       # not fail, and not return the disabled version's plaintext.
       assert {:ok, %{plaintext: "older-active-plaintext", key_id: ^older_key_id}} =
                Secrets.resolve(reference, tenant_id: tenant_id)
+    end
+
+    test "versions put in the same second resolve to the highest key_id (created_at is second precision)" do
+      %{tenant_id: tenant_id} = provisioned_tenant("req190-secrets-tie")
+      name = unique_segment("same-second")
+
+      %{reference: reference, key_id: older_key_id} =
+        put!(tenant_id, %{name: name, plaintext: "older-plaintext"})
+
+      %{key_id: newer_key_id} = put!(tenant_id, %{name: name, plaintext: "newer-plaintext"})
+
+      # Force the tie: both versions carry the same created_at, as two puts in one second do.
+      {2, _} =
+        from(s in Secret, where: s.tenant_id == ^tenant_id and s.name == ^name)
+        |> Repo.update_all(set: [created_at: ~U[2026-10-23 12:00:00Z]])
+
+      assert {:ok, %{plaintext: "newer-plaintext", key_id: ^newer_key_id}} =
+               Secrets.resolve(reference, tenant_id: tenant_id)
+
+      refute older_key_id == newer_key_id
     end
 
     test "pinned resolves disabled version" do

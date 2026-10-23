@@ -388,4 +388,47 @@ defmodule Letflow.Definitions.ReservedReferencesTest do
       refute Regex.source(ServiceTask.template_placeholder()) =~ "a-zA-Z0-9_."
     end
   end
+
+  # ── the dotted reserved form (GH #2624) ───────────────────────────────────
+
+  describe "the dotted form {{variables._sys.<x>}}" do
+    # Inert today: the renderer's KEY class is dot-free, so the definition side does not report
+    # it. This test fails the moment the renderer's grammar admits a dot (the pattern source
+    # changes and the dotted placeholder yields a key), which is the signal to start reporting it.
+    test "is not reported by the definition side, and the renderer does not read it" do
+      dotted = "https://x/{{variables._sys.r}}"
+
+      assert ServiceTask.template_variable_keys(dotted) == []
+      assert ReservedReferences.find(node_graph(service(%{"endpoint" => dotted}))) == []
+    end
+
+    # The catalog side (#2623) uses the dot-widened grammar, so catalog data and definitions
+    # share one predicate on the reserved name: the dotted form is reported there.
+    test "the catalog predicate reports the dotted key, as '_sys.r'" do
+      assert ReservedReferences.reserved_template_names("https://x/{{variables._sys.r}}") ==
+               ["_sys.r"]
+    end
+  end
+
+  # ── the shared constructor (GH #2624) ─────────────────────────────────────
+
+  describe "reference/5 is the one constructor of the reported shape" do
+    test "builds exactly the external map, five keys, no struct" do
+      assert ReservedReferences.reference(:node, "svc", :script_input, "_sys.r", "_sys.r") ==
+               %{
+                 element: :node,
+                 id: "svc",
+                 location: :script_input,
+                 field: "_sys.r",
+                 name: "_sys.r"
+               }
+    end
+
+    test "a graph reference equals the constructor output for the same location" do
+      graph = node_graph(service(%{"endpoint" => "https://x/{{variables._sys}}"}))
+
+      assert ReservedReferences.find(graph) ==
+               [ReservedReferences.reference(:node, "svc", :service_task_endpoint, nil, "_sys")]
+    end
+  end
 end

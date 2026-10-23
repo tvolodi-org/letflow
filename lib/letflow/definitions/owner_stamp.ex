@@ -146,6 +146,12 @@ defmodule Letflow.Definitions.OwnerStamp do
     end
   end
 
+  @doc false
+  # The canonical JSON the activated_by signature covers (T-0250); the same form graph_hash/1
+  # hashes, so there is one canonicalisation (sorted keys at every level).
+  @spec canonical_json(term()) :: String.t()
+  def canonical_json(value), do: value |> canonicalize() |> Jason.encode!()
+
   defp canonicalize(value) when is_map(value) do
     value
     |> Enum.map(fn {key, val} -> {key, canonicalize(val)} end)

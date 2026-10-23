@@ -150,7 +150,7 @@ defmodule Letflow.Routers.EntitiesScopeFilterTest do
              ]
     end
 
-    test "a cursor minted by a tenant-wide caller does not widen a scoped caller (the cursor carries no set)",
+    test "a cursor minted by a tenant-wide caller does not widen a scoped caller (GH #2698: the cursor is bound to its user, so the replay is refused; the scoped caller's own cursor resumes within scope)",
          %{fx: fx, scoped_a: scoped_a, wide: wide} do
       body = item_body(%{"page_size" => 2, "sort" => @by_amount})
       first = query(fx, wide, :on, body)
@@ -160,8 +160,16 @@ defmodule Letflow.Routers.EntitiesScopeFilterTest do
       assert is_binary(cursor)
 
       replay = query(fx, scoped_a, :on, Map.put(body, "cursor", cursor))
-      assert replay.status == 200
-      assert names(json(replay)["items"]) == ["item-a2x"]
+      assert replay.status == 400
+
+      own_first = query(fx, scoped_a, :on, body)
+      assert own_first.status == 200
+      own_cursor = json(own_first)["next_cursor"]
+      assert is_binary(own_cursor)
+
+      own_replay = query(fx, scoped_a, :on, Map.put(body, "cursor", own_cursor))
+      assert own_replay.status == 200
+      assert names(json(own_replay)["items"]) == ["item-a2x"]
     end
 
     test "a joined query (inner on the wire; LEFT is proven in query_scope_test) applies the scope of the joined hop",

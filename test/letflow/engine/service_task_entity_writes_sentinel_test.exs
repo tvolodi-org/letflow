@@ -1,4 +1,5 @@
 defmodule Letflow.Engine.ServiceTaskEntityWritesSentinelTest do
+  @uid "cursor-test-user"
   @moduledoc """
   GH #2587 / REQ-499 PR C, C-1 (design `gh2587-req499-pr-c-service-task-writes.md` D-C.4, F-C11,
   OQ-C6; decision 0054 AC 22 / N8): the SENTINEL PROOF, the first commit of C2 and a hard gate.
@@ -111,7 +112,16 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesSentinelTest do
     request = %{entity_type: @type_name}
     assert {:ok, compiled} = Compiler.compile(request, schema, :all)
     assert {:ok, allowlist} = Allowlist.load(@type_name, schema)
-    assert {:ok, page} = Cursor.paginate(request, compiled, allowlist, %{page_size: 10}, schema)
+
+    assert {:ok, page} =
+             Cursor.paginate(
+               request,
+               compiled,
+               allowlist,
+               %{user_id: @uid, page_size: 10},
+               schema
+             )
+
     assert [item] = page.items
     assert item.record_id == record_id
     assert item.field_values["label"] == "from a service task"

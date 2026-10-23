@@ -19,9 +19,12 @@ defmodule Letflow.Definitions.Activator do
       %{"user_id" => uuid, "roles" => [sorted role names],
         "permissions" => [sorted evaluated permission names],
         "authorized" => [%{"entity_type" => t, "op" => "create"}, ...],
-        "activated_at" => iso8601}
+        "activated_at" => iso8601,
+        "signature" => %{"alg" => "HMAC-SHA256", "key_version" => n, "mac" => hex}}
 
-  It holds no secret and no field value (INV-2, INV-4).
+  The `signature` (T-0250, GH #2644) is added by `Letflow.Definitions.ActivatedBy.sign/3` on the
+  signing paths (activate, rollback, promotion) and checked at use. It holds no secret and no
+  field value (INV-2, INV-4).
   """
 
   alias Letflow.Api.Authorization
