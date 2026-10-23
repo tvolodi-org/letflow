@@ -1,0 +1,149 @@
+# T-0279 (BA): the HISTORY OF A RECORD does not reveal whether a record exists to a reader who may not know it (GH #2701,
+# REQ-516, decision 0059; slice S2, merged as #3070; INV-5 of docs/agents/instructions/security-invariants.md).
+# Sources: GH #2701 body ("the 0051 scope filter on the record (out-of-scope = 404 identical to nonexistent)"), design
+# lib/letflow/design/req516-record-history-field-policy.md section 5.4 (a hidden type, an out-of-scope record, a
+# nonexistent record and a malformed identifier are one answer; another tenant's record is one answer too), security
+# invariants INV-5 (not-found and forbidden are indistinguishable) and INV-10 (a route that takes a tenant identifier
+# needs a cross-tenant negative test), docs/roles.md.
+# Test-tooling steps: none.
+# Preconditions on the environment that may be missing: a second customer (tenant) with a record; a record in a part of the
+# organisation the reader is not assigned to (needs scoped roles switched on for the customer); a record type the reader
+# may not use. Each step names its own precondition; a step whose precondition the environment cannot provide is BLOCKED,
+# the other steps still run.
+# UAT assumption, to be confirmed by the process owner: "the same answer" means the same status and the same wording and
+# size of the answer body; the scenario compares the answers, not a particular wording.
+# Every refused step is expected to be refused. A step the product lets through is a finding, not a reason to reword the step.
+---
+id: restricted-fields-6-record-history-not-found
+scope: tenant-administration
+title: Record history - a record the reader may not know exists is answered exactly like a record that does not exist
+version: "1.0"
+tags: [record-history, refusal, tenant-isolation, not-found, access, regression]
+
+description: >
+  A reader asks for the history of a record. If the record exists and the reader may see it, the reader gets the history.
+  If the record does not exist, belongs to another customer, sits in a part of the organisation outside the reader's
+  assignment, or is of a record type the reader may not use, the answer is one and the same "not found": the same status
+  and the same words, so that the reader cannot tell the cases apart and cannot find out that a record exists. A badly
+  formed record identifier gets the same answer. The reader with no protection right never sees the protected bank account
+  in any of these answers.
+
+actors:
+  tenant_admin: actor-any
+  worker_a: actor-any
+  auditor: actor-any
+  other_tenant_admin: actor-any
+
+preconditions:
+  - description: tenant-administration matrix-0 passed in this run (record type "UAT payee", two payees, bank account protected)
+    check: custom
+  - description: The platform build includes the record history route (REQ-516 slice S2); otherwise every step is BLOCKED
+    check: custom
+  - description: >
+      A second customer exists with its own administrator and a payee record of the same record type name. Provided by the
+      test environment (foundation scenarios onboard a customer); otherwise step 4 is BLOCKED.
+    check: custom
+  - description: >
+      Scoped roles are switched on for the customer, the task worker is assigned to one part of the organisation only, and
+      one payee record sits in a different part. Provided by the test environment; otherwise step 5 is BLOCKED.
+    check: custom
+  - description: >
+      A record type exists that the task worker may not use, with one record. Provided by the test environment; otherwise
+      step 6 is BLOCKED.
+    check: custom
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: The administrator writes down the identifier of Payee One, then opens its history and sees the entries.
+    via: api
+  - step: 2
+    actor: auditor
+    action: The tenant auditor opens the history of Payee One and sees the entries, with the bank account hidden.
+    via: api
+  - step: 3
+    actor: worker_a
+    action: >
+      The task worker asks for the history of a payee identifier that was never used (a well formed random identifier) and
+      keeps the answer.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: other_tenant_admin
+    action: >
+      The administrator of the second customer asks for the history of the identifier of Payee One of the first customer
+      under the record type name both customers use, and keeps the answer.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: worker_a
+    action: >
+      The task worker asks for the history of the payee that sits in the part of the organisation outside their
+      assignment, and keeps the answer.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: worker_a
+    action: >
+      The task worker asks for the history of the record of the record type they may not use, and keeps the answer.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: worker_a
+    action: The task worker asks for the history with a record identifier that is not a well formed identifier, and keeps the answer.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: worker_a
+    action: The task worker compares the answers of steps 3, 4, 5, 6 and 7 with each other.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A reader who may see the record gets its history; the auditor's copy hides the protected bank account.
+    verification:
+      method: system_state
+      detail: >
+        Step 1 lists the entries of Payee One. Step 2 lists the same entries and its answer does not contain "UAT-ACCT-0001"
+        or "UAT-ACCT-0002".
+      evidence: The number of entries in each answer, and whether the invented values appear in the auditor's answer (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: Auditors cannot follow a record's history, or are shown a protected number.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A nonexistent record, another customer's record, an out-of-assignment record, a record of a type the reader may not use, and a malformed identifier all get the same answer.
+    verification:
+      method: system_state
+      detail: >
+        Steps 3, 4, 5, 6 and 7 are each refused as "not found" (never "forbidden"), with the same status and the same
+        answer body; step 8 finds no difference in status, wording or size between any two of them.
+      evidence: For each of the five answers, the status and the length of the body; and whether any two differ (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A reader can tell which records exist in other customers, other parts of the organisation or hidden record types.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: The refusal for another customer's record leaks nothing of it.
+    verification:
+      method: system_state
+      detail: The answer at step 4 contains no entry, no count, no value and no name from the first customer, and the first customer's history is unchanged afterwards.
+      evidence: Whether the answer holds anything beyond the refusal (yes or no), and the number of entries of Payee One before and after.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer can read, or learn about, the data of another.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: No refusal shows the protected bank account.
+    verification:
+      method: system_state
+      detail: None of the answers at steps 3 to 7 contains "UAT-ACCT-0001" or "UAT-ACCT-0002".
+      evidence: Whether either invented value appears in each answer (yes or no only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A protected number is shown to a person who must not see it, even in an error.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Reads and refusals only; nothing is created. Remove the records and the scoped assignment prepared for steps 4 to 6 if the environment added them for this scenario.
