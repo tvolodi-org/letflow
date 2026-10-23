@@ -102,7 +102,7 @@ defmodule Letflow.Modules.Org.RunbookTest do
       {"lib/letflow/entities/records.ex", 1136, "reject_step_key"},
       {"lib/letflow/entities/records.ex", 1080, "reject_reserved_attributes"},
       {"lib/letflow/entities/records.ex", 346, "step_key_prefix"},
-      {"lib/letflow/routers/entities.ex", 552, "entity_type_managed"},
+      {"lib/letflow/routers/entities.ex", 566, "entity_type_managed"},
       {"lib/letflow/entities/step_writes.ex", 772, "command_multi"},
       {"lib/letflow/entities/handler_writes.ex", 250, "command_multi"}
     ]

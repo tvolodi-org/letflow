@@ -127,6 +127,13 @@ defmodule Letflow.Entities.EventTypes do
     }
   ]
 
+  @doc """
+  The names of the three entity-record event types, in registration order. Readers that filter a
+  record's event stream take the names from here, so the strings are written once.
+  """
+  @spec record_event_names() :: [String.t()]
+  def record_event_names, do: Enum.map(@event_type_specs, & &1.name)
+
   @type seed_result :: %{registered: [Registry.EventType.t()], skipped: [String.t()]}
 
   @doc """

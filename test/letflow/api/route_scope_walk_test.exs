@@ -314,7 +314,8 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"GET", "/definitions/:id", :tenant_wide},
                  {"GET", "/definitions", :tenant_wide},
                  {"POST", "/restrictions/import", :tenant_wide},
-                 # ... and the eight resolver routes
+                 # ... and the nine resolver routes (REQ-516 S2 adds the history read)
+                 {"GET", "/records/:entity_type/:record_id/history", resolver},
                  {"POST", "/records/:entity_type", resolver},
                  {"PUT", "/records/:entity_type/:record_id", resolver},
                  {"DELETE", "/records/:entity_type/:record_id", resolver},
