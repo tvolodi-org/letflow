@@ -1,0 +1,21 @@
+scenario_id: meridian-loan-origination-kyc-manual-review
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: >
+  The kyc-aml-check service task of the Meridian loan origination definition
+  calls a static stub URL that always answers kyc_status=clear, so the
+  screening hit this scenario needs (applicant borrower-kyc-hit-001) can never
+  happen on QA. Making the stub depend on the applicant from inside the
+  definition is not safe: the only applicant-dependent mechanism is
+  {{variables.KEY}} URL templating, and every instance variable is supplied by
+  the analyst who submits the loan, so a real applicant (or its submitter)
+  would choose its own screening result. A screening mock that maps applicants
+  to results server-side does not exist in this repository. The deployed
+  definition version is left unchanged.
+recorded_by: developer
+recorded_at: "2026-10-23"
+issue_ref: "GH #3076"
+review: >
+  Revisit when a screening mock service that maps borrower-kyc-hit-001 to
+  'hit' server-side exists on QA; then a new definition version only changes
+  the screening base URL and this sidecar is removed.
