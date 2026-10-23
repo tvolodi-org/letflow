@@ -351,8 +351,10 @@ existing_keys_for() {
       exit 1
     }
 
-    keys=$(jq -n --argjson acc "${keys}" --argjson page "${resp}" --arg kf "${key_field}" \
-      '$acc + [$page.items[].field_values[$kf]]')
+    # GH #3078: both documents go to jq on stdin (printf is a builtin, so no argv limit); as
+    # --argjson values they overflowed the OS argument-size limit once a tenant held ~200+ rows.
+    keys=$({ printf '%s\n' "${keys}"; printf '%s\n' "${resp}"; } |
+      jq -c -s --arg kf "${key_field}" '.[0] + [.[1].items[].field_values[$kf]]')
 
     cursor=$(echo "${resp}" | jq -c '.next_cursor')
     if [[ "${cursor}" == "null" ]]; then
@@ -376,9 +378,10 @@ import_records_if_missing() {
   existing_keys=$(existing_keys_for "${entity_type}" "${key_field}")
 
   local remaining_payload
-  remaining_payload=$(jq --argjson existing "${existing_keys}" --arg kf "${key_field}" \
-    '.records |= map(select((.field_values[$kf] as $k | $existing | index($k)) == null))' \
-    "${fixture_full_path}")
+  # GH #3078: existing keys and the fixture are piped to jq on stdin, never passed as argv.
+  remaining_payload=$({ printf '%s\n' "${existing_keys}"; cat "${fixture_full_path}"; } |
+    jq -s --arg kf "${key_field}" \
+      '.[0] as $existing | .[1] | .records |= map(select((.field_values[$kf] as $k | $existing | index($k)) == null))')
 
   local total remaining
   total=$(jq '.records | length' "${fixture_full_path}")

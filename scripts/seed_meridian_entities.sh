@@ -224,17 +224,17 @@ while :; do
     echo "ERROR: POST /api/v1/entities/query failed while checking existing ${ENTITY_TYPE} records." >&2
     exit 1
   }
-  existing_keys=$(jq -n --argjson acc "${existing_keys}" --argjson page "${resp}" \
-    '$acc + [$page.items[].field_values.borrower_ref]')
+  # GH #3078: stdin, not --argjson (a large page overflows the OS argument-size limit).
+  existing_keys=$({ printf '%s\n' "${existing_keys}"; printf '%s\n' "${resp}"; } |
+    jq -c -s '.[0] + [.[1].items[].field_values.borrower_ref]')
   cursor=$(echo "${resp}" | jq -c '.next_cursor')
   if [[ "${cursor}" == "null" ]]; then
     break
   fi
 done
 
-remaining_payload=$(jq --argjson existing "${existing_keys}" \
-  '.records |= map(select((.field_values.borrower_ref as $k | $existing | index($k)) == null))' \
-  "${RECORDS_FIXTURE}")
+remaining_payload=$({ printf '%s\n' "${existing_keys}"; cat "${RECORDS_FIXTURE}"; } |
+  jq -s '.[0] as $existing | .[1] | .records |= map(select((.field_values.borrower_ref as $k | $existing | index($k)) == null))')
 total=$(jq '.records | length' "${RECORDS_FIXTURE}")
 remaining=$(echo "${remaining_payload}" | jq '.records | length')
 echo "  ${remaining} of ${total} ${ENTITY_TYPE} record(s) are new."
