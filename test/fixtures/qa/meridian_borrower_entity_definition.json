@@ -1,0 +1,13 @@
+{
+  "name": "borrower",
+  "display_name": "Borrower",
+  "description": "Seed content for GH #3077 / the meridian refusal scenario test/fixtures/uat/scenarios/meridian/refusal-loan-approval-and-disbursement.yaml step 8. A borrower of the bank, keyed by the same reference the loan application carries as applicant_id (for example borrower-corp-002). national_id, date_of_birth and contact_email are personal data: scripts/seed_meridian_entities.sh restricts them field by field and grants them to no persona, so an unredacted export (POST /api/v1/entities/records/borrower/export with unredacted:true) is refused for the risk manager and a default export shows them masked.",
+  "fields": [
+    {"name": "borrower_ref", "type": "string", "queried": true, "required": true},
+    {"name": "legal_name", "type": "string", "queried": true, "required": true},
+    {"name": "segment", "type": "string", "queried": true, "required": false},
+    {"name": "national_id", "type": "string", "queried": false, "required": false},
+    {"name": "date_of_birth", "type": "date", "queried": false, "required": false},
+    {"name": "contact_email", "type": "string", "queried": false, "required": false}
+  ]
+}
