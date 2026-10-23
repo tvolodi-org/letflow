@@ -119,7 +119,7 @@ expected_outcomes:
     verification:
       method: system_state
       detail: >
-        The answer at step 8 is a refusal of the page marker as invalid (not a list of entries), and it contains neither
+        The answer at step 6 is a refusal of the page marker as invalid (not a list of entries), and it contains neither
         "UAT-ACCT-0001" nor "UAT-ACCT-0001-B". Together with steps 3 to 5 this shows that the worker never obtains the
         value from the history route, by a normal read or by a malformed one.
       evidence: Whether the answer is a refusal (yes or no) and whether either invented value appears in it (yes or no).
