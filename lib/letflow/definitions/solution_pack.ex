@@ -482,6 +482,11 @@ defmodule Letflow.Definitions.SolutionPack do
 
   REQ-496 (0050 D7): installs as the tenant, `install(document, actor_id, opts,
   :tenant)`; see `install/4`.
+
+  `opts[:process_writable_authorized]` (GH #2619): only the literal `true`
+  lets an entity definition of the pack carry `writable_by_process: true`;
+  absent or any other value refuses it (all-or-nothing). The install route sets
+  it solely from the caller's server-side roles (`:EntitiesDefinitionsWrite`).
   """
   @spec install(
           document :: map(),
@@ -1152,7 +1157,8 @@ defmodule Letflow.Definitions.SolutionPack do
     # GH #2529: optional boolean; the Validator rejects a non-boolean value.
     "append_only" => :append_only,
     # GH #2587: recognised ONLY so the installer can refuse it by name
-    # (`create_packed_entity_definitions/4`); a pack never carries `true`.
+    # (`create_packed_entity_definitions/4`); `true` is admitted only when the
+    # installer was authorised (`:process_writable_authorized`, GH #2619).
     "writable_by_process" => :writable_by_process
   }
 
@@ -1695,11 +1701,15 @@ defmodule Letflow.Definitions.SolutionPack do
     Enum.reduce_while(packed_entity_definitions, {:ok, []}, fn packed, {:ok, acc} ->
       create_attrs = %{definition: packed.definition_json, created_by: actor_id}
 
-      # GH #2587 D-A4.6: a pack (`:DefinitionsCreate`) never carries
-      # `writable_by_process: true`; the flag is an `:EntitiesDefinitionsWrite`
-      # decision. Refused before this entity is written, flowing into the same
-      # all-or-nothing rollback.
-      if ProcessWritable.declared?(packed.definition_json) do
+      # GH #2587 D-A4.6 / GH #2619: the flag is an `:EntitiesDefinitionsWrite`
+      # decision, so a pack may carry `writable_by_process: true` only when the
+      # caller (the router, from server-side roles) passed
+      # `process_writable_authorized: true`. Anything else is refused before
+      # this entity is written, flowing into the same all-or-nothing rollback.
+      # An authorized flag still goes through `create_definition/3`, whose
+      # `check_settable/3` applies the managed / write-class refusals.
+      if ProcessWritable.declared?(packed.definition_json) and
+           Keyword.get(opts, :process_writable_authorized) != true do
         {:halt, ProcessWritable.pack_refusal()}
       else
         case Letflow.Entities.Definitions.create_definition(create_attrs, prefix(opts), owner) do

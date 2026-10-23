@@ -614,3 +614,30 @@ The refusal in D4a.2(b) reads a **write class** of the entity type, not its name
    is set (from `create_definition/3`) or when the inherited class is not `ordinary` (item 3a turns any
    stamped row into `managed`). `write_class = managed` is therefore not required for a stamped row; it is
    required only for the backfill and for fresh module-stamped types.
+
+## Amendment (GH #2619): D4a.2(a) for solution packs
+
+A pack install runs under `:DefinitionsCreate`, so the interim rule (PR A4) refused `writable_by_process`
+in any pack: a pack needing a process-writable unmanaged type had no path, and an exported pack carrying the
+flag could not be re-imported. Decision: **option (b), the installer must hold `:EntitiesDefinitionsWrite`
+(EDW) when the pack declares the flag.**
+
+1. `SolutionPack.install/3,4` takes the option `:process_writable_authorized`. Only the literal `true`
+   admits the flag; absent, `false`, `nil` or any other value keeps the refusal (fail closed).
+2. Only `Routers.SolutionPacks.install_document/2` sets it, from the DB-resolved auth context
+   (`Authorization.has_permission_in_scope?` on `:EntitiesDefinitionsWrite`, the recipe of
+   `Routers.ScriptRules.holds?/2`). A body key, query parameter or header is never read. Module installs
+   (`Modules.Installs`) never pass it.
+3. An admitted flag still goes through `create_definition/3`, so the managed-type and write-class refusals
+   (D4a.2(b), GH #2618) apply unchanged. The version is stored `:inactive`; it goes live only through
+   `POST /entities/definitions/:name/activate`, which is itself keyed EDW.
+4. Role vs scope: the router check is role-only, while the EDW routes are `scope: :tenant_wide`. Today both
+   answer the same: every role holding `:DefinitionsWrite` (the install key's permission) holds EDW
+   (PLATFORM_ADMIN, TENANT_ADMIN, PROCESS_DESIGNER). A test pins that for every core role; a change to roles
+   or scopes must re-check it.
+5. Audit: the rows carry `created_by` (the installer) and activation is audited by its own route. No new
+   audit event.
+
+Rejected: (a) a pending request confirmed by an EDW holder needs a new table, route and audit trail, and the
+inactive-until-activated step already gives a second EDW-keyed decision point. (c) module code only leaves
+tenant-authored packs with no path, and module-managed types are refused the flag by D4a.2(b) anyway.

@@ -10,7 +10,7 @@ defmodule Letflow.Entities.WritableByProcessTest do
     * Write path: `Definitions.create_definition/3` refuses the flag on a managed type and on a
       type whose write class is not `ordinary` (GH #2618), with the stable rule
       `:writable_by_process_not_permitted` and a message that names the refusal.
-    * Solution packs refuse the flag (D-A4.6), nothing installed.
+    * Solution packs carry the flag only for an EntitiesDefinitionsWrite installer (GH #2619).
     * `ProcessWritable` is pure: `declared?/1`, `classes/0`, `check_settable/3`, `writable?/1`.
 
   `async: false`: tenant provisioning switches the sandbox to `:auto`.
@@ -36,6 +36,7 @@ defmodule Letflow.Entities.WritableByProcessTest do
   alias Letflow.Identity
   alias Letflow.Identity.User
   alias Letflow.Modules.FixtureManaged
+  alias Letflow.Repository
   alias Letflow.TenantFixture
 
   @rule :writable_by_process_not_permitted
@@ -426,22 +427,57 @@ defmodule Letflow.Entities.WritableByProcessTest do
       }
     end
 
-    test "all-or-nothing: a clean entity followed by a flagged one installs neither (422)" do
+    # A type whose latest version is classed `org_tree`, inserted directly: the write_class
+    # trigger rejects an UPDATE, and a tenant body cannot set the class (core assigns it).
+    defp seed_org_class(ctx, name) do
+      unique = System.unique_integer([:positive])
+      hash = :crypto.hash(:sha256, "gh2619-#{name}-#{unique}")
+
+      {:ok, %Repository.ArtifactVersion{version_id: version_id}} =
+        Repository.create(
+          %{
+            artifact_kind: :entity,
+            artifact_name: "gh2619_fixture_#{unique}",
+            content_type: "application/json",
+            content: "{}",
+            created_by: Ecto.UUID.generate()
+          },
+          ctx.schema
+        )
+
+      Repo.insert!(
+        %EntityDefinition{
+          tenant_id: ctx.tenant_id,
+          name: name,
+          display_name: "seed #{name}",
+          definition_json: %{"name" => name, "display_name" => "seed #{name}"},
+          content_hash: hash,
+          logical_shape_version: hash,
+          artifact_version_id: version_id,
+          status: :inactive,
+          write_class: "org_tree"
+        },
+        prefix: ctx.schema
+      )
+    end
+
+    test "T5 all-or-nothing: a clean entity followed by a flagged one create_definition/3 refuses installs neither (422)" do
       ctx = tenant_ctx("gh2587-a4-pack-aon", ["TENANT_ADMIN"])
+      seed_org_class(ctx, "pack_org_seeded")
 
       doc =
         pack_document([
           pack_entity("pack_clean_first", %{}),
-          pack_entity("pack_flagged_second", %{"writable_by_process" => true})
+          pack_entity("pack_org_seeded", %{"writable_by_process" => true})
         ])
 
       conn = request(:post, "/api/v1/solution-packs/install", ctx, doc)
       assert conn.status == 422, conn.resp_body
       assert row_count(ctx.schema, "pack_clean_first") == 0
-      assert row_count(ctx.schema, "pack_flagged_second") == 0
+      assert row_count(ctx.schema, "pack_org_seeded") == 1
     end
 
-    test "a pack entity definition carrying writable_by_process: true is refused, nothing installed" do
+    test "T1 a pack entity definition carrying writable_by_process: true is refused without the option, nothing installed" do
       %{schema: schema} = tenant_ctx("gh2587-a4-pack-deny", ["TENANT_ADMIN"])
       doc = pack_document(pack_entity("pack_flagged", %{"writable_by_process" => true}))
 
@@ -449,6 +485,59 @@ defmodule Letflow.Entities.WritableByProcessTest do
                SolutionPack.install(doc, Ecto.UUID.generate(), prefix: schema)
 
       assert row_count(schema, "pack_flagged") == 0
+    end
+
+    test "T2 only the literal true authorises: false, nil, \"true\" and 1 are refused" do
+      %{schema: schema} = tenant_ctx("gh2619-pack-t2", ["TENANT_ADMIN"])
+      doc = pack_document(pack_entity("pack_t2", %{"writable_by_process" => true}))
+
+      for value <- [false, nil, "true", 1] do
+        assert {:error, {:validation, [%Violation{rule: @rule}]}} =
+                 SolutionPack.install(doc, Ecto.UUID.generate(),
+                   prefix: schema,
+                   process_writable_authorized: value
+                 ),
+               inspect(value)
+      end
+
+      assert row_count(schema, "pack_t2") == 0
+    end
+
+    test "T3 with the option true a flagged ordinary pack installs inactive, never active" do
+      %{schema: schema} = tenant_ctx("gh2619-pack-t3", ["TENANT_ADMIN"])
+      doc = pack_document(pack_entity("pack_t3", %{"writable_by_process" => true}))
+
+      assert {:ok, _} =
+               SolutionPack.install(doc, Ecto.UUID.generate(),
+                 prefix: schema,
+                 process_writable_authorized: true
+               )
+
+      row = stored_row(schema, "pack_t3")
+      assert row.status == :inactive
+      assert ProcessWritable.declared?(row.definition_json)
+
+      assert Repo.aggregate(
+               from(d in EntityDefinition, where: d.name == "pack_t3" and d.status == :active),
+               :count,
+               prefix: schema
+             ) == 0
+    end
+
+    test "T4 with the option true a module-managed type still refuses the flag" do
+      %{schema: schema} = tenant_ctx("gh2619-pack-t4", ["TENANT_ADMIN"])
+      owner = ManagedTypes.module_owner(FixtureManaged)
+      doc = pack_document(pack_entity("fxm_item", %{"writable_by_process" => true}))
+
+      assert {:error, {:validation, [%Violation{rule: @rule}]}} =
+               SolutionPack.install(
+                 doc,
+                 Ecto.UUID.generate(),
+                 [prefix: schema, process_writable_authorized: true],
+                 owner
+               )
+
+      assert row_count(schema, "fxm_item") == 0
     end
 
     test "positive control: the same pack without the flag, and with false, installs" do
@@ -472,19 +561,77 @@ defmodule Letflow.Entities.WritableByProcessTest do
       assert row_count(schema, "pack_false") == 1
     end
 
-    test "HTTP install of a flagged pack is 422, not 500" do
+    test "T6a HTTP: TENANT_ADMIN and PROCESS_DESIGNER (EDW holders) install a flagged ordinary pack" do
+      for {role, n} <- [{"TENANT_ADMIN", 1}, {"PROCESS_DESIGNER", 2}] do
+        ctx = tenant_ctx("gh2619-pack-t6a#{n}", [role])
+        name = "pack_t6a_#{n}"
+        doc = pack_document(pack_entity(name, %{"writable_by_process" => true}))
+
+        conn = request(:post, "/api/v1/solution-packs/install", ctx, doc)
+        assert conn.status == 200, "#{role}: #{conn.resp_body}"
+        assert stored_row(ctx.schema, name).status == :inactive
+      end
+    end
+
+    test "T6b HTTP install refused by create_definition/3 is a generic 422 that echoes nothing" do
       ctx = tenant_ctx("gh2587-a4-pack-http", ["TENANT_ADMIN"])
+      seed_org_class(ctx, "pack_http_flagged")
       doc = pack_document(pack_entity("pack_http_flagged", %{"writable_by_process" => true}))
 
       conn = request(:post, "/api/v1/solution-packs/install", ctx, doc)
       assert conn.status == 422, conn.resp_body
-      assert row_count(ctx.schema, "pack_http_flagged") == 0
+      assert row_count(ctx.schema, "pack_http_flagged") == 1
 
       # The generic install-route body: neither the rule, the property name nor the
       # entity name is echoed.
       assert conn.resp_body =~ "validation failed"
       refute conn.resp_body =~ "writable_by_process"
       refute conn.resp_body =~ "pack_http_flagged"
+    end
+
+    test "T7 a body key or query parameter cannot authorise the flag" do
+      ctx = tenant_ctx("gh2619-pack-t7", ["TENANT_ADMIN"])
+      seed_org_class(ctx, "pack_t7")
+
+      doc =
+        "pack_t7"
+        |> pack_entity(%{"writable_by_process" => true})
+        |> pack_document()
+        |> Map.put("process_writable_authorized", true)
+
+      conn =
+        request(
+          :post,
+          "/api/v1/solution-packs/install?process_writable_authorized=true",
+          ctx,
+          doc
+        )
+
+      refute conn.status == 200, conn.resp_body
+      assert row_count(ctx.schema, "pack_t7") == 1
+    end
+
+    test "T7 role matrix: every core role that can install a pack also holds EntitiesDefinitionsWrite" do
+      for role <- Authorization.roles(),
+          Authorization.has_permission?([role], :DefinitionsWrite) do
+        assert Authorization.has_permission?([role], :EntitiesDefinitionsWrite),
+               "#{role} can install packs without :EntitiesDefinitionsWrite"
+      end
+    end
+
+    test "T8 :process_writable_authorized is set only by the pack router, from EntitiesDefinitionsWrite" do
+      hits =
+        "lib/**/*.ex"
+        |> Path.wildcard()
+        |> Enum.filter(&(File.read!(&1) =~ "process_writable_authorized"))
+        |> Enum.map(&Path.basename/1)
+        |> Enum.sort()
+
+      assert hits == ["process_writable.ex", "solution_pack.ex", "solution_packs.ex"]
+
+      router = File.read!("lib/letflow/routers/solution_packs.ex")
+      assert router =~ ":EntitiesDefinitionsWrite"
+      assert router =~ "has_permission_in_scope?"
     end
   end
 
