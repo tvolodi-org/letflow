@@ -9,24 +9,29 @@ defmodule Letflow.Entities.ProcessWritable do
   answers the three questions the rest of the system asks about it:
 
     * `declared?/1` -- does a definition document carry `true`?
-    * `check_settable/2` -- may it be set on this definition? Called from
+    * `check_settable/3` -- may it be set on this definition? Called from
       `Letflow.Entities.Definitions.create_definition/3` (the type-definition
       write path, not the UI) and from the solution-pack installer.
     * `writable?/1` -- the run-time predicate PR B calls on the CURRENT active
-      definition row (flag true, not managed, name not denied).
+      definition row (flag true, class `ordinary`, not managed).
 
-  ## Interim denied-name rule (OQ-2 ruling, fail closed)
+  ## Type classification (GH #2618, decision 0054 D4a.2 amendment)
 
-  No metadata classifies entity types today, so a type is refused the flag
-  when it is module-managed (`managed_by` stamp) or its name matches the
-  closed denied list below (org, user/role/permission-adjacent and
-  attachment-metadata types). The refusal is the stable rule code
-  `:writable_by_process_not_permitted`; only the message varies and it NAMES
-  the matched rule, so a false positive such as `user_feedback` explains
-  itself. The list is interim: GH #2618 replaces it with a type
-  classification. Adding an entry is a reviewed diff. The list is documented
-  verbatim in the "Process-writable entity types (`writable_by_process`)"
-  section (5b) of `docs/guides/adding-an-application-module.md`.
+  Each entity type carries a write class, stored in the `write_class` column of
+  its `entity_definitions` rows and never in the tenant-writable document. The
+  classes are `managed`, `org_tree`, `identity_adjacent`, `attachment_metadata`
+  and `ordinary` (`classes/0`). `writable_by_process` is refused for every class
+  except `ordinary`, and also for any row whose `managed_by` stamp is set. Core
+  assigns the class in `create_definition/3`: a new version inherits its type's
+  class, and a fresh type is `managed` when module-stamped and `ordinary`
+  otherwise. Tenant input cannot assign or change it. The class of a legacy row
+  was backfilled from the interim denied-name list this module replaced, so every
+  type that list refused is still refused.
+
+  The refusal is the stable rule code `:writable_by_process_not_permitted`. Only
+  the message varies, and it names the class, so a false positive explains
+  itself. A class is not a name, so a new type such as `user_feedback` created
+  after the change is `ordinary` and may take the flag.
 
   A solution pack cannot carry the flag at all (GH #2619); an administrator
   sets it after install, by creating and activating a new version under the
@@ -37,51 +42,13 @@ defmodule Letflow.Entities.ProcessWritable do
   alias Letflow.Entities.Definition.Validator.Violation
   alias Letflow.Entities.EntityDefinition
 
-  @denied_prefixes [
-    "org_",
-    "user_",
-    "users_",
-    "role_",
-    "roles_",
-    "permission_",
-    "permissions_",
-    "principal_",
-    "principals_",
-    "group_",
-    "groups_",
-    "membership_",
-    "attachment_",
-    "attachments_"
-  ]
-
-  @denied_exact [
-    "org",
-    "orgs",
-    "user",
-    "users",
-    "role",
-    "roles",
-    "permission",
-    "permissions",
-    "principal",
-    "principals",
-    "group",
-    "groups",
-    "membership",
-    "memberships",
-    "attachment",
-    "attachments"
-  ]
+  @classes ~w(managed org_tree identity_adjacent attachment_metadata ordinary)
 
   @rule :writable_by_process_not_permitted
 
-  @doc "The closed list of denied name prefixes (interim, GH #2618)."
-  @spec denied_prefixes() :: [String.t()]
-  def denied_prefixes, do: @denied_prefixes
-
-  @doc "The closed list of denied exact names (interim, GH #2618)."
-  @spec denied_exact() :: [String.t()]
-  def denied_exact, do: @denied_exact
+  @doc "The write classes of an entity type (GH #2618). Only `ordinary` may take the flag."
+  @spec classes() :: [String.t()]
+  def classes, do: @classes
 
   @doc """
   True iff `:writable_by_process` or `"writable_by_process"` is literally
@@ -97,44 +64,20 @@ defmodule Letflow.Entities.ProcessWritable do
   def declared?(_other), do: false
 
   @doc """
-  True iff the lower-cased `name` is a denied exact name or starts with a
-  denied prefix.
-  """
-  @spec denied_name?(term()) :: boolean()
-  def denied_name?(name), do: matched_rule(name) != nil
-
-  @doc """
-  The first matching denied prefix (list order) or exact name; `nil` when
-  none matches or `name` is not a binary.
-  """
-  @spec matched_rule(term()) :: {:prefix, String.t()} | {:exact, String.t()} | nil
-  def matched_rule(name) when is_binary(name) do
-    lowered = String.downcase(name)
-
-    case Enum.find(@denied_prefixes, &String.starts_with?(lowered, &1)) do
-      nil ->
-        if lowered in @denied_exact, do: {:exact, lowered}, else: nil
-
-      prefix ->
-        {:prefix, prefix}
-    end
-  end
-
-  def matched_rule(_other), do: nil
-
-  @doc """
   Whether `writable_by_process: true` may be set on `definition`.
 
   `:ok` when the definition does not declare the flag. Otherwise `:ok` only
-  when `managed_stamp` is `nil` (the type is not module-managed) and the name
-  matches no denied rule; else one `:writable_by_process_not_permitted`
-  violation at `[:writable_by_process]` whose message names the matched rule.
+  when `managed_stamp` is `nil` (the type is not module-managed) and
+  `write_class` is `"ordinary"`; else one `:writable_by_process_not_permitted`
+  violation at `[:writable_by_process]` whose message names the refusal.
+  `managed_stamp` and `write_class` are the values the create path resolved for
+  the type (see `Letflow.Entities.Definitions.create_definition/3`).
   """
-  @spec check_settable(term(), managed_stamp :: String.t() | nil) ::
+  @spec check_settable(term(), managed_stamp :: String.t() | nil, write_class :: String.t() | nil) ::
           :ok | {:error, {:validation, [Validator.violation()]}}
-  def check_settable(definition, managed_stamp) do
+  def check_settable(definition, managed_stamp, write_class) do
     if declared?(definition) do
-      case refusal_message(definition, managed_stamp) do
+      case refusal_message(managed_stamp, write_class) do
         nil -> :ok
         message -> {:error, {:validation, [violation(message)]}}
       end
@@ -156,32 +99,25 @@ defmodule Letflow.Entities.ProcessWritable do
 
   @doc """
   Run-time predicate for PR B: the definition row's document declares the
-  flag, the type is not module-managed, and its name is not denied.
+  flag, the row's write class is `ordinary`, and the type is not module-managed.
   """
   @spec writable?(EntityDefinition.t()) :: boolean()
   def writable?(%EntityDefinition{} = row) do
-    declared?(row.definition_json) and is_nil(row.managed_by) and
-      not denied_name?(row.name)
+    declared?(row.definition_json) and row.write_class == "ordinary" and is_nil(row.managed_by)
   end
 
-  defp refusal_message(_definition, managed_stamp) when is_binary(managed_stamp) do
-    "writable_by_process cannot be set: the entity type is managed by a module"
+  defp refusal_message(managed_stamp, _write_class) when is_binary(managed_stamp),
+    do: managed_message()
+
+  defp refusal_message(nil, "ordinary"), do: nil
+  defp refusal_message(nil, "managed"), do: managed_message()
+
+  defp refusal_message(nil, write_class) do
+    "writable_by_process cannot be set: the entity type is classified \"#{write_class}\""
   end
 
-  defp refusal_message(definition, nil) do
-    name = Map.get(definition, :name) || Map.get(definition, "name")
-
-    case matched_rule(name) do
-      {:prefix, prefix} ->
-        "writable_by_process cannot be set: the name matches the denied prefix \"#{prefix}\""
-
-      {:exact, exact} ->
-        "writable_by_process cannot be set: the name \"#{exact}\" is denied"
-
-      nil ->
-        nil
-    end
-  end
+  defp managed_message,
+    do: "writable_by_process cannot be set: the entity type is managed by a module"
 
   defp violation(message),
     do: %Violation{rule: @rule, path: [:writable_by_process], message: message}

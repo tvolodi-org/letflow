@@ -814,7 +814,11 @@ defmodule Letflow.TenantProvisioning do
     {20_261_022_100_002, Letflow.Repo.Migrations.CreateDocumentImmutabilityTriggers,
      "20261022100002_create_document_immutability_triggers.exs"},
     {20_261_022_200_001, Letflow.Repo.Migrations.AddVariableLabelsToInstanceProjections,
-     "20261022200001_add_variable_labels_to_instance_projections.exs"}
+     "20261022200001_add_variable_labels_to_instance_projections.exs"},
+    # GH #2618 (decision 0054 D4a.2 amendment): the `write_class` column that replaces the interim
+    # denied-name list for `writable_by_process`; backfilled from that list, then immutable.
+    {20_261_023_100_001, Letflow.Repo.Migrations.AddWriteClassToEntityDefinitions,
+     "20261023100001_add_write_class_to_entity_definitions.exs"}
   ]
 
   @doc """

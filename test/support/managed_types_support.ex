@@ -56,6 +56,12 @@ defmodule Letflow.ManagedTypesSupport do
       artifact_version_id: version_id,
       status: :inactive
     })
+    |> EntityDefinition.put_write_class(legacy_write_class(name))
     |> Repo.insert!(prefix: schema)
   end
+
+  # GH #2618: the class a legacy row gets from the migration backfill (`org_` names are `org_tree`,
+  # every other name here is `ordinary`). Only the names these fixtures plant are covered.
+  defp legacy_write_class("org_" <> _rest), do: "org_tree"
+  defp legacy_write_class(_name), do: "ordinary"
 end

@@ -244,8 +244,9 @@ defmodule Letflow.Modules.Exam.Session do
 
     with {:ok, compiled} <- Compiler.compile(request, prefix, scope),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
-         {:ok, page} <- Cursor.paginate(request, compiled, allowlist, paginate_opts, prefix),
          user_id = Keyword.fetch!(opts, :user_id),
+         paginate_opts = Map.put(paginate_opts, :user_id, user_id),
+         {:ok, page} <- Cursor.paginate(request, compiled, allowlist, paginate_opts, prefix),
          {:ok, restrictions} <-
            FieldPolicy.restriction_set(%{user_id: user_id, prefix: prefix}, "exam") do
       page = FieldGrants.redact_page(page, restrictions)

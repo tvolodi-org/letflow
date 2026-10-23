@@ -1227,7 +1227,8 @@ defmodule Letflow.Routers.Entities do
          {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
          {:ok, allowlist, primary_specs} <-
            Allowlist.load(request.entity_type, prefix, :with_specs),
-         {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
+         {:ok, page} <-
+           Cursor.paginate(request, compiled, allowlist, Map.put(opts, :user_id, user_id), prefix),
          {:ok, redacted} <- redact(page, request, sets) do
       specs = read_specs(request, primary_specs, prefix)
 
@@ -1669,7 +1670,8 @@ defmodule Letflow.Routers.Entities do
          :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, allowlist, primary_specs} <-
            Allowlist.load(request.entity_type, prefix, :with_specs),
-         {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
+         {:ok, page} <-
+           Cursor.paginate(request, compiled, allowlist, Map.put(opts, :user_id, user_id), prefix),
          {:ok, redacted} <- export_redact(page, request, guard.sets, unredacted?) do
       specs = read_specs(request, primary_specs, prefix)
 
