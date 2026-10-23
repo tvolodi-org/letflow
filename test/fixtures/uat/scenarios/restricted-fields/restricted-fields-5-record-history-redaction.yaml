@@ -7,11 +7,11 @@
 # history shows and does not show) and section 3 (the tenant auditor reads record history through this route),
 # docs/roles.md (EntitiesQuery is held by tenant auditor, task worker and administrator; EntitiesRestrictionsManage).
 # Uses the "UAT payee" record type with the protected "bank account" field prepared in tenant-administration matrix-0.
-# Test-tooling steps: none.
+# Test-tooling steps: none. The product offers no way to remove a restriction (the restrictions import only inserts), so decision 0059 D2 consequence "a restriction removed later shows older history again" cannot be run as a UAT step; unit test H3 of the design carries it.
 # Who sees the value: only a person who holds a field grant on "bank account" (a user_entity_grants row; roles play no part,
 # lib/letflow/entities/field_policy.ex). The administrator is therefore a reader WITH a grant only if the test environment
-# (or matrix-0 step 3, through the restrictions import) has given that grant; see the precondition. Without it steps 2, 6
-# and 7 are BLOCKED, not PASS.
+# (or matrix-0 step 3, through the restrictions import) has given that grant; see the precondition. Without it step 2
+# is BLOCKED, not PASS.
 # Not covered here (stated, not hidden): (a) a grant for the task worker or the auditor (none is given on purpose); (b) webhook and
 # dead-letter masking: nothing in the product starts a webhook delivery by itself yet (design assumption A4), so a real
 # instance cannot trigger it; the unit tests of slice S1 carry that; (c) oversized values and paging limits.
@@ -22,7 +22,7 @@
 id: restricted-fields-5-record-history-redaction
 scope: tenant-administration
 title: Restricted field - the history of a record hides the protected value from a reader without the right, and follows the current protection
-version: "1.0"
+version: "1.2"
 tags: [restricted-field, redaction, history, sensitive-data, refusal, access]
 
 description: >
@@ -31,8 +31,8 @@ description: >
   number in the history of a payee, in the first entry and in the entry written when the number was changed. A task
   worker and a tenant auditor, who hold no such right, see the entries, the time, the author and the other values, but a hidden placeholder where
   the bank account number stands, in every entry. Hiding is decided when the history is read, by the protection in force
-  at that moment: if the administrator removes the protection the earlier entries show the number again, and when it is
-  protected again they are hidden again. Nothing the history shows names a hidden value in another form.
+  at that moment (the product offers no way to remove a protection, so this is not run here).
+  Nothing the history shows names a hidden value in another form.
 
 actors:
   tenant_admin: actor-any
@@ -45,7 +45,7 @@ preconditions:
     check: custom
   - description: >
       The administrator holds a field grant on "bank account" of "UAT payee" (given through the restrictions import in
-      matrix-0 step 3 or by the test environment). If not, steps 2, 6 and 7 are BLOCKED
+      matrix-0 step 3 or by the test environment). If not, step 2 is BLOCKED
     check: custom
   - description: The task worker holds no special right on the bank account field, and the tenant auditor is a tenant auditor with no special right on it either
     check: custom
@@ -74,18 +74,10 @@ steps:
   - step: 5
     actor: worker_a
     action: >
-      The task worker opens the history of Payee One a second time, reading from the entry after the first one onward,
+      The task worker opens the history of Payee One a second time, first with a page size of 1, then continuing from the page marker the product gave for the first page (so that every entry after the first is read),
       and looks for either bank account value anywhere in the answer, including the text of any other part of the entry.
     via: api
   - step: 6
-    actor: tenant_admin
-    action: The administrator removes the protection from the bank account field, and the task worker opens the history of Payee One again.
-    via: api
-  - step: 7
-    actor: tenant_admin
-    action: The administrator protects the bank account field again, and the task worker opens the history of Payee One again.
-    via: api
-  - step: 8
     actor: worker_a
     action: >
       The task worker, who may not see the bank account, tries to read the history of Payee One using a page marker taken
@@ -121,18 +113,6 @@ expected_outcomes:
       business_impact: Hiding one field also hides the audit history of the record from the people who must be able to follow it.
       suggested_action: route_to_wf03
   - id: EO-003
-    description: Hiding follows the protection in force at the time of reading, in both directions.
-    verification:
-      method: system_state
-      detail: >
-        At step 6 the worker's answer shows "UAT-ACCT-0001" and "UAT-ACCT-0001-B" in the entries that carried them; at
-        step 7 the worker's answer contains neither again. The entries themselves are the same in both answers.
-      evidence: Whether each invented value appears in the worker's answers at steps 6 and 7 (yes or no each).
-    on_fail:
-      severity: BLOCKER
-      business_impact: A change of protection either does not reach the history (the number stays visible) or hides it for good.
-      suggested_action: route_to_security_review
-  - id: EO-004
     description: >
       A reader without the right who tries to get at the history by a way the product does not offer is refused, and the
       refusal holds no protected value.
@@ -151,5 +131,5 @@ expected_outcomes:
 cleanup:
   cancel_open_instances: false
   description: >
-    The bank account field must be protected again at the end (step 7); if it is not, restore it and record a finding.
+    The bank account field is never changed by this scenario; if it is found unprotected, record a finding.
     The changed values of Payee One stay until the test customer is retired.
