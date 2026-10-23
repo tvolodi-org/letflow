@@ -1,0 +1,137 @@
+# T-0279 (BA): the OTHER PLACES THAT SHOW WHAT A RECORD EVENT CARRIED (GH #2701, REQ-516, decision 0059, slices S2 to S4).
+# Sources: GH #2701 scope item 3 ("list and cover every consumer of event field_values: audit entries, webhooks, outbound
+# events, the dead-letter queue, the public event payload, event exports, logs"), design
+# lib/letflow/design/req516-record-history-field-policy.md section 3 (once the instance routes hide the record type's
+# internal instance, a tenant auditor reads record history only through the history route) and sections 4 and 7
+# (consumer inventory; S3 is the public event payload, S4 the guards on audit text, logs and outbound steps), docs/roles.md.
+# Slice state when this was written: S1 (webhook delivery and the dead-letter queue) and S2 (history route) are merged;
+# S3 and S4 were not merged on main. Step 4 is therefore conditional on S3, step 5 on S4; each is BLOCKED, not PASS, if the
+# build lacks the slice.
+# Test-tooling steps: none.
+# Not covered here (stated, not hidden): webhook delivery and the dead-letter queue cannot be started from a real instance
+# (design assumption A4: no automatic trigger yet), so their masking is carried by the slice S1 unit tests, not by this scenario.
+# UAT assumption, to be confirmed by the process owner: a payee created or changed in this scenario is the same payee as in
+# restricted-fields-5; the scenario reads the instance routes and the audit trail only for the absence of the invented values.
+# Every refused step is expected to be refused. A step the product lets through is a finding, not a reason to reword the step.
+---
+id: restricted-fields-7-record-events-other-readers
+scope: tenant-administration
+title: Restricted field - the protected value of a record is not shown by the other readers of record events (instance list, event shape, audit trail)
+version: "1.0"
+tags: [restricted-field, redaction, history, audit, sensitive-data, refusal, access]
+
+description: >
+  A record change is also visible, in some form, to readers other than the record history. The tenant auditor used to read
+  record changes through the process instances; those are now hidden from the instance lists, so the history of a record is
+  the auditor's way to follow it. No other reader of a record change may show the protected bank account to a person who
+  does not hold the right: not the list of instances, not the public form of a record event, not the audit trail.
+
+actors:
+  tenant_admin: actor-any
+  operator: actor-any
+  worker_a: actor-any
+  auditor: actor-any
+
+preconditions:
+  - description: restricted-fields-5 passed in this run (Payee One was changed; its bank account is protected again)
+    check: custom
+  - description: >
+      The build hides the internal instances of record types from the process instance routes (GH #2702, delivered).
+      Otherwise step 1 and step 2 are BLOCKED.
+    check: custom
+  - description: The platform build includes the public record event shape change (REQ-516 slice S3); otherwise step 4 is BLOCKED
+    check: custom
+  - description: The platform build includes the audit and log guards (REQ-516 slice S4); otherwise step 5 is BLOCKED
+    check: custom
+
+steps:
+  - step: 1
+    actor: auditor
+    action: The tenant auditor lists the process instances and looks for an instance that belongs to the payee record type.
+    via: api
+  - step: 2
+    actor: auditor
+    action: The tenant auditor opens the history of Payee One and finds the same changes that used to be reachable through the instances.
+    via: api
+  - step: 3
+    actor: worker_a
+    action: The task worker lists the process instances, opens the first one that holds a record change if any, and looks for the bank account values.
+    via: api
+  - step: 4
+    actor: worker_a
+    action: >
+      The task worker opens a record event in the form the platform gives to ordinary readers (the public form of the
+      event of the change at restricted-fields-5 step 1) and looks for the values of the changed record.
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator opens the audit trail for the changes of Payee One and for the reads of its history, and reads
+      what each entry says.
+    via: api
+  - step: 6
+    actor: operator
+    action: >
+      The process operator opens the history of Payee One and sees the bank account hidden, because the operator does not
+      hold the right on the field either.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Record changes are not reachable through the instance list, and the auditor follows them through the record history instead.
+    verification:
+      method: system_state
+      detail: >
+        The list at step 1 holds no instance of the payee record type; step 2 shows the entries of Payee One with the
+        bank account hidden.
+      evidence: Whether an instance of the payee record type appears at step 1 (yes or no), and the number of entries at step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: An auditor either loses sight of record changes or is shown them through a route that does not hide the protected field.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The task worker cannot read the protected value through the instances.
+    verification:
+      method: system_state
+      detail: >
+        Step 3 shows no instance of the payee record type; if the worker is shown any instance that holds a record change,
+        its answer contains neither "UAT-ACCT-0001" nor "UAT-ACCT-0001-B".
+      evidence: Whether an instance of the payee record type appears (yes or no), and whether either invented value appears (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A protected number is shown to a worker through the instance routes.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: The public form of a record event does not carry the values of the record.
+    verification:
+      method: system_state
+      detail: The answer at step 4 does not contain "UAT-ACCT-0001", "UAT-ACCT-0001-B" or any other value of the changed record.
+      evidence: Whether any value of the record appears in the answer (yes or no only).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A protected number is copied into the form of an event that every reader may see.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: The audit trail names what was done and holds no protected value.
+    verification:
+      method: system_state
+      detail: The entries at step 5 name the actions and the fields (the field name "bank account" may appear) and do not contain "UAT-ACCT-0001" or "UAT-ACCT-0001-B".
+      evidence: Whether the field name and the invented values appear in the entries (yes or no each).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A protected number is copied into the record of who did what, readable by every auditor.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A process operator without the right sees the bank account hidden in the history.
+    verification:
+      method: system_state
+      detail: The answer at step 6 contains neither "UAT-ACCT-0001" nor "UAT-ACCT-0001-B" and shows the hidden placeholder.
+      evidence: Whether each invented value appears (yes or no) and whether the placeholder appears (yes or no).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A role that works with records daily can read a number that is protected from it.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Reads only; nothing is created.
