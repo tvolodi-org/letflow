@@ -37076,55 +37076,56 @@ requirements:
     depends_on: [REQ-520]
 
   - id: REQ-522
-    title: "mix letflow.risk_tier: prints FULL, SHORT, DIRECT or HIGH with the failing check named for FULL, one test per path rule"
+    title: "mix letflow.risk_tier: advisory SHORT vs NOT-SHORT from a path allow-list (audit #2874 R11)"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 2875
     # Source: GH #2422 (ISS-1068), AC 3; REQ-VALIDATOR round 1 amendments. Id allocated by REQ-ANALYST.
-    # SIZING NOTE: if sizing fails at CODE-DESIGNER, split the DIRECT mechanization (AC 8) into its own requirement; the SHORT/FULL core stays here.
     description: >
-      Source: GH #2422 AC 3. A checkable helper, a mix task, `mix letflow.risk_tier [--base
-      REF] [--head REF]` (defaults origin/main and HEAD), that prints FULL, SHORT, DIRECT or HIGH
-      with the failing check named, implementing the two mechanical checklists of
-      docs/agents/ORCHESTRATOR.md (section 10 for DIRECT, section 13 from REQ-520 for SHORT
-      and the ALWAYS FULL list). It reads `git diff --name-status -M`, `git diff -U0` and `git diff --numstat` (needed for the 300-line HIGH count)
-      of base...head, passing its resolved base...head to all three git commands (ORCHESTRATOR.md section 13's origin/main...HEAD is only the default), and passes them to a pure classify/1 function, which the tests call
-      directly. A rename or delete counts as a removal. Output: the first line is exactly
-      one of 'TIER: FULL', 'TIER: SHORT', 'TIER: DIRECT', 'TIER: HIGH'; for FULL the second line is exactly
-      'FAILED CHECK: <rule id>'. Any ambiguous case is FULL. The task name and flags are
-      fixed here; CODE-DESIGNER may rename, recorded in the moduledoc. Existing precedent
-      for a path-driven check: test/letflow/ci_backend_path_filter_test.exs and the mix
-      letflow.check_* tasks.
+      Source: GH #2422 AC 3, narrowed by auditor ruling R11 (GH #2875, 2026-10-19). A mix task,
+      `mix letflow.risk_tier [--base REF] [--head REF]` (defaults origin/main and HEAD), that
+      decides only whether a diff is SHORT-eligible. It prints exactly one line, `TIER: SHORT`
+      or `TIER: NOT-SHORT`, and never HIGH, DIRECT or FULL: HIGH stays the ORCHESTRATOR.md
+      section 13 manual checklist and DIRECT stays section 10. SHORT requires every changed path
+      to be on an explicit allow-list (the SHORT paths of section 13 minus its Extensions). A
+      delete, rename (the diff runs with --no-renames), mode change, symlink, submodule entry,
+      helper error or unreadable output gives NOT-SHORT. It is advisory: a SHORT chain also needs
+      the supervisor's go until the review of GH #2853. It is run from the base checkout
+      (origin/main) with GIT_NO_REPLACE_OBJECTS=1 and MIX_*, ERL_*, ELIXIR_*, HEX_* unset by
+      prefix, and its output does not depend on git config. The helper's own paths,
+      ORCHESTRATOR.md, GIT_MERGE.md and mix.exs are never allow-listed.
     acceptance_criteria:
-      - "1. [GH #2422 AC 3] mix letflow.risk_tier [--base REF] [--head REF] (defaults origin/main and HEAD) reads git diff --name-status -M, -U0 and --numstat of base...head, classifies through a pure classify/1, and prints as its first line exactly one of 'TIER: FULL', 'TIER: SHORT', 'TIER: DIRECT', 'TIER: HIGH'; for FULL the second line is exactly 'FAILED CHECK: <rule id>' naming the rule or ALWAYS FULL entry that matched. A rename or delete counts as a removal."
-      - "2. [GH #2422 AC 3] Tests (classify/1, no git needed) cover one case per path rule of ORCHESTRATOR.md section 13: each ALWAYS FULL entry (test/fixtures/qa/, test/fixtures/simulation/, test/fixtures/uat/process-definition-aliases/, test/fixtures/uat/actors.yaml, a seed script, .github/workflows/, each scope-test path written out by REQ-520 AC 6, a removed test, a removed assertion, a loosened guard test) yields FULL; a diff of only test/ files yields SHORT; a diff of only documents (as REQ-520 AC 4 defines) yields SHORT, and a CLAUDE.md, a .claude/ file or a top-level governing *.md yields FULL; a diff of only docs/agents/ files yields FULL; a diff of only docs/roles.md yields FULL. HIGH cases: a diff of more than 300 lib/ lines touching a listed HIGH path yields HIGH; more than 300 lines touching none yields FULL; 300 lines or fewer touching a listed path yields FULL. Each Extensions entry of section 13 (test/support/, test/fixtures/, docs/merge-queue.md, docs/anti-patterns.md, docs/guides/, docs/migration/, the CI-backend-input docs/ paths, lib/letflow/api/, lib/letflow/secrets*, lib/letflow/entities/, config/) has one FULL case."
-      - "3. [GH #2422 AC 3] The tests include a fixture-definition change (a process definition under test/fixtures/qa/ or test/fixtures/simulation/) which yields FULL, and a deleted test which yields FULL."
-      - "4. [REQ-VALIDATOR amendment] Cases on docs/requirements.yaml: a SHORT-eligible diff changing only status:, gh: or description: lines yields SHORT; a diff with a hunk inside an acceptance_criteria block yields FULL for the whole diff; a mixed diff (one SHORT-eligible file and one FULL file) yields FULL."
-      - "5. [GH #2422 fix direction] An ambiguous case (a path the rules neither list nor exclude, including a path in an unlisted test/fixtures/ directory) yields FULL; each has a test."
-      - "6. [REQ-VALIDATOR amendment] The removed-assertion and guard-test rules implement the definitions in REQ-520 AC 7 exactly (assert/refute/assert_/refute_ prefix on a trimmed deleted or modified line under test/; deleted test/describe line; added skip tag; the named guard list), and cite REQ-520 AC 7 in the moduledoc."
-      - "7. [REQ-VALIDATOR amendment] The helper's path lists (ALWAYS FULL, scope-test paths, guard list) are pinned to the ORCHESTRATOR.md section 13 text by a test that fails on drift (a path added to one and not the other fails). The pinned lists also include the docs/ entries of BACKEND_PATHS_RE in scripts/ci_changed_paths.sh, the widened guard regex (REQ-520 AC 7) and the Extensions list."
-      - "8. [REQ-VALIDATOR amendment] The helper mechanizes section 10 checks 1, 2 (added def/defmodule/@spec lines), 3, 4 and 7, and treats checks 5 and 6 as no unless the single changed file is documentation or a comment-only diff. It prints DIRECT only in that case. Tests: a one-line doc change yields DIRECT; a one-line change to a lib/ file yields FULL with 'FAILED CHECK: sec10-check-6'."
-      - "9. mix compile --warnings-as-errors, mix format --check-formatted and the new tests pass; the real output is quoted in the handoff."
+      - "1. `mix letflow.risk_tier [--base REF] [--head REF]` prints exactly one line matching ^TIER: (SHORT|NOT-SHORT)$ and never prints HIGH or DIRECT (test)."
+      - "2. SHORT only when every changed path is on the explicit allow-list (the SHORT paths of ORCHESTRATOR.md section 13 minus its Extensions); one test per allowed and per non-allowed path class."
+      - "3. Any delete, rename (diff run with --no-renames), mode change, symlink, submodule entry, helper error or unreadable output gives NOT-SHORT (tests)."
+      - "4. The output does not depend on git config (test with a hostile local config); the usage note documents running it from the base checkout with GIT_NO_REPLACE_OBJECTS=1 and MIX_*, ERL_*, ELIXIR_*, HEX_* unset by prefix."
+      - "5. The helper's own paths, ORCHESTRATOR.md, GIT_MERGE.md and mix.exs are never on the allow-list (test)."
+      - "6. The moduledoc and usage note describe the output as advisory."
+      - "7. mix compile --warnings-as-errors, mix format --check-formatted and the new tests pass; the real output is quoted in the handoff."
     depends_on: [REQ-520]
 
   - id: REQ-523
-    title: "Every SHORT-chain PR body states the tier and the helper's output; the tier comes into force"
+    title: "SHORT-chain PR bodies quote the advisory helper output; the supervisor confirms SHORT (audit #2874 R11)"
     owner: DOC-UPDATER
     status: pending
     stage: S7
     gh: 2875
     # Source: GH #2422 (ISS-1068), AC 4; REQ-VALIDATOR round 1 amendments. Id allocated by REQ-ANALYST.
     description: >
-      Source: GH #2422 AC 4. The PR-body specification in docs/agents/protocols/GIT_MERGE.md
-      requires that every SHORT-chain PR body carries the tier and the helper's output
-      (REQ-522). The rule is written once, in that file only; ORCHESTRATOR.md section 13
-      points to it. When the prerequisites hold, the "Not in force" sentence of section 13
-      is replaced.
+      Source: GH #2422 AC 4, narrowed by auditor ruling R11 (GH #2875). Once REQ-522 exists,
+      GIT_MERGE.md (the PR-body spec, the one file holding the rule) requires every SHORT-chain
+      PR body to quote the helper's literal `TIER: ...` line on its `Tier:` line of the Gates
+      block, with the classified head sha, and the PR to be enqueued only with
+      `gh pr merge --squash --match-head-commit <that sha>`. The result is advisory: a SHORT
+      chain also needs the supervisor's go after the supervisor re-runs the helper from
+      origin/main. The 'Not in force' sentence of ORCHESTRATOR.md section 13 is replaced only by
+      an owner decision after GH #2885 and the GH #2853 review; REQ-523 is not complete before that.
     acceptance_criteria:
-      - "1. [GH #2422 AC 4] Every SHORT-chain PR body states the tier and the helper's output: docs/agents/protocols/GIT_MERGE.md (the PR-body spec) is the ONE file holding the rule, and names the exact PR-body lines: 'Tier: SHORT' followed by the helper's literal output (the 'TIER: ...' line). ORCHESTRATOR.md section 13 and the workflow files point to it and do not restate the lines."
-      - "2. A SHORT-chain PR whose body lacks those lines is a defect under the rule; the rule says so in one sentence and states that the merging agent checks the body before merging."
-      - "3. [REQ-VALIDATOR amendment] The sentence 'Not in force until REQ-521, REQ-522 and REQ-523 are done; until then every change is FULL or DIRECT.' in ORCHESTRATOR.md section 13 is replaced by 'In force from <UTC date>' only after REQ-521's REVIEWER and SECURITY-REVIEWER verdicts are PASS (named handoff files) and mix letflow.risk_tier exists on main; the date is from the clock."
+      - "1. GIT_MERGE.md (the PR-body spec) is the one file holding the rule; it requires the Tier: line of a SHORT-chain PR body to carry the helper's literal output and the classified head sha, and the merge to use --match-head-commit. ORCHESTRATOR.md section 13 and the workflow files point to it and do not restate the lines."
+      - "2. A SHORT-chain PR whose body lacks the helper's output is a defect under the rule; the rule says so in one sentence and states that the merging agent checks the body before merging."
+      - "3. A consumer that finds no line matching ^TIER: (SHORT|NOT-SHORT)$, more than one, or a non-zero exit treats the result as NOT-SHORT."
+      - "4. The 'Not in force' sentence of ORCHESTRATOR.md section 13 is replaced only after GH #2885 is closed and the owner decides SHORT goes live (advisory until the GH #2853 review); the date is from the clock."
     depends_on: [REQ-520, REQ-521, REQ-522]
 
   - id: REQ-524
