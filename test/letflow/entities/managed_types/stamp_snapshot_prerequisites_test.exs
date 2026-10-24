@@ -36,6 +36,7 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotPrerequisitesTest do
   alias Mix.Tasks.Letflow.StampManagedTypes
 
   @six Fx.runtime_types()
+  @ten Fx.authoring_types()
 
   @statuses [
     :stamped,

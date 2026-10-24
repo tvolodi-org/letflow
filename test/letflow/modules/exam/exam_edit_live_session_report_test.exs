@@ -20,6 +20,7 @@ defmodule Letflow.Modules.Exam.ExamEditLiveSessionReportTest do
   use ExUnit.Case, async: false
 
   alias Letflow.ExamStampFixtures, as: Fx
+  alias Letflow.Modules.Exam.Authoring
   alias Letflow.Repo
   alias Letflow.Test.SandboxAutoMode
 
@@ -116,6 +117,22 @@ defmodule Letflow.Modules.Exam.ExamEditLiveSessionReportTest do
       "started_at" => iso(started),
       "expires_at" => iso(expires),
       "user_id" => user_id
+    }
+  end
+
+  # A complete exam `field_values` map for `Authoring.create/2` (as `exam_authoring_test.exs`).
+  defp exam_fv(title) do
+    %{
+      "title" => %{"en" => title},
+      "status" => "draft",
+      "time_limit_minutes" => 30,
+      "passing_score_pct" => 60.0,
+      "max_attempts" => 3,
+      "shuffle_questions" => false,
+      "shuffle_options" => false,
+      "show_answers" => "never",
+      "on_tab_switch" => "log",
+      "certificate_enabled" => false
     }
   end
 
@@ -302,7 +319,13 @@ defmodule Letflow.Modules.Exam.ExamEditLiveSessionReportTest do
 
     {columns, rows} = run_report()
 
-    {:ok, a: a.tenant_id, b: b.tenant_id, ids: ids, columns: columns, rows: rows}
+    {:ok,
+     a: a.tenant_id,
+     a_schema: a.schema_name,
+     b: b.tenant_id,
+     ids: ids,
+     columns: columns,
+     rows: rows}
   end
 
   # The report's rows for one record id, from either fixture tenant.
@@ -392,6 +415,53 @@ defmodule Letflow.Modules.Exam.ExamEditLiveSessionReportTest do
 
     test "T-10: a session that starts after the edit does not list the edit", ctx do
       assert rows_for(ctx, ctx.ids.exam6) == []
+    end
+  end
+
+  # ── T-A9 (GH #2680 slice 3) ────────────────────────────────────────────────────────────────
+
+  describe "T-A9 (AC6 of GH #2680): an authoring edit through the module route is listed" do
+    test "an exam created and edited through Authoring with a live session is listed with its exam id and actor",
+         ctx do
+      schema = ctx.a_schema
+      actor = Fx.insert_user!(schema).id
+      fv = exam_fv("T-A9 exam")
+
+      {:ok, %{record: %{record_id: exam_id}}} =
+        Authoring.create(
+          %{entity_type: "exam", field_values: fv, actor_id: actor, idempotency_key: uuid()},
+          schema
+        )
+
+      # A candidate session on the new exam that started before the edit below (report: started_at <= edit time).
+      create!(
+        schema,
+        actor,
+        at(1),
+        "session",
+        uuid(),
+        session_fv(exam_id, "in_progress", at(1), at(60), uuid())
+      )
+
+      {:ok, _} =
+        Authoring.update(
+          %{
+            entity_type: "exam",
+            record_id: exam_id,
+            field_values: Map.put(fv, "title", %{"en" => "T-A9 edited"}),
+            actor_id: actor,
+            idempotency_key: uuid()
+          },
+          schema
+        )
+
+      {_columns, rows} = run_report()
+
+      assert [row] = Enum.filter(rows, &(&1["record_id"] == exam_id and &1["tenant_id"] == ctx.a))
+      assert row["section"] == "live_session_edit"
+      assert row["exam_id"] == exam_id
+      assert row["event_type"] == "ENTITY_RECORD_UPDATED"
+      assert row["actor_id"] == actor
     end
   end
 

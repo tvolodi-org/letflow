@@ -39,6 +39,8 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
   alias Letflow.EventStore.Event
   alias Letflow.ExamFixtures
   alias Letflow.ExamStampFixtures, as: Fx
+  alias Letflow.Identity
+  alias Letflow.Identity.Tenant
   alias Letflow.Identity.User
 
   @entities_opts Letflow.Routers.Entities.init([])
@@ -402,6 +404,57 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
           "PUT #{label}"
         )
       end
+    end
+  end
+
+  # ── T-A4 ────────────────────────────────────────────────────────────────────────────────────
+
+  describe "T-A4 (INV-10, GH #2680 slice 3): an admin of tenant B cannot reach a stamped authoring row of tenant A" do
+    test "PUT and DELETE of A's stamped category by B's TENANT_ADMIN: the same 404 as a random id; A's row unchanged",
+         ctx do
+      %{tenant_id: tenant_b_id, schema_name: schema_b} = Fx.full_tenant!("gh2596-http-b")
+      assert %{status: :stamped, error: nil} = Stamp.run_tenant(schema_b, [])
+      user_b = insert_user!(schema_b)
+
+      {:ok, %{plaintext: token_b}} =
+        Identity.create_token(user_b.id, %{roles: @admin, expires_at: nil}, prefix: schema_b)
+
+      slug_b = Repo.get!(Tenant, tenant_b_id).slug
+      category_id = ctx.records["category"]
+      before = stored(ctx, "category", category_id)
+
+      assert Repo.one(
+               from(d in EntityDefinition, where: d.name == "category", select: d.managed_by),
+               prefix: ctx.schema
+             ) == "exam"
+
+      fv = %{"field_values" => values("category", 2)}
+
+      b_call = fn method, id, body ->
+        conn =
+          Plug.Test.conn(
+            method,
+            "/api/v1/modules/exam/authoring/category/#{id}",
+            body && Jason.encode!(body)
+          )
+
+        conn
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("authorization", "Bearer " <> token_b)
+        |> put_req_header("x-tenant-slug", slug_b)
+        |> put_req_header("x-trace-id", @trace)
+        |> Letflow.Router.call(Letflow.Router.init([]))
+      end
+
+      put = b_call.("PUT", category_id, fv)
+      del = b_call.("DELETE", category_id, nil)
+      rnd_put = b_call.("PUT", Ecto.UUID.generate(), fv)
+      rnd_del = b_call.("DELETE", Ecto.UUID.generate(), nil)
+
+      assert [put.status, del.status] == [404, 404]
+      assert put.resp_body == rnd_put.resp_body
+      assert del.resp_body == rnd_del.resp_body
+      assert stored(ctx, "category", category_id) == before
     end
   end
 

@@ -648,11 +648,24 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       :ok = Fx.forget_exception_migration!(schema)
       before = Fx.dump(schema, @six)
 
+      # T-A8 (GH #2680 slice 3): the tenant is an OLD-migration tenant. Only the new version
+      # (20_261_024_120_001) is missing; the six-name exception 20261016120001 is still applied.
+      assert [[20_261_016_120_001]] =
+               Repo.query!(
+                 ~s|SELECT version FROM "#{schema}".schema_migrations WHERE version = $1|,
+                 [
+                   20_261_016_120_001
+                 ]
+               ).rows
+
       assert %{status: :exception_not_installed, rows_stamped: 0, error: nil} = run!(schema)
       assert %{status: :exception_not_installed} = run!(schema, dry_run: true)
       assert Fx.dump(schema, @six) == before
 
       :ok = Fx.remember_exception_migration!(schema)
+
+      # Counted, not assumed: the legacy tenant plants the six runtime names only, so the sixteen-name
+      # stamp reports the rows it finds for them (see the run's report), not a fixed sixteen.
       assert %{status: :stamped, rows_stamped: 12} = run!(schema)
     end
   end

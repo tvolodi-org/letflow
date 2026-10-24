@@ -7,7 +7,10 @@ defmodule Letflow.ManagedTypesSupport do
   exactly like `Letflow.Entities.Definitions` does after its `ManagedTypes.check_create/3`.
   """
 
+  import Ecto.Query
+
   alias Letflow.Entities.Definition.Shape
+  alias Letflow.Entities.Definition.Validator
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Repo
   alias Letflow.Repository
@@ -60,19 +63,22 @@ defmodule Letflow.ManagedTypesSupport do
     |> Repo.insert!(prefix: schema)
   end
 
-  # GH #2618: the class a legacy row gets from the migration backfill (`org_` names are `org_tree`,
-  # every other name here is `ordinary`). Only the names these fixtures plant are covered.
   @doc """
   `Letflow.Entities.Definitions.create_definition/2` for a test tenant (GH #2680 slice 3). The ten
   exam authoring names are reserved on a tenant without the exam module (GH #2581, the first
-  creation is refused `:entity_type_managed`), so their first version is planted, as
-  `plant_legacy_definition!/2` does. Every other name is created exactly as before.
+  creation is refused `:entity_type_managed`), so their FIRST version is planted, as
+  `plant_legacy_definition!/2` does. Only when no row of the name exists yet, which is exactly the
+  case `ManagedTypes.check_create/3` refuses. Later versions and every other name take the real
+  path, so a same-shape second create still returns `{:error, {:persistence, _}}`.
   """
   @spec create_definition(attrs :: map(), schema :: String.t()) ::
           {:ok, EntityDefinition.t()} | {:error, term()}
   def create_definition(%{definition: %{name: name} = definition} = attrs, schema) do
-    if name in Letflow.Modules.Exam.Authoring.authoring_types() do
-      {:ok, plant_legacy_definition!(schema, definition)}
+    if name in Letflow.Modules.Exam.Authoring.authoring_types() and not name_exists?(name, schema) do
+      case Validator.validate(definition) do
+        :ok -> {:ok, plant_legacy_definition!(schema, definition)}
+        {:error, violations} -> {:error, {:validation, violations}}
+      end
     else
       Letflow.Entities.Definitions.create_definition(attrs, schema)
     end
@@ -81,6 +87,12 @@ defmodule Letflow.ManagedTypesSupport do
   def create_definition(attrs, schema),
     do: Letflow.Entities.Definitions.create_definition(attrs, schema)
 
+  defp name_exists?(name, schema) do
+    from(e in EntityDefinition, where: e.name == ^name) |> Repo.exists?(prefix: schema)
+  end
+
+  # GH #2618: the class a legacy row gets from the migration backfill (`org_` names are `org_tree`,
+  # every other name here is `ordinary`). Only the names these fixtures plant are covered.
   defp legacy_write_class("org_" <> _rest), do: "org_tree"
   defp legacy_write_class(_name), do: "ordinary"
 end
