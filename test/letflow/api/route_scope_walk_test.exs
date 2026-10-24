@@ -294,6 +294,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
 
       resolver = {:resolver, {Letflow.Entities.ScopeResolver, :record_scope}}
       task_resolver = {:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}
+      document_resolver = {:resolver, {Letflow.Documents.ScopeResolver, :document_scope}}
 
       assert Enum.sort(Enum.map(scopes, fn {_router, entry} -> entry end)) ==
                Enum.sort([
@@ -332,11 +333,16 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"POST", "/:id/complete", task_resolver},
                  {"POST", "/:id/claim", task_resolver},
                  {"POST", "/:id/assign", task_resolver},
-                 {"POST", "/:id/reassign", task_resolver}
+                 {"POST", "/:id/reassign", task_resolver},
+                 # REQ-536: the policy route is tenant-wide, the two hold routes are resolvers
+                 {"PUT", "/types/:key/retention", :tenant_wide},
+                 {"POST", "/:document_id/hold", document_resolver},
+                 {"POST", "/:document_id/hold/release", document_resolver}
                ])
 
       assert scopes |> Enum.map(fn {router, _entry} -> router end) |> Enum.uniq() |> Enum.sort() ==
                Enum.sort([
+                 Letflow.Routers.Documents,
                  Letflow.Routers.Entities,
                  Letflow.Routers.Help,
                  Letflow.Routers.Instances,
