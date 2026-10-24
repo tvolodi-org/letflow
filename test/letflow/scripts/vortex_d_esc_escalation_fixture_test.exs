@@ -385,7 +385,7 @@ defmodule Letflow.Scripts.VortexDEscEscalationFixtureTest do
       refute waiver?(n)
       refute pair?(n)
       refute attrs(n)["description"] =~ "Waiver"
-      assert d["version"] == "1.2"
+      assert d["version"] == "1.3"
     end
 
     test "every definition description states the D-ESC line", %{order: o, dev: v, d8: e} do

@@ -71,7 +71,7 @@ defmodule Letflow.Scripts.Req466DistinctFromFixtureTest do
   end
 
   test "versions: vortex release is 1.8 (REQ-471) and swiftroute is 1.7; each description says why (REQ-466 / Q-1029 / GH #2344) and keeps the REQ-462 sentence" do
-    assert doc(@vortex)["version"] == "1.9"
+    assert doc(@vortex)["version"] == "1.10"
     assert doc(@vortex)["description"] =~ "REQ-471 / GH #2479"
     assert doc(@swiftroute)["version"] == "1.7"
 

@@ -48,7 +48,7 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
     },
     vortex_release: {
       "vortex_production_order_release_process_definition.json",
-      "1.9",
+      "1.10",
       %{
         "capacity-review" => ["capacity_decision"],
         "escalate-to-ceo" => ["capacity_decision"],
@@ -58,7 +58,7 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
     },
     vortex_deviation: {
       "vortex_supplier_quality_deviation_process_definition.json",
-      "1.7",
+      "1.8",
       %{
         "severity-classification" => ["severity"],
         "escalate-severity-classification-to-ceo" => ["severity"]
@@ -316,7 +316,7 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
   # --- (4) versions ----------------------------------------------------------------------------------
 
   describe "versions" do
-    test "swiftroute 1.7, meridian 1.16, vortex release 1.9, vortex deviation 1.7" do
+    test "swiftroute 1.7, meridian 1.16, vortex release 1.10, vortex deviation 1.8" do
       for {name, {_file, version, _adopted}} <- @definitions do
         assert doc!(name)["version"] == version, "#{name} version"
       end

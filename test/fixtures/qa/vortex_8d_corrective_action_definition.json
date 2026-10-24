@@ -1,6 +1,6 @@
 {
   "name": "8D Corrective Action",
-  "version": "1.2",
+  "version": "1.3",
   "description": "8D corrective-action child process spawned by Supplier Quality Deviation for CRITICAL severity; Procurement completes it. Escalation follows D-ESC: timer -> higher role -> fail closed (v1.1, ISS-1002 / Q-984; BA ruling GH #2281). The long-running corrective-action task carries a non-cancelling reminder (reminder_timer_duration P14D, reminder_role role-procurement-manager; REQ-494 / GH #2553, replaces the E6 waiver of v1.1): the reminder is audit-only (task.remind) and the task stays open, so no escalation timer can cancel it and close the parent deviation without corrective action.",
   "graph": {
     "nodes": [
@@ -15,7 +15,14 @@
           "role": "role-procurement-manager",
           "description": "Long-running remediation work: the 8D corrective action is open-ended, so it carries a reminder instead of an escalation timer (an escalation timer would cancel the task and close the deviation with no corrective action). It stays open until the procurement manager completes it.",
           "reminder_timer_duration": "P14D",
-          "reminder_role": "role-procurement-manager"
+          "reminder_role": "role-procurement-manager",
+          "form_schema": {
+            "type": "object",
+            "properties": {
+              "corrective_action_outcome": {"type": "string", "title": "8D outcome", "description": "Outcome of the 8D corrective action: root cause and the actions taken."}
+            },
+            "required": ["corrective_action_outcome"]
+          }
         }
       },
       {
