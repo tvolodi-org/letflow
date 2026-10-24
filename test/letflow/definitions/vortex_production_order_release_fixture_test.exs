@@ -58,8 +58,15 @@ defmodule Letflow.Definitions.VortexProductionOrderReleaseFixtureTest do
     Enum.filter(ids, &(by_id[&1]["node_type"] == "END"))
   end
 
-  test "fixture version is 1.8 (1.8 = REQ-471 finance-director escalation; 1.7 = REQ-466 distinct_from; 1.6 = REQ-462 required_outputs; 1.4 = ISS-1027 variable_schemas; 1.5 = ISS-1002 D-ESC timers; forces QA re-seed)" do
-    assert qa_doc()["version"] == "1.8"
+  test "fixture version is 1.9 (1.9 = GH #3118 assign-line body_template added; 1.8 = REQ-471 finance-director escalation; 1.7 = REQ-466 distinct_from; 1.6 = REQ-462 required_outputs; 1.4 = ISS-1027 variable_schemas; 1.5 = ISS-1002 D-ESC timers; forces QA re-seed)" do
+    assert qa_doc()["version"] == "1.9"
+  end
+
+  test "GH #3118: assign-line sends the assigned line in its body_template" do
+    attrs = nodes(qa_doc())["assign-line"]["attributes"]
+    assert is_binary(attrs["body_template"])
+    assert attrs["body_template"] =~ "{{variables.assigned_line}}"
+    assert {:ok, _} = Jason.decode(String.replace(attrs["body_template"], ~r/\{\{[^}]*\}\}/, "x"))
   end
 
   for {label, key} <- [{"qa fixture", :qa}, {"simulation copy", :sim}] do
@@ -230,7 +237,7 @@ defmodule Letflow.Definitions.VortexProductionOrderReleaseFixtureTest do
     sim = sim_doc()
 
     assert sim["version"] == qa["version"]
-    assert qa["version"] == "1.8"
+    assert qa["version"] == "1.9"
     assert qa["description"] =~ "REQ-471 / GH #2479"
 
     project = fn doc ->
