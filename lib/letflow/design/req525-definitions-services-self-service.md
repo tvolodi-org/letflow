@@ -235,8 +235,11 @@ Consequences, by file:
   `:tenant_wide` route (denies a scoped worker under `on`, allows an admin and a token). The R01 PR must
   switch `@tenant_wide_route` to a route that stays `:tenant_wide` after every REQ-525, REQ-526 and
   REQ-527 PR, that TASK_WORKER holds the coarse permission for, and that has a stable 200 for an admin.
-The named replacement is `GET /api/v1/services` (R10): it takes no id, TASK_WORKER holds its coarse  permission (`required_permission(:ServicesRead)` maps to `:DefinitionsRead`), and it stays `:tenant_wide`  by this record (REQ-526 and REQ-527 do not touch services). Its line 161 filters by `/me` and  `/help` prefixes, so it stays 4 and needs no change.
-  `/help` prefixes, so it stays 4 and needs no change.
+  The named replacement is `GET /api/v1/services` (R10): it takes no id, TASK_WORKER holds its coarse
+  permission (`required_permission(:ServicesRead)` maps to `:DefinitionsRead`), and it stays
+  `:tenant_wide` by this record (REQ-526 and REQ-527 do not touch services). The direct
+  `Scope.allowed?(principal, :DefinitionsRead, :tenant_wide)` assertion at line 375 still holds, because
+  `ServicesRead` resolves to `DefinitionsRead`; keep that key unchanged.
 - Entry guard (SEC-525-Q3, carried by IMPL-525-0): `route_scope_self_service_entry_test.exs:77` ("a route
   outside /me and /help is rejected") changes: `GET /mentor/modules` and `GET /entities/records/:entity_type`
   stay rejected, and a `/definitions` entry (Q3-a) is accepted; under Q3-b the test is replaced by a
