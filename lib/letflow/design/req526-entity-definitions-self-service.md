@@ -181,7 +181,7 @@ Options, facts only:
   layer-2 rule as the query compiler: a type is queryable when the set is not `:none` and
   `ScopeDeclaration.for_type/2` is not `:undeclared`. The roles that hold the read permission hold
   `EntitiesQuery` too (2.1), so no holder is left out by a missing `EntitiesQuery` row except one whose
-  rows are scoped to no node (`:none`).
+  rows are scoped to no node (`:none`). Accepted gap: the Compiler also returns no rows for a `{:column, c}` declaration whose column is absent or whose source is `:latest`, so for such a module-declared type a scoped caller gets a 200 with a body although its query returns nothing; the type name is public in module code. IMPL-526-A either matches the Compiler's `binding_scope_kind` or the SECURITY-REVIEWER records this gap as accepted.
 - **Q1-b, the `EntitiesDefinitionsRead` set.** The set of the route's own permission. Wrong question: a
   principal could be scoped for definition reads and unscoped for queries or the reverse, and the shaping
   would not match what the data path does.
@@ -302,10 +302,9 @@ Must change:
   "seven" name stands in `route_scope_resolver_test.exs` at the test after `@tenant_wide_lines` (list of two,
   name "the seven definition/restriction routes"): the PR renames it.
 - `test/letflow/api/route_scope_on_flip_blocker_test.exs`: T-RW2 `length(list)` (+1), T-RW3 `@expected_rulings`
-  (+`"GET /entities/definitions/active/:name" => "SEC-526-R01"`), and the helper `self_service_path?/1` with
-  its `@prefixes ["/me", "/help"]` stays unchanged (the walk's forced prefixes do not change, as in
+  (+`"GET /entities/definitions/active/:name" => "SEC-526-R01"`); T-RW1 asserts the `/me` and `/help` routes equal `Enum.sort(Map.keys(@expected_rulings))`, so IMPL-526-A also changes T-RW1 to compare against only the keys under `/me` and `/help`. The helper `self_service_path?/1` with its `@prefixes ["/me", "/help"]` stays unchanged (the walk's forced prefixes do not change, as in
   SEC-525-Q3); `route_scope_self_service_test.exs:331` (sorted member list) and
-  `scope_enforcement_on_e2e_test.exs:161` (`length(self_service) == 4`) are raised by the entries merged
+  `test/letflow/scope_enforcement_on_e2e_test.exs:161` (`length(self_service) == 4`) are raised by the entries merged
   before it; each PR counts from the list it leaves.
 - `route_scope_self_service_entry_test.exs`: "a route outside /me and /help is rejected" keeps
   `GET /entities/records/:entity_type` rejected and gains an acceptance case for `/entities/definitions/...`
