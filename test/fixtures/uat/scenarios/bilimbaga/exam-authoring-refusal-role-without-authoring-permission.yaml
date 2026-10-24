@@ -1,0 +1,137 @@
+# Authored by BA-BILIMBAGA for GH #2680 / REQ-510 slice 2 (UAT design task T-0276).
+# Refusal: a role without the exam content writing permission cannot maintain exam content.
+---
+id: bilimbaga-exam-authoring-refusal-role-without-authoring-permission
+scope: bilimbaga
+title: A person without the exam content writing permission cannot create, change or remove exam content
+version: "1.0"
+tags: [refusal, access_control, exam_authoring]
+
+description: >
+  Changing exam content (questions, answer choices, the correct-answer marking, pass marks)
+  is a separate permission held by the exam administrator. A candidate does not hold it.
+  This scenario checks that a candidate is refused on every way of changing exam content
+  that the exam module offers, that no write controls are shown to them, and that the
+  content is unchanged afterwards. A candidate is the roster's least-privileged bilimbaga
+  actor. The refusal must not reveal whether the item they name exists.
+  Preconditions: an exam with at least one question and answer choices exists, and an
+  administrator can read it for comparison.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: At least one exam with a question and answer choices exists on the tenant
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Opens one question and its answer choices and notes their text and the correct-answer marking
+    via: gui
+    produces:
+      question_before: "the question text and the marked correct choice"
+
+  - step: 2
+    actor: candidate
+    action: Tries to create a new question through the exam module's content maintenance
+    via: api
+    expect_refusal: true
+
+  - step: 3
+    actor: candidate
+    action: Tries to change the text of the question from step 1 and to move the correct-answer marking to another choice
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: candidate
+    action: Tries to remove the question from step 1
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: candidate
+    action: Tries to change the pass mark of an exam through the exam module's content maintenance
+    via: api
+    expect_refusal: true
+
+  - step: 6
+    actor: candidate
+    action: Looks at the administration screens for the ten kinds of exam content, to find an add, edit or remove control
+    via: gui
+    expect_refusal: true
+
+  - step: 7
+    actor: candidate
+    action: Tries to change an item of exam content that does not exist
+    via: api
+    expect_refusal: true
+
+  - step: 8
+    actor: admin
+    action: Opens the question from step 1 again and compares it with the notes
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Each attempt by the candidate to create, change or remove exam content is refused
+      because the candidate lacks the permission, and nothing is saved
+    verification:
+      method: http_status
+      detail: "Steps 2 to 5 are each refused as forbidden; none returns success"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate who can edit the answer key can pass any exam. Every certificate issued
+        by the body would be in doubt.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The administration screens show the candidate no add, edit or remove control and no
+      answer key
+    verification:
+      method: page_state
+      detail: "Step 6 shows no write control for any of the ten kinds of exam content, and no correct-answer marking"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Controls shown to a person who is then refused confuse users and hint at what exists;
+        a shown answer key is a confidentiality failure.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: >
+      The refusal for an item that does not exist looks the same as the refusal for one that
+      exists
+    verification:
+      method: http_status
+      detail: "The refusal in step 7 matches the refusals in steps 3 and 4 in status and message shape"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A different answer for a missing item lets an outsider find out which items exist.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      The question, its answer choices, the marking and the pass mark are exactly as before
+    verification:
+      method: system_state
+      detail: "Step 8 shows the same text and the same marked choice as the notes from step 1"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A refused attempt that still changed the content means the refusal is not real.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    No state is created by this scenario; if any exam content was changed in spite of the
+    refusals, restore it from the notes in step 1.
