@@ -350,6 +350,8 @@ defmodule Letflow.Api.Authorization do
           | :AttachmentLinksIssue
           | :ScriptsWrite
           | :ScriptsPublish
+          | :DocumentHold
+          | :DocumentsRetentionManage
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -419,6 +421,8 @@ defmodule Letflow.Api.Authorization do
           | :AttachmentLinksIssue
           | :ScriptsWrite
           | :ScriptsPublish
+          | :DocumentHold
+          | :DocumentsRetentionManage
           | :ScriptRulesList
           | :ScriptRulesRead
           | :ScriptRulesAuditRead
@@ -489,7 +493,10 @@ defmodule Letflow.Api.Authorization do
     :AttachmentLinksIssue,
     # GH 2534 PR 7b-1 (decision 0053 D6): tenant-script registry. Both tenant scope.
     :ScriptsWrite,
-    :ScriptsPublish
+    :ScriptsPublish,
+    # REQ-536 (decision 0063 S7, S8): document legal hold and retention policy. Both tenant scope.
+    :DocumentHold,
+    :DocumentsRetentionManage
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -512,7 +519,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All forty-four core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All forty-six core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -535,7 +542,8 @@ defmodule Letflow.Api.Authorization do
   `POST .../attachments/:attachment_id/link` route, split from
   `:AttachmentsRead` so the read-only `TENANT_AUDITOR` can be denied it), plus GH 2534's
   `:ScriptsWrite` (PROCESS_DESIGNER, TENANT_ADMIN) and `:ScriptsPublish` (TENANT_ADMIN), the
-  tenant-script registry permissions of decision 0053 D6.
+  tenant-script registry permissions of decision 0053 D6, plus REQ-536's `:DocumentHold` and
+  `:DocumentsRetentionManage` (decision 0063 S7, S8; TENANT_ADMIN through the derived rule).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1173,6 +1181,13 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/script-policy/readable-masters/:entity_type/clear"),
     do: :ScriptPolicyManage
 
+  # REQ-536 (decision 0063 S7): the first document routes; each key names its permission.
+  def endpoint_policy_key("PUT", "/documents/types/:key/retention"),
+    do: :DocumentsRetentionManage
+
+  def endpoint_policy_key("POST", "/documents/:document_id/hold"), do: :DocumentHold
+  def endpoint_policy_key("POST", "/documents/:document_id/hold/release"), do: :DocumentHold
+
   # REQ-414 — settings write for an installed module.
   def endpoint_policy_key("PUT", "/tenant/modules/:module_id/settings"), do: :ModulesManage
 
@@ -1438,6 +1453,9 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:ScriptRulesAuditRead), do: :AuditRead
   def required_permission(:ScriptsWrite), do: :ScriptsWrite
   def required_permission(:ScriptsPublish), do: :ScriptsPublish
+  # REQ-536: identity clauses for the document routes.
+  def required_permission(:DocumentHold), do: :DocumentHold
+  def required_permission(:DocumentsRetentionManage), do: :DocumentsRetentionManage
   # GH 2534 PR 7b-2a (design P3): script policy route keys over the script permissions.
   def required_permission(:ScriptPolicyRead), do: :ScriptsWrite
   def required_permission(:ScriptPolicyManage), do: :ScriptsPublish

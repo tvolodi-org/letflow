@@ -236,7 +236,9 @@ defmodule Letflow.Api.RouteScopeResolverTest do
         "POST /tasks/:id/assign TasksAssign",
         "POST /tasks/:id/claim TasksComplete",
         "POST /tasks/:id/complete TasksComplete",
-        "POST /tasks/:id/reassign TasksReassign"
+        "POST /tasks/:id/reassign TasksReassign",
+        "POST /documents/:document_id/hold DocumentHold",
+        "POST /documents/:document_id/hold/release DocumentHold"
       ]
 
       assert resolver_rows |> Enum.map(&RouteScope.snapshot_line/1) |> Enum.sort() ==
@@ -245,14 +247,19 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       for row <- resolver_rows do
         assert row.source == :declared
 
-        if row.router == Letflow.Routers.Tasks do
-          assert row.class == {:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}
-        else
-          assert row.class == @resolver
-          assert row.router == Letflow.Routers.Entities
+        case row.router do
+          Letflow.Routers.Documents ->
+            assert row.class == {:resolver, {Letflow.Documents.ScopeResolver, :document_scope}}
+
+          Letflow.Routers.Tasks ->
+            assert row.class == {:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}
+
+          Letflow.Routers.Entities ->
+            assert row.class == @resolver
         end
       end
 
+      assert function_exported?(Letflow.Documents.ScopeResolver, :document_scope, 1)
       assert function_exported?(ScopeResolver, :record_scope, 1)
       assert function_exported?(Letflow.Tasks.ScopeResolver, :task_scope, 1)
     end
