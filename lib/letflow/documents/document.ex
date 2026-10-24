@@ -20,6 +20,15 @@ defmodule Letflow.Documents.Document do
     field(:number, :integer)
     field(:source_ref, :map)
     field(:current_version, :binary_id)
+    field(:on_hold, :boolean, default: false)
+    field(:hold_set_at, :utc_datetime_usec)
+    field(:hold_set_by, :binary_id)
+    field(:hold_reason_code, :string)
+    field(:hold_reason_note, :string)
+    field(:hold_cleared_at, :utc_datetime_usec)
+    field(:hold_cleared_by, :binary_id)
+    field(:hold_clear_reason_code, :string)
+    field(:hold_clear_reason_note, :string)
     field(:inserted_at, :utc_datetime_usec)
   end
 end

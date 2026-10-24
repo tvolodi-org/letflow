@@ -833,7 +833,11 @@ defmodule Letflow.TenantProvisioning do
     # GH #2688 (REQ-513 B2): partial `(dispatched_at, id) WHERE status = 'advanced'` index for the
     # stuck-advance sweep; additive, no data change.
     {20_261_024_300_001, Letflow.Repo.Migrations.AddStuckAdvanceIndex,
-     "20261024300001_add_stuck_advance_index.exs"}
+     "20261024300001_add_stuck_advance_index.exs"},
+    # REQ-508 / GH #2675 (decision 0063 part (a)): retention policy columns on document_types,
+    # hold columns on documents, and the column-aware guard_document_types().
+    {20_261_025_100_001, Letflow.Repo.Migrations.AddDocumentRetentionAndHold,
+     "20261025100001_add_document_retention_and_hold.exs"}
   ]
 
   @doc """

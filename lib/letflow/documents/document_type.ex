@@ -5,7 +5,8 @@ defmodule Letflow.Documents.DocumentType do
   This module is a shape, not an API. The only writer of document rows is the
   `Letflow.Documents` context (PR B). Callers pass `prefix:` for the tenant schema.
   A type is frozen by the database once a document of its key exists (see the
-  `document_types_guard_*` triggers in the immutability migration).
+  `document_types_guard_*` triggers in the immutability migration), except the three
+  retention columns (REQ-508, decision 0063 S3), which `Letflow.Documents.Retention` changes.
   """
 
   use Ecto.Schema
@@ -22,6 +23,9 @@ defmodule Letflow.Documents.DocumentType do
     field(:restricted_fields_allowed, :boolean, default: false)
     field(:declared_fields, :map)
     field(:template_ref, :string)
+    field(:retention_period_days, :integer)
+    field(:retention_from, :string, default: "issued")
+    field(:retention_action, :string, default: "keep")
     field(:inserted_at, :utc_datetime_usec)
   end
 end
