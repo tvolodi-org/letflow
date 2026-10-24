@@ -38292,7 +38292,7 @@ requirements:
       - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permissions) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over test/letflow/documents/ and the authorization and route pin tests pass, real output quoted."
     depends_on: [REQ-508]
 
-  - id: REQ-538
+  - id: REQ-539
     title: "Decision record for Record E (decision 0053 hook 2): entity pre-write script hook and derived fields, with the atomicity rule for finding F13 (slice 0, decision only)"
     owner: CODE-DESIGNER
     status: pending
