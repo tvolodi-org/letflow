@@ -38292,7 +38292,7 @@ requirements:
       - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permissions) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over test/letflow/documents/ and the authorization and route pin tests pass, real output quoted."
     depends_on: [REQ-508]
 
-  - id: REQ-537
+  - id: REQ-538
     title: "Org-relative task assignment (core roadmap Wave 2), slice 0: decision record for resolving a task's assignee relative to the requester's org position (for example the requester's department head) through a resolver registered via the module Catalog, not in Letflow.Engine"
     owner: CODE-DESIGNER
     status: pending
@@ -38362,6 +38362,6 @@ requirements:
       - "5. The record names INV-1 and INV-5 and states for each the concrete property a later test must prove; it requires a cross-tenant negative test (tenant B's org data or resolver never reached from tenant A's task and the reverse, with an identical answer for an absent and a foreign id) in the first implementation slice."
       - "6. The record names SECURITY-REVIEWER as a mandatory gate for every implementation slice and lists at least the three threat cases of D5."
       - "7. The record answers D3, D6 and D7 or lists the unanswered ones as open owner questions with the options and a recommendation; it does not leave a placeholder."
-      - "8. The depends_on of the follow-on implementation requirements is stated in D8 and includes REQ-532 (the task scope writer, W3b), decision 0050 and decision 0051."
-      - "9. mix letflow.check_requirements_registration passes with the REQ-537 entry present, and any test that scans docs/migration/decisions for headings or numbering is run, real output quoted."
+      - "8. The depends_on of the follow-on implementation requirements is stated in D8: each follow-on depends_on REQ-532 (the task scope writer, W3b) and cites decisions 0050 and 0051 in its description."
+      - "9. mix letflow.check_requirements_registration passes with the REQ-538 entry present, and any test that scans docs/migration/decisions for headings or numbering is run, real output quoted."
     depends_on: [REQ-532]
