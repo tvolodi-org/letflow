@@ -834,6 +834,97 @@ defmodule Letflow.Definitions do
   end
 
   @doc """
+  Re-activates, in place, an ACTIVE definition flagged `needs_reactivation` (GH #2692, REQ-515).
+  The caller must pass the same activator checks as `activate/2` (an active user holding
+  `EntitiesRecordsWrite`, a graph still valid against the current entity types); the row is
+  re-signed for the caller and the flag cleared, so in-flight instances heal (the engine reads
+  the live row). `{:error, :not_needs_reactivation}` for a row that is not flagged.
+  """
+  @spec reactivate(id :: Ecto.UUID.t() | String.t(), opts :: activate_opts()) ::
+          {:ok, ProcessDefinition.t()}
+          | {:error, :not_found}
+          | {:error, :not_needs_reactivation}
+          | {:error, :graph_structure_invalid}
+          | {:error, {:entity_writes_invalid, [entity_writes_violation()]}}
+          | common_error()
+  def reactivate(id, opts) when is_list(opts) do
+    prefix = Keyword.get(opts, :prefix)
+    activator = Keyword.get(opts, :activator)
+
+    with {:ok, uuid} <- cast_uuid(id),
+         {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      try do
+        Repo.transaction(fn -> run_reactivate(uuid, prefix, tenant_id, activator) end)
+      rescue
+        exception -> {:error, {:transaction_failed, exception}}
+      end
+    end
+  end
+
+  defp run_reactivate(id, prefix, tenant_id, activator) do
+    definition =
+      ProcessDefinition
+      |> where([d], d.id == ^id)
+      |> lock("FOR UPDATE")
+      |> Repo.one(prefix: prefix)
+
+    case definition do
+      nil ->
+        Repo.rollback(:not_found)
+
+      %ProcessDefinition{status: :active, needs_reactivation_at: %DateTime{}} ->
+        case check_entity_writes(definition, prefix, activator) do
+          :ok -> reactivate_row(definition, prefix, tenant_id, activator)
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      _not_flagged ->
+        Repo.rollback(:not_needs_reactivation)
+    end
+  end
+
+  defp reactivate_row(%ProcessDefinition{id: id} = before, prefix, tenant_id, activator) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    activated_by = activated_by_or_rollback(before, activator, now, prefix)
+
+    seq =
+      case assign_definition_sequence(tenant_id, prefix) do
+        {:ok, seq} -> seq
+        {:error, reason} -> Repo.rollback(reason)
+      end
+
+    {1, [updated]} =
+      ProcessDefinition
+      |> where([d], d.id == ^id)
+      |> select([d], d)
+      |> Repo.update_all(
+        [
+          set: [
+            activated_by: activated_by,
+            needs_reactivation_at: nil,
+            needs_reactivation_reason: nil,
+            updated_at: now,
+            sequence_number: seq
+          ]
+        ],
+        prefix: prefix
+      )
+
+    case record_definition_audit("definition.reactivate", id, before, updated, prefix) do
+      {:ok, _entry} -> updated
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  # Shared with `Letflow.Definitions.Reactivation` (the marking writer).
+  @doc false
+  def assign_sequence(tenant_id, prefix), do: assign_definition_sequence(tenant_id, prefix)
+
+  @doc false
+  def record_audit(action, definition_id, before, after_, prefix),
+    do: record_definition_audit(action, definition_id, before, after_, prefix)
+
+  @doc """
   Transitions an ACTIVE process definition to DEPRECATED (PD-04). Every other current
   status is rejected as `{:error, :invalid_status_transition}`; a missing `id` is
   `{:error, :not_found}`.
@@ -3240,7 +3331,15 @@ defmodule Letflow.Definitions do
       |> where([d], d.id == ^target_row.id)
       |> select([d], d)
       |> Repo.update_all(
-        [set: [status: :active, updated_at: now, activated_by: activated_by]],
+        [
+          set: [
+            status: :active,
+            updated_at: now,
+            activated_by: activated_by,
+            needs_reactivation_at: nil,
+            needs_reactivation_reason: nil
+          ]
+        ],
         prefix: prefix
       )
 

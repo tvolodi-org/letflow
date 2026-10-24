@@ -822,6 +822,9 @@ defmodule Letflow.TenantProvisioning do
     # GH #3092 (REQ-531, decision 0051 T13): nullable write-once `instance_projections.scope_node_id`.
     {20_261_024_100_001, Letflow.Repo.Migrations.AddScopeNodeIdToInstanceProjections,
      "20261024100001_add_scope_node_id_to_instance_projections.exs"},
+    # GH #2692 (REQ-515): the `needs_reactivation_*` flag columns on `process_definitions`.
+    {20_261_024_100_002, Letflow.Repo.Migrations.AddNeedsReactivationToProcessDefinitions,
+     "20261024100002_add_needs_reactivation_to_process_definitions.exs"},
     # GH #2680 slice 3: the #2596 stamp exception extended to the ten exam authoring names
     # (16 frozen names in all). A NEW reviewed migration, as the #2596 header requires.
     {20_261_024_120_001, Letflow.Repo.Migrations.AllowExamAuthoringManagedByStamp,

@@ -720,6 +720,7 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("PUT", "/definitions/:id"), do: :DefinitionsUpdate
   def endpoint_policy_key("PATCH", "/definitions/:id"), do: :DefinitionsPatch
   def endpoint_policy_key("POST", "/definitions/:id/activate"), do: :DefinitionsActivate
+  def endpoint_policy_key("POST", "/definitions/:id/reactivate"), do: :DefinitionsActivate
 
   # PROVENANCE (historical, not current decision authority):
   # REQ-082 -- deprecate/archive/delete/import. authorization.zig has NO
