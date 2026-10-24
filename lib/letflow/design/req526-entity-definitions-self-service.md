@@ -174,6 +174,8 @@ Further points that bear on the rulings:
 
 ### SEC-526-Q1: which scope set defines "a type the caller may query"?
 
+RECORDED by SECURITY-REVIEWER (T-0428 security step, attempt 1): SEC-526-Q1 = Q1-a.
+
 Options, facts only:
 
 - **Q1-a, the `EntitiesQuery` scope set.** `ScopeGate.scope_set(conn, :EntitiesQuery)` is the set the data
@@ -181,17 +183,20 @@ Options, facts only:
   layer-2 rule as the query compiler: a type is queryable when the set is not `:none` and
   `ScopeDeclaration.for_type/2` is not `:undeclared`. The roles that hold the read permission hold
   `EntitiesQuery` too (2.1), so no holder is left out by a missing `EntitiesQuery` row except one whose
-  rows are scoped to no node (`:none`). Accepted gap: the Compiler also returns no rows for a `{:column, c}` declaration whose column is absent or whose source is `:latest`, so for such a module-declared type a scoped caller gets a 200 with a body although its query returns nothing; the type name is public in module code. IMPL-526-A either matches the Compiler's `binding_scope_kind` or the SECURITY-REVIEWER records this gap as accepted.
+  rows are scoped to no node (`:none`). The Compiler also returns no rows for a `{:column, c}` declaration whose column is absent or whose source is `:latest`. RECORDED ruling: IMPL-526-A decides "queryable" with the same rule as the Compiler's `binding_scope_kind`, which also fails closed in those cases. If matching is not practical in one turn, the gap is accepted (only module-declared type names are affected, and those are public in module code); the implementation PR then names the gap in its own security verdict and adds a test pinning the chosen behaviour (section 5 item 12).
 - **Q1-b, the `EntitiesDefinitionsRead` set.** The set of the route's own permission. Wrong question: a
   principal could be scoped for definition reads and unscoped for queries or the reverse, and the shaping
   would not match what the data path does.
 - **Q1-c, no shaping, class change only.** Rejected by 2.4: it is the oracle.
 
-Designer's recommendation: Q1-a. The shaping function lives in one place and takes `(scope_set, name,
+Recorded choice, Q1-a. The shaping function lives in one place and takes `(scope_set, name,
 prefix)`; `:all` (not `on`, or a tenant-wide holder) returns "queryable" with **no query and no change**,
 so behaviour for `off`, `shadow` and tenant-wide holders is byte-identical to today.
 
 ### SEC-526-Q2: where does the check sit relative to the fetch?
+
+RECORDED by SECURITY-REVIEWER (T-0428 security step, attempt 1): Q2-a for E1. Q2-b and Q2-c are not ruled,
+because R03 and R04 stay out.
 
 - **Q2-a, before the fetch, by name.** E1, E2: the name is known up front. Not-queryable -> the one shared
   404 function, no row read. Same cost for existing and nonexistent (2.4, point 2).
@@ -205,13 +210,13 @@ so behaviour for `off`, `shadow` and tenant-wide holders is byte-identical to to
   The name sets are free strings on both sides: `entity_definitions.name` is `:string` and the
   bound array is `text[]`, no uuid cast is involved (T-0393 check).
 
-Recommendation: Q2-a for E1/E2, Q2-b for E3, Q2-c for E4 (only if E4 is ruled in; section 4 says it is not).
+Recorded: Q2-a for E1 only (E2 to E4 stay `:tenant_wide`; section 4).
 
 ## 4. Rulings (AC 2)
 
 Ruling ids are recorded in this section, not in `handoffs/` (this team does not touch it). Status of every
-ruling below: **PROPOSED by the designer (T-0428 design step)**; it is RECORDED when the SECURITY-REVIEWER
-verdict of this task cites it, exactly as REQ-525's rulings were. A route without a recorded ruling stays
+ruling below: **RECORDED by SECURITY-REVIEWER (T-0428 security step, attempt 1)**, exactly as REQ-525's
+rulings were. A route without a recorded ruling stays
 `:tenant_wide`. Each implementation PR still needs its own code verdict (section 5, item 7).
 
 Decision rule (same as REQ-525): a route is ruled in only if (a) every field is T or P (2.2: yes for all
@@ -229,10 +234,10 @@ Consumers searched (`grep -rn "entities/definitions" web/src apps/mobile/lib scr
 
 | id | route | outcome | reasoning |
 |---|---|---|---|
-| SEC-526-R01 | E1 `GET /entities/definitions/active/:name` | **`:self_service` only after a named response-shaping change** (the scope-visibility shaping of Q1-a with Q2-a: a not-queryable name answers the shared 404 before any row read). | (a) all T. (b) demonstrated need: the web record pages call it first (`EntityCrudPage`, `EntityListBrowserPage`) and so does the mobile list renderer; without it a scoped TASK_WORKER who may query a type cannot render its list, the very purpose of scoped grants. (c) the name selects a tenant-level object; the shaping makes it select only what the caller may query. (d) read. (e) holds only with the shaping; without it 2.4 shows a 200-versus-404 oracle at layer 2. Only the version named by the activation pointer is returned (point 1), so no draft shape leaks. |
-| SEC-526-R02 | E2 `GET /entities/definitions/by-name/:name` | **stays `:tenant_wide`**. | (b) fails: the only callers are the seed scripts (`seed_meridian_entities.sh`, `seed_vortex_entities.sh`), admin work under TENANT_ADMIN, and nothing in `web/` or `apps/mobile/`. It returns the newest row **of any status** (draft and superseded shapes, 2.4 point 1), more than the active shape a scoped reader needs, and E1 already serves the scoped need. Not reclassified because E1 is. |
-| SEC-526-R03 | E3 `GET /entities/definitions/:id` | **stays `:tenant_wide`**. | (b) fails: no consumer outside admin tooling. (c) fails without a per-row shaping: the id is a version row id of any status, discovered only from E4 or from outside, and the name needed for the layer-2 check is known only after the fetch (Q2-b), the weakest form of the shaping (an extra read for a hidden existing row). Not reclassified because E1 is. |
-| SEC-526-R04 | E4 `GET /entities/definitions` | **stays `:tenant_wide`**. | (b) fails: no `web/` or `apps/mobile/` consumer lists entity definitions (the dashboard definitions tile calls the process-definition list, REQ-525-R01, a different route). Ruling it in would need the in-statement shaping of Q2-c (the most complex form) for no consumer. Re-open condition: a named scoped consumer (for example a scoped type picker); the re-opening requirement then carries Q2-c and the byte-equality twin-world test of `entities_definitions_list_type_access_test.exs` for the scoped case. |
+| SEC-526-R01 | E1 `GET /entities/definitions/active/:name` | **RECORDED: may be `:self_service` only after the layer-2 shaping runs before the fetch, with every criterion of section 5 items 1-12.** `:self_service` only after a named response-shaping change (the scope-visibility shaping of Q1-a with Q2-a: a not-queryable name answers the shared 404 before any row read). | (a) all T. (b) demonstrated need: the web record pages call it first (`EntityCrudPage`, `EntityListBrowserPage`) and so does the mobile list renderer; without it a scoped TASK_WORKER who may query a type cannot render its list, the very purpose of scoped grants. (c) the name selects a tenant-level object; the shaping makes it select only what the caller may query. (d) read. (e) holds only with the shaping; without it 2.4 shows a 200-versus-404 oracle at layer 2. Only the version named by the activation pointer is returned (point 1), so no draft shape leaks. |
+| SEC-526-R02 | E2 `GET /entities/definitions/by-name/:name` | **RECORDED: stays `:tenant_wide`**, reasons agreed. | (b) fails: the only callers are the seed scripts (`seed_meridian_entities.sh`, `seed_vortex_entities.sh`), admin work under TENANT_ADMIN, and nothing in `web/` or `apps/mobile/`. It returns the newest row **of any status** (draft and superseded shapes, 2.4 point 1), more than the active shape a scoped reader needs, and E1 already serves the scoped need. Not reclassified because E1 is. |
+| SEC-526-R03 | E3 `GET /entities/definitions/:id` | **RECORDED: stays `:tenant_wide`**, reasons agreed. | (b) fails: no consumer outside admin tooling. (c) fails without a per-row shaping: the id is a version row id of any status, discovered only from E4 or from outside, and the name needed for the layer-2 check is known only after the fetch (Q2-b), the weakest form of the shaping (an extra read for a hidden existing row). Not reclassified because E1 is. |
+| SEC-526-R04 | E4 `GET /entities/definitions` | **RECORDED: stays `:tenant_wide`**, reasons agreed. | (b) fails: no `web/` or `apps/mobile/` consumer lists entity definitions (the dashboard definitions tile calls the process-definition list, REQ-525-R01, a different route). Ruling it in would need the in-statement shaping of Q2-c (the most complex form) for no consumer. Re-open condition: a named scoped consumer (for example a scoped type picker); the re-opening requirement then carries Q2-c and the byte-equality twin-world test of `entities_definitions_list_type_access_test.exs` for the scoped case. |
 
 Summary: one route may be ruled in, after one named shaping change (R01); three stay `:tenant_wide`
 (R02 to R04). The single implementation requirement therefore carries the shaping (section 6).
@@ -265,7 +270,10 @@ For EACH route the requirement rules in (here only E1; its own PR, its own rulin
    one shared function `Response.not_found/1`. A principal without the coarse permission (AGENT_RUNNER,
    CANDIDATE) still gets the uniform 403 `insufficient permissions`, byte-identical to the 403 of the route
    before the change (INV-5); the 403 comes from the coarse allow, which runs before the class.
-6. A query-count test (no timing assertion) at the surface the criterion names: the number of database
+6. A query-count test (no timing assertion) at the surface the criterion names. Parity is required only
+   between case (i) and case (iv); a type hidden by `TypeAccess` (case iii) is fetched and then denied, which
+   is existing behaviour accepted by the security verdict, and the test must not claim parity for case (iii).
+   The number of database
    statements for case (i) equals the number for case (iv) for a name no module manifest names, counted
    with the repo telemetry handler the 0051 D7 tests already use (the PR names it).
 7. Not `on` (`off`, `shadow`) and tenant-wide holders: output and query count byte-identical to the
@@ -278,7 +286,12 @@ For EACH route the requirement rules in (here only E1; its own PR, its own rulin
    a new ruling.
 10. Own SECURITY-REVIEWER code verdict (INV-1, INV-2, INV-5, INV-6), cited in the PR body (REQ-518 AC 23
     rule). `Refs #2535`, never `Closes`.
-11. The documentation changes of section 7 for that route.
+11. The documentation changes of section 7 for that route, including by name the `LIMIT-` line in
+    `docs/roles.md` that no module ships `scope_declarations` yet, so a scoped user gets 404 for every type
+    (a must-land item of the security verdict; the REQ-VALIDATOR must not drop it).
+12. A test that pins the chosen "queryable" behaviour for a `{:column, c}` declaration with a missing column
+    or a `:latest` source (SEC-526-Q1): either it matches the Compiler's `binding_scope_kind` (404), or the
+    accepted gap is pinned and named in the PR's own security verdict.
 
 An implementation requirement whose route set contains a route not ruled in by a recorded verdict is
 refused by the REQ-VALIDATOR (R02 to R04 never travel with R01).
@@ -373,10 +386,13 @@ Item 5's "entity-definition" word is not removed by A: three of the four reads r
 3. **No manifest ships declarations**, so the shaped E1 returns 404 to every scoped caller in production
    today (2.4 point 3). The ruling is still right; its value arrives with the first module declaration.
 4. **Relation targets** inside a visible definition name types the caller cannot query (2.4 point 4);
-   accepted as content of the visible type, to be confirmed by the SECURITY-REVIEWER.
+   RECORDED by SECURITY-REVIEWER (T-0428 security step, attempt 1): accepted as content the author wrote
+   into the visible type; no route lets a caller probe whether type B exists. Hiding relation targets is out
+   of scope (section 8).
 5. **Stale test names**: "the seven definition/restriction routes" asserts two lines in
    `route_scope_resolver_test.exs` and seven in `entities_scope_writes_http_test.exs`; both names go stale
    when R01 lands and are corrected there.
 6. **Q1-a edge**: a principal scoped to no node for `EntitiesQuery` but holding the definition read
    permission sees 404 for every type (the `:none` set), consistent with `EntitiesQuery` returning no data.
-7. **Rulings are proposals** until the SECURITY-REVIEWER verdict of this task records them (section 4).
+7. **Rulings are recorded** by the SECURITY-REVIEWER verdict of this task (T-0428 security step, attempt 1;
+   section 4).
