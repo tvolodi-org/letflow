@@ -84,6 +84,52 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
     |> Letflow.Routers.Entities.call(@entities_opts)
   end
 
+  # A TENANT_ADMIN token of the tenant of `ctx`, for the module's own authoring routes.
+  defp tenant_admin!(ctx) do
+    user = insert_user!(ctx.schema)
+
+    {:ok, %{plaintext: token}} =
+      Identity.create_token(user.id, %{roles: @admin, expires_at: nil}, prefix: ctx.schema)
+
+    %{token: token, slug: Repo.get!(Tenant, ctx.tenant_id).slug, user_id: user.id}
+  end
+
+  # The answer-key fields a caller without a grant cannot write (as exam_authoring_test grants them).
+  @answer_key_fields [
+    {"question", "explanation"},
+    {"answer_option", "is_correct"},
+    {"answer_option", "likert_weight"},
+    {"answer_option", "likert_polarity"}
+  ]
+
+  defp grant_answer_key!(%{user_id: user_id}, schema) do
+    for {type, field} <- @answer_key_fields do
+      Repo.insert_all(
+        "user_entity_grants",
+        [
+          %{
+            id: Ecto.UUID.bingenerate(),
+            user_id: Ecto.UUID.dump!(user_id),
+            entity_type: type,
+            field_name: field,
+            inserted_at: NaiveDateTime.utc_now()
+          }
+        ],
+        prefix: schema
+      )
+    end
+  end
+
+  # `path` is relative to `/api/v1/modules/exam/authoring`, e.g. "/category/<id>".
+  defp authoring_call(%{token: token, slug: slug}, method, path, body) do
+    Plug.Test.conn(method, "/api/v1/modules/exam/authoring" <> path, body && Jason.encode!(body))
+    |> put_req_header("content-type", "application/json")
+    |> put_req_header("authorization", "Bearer " <> token)
+    |> put_req_header("x-tenant-slug", slug)
+    |> put_req_header("x-trace-id", @trace)
+    |> Letflow.Router.call(Letflow.Router.init([]))
+  end
+
   defp managed_body, do: Error.serialise(%{Error.entity_type_managed() | trace_id: @trace})
 
   defp assert_managed!(conn, label) do
@@ -407,6 +453,39 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
     end
   end
 
+  # ── T-A3 ────────────────────────────────────────────────────────────────────────────────────
+
+  describe "T-A3 (AC3, GH #2680 slice 3): the module's own authoring routes keep working on a stamped tenant" do
+    test "POST 201, PUT 200, DELETE 200 for each of the ten authoring types as tenant A's TENANT_ADMIN; the definitions stay managed_by exam",
+         ctx do
+      admin = tenant_admin!(ctx)
+      grant_answer_key!(admin, ctx.schema)
+
+      for type <- @ten do
+        post = authoring_call(admin, "POST", "/#{type}", %{"field_values" => values(type, 3)})
+        assert post.status == 201, "POST #{type}: #{post.status} #{post.resp_body}"
+        id = body_of(post)["record_id"]
+
+        put =
+          authoring_call(admin, "PUT", "/#{type}/#{id}", %{"field_values" => values(type, 4)})
+
+        assert put.status == 200, "PUT #{type}: #{put.status} #{put.resp_body}"
+
+        del = authoring_call(admin, "DELETE", "/#{type}/#{id}", nil)
+        assert del.status == 200, "DELETE #{type}: #{del.status} #{del.resp_body}"
+        assert stored(ctx, type, id).deleted
+      end
+
+      managed =
+        Repo.all(from(d in EntityDefinition, where: d.name in ^@ten, select: d.managed_by),
+          prefix: ctx.schema
+        )
+
+      assert length(managed) == 10
+      assert Enum.all?(managed, &(&1 == "exam"))
+    end
+  end
+
   # ── T-A4 ────────────────────────────────────────────────────────────────────────────────────
 
   describe "T-A4 (INV-10, GH #2680 slice 3): an admin of tenant B cannot reach a stamped authoring row of tenant A" do
@@ -421,6 +500,13 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
 
       slug_b = Repo.get!(Tenant, tenant_b_id).slug
       category_id = ctx.records["category"]
+
+      # Positive control (review of attempt 1): A's own admin reaches the same row, so the 404s
+      # below cannot come from a route that refuses stamped rows for every caller.
+      admin_a = tenant_admin!(ctx)
+      fv = %{"field_values" => values("category", 2)}
+      assert authoring_call(admin_a, "PUT", "/category/#{category_id}", fv).status == 200
+
       before = stored(ctx, "category", category_id)
 
       assert Repo.one(
@@ -428,28 +514,11 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
                prefix: ctx.schema
              ) == "exam"
 
-      fv = %{"field_values" => values("category", 2)}
-
-      b_call = fn method, id, body ->
-        conn =
-          Plug.Test.conn(
-            method,
-            "/api/v1/modules/exam/authoring/category/#{id}",
-            body && Jason.encode!(body)
-          )
-
-        conn
-        |> put_req_header("content-type", "application/json")
-        |> put_req_header("authorization", "Bearer " <> token_b)
-        |> put_req_header("x-tenant-slug", slug_b)
-        |> put_req_header("x-trace-id", @trace)
-        |> Letflow.Router.call(Letflow.Router.init([]))
-      end
-
-      put = b_call.("PUT", category_id, fv)
-      del = b_call.("DELETE", category_id, nil)
-      rnd_put = b_call.("PUT", Ecto.UUID.generate(), fv)
-      rnd_del = b_call.("DELETE", Ecto.UUID.generate(), nil)
+      admin_b = %{token: token_b, slug: slug_b}
+      put = authoring_call(admin_b, "PUT", "/category/#{category_id}", fv)
+      del = authoring_call(admin_b, "DELETE", "/category/#{category_id}", nil)
+      rnd_put = authoring_call(admin_b, "PUT", "/category/#{Ecto.UUID.generate()}", fv)
+      rnd_del = authoring_call(admin_b, "DELETE", "/category/#{Ecto.UUID.generate()}", nil)
 
       assert [put.status, del.status] == [404, 404]
       assert put.resp_body == rnd_put.resp_body

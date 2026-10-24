@@ -112,6 +112,7 @@ defmodule Letflow.Modules.Catalog do
   Creates a record of an entity type that a module manages (GH #2680 slice 3) through that module's
   own authoring surface: a system path with no HTTP user, for the mix seed task. A type with no
   authoring surface returns `:not_managed`, and the caller writes it on the generic path.
+  Request paths must not call this: they use the module's HTTP routes, which check the caller.
   """
   @spec create_via_module_surface(Letflow.Entities.Records.create_attrs(), prefix :: String.t()) ::
           :not_managed | {:ok, term()} | {:error, term()}

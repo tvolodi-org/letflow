@@ -646,7 +646,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
     test ":exception_not_installed: a tenant whose schema_migrations lacks the exception version is reported, not touched; restoring it lets the stamp proceed" do
       %{schema_name: schema} = Fx.legacy_tenant!("gh2596-d-noexception")
       :ok = Fx.forget_exception_migration!(schema)
-      before = Fx.dump(schema, @six)
+      before = Fx.dump(schema, @six ++ @planted_authoring)
 
       # T-A8 (GH #2680 slice 3): the tenant is an OLD-migration tenant. Only the new version
       # (20_261_024_120_001) is missing; the six-name exception 20261016120001 is still applied.
@@ -660,12 +660,13 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
 
       assert %{status: :exception_not_installed, rows_stamped: 0, error: nil} = run!(schema)
       assert %{status: :exception_not_installed} = run!(schema, dry_run: true)
-      assert Fx.dump(schema, @six) == before
+      assert Fx.dump(schema, @six ++ @planted_authoring) == before
 
       :ok = Fx.remember_exception_migration!(schema)
 
-      # Counted, not assumed: the legacy tenant plants the six runtime names only, so the sixteen-name
-      # stamp reports the rows it finds for them (see the run's report), not a fixed sixteen.
+      # Counted, not assumed: the legacy tenant plants the six runtime names and the six authoring
+      # names in @planted_authoring (legacy_tenant!/1). The other four authoring names are absent,
+      # so the sixteen-name stamp stamps the twelve rows that exist, not a fixed sixteen.
       assert %{status: :stamped, rows_stamped: 12} = run!(schema)
     end
   end

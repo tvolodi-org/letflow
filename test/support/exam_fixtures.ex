@@ -245,9 +245,11 @@ defmodule Letflow.ExamFixtures do
   `Installs.install("exam", ...)`: the six managed runtime types (`session`, `session_question`,
   `session_answer`, `session_question_score`, `session_event`, `certificate`) already exist from the
   pack, stamped `managed_by = 'exam'`, so they are ACTIVATED as installed (a `:tenant`
-  `create_definition/2` of those names is refused). The authoring types (and `category`) are created
-  and activated from `priv/modules/exam/entity_definitions/*.json` exactly as in
-  `activate_exam_definitions!/1`. `Exam.on_install/2` is not called again (the install ran it).
+  `create_definition/2` of those names is refused). The authoring types (GH #2680 slice 3: the ten,
+  `category` among them) are likewise the pack's stamped rows: each is checked by
+  `assert_single_pack_row!` and activated with `Definitions.activate_definition`, not created from
+  `priv/modules/exam/entity_definitions/*.json` as in `activate_exam_definitions!/1`.
+  `Exam.on_install/2` is not called again (the install ran it).
   """
   @spec activate_exam_definitions_after_pack_install!(schema_name :: String.t()) :: :ok
   def activate_exam_definitions_after_pack_install!(schema_name) do

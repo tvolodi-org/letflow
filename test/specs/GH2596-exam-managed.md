@@ -40,9 +40,9 @@ pack-install rows).
 
 ## Acceptance criteria -> tests
 > **Superseded in part by GH #2680 slice 3 (the AC1 row below):** the manifest now declares sixteen names
-> (the six runtime/result types and the ten authoring types). The ten-name allowlist of the 2026-10-16
-> unmanaged-authoring ruling is gone, and T-01 and T-02 pin the sixteen. The AC1 row is kept as the record of that ruling.
-
+> (the six runtime/result types and the ten authoring types). The ten-name allowlist of the
+> 2026-10-16 unmanaged-authoring ruling is gone, and T-01 and T-02 pin the sixteen. The AC1 row
+> is kept as the record of that ruling.
 
 | AC (issue, read through the ruling) | Tests | Why it exists |
 |---|---|---|
