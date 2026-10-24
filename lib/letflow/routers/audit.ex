@@ -185,7 +185,7 @@ defmodule Letflow.Routers.Audit do
         Response.bad_request(conn, "invalid page_size")
 
       {:error, :page_size_too_large} ->
-        Response.bad_request(conn, "page_size out of range")
+        Response.bad_request(conn, Letflow.Api.Pagination.page_size_error_message())
 
       {:error, :invalid_cursor} ->
         Response.bad_request(conn, "invalid cursor")

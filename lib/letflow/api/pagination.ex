@@ -97,6 +97,13 @@ defmodule Letflow.Api.Pagination do
   @spec max_page_size() :: pos_integer()
   def max_page_size, do: @max_page_size
 
+  @doc """
+  The 400 detail for an out-of-range `page_size`; names the limit so a caller
+  can correct the request.
+  """
+  @spec page_size_error_message() :: String.t()
+  def page_size_error_message, do: "page_size out of range (maximum #{@max_page_size})"
+
   @doc "The `page_size` used when the caller supplies none (50)."
   @spec default_page_size() :: pos_integer()
   def default_page_size, do: @default_page_size

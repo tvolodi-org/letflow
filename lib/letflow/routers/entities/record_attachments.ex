@@ -256,7 +256,7 @@ defmodule Letflow.Routers.Entities.RecordAttachments do
         Response.bad_request(conn, "invalid page_size")
 
       {:error, :page_size_too_large} ->
-        Response.bad_request(conn, "page_size out of range")
+        Response.bad_request(conn, Letflow.Api.Pagination.page_size_error_message())
     end
   end
 
@@ -279,7 +279,7 @@ defmodule Letflow.Routers.Entities.RecordAttachments do
     do: Response.send_problem(conn, Error.cursor_expired())
 
   defp render_list_record_attachments(conn, {:error, :page_size_too_large}),
-    do: Response.bad_request(conn, "page_size out of range")
+    do: Response.bad_request(conn, Letflow.Api.Pagination.page_size_error_message())
 
   # ══ GET /entities/records/:entity_type/:record_id/attachments/:attachment_id
   # ══ (REQ-317) ══════════════════════════════════════════════════════════
