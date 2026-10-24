@@ -12,11 +12,11 @@ defmodule Letflow.Documents.Retention do
       a `document.retention_policy_changed` entry in the tenant audit chain (0063 S4,
       decision 0056 D9) in the same transaction.
 
-  The policy is read live at query time (0063 S3 residual). The hold functions that set
+  The policy is read live at query time (0063 S3 residual). The hold functions (`Letflow.Documents.Hold`, REQ-536) that set
   `documents.on_hold` belong to REQ-536; this module only reads the flag.
 
-  `change_policy/5` checks no permission or scope: it has no caller yet, and the route
-  that REQ-536 adds must be its only caller (same stance as `Letflow.Audit`).
+  `change_policy/5` checks no permission or scope: the route `Letflow.Routers.Documents` (REQ-536)
+  does both and must stay its only caller (same stance as `Letflow.Audit`).
   """
 
   import Ecto.Query

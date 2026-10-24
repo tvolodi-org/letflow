@@ -374,3 +374,75 @@ describe("REQ-393 — EntityListBrowserPage", () => {
     expect(nameCells.some((el) => el.textContent === "safety")).toBe(true);
   });
 });
+
+// ── GH 3141: definition 404 renders the empty list (INV-5) ────────────────────
+
+function definitionMocks(def: { data?: EntityDefinition; error?: unknown }) {
+  mockUseQuery.mockImplementation((opts: unknown) => {
+    const { queryKey } = opts as { queryKey: readonly unknown[] };
+    if (queryKey[3] === "definition") {
+      return {
+        data: def.data,
+        isLoading: false,
+        isError: def.error != null,
+        error: def.error ?? null,
+        refetch: vi.fn(),
+      } as unknown as ReturnType<typeof useQuery>;
+    }
+    return {
+      data: def.data ? { items: [], next_cursor: null } : undefined,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useQuery>;
+  });
+}
+
+describe("GH 3141 — definition 404 renders the empty list", () => {
+  const EMPTY_DEFINITION: EntityDefinition = {
+    ...TAG_DEFINITION,
+    definition: { ...TAG_DEFINITION.definition, fields: [] },
+  };
+
+  it("TC-3141-01: restricted, non-existent and permitted-but-empty render identical output", () => {
+    // restricted and non-existent are the same wire shape: a bare 404
+    const notFound = { message: "Not Found", status: 404 };
+
+    definitionMocks({ error: notFound });
+    const restricted = renderEntityListPage("tag").container.innerHTML;
+    cleanup();
+
+    definitionMocks({ error: { ...notFound } });
+    const missing = renderEntityListPage("tag").container.innerHTML;
+    cleanup();
+
+    definitionMocks({ data: EMPTY_DEFINITION });
+    const empty = renderEntityListPage("tag").container.innerHTML;
+
+    expect(restricted).toBe(missing);
+    expect(restricted).toBe(empty);
+    expect(restricted).toContain("No records found.");
+    expect(restricted).not.toContain("Something went wrong");
+  });
+
+  it("TC-3141-02: a 404 shows the empty table, not the error boundary or Retry", () => {
+    definitionMocks({ error: { message: "Not Found", status: 404 } });
+    renderEntityListPage();
+    expect(screen.getByText("No records found.")).toBeInTheDocument();
+    expect(screen.queryByText(/Retry/i)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["500", { message: "Server Error", status: 500 }],
+    ["network", new Error("Failed to fetch")],
+  ])(
+    "TC-3141-03: a %s error still shows the error state with Retry",
+    (_n, error) => {
+      definitionMocks({ error });
+      renderEntityListPage();
+      expect(screen.getByText(/Retry/i)).toBeInTheDocument();
+      expect(screen.queryByText("No records found.")).not.toBeInTheDocument();
+    },
+  );
+});

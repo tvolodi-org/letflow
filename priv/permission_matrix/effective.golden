@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: exam@0.1.0,org@0.1.0,catalog_items@0.1.0
 # roles: 8
-# permissions: 51
-# rows: 408
+# permissions: 53
+# rows: 424
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -14,6 +14,8 @@ AGENT_RUNNER DefinitionsRead false core -
 AGENT_RUNNER DefinitionsRollback false core -
 AGENT_RUNNER DefinitionsWrite false core -
 AGENT_RUNNER DlqOperate false core -
+AGENT_RUNNER DocumentHold false core -
+AGENT_RUNNER DocumentsRetentionManage false core -
 AGENT_RUNNER EntitiesAggregate false core -
 AGENT_RUNNER EntitiesAttachmentsManage false core -
 AGENT_RUNNER EntitiesAttachmentsRead false core -
@@ -65,6 +67,8 @@ CANDIDATE DefinitionsRead false core -
 CANDIDATE DefinitionsRollback false core -
 CANDIDATE DefinitionsWrite false core -
 CANDIDATE DlqOperate false core -
+CANDIDATE DocumentHold false core -
+CANDIDATE DocumentsRetentionManage false core -
 CANDIDATE EntitiesAggregate false core -
 CANDIDATE EntitiesAttachmentsManage false core -
 CANDIDATE EntitiesAttachmentsRead false core -
@@ -116,6 +120,8 @@ PLATFORM_ADMIN DefinitionsRead true core core
 PLATFORM_ADMIN DefinitionsRollback true core core
 PLATFORM_ADMIN DefinitionsWrite true core core
 PLATFORM_ADMIN DlqOperate true core core
+PLATFORM_ADMIN DocumentHold true core core
+PLATFORM_ADMIN DocumentsRetentionManage true core core
 PLATFORM_ADMIN EntitiesAggregate true core core
 PLATFORM_ADMIN EntitiesAttachmentsManage true core core
 PLATFORM_ADMIN EntitiesAttachmentsRead true core core
@@ -167,6 +173,8 @@ PROCESS_DESIGNER DefinitionsRead true core core
 PROCESS_DESIGNER DefinitionsRollback false core -
 PROCESS_DESIGNER DefinitionsWrite true core core
 PROCESS_DESIGNER DlqOperate false core -
+PROCESS_DESIGNER DocumentHold false core -
+PROCESS_DESIGNER DocumentsRetentionManage false core -
 PROCESS_DESIGNER EntitiesAggregate true core core
 PROCESS_DESIGNER EntitiesAttachmentsManage false core -
 PROCESS_DESIGNER EntitiesAttachmentsRead true core core
@@ -218,6 +226,8 @@ PROCESS_OPERATOR DefinitionsRead true core core
 PROCESS_OPERATOR DefinitionsRollback false core -
 PROCESS_OPERATOR DefinitionsWrite false core -
 PROCESS_OPERATOR DlqOperate true core core
+PROCESS_OPERATOR DocumentHold false core -
+PROCESS_OPERATOR DocumentsRetentionManage false core -
 PROCESS_OPERATOR EntitiesAggregate true core core
 PROCESS_OPERATOR EntitiesAttachmentsManage true core core
 PROCESS_OPERATOR EntitiesAttachmentsRead true core core
@@ -269,6 +279,8 @@ TASK_WORKER DefinitionsRead true core core
 TASK_WORKER DefinitionsRollback false core -
 TASK_WORKER DefinitionsWrite false core -
 TASK_WORKER DlqOperate false core -
+TASK_WORKER DocumentHold false core -
+TASK_WORKER DocumentsRetentionManage false core -
 TASK_WORKER EntitiesAggregate true core core
 TASK_WORKER EntitiesAttachmentsManage false core -
 TASK_WORKER EntitiesAttachmentsRead true core core
@@ -320,6 +332,8 @@ TENANT_ADMIN DefinitionsRead true core core
 TENANT_ADMIN DefinitionsRollback true core core
 TENANT_ADMIN DefinitionsWrite true core core
 TENANT_ADMIN DlqOperate true core core
+TENANT_ADMIN DocumentHold true core core
+TENANT_ADMIN DocumentsRetentionManage true core core
 TENANT_ADMIN EntitiesAggregate true core core
 TENANT_ADMIN EntitiesAttachmentsManage true core core
 TENANT_ADMIN EntitiesAttachmentsRead true core core
@@ -371,6 +385,8 @@ TENANT_AUDITOR DefinitionsRead true core core
 TENANT_AUDITOR DefinitionsRollback false core -
 TENANT_AUDITOR DefinitionsWrite false core -
 TENANT_AUDITOR DlqOperate false core -
+TENANT_AUDITOR DocumentHold false core -
+TENANT_AUDITOR DocumentsRetentionManage false core -
 TENANT_AUDITOR EntitiesAggregate true core core
 TENANT_AUDITOR EntitiesAttachmentsManage false core -
 TENANT_AUDITOR EntitiesAttachmentsRead true core core
