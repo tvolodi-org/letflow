@@ -28,9 +28,12 @@ defmodule Letflow.Scripts.TestParallelShardTest do
   @moduletag :tmp_dir
   @moduletag timeout: 300_000
 
-  # The stub run is cheap unprofiled, but a loaded shard slowed the 4-partition case past
-  # 120 s (GH #2380, main push run 40115295998). Stay below the module timeout above.
-  @run_limit_ms 240_000
+  # GH #2380: on main push run 40115295998 this module took 124.6 s, 120 s of it in the one
+  # "shard 3 of 3" case while its identical siblings took ~0.2 s: a hang, cause unknown (not
+  # load). The partition timeout (90 s, set in run_script) is kept well below this limit so
+  # the script's own timeout path reports the hung partition first; the limit stays below
+  # the module timeout above. On a miss, collect/4 puts the script logs in the failure.
+  @run_limit_ms 150_000
 
   defp bash,
     do:
@@ -107,7 +110,7 @@ defmodule Letflow.Scripts.TestParallelShardTest do
       [
         {"TEST_PARALLEL_N", "4"},
         {"TEST_POOL_SIZE", "4"},
-        {"TEST_PARALLEL_PARTITION_TIMEOUT_S", "240"},
+        {"TEST_PARALLEL_PARTITION_TIMEOUT_S", "90"},
         {"TEST_PARALLEL_PARTITION_KILL_GRACE_S", "1"},
         {"TEST_PARALLEL_MAX_CONCURRENT_TEMPLATE_BUILDS", "4"},
         {"TEST_PARALLEL_SHARD", nil},
@@ -133,22 +136,40 @@ defmodule Letflow.Scripts.TestParallelShardTest do
         {:args, ["-c", launcher, "launcher", bin, out_file, script()]}
       ])
 
-    status = collect(port, System.monotonic_time(:millisecond))
+    status = collect(port, System.monotonic_time(:millisecond), tmp, argv_dir)
     lines = out_file |> File.read!() |> String.replace("\r", "") |> String.split("\n")
     {status, lines, argv_dir}
   end
 
-  defp collect(port, started) do
+  defp collect(port, started, tmp, argv_dir) do
     remaining = @run_limit_ms - (System.monotonic_time(:millisecond) - started)
 
     receive do
-      {^port, {:data, _chunk}} -> collect(port, started)
+      {^port, {:data, _chunk}} -> collect(port, started, tmp, argv_dir)
       {^port, {:exit_status, status}} -> status
     after
       max(remaining, 0) ->
         Port.close(port)
-        flunk("test_parallel.sh did not finish within #{@run_limit_ms} ms")
+
+        flunk(
+          "test_parallel.sh did not finish within #{@run_limit_ms} ms\n" <>
+            hang_diagnostics(tmp, argv_dir)
+        )
     end
+  end
+
+  # GH #2380: the one observed hang left no trace of the stuck step; name it next time.
+  defp hang_diagnostics(tmp, argv_dir) do
+    for {label, path} <- [
+          {"script.out", Path.join(tmp, "script.out")},
+          {"calls.log", Path.join(argv_dir, "calls.log")},
+          {"db.log", Path.join(argv_dir, "db.log")},
+          {"ready.log", Path.join(argv_dir, "ready.log")}
+        ] do
+      body = if File.exists?(path), do: File.read!(path), else: "(missing)"
+      "--- #{label} ---\n#{body}"
+    end
+    |> Enum.join("\n")
   end
 
   defp expected_argv(total),
