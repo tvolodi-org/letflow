@@ -216,9 +216,11 @@ defmodule Letflow.Entities.ManagedTypes.TamperInventory do
       end
   end
 
-  defp types_for(:runtime), do: Stamp.stamp_names()
+  # The runtime scope is the six runtime/result names: `Stamp.stamp_names/0` now also holds the
+  # ten authoring names (GH #2680 slice 3), which the :authoring scope reads.
+  defp types_for(:runtime), do: Stamp.stamp_names() -- @authoring_names
   defp types_for(:authoring), do: @authoring_names
-  defp types_for(:all), do: Stamp.stamp_names() ++ @authoring_names
+  defp types_for(:all), do: Enum.uniq(Stamp.stamp_names() ++ @authoring_names)
 
   defp inventory_query(types, limit) do
     from(e in "events",

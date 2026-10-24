@@ -825,10 +825,18 @@ defmodule Letflow.TenantProvisioning do
     # GH #2692 (REQ-515): the `needs_reactivation_*` flag columns on `process_definitions`.
     {20_261_024_100_002, Letflow.Repo.Migrations.AddNeedsReactivationToProcessDefinitions,
      "20261024100002_add_needs_reactivation_to_process_definitions.exs"},
+    # GH #2680 slice 3: the #2596 stamp exception extended to the ten exam authoring names
+    # (16 frozen names in all). A NEW reviewed migration, as the #2596 header requires.
+    {20_261_024_120_001, Letflow.Repo.Migrations.AllowExamAuthoringManagedByStamp,
+     "20261024120001_allow_exam_authoring_managed_by_stamp.exs"},
     # GH #3091 (REQ-532, decision 0051 T13): backfills `tasks.scope_node_id` from each task's own
     # instance; re-runnable (IS NULL guard), a no-op down.
     {20_261_024_200_001, Letflow.Repo.Migrations.BackfillTasksScopeNodeId,
-     "20261024200001_backfill_tasks_scope_node_id.exs"}
+     "20261024200001_backfill_tasks_scope_node_id.exs"},
+    # GH #2688 (REQ-513 B2): partial `(dispatched_at, id) WHERE status = 'advanced'` index for the
+    # stuck-advance sweep; additive, no data change.
+    {20_261_024_300_001, Letflow.Repo.Migrations.AddStuckAdvanceIndex,
+     "20261024300001_add_stuck_advance_index.exs"}
   ]
 
   @doc """

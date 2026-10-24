@@ -171,6 +171,12 @@ handoff's `context` — never assume "whatever instance is reachable":
   overall `verdict:` still reads BLOCKED, but the report's `evidence:` must break out
   each expected outcome's own outcome by id.
 
+  A scenario whose report shows `env_limitation: SKIP` (listed under `== SKIPPED SCENARIOS ==`,
+  sidecar `disposition: skipped`, classification `UNBUILT_FEATURE` or `COVERED_ELSEWHERE`) is
+  recorded SKIPPED with the sidecar's `reason` and `issue_ref` verbatim. It is not executed,
+  it is not BLOCKED, and no issue is filed for it. The run report's counts show SKIPPED
+  separately from BLOCKED, PASS and FAIL.
+
 Result classification: a scenario that cannot run for an environment reason
 (`ENV_*`, `CREDENTIALS_MISSING`, `PRECONDITION_NOT_MET`, `ENV_NOT_SUPPORTED`) is
 BLOCKED-by-environment; `UNBUILT_FEATURE` is a real product gap and is not. If any

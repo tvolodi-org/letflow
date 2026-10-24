@@ -132,9 +132,9 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotGateTest do
         assert {:ok, report} = Stamp.run(dry_run: true)
         assert report.dry_run == true
         assert report.gate_blocked_total == 0
-        assert %{status: :stamped, rows_stamped: 6, error: nil} = report_for(report, schema)
+        assert %{status: :stamped, rows_stamped: 12, error: nil} = report_for(report, schema)
 
-        assert %{status: :stamped, rows_stamped: 6} = Stamp.run_tenant(schema, dry_run: true)
+        assert %{status: :stamped, rows_stamped: 12} = Stamp.run_tenant(schema, dry_run: true)
       end)
 
       assert_untouched!(schema)
@@ -166,7 +166,7 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotGateTest do
 
       assert Application.get_env(:letflow, :exam_snapshot_complete) == true
 
-      assert %{status: :stamped, rows_stamped: 6, error: nil} = Stamp.run_tenant(schema, [])
+      assert %{status: :stamped, rows_stamped: 12, error: nil} = Stamp.run_tenant(schema, [])
 
       for {name, values} <- Map.take(Fx.managed_by_map(schema), Fx.runtime_types()) do
         assert {name, values} == {name, ["exam"]}

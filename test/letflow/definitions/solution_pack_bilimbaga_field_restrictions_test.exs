@@ -112,17 +112,22 @@ defmodule Letflow.Definitions.SolutionPackBilimbagaFieldRestrictionsTest do
     }
   end
 
+  # GH #2680 slice 3: after the real install the exam module manages its ten authoring types, so
+  # they are written through the module's own surface (as its routes do), not `Records`.
   defp create_record!(schema, entity_type, field_values, actor_id) do
-    assert {:ok, %{record: record}} =
-             Records.create_record(
-               %{
-                 entity_type: entity_type,
-                 field_values: field_values,
-                 actor_id: actor_id,
-                 idempotency_key: Ecto.UUID.generate()
-               },
-               schema
-             )
+    attrs = %{
+      entity_type: entity_type,
+      field_values: field_values,
+      actor_id: actor_id,
+      idempotency_key: Ecto.UUID.generate()
+    }
+
+    result =
+      if entity_type in Letflow.Modules.Exam.Authoring.authoring_types(),
+        do: Letflow.Modules.Exam.Authoring.create(attrs, schema),
+        else: Records.create_record(attrs, schema)
+
+    assert {:ok, %{record: record}} = result
 
     record
   end

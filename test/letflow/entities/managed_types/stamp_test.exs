@@ -38,6 +38,9 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
   @six Fx.runtime_types()
   @ten Fx.authoring_types()
 
+  # The authoring names `activate_exam_definitions!/1` plants (no exam pack install).
+  @planted_authoring ~w(answer_option category exam exam_manual_question exam_question_rule question)
+
   # ── helpers ─────────────────────────────────────────────────────────────────────────────────
 
   defp run!(schema, opts \\ []), do: Stamp.run_tenant(schema, opts)
@@ -119,7 +122,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
   # ── (a) T-15 ────────────────────────────────────────────────────────────────────────────────
 
   describe "T-15 (AC4a): fresh install" do
-    test "install stamps exactly the six at insert; the ten stay NULL; the stamp adds 0" do
+    test "install stamps all sixteen at insert (the ten authoring names too); the stamp adds 0" do
       %{schema_name: schema} = Fx.bare_tenant!("gh2596-fresh", false)
 
       assert {:ok, _tenant_module} =
@@ -131,17 +134,17 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       map = Fx.managed_by_map(schema)
       assert Enum.sort(Map.keys(map)) == Enum.sort(@six ++ @ten)
       for name <- @six, do: assert(map[name] == ["exam"], name)
-      for name <- @ten, do: assert(map[name] == [nil], name)
+      for name <- @ten, do: assert(map[name] == ["exam"], name)
 
       for name <- @six, do: assert(ManagedTypes.owner_of(name, schema) == {:ok, "exam"}, name)
-      for name <- @ten, do: assert(ManagedTypes.owner_of(name, schema) == :unmanaged, name)
+      for name <- @ten, do: assert(ManagedTypes.owner_of(name, schema) == {:ok, "exam"}, name)
 
       before = Fx.dump(schema, @six ++ @ten)
 
       assert %{
                status: :nothing_to_stamp,
                rows_stamped: 0,
-               rows_already_stamped: 6,
+               rows_already_stamped: 16,
                types_stamped: [],
                types_absent: [],
                conflicts: [],
@@ -156,7 +159,9 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
   # ── (b) T-14 ────────────────────────────────────────────────────────────────────────────────
 
   describe "T-14 (AC4b): installed before the change" do
-    test "b1 FK-stripped legacy rows: all six stamped, the authoring rows byte-identical, a re-run adds nothing" do
+    # The legacy fixture plants the exam names it activates (`activate_exam_definitions!/1`): the six
+    # runtime types and six authoring types. The other four authoring names are absent (not planted).
+    test "b1 FK-stripped legacy rows: the twelve planted names stamped, the four absent ones reported, a re-run adds nothing" do
       %{tenant_id: tenant_id, schema_name: schema} = Fx.legacy_tenant!("gh2596-b1")
 
       # Content of the runtime types written BEFORE the stamp, as :tenant.
@@ -168,7 +173,6 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
         )
 
       {:ok, record_before} = Latest.get(session.record_id, "session", schema)
-      ten_before = Fx.dump(schema, @ten)
       assert Enum.all?(Map.values(stamped_by_name(schema)), &(&1 == [nil]))
 
       report = run!(schema)
@@ -177,17 +181,16 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
                status: :stamped,
                tenant_id: ^tenant_id,
                schema_name: ^schema,
-               rows_stamped: 6,
+               rows_stamped: 12,
                rows_already_stamped: 0,
-               types_absent: [],
+               types_absent: ["exam_question_rule_tag", "exam_section", "question_tag", "tag"],
                conflicts: [],
                exam_named_types_present: [],
                error: nil
              } = report
 
-      assert Enum.sort(report.types_stamped) == Enum.sort(@six)
+      assert Enum.sort(report.types_stamped) == Enum.sort(@six ++ @planted_authoring)
       assert_all_stamped!(schema)
-      assert Fx.dump(schema, @ten) == ten_before
       assert Fx.stamp_audit_count(schema) == 1
 
       # Records written before the stamp are untouched.
@@ -206,29 +209,27 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
                )
 
       # Second run: 0, no new audit entry, definitions byte-identical.
-      six_after_first = Fx.dump(schema, @six)
+      stamped_once = Fx.dump(schema, @six ++ @planted_authoring)
 
-      assert %{status: :nothing_to_stamp, rows_stamped: 0, rows_already_stamped: 6, error: nil} =
+      assert %{status: :nothing_to_stamp, rows_stamped: 0, rows_already_stamped: 12, error: nil} =
                run!(schema)
 
       assert Fx.stamp_audit_count(schema) == 1
-      assert Fx.dump(schema, @six) == six_after_first
+      assert Fx.dump(schema, @six ++ @planted_authoring) == stamped_once
     end
 
-    test "b2 pack-shaped rows (full foreign keys, installed as :tenant): all six stamped; the ten stay NULL" do
+    test "b2 pack-shaped rows (full foreign keys, installed as :tenant): all sixteen stamped" do
       %{schema_name: schema} = Fx.stamp_ready_tenant!("gh2596-b2")
       :ok = Fx.install_pack!(schema)
 
       map = Fx.managed_by_map(schema)
       assert Enum.sort(Map.keys(map)) == Enum.sort(@six ++ @ten)
       assert Enum.all?(Map.values(map), &(&1 == [nil]))
-      ten_before = Fx.dump(schema, @ten)
 
-      assert %{status: :stamped, rows_stamped: 6, conflicts: [], error: nil} = run!(schema)
+      assert %{status: :stamped, rows_stamped: 16, conflicts: [], error: nil} = run!(schema)
 
       assert_all_stamped!(schema)
-      assert Fx.dump(schema, @ten) == ten_before
-      for name <- @ten, do: assert(Fx.managed_by_map(schema)[name] == [nil], name)
+      for name <- @ten, do: assert(Fx.managed_by_map(schema)[name] == ["exam"], name)
 
       assert %{status: :nothing_to_stamp, rows_stamped: 0} = run!(schema)
       assert Fx.stamp_audit_count(schema) == 1
@@ -268,8 +269,8 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
 
       report = run!(schema)
 
-      assert %{status: :stamped, rows_stamped: 5, types_absent: ["certificate"], error: nil} =
-               report
+      assert %{status: :stamped, rows_stamped: 5, error: nil} = report
+      assert "certificate" in report.types_absent
 
       assert Enum.sort(report.types_stamped) == Enum.sort(@six -- ["certificate"])
       refute Map.has_key?(Fx.managed_by_map(schema), "certificate")
@@ -469,7 +470,9 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       assert Fx.managed_by_map(schema)["certificate"] == [nil, "other_module"]
     end
 
-    test "a tenant-created authoring-named type (tag) is untouched and NOT reported" do
+    # GH #2680 slice 3: `tag` is a managed name now, so a tenant's own `tag` with an incompatible
+    # shape is a named conflict (SECURITY F-4 reporting), not silently skipped. It stays untouched.
+    test "a tenant-created authoring-named type (tag) with an incompatible shape is a named conflict; untouched" do
       %{schema_name: schema} = Fx.stamp_ready_tenant!("gh2596-c-tag")
       legacy_defs!(schema, @six)
 
@@ -482,7 +485,8 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       tag_before = Fx.dump(schema, ["tag"])
       report = run!(schema)
 
-      assert %{status: :stamped, rows_stamped: 6, conflicts: [], types_absent: []} = report
+      assert %{status: :stamped, rows_stamped: 6, conflicts: [conflict]} = report
+      assert %{type: "tag", reason: :shape_not_compatible} = conflict
       assert Fx.dump(schema, ["tag"]) == tag_before
       refute "tag" in report.types_stamped
     end
@@ -504,7 +508,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       assert %{status: :stamped, rows_stamped: 5, conflicts: [%{type: "certificate"}]} =
                conflicted
 
-      assert %{status: :stamped, rows_stamped: 6, conflicts: []} = clean
+      assert %{status: :stamped, rows_stamped: 12, conflicts: []} = clean
       assert report.conflict_total >= 1
       assert report.rows_stamped_total >= 11
       assert_all_stamped!(clean_tenant.schema_name)
@@ -527,7 +531,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
 
       # The advisory pass saw `certificate` compatible; the locked re-classification saw the new
       # incompatible version and refused the whole name.
-      assert %{status: :stamped, rows_stamped: 5, error: nil} = report
+      assert %{status: :stamped, rows_stamped: 11, error: nil} = report
       assert [%{type: "certificate", reason: :shape_not_compatible}] = report.conflicts
       assert Fx.managed_by_map(schema)["certificate"] == [nil]
 
@@ -587,7 +591,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
 
       send(holder.pid, :release)
       assert {:ok, :ok} = Task.await(holder, 30_000)
-      assert %{status: :stamped, rows_stamped: 6, error: nil} = Task.await(stamp_task, 60_000)
+      assert %{status: :stamped, rows_stamped: 12, error: nil} = Task.await(stamp_task, 60_000)
 
       # After the commit the name is managed: the creator is refused.
       assert {:error, :entity_type_managed} = Task.await(creator, 60_000)
@@ -642,14 +646,28 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
     test ":exception_not_installed: a tenant whose schema_migrations lacks the exception version is reported, not touched; restoring it lets the stamp proceed" do
       %{schema_name: schema} = Fx.legacy_tenant!("gh2596-d-noexception")
       :ok = Fx.forget_exception_migration!(schema)
-      before = Fx.dump(schema, @six)
+      before = Fx.dump(schema, @six ++ @planted_authoring)
+
+      # T-A8 (GH #2680 slice 3): the tenant is an OLD-migration tenant. Only the new version
+      # (20_261_024_120_001) is missing; the six-name exception 20261016120001 is still applied.
+      assert [[20_261_016_120_001]] =
+               Repo.query!(
+                 ~s|SELECT version FROM "#{schema}".schema_migrations WHERE version = $1|,
+                 [
+                   20_261_016_120_001
+                 ]
+               ).rows
 
       assert %{status: :exception_not_installed, rows_stamped: 0, error: nil} = run!(schema)
       assert %{status: :exception_not_installed} = run!(schema, dry_run: true)
-      assert Fx.dump(schema, @six) == before
+      assert Fx.dump(schema, @six ++ @planted_authoring) == before
 
       :ok = Fx.remember_exception_migration!(schema)
-      assert %{status: :stamped, rows_stamped: 6} = run!(schema)
+
+      # Counted, not assumed: the legacy tenant plants the six runtime names and the six authoring
+      # names in @planted_authoring (legacy_tenant!/1). The other four authoring names are absent,
+      # so the sixteen-name stamp stamps the twelve rows that exist, not a fixed sixteen.
+      assert %{status: :stamped, rows_stamped: 12} = run!(schema)
     end
   end
 
@@ -697,12 +715,10 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       assert {:error, :unsupported_module} = Letflow.Release.ManagedTypes.stamp(module: "other")
     end
 
-    test "the audit entry carries the action, names and counts only; the ten authoring rows are byte-identical" do
+    test "the audit entry carries the action, names and counts only (no row contents)" do
       %{tenant_id: tenant_id, schema_name: schema} = Fx.legacy_tenant!("gh2596-audit")
-      ten_present = Fx.dump(schema, @ten)
-      assert ten_present != []
 
-      assert %{status: :stamped, rows_stamped: 6} = run!(schema)
+      assert %{status: :stamped, rows_stamped: 12} = run!(schema)
 
       assert [[actor_id, "entity_definitions", resource_id, after_state]] = audit_entries(schema)
       assert actor_id == nil
@@ -713,12 +729,10 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       assert Enum.sort(Map.keys(decoded)) ==
                ~w(conflicts module rows_stamped source types_stamped)
 
-      assert %{"module" => "exam", "rows_stamped" => 6, "source" => "release_stamp"} = decoded
-      assert Enum.sort(decoded["types_stamped"]) == Enum.sort(@six)
+      assert %{"module" => "exam", "rows_stamped" => 12, "source" => "release_stamp"} = decoded
+      assert Enum.sort(decoded["types_stamped"]) == Enum.sort(@six ++ @planted_authoring)
       refute after_state =~ "definition_json"
       refute after_state =~ "fields"
-
-      assert Fx.dump(schema, @ten) == ten_present
     end
   end
 
@@ -764,13 +778,13 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
 
       assert %{status: :failed, error: :lock_timeout, rows_stamped: 0} = failed
       assert Enum.all?(Map.values(stamped_by_name(locked.schema_name)), &(&1 == [nil]))
-      assert %{status: :stamped, rows_stamped: 6, error: nil} = ok
+      assert %{status: :stamped, rows_stamped: 12, error: nil} = ok
       assert report.failed_total >= 1
 
       send(holder.pid, :release)
       assert {:ok, :ok} = Task.await(holder, 30_000)
 
-      assert %{status: :stamped, rows_stamped: 6, error: nil} = run!(locked.schema_name)
+      assert %{status: :stamped, rows_stamped: 12, error: nil} = run!(locked.schema_name)
       assert_all_stamped!(locked.schema_name)
     end
 
@@ -791,7 +805,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
                  lock_timeout_ms: 1
                )
 
-      assert %{status: :stamped, rows_stamped: 6, error: nil} = report_for(report, schema)
+      assert %{status: :stamped, rows_stamped: 12, error: nil} = report_for(report, schema)
     end
 
     test "the Mix task: --dry-run prints a summary and a conflict line and stamps nothing; bad arguments raise the usage" do

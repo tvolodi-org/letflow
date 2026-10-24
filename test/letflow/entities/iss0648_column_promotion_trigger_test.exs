@@ -68,14 +68,11 @@ defmodule Letflow.Entities.ISS0648ColumnPromotionTriggerTest do
     %{tenant_id: tenant_id, schema_name: schema_name}
   end
 
+  # GH #2581 / GH #2680 slice 3: `tag`, `question` and the other exam names are reserved on a tenant
+  # without the exam module, so the first version is planted (the same bypass as the exam fixtures),
+  # then activated by the caller.
   defp create_definition!(schema, definition) do
-    assert {:ok, entity_definition} =
-             Definitions.create_definition(
-               %{definition: definition, created_by: Ecto.UUID.generate()},
-               schema
-             )
-
-    entity_definition
+    Letflow.ManagedTypesSupport.plant_legacy_definition!(schema, definition)
   end
 
   defp activate!(schema, name) do

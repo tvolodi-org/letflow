@@ -43,6 +43,14 @@
 #                                        instead of performing its own OIDC grant.
 #                                        See ISS-0909(d), ISS-0936.
 #   --scenarios          corpus dir (default test/fixtures/uat/scenarios); _throwaway skipped
+#   --env-limitations    sidecar dir (default test/fixtures/uat/scenario-env-limitations). Sidecar
+#                        fields: scenario_id, applies_to_environments, classification, reason,
+#                        issue_ref, recorded_by, recorded_at, review; optional
+#                        applies_to_expected_outcomes (partial scope) and optional
+#                        disposition: skipped (REQ-533): the scenario is reported SKIP, listed under
+#                        SKIPPED SCENARIOS and not counted toward GAP / ENV_NOT_READY. Valid
+#                        classifications for skipped: UNBUILT_FEATURE, COVERED_ELSEWHERE. Not
+#                        combinable with applies_to_expected_outcomes (exit 2).
 #   --sha                expected deployed build (default: `git rev-parse origin/main`). A deployed
 #                        build that differs from it is OK when `git diff --name-only` between the
 #                        two has no runtime path (GH #3044; docs/, test/, handoffs/, .github/,
@@ -119,7 +127,7 @@ class P(argparse.ArgumentParser):
 
 ap = P(add_help=False)
 ap.add_argument("--base-url"); ap.add_argument("--environment"); ap.add_argument("--credential-source")
-ap.add_argument("--scenarios"); ap.add_argument("--sha"); ap.add_argument("--idp-url"); ap.add_argument("--out")
+ap.add_argument("--env-limitations"); ap.add_argument("--scenarios"); ap.add_argument("--sha"); ap.add_argument("--idp-url"); ap.add_argument("--out")
 ap.add_argument("--credential-protocol", choices=["qa-login", "qa-uat-env"], default="qa-login")
 a = ap.parse_args(sys.argv[1:])
 for req in ("base_url", "environment", "credential_source"):
@@ -215,7 +223,7 @@ scenarios = [parse_scenario(f) for f in files]
 # test/fixtures/uat/scenario-env-limitations/<scenario_id>.yaml -- NOT scenario files,
 # deliberately outside scen_dir's glob. See docs/agents/workflows/WF-05_uat_run.md Step 0
 # item 3 ("environment-structural (permanent)") and ISS-0895.
-env_limit_dir = os.path.join(REPO, "test/fixtures/uat/scenario-env-limitations")
+env_limit_dir = a.env_limitations or os.path.join(REPO, "test/fixtures/uat/scenario-env-limitations")
 env_limitations = {}  # scenario_id -> dict
 def parse_env_limitation(path):
     raw = open(path, encoding="utf-8").read()
@@ -226,17 +234,22 @@ def parse_env_limitation(path):
         except Exception:
             d = {}
     if not d:  # tolerant fallback
-        for key in ("scenario_id", "classification", "issue_ref", "recorded_by", "recorded_at"):
+        for key in ("scenario_id", "classification", "issue_ref", "recorded_by", "recorded_at", "disposition"):
             m = re.search(r"^%s:\s*(\S+)" % key, raw, re.M)
             if m: d[key] = m.group(1).strip("\"'")
         m = re.search(r"^applies_to_environments:\s*\[([^\]]*)\]", raw, re.M)
         d["applies_to_environments"] = [x.strip().strip("\"'") for x in m.group(1).split(",")] if m else []
+        m = re.search(r"^applies_to_expected_outcomes:[ \t]*(\[[^\]]*\]|\n(?:[ \t]*-.*\n?)+)", raw, re.M)
+        if m: d["applies_to_expected_outcomes"] = [x.strip("\"'") for x in re.split(r"[\s,\[\]]+|^\s*-\s*", m.group(1), flags=re.M) if x.strip("\"'")]
         m = re.search(r"^reason:\s*>?\s*\n((?:[ \t]+.*\n?)+)", raw, re.M)
         d["reason"] = " ".join(l.strip() for l in m.group(1).splitlines()).strip() if m else ""
     return d
 for f in sorted(glob.glob(os.path.join(env_limit_dir, "*.yaml"))):
     d = parse_env_limitation(f)
     sid = d.get("scenario_id")
+    if d.get("disposition") == "skipped" and d.get("applies_to_expected_outcomes"):
+        usage_err("%s: disposition skipped cannot be combined with applies_to_expected_outcomes "
+                  "(a partly covered scenario must still run its other outcomes)" % f)
     if sid: env_limitations[sid] = d
 
 # ------------------------------------------------------- process-definition-alias sidecars
@@ -566,6 +579,7 @@ else:
 # ---------------------------------------------------------------- per-scenario checks
 CHECKS = ["spec", "local_deps", "feature", "tenant", "realm", "actors", "app_roles", "definitions", "env_limitation"]
 rows = []
+skipped = {}  # scenario_id -> sidecar with disposition skipped (REQ-533)
 def spec_path(s): return os.path.join(REPO, s["pipeline_test"]) if s["pipeline_test"] else None
 
 # ISS-0909(b): local_deps must catch a spec that ACTUALLY invokes local-only tooling
@@ -779,15 +793,21 @@ for s in scenarios:
     else:
         eo_scope = lim.get("applies_to_expected_outcomes")
         reason_ = "%s: %s" % (lim.get("classification", "ENV_NOT_SUPPORTED"), lim.get("reason", ""))
-        if eo_scope:
-            reason_ += " (scope: %s only; other expected outcomes in this scenario are " \
-                "unaffected and must still be verified)" % ", ".join(eo_scope)
-        c["env_limitation"] = (
-            "GAP",
-            reason_,
-            "environment-structural (permanent; issue_ref=%s) -- no prep remediation; "
-            "re-running preflight will report this same GAP by design" % lim.get("issue_ref", "?"),
-        )
+        if lim.get("disposition") == "skipped":
+            skipped[s["id"]] = lim
+            c["env_limitation"] = (
+                "SKIP", reason_,
+                "skipped scenario (issue_ref=%s) -- not executed, not BLOCKED, no issue filed" % lim.get("issue_ref", "?"))
+        else:
+            if eo_scope:
+                reason_ += " (scope: %s only; other expected outcomes in this scenario are " \
+                    "unaffected and must still be verified)" % ", ".join(eo_scope)
+            c["env_limitation"] = (
+                "GAP",
+                reason_,
+                "environment-structural (permanent; issue_ref=%s) -- no prep remediation; "
+                "re-running preflight will report this same GAP by design" % lim.get("issue_ref", "?"),
+            )
     rows.append((s, c))
 
 # ---------------------------------------------------------------- report
@@ -827,13 +847,25 @@ for k, (st_, why, own) in g.items():
         P_("[%s] GLOBAL/%s: %s  -> owner: %s" % (st_, k, why, own or "-"))
         if st_ == "GAP": bad_scen.add("*")
 for s, c in rows:
+    is_skipped = s["id"] in skipped
     for k in CHECKS:
         st_, why, own = c[k]
+        if is_skipped:  # shown, never counted: the scenario will not be driven
+            if st_ not in ("OK", "SKIP"):
+                P_("[SKIPPED/%s] %s/%s: %s  -> owner: %s  (not counted)" % (st_, s["id"], k, why, own or "-"))
+            continue
         counts[st_] += 1
         if st_ != "OK":
             P_("[%s] %s/%s: %s  -> owner: %s" % (st_, s["id"], k, why, own or "-"))
             if st_ == "GAP": bad_scen.add(s["id"])
 P_("")
+if skipped:
+    P_("== SKIPPED SCENARIOS ==")
+    for sid in sorted(skipped):
+        lim = skipped[sid]
+        P_("%s  classification=%s  issue_ref=%s" % (sid, lim.get("classification", "?"), lim.get("issue_ref", "?")))
+        P_("  reason: %s" % lim.get("reason", ""))
+    P_("")
 gap_scen = sorted(x for x in bad_scen if x != "*")
 ready = counts["GAP"] == 0
 P_("== SUMMARY ==")
@@ -846,6 +878,7 @@ print(text)
 if a.out:
     summ = {"environment": a.environment, "base_url": base, "expected_sha": exp_sha,
             "result": "ENV_READY" if ready else "ENV_NOT_READY", "counts": counts,
+            "skipped": sorted(skipped),
             "global": {k: {"status": v[0], "reason": v[1], "owner": v[2]} for k, v in g.items()},
             "scenarios": {s["id"]: {k: {"status": c[k][0], "reason": c[k][1], "owner": c[k][2]} for k in CHECKS} for s, c in rows}}
     with open(winpath(a.out), "w", encoding="utf-8") as fh: json.dump(summ, fh, indent=2)

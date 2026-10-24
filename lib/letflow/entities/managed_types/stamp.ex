@@ -5,11 +5,16 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   `lib/letflow/design/gh2596-exam-managed-types.md` section 6). It is the ONLY writer allowed to
   set `entity_definitions.managed_by` after insert: the single documented exception to REQ-496
   D3 immutability (decision 0050 D7), opened in the database by the migration
-  `AllowExamManagedByStamp` and by a transaction-local setting that only this module sets.
+  `AllowExamManagedByStamp` (GH #2596) and `AllowExamAuthoringManagedByStamp` (GH #2680 slice 3),
+  and by a transaction-local setting that only this module sets.
 
-  Frozen names (`stamp_names/0`, equal to the migration's literal array): `certificate`,
-  `session`, `session_answer`, `session_event`, `session_question`, `session_question_score`.
-  The ten authoring types are never candidates.
+  Frozen names (`stamp_names/0`, equal to the migrations' literal array): the six runtime types
+  `certificate`, `session`, `session_answer`, `session_event`, `session_question`,
+  `session_question_score` (GH #2596) and the ten exam authoring types `exam`, `exam_section`,
+  `exam_question_rule`, `exam_question_rule_tag`, `exam_manual_question`, `question`,
+  `answer_option`, `question_tag`, `tag`, `category` (GH #2680 slice 3).
+  Both sets are candidates only through the exam module's own `manages_entity_types`; no other
+  name can be stamped.
 
   Shape follows `Letflow.Identity.RoleScopeGrants.Backfill`: sequential over
   `Letflow.TenantProvisioning.list_registrations/0`, ONE transaction per tenant, none across
@@ -85,11 +90,12 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.Registration
 
-  # Equal to `AllowExamManagedByStamp.stamp_names/0` (test T-10).
-  @stamp_names ~w(certificate session session_answer session_event session_question session_question_score)
+  # Equal to `AllowExamAuthoringManagedByStamp.stamp_names/0` (test T-10).
+  @stamp_names ~w(certificate session session_answer session_event session_question session_question_score exam exam_section exam_question_rule exam_question_rule_tag exam_manual_question question answer_option question_tag tag category)
 
-  # The tenant-schema `schema_migrations` version of `AllowExamManagedByStamp`.
-  @exception_version 20_261_016_120_001
+  # The tenant-schema `schema_migrations` version of `AllowExamAuthoringManagedByStamp` (it opens
+  # all sixteen names; a tenant with only the #2596 six-name migration is not stamp-ready).
+  @exception_version 20_261_024_120_001
 
   @default_lock_timeout_ms 3_000
   @statement_timeout_ms 30_000
