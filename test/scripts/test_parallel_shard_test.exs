@@ -402,7 +402,7 @@ defmodule Letflow.Scripts.TestParallelShardTest do
   end
 
   # GH #2380 step 2: TEST_PARALLEL_MANIFEST assigns each global partition its own file list
-  # (scripts/test_shard_manifest.txt). These run the real script on a small manifest of
+  # (test/shard_manifest.txt). These run the real script on a small manifest of
   # 16 partitions x 2 files, shard 2 of 4 (partitions 5..8).
   describe "TEST_PARALLEL_MANIFEST (explicit file list per partition)" do
     test "manifest shard 2 of 4 runs its own files, no partitions arg",

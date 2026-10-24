@@ -4,7 +4,7 @@ defmodule Letflow.Scripts.TestShardManifestCoverageTest do
   `test/**/*_test.exs` file in exactly one global partition, and the partitions tile the
   shards of `TEST_PARALLEL_SHARD=K/4` (N=4 partitions each).
 
-  The timing manifest `scripts/test_shard_manifest.txt` is a balance hint: a file it does not
+  The timing manifest `test/shard_manifest.txt` is a balance hint: a file it does not
   list still runs, in the partition `Letflow.Test.TestShardManifest.fallback_partition/2`
   picks, and a line for a file that is gone is skipped. So a test file added or removed on main
   fails none of these tests; the script logs it (`test_parallel: unlisted file ...` and a
@@ -18,12 +18,12 @@ defmodule Letflow.Scripts.TestShardManifestCoverageTest do
   alias Letflow.Test.TestShardManifest
 
   @repo_root Path.expand("../..", __DIR__)
-  @manifest Path.join(@repo_root, "scripts/test_shard_manifest.txt")
+  @manifest Path.join(@repo_root, "test/shard_manifest.txt")
   @partitions_per_shard 4
   @shards 4
   @total @partitions_per_shard * @shards
 
-  @fix_command "scripts/test_shard_plan.sh --append scripts/test_shard_manifest.txt > new && mv new scripts/test_shard_manifest.txt"
+  @fix_command "scripts/test_shard_plan.sh --append test/shard_manifest.txt > new && mv new test/shard_manifest.txt"
 
   defp manifest_lines do
     @manifest

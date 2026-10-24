@@ -70,7 +70,7 @@
 #
 # GH #2380 step 2 (balanced shards, opt-in): TEST_PARALLEL_MANIFEST=<file> gives each global
 #   partition its own list of test files instead of Mix's round-robin over the sorted file list.
-#   The manifest (scripts/test_shard_manifest.txt, built by scripts/test_shard_plan.sh) has the
+#   The manifest (test/shard_manifest.txt, built by scripts/test_shard_plan.sh) has the
 #   header `# partitions: P`, which must equal TOTAL (N*M), and each partition of this runner's
 #   slice must get at least one file; otherwise the run exits 1 before anything is compiled. A
 #   test file on disk the manifest does not list runs in one partition chosen by a hash of its

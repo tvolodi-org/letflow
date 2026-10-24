@@ -606,8 +606,8 @@ jobs:
   # The manifest is a balance hint: a test file it does not list still runs, in one partition
   # picked by a hash of its path, and a line for a removed file is skipped; the leg logs both
   # (`test_parallel: unlisted file ...`, `manifest drift: N`). To keep the balance, after adding
-  # or removing test files: `scripts/test_shard_plan.sh --append scripts/test_shard_manifest.txt
-  # > new && mv new scripts/test_shard_manifest.txt`.
+  # or removing test files: `scripts/test_shard_plan.sh --append test/shard_manifest.txt
+  # > new && mv new test/shard_manifest.txt`.
   # Same `if:` reasoning as backend_static. fetch-depth: 0 is kept (not a shallow clone):
   # several tests shell out to git (e.g. test/letflow/login_directory/no_secret_in_repo_test.exs)
   # and a shallow checkout would change what the suite sees relative to today's gate; the
@@ -723,10 +723,10 @@ jobs:
           # TEST_POOL_SIZE = 71 / 4 = 17; worst case 4*17 + 16 + 2 external = 86 of 97.
           TEST_NONPOOL_CONNECTION_RESERVE: 16
           # GH #2380 step 2: each global partition runs the files its timing manifest lists
-          # (scripts/test_shard_manifest.txt, built by scripts/test_shard_plan.sh; header total
+          # (test/shard_manifest.txt, built by scripts/test_shard_plan.sh; header total
           # must be N*M = 16), plus any unlisted test file whose path hashes to it. Unset, the
           # partitions use Mix's round-robin over the file list.
-          TEST_PARALLEL_MANIFEST: scripts/test_shard_manifest.txt
+          TEST_PARALLEL_MANIFEST: test/shard_manifest.txt
           # GH #2380 step 1 (log-only): per-file test times for rebalancing the shards. The
           # --slowest-modules value is at least the largest partition: the manifest
           # (896 files in 16 partitions, TEST_PARALLEL_N=4 x matrix M=4) puts 63 files on the

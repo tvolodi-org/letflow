@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates and extends the backend test shard manifest (scripts/test_shard_manifest.txt).
+# Regenerates and extends the backend test shard manifest (test/shard_manifest.txt).
 #
 # GH #2380 step 2. The manifest assigns every test/**/*_test.exs file to one of P global
 # partitions (P = TEST_PARALLEL_N x M). scripts/test_parallel.sh reads it when
