@@ -37943,8 +37943,10 @@ requirements:
       no skipped status anywhere. A sidecar alone therefore cannot make a scenario "skipped, not BLOCKED";
       that needs this change to the mechanism.
       CHANGE: (1) a sidecar may carry an optional field disposition with the value skipped (absent = today's
-      behaviour, unchanged for the existing sidecars platform-partition-retention-drop and
-      tenant-switch-cache-isolation). (2) scripts/uat_preflight.sh: for a matching sidecar with disposition
+      behaviour, unchanged for every existing sidecar; there are four on main on 2026-10-24:
+      meridian-loan-origination-kyc-manual-review, platform-partition-retention-drop,
+      platform-tenant-switch-cache-isolation and swiftroute-tenant-onboarding-happy, none with a disposition
+      field). (2) scripts/uat_preflight.sh: for a matching sidecar with disposition
       skipped (environment in applies_to_environments, as today), env_limitation is reported SKIP, not GAP;
       the scenario is listed in a new "== SKIPPED SCENARIOS ==" section with classification, reason and
       issue_ref; none of that scenario's checks counts toward GAP or toward ENV_NOT_READY (its other checks
@@ -37963,7 +37965,7 @@ requirements:
       NOT in this entry: the sidecars for the three scenarios (REQ-532), any scenario file, any lib/ or web/ file.
     acceptance_criteria:
       - "a fixture sidecar with disposition skipped and a matching environment makes the preflight print env_limitation SKIP for that scenario, list it under SKIPPED SCENARIOS with classification, reason and issue_ref, and leave the GAP counts and the RESULT line as they are without that scenario (a run over a fixture corpus in which that scenario would otherwise add GAPs, real output quoted)"
-      - "the two existing sidecars (no disposition field) are reported exactly as before: env_limitation GAP with the same text and the same effect on RESULT (before and after output compared, quoted)"
+      - "each of the four existing sidecars (meridian-loan-origination-kyc-manual-review, platform-partition-retention-drop, platform-tenant-switch-cache-isolation, swiftroute-tenant-onboarding-happy; none has a disposition field) is reported exactly as before: env_limitation GAP with the same text and the same effect on RESULT (before and after output compared per sidecar, quoted; any further sidecar added on main before the build is covered the same way)"
       - "a sidecar that has both disposition skipped and applies_to_expected_outcomes makes the preflight exit non-zero with a message naming the sidecar file"
       - "a sidecar for an environment slug other than the --environment value is ignored, as today"
       - ".claude/agents/uat-runner.md and docs/agents/workflows/WF-05_uat_run.md state the SKIPPED rule: recorded with reason and issue_ref verbatim, not executed, not BLOCKED, no new issue filed (each of the four statements can be found by quote in the diff)"
@@ -38036,7 +38038,12 @@ requirements:
       ack_destructive are present); Class C is forbidden. D8 lists what an upgrade may not do. The scenario's
       second set (make a field compulsory before it is filled) is that Class B rule, and its corrected set
       (add optional, fill in batches, then make compulsory) is a covering step. This entry uses 0055's class
-      names and the same rule for the NOT NULL case and defines no second vocabulary. What 0055 does not say
+      names (A/B/C) for classifying. 0055 D2 refuses Class B unless the new version declares a covering step AND
+      the apply carries ack_destructive whose set equals the plan's Class B step ids (making an existing field
+      required, i.e. constraint tightening, is Class B too). A platform-wide set has no per-tenant apply, so
+      whether it needs that acknowledgement is an open question below; this entry carries the acknowledgement
+      in the input (field ack_destructive, a list of change ids) and reports its absence or mismatch as a
+      separate violation kind, but does not decide that the platform must demand it outside review/1. What 0055 does not say
       is how a platform-wide change that holds every workspace locked for an unbounded time (the scenario's
       example: reworking stored history in place) is classed, and where a platform-level review is called
       from; those are the open questions below and are not settled in a criterion. 0055's plan route is a
@@ -38045,21 +38052,34 @@ requirements:
       SURFACE (test seam): a new pure module Letflow.Platform.ChangeSetReview in lib/letflow/platform/ with
       review(change_set) returning {:ok, plan} or {:error, {:rejected, violations}}; a violation carries the
       change, the 0055 class where one applies, and the missing preparation. No HTTP route, no database
-      access, no tenant data, so INV-1 is not engaged. The change vocabulary is taken from the change shape of
-      MigrationRollout, which this entry does not modify. The verdict depends on the change set alone and the
-      violations come in a fixed order (EO-003).
+      access, no tenant data, so INV-1 is not engaged.
+      INPUT (a NEW shape, not MigrationRollout's): MigrationRollout's column_spec
+      (lib/letflow/platform/migration_rollout.ex:118-128) allows only required(:nullable) => true plus pg_type,
+      references_entity and generated_as, and the module knows exactly one change kind, so it cannot express a
+      NOT NULL column, a default, a backfill or a history rewrite. review/1 takes
+      %{changes: [change], ack_destructive: [change_id]} where every change has id (string, unique in the set)
+      and kind, one of: add_column (fields entity_type, attribute, pg_type, nullable boolean, default optional),
+      backfill (entity_type, attribute), set_not_null (entity_type, attribute), rewrite_stored_history
+      (entity_type). "Ordered before" means earlier in the changes list. An unknown kind or a missing field
+      returns {:error, {:invalid_change_set, reason}}, not a violation. This entry does not modify
+      MigrationRollout. The verdict depends on the change set alone and the violations come in a fixed order
+      (by change id) (EO-003); the "same set in a different order" check in EO-003 compares verdicts for the
+      same list contents reordered only where no ordering constraint (backfill before set_not_null) is broken.
       NOT in this entry: EO-004 (three-stage execution); EO-005 (reserved names), which is already enforced
       for module-managed types by REQ-496 / GH #2530 (Letflow.Entities.Definitions returns
       {:error, {:managed_name_taken, name}} and the definitions API answers the uniform 403 of decision 0050
       D7), so REQ-496 is cited and no entry is written for it; and any route.
     open_questions:
       - "Whether a change that holds a workspace locked for an unbounded time (in-place rewrite of stored history) is a new class beside 0055's A/B/C, or Class C. 0055 does not say. The platform owner decides, by a decision record; until then review/1 reports it as a violation of kind unbounded_lock and does not name a class."
+      - "Whether a platform-wide change set needs the ack_destructive acknowledgement of 0055 D2 for Class B changes, and who gives it (a platform set has no per-tenant apply). review/1 reports a covered set_not_null change without acknowledgement as violation kind missing_ack and does not decide the policy; the owner decides by a decision record."
       - "Whether MigrationRollout.start_rollout/3 must call review/1, whether a platform-operator route exposes it, and how it relates to 0055's per-tenant plan. This entry changes none of them; EO-004 depends on the answer."
       - "Whether the scenario's 'a name the platform reserves' (step 6, EO-005) means only the managed type names REQ-496 already refuses, or a wider list. If wider, the owner names the list and a requirement is then written."
     acceptance_criteria:
       - "a test: a change set of three changes, one an in-place rewrite of stored history, returns {:error, {:rejected, violations}} naming that change and no other; no change of the set appears in an accepted plan"
-      - "a test: a change set containing a NOT NULL column without default or backfill is rejected with a violation naming the column and Class B; the same column with a default, or with a backfill change ordered before the constraint, is accepted"
-      - "a test: review/1 called twice on the same set, and on the same set listed in a different order, returns equal verdicts and equal violation lists"
+      - "a test: a set with add_column (nullable true) then set_not_null on it, no default and no backfill, is rejected with a violation naming the column and Class B"
+      - "a test: the same set with a backfill change ordered between them and the set_not_null id listed in ack_destructive is accepted; with the backfill but an empty ack_destructive it returns a missing_ack violation naming the change id (the ack policy itself stays an open question); with the backfill after the set_not_null it is rejected as not covered"
+      - "a test: a change set whose kind is unknown, or whose change lacks a required field, returns {:error, {:invalid_change_set, _}} and no violations list"
+      - "a test: review/1 called twice on the same set, and on the same set with its independent changes (no backfill/set_not_null ordering involved) listed in a different order, returns equal verdicts and equal violation lists (ordered by change id)"
       - "a test: a set with two violations returns both (the whole set is reviewed, not stopped at the first)"
       - "a test: review/1 runs without the Ecto sandbox checked out; git diff shows lib/letflow/platform/migration_rollout.ex and every router untouched"
       - "the summary quotes the 0055 D2 table rows used and a grep showing lib/letflow/module_upgrade/ does not exist; mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test of the new test file and mix letflow.check_requirements_registration pass, real output quoted"
