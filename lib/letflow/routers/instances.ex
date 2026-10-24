@@ -44,6 +44,22 @@ defmodule Letflow.Routers.Instances do
   explicit-`null` key through, so an explicit JSON `null` and an absent key
   are indistinguishable to `Engine.create/2`'s own XOR check either way.
 
+  ## `POST /instances` — `scope_node_id` (REQ-531, decision 0051 T13)
+
+  The optional body field `scope_node_id` names the scope node the instance is started under (set once,
+  never changed; absent or `null` is an unscoped start and behaves exactly as before). A non-string or
+  empty value is the ordinary 422 field error. Otherwise `authorize_start_scope/2` runs in EVERY
+  enforcement mode (it guards the new input, not the flag): a tenant-wide, token or platform principal
+  passes, a scoped principal only for a node inside its `InstancesStart` grants, and a principal with no
+  applicable grant rows is refused. `Engine.create/2` then checks the node exists and is not retired.
+  Unknown, retired, out-of-scope and other-tenant nodes all answer ONE 422 (`scope_node_id does not name
+  an active scope node`, INV-5). The check runs before the idempotent-replay lookup, so a scoped caller
+  who repeats a start after the node was retired, or after its grant narrowed, gets the 422 instead of the
+  original 201; tenant-wide and token callers still get the replay. Under the stored flag `on` this route
+  is still a tenant-wide default route (`Letflow.Api.Scope.Enforce` answers 403 to a scoped-only starter
+  before the handler), so a scoped caller is accepted here in `off` and `shadow` only. Both GET reads
+  return the field (`null` when unscoped); the read filters are unchanged.
+
   ## Cancelling a terminal instance is 409, not 404 or 500
 
   Both already-`COMPLETED` and already-`CANCELLED` map to 409, with a
@@ -584,6 +600,12 @@ defmodule Letflow.Routers.Instances do
       reject_empty_string: true
     },
     %FieldConstraint{name: "correlation_key", required: false, type: :string},
+    %FieldConstraint{
+      name: "scope_node_id",
+      required: false,
+      type: :string,
+      reject_empty_string: true
+    },
     %FieldConstraint{name: "initial_variables", required: true, type: :object}
   ]
 
@@ -593,6 +615,7 @@ defmodule Letflow.Routers.Instances do
 
     with {:ok, body} <- object_body(conn),
          {:ok, attrs} <- validate_schema(@create_schema, body),
+         :ok <- authorize_start_scope(conn, Map.get(attrs, "scope_node_id")),
          {:ok, idempotency_key} <- Idempotency.from_header(conn, :inst_start, actor_id, nil) do
       create_attrs = create_attrs(attrs, actor_id, idempotency_key)
       render_create(conn, Engine.create(create_attrs, opts))
@@ -608,6 +631,9 @@ defmodule Letflow.Routers.Instances do
 
       {:error, :idempotency_key_invalid} ->
         idempotency_key_invalid(conn)
+
+      {:error, :invalid_scope_node} ->
+        render_create(conn, {:error, :invalid_scope_node})
     end
   end
 
@@ -624,6 +650,24 @@ defmodule Letflow.Routers.Instances do
     |> maybe_put(:definition_id, Map.get(attrs, "definition_id"))
     |> maybe_put(:definition_name, Map.get(attrs, "definition_name"))
     |> maybe_put(:correlation_key, Map.get(attrs, "correlation_key"))
+    |> maybe_put(:scope_node_id, Map.get(attrs, "scope_node_id"))
+  end
+
+  # REQ-531: a start that names a scope node is checked like a grant, in EVERY enforcement mode (it
+  # guards the new input, not the flag). Tenant-wide, token and platform principals are allowed here
+  # (the engine then checks the node exists and is active); a scoped principal only inside its
+  # grants. Unknown, retired, out-of-scope, other-tenant and no-principal all answer the one 422
+  # (INV-5). No node: nothing is read, the start behaves as before.
+  defp authorize_start_scope(_conn, nil), do: :ok
+
+  defp authorize_start_scope(conn, node_id) do
+    with {:ok, _conn, principal} <- Letflow.Api.Scope.principal_from_conn(conn),
+         {:allow, _why} <-
+           Letflow.Api.Scope.allowed?(principal, :InstancesStart, {:node, node_id}) do
+      :ok
+    else
+      _denied -> {:error, :invalid_scope_node}
+    end
   end
 
   defp maybe_put(map, _key, nil), do: map
@@ -653,6 +697,9 @@ defmodule Letflow.Routers.Instances do
   defp render_create(conn, {:error, reason})
        when reason in [:tenant_id_not_accepted, :invalid_initial_variables],
        do: Response.unprocessable(conn, "request body failed validation")
+
+  defp render_create(conn, {:error, :invalid_scope_node}),
+    do: Response.unprocessable(conn, "scope_node_id does not name an active scope node")
 
   defp render_create(conn, {:error, :idempotency_key_reuse}),
     do: Response.send_problem(conn, Error.idempotency_key_reuse())
@@ -940,6 +987,7 @@ defmodule Letflow.Routers.Instances do
       "instance_id" => projection.instance_id,
       "definition_id" => projection.definition_id,
       "correlation_key" => projection.correlation_key,
+      "scope_node_id" => projection.scope_node_id,
       "status" => status_string(projection.status),
       "variables" =>
         Response.public_variables(projection.variables, projection.variable_labels, hidden),
@@ -995,6 +1043,7 @@ defmodule Letflow.Routers.Instances do
       "instance_id" => projection.instance_id,
       "definition_id" => projection.definition_id,
       "correlation_key" => projection.correlation_key,
+      "scope_node_id" => projection.scope_node_id,
       "status" => status_string(projection.status),
       "started_at" => DateTime.to_iso8601(projection.started_at)
     }

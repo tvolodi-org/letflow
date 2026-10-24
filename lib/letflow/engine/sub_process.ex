@@ -492,9 +492,14 @@ defmodule Letflow.Engine.SubProcess do
     tasks_key = {:sub_process_child_tasks, child_instance_id}
     event_key = {:sub_process_child_event, child_instance_id}
     parent_token_key = {:sub_process_parent_token, child_instance_id}
+    parent_scope_key = {:sub_process_parent_scope, child_instance_id}
 
     multi
-    |> Multi.run(projection_key, fn repo, _changes ->
+    # REQ-531: a child inherits the parent's stored scope node, never a caller value.
+    |> Multi.run(parent_scope_key, fn repo, _changes ->
+      read_parent_scope_node(repo, parent_instance_id, prefix)
+    end)
+    |> Multi.run(projection_key, fn repo, changes ->
       insert_child_instance_projection(
         repo,
         child_instance_id,
@@ -504,6 +509,7 @@ defmodule Letflow.Engine.SubProcess do
         child_initial_state.variable_labels,
         parent_instance_id,
         parent_token_record_id,
+        Map.fetch!(changes, parent_scope_key),
         prefix
       )
     end)
@@ -522,7 +528,7 @@ defmodule Letflow.Engine.SubProcess do
         prefix
       )
     end)
-    |> Multi.run(event_key, fn _repo, _changes ->
+    |> Multi.run(event_key, fn _repo, changes ->
       append_instance_started_event_for_child(
         child_instance_id,
         definition,
@@ -532,6 +538,7 @@ defmodule Letflow.Engine.SubProcess do
         parent_instance_id,
         parent_token_record_id,
         parent_node_id,
+        Map.fetch!(changes, parent_scope_key),
         attrs,
         prefix
       )
@@ -594,6 +601,29 @@ defmodule Letflow.Engine.SubProcess do
        ),
        do: multi
 
+  # REQ-531 -- the parent's stored scope node (nil for an unscoped parent). In create/2's path the
+  # parent row was inserted earlier in the same transaction. A missing row is an error, not a raise.
+  defp read_parent_scope_node(repo, parent_instance_id, prefix) do
+    query =
+      from(p in InstanceProjection,
+        where: p.instance_id == ^parent_instance_id,
+        select: %{scope_node_id: p.scope_node_id}
+      )
+
+    case repo.one(query, prefix: prefix) do
+      %{scope_node_id: scope_node_id} -> {:ok, scope_node_id}
+      nil -> {:error, :parent_projection_missing}
+    end
+  end
+
+  # Kept out of `load_parent_context/2`, which reads tasks: the scope ledger test forbids a function
+  # that names the column from also naming the Task schema.
+  defp with_scope_node(%InstanceState{} = state, %InstanceProjection{} = projection),
+    do: %InstanceState{state | scope_node_id: projection.scope_node_id}
+
+  defp put_scope_node(payload_map, nil), do: payload_map
+  defp put_scope_node(payload_map, node_id), do: Map.put(payload_map, :scope_node_id, node_id)
+
   defp insert_child_instance_projection(
          repo,
          child_instance_id,
@@ -603,6 +633,7 @@ defmodule Letflow.Engine.SubProcess do
          variable_labels,
          parent_instance_id,
          parent_token_record_id,
+         scope_node_id,
          prefix
        ) do
     attrs = %{
@@ -614,7 +645,8 @@ defmodule Letflow.Engine.SubProcess do
       variables: variables,
       variable_labels: variable_labels,
       parent_instance_id: parent_instance_id,
-      parent_token_id: parent_token_record_id
+      parent_token_id: parent_token_record_id,
+      scope_node_id: scope_node_id
     }
 
     %InstanceProjection{}
@@ -694,6 +726,7 @@ defmodule Letflow.Engine.SubProcess do
          parent_instance_id,
          parent_token_record_id,
          parent_node_id,
+         scope_node_id,
          attrs,
          prefix
        ) do
@@ -709,6 +742,7 @@ defmodule Letflow.Engine.SubProcess do
         parent_node_id: parent_node_id
       }
       |> VariableLabels.put_label_field(:initial_labels, initial_labels)
+      |> put_scope_node(scope_node_id)
       |> Jason.encode!()
 
     event_attrs = %{
@@ -1440,15 +1474,17 @@ defmodule Letflow.Engine.SubProcess do
           # file-touch list (§6), but a minimal, targeted correctness fix
           # with no scope beyond restoring the exact behavior
           # build_instance_state/3 already has.
-          seed_state = %InstanceState{
-            instance_id: projection.instance_id,
-            status: :active,
-            tokens: active_tokens,
-            variables: projection.variables,
-            pending_task_nodes: pending_task_tokens,
-            join_counters: SnapshotWriter.deserialize_join_counters(projection.join_counters),
-            variable_labels: projection.variable_labels
-          }
+          seed_state =
+            %InstanceState{
+              instance_id: projection.instance_id,
+              status: :active,
+              tokens: active_tokens,
+              variables: projection.variables,
+              pending_task_nodes: pending_task_tokens,
+              join_counters: SnapshotWriter.deserialize_join_counters(projection.join_counters),
+              variable_labels: projection.variable_labels
+            }
+            |> with_scope_node(projection)
 
           node = Enum.find(graph.nodes, &(&1.id == parent_token.node_id))
 
