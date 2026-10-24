@@ -1,0 +1,143 @@
+# Authored by BA-BILIMBAGA for GH #2680 / REQ-510 slice 3 (UAT design task T-0276).
+# Refusal: the general-purpose record maintenance may no longer change exam content.
+---
+id: bilimbaga-exam-authoring-refusal-general-record-route-on-managed-types
+scope: bilimbaga
+title: The general record maintenance refuses to change exam content, while the exam module's own screens keep working
+version: "1.0"
+tags: [refusal, access_control, exam_authoring]
+
+description: >
+  Exam content (the ten kinds: exam, section, question rule, tag on a rule, hand-picked
+  question, question, answer choice, tag on a question, tag, category) now belongs to the
+  exam module, which is the only place where it may be changed. The platform's
+  general-purpose record maintenance, which other kinds of records use and which an
+  operator or administrator can reach, must refuse all changes to these ten kinds,
+  including a bulk load from a file, so the answer key cannot be edited around the exam
+  module's checks. The administrator signs in as the tenant administrator, who holds the
+  general record writing permission. Preconditions: the one-time stamp of existing
+  tenants has run for this tenant; an exam with a question exists.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The tenant's existing exam content has been brought under the exam module's management (the one-time stamp has run for this tenant)
+    check: custom
+  - description: At least one exam with a question and answer choices exists on the tenant
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Uses the general record maintenance to create a new question
+    via: api
+    expect_refusal: true
+
+  - step: 2
+    actor: admin
+    action: Uses the general record maintenance to change the text of an existing question and the marking of its correct answer
+    via: api
+    expect_refusal: true
+
+  - step: 3
+    actor: admin
+    action: Uses the general record maintenance to remove an existing answer choice
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: admin
+    action: Uses the general record maintenance to load a file of questions in bulk
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: admin
+    action: Repeats a create, a change and a removal through the general record maintenance for each of the other kinds of exam content (exam, section, question rule, tag on a rule, hand-picked question, tag on a question, tag, category)
+    via: api
+    expect_refusal: true
+
+  - step: 6
+    actor: admin
+    action: Uses the general record maintenance to create, change and remove a record of a kind that the exam module does not own, such as an ordinary business record
+    via: api
+
+  - step: 7
+    actor: admin
+    action: On the exam module's administration screen, changes the text of the same question and saves it
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Every create, change, removal and bulk load of exam content through the general record
+      maintenance is refused with a message that the kind is managed by the exam module
+    verification:
+      method: http_status
+      detail: "Steps 1 to 5 are each refused with the error code entity_type_managed (forbidden); none succeeds"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Anyone with the general writing permission could edit answer keys without the exam
+        module's checks, which is the risk this change closes.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The exam content is exactly as before steps 1 to 5
+    verification:
+      method: system_state
+      detail: "The question, answer choices and other content show no change from the refused attempts"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A refused write that was still applied leaves the answer key open to change.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      The general record maintenance still works for kinds that the exam module does not own
+    verification:
+      method: system_state
+      detail: "Step 6 create, change and removal are accepted"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If the refusal is too broad, ordinary business records of the tenant can no longer be
+        maintained.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      The exam module's own administration screen still saves the change
+    verification:
+      method: page_state
+      detail: "Step 7 is accepted and the list shows the new text"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        If the module's own path is also refused, nobody can maintain exam content.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-005
+    description: >
+      An edit made in step 7 to an exam that a candidate has open in a live session still
+      appears in the review report of edits made to exams with live sessions
+    verification:
+      method: audit_event
+      detail: "The review report of edits to exams with live sessions lists the step 7 edit, naming the administrator as its author"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An edit to an exam in use that cannot be found later makes a disputed result
+        impossible to explain.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove the ordinary record created in step 6 and restore the question text from step 7 if
+    the run did not.

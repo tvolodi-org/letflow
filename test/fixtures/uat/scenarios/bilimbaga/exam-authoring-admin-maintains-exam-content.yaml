@@ -1,0 +1,151 @@
+# Authored by BA-BILIMBAGA for GH #2680 / REQ-510 slices 2 and 3 (UAT design task T-0276).
+# Happy path: the exam administrator maintains exam content on the admin screens, which now
+# write through the exam module's own authoring surface.
+---
+id: bilimbaga-exam-authoring-admin-maintains-exam-content
+scope: bilimbaga
+title: The exam administrator creates, changes and removes exam content on the administration screens
+version: "1.0"
+tags: [happy_path, exam_authoring]
+
+description: >
+  The administrator of the certification body prepares an exam: categories and tags,
+  a question with its answer choices, an exam with a section, a rule that draws questions
+  and a hand-picked question. The ten kinds of exam content are all maintained on the
+  administration screens of the exam module. This scenario checks that each kind can be
+  created, changed and removed there, that the saved content is what the administrator
+  typed, and that a change made by someone else in the meantime is not silently
+  overwritten. Preconditions: the tenant has been brought under the exam module's
+  management of its content (the one-time stamp of existing tenants has run); the
+  administrator is signed in on a tenant where the exam module is installed.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The tenant's existing exam content has been brought under the exam module's management (the one-time stamp has run for this tenant)
+    check: custom
+  - description: The administrator account holds the exam content writing permission
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Opens the administration area of the exam module and the screen for categories, creates a category and a tag
+    via: gui
+    produces:
+      category_name: "the category's name as typed"
+      tag_name: "the tag's name as typed"
+
+  - step: 2
+    actor: admin
+    action: Opens the question screen, creates a question with a category and the tag, then creates three answer choices for it, one marked correct
+    via: gui
+    produces:
+      question_text: "the question's text as typed"
+
+  - step: 3
+    actor: admin
+    action: Opens the exam screen and creates an exam, then adds a section, a rule that draws questions by the tag, and a hand-picked question to the exam
+    via: gui
+    produces:
+      exam_title: "the exam's title as typed"
+
+  - step: 4
+    actor: admin
+    action: Changes the text of the question and the pass mark of the exam, and saves each
+    via: gui
+
+  - step: 5
+    actor: admin
+    action: Opens a record that a colleague has changed since it was loaded and saves a change over the old version
+    via: gui
+
+  - step: 6
+    actor: admin
+    action: Removes the hand-picked question, the rule, one answer choice, the tag and the category created in this scenario
+    via: gui
+
+  - step: 7
+    actor: admin
+    action: Opens the list screens of the ten kinds of exam content and looks for the items removed in step 6
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Every kind of exam content (exam, section, question rule, tag on a rule, hand-picked
+      question, question, answer choice, tag on a question, tag, category) can be created,
+      changed and removed on its administration screen, and each action is accepted
+    verification:
+      method: page_state
+      detail: "Each create, change and remove on the ten screens succeeds, and the list shows the saved values after each save"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        The administrator cannot prepare or correct an exam. No new certification exam
+        can be published, and a wrong question cannot be fixed.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      The saved content equals what the administrator typed, including the correct-answer
+      marking, the pass mark and the question text changed in step 4
+    verification:
+      method: system_state
+      detail: "The stored question, answer choices and exam show the typed and changed values; exactly one answer choice is marked correct"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A wrong answer key or pass mark means candidates are passed or failed wrongly, and
+        the certificates issued are in doubt.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      Saving over a record that a colleague changed in the meantime is turned away with a
+      clear message, and the colleague's version is kept
+    verification:
+      method: page_state
+      detail: "The step 5 save is refused with a conflict message and the stored record still holds the colleague's version"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Two administrators editing one question could silently overwrite each other's
+        work, including the answer key.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      Removed items no longer appear on the list screens and are not offered to candidates
+    verification:
+      method: page_state
+      detail: "None of the items removed in step 6 is listed in step 7"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A removed question that is still offered to candidates would be scored against an
+        answer key the authors meant to retire.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-005
+    description: >
+      Each change is recorded with the administrator as the person who made it and the
+      time, so that a later review of edits to an exam can find it
+    verification:
+      method: audit_event
+      detail: "An audit entry exists for each create, change and removal, naming the administrator"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Without a record of who changed an exam, an audit of a disputed result cannot
+        show whether the content was altered.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove any exam content created in this scenario that step 6 did not remove, so a
+    re-run starts from a clean tenant.
