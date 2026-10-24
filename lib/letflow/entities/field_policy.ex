@@ -114,4 +114,39 @@ defmodule Letflow.Entities.FieldPolicy do
       when is_map(sets) and is_map(field_values) do
     FieldGrants.redact_field_values(field_values, Map.fetch!(sets, entity_type))
   end
+
+  @doc """
+  Redacts the `"field_values"` of a record event payload (REQ-516 S2, record history).
+  A payload without `"field_values"` (the delete event) is returned unchanged and
+  loads no set. Any loader error propagates, never "unrestricted".
+  """
+  @spec redact_event_payload(principal(), String.t(), map()) ::
+          {:ok, map()} | {:error, :invalid_schema_name}
+  def redact_event_payload(principal, entity_type, %{"field_values" => field_values} = payload)
+      when is_map(field_values) do
+    with {:ok, set} <- restriction_set(principal, entity_type) do
+      {:ok, Map.put(payload, "field_values", FieldGrants.redact_field_values(field_values, set))}
+    end
+  end
+
+  def redact_event_payload(_principal, _entity_type, payload) when is_map(payload),
+    do: {:ok, payload}
+
+  @doc "Pure: `redact_event_payload/3` with the already-loaded sets (the same rule)."
+  @spec redact_event_payload_with_sets(restriction_sets(), String.t(), map()) :: map()
+  def redact_event_payload_with_sets(
+        sets,
+        entity_type,
+        %{"field_values" => field_values} = payload
+      )
+      when is_map(sets) and is_map(field_values) do
+    Map.put(
+      payload,
+      "field_values",
+      FieldGrants.redact_field_values(field_values, Map.fetch!(sets, entity_type))
+    )
+  end
+
+  def redact_event_payload_with_sets(_sets, _entity_type, payload) when is_map(payload),
+    do: payload
 end

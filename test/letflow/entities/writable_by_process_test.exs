@@ -8,10 +8,10 @@ defmodule Letflow.Entities.WritableByProcessTest do
       the REAL `Letflow.Router` pipeline with a real API token, so the 403s are decided by the
       production permission matrix (`:EntitiesDefinitionsWrite`).
     * Write path: `Definitions.create_definition/3` refuses the flag on a managed type and on a
-      denied name, with the stable rule `:writable_by_process_not_permitted` and a message that
-      names the matched rule.
-    * Solution packs refuse the flag (D-A4.6), nothing installed.
-    * `ProcessWritable` is pure: `declared?/1`, `matched_rule/1`, `check_settable/2`, `writable?/1`.
+      type whose write class is not `ordinary` (GH #2618), with the stable rule
+      `:writable_by_process_not_permitted` and a message that names the refusal.
+    * Solution packs carry the flag only for an EntitiesDefinitionsWrite installer (GH #2619).
+    * `ProcessWritable` is pure: `declared?/1`, `classes/0`, `check_settable/3`, `writable?/1`.
 
   `async: false`: tenant provisioning switches the sandbox to `:auto`.
   """
@@ -36,6 +36,7 @@ defmodule Letflow.Entities.WritableByProcessTest do
   alias Letflow.Identity
   alias Letflow.Identity.User
   alias Letflow.Modules.FixtureManaged
+  alias Letflow.Repository
   alias Letflow.TenantFixture
 
   @rule :writable_by_process_not_permitted
@@ -132,13 +133,6 @@ defmodule Letflow.Entities.WritableByProcessTest do
 
   defp stored_row(schema, name),
     do: Repo.one!(from(d in EntityDefinition, where: d.name == ^name), prefix: schema)
-
-  defp assert_refused(response_body, message_part) do
-    assert [error] = response_body["errors"]
-    assert error["code"] == "writable_by_process_not_permitted"
-    assert error["path"] == ["writable_by_process"]
-    assert error["message"] =~ message_part
-  end
 
   # ── HTTP: permission, create, activate, malformed ───────────────────────────────────────────
 
@@ -241,29 +235,45 @@ defmodule Letflow.Entities.WritableByProcessTest do
       assert row_count(ctx.schema, "flag_bad") == 0
     end
 
-    test "denied names with the flag are 422, rule code stable, message names the rule, no row" do
-      ctx = tenant_ctx("gh2587-a4-denied", ["PROCESS_DESIGNER"])
+    test "a name the old denied list refused as a false positive (user_feedback) takes the flag: 201, ordinary, writable" do
+      ctx = tenant_ctx("gh2618-false-positive", ["PROCESS_DESIGNER"])
 
-      cases = [
-        {"org_gh2581_probe", ~s(denied prefix "org_")},
-        {"user_profile", ~s(denied prefix "user_")},
-        {"role", ~s(name "role" is denied)},
-        {"attachment_meta", ~s(denied prefix "attachment_")}
-      ]
+      conn =
+        request(
+          :post,
+          "/api/v1/entities/definitions",
+          ctx,
+          http_definition("user_feedback", %{"writable_by_process" => true})
+        )
 
-      for {name, message_part} <- cases do
-        conn =
-          request(
-            :post,
-            "/api/v1/entities/definitions",
-            ctx,
-            http_definition(name, %{"writable_by_process" => true})
-          )
+      assert conn.status == 201, conn.resp_body
 
-        assert conn.status == 422, "#{name}: #{conn.status} #{conn.resp_body}"
-        assert_refused(body_of(conn), message_part)
-        assert row_count(ctx.schema, name) == 0, name
-      end
+      row = stored_row(ctx.schema, "user_feedback")
+      assert row.write_class == "ordinary"
+      assert ProcessWritable.writable?(row)
+    end
+
+    test "a tenant body cannot choose the write class: a write_class key in the body is ignored (201, ordinary)" do
+      ctx = tenant_ctx("gh2618-body-class", ["PROCESS_DESIGNER"])
+
+      conn =
+        request(
+          :post,
+          "/api/v1/entities/definitions",
+          ctx,
+          http_definition("feedback_note", %{
+            "writable_by_process" => true,
+            "write_class" => "managed",
+            "classification" => "org_tree"
+          })
+        )
+
+      assert conn.status == 201, conn.resp_body
+
+      row = stored_row(ctx.schema, "feedback_note")
+      assert row.write_class == "ordinary"
+      refute Map.has_key?(row.definition_json, "write_class")
+      refute Map.has_key?(row.definition_json, "classification")
     end
 
     test "JSON null for the flag is dropped by the router (treated as absent): 201, key not stored" do
@@ -417,22 +427,57 @@ defmodule Letflow.Entities.WritableByProcessTest do
       }
     end
 
-    test "all-or-nothing: a clean entity followed by a flagged one installs neither (422)" do
+    # A type whose latest version is classed `org_tree`, inserted directly: the write_class
+    # trigger rejects an UPDATE, and a tenant body cannot set the class (core assigns it).
+    defp seed_org_class(ctx, name) do
+      unique = System.unique_integer([:positive])
+      hash = :crypto.hash(:sha256, "gh2619-#{name}-#{unique}")
+
+      {:ok, %Repository.ArtifactVersion{version_id: version_id}} =
+        Repository.create(
+          %{
+            artifact_kind: :entity,
+            artifact_name: "gh2619_fixture_#{unique}",
+            content_type: "application/json",
+            content: "{}",
+            created_by: Ecto.UUID.generate()
+          },
+          ctx.schema
+        )
+
+      Repo.insert!(
+        %EntityDefinition{
+          tenant_id: ctx.tenant_id,
+          name: name,
+          display_name: "seed #{name}",
+          definition_json: %{"name" => name, "display_name" => "seed #{name}"},
+          content_hash: hash,
+          logical_shape_version: hash,
+          artifact_version_id: version_id,
+          status: :inactive,
+          write_class: "org_tree"
+        },
+        prefix: ctx.schema
+      )
+    end
+
+    test "T5 all-or-nothing: a clean entity followed by a flagged one create_definition/3 refuses installs neither (422)" do
       ctx = tenant_ctx("gh2587-a4-pack-aon", ["TENANT_ADMIN"])
+      seed_org_class(ctx, "pack_org_seeded")
 
       doc =
         pack_document([
           pack_entity("pack_clean_first", %{}),
-          pack_entity("pack_flagged_second", %{"writable_by_process" => true})
+          pack_entity("pack_org_seeded", %{"writable_by_process" => true})
         ])
 
       conn = request(:post, "/api/v1/solution-packs/install", ctx, doc)
       assert conn.status == 422, conn.resp_body
       assert row_count(ctx.schema, "pack_clean_first") == 0
-      assert row_count(ctx.schema, "pack_flagged_second") == 0
+      assert row_count(ctx.schema, "pack_org_seeded") == 1
     end
 
-    test "a pack entity definition carrying writable_by_process: true is refused, nothing installed" do
+    test "T1 a pack entity definition carrying writable_by_process: true is refused without the option, nothing installed" do
       %{schema: schema} = tenant_ctx("gh2587-a4-pack-deny", ["TENANT_ADMIN"])
       doc = pack_document(pack_entity("pack_flagged", %{"writable_by_process" => true}))
 
@@ -440,6 +485,59 @@ defmodule Letflow.Entities.WritableByProcessTest do
                SolutionPack.install(doc, Ecto.UUID.generate(), prefix: schema)
 
       assert row_count(schema, "pack_flagged") == 0
+    end
+
+    test "T2 only the literal true authorises: false, nil, \"true\" and 1 are refused" do
+      %{schema: schema} = tenant_ctx("gh2619-pack-t2", ["TENANT_ADMIN"])
+      doc = pack_document(pack_entity("pack_t2", %{"writable_by_process" => true}))
+
+      for value <- [false, nil, "true", 1] do
+        assert {:error, {:validation, [%Violation{rule: @rule}]}} =
+                 SolutionPack.install(doc, Ecto.UUID.generate(),
+                   prefix: schema,
+                   process_writable_authorized: value
+                 ),
+               inspect(value)
+      end
+
+      assert row_count(schema, "pack_t2") == 0
+    end
+
+    test "T3 with the option true a flagged ordinary pack installs inactive, never active" do
+      %{schema: schema} = tenant_ctx("gh2619-pack-t3", ["TENANT_ADMIN"])
+      doc = pack_document(pack_entity("pack_t3", %{"writable_by_process" => true}))
+
+      assert {:ok, _} =
+               SolutionPack.install(doc, Ecto.UUID.generate(),
+                 prefix: schema,
+                 process_writable_authorized: true
+               )
+
+      row = stored_row(schema, "pack_t3")
+      assert row.status == :inactive
+      assert ProcessWritable.declared?(row.definition_json)
+
+      assert Repo.aggregate(
+               from(d in EntityDefinition, where: d.name == "pack_t3" and d.status == :active),
+               :count,
+               prefix: schema
+             ) == 0
+    end
+
+    test "T4 with the option true a module-managed type still refuses the flag" do
+      %{schema: schema} = tenant_ctx("gh2619-pack-t4", ["TENANT_ADMIN"])
+      owner = ManagedTypes.module_owner(FixtureManaged)
+      doc = pack_document(pack_entity("fxm_item", %{"writable_by_process" => true}))
+
+      assert {:error, {:validation, [%Violation{rule: @rule}]}} =
+               SolutionPack.install(
+                 doc,
+                 Ecto.UUID.generate(),
+                 [prefix: schema, process_writable_authorized: true],
+                 owner
+               )
+
+      assert row_count(schema, "fxm_item") == 0
     end
 
     test "positive control: the same pack without the flag, and with false, installs" do
@@ -463,13 +561,26 @@ defmodule Letflow.Entities.WritableByProcessTest do
       assert row_count(schema, "pack_false") == 1
     end
 
-    test "HTTP install of a flagged pack is 422, not 500" do
+    test "T6a HTTP: TENANT_ADMIN and PROCESS_DESIGNER (EDW holders) install a flagged ordinary pack" do
+      for {role, n} <- [{"TENANT_ADMIN", 1}, {"PROCESS_DESIGNER", 2}] do
+        ctx = tenant_ctx("gh2619-pack-t6a#{n}", [role])
+        name = "pack_t6a_#{n}"
+        doc = pack_document(pack_entity(name, %{"writable_by_process" => true}))
+
+        conn = request(:post, "/api/v1/solution-packs/install", ctx, doc)
+        assert conn.status == 200, "#{role}: #{conn.resp_body}"
+        assert stored_row(ctx.schema, name).status == :inactive
+      end
+    end
+
+    test "T6b HTTP install refused by create_definition/3 is a generic 422 that echoes nothing" do
       ctx = tenant_ctx("gh2587-a4-pack-http", ["TENANT_ADMIN"])
+      seed_org_class(ctx, "pack_http_flagged")
       doc = pack_document(pack_entity("pack_http_flagged", %{"writable_by_process" => true}))
 
       conn = request(:post, "/api/v1/solution-packs/install", ctx, doc)
       assert conn.status == 422, conn.resp_body
-      assert row_count(ctx.schema, "pack_http_flagged") == 0
+      assert row_count(ctx.schema, "pack_http_flagged") == 1
 
       # The generic install-route body: neither the rule, the property name nor the
       # entity name is echoed.
@@ -477,11 +588,58 @@ defmodule Letflow.Entities.WritableByProcessTest do
       refute conn.resp_body =~ "writable_by_process"
       refute conn.resp_body =~ "pack_http_flagged"
     end
+
+    test "T7 a body key or query parameter cannot authorise the flag" do
+      ctx = tenant_ctx("gh2619-pack-t7", ["TENANT_ADMIN"])
+      seed_org_class(ctx, "pack_t7")
+
+      doc =
+        "pack_t7"
+        |> pack_entity(%{"writable_by_process" => true})
+        |> pack_document()
+        |> Map.put("process_writable_authorized", true)
+
+      conn =
+        request(
+          :post,
+          "/api/v1/solution-packs/install?process_writable_authorized=true",
+          ctx,
+          doc
+        )
+
+      refute conn.status == 200, conn.resp_body
+      assert row_count(ctx.schema, "pack_t7") == 1
+    end
+
+    test "T7 role matrix: every core role that can install a pack also holds EntitiesDefinitionsWrite" do
+      for role <- Authorization.roles(),
+          Authorization.has_permission?([role], :DefinitionsWrite) do
+        assert Authorization.has_permission?([role], :EntitiesDefinitionsWrite),
+               "#{role} can install packs without :EntitiesDefinitionsWrite"
+      end
+    end
+
+    test "T8 :process_writable_authorized is set only by the pack router, from EntitiesDefinitionsWrite" do
+      hits =
+        "lib/**/*.ex"
+        |> Path.wildcard()
+        |> Enum.filter(&(File.read!(&1) =~ "process_writable_authorized"))
+        |> Enum.map(&Path.basename/1)
+        |> Enum.sort()
+
+      assert hits == ["process_writable.ex", "solution_pack.ex", "solution_packs.ex"]
+
+      router = File.read!("lib/letflow/routers/solution_packs.ex")
+      assert router =~ ":EntitiesDefinitionsWrite"
+      assert router =~ "has_permission_in_scope?"
+    end
   end
 
   # ── ProcessWritable (pure) ──────────────────────────────────────────────────────────────────
 
   describe "ProcessWritable" do
+    @classes ~w(managed org_tree identity_adjacent attachment_metadata ordinary)
+
     test "declared?/1 is true only for a literal true under either key form" do
       assert ProcessWritable.declared?(%{writable_by_process: true})
       assert ProcessWritable.declared?(%{"writable_by_process" => true})
@@ -491,83 +649,93 @@ defmodule Letflow.Entities.WritableByProcessTest do
       refute ProcessWritable.declared?(nil)
     end
 
-    test "matched_rule/1 over every listed prefix and exact name, plus allowed controls" do
-      for prefix <- ProcessWritable.denied_prefixes() do
-        assert ProcessWritable.matched_rule(prefix <> "x") == {:prefix, prefix}
-        assert ProcessWritable.denied_name?(String.upcase(prefix) <> "x")
-      end
-
-      for exact <- ProcessWritable.denied_exact() do
-        assert ProcessWritable.matched_rule(exact) == {:exact, exact}
-      end
-
-      for allowed <- ["invoice", "orgx", "usery", "rolex", "groupie", "fxm_item"] do
-        refute ProcessWritable.denied_name?(allowed), allowed
-      end
-
-      assert ProcessWritable.matched_rule(:not_a_binary) == nil
-      assert length(ProcessWritable.denied_prefixes()) == 14
-      assert length(ProcessWritable.denied_exact()) == 16
+    test "classes/0 is the closed vocabulary of GH #2618" do
+      assert ProcessWritable.classes() == @classes
     end
 
-    test "check_settable/2: not declared is :ok even for a managed denied name" do
-      assert ProcessWritable.check_settable(%{name: "org_unit"}, "fixture_managed") == :ok
+    test "check_settable/3: not declared is :ok for every class and every stamp" do
+      for class <- @classes ++ [nil], stamp <- [nil, "fixture_managed"] do
+        assert ProcessWritable.check_settable(%{name: "org_unit"}, stamp, class) == :ok,
+               inspect({stamp, class})
+
+        assert ProcessWritable.check_settable(
+                 %{name: "org_unit", writable_by_process: false},
+                 stamp,
+                 class
+               ) == :ok
+      end
+    end
+
+    test "T1: check_settable/3 refuses the flag for every class except ordinary, with the stable rule code" do
+      for class <- ~w(managed org_tree identity_adjacent attachment_metadata) do
+        assert {:error, {:validation, [%Violation{} = violation]}} =
+                 ProcessWritable.check_settable(
+                   %{name: "t", writable_by_process: true},
+                   nil,
+                   class
+                 ),
+               class
+
+        assert violation.rule == @rule
+        assert violation.path == [:writable_by_process]
+
+        expected =
+          if class == "managed",
+            do: "writable_by_process cannot be set: the entity type is managed by a module",
+            else: ~s(writable_by_process cannot be set: the entity type is classified "#{class}")
+
+        assert violation.message == expected, class
+      end
 
       assert ProcessWritable.check_settable(
-               %{name: "org_unit", writable_by_process: false},
-               nil
-             ) == :ok
-    end
-
-    test "check_settable/2 refuses a string-keyed definition and a mixed-case exact name" do
-      assert {:error, {:validation, [%Violation{message: m}]}} =
-               ProcessWritable.check_settable(
-                 %{"name" => "org_unit", "writable_by_process" => true},
-                 nil
-               )
-
-      assert m =~ ~s(denied prefix "org_")
-
-      assert {:error, {:validation, [%Violation{message: m2}]}} =
-               ProcessWritable.check_settable(%{name: "Role", writable_by_process: true}, nil)
-
-      assert m2 == ~s(writable_by_process cannot be set: the name "role" is denied)
-      assert ProcessWritable.matched_rule("ROLES") == {:exact, "roles"}
-    end
-
-    test "check_settable/2 messages are the three closed templates" do
-      assert {:error, {:validation, [%Violation{message: m1}]}} =
-               ProcessWritable.check_settable(%{name: "x", writable_by_process: true}, "mod")
-
-      assert m1 == "writable_by_process cannot be set: the entity type is managed by a module"
-
-      assert {:error, {:validation, [%Violation{message: m2}]}} =
-               ProcessWritable.check_settable(
-                 %{name: "user_profile", writable_by_process: true},
-                 nil
-               )
-
-      assert m2 ==
-               ~s(writable_by_process cannot be set: the name matches the denied prefix "user_")
-
-      assert {:error, {:validation, [%Violation{message: m3}]}} =
-               ProcessWritable.check_settable(%{name: "role", writable_by_process: true}, nil)
-
-      assert m3 == ~s(writable_by_process cannot be set: the name "role" is denied)
-
-      assert ProcessWritable.check_settable(%{name: "invoice", writable_by_process: true}, nil) ==
+               %{name: "t", writable_by_process: true},
+               nil,
+               "ordinary"
+             ) ==
                :ok
     end
 
-    test "writable?/1 truth table: flag x managed x name" do
+    test "T1: a module stamp refuses the flag even on an ordinary class" do
+      assert {:error, {:validation, [%Violation{message: m}]}} =
+               ProcessWritable.check_settable(
+                 %{name: "t", writable_by_process: true},
+                 "fixture_managed",
+                 "ordinary"
+               )
+
+      assert m == "writable_by_process cannot be set: the entity type is managed by a module"
+    end
+
+    test "check_settable/3 reads a string-keyed definition the same way" do
+      assert {:error, {:validation, [%Violation{}]}} =
+               ProcessWritable.check_settable(
+                 %{"name" => "t", "writable_by_process" => true},
+                 nil,
+                 "identity_adjacent"
+               )
+
+      assert ProcessWritable.check_settable(
+               %{"name" => "t", "writable_by_process" => true},
+               nil,
+               "ordinary"
+             ) == :ok
+    end
+
+    test "writable?/1 truth table: flag x managed x class (only ordinary, unmanaged, flagged)" do
       for flag <- [:absent, false, true],
           managed <- [nil, "fixture_managed"],
-          name <- ["invoice", "org_unit"] do
+          class <- @classes do
         json = if flag == :absent, do: %{}, else: %{"writable_by_process" => flag}
-        row = %EntityDefinition{name: name, managed_by: managed, definition_json: json}
 
-        expected = flag == true and managed == nil and name == "invoice"
-        assert ProcessWritable.writable?(row) == expected, inspect({flag, managed, name})
+        row = %EntityDefinition{
+          name: "t",
+          write_class: class,
+          managed_by: managed,
+          definition_json: json
+        }
+
+        expected = flag == true and managed == nil and class == "ordinary"
+        assert ProcessWritable.writable?(row) == expected, inspect({flag, managed, class})
       end
     end
   end

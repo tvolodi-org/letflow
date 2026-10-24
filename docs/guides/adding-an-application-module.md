@@ -267,27 +267,34 @@ document. Absent or `false` means a process step may NOT write records of the ty
 - **Module-managed types never carry it.** `Letflow.Entities.Definitions.create_definition/3`
   refuses `true` on a type with a `managed_by` stamp, so a module's packed types must
   not declare it.
-- **A solution pack cannot carry it.** A pack install (`:DefinitionsCreate`) containing
-  `writable_by_process: true` is refused and nothing is installed (GH #2619 tracks a
-  reviewed pack path). Until then an administrator sets the flag AFTER install, by
-  creating and activating a new version under `:EntitiesDefinitionsWrite`. Pack export
-  emits `definition_json` verbatim, so an exported pack that carries the flag is refused
-  on re-import until #2619.
-- **Denied names (interim, fail closed).** No metadata classifies entity types yet, so
-  `true` is also refused when the type name (compared lower-cased) matches one of these
-  (`Letflow.Entities.ProcessWritable`; adding an entry is a reviewed diff; GH #2618
-  replaces the list with a type classification):
-  - prefixes: `org_`, `user_`, `users_`, `role_`, `roles_`, `permission_`,
-    `permissions_`, `principal_`, `principals_`, `group_`, `groups_`, `membership_`,
-    `attachment_`, `attachments_`;
-  - exact names: `org`, `orgs`, `user`, `users`, `role`, `roles`, `permission`,
-    `permissions`, `principal`, `principals`, `group`, `groups`, `membership`,
-    `memberships`, `attachment`, `attachments`.
-- **The refusal message names the matched rule.** The stable rule code is
-  `writable_by_process_not_permitted` (HTTP 422, path `writable_by_process`); the message
-  is one of `the entity type is managed by a module`, `the name matches the denied prefix
-  "<prefix>"` or `the name "<name>" is denied`. A false positive such as `user_feedback`
-  therefore explains itself; rename the type or wait for GH #2618.
+- **A solution pack may carry it only for an `:EntitiesDefinitionsWrite` installer (GH #2619,
+  0054 amendment).** The install route admits `writable_by_process: true` in a pack entity only
+  when the caller holds `:EntitiesDefinitionsWrite` (TENANT_ADMIN, PROCESS_DESIGNER, or
+  PLATFORM_ADMIN on the platform tenant). Otherwise the install is refused with a 422 and nothing
+  is installed. The installed version is `:inactive`; an `:EntitiesDefinitionsWrite` holder must
+  activate it (`POST /entities/definitions/:name/activate`). Module packs never carry it. Manual
+  post-install step for an installer without that permission: install the pack without the flag,
+  then an administrator creates and activates a new version with the flag under
+  `:EntitiesDefinitionsWrite`. Pack export emits `definition_json` verbatim, so an exported pack
+  that carries the flag re-imports for an `:EntitiesDefinitionsWrite` holder.
+- **Write class (fail closed, GH #2618).** Every entity type has a write class, stored in
+  the `write_class` column of its rows (never in the document, never set by a tenant):
+  `managed`, `org_tree`, `identity_adjacent`, `attachment_metadata` or `ordinary`.
+  `true` is refused for every class except `ordinary`, and for any type with a `managed_by`
+  stamp. Core assigns the class in `Letflow.Entities.Definitions.create_definition/3`: a new
+  version keeps its type's class, a fresh module-stamped type is `managed`, and any other fresh
+  type is `ordinary`. A tenant body key `write_class` or `classification` is ignored. The
+  classes of existing rows were backfilled from the name list this replaced (names that began
+  with `org_`, `user_`, `role_`, `permission_`, `principal_`, `group_`, `membership_` or
+  `attachment_`, and the bare words `org`, `user`, `role`, `attachment` and their plurals), so
+  every such type that existed before the change is still refused. A type created after it is
+  classified by core, not by its name: a new tenant type such as `user_feedback` is `ordinary`
+  and may take the flag. Module-declared names stay protected by the managed-name reservation.
+- **The refusal message names the refusal.** The stable rule code is
+  `writable_by_process_not_permitted` (HTTP 422, path `writable_by_process`, unchanged by
+  GH #2618). The message is one of `the entity type is managed by a module` or
+  `the entity type is classified "<class>"`. Before GH #2618 the messages named a matched
+  name prefix; API clients that matched the old text must match the code instead.
 
 **`entity_writes` on a HUMAN_TASK node (GH #2587 / REQ-499 PR B1 validation, PR B2 execution).** A
 HUMAN_TASK node may declare up to 20 `create` lines in its `entity_writes` attribute
@@ -311,7 +318,9 @@ completion late). A refusal rolls everything back, the task stays pending, and t
 one code and the declared line index: 403 `write_not_permitted` (one body for every cause),
 422 `validation_failed`/`entity_append_only`/`idempotency_conflict`/`entity_type_inactive`, 503
 `entity_write_contention` (retryable), 409 `entity_write_needs_reactivation` (the activator was
-deactivated: cancel the instance or re-activate through a rollback or promotion). The
+deactivated, or its recorded `activated_by` is unsigned, forged, edited or copied, or the
+signing key is rotated or disabled (GH #2644): cancel the instance and re-activate the definition,
+which re-signs it; rollback and promotion also sign). The
 engine-written `_sys.*` values are never returned to a client. `line_index: 20` with
 `validation_failed` means the 20-line cap was exceeded (a hand-edited snapshot), not a declared
 line. Pilot limit: scoped-type and

@@ -25,13 +25,17 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
     `Letflow.Modules.Catalog.all_manifests/0`).
   * **Rule 6 — layer rule (GH 2534 PR 7c-2, decision 0053 F10).** A
     declarative table (`layer_rules/0`) of forbidden source -> target path
-    prefixes, evaluated BEFORE Rule 0. Today it holds one row: the engine
+    prefixes, evaluated BEFORE Rule 0. Today it holds three rows. Row 0: the engine
     (`lib/letflow/engine.ex`, `lib/letflow/engine/**`) may not reference the
     entities context (`lib/letflow/entities.ex`, `lib/letflow/entities/**`);
     entity records reach the engine only through the engine-defined
     `Letflow.Engine.EntityPort` (0054 D2; it subsumed 0053's `ScriptReadPort`), whose
     implementation is selected from `config :letflow, :entity_port` at run time (a config value, not a
-    file edge).
+    file edge). Rows 1 and 2 (SEC F8, GH 2632): the scripts namespace may not reference the
+    engine, the port, the write-callback holders or the entities write API, and the script
+    task dispatcher may not reference `Letflow.Definitions` or the write-callback holders
+    (it keeps `engine.ex` for `apply_script_task_result/3` and `engine/entity_port.ex` for
+    the one `prefetch` read).
 
     **Rule 6 checks DIRECT file edges ONLY.** `mix xref graph --format plain`
     lists each file with the files it references itself; Rule 6 classifies
@@ -287,6 +291,37 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
       source_prefixes: ["lib/letflow/engine.ex", "lib/letflow/engine/"],
       forbidden_target_prefixes: ["lib/letflow/entities.ex", "lib/letflow/entities/"],
       reason: "engine -> entities only via Letflow.Engine.EntityPort (0053 F10, 0054 D2)"
+    },
+    # SEC F8 (GH 2632): the scripts namespace never reaches the write-callback holders or the
+    # entities context's own write API, nor the engine that runs the port writes.
+    %{
+      source_prefixes: ["lib/letflow/scripts.ex", "lib/letflow/scripts/"],
+      forbidden_target_prefixes: [
+        "lib/letflow/engine.ex",
+        "lib/letflow/engine/entity_port.ex",
+        "lib/letflow/entities.ex",
+        "lib/letflow/entities/entity_port_impl.ex",
+        "lib/letflow/entities/step_writes.ex",
+        "lib/letflow/entities/handler_writes.ex",
+        "lib/letflow/entities/records.ex"
+      ],
+      reason:
+        "scripts call no entity port write callback and no entity write API (SEC F8, 0054 D2)"
+    },
+    # SEC F8 (GH 2632): the dispatcher keeps its edges to engine.ex (apply_script_task_result/3,
+    # the sanctioned apply path) and engine/entity_port.ex (the one prefetch read) only.
+    %{
+      source_prefixes: [
+        "lib/letflow/engine/script_task_dispatcher.ex",
+        "lib/letflow/engine/script_task_dispatcher/"
+      ],
+      forbidden_target_prefixes: [
+        "lib/letflow/definitions.ex",
+        "lib/letflow/entities/step_writes.ex",
+        "lib/letflow/entities/entity_port_impl.ex",
+        "lib/letflow/entities/handler_writes.ex"
+      ],
+      reason: "the script task dispatcher calls no port write callback (SEC F8, 0054 D2)"
     }
   ]
 

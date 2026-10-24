@@ -108,6 +108,7 @@ defmodule Letflow.Routers.Entities do
   | list_record_attachments | `GET /entities/records/:entity_type/:record_id/attachments` | `Letflow.Repository.EntityAttachments.list/2` | `EntitiesAttachmentsRead` | 200 / 400 / 404 |
   | get_record_attachment_content | `GET /entities/records/:entity_type/:record_id/attachments/:attachment_id` | `Letflow.Repository.EntityAttachments.get_content/2` | `EntitiesAttachmentsRead` | 200 (raw bytes) / 404 / 500 |
   | delete_record_attachment | `DELETE /entities/records/:entity_type/:record_id/attachments/:attachment_id` | `Letflow.Repository.EntityAttachments.delete/2` | `EntitiesAttachmentsManage` | 204 / 404 |
+  | record_history | `GET /entities/records/:entity_type/:record_id/history` | `Letflow.Routers.Entities.RecordHistory` over `Letflow.Entities.RecordHistory` (REQ-516 S2) | `EntitiesQuery` | 200 / 400 / 404 / 500 |
   | export_records | `POST /entities/records/:entity_type/export` | `Letflow.Entities.RequestAccess.check/4` (the unredacted permission never lifts type denial), then the identical `Letflow.Entities.Query.Allowlist.load/2` → `Letflow.Entities.Query.Compiler.compile/2` → `Letflow.Entities.Query.Cursor.paginate/5` sequence `query` uses above, then EITHER a `Letflow.Entities.Query.FieldGrants` redaction step (default) OR a second, in-handler `Letflow.Api.Authorization.evaluate_access/2` check against `:EntitiesRecordsExportUnredacted` that skips redaction entirely on success (`unredacted: true`) | `EntitiesRecordsExport` (route-level); `EntitiesRecordsExportUnredacted` (in-handler only, see below) | 200 / 400 / 403 / 404 / 422 |
   | import_records | `POST /entities/records/:entity_type/import` | `Letflow.Entities.Records.create_record/2` per entry (REQ-320); with the optional `"upsert_by": "external_ref"`, `Letflow.Entities.ImportUpsert` (one pre-check, then `Records.upsert_record_by_external_ref/2` per entry, GH #2659) | `EntitiesRecordsImport` (alone, also for the upsert's update branch) | 200 / 404 / 413 / 422 / 503 (`event_schema_outdated`, upsert mode only) |
   | import_restrictions | `POST /entities/restrictions/import` | `Letflow.Entities.Restrictions.import_restrictions/2` (ISS-0935) | `EntitiesRestrictionsManage` | 200 / 400 / 403 / 422 |
@@ -302,6 +303,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.ScopeResolver
   alias Letflow.Entities.TypeAccess
   alias Letflow.Routers.Entities.RecordAttachments
+  alias Letflow.Routers.Entities.RecordHistory
   alias Letflow.Routers.Entities.RecordImport
   alias Letflow.Routers.Entities.RecordWrites
 
@@ -469,6 +471,18 @@ defmodule Letflow.Routers.Entities do
       conn.params["entity_type"],
       conn.params["record_id"],
       conn.params["attachment_id"]
+    )
+  end
+
+  # REQ-516 S2 (GH #2701): the record's history, field_values redacted at read time
+  # (FieldPolicy.redact_event_payload_with_sets/3). Permission :EntitiesQuery, as entity query.
+  authz_get "/records/:entity_type/:record_id/history",
+            :EntitiesQuery,
+            scope: {:resolver, {ScopeResolver, :record_scope}} do
+    RecordHistory.handle_get_record_history(
+      conn,
+      conn.params["entity_type"],
+      conn.params["record_id"]
     )
   end
 
@@ -1227,7 +1241,8 @@ defmodule Letflow.Routers.Entities do
          {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
          {:ok, allowlist, primary_specs} <-
            Allowlist.load(request.entity_type, prefix, :with_specs),
-         {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
+         {:ok, page} <-
+           Cursor.paginate(request, compiled, allowlist, Map.put(opts, :user_id, user_id), prefix),
          {:ok, redacted} <- redact(page, request, sets) do
       specs = read_specs(request, primary_specs, prefix)
 
@@ -1669,7 +1684,8 @@ defmodule Letflow.Routers.Entities do
          :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, allowlist, primary_specs} <-
            Allowlist.load(request.entity_type, prefix, :with_specs),
-         {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
+         {:ok, page} <-
+           Cursor.paginate(request, compiled, allowlist, Map.put(opts, :user_id, user_id), prefix),
          {:ok, redacted} <- export_redact(page, request, guard.sets, unredacted?) do
       specs = read_specs(request, primary_specs, prefix)
 

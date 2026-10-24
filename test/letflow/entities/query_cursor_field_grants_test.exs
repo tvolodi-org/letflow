@@ -1,4 +1,5 @@
 defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
+  @uid "cursor-test-user"
   @moduledoc """
   Tests for `Letflow.Entities.Query.Cursor` and
   `Letflow.Entities.Query.FieldGrants` (REQ-231) -- the generalized
@@ -262,7 +263,13 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
       assert {:ok, allowlist} = Allowlist.load("customer", schema)
 
       assert {:ok, page} =
-               Cursor.paginate(request, compiled_query, allowlist, %{page_size: 10}, schema)
+               Cursor.paginate(
+                 request,
+                 compiled_query,
+                 allowlist,
+                 %{user_id: @uid, page_size: 10},
+                 schema
+               )
 
       assert length(page.items) == 1
       assert page.next_cursor == nil
@@ -285,11 +292,17 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
       assert {:ok, allowlist} = Allowlist.load("customer", schema)
 
       assert {:ok, page} =
-               Cursor.paginate(mint_request, compiled_query, allowlist, %{page_size: 1}, schema)
+               Cursor.paginate(
+                 mint_request,
+                 compiled_query,
+                 allowlist,
+                 %{user_id: @uid, page_size: 1},
+                 schema
+               )
 
       refute is_nil(page.next_cursor)
 
-      # Resend with only one sort field -- arity no longer matches.
+      # Resend with only one sort field -- the seal is bound to the minting sort (GH #2698).
       resume_request = %{entity_type: "customer", sort: [%{field: "age", dir: :asc}]}
       assert {:ok, compiled_query2} = Compiler.compile(resume_request, schema, :all)
 
@@ -297,9 +310,187 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
                resume_request,
                compiled_query2,
                allowlist,
-               %{page_size: 1, cursor: page.next_cursor},
+               %{user_id: @uid, page_size: 1, cursor: page.next_cursor},
                schema
-             ) == {:error, :resume_key_arity_mismatch}
+             ) == {:error, :invalid_cursor}
+    end
+  end
+
+  # ---------------------------------------------------------------------------------
+  # GH #2698 -- the cursor's resume key is sealed (AES-256-GCM) and bound to tenant,
+  # user, entity type, sort and mint time.
+  # ---------------------------------------------------------------------------------
+
+  describe "GH #2698 -- sealed, bound cursor" do
+    setup do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+
+      for {name, age} <- [{"SECRET-SORT-VALUE", 1}, {"TTT-SORT-VALUE", 2}, {"UUU-SORT-VALUE", 3}] do
+        create_record!(schema, %{"customer_name" => name, "age" => age})
+      end
+
+      request = %{entity_type: "customer", sort: [%{field: "customer_name", dir: :asc}]}
+      assert {:ok, compiled_query} = Compiler.compile(request, schema, :all)
+      assert {:ok, allowlist} = Allowlist.load("customer", schema)
+
+      assert {:ok, page} =
+               Cursor.paginate(
+                 request,
+                 compiled_query,
+                 allowlist,
+                 %{user_id: @uid, page_size: 1},
+                 schema
+               )
+
+      cursor = page.next_cursor
+      assert is_binary(cursor)
+
+      paginate = fn cursor, opts_extra, schema_arg ->
+        Cursor.paginate(
+          request,
+          compiled_query,
+          allowlist,
+          Map.merge(%{user_id: @uid, page_size: 1, cursor: cursor}, opts_extra),
+          schema_arg
+        )
+      end
+
+      %{schema: schema, cursor: cursor, paginate: paginate}
+    end
+
+    test "T1 round trip: the minted cursor yields the next page",
+         %{schema: schema, cursor: cursor, paginate: paginate} do
+      assert {:ok, page2} = paginate.(cursor, %{}, schema)
+      assert [%{field_values: %{"customer_name" => "TTT-SORT-VALUE"}}] = page2.items
+    end
+
+    test "T2 tamper: a flipped byte, a truncation and a changed mint time are :invalid_cursor",
+         %{schema: schema, cursor: cursor, paginate: paginate} do
+      {:ok, raw} = Base.url_decode64(cursor, padding: false)
+      size = byte_size(raw)
+
+      flipped = binary_part(raw, 0, size - 1) <> <<Bitwise.bxor(:binary.last(raw), 1)>>
+      truncated = binary_part(raw, 0, size - 3)
+
+      for bad <- [flipped, truncated] do
+        assert paginate.(Base.url_encode64(bad, padding: false), %{}, schema) ==
+                 {:error, :invalid_cursor}
+      end
+
+      # T10: the mint time is part of the associated data; extending it breaks the seal.
+      "EQ:" <> rest = raw
+      [ts, token] = String.split(rest, ":", parts: 2)
+      newer = Integer.to_string(String.to_integer(ts) + 1)
+
+      assert paginate.(
+               Base.url_encode64("EQ:" <> newer <> ":" <> token, padding: false),
+               %{},
+               schema
+             ) ==
+               {:error, :invalid_cursor}
+    end
+
+    test "T3 cross-user: another user replaying the cursor is :invalid_cursor",
+         %{schema: schema, cursor: cursor, paginate: paginate} do
+      assert paginate.(cursor, %{user_id: "another-user"}, schema) == {:error, :invalid_cursor}
+    end
+
+    test "T4 cross-tenant (INV-10): the cursor replayed under another tenant schema is :invalid_cursor",
+         %{cursor: cursor, paginate: paginate} do
+      %{schema_name: other_schema} = provisioned_tenant()
+      create_active_definition!(other_schema)
+
+      assert paginate.(cursor, %{}, other_schema) == {:error, :invalid_cursor}
+    end
+
+    test "T5 another sort direction or entity type is :invalid_cursor",
+         %{schema: schema, cursor: cursor} do
+      assert {:ok, allowlist} = Allowlist.load("customer", schema)
+      desc = %{entity_type: "customer", sort: [%{field: "customer_name", dir: :desc}]}
+      assert {:ok, compiled} = Compiler.compile(desc, schema, :all)
+
+      assert Cursor.paginate(
+               desc,
+               compiled,
+               allowlist,
+               %{user_id: @uid, page_size: 1, cursor: cursor},
+               schema
+             ) == {:error, :invalid_cursor}
+
+      other_type = %{entity_type: "other_type", sort: [%{field: "customer_name", dir: :asc}]}
+      {:ok, compiled2} = Compiler.compile(%{other_type | entity_type: "customer"}, schema, :all)
+
+      assert Cursor.paginate(
+               other_type,
+               compiled2,
+               allowlist,
+               %{user_id: @uid, page_size: 1, cursor: cursor},
+               schema
+             ) == {:error, :invalid_cursor}
+    end
+
+    test "T6 confidentiality: the sort value is not readable in the held cursor",
+         %{cursor: cursor} do
+      {:ok, raw} = Base.url_decode64(cursor, padding: false)
+
+      for needle <- ["SECRET-SORT-VALUE", "customer_name", "key"] do
+        refute raw =~ needle
+        refute cursor =~ needle
+      end
+    end
+
+    test "T7 legacy handling: bare-list and unsealed bind/key cursors are removed (24 h expiry note), :invalid_cursor",
+         %{schema: schema, paginate: paginate} do
+      id = Ecto.UUID.generate()
+      now = System.system_time(:microsecond)
+
+      for json <- [
+            Jason.encode!(["SECRET-SORT-VALUE", id]),
+            Jason.encode!(%{
+              "bind" => ["customer", ["customer_name", "asc"]],
+              "key" => ["SECRET-SORT-VALUE", id]
+            })
+          ] do
+        legacy =
+          Cursor.cursor_prefix()
+          |> Pagination.build_raw_cursor(now, json)
+          |> Pagination.encode_cursor()
+
+        assert paginate.(legacy, %{}, schema) == {:error, :invalid_cursor}
+      end
+    end
+
+    test "T8 a missing or non-binary :user_id raises ArgumentError", %{schema: schema} do
+      request = %{entity_type: "customer", sort: []}
+      assert {:ok, compiled} = Compiler.compile(request, schema, :all)
+      assert {:ok, allowlist} = Allowlist.load("customer", schema)
+
+      for opts <- [%{page_size: 1}, %{page_size: 1, user_id: nil}] do
+        assert_raise ArgumentError, fn ->
+          Cursor.paginate(request, compiled, allowlist, opts, schema)
+        end
+      end
+    end
+
+    test "T9 CursorSeal.open never raises on garbage and the error carries no detail" do
+      ctx = %{prefix: "p", user_id: "u", entity_type: "e", sort: [], mint_us: 1}
+
+      for garbage <- [
+            "",
+            "a",
+            "!!not base64!!",
+            Base.url_encode64(<<1::96>>, padding: false),
+            Base.url_encode64(<<1::224>>, padding: false),
+            nil,
+            5
+          ] do
+        assert Letflow.Entities.Query.CursorSeal.open(garbage, ctx) == :error
+      end
+
+      token = Letflow.Entities.Query.CursorSeal.seal("{\"key\":[]}", ctx)
+      assert {:ok, "{\"key\":[]}"} = Letflow.Entities.Query.CursorSeal.open(token, ctx)
+      assert Letflow.Entities.Query.CursorSeal.open(token, %{ctx | user_id: "v"}) == :error
     end
   end
 
@@ -330,28 +521,29 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
       %{schema: schema, request: request, compiled_query: compiled_query, allowlist: allowlist}
     end
 
-    # Mints a cursor by hand -- the same "EQ:<mint_time_us>:<resume_key_json>"
-    # shape Cursor.build_next_cursor/2 itself produces -- with an
+    # Mints a validly sealed cursor by hand (GH #2698) with an
     # attacker/caller-controlled id component, exactly as a real
-    # network-facing request body would carry it.
-    defp raw_cursor_with_id(sort_values, id_value) do
-      resume_key_json = Jason.encode!(sort_values ++ [id_value])
-      mint_time_us = System.system_time(:microsecond)
-
-      Cursor.cursor_prefix()
-      |> Pagination.build_raw_cursor(mint_time_us, resume_key_json)
-      |> Pagination.encode_cursor()
+    # network-facing request body would carry it. `values` is the sort values
+    # followed by the trailing record_id.
+    defp raw_cursor_with_id(schema, sort_values, id_value) do
+      Cursor.mint_cursor(
+        sort_values ++ [id_value],
+        "customer",
+        [["age", "asc"]],
+        schema,
+        @uid
+      )
     end
 
     test "a non-UUID id component returns {:error, :invalid_cursor}, not a raise",
          %{schema: schema, request: request, compiled_query: compiled_query, allowlist: allowlist} do
-      encoded = raw_cursor_with_id([15], "not-a-uuid")
+      encoded = raw_cursor_with_id(schema, [15], "not-a-uuid")
 
       assert Cursor.paginate(
                request,
                compiled_query,
                allowlist,
-               %{page_size: 10, cursor: encoded},
+               %{user_id: @uid, page_size: 10, cursor: encoded},
                schema
              ) == {:error, :invalid_cursor}
     end
@@ -363,13 +555,13 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
       bogus_uuid_shaped = "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
       assert String.length(bogus_uuid_shaped) == 36
 
-      encoded = raw_cursor_with_id([15], bogus_uuid_shaped)
+      encoded = raw_cursor_with_id(schema, [15], bogus_uuid_shaped)
 
       assert Cursor.paginate(
                request,
                compiled_query,
                allowlist,
-               %{page_size: 10, cursor: encoded},
+               %{user_id: @uid, page_size: 10, cursor: encoded},
                schema
              ) == {:error, :invalid_cursor}
     end
@@ -381,7 +573,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
                  request,
                  compiled_query,
                  allowlist,
-                 %{page_size: 1},
+                 %{user_id: @uid, page_size: 1},
                  schema
                )
 
@@ -393,7 +585,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
                  request,
                  compiled_query,
                  allowlist,
-                 %{page_size: 1, cursor: first_page.next_cursor},
+                 %{user_id: @uid, page_size: 1, cursor: first_page.next_cursor},
                  schema
                )
 
@@ -407,7 +599,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
   end
 
   defp do_paginate_all(request, compiled_query, allowlist, schema, page_size, cursor, acc, pages) do
-    opts = %{page_size: page_size, cursor: cursor}
+    opts = %{user_id: @uid, page_size: page_size, cursor: cursor}
 
     assert {:ok, page} = Cursor.paginate(request, compiled_query, allowlist, opts, schema)
 
@@ -741,19 +933,19 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
         {"Alice", 5}
       ]
 
-      opts1 = %{page_size: 2, cursor: nil}
+      opts1 = %{user_id: @uid, page_size: 2, cursor: nil}
       assert {:ok, page1} = Cursor.paginate(request, compiled_query, allowlist, opts1, schema)
 
       assert length(page1.items) == 2
       refute is_nil(page1.next_cursor)
 
-      opts2 = %{page_size: 2, cursor: page1.next_cursor}
+      opts2 = %{user_id: @uid, page_size: 2, cursor: page1.next_cursor}
       assert {:ok, page2} = Cursor.paginate(request, compiled_query, allowlist, opts2, schema)
 
       assert length(page2.items) == 2
       refute is_nil(page2.next_cursor)
 
-      opts3 = %{page_size: 2, cursor: page2.next_cursor}
+      opts3 = %{user_id: @uid, page_size: 2, cursor: page2.next_cursor}
       assert {:ok, page3} = Cursor.paginate(request, compiled_query, allowlist, opts3, schema)
 
       assert length(page3.items) == 1
@@ -856,7 +1048,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
 
       expected_order = Enum.sort(fixtures)
 
-      opts1 = %{page_size: 2, cursor: nil}
+      opts1 = %{user_id: @uid, page_size: 2, cursor: nil}
 
       assert {:ok, page1} =
                Cursor.paginate(request, compiled_query, allowlist, opts1, schema)
@@ -864,7 +1056,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
       assert length(page1.items) == 2
       refute is_nil(page1.next_cursor)
 
-      opts2 = %{page_size: 2, cursor: page1.next_cursor}
+      opts2 = %{user_id: @uid, page_size: 2, cursor: page1.next_cursor}
 
       assert {:ok, page2} =
                Cursor.paginate(request, compiled_query, allowlist, opts2, schema)
@@ -872,7 +1064,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
       assert length(page2.items) == 2
       refute is_nil(page2.next_cursor)
 
-      opts3 = %{page_size: 2, cursor: page2.next_cursor}
+      opts3 = %{user_id: @uid, page_size: 2, cursor: page2.next_cursor}
 
       assert {:ok, page3} =
                Cursor.paginate(request, compiled_query, allowlist, opts3, schema)

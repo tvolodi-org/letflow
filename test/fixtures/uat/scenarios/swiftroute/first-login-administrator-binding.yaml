@@ -46,6 +46,11 @@ description: >
        (UAT assumption, to be confirmed by the process owner: the seed script does not set e-mail
        addresses, so this match is not established by any source I opened).
 
+  PROPER HOME (T-0322, process audit T-0295): for this swiftroute tenant the scenario stays BLOCKED
+  on condition 2, because Alice already holds TENANT_ADMIN and her e-mail is already verified. Its
+  proper home is the foundation group (a freshly registered tenant) of T-0222, where an unused
+  administrator grant and an unverified address can exist. Nothing is changed to make it pass here.
+
 actors:
   platform_admin: actor-platform-admin
   pending_admin:  actor-swiftroute-alice

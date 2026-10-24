@@ -1100,6 +1100,11 @@ defmodule Letflow.Api.Authorization do
       ),
       do: :EntitiesAttachmentsManage
 
+  # REQ-516 S2 (GH #2701): record history reads the record's create/update events, so it is
+  # gated by the same permission as entity query (TENANT_AUDITOR holds it).
+  def endpoint_policy_key("GET", "/entities/records/:entity_type/:record_id/history"),
+    do: :EntitiesQuery
+
   # REQ-352 — the generic, kind-agnostic authenticated issue route
   # (Letflow.Routers.PublicReadHandles), mounted at /public-read-handles.
   # See design lib/letflow/design/req352-unauthenticated-read-platform.md §13.1.

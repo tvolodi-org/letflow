@@ -5,8 +5,13 @@
 # injury check and join before the case summary.
 #
 # DEPENDENCIES (not resolved by this scenario):
-#  - No QA seed script deploys the Driver Incident Report definition yet; preflight reports a GAP
-#    on the definitions check until one exists (see the alias sidecar).
+#  - The Driver Incident Report definition (test/fixtures/qa/swiftroute_incident_process_definition.json,
+#    v1.1) is deployed by scripts/seed_swiftroute_incident_definition.sh, which has run on QA
+#    (process audit T-0295). The earlier "no seed script yet" note was stale.
+#  - Step 1 needs a dispatcher who may start an instance: Lena holds the Process Operator
+#    responsibility per BA decision T-0321. A refusal at step 1 means BLOCKED, never PASS.
+#  - The two human tasks of this definition have no form yet (audit finding 2, a definition change
+#    for the team); steps 2 and 3 via gui may be BLOCKED for that reason, not a product fault.
 #  - finance-estimate routes to role-accountant; actor-swiftroute-hans (Hans Richter, Finance, per the swiftroute
 #    org structure) holds it in actors.yaml since ISS-1011 / Q-993, once scripts/seed_swiftroute_persona_actors.sh
 #    is re-run on QA (his Keycloak account must exist first).

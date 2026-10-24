@@ -33,7 +33,14 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
   use ExUnit.Case, async: true
 
   @routers_glob "lib/letflow/routers/**/*.ex"
-  @payload_readers ["lib/letflow/routers/instances.ex", "lib/letflow/routers/promotions.ex"]
+  # REQ-516 S2 (GH #2701): the record history handler reads a record event's payload only to
+  # redact its `field_values` (FieldPolicy.redact_event_payload_with_sets/3) and hand-builds every
+  # item, so no raw payload leaves it (INV-2; the item shape is pinned by req516 H1).
+  @payload_readers [
+    "lib/letflow/routers/instances.ex",
+    "lib/letflow/routers/promotions.ex",
+    "lib/letflow/routers/entities/record_history.ex"
+  ]
 
   # -- scan --------------------------------------------------------------------------------
 

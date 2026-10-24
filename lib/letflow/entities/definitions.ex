@@ -125,11 +125,13 @@ defmodule Letflow.Entities.Definitions do
        no Validator call, no write.
     1. `Letflow.Entities.Definition.Validator.validate/1` -- on
        `{:error, violations}`, returns `{:error, {:validation, violations}}`.
-    1a. `Letflow.Entities.ProcessWritable.check_settable/2` (GH #2587) -- a
-        definition declaring `writable_by_process: true` on a module-managed
-        type or a denied name returns `{:error, {:validation, [violation]}}`
-        (rule `:writable_by_process_not_permitted`, message names the matched
-        rule); no write.
+    1a. `Letflow.Entities.ProcessWritable.check_settable/3` (GH #2587, GH #2618)
+        -- the write class of the type is resolved first (`write_class_for/4`:
+        a new version inherits the class of its type's rows; a fresh type is
+        `managed` when module-stamped, else `ordinary`). A definition declaring
+        `writable_by_process: true` on a module-managed type or on a class other
+        than `ordinary` returns `{:error, {:validation, [violation]}}` (rule
+        `:writable_by_process_not_permitted`); no write.
     2. On `:ok`, computes `content_hash`/`logical_shape_version` via
        `Letflow.Entities.Definition.Shape`.
     3. Calls `Letflow.Repository.create/2` with `artifact_kind: :entity` --
@@ -162,7 +164,8 @@ defmodule Letflow.Entities.Definitions do
          :ok <- ManagedTypes.lock_names([name], prefix),
          {:ok, stamp} <- ManagedTypes.check_create(name, owner, prefix),
          :ok <- validate_definition(definition),
-         :ok <- ProcessWritable.check_settable(definition, stamp) do
+         write_class = write_class_for(name, stamp, prefix, tenant_id),
+         :ok <- ProcessWritable.check_settable(definition, stamp, write_class) do
       content_hash = Shape.content_hash(definition)
       logical_shape_version = Shape.logical_shape_of(definition)
 
@@ -186,9 +189,34 @@ defmodule Letflow.Entities.Definitions do
             logical_shape_version,
             artifact_version_id,
             stamp,
+            write_class,
             prefix
           )
       end
+    end
+  end
+
+  # GH #2618 (decision 0054 D4a.2 amendment, items 3 and 8): the write class of the new row, read under
+  # the name's advisory lock. `managed` when a row of the name carries `managed_by` or the new version is
+  # module-stamped with no earlier row; otherwise the class of the name's existing rows (a version bump
+  # cannot change it). Mixed classes under one name cannot arise (classes are set per name), and fall back
+  # to `managed`, which refuses the flag: fail closed. A fresh tenant type is `ordinary`.
+  defp write_class_for(name, stamp, prefix, tenant_id) do
+    rows =
+      from(e in EntityDefinition,
+        where: e.tenant_id == ^tenant_id and e.name == ^name,
+        select: {e.write_class, e.managed_by}
+      )
+      |> Repo.all(prefix: prefix)
+
+    classes = rows |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+    cond do
+      Enum.any?(rows, fn {_class, managed_by} -> not is_nil(managed_by) end) -> "managed"
+      rows == [] and is_binary(stamp) -> "managed"
+      rows == [] -> "ordinary"
+      match?([_one], classes) -> hd(classes)
+      true -> "managed"
     end
   end
 
@@ -206,6 +234,7 @@ defmodule Letflow.Entities.Definitions do
          logical_shape_version,
          artifact_version_id,
          stamp,
+         write_class,
          prefix
        ) do
     attrs = %{
@@ -222,6 +251,7 @@ defmodule Letflow.Entities.Definitions do
     %EntityDefinition{}
     |> EntityDefinition.changeset(attrs)
     |> maybe_put_managed_by(stamp)
+    |> EntityDefinition.put_write_class(write_class)
     |> Repo.insert(prefix: prefix)
     |> case do
       {:ok, entity_definition} -> {:ok, entity_definition}

@@ -111,9 +111,12 @@ defmodule Letflow.Routers.Instances do
   `Letflow.EventStore.InstanceVisibility`) hold the full `field_values` of record
   create/update events, so every route here answers a synthetic id with the same
   `Response.not_found/1` as a nonexistent id, and `GET /instances` omits them.
-  CONSEQUENCE: until REQ-516 (#2701) adds a redacting record-history route, no role
-  (TENANT_AUDITOR included) can read record create/update history through
-  `/instances`.
+  The record create/update history is read through
+  `GET /entities/records/:entity_type/:record_id/history` (REQ-516 S2, GH #2701), which
+  masks restricted `field_values` at read time, so a TENANT_AUDITOR reads it there and not
+  through `/instances`. CONSEQUENCE: that route masks with the caller's CURRENT restrictions
+  and grants. A restriction removed later exposes the values that earlier history wrote
+  while it applied (decision 0059 D2).
 
   ## Response shape
 

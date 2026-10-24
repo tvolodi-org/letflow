@@ -566,3 +566,78 @@ in this table. The decision text itself was not re-reviewed by a separate sessio
 The statement in the R4b outcomes ("there is NO automatic boot-time replay ... nothing in `lib/` calls it at start") is wrong on main: `Letflow.TenantProvisioning.MigrationReplayBoot` (`lib/letflow/tenant_provisioning/migration_replay_boot.ex`, ISS-0771) is a child of `Supervisor.Infrastructure` and runs `replay_all_pending/0` on every boot, but swallows failures. The rollout rule stands: replay must have succeeded for every tenant before the first handler-calling definition is activated; a tenant whose boot replay failed is caught only by the fail-closed `event_schema_outdated` refusal.
 
 **Follow-up (2026-10-21, GH #2727).** A failed boot replay is no longer visible only through the refusal: `replay_all_pending/0` now records each tenant's outcome in `tenant_schemas.migration_replay_failure_code` / `migration_replay_failed_at` (set on failure, cleared by a later success), readable with `Letflow.TenantProvisioning.list_replay_failures/0`, and the boot log line for a failed tenant is at error level. Boot still always completes. The `event_schema_outdated` refusal remains the fail-closed backstop.
+
+## Amendment (GH #2618): D4a.2 refusal by type classification (replaces the interim name list)
+
+The refusal in D4a.2(b) reads a **write class** of the entity type, not its name.
+
+1. **Classes.** `managed`, `org_tree`, `identity_adjacent`, `attachment_metadata`, `ordinary`.
+   `writable_by_process` is refused for every class except `ordinary`, and also for any row whose
+   `managed_by` is set, whatever its class (D4a.2(b) unchanged). The create path refuses the flag
+   when the new version carries a module stamp (`managed_by` set) OR its class is not `ordinary`.
+   Both checks are needed: see item 8.
+2. **Where it lives.** A column `write_class` of `entity_definitions` (tenant schema), `NOT NULL`,
+   with a CHECK over the five values. It is a COLUMN, never a key of `definition_json` (same reasoning
+   as `managed_by`, REQ-496 D1). `EntityDefinition.changeset/2` never casts it.
+3. **Who assigns it.** Only core code, inside `Letflow.Entities.Definitions.create_definition/3`,
+   under the name's advisory lock (`ManagedTypes.lock_names/2`):
+   (a) a new version of an existing type name inherits the class of the existing rows of that
+   `(tenant, name)`; if any existing row of that name has `managed_by` set, the inherited class is
+   `managed`. So a version bump cannot change a type's class;
+   (b) a type with no existing rows gets `managed` when it is module-stamped and `ordinary` otherwise.
+   The classes `org_tree`, `identity_adjacent` and `attachment_metadata` are assigned to existing rows
+   only, by the migration backfill (item 4). No tenant input path (HTTP body, solution pack,
+   `definition_json`) reads or writes the column.
+4. **Existing rows.** The migration backfills `write_class` from the interim list, so every type it
+   refused stays refused. Rules, in order, on `lower(name)`:
+   `managed_by IS NOT NULL` -> `managed`;
+   `org` or `orgs`, or prefix `org_` -> `org_tree`;
+   `user`, `users`, `role`, `roles`, `permission`, `permissions`, `principal`, `principals`, `group`,
+   `groups`, `membership`, `memberships`, or prefix `user_`, `users_`, `role_`, `roles_`, `permission_`,
+   `permissions_`, `principal_`, `principals_`, `group_`, `groups_`, `membership_` -> `identity_adjacent`;
+   `attachment` or `attachments`, or prefix `attachment_`, `attachments_` -> `attachment_metadata`;
+   all other rows -> `ordinary`.
+   After the backfill a guard trigger refuses any UPDATE that changes `write_class`.
+5. **Refusal.** `check_settable/3` refuses with the unchanged rule `:writable_by_process_not_permitted`,
+   path `[:writable_by_process]`, HTTP 422. The managed message is unchanged; the other classes use
+   `writable_by_process cannot be set: the entity type is classified "<class>"`. Free text, documented
+   for API clients.
+6. **Run time.** `ProcessWritable.writable?/1` reads the row's `write_class`, its `managed_by` and the
+   flag; it does not read the name.
+7. **Not decided here.** A module declaring a non-`ordinary`, non-`managed` class for its own types
+   (no shipped module needs it today; the class vocabulary is reserved for it).
+8. **Module stamp is the authority for stamped rows.** `ManagedTypes.Stamp` (release task, GH #2596)
+   sets `managed_by` on existing exam rows inside its own exception window. It does NOT change
+   `write_class`: the guard trigger refuses that, and the class is immutable. So a row stamped after the
+   backfill keeps its backfilled class (possibly `ordinary`). Its refusal rests on `managed_by`:
+   `writable?/1` refuses when `managed_by` is set, and `check_settable/3` refuses when the stamp argument
+   is set (from `create_definition/3`) or when the inherited class is not `ordinary` (item 3a turns any
+   stamped row into `managed`). `write_class = managed` is therefore not required for a stamped row; it is
+   required only for the backfill and for fresh module-stamped types.
+
+## Amendment (GH #2619): D4a.2(a) for solution packs
+
+A pack install runs under `:DefinitionsCreate`, so the interim rule (PR A4) refused `writable_by_process`
+in any pack: a pack needing a process-writable unmanaged type had no path, and an exported pack carrying the
+flag could not be re-imported. Decision: **option (b), the installer must hold `:EntitiesDefinitionsWrite`
+(EDW) when the pack declares the flag.**
+
+1. `SolutionPack.install/3,4` takes the option `:process_writable_authorized`. Only the literal `true`
+   admits the flag; absent, `false`, `nil` or any other value keeps the refusal (fail closed).
+2. Only `Routers.SolutionPacks.install_document/2` sets it, from the DB-resolved auth context
+   (`Authorization.has_permission_in_scope?` on `:EntitiesDefinitionsWrite`, the recipe of
+   `Routers.ScriptRules.holds?/2`). A body key, query parameter or header is never read. Module installs
+   (`Modules.Installs`) never pass it.
+3. An admitted flag still goes through `create_definition/3`, so the managed-type and write-class refusals
+   (D4a.2(b), GH #2618) apply unchanged. The version is stored `:inactive`; it goes live only through
+   `POST /entities/definitions/:name/activate`, which is itself keyed EDW.
+4. Role vs scope: the router check is role-only, while the EDW routes are `scope: :tenant_wide`. Today both
+   answer the same: every role holding `:DefinitionsWrite` (the install key's permission) holds EDW
+   (PLATFORM_ADMIN, TENANT_ADMIN, PROCESS_DESIGNER). A test pins that for every core role; a change to roles
+   or scopes must re-check it.
+5. Audit: the rows carry `created_by` (the installer) and activation is audited by its own route. No new
+   audit event.
+
+Rejected: (a) a pending request confirmed by an EDW holder needs a new table, route and audit trail, and the
+inactive-until-activated step already gives a second EDW-keyed decision point. (c) module code only leaves
+tenant-authored packs with no path, and module-managed types are refused the flag by D4a.2(b) anyway.

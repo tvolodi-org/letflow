@@ -65,7 +65,10 @@ realms/actors, deployed definitions, and specs needing local Postgres). Prepare 
 1. Derive the PRECONDITIONS manifest from the scenario corpus (per scenario): tenants
    (`company_id`/`scope`), Keycloak realms, actors + roles (`actors:`), deployed process
    definitions (`process_id`), credentials for those actors, deployed build == origin/main
-   SHA, required spec files (`pipeline_test` exists and is not an unresolved
+   SHA (or, when the deployed build differs, its `git diff` to origin/main has no runtime path:
+   only docs/, test/, handoffs/, .github/, scripts/*uat* files, *.md, web test files, and mix.exs
+   changes inside `test_ignore_filters` are non-runtime; any other path, including deploy/,
+   lib/, config/ or web/ sources, is a GAP; GH #3044), required spec files (`pipeline_test` exists and is not an unresolved
    `NOTE (ISS-05xx)` forward-reference), and no local-only dependencies (e.g. a spec that
    shells out to `docker compose exec psql`).
 1a. Tenant preparation (seed scripts) runs with a tenant token of the least role the script

@@ -62,6 +62,8 @@ defmodule Letflow.Api.Response do
   @json_content_type "application/json"
   @problem_content_type "application/problem+json"
   @separation_of_duties_body ~s({"detail":"separation of duties","status":403})
+  # GH #2701 (REQ-516 S3): record events carry `field_values`, which no history item shows.
+  @entity_record_event_types ["ENTITY_RECORD_CREATED", "ENTITY_RECORD_UPDATED"]
 
   # ── Client-visible variable and event-payload shaping (GH #2587 PR B3, CO-1, INV-2) ──
 
@@ -88,6 +90,8 @@ defmodule Letflow.Api.Response do
     * the `EntityPort.applied_event_type/0` payload is reduced to `node_id`, `task_id`, `dispatch_id`,
       `lines_hash` and `lines` as `[%{"line_index", "entity_type"}]` (no record id, no event
       sequence; the hash-chained audit entry keeps them);
+    * `ENTITY_RECORD_CREATED` and `ENTITY_RECORD_UPDATED` lose their `field_values` key (GH #2701,
+      REQ-516 S3): the record's values are never shown by an instance history item;
     * every other payload has its variable values redacted by the labels stored on the event itself
       against `hidden` (`Letflow.Engine.VariableLabels.redact_event_payload/2`).
 
@@ -101,6 +105,9 @@ defmodule Letflow.Api.Response do
 
       event_type == EntityPort.applied_event_type() ->
         applied_payload(payload)
+
+      event_type in @entity_record_event_types ->
+        Map.delete(payload, "field_values")
 
       true ->
         VariableLabels.redact_event_payload(payload, hidden)

@@ -184,6 +184,17 @@ defmodule Letflow.Simulation.Req207VortexTest do
   S8's GUI-step harness (Signal 5), still nothing under `lib/` left for this
   scenario to wait on.
 
+  ## REQ-516 S2 lands (nineteenth route, GH #2701)
+
+  REQ-516 S2 adds a nineteenth route on `Letflow.Routers.Entities`,
+  `GET /entities/records/:entity_type/:record_id/history`, gated by
+  `:EntitiesQuery`. It returns a record's create/update history with
+  `field_values` masked at read time. Re-derived the same way as ISS-0935: this
+  scenario's six `:gui` steps (list, filter x2, sort, page, field redaction) all
+  read through `POST /entities/query`, and none reads a record's history. So the
+  route closes none of the six `:gui` gaps, and the disposition is UNCHANGED:
+  still `BLOCKED_ON_DEPENDENCY`. The equality assertion now expects nineteen routes.
+
   Full reasoning and the complete re-derivation history live in that describe
   block's own comments; `test/specs/REQ-310.md` states the test cases.
 
@@ -2155,7 +2166,12 @@ defmodule Letflow.Simulation.Req207VortexTest do
           # above. Included here so this equality assertion reflects the
           # router's real, live surface; its DEPARTURE would fire this
           # tripwire same as any other row's.
-          {"POST", "/restrictions/import", :EntitiesRestrictionsManage}
+          {"POST", "/restrictions/import", :EntitiesRestrictionsManage},
+          # REQ-516 S2's nineteenth row (GH #2701) -- the record history read, gated by
+          # :EntitiesQuery. It closes none of this scenario's six :gui gaps: the steps read
+          # records through POST /entities/query, and none of them reads history. Its
+          # field_values pass through FieldPolicy.redact_event_payload_with_sets/3.
+          {"GET", "/records/:entity_type/:record_id/history", :EntitiesQuery}
         ])
 
       actual_routes = MapSet.new(Letflow.Routers.Entities.__authz_routes__())
@@ -2174,7 +2190,7 @@ defmodule Letflow.Simulation.Req207VortexTest do
                ":EntitiesQuery} going MISSING would mean the record read path was reverted, " <>
                "which would move the blocker back to S10 from S8."
 
-      assert MapSet.size(actual_routes) == 18
+      assert MapSet.size(actual_routes) == 19
 
       # POSITIVE now, where the previous round refuted it. The record read
       # route exists, and it carries the read permission REQ-309 minted for it.
@@ -2192,13 +2208,17 @@ defmodule Letflow.Simulation.Req207VortexTest do
       # sub-resource (/records/:entity_type/:record_id/attachments...), not
       # the record's own field_values -- excluded here so this assertion
       # still proves what it always proved.
+      # REQ-516 S2 adds the record HISTORY GET, excluded by its exact path: its field_values
+      # pass through FieldPolicy.redact_event_payload_with_sets/3 (H1 proves it), so it is
+      # not a redaction bypass. Any other GET under /records still fails this refute.
       refute Enum.any?(actual_routes, fn {method, path, _perm} ->
                method == "GET" and String.starts_with?(path, "/records") and
-                 not String.contains?(path, "attachments")
+                 not String.contains?(path, "attachments") and
+                 path != "/records/:entity_type/:record_id/history"
              end),
-             "No GET route may exist under /records for the record itself -- record reads " <>
-               "are POST /entities/query only (design §1). A GET here would be a second read " <>
-               "path bypassing the query route's FieldGrants redaction"
+             "No GET route may exist under /records for the record itself (REQ-516 S2's history " <>
+               "route excepted) -- record reads are POST /entities/query only (design §1). A GET " <>
+               "here would be a second read path bypassing the query route's FieldGrants redaction"
 
       # ── Signal 3''' (INVERTED 2026-09-11): the permission is CONSUMED. ────
       #

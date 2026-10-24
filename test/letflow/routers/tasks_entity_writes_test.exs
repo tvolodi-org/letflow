@@ -16,6 +16,7 @@ defmodule Letflow.Routers.TasksEntityWritesTest do
   import Plug.Test
 
   alias Ecto.Multi
+  alias Letflow.Definitions.ActivatedBy
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Entities.EntityPortImpl
   alias Letflow.EntityWritesFixture, as: Fx
@@ -122,10 +123,22 @@ defmodule Letflow.Routers.TasksEntityWritesTest do
     |> then(&router.call(&1, router.init([])))
   end
 
+  # T-0250: a valid-looking document is signed through the product path (non-maps pass as they are).
+
+  defp signed_for(ctx, doc) when is_map(doc) do
+    row = Repo.get!(ProcessDefinition, ctx.definition.id, prefix: ctx.schema)
+
+    {:ok, signed} = ActivatedBy.sign(doc, row, ctx.schema)
+
+    signed
+  end
+
+  defp signed_for(_ctx, doc), do: doc
+
   defp set_activated_by!(ctx, activated_by) do
     {1, _} =
       from(d in ProcessDefinition, where: d.id == ^ctx.definition.id)
-      |> Repo.update_all([set: [activated_by: activated_by]], prefix: ctx.schema)
+      |> Repo.update_all([set: [activated_by: signed_for(ctx, activated_by)]], prefix: ctx.schema)
   end
 
   test "success: 200, and the response carries no _sys key (CO-1) while the projection does" do

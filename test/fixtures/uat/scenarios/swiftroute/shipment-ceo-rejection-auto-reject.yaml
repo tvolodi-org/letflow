@@ -1,0 +1,105 @@
+# Authored by BA-SWIFTROUTE for T-0322 (process audit T-0295, finding 3). Definition:
+# test/fixtures/qa/swiftroute_process_definition.json, edge e6 (ceo_decision == reject) leads to
+# auto-reject, then end-rejected. Sensitive action covered: releasing (step 3 is a refusal).
+---
+id: swiftroute-shipment-ceo-rejection-auto-reject
+company_id: swiftroute
+process_id: proc-swiftroute-shipment-approval
+title: When the CEO rejects a high-value shipment, it is rejected and never released
+version: "1.0"
+tags: [rejection, approval]
+
+description: >
+  A dispatcher submits a shipment of 750 euro and the Operations Manager approves it. The CEO
+  declines to co-sign and rejects it. The shipment must end as rejected through the automatic
+  rejection step and must never be released to the drivers.
+
+  PRECONDITION (BA decision T-0321): the dispatcher holds the Process Operator responsibility in
+  the swiftroute realm. If step 1 is refused for lack of that right, the scenario is BLOCKED,
+  not PASS.
+
+actors:
+  dispatcher:  actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+  ceo:         actor-swiftroute-alice
+
+preconditions:
+  - description: Shipment approval process definition is active
+    check: process_definition_active
+  - description: No open shipment approval instances for SwiftRoute
+    check: no_pending_instances
+  - description: >
+      The dispatcher can start a shipment (Process Operator responsibility, BA decision T-0321).
+    check: custom
+    detail: Step 1 returns a created instance; a refusal at step 1 means BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      Submits a shipment request for 20 packages to Dresden, declared value 750 euro,
+      standard cargo.
+    via: api
+    input:
+      shipment_id: sim-ship-rej-002
+      destination: Dresden
+      declared_value: 750
+      cargo_type: standard
+      requesting_actor_id: actor-swiftroute-lena
+    produces:
+      instance_id: "the process instance ID for this shipment request"
+
+  - step: 2
+    actor: ops_manager
+    action: Reviews the shipment request and approves it.
+    via: gui
+    input:
+      ops_decision: approve
+
+  - step: 3
+    actor: ceo
+    action: Reviews the high-value shipment and rejects it.
+    via: gui
+    input:
+      ceo_decision: reject
+
+  - step: 4
+    actor: ops_manager
+    action: >
+      Tries to approve the shipment the CEO has rejected, so that it is released after all.
+    expect_refusal: true
+    via: api
+    input:
+      ceo_decision: approve
+
+expected_outcomes:
+  - id: EO-001
+    description: The shipment ends as rejected through the automatic rejection step.
+    verification:
+      method: instance_state
+      detail: >
+        After step 3: the auto-reject step ran, instance status == COMPLETED and end node is
+        'end-rejected'.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A shipment the CEO rejected stays open or is recorded in the wrong state.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: The rejected shipment is never released, and the later attempt changes nothing.
+    verification:
+      method: instance_state
+      detail: >
+        release-shipment never ran; after step 4 the attempt was refused because no
+        co-signature is open for this shipment, the end node is still 'end-rejected', and no
+        approval from the Operations Manager appears as a co-signature in the history.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A shipment the CEO refused could still reach the drivers.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the sim-ship-rej-002 instance if not already completed.

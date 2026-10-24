@@ -66,3 +66,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/seed_persona_actors_base.sh"
 
 persona_require_env
 persona_run meridian
+
+# GH #3077: the refusal scenario's step 8 needs borrower records to refuse. The entity seed
+# needs a dedicated seeding account (SEED_ACTOR_USERNAME); without one it is skipped, loudly.
+if [[ -n "${SEED_ACTOR_USERNAME:-}" ]]; then
+  bash "$(dirname "${BASH_SOURCE[0]}")/seed_meridian_entities.sh"
+else
+  echo "NOTE: SEED_ACTOR_USERNAME is not set -- skipping scripts/seed_meridian_entities.sh." >&2
+  echo "      The meridian refusal scenario's borrower export step has no data until it is run." >&2
+fi

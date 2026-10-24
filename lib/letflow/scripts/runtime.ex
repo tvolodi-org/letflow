@@ -344,13 +344,7 @@ defmodule Letflow.Scripts.Runtime do
   end
 
   defp reserved_input_reference(node_id, property),
-    do: %{
-      element: :node,
-      id: node_id,
-      location: :script_input,
-      field: property,
-      name: property
-    }
+    do: ReservedReferences.reference(:node, node_id, :script_input, property, property)
 
   # ── retire block (design 4.5, C19) ───────────────────────────────────────────
 

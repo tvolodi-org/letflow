@@ -1552,7 +1552,7 @@ defmodule Letflow.Entities.RecordsTest do
       assert gh2528_latest!(schema, record_id).field_values == created.field_values
     end
 
-    test "no new write path: only three lib files name the update/delete event types" do
+    test "no new write path: only four lib files name the update/delete event types" do
       git =
         System.find_executable("git") ||
           flunk("git is not available; this test must fail, not skip")
@@ -1580,7 +1580,10 @@ defmodule Letflow.Entities.RecordsTest do
 
       files = out |> String.split(["\r\n", "\n"], trim: true) |> Enum.sort()
 
+      # api/response.ex names the two types only to drop `field_values` from the history view
+      # (GH #2701, REQ-516 S3): it shapes a response and writes nothing.
       assert files == [
+               "lib/letflow/api/response.ex",
                "lib/letflow/entities/event_types.ex",
                "lib/letflow/entities/record/projector.ex",
                "lib/letflow/entities/records.ex"

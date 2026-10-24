@@ -332,7 +332,9 @@ defmodule Letflow.Secrets do
         where:
           s.tenant_id == ^tenant_id and s.namespace == ^namespace and s.name == ^name and
             s.status == :active,
-        order_by: [desc: s.created_at],
+        # created_at is second precision: two versions put in the same second tie, and the
+        # version number breaks the tie so the newest version is always the one resolved.
+        order_by: [desc: s.created_at, desc: s.key_id],
         limit: 1
       )
 

@@ -117,8 +117,16 @@ steps:
     actor: risk_manager
     action: >
       The risk manager tries to export the full list of borrower records with the
-      personal details shown unmasked
+      personal details (national_id, date_of_birth, contact_email) shown unmasked:
+      POST /api/v1/entities/records/borrower/export with unredacted true. The borrower
+      entity type and its three records (borrower-corp-001, borrower-corp-002,
+      borrower-sme-001) are seeded by scripts/seed_meridian_entities.sh, so the refusal
+      has data behind it; the risk manager holds no unredacted-export permission.
     via: api
+    input:
+      route: POST /api/v1/entities/records/borrower/export
+      entity_type: borrower
+      unredacted: true
     expect_refusal: true
 
   - step: 9

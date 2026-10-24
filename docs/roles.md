@@ -59,8 +59,10 @@ scenario file. A tenant-side actor holds TENANT_ADMIN or a tenant role, never PL
 ## TENANT_AUDITOR
 - Scope: tenant, read-only.
 - Who holds it: compliance officers, auditors, managers.
-- Does: read definitions, instances, all tasks, audit, metrics, attachments, entity data, promotion reads (`PromotionsRead`, own-tenant, read-only; the stored-tenant check of ISS-1029 applies as for a tenant admin).
+- Does: read definitions, instances, all tasks, audit, metrics, attachments, entity data, record history of a record (`GET /entities/records/:entity_type/:record_id/history`, restricted fields masked; REQ-516 S2, GH #2701), promotion reads (`PromotionsRead`, own-tenant, read-only; the stored-tenant check of ISS-1029 applies as for a tenant admin).
 - Must not: write, export, import, issue attachment links, manage tokens, users, roles, modules or settings.
+
+Record history consequence (REQ-516 S2, decision 0059 D2): the history route masks `field_values` with the caller's CURRENT restriction rows and grants, at read time. Restrictions are not stored per event. So if a restriction is removed later, the history written while it applied shows those values to an auditor who holds no grant. Restricted values in history follow the caller's current restrictions and grants, not the restrictions in force when each event was written. The history route reads the live events table only; archived or retention-removed events are not shown.
 
 ## Known limitation: scoped approvers (stage 2)
 
