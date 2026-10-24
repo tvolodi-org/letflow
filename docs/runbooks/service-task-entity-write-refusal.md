@@ -98,9 +98,27 @@ The result of the service call is not stored, so there is no automatic re-apply:
 If the process crashes between the rollback and the commit of the ERROR landing (or the landing
 itself exhausts its contention budget), the HTTP dispatch row stays `advanced` and the instance
 `ACTIVE` with a lost token: the pre-existing silent-stall class of ISS-0928. The dispatcher logs
-and writes a `service_task.advance_failed` audit entry. Closing it needs the stuck-`advanced`
-sweeper listed as deferred in the design (section 16). The script route has no such window: its
-lease sweep turns an expired `running` row into a `timeout` incident.
+and writes a `service_task.advance_failed` audit entry.
+
+GH #2688 / REQ-513 closes this for the entity-write class with the **stuck-advance sweep**
+(`Letflow.Engine.ServiceTaskDispatcher.StuckSweep`, called from the dispatcher `Poller` tick,
+design `lib/letflow/design/gh2688-req513-stuck-advance-sweeper.md`). It is OFF by default. Set
+`config :letflow, :service_task_dispatcher, stuck_advance_mode: :shadow` to log the candidates
+(`stuck_advance candidate: dispatch_id=... tenant=...`) and write nothing, then `:on` to land them.
+A candidate is an `advanced` row at least `stuck_advance_min_age_seconds` old (default 600, floored
+at 120), whose instance is `ACTIVE`, with no `service_task_dispatch:<id>` completion key, on a node
+that declares `entity_writes` or `module_writes` (a malformed attribute counts, as in the plan).
+Each is landed once, in one transaction, as an ERROR instance with one DLQ entry, error type
+`service_task_apply_lost`, public code `dispatch_apply_lost`, and one `service_task.stuck_advance_landed`
+audit entry. The dispatch row stays `advanced`. A late apply or a second sweep then finds the key
+and writes nothing. The other keys (`stuck_advance_sweep_interval_ms`, `_batch_size`,
+`_scan_page_size`, `_scan_limit`, `_sweep_budget_ms`) bound the work per sweep.
+
+Residual of the sweep: a node with lines can also stall for another ISS-0928 reason
+(`transition_failed`, `unknown_token_id`, ...); the sweep cannot tell them apart and lands them
+too, with the code `dispatch_apply_lost` instead of `entity_write_refused`. Nodes without lines
+and the other stall classes are not swept. The script route has no such window: its lease sweep
+turns an expired `running` row into a `timeout` incident.
 
 ## Module write handlers on a SERVICE_TASK node (GH #2590 / REQ-501 PR R5)
 
