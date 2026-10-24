@@ -20,8 +20,8 @@ defmodule Letflow.Identity.ScopedApprovers do
   lockout. A holder with ZERO applicable rows is not a scoped approver (it is denied outright
   and is already counted by gate fact 1, bindings without a row).
 
-  The count no longer blocks the flip. It was the blocker `scoped_approvers_without_task_scope`
-  (REQ-519 AC 10) until REQ-532 / GH #3091 wrote `tasks.scope_node_id` from the instance's scope
+  The count no longer blocks the flip. It was a blocker (REQ-519 AC 10, a refusal code that is
+  now removed) until REQ-532 / GH #3091 wrote `tasks.scope_node_id` from the instance's scope
   node, so a scoped approver sees the tasks of its scope. The count is kept, informational, in the
   flip report and the integrity report. It is a plain read (two queries, bound values only,
   INV-7); inside the `on` gate it runs after lock A and the scope-tree lock S, and every input is
