@@ -37925,14 +37925,89 @@ requirements:
     depends_on: [REQ-460, REQ-461, REQ-462]
 
   - id: REQ-531
-    title: "Core: W3b task scope writer, tasks.scope_node_id set at task creation, backfill, and removal of the scoped-approver blocker"
+    title: "Core: instance scope node set at instance start (instance_projections.scope_node_id), prerequisite of the W3b task scope writer"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     # impl_order: UNREGISTERED
-    # Source: GH #2870 (W3b); REQ-519 AC 10, AC 23, AC 24 and its out-of-scope paragraph; REQ-518 AC 13, 17 and 20 (the column and its readers); decision 0051 D6, D9 and the NULL-scope rule; lib/letflow/identity/scoped_approvers.ex moduledoc ("removed ONLY by the requirement that ships a production writer for tasks.scope_node_id"); docs/roles.md "Known limitation: scoped approvers (stage 2)".
+    # Source: GH #2870 (W3b, "from the instance or process scope"); decision 0051 T13 and T14 and its script-principal paragraph (docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md); REQ-518 (scope_node_paths, the tasks column and readers); REQ-519 AC 10, AC 23, AC 24; lib/letflow/event_store/instance_projection.ex; lib/letflow/routers/instances.ex; lib/letflow/engine.ex create/2; lib/letflow/engine/sub_process.ex.
     description: >
-      Source: GH #2870; REQ-519 AC 10, AC 23, AC 24; REQ-518 AC 13, AC 17, AC 20.
+      Source: GH #2870; decision 0051 T13, T14.
+      Decision 0051 T13 settles where the scope comes from: "Instances, variables and
+      history carry a `scope_node` set at instance start, never re-derived from the caller
+      later. An instance started by a system path with no node is `:unresolvable` for
+      scoped principals (visible to tenant-wide holders only)." T14 adds that "inbound
+      webhooks / trigger starts must supply a `scope_node` or the instance is
+      `:unresolvable`", and the script-principal paragraph says a script's outputs take the
+      instance's scope. So the source for tasks is the INSTANCE, set once at start; a
+      process definition is not the source because T13 sets the scope per instance at
+      start, not per definition. This requirement gives the instance that value; REQ-532
+      then copies it onto tasks.
+
+      Today the instance row is the event-sourced projection `instance_projections`
+      (lib/letflow/event_store/instance_projection.ex, migration
+      priv/repo/migrations/20260816120003_create_instance_projections.exs) and carries no
+      scope node; lib/letflow/routers/instances.ex records `scope_node` nil "while
+      instances carry none".
+
+      WHAT IS BUILT (one change):
+      (a) Column. instance_projections gets a nullable scope_node_id text column, FK to
+      scope_node_paths(node_id) ON DELETE RESTRICT, partial index on non-NULL values.
+      (b) Event. The INSTANCE_STARTED payload carries scope_node_id (key absent or null
+      when none). The projector writes the column from that payload, so a projection
+      rebuild or replay reproduces the value from the event stream alone.
+      (c) Start paths, each decided:
+        1. POST /instances (authz_post "/" :InstancesStart in
+           lib/letflow/routers/instances.ex, handle_create -> Letflow.Engine.create/2):
+           ACCEPTS an optional request field `scope_node_id` (string). Absent or null
+           leaves the instance unscoped (NULL, T13 "no node": invisible to scoped
+           principals, visible to tenant-wide holders). Present: validated as an existing,
+           non-retired scope_node_paths node; for a caller whose InstancesStart authority
+           is scoped, the node must lie inside the caller's scope; a tenant-wide caller
+           may name any active node of its own tenant.
+        2. Sub-process child instances (lib/letflow/engine/sub_process.ex
+           append_start_multi, which writes the child's INSTANCE_STARTED): INHERIT the
+           parent's scope_node_id (T13: set at start, never re-derived from a caller).
+        3. Webhook and trigger starts (0051 T14): grep of lib/ for callers of
+           Engine.create/2 outside design notes finds only handle_create, so no such start
+           path exists today and none is changed. Any future one must supply a node or
+           the instance stays unscoped (T14); that is stated in the Engine.create/2 doc.
+      (d) Read. The scope_node_id is returned by GET /instances/:id and GET /instances
+      (authz_get "/:id" and "/" :InstancesRead in lib/letflow/routers/instances.ex),
+      null when unscoped.
+
+      DEPENDS ON REQ-518 (scope_node_paths and the scope resolution helpers) and REQ-517
+      (lock order for scope_node_paths). REQ-532 depends on this requirement.
+
+      OUT OF SCOPE: tasks (REQ-532); changing who can see an instance (the instance read
+      filters are unchanged); turning `on` for any production tenant; a UI for choosing the
+      scope; re-scoping a running instance.
+    open_questions:
+      - "Whether an `on` tenant should refuse an unscoped start of a definition whose tasks are routed to scoped roles. This requirement keeps NULL (decision 0051 T13 already defines the unscoped case as unresolvable for scoped principals and changes nothing for existing flows); refusing the start would be a production rule for the process owner."
+      - "How a future webhook or trigger start supplies its node (0051 T14 requires it but no such start exists in lib/ today). Not decided here."
+    acceptance_criteria:
+      - "1. a migration adds a nullable scope_node_id text column to instance_projections with a foreign key to scope_node_paths(node_id) ON DELETE RESTRICT and a partial index on non-NULL values; it is registered in Letflow.TenantProvisioning.tenant_scoped_migrations/0 and a migration test shows up and down in a populated tenant schema, with existing rows NULL"
+      - "2. POST /instances with scope_node_id of an existing active node answers 201, the INSTANCE_STARTED event payload carries that scope_node_id, and GET /instances/:id and GET /instances return it; a test then completes a task of the instance and asserts the value is unchanged"
+      - "3. POST /instances without scope_node_id, or with null, gives an instance whose scope_node_id is null in the projection, the event and both reads; the existing POST /instances tests pass unchanged"
+      - "4. projection rebuild: a test deletes the instance_projections row of a scoped instance, rebuilds the projection from the event stream with the existing rebuild/replay function, and asserts scope_node_id equals the value from the INSTANCE_STARTED payload"
+      - "5. POST /instances with an unknown, retired, or malformed (not a string, empty, over the node id length limit) scope_node_id is refused 422 with no instance, no event and no task created"
+      - "6. who may start a scoped instance: a caller holding InstancesStart only through a scoped grant who names a node inside the grant is accepted; the same caller naming a node outside the grant gets the same status and body as an unknown node (INV-5); a tenant-wide caller may name any active node of its tenant"
+      - "7. a sub-process child instance has the same scope_node_id as its parent in its INSTANCE_STARTED payload and in the projection (test with a scoped parent and with an unscoped parent giving NULL)"
+      - "8. cross-tenant negative test (INV-10): a scope_node_id that exists only in tenant B's scope tree, given to POST /instances in tenant A, is refused as an unknown node and nothing is written in either tenant"
+      - "9. the Engine.create/2 doc names the three start paths above and states that a future webhook or trigger start must supply a node or stay unscoped (decision 0051 T14); the grep of Engine.create callers in lib/ is quoted in the PR"
+      - "10. SECURITY-REVIEWER verdict recorded (mandatory: new input on a tenant-data route, migration on tenant schemas, scope validation)"
+      - "11. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_requirements_registration, mix letflow.check_boundaries, the route-inventory and scope-enforcement pin tests, and the scoped mix test over test/letflow/engine*, test/letflow/event_store*, test/letflow/routers/instances* and test/letflow/identity* pass, real output quoted"
+    depends_on: [REQ-517, REQ-518]
+
+  - id: REQ-532
+    title: "Core: W3b task scope writer, tasks.scope_node_id copied from the instance at task creation, backfill, and removal of the scoped-approver blocker"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED
+    # Source: GH #2870 (W3b); REQ-519 AC 10, AC 23, AC 24 and its out-of-scope paragraph; REQ-518 AC 13, 17 and 20 (the column and its readers); decision 0051 T13 (instance scope set at start) and A1(7) (blocker removed by the requirement that ships the writer); lib/letflow/identity/scoped_approvers.ex moduledoc ("removed ONLY by the requirement that ships a production writer for tasks.scope_node_id"); docs/roles.md "Known limitation: scoped approvers (stage 2)".
+    description: >
+      Source: GH #2870; REQ-519 AC 10, AC 23, AC 24; REQ-518 AC 13, AC 17, AC 20; REQ-531.
       The column tasks.scope_node_id exists (migration
       priv/repo/migrations/20261019200001_add_scope_node_id_to_tasks.exs: nullable text,
       FK tasks_scope_node_id_fkey to scope_node_paths, partial index) and is READ by
@@ -37945,58 +38020,44 @@ requirements:
       writer and removes that blocker in the same change.
 
       WHAT IS BUILT (one change):
-      (a) Scope source. Today neither the instance row
-      (lib/letflow/event_store/instance_projection.ex) nor a process definition carries a
-      scope node (lib/letflow/routers/instances.ex records `scope_node` nil "while
-      instances carry none"). A definition must not carry it: decision 0051 keeps scope
-      declarations out of tenant-editable definition JSON. So the source is the INSTANCE:
-      a nullable instance scope_node_id, set once when the instance is created and never
-      changed, validated like a grant (an existing, non-retired scope_node_paths node; for
-      a scoped caller, inside the caller's scope). A sub-process instance inherits its
-      parent's value.
-      (b) Writer. When the engine inserts a task row (task_activation.ex, both the
+      (a) Writer. When the engine inserts a task row (task_activation.ex, both the
       append_multi and the append_multi_from_existing_records paths) it sets
-      tasks.scope_node_id to the instance's scope_node_id; an instance with none gives NULL
-      (unchanged fail-closed behaviour: visible only to tenant-wide principals).
-      (c) Backfill. Existing tasks are filled from their instance by a tenant-scoped,
-      re-runnable data migration; since no instance carries a scope today, the expected
-      result in every existing tenant is zero rows changed, and the migration reports the
-      count. Existing tasks keep NULL. No scope is guessed.
-      (d) Blocker removal. The `scoped_approvers_without_task_scope` refusal is removed
+      tasks.scope_node_id to the instance's scope_node_id from REQ-531 (the source, per
+      decision 0051 T13: the value set at instance start, never re-derived from a caller);
+      an instance with none gives NULL (unchanged fail-closed behaviour: visible only to
+      tenant-wide principals).
+      (b) Backfill. A tenant-scoped Ecto data migration, registered in
+      Letflow.TenantProvisioning.tenant_scoped_migrations/0 and run once per tenant schema,
+      sets tasks.scope_node_id from instance_projections.scope_node_id where the task's
+      value is NULL and the instance has one. Since no instance carries a scope before
+      REQ-531, the expected result in every existing tenant is zero rows changed. It is
+      not a release task and has no dry-run mode; it is tested through up and down. No
+      scope is guessed.
+      (c) Blocker removal. The `scoped_approvers_without_task_scope` refusal is removed
       from the `on` gate (lib/letflow/scope_enforcement/on_gate.ex,
       lib/letflow/identity/scoped_approvers.ex), the docs/roles.md limitation section is
       rewritten, and the informational count `scoped_task_workers_without_task_scope` is
       removed or redefined.
 
-      DEPENDS ON REQ-518 (the column, F1 and the task routes that read it) and REQ-519
-      (the gate that holds the blocker); REQ-517 for scope_node_paths and its lock order.
+      DEPENDS ON REQ-531 (the instance scope node), REQ-518 (the column, F1 and the task
+      routes that read it) and REQ-519 (the gate that holds the blocker).
 
       OUT OF SCOPE: turning `on` for any production tenant (REQ-519 AC 24 stays a human
-      step); a UI for choosing the scope at instance start; re-scoping a running
-      instance; changing F1 or the task routes.
-
-      SIZING NOTE: instance column plus start input, task writer, backfill and gate edit.
-      If the developer finds the instance-start change is more than one sitting, the
-      instance scope column and its validation is split off as its own requirement that
-      this one depends on; the criteria below stay the same.
+      step); how an instance gets its scope (REQ-531); re-scoping a running instance;
+      changing F1 or the task routes.
     open_questions:
-      - "Where the instance's scope node comes from. The GH #2870 text says 'from the instance or process scope'. No source in the repository gives an instance or a definition a scope node today, and 0051 forbids it in tenant-editable definition JSON. This entry takes an explicit, validated value given when the instance is started (UAT assumption, to be confirmed by the process owner). Alternatives the process owner may prefer: derive it from the scope column of the record the instance is about (0051 scope declarations), or from the starter's single scoped grant. Production access rules depend on this choice, so it needs the owner's confirmation before the flip to `on` in any production tenant."
-      - "Whether an instance started without a scope in an `on` tenant should keep NULL (this entry) or refuse the start. NULL is chosen because it changes nothing for existing flows."
+      - "None beyond REQ-531's: an instance without a scope keeps NULL tasks (decision 0051 T13: unresolvable for scoped principals)."
     acceptance_criteria:
-      - "1. a migration adds a nullable scope_node_id text column to the tenant instances table with a foreign key to scope_node_paths(node_id) ON DELETE RESTRICT and a partial index; it is registered in Letflow.TenantProvisioning.tenant_scoped_migrations/0 and a migration test shows up and down in a populated tenant schema, with existing rows NULL"
-      - "2. starting an instance with a scope_node_id of an existing active node stores it on the instance; the value is returned by the instance read and is never changed by any later event (a test replays the start and completes a task and asserts it is unchanged)"
-      - "3. starting an instance with an unknown, retired or malformed scope_node_id is refused 422 with no instance, no event and no task created; starting one with a node outside a scoped caller's scope is refused with the same status and body as an unknown node (INV-5)"
-      - "4. a task created for an instance with scope_node_id N has tasks.scope_node_id == N, for the first task, for a task created after a gateway or a parallel join, and for a task created through append_multi_from_existing_records (one test per insert path)"
-      - "5. a task created for an instance without a scope node has tasks.scope_node_id NULL, and a tenant-wide TASK_WORKER sees and completes it exactly as before (the existing task tests pass unchanged)"
-      - "6. a sub-process instance has the same scope_node_id as its parent and its tasks carry it"
-      - "7. end to end under the stored flag value `on` (driven through the REQ-517 test-support helper): a scoped-only TASK_WORKER in the task's routing role whose grant covers node N sees the task in GET /tasks and /tasks/inbox and can claim and complete it; the same user gets the 404-equivalent answer for a task of a node outside the grant and for a task with NULL scope; a user outside the routing role gets 404 even with the grant"
-      - "8. cross-tenant negative test (INV-10): a scope_node_id belonging to tenant B's scope tree given when starting an instance in tenant A is refused as an unknown node and nothing is written in either tenant"
-      - "9. backfill: a re-runnable, tenant-schema-scoped data migration sets tasks.scope_node_id from the task's instance where it is NULL and the instance has one; a test seeds tasks of a scoped instance with NULL scope, runs it twice, and asserts the first run changes exactly those rows and the second changes none; tasks of unscoped instances stay NULL; the run reports only the number of rows changed (INV-4); a dry run changes nothing"
-      - "10. the audit entry for task creation does not change shape (Task.audit_state/1 still excludes scope_node_id, per REQ-518) and the instance creation event carries scope_node_id; a test pins both"
-      - "11. REQ-519 AC 10 blocker removed in the same change: the flip to `on` is no longer refused with scoped_approvers_without_task_scope when scoped approvers exist; the tests of REQ-519 AC 10 that assert the refusal are replaced by tests that assert the flip proceeds, and a source scan asserts the string appears nowhere in lib/"
-      - "12. the other flip preconditions are unchanged: a test shows zero_tenant_wide_admins and shadow_required still refuse the flip with a scoped approver present"
-      - "13. docs/roles.md 'Known limitation: scoped approvers (stage 2)' is rewritten to say that tasks carry the scope node of their instance and that a task of an unscoped instance stays invisible to scoped callers; the three REQ-518 AC 17 sentences and the source-scan test that pins them are removed; the moduledocs of scoped_approvers.ex and on_gate.ex and any runbook naming the blocker are updated; the grep for scoped_approvers_without_task_scope and W3b across docs/, lib/ and test/ is quoted"
-      - "14. the PR body states that this requirement satisfies the W3b precondition of REQ-519 AC 23/24, that it sets no production tenant to `on` (AC 24 stays a human step), and quotes the open question on the scope source"
-      - "15. SECURITY-REVIEWER verdict recorded (mandatory: tenant-data path, new input on the instance start route, migration on tenant schemas, scope validation)"
-      - "16. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_requirements_registration, mix letflow.check_boundaries, the route-inventory and scope-enforcement pin tests, and the scoped mix test over test/letflow/engine*, test/letflow/tasks*, test/letflow/identity*, test/letflow/scope_enforcement* pass, real output quoted"
-    depends_on: [REQ-517, REQ-518, REQ-519]
+      - "1. a task created for an instance with scope_node_id N has tasks.scope_node_id == N, for the first task, for a task created after a gateway or a parallel join, and for a task created through append_multi_from_existing_records (one test per insert path)"
+      - "2. a task created for an instance without a scope node has tasks.scope_node_id NULL, and a tenant-wide TASK_WORKER sees and completes it exactly as before (the existing task tests pass unchanged)"
+      - "3. a task of a sub-process child instance carries the child's scope_node_id, which REQ-531 makes equal to the parent's"
+      - "4. end to end under the stored flag value `on` (driven through the REQ-517 test-support helper): a scoped-only TASK_WORKER in the task's routing role whose grant covers node N sees the task in GET /tasks and /tasks/inbox and can claim and complete it; the same user gets the 404-equivalent answer for a task of a node outside the grant and for a task with NULL scope; a user outside the routing role gets 404 even with the grant"
+      - "5. backfill migration: a test seeds, in a tenant schema before the migration, tasks of a scoped instance with NULL scope and tasks of an unscoped instance, runs the migration up, and asserts the first kind now equals their instance's scope_node_id and the second stays NULL; a task that already has a scope_node_id is not changed; down leaves the data in place; in a tenant with no scoped instance the migration changes zero rows"
+      - "6. the audit entry for task creation does not change shape (Task.audit_state/1 still excludes scope_node_id, per REQ-518); a test pins it"
+      - "7. REQ-519 AC 10 blocker removed in the same change: the flip to `on` is no longer refused with scoped_approvers_without_task_scope when scoped approvers exist; the tests of REQ-519 AC 10 that assert the refusal are replaced by tests that assert the flip proceeds, and a source scan asserts the string appears nowhere in lib/"
+      - "8. the other flip preconditions are unchanged: a test shows zero_tenant_wide_admins and shadow_required still refuse the flip with a scoped approver present"
+      - "9. docs/roles.md 'Known limitation: scoped approvers (stage 2)' is rewritten to say that tasks carry the scope node of their instance and that a task of an unscoped instance stays invisible to scoped callers; the three REQ-518 AC 17 sentences and the source-scan test that pins them are removed; the moduledocs of scoped_approvers.ex and on_gate.ex and any runbook naming the blocker are updated; the grep for scoped_approvers_without_task_scope and W3b across docs/, lib/ and test/ is quoted"
+      - "10. the PR body states that this requirement satisfies the W3b precondition of REQ-519 AC 23/24 and that it sets no production tenant to `on` (AC 24 stays a human step)"
+      - "11. SECURITY-REVIEWER verdict recorded (mandatory: tenant-data path, migration on tenant schemas, change of an access gate)"
+      - "12. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_requirements_registration, mix letflow.check_boundaries, the route-inventory and scope-enforcement pin tests, and the scoped mix test over test/letflow/engine*, test/letflow/tasks*, test/letflow/identity*, test/letflow/scope_enforcement* pass, real output quoted"
+    depends_on: [REQ-531, REQ-518, REQ-519]
