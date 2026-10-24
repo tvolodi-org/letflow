@@ -837,8 +837,8 @@ defmodule Letflow.TenantProvisioning do
     # REQ-508 / GH #2675 (decision 0063 part (a)): retention policy columns on document_types,
     # hold columns on documents, and the column-aware guard_document_types().
     {20_261_025_100_001, Letflow.Repo.Migrations.AddDocumentRetentionAndHold,
-  ]
      "20261025100001_add_document_retention_and_hold.exs"}
+  ]
 
   @doc """
   The designated tenant-scoped subset of `priv/repo/migrations/` —
