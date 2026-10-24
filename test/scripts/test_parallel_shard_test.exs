@@ -28,7 +28,9 @@ defmodule Letflow.Scripts.TestParallelShardTest do
   @moduletag :tmp_dir
   @moduletag timeout: 300_000
 
-  @run_limit_ms 120_000
+  # The stub run is cheap unprofiled, but a loaded shard slowed the 4-partition case past
+  # 120 s (GH #2380, main push run 40115295998). Stay below the module timeout above.
+  @run_limit_ms 240_000
 
   defp bash,
     do:
