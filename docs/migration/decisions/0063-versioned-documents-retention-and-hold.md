@@ -155,6 +155,15 @@ stored on the row only and is NEVER in an event payload (0056 D9).
   transaction (0056 D7). The concurrent race itself cannot be forced in a deterministic test; the
   test plan covers it by the sequential cases A7a/A7b and by the reviewer's check that the lock is
   taken before the read (race-only, see A7).
+- **Lock order (0061).** Decision 0061's global order has no class for `documents` rows. This record
+  places them: the `documents` row comes AFTER the entity-type rows (0061 rule 1, class 5) and BEFORE
+  the tenant-wide audit chain row (class 6). So every transaction that takes a `documents` row
+  (hold set and clear here, REQ-509 purge, and the future issue or supersede writer of 0056 D2 that
+  also updates the documents row) takes it before the audit row. A writer that takes the audit row
+  first and then a documents row can deadlock with a hold transition, and is refused. The part (b)
+  developer's order (lock, read, then the event write) already follows this. The sequence row of
+  0056 D2 is class 7 under 0061; a writer that takes it must follow 0061 rule 7, not take it before
+  the audit row.
 
 **Events.** `document.hold_set` (document_id, reason_code, actor) and `document.hold_cleared`
 (document_id, reason_code, actor). Both are written in the same transaction as the column change.
@@ -205,9 +214,10 @@ Notes:
   out, so REQ-509 reads one predicate that says what it means.
 - `retention_from = issued` takes `v.issued_at`, which exists for every superseded or cancelled
   version (CHECK on main: an issued row has `issued_at`).
-- **Fail-safe rule:** if `nxt.issued_at` is NULL (the named version is a draft, or no version is
-  named), `closed_at(v)` is NULL, the comparison is NULL, and the version is NOT returned. A
-  version is never eligible on a closing time that is not known. Test A10.
+- **Fail-safe rule:** if `nxt.issued_at` is NULL (the named version is a draft), `closed_at(v)` is
+  NULL, the comparison is NULL, and the version is NOT returned. A version is never eligible on a
+  closing time that is not known. Test A10. (A superseded row with NO named version cannot exist: the
+  main CHECK `status <> 'superseded' OR superseded_by_version IS NOT NULL` refuses it.)
 - The query returns version ids and performs no action (REQ-508 executes nothing).
 
 ### S7. Route security
@@ -327,8 +337,9 @@ Part (b) reads the `on_hold` column that part (a) adds, so (a) lands first.
 - A9 (classification): `DocumentsRetentionManage` and `DocumentHold` are `:tenant` in
   `permission_scope/1`; neither is held by PLATFORM_ADMIN in the matrix test. Part (b).
 - A10 (fail-safe): a superseded version whose `superseded_by_version` names a DRAFT (so
-  `nxt.issued_at` is NULL), or a superseded version with no named version, is never returned,
-  even with an elapsed clock and `retention_from = superseded_or_cancelled`. Part (a).
+  `nxt.issued_at` is NULL) is never returned, even with an elapsed clock and
+  `retention_from = superseded_or_cancelled`. Part (a). (The case "superseded with no named version"
+  is dropped: main's CHECK refuses that row, so it cannot be built.)
 
 ## Not decided here (for the owner)
 
@@ -347,6 +358,10 @@ Part (b) reads the `on_hold` column that part (a) adds, so (a) lands first.
 - REQ-509 (purge) consumes the eligibility query of S6 and the hold columns of S5; it must take the
   `documents` row lock and check `on_hold` again inside its transaction (0056 D7).
 - Route status codes for the hold transitions: 409 for a state conflict, 422 for a missing reason.
+- Lock order: the `documents` row sits between 0061 classes 5 and 6 (S5). 0061 is not amended; the
+  placement is a rule for the writers named in S5. 0061 rule 5 makes the hold path a NEW path that
+  takes two row classes, so part (b) must ship a forced-overlap test (barrier row, lock-queue FIFO,
+  deadlock and lock-timeout reported through the Repo telemetry event) before it merges.
 
 ## Sign-off
 
