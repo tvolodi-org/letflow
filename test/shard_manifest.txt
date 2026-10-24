@@ -905,3 +905,4 @@
 16 test/mix/tasks/letflow.check_engine_test_seams_config_test.exs 11.10
 16 test/mix/tasks/letflow_check_uat_scenario_schema_test.exs 3745.69
 16 test/support/tenant_slug_test.exs 14701.59
+8 test/letflow/risk_tier/risk_tier_test.exs 4871.99
