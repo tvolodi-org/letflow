@@ -38293,7 +38293,7 @@ requirements:
     depends_on: [REQ-508]
 
   - id: REQ-539
-    title: "Decision record for Record E (decision 0053 hook 2): entity pre-write script hook and derived fields, with the atomicity rule for finding F13 (slice 0, decision only)"
+    title: "Decision record for Record E (decision 0053 hook 2): record pre-write script hook and derived fields, with the atomicity rule for finding F13 (slice 0, decision only)"
     owner: CODE-DESIGNER
     status: pending
     stage: S7
