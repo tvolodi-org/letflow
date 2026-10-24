@@ -4,7 +4,7 @@
 # Provisions the letflow-side (Part B) of the Meridian persona actors (ISS-0931):
 #   - Creates process-routing role groups + tenant_role bindings for every role
 #     referenced by the Meridian QA definitions (9 roles; role-committee-member dropped by ISS-1024, role-credit-approver-l1 added by ISS-1028 for l1-approval, role-loan-ops-lead added by Q-1048 / GH #2390 for the disbursement escalation, the three committee votes now route to role-cro / role-credit-director / role-ceo)
-#   - Adds each persona actor to TASK_WORKER (implicit) and to its role groups
+#   - Adds each persona actor to TASK_WORKER and to its role groups
 #
 # Prerequisites:
 #   - curl and jq installed
@@ -31,7 +31,12 @@
 # test/fixtures/simulation/meridian/org_structure.yaml; thomas -> role-cro and
 # eva -> role-ceo are inferred from org structure, not stated verbatim. Role groups
 # are the authoritative part; a BA may amend the PERSONAS table only.
-# TASK_WORKER is implicit for every persona and never listed below.
+# TASK_WORKER is granted to every persona (not listed in PERSONAS below). PROCESS_OPERATOR is
+# held explicitly by actor-meridian-sophie (starts loan applications) and actor-meridian-claudia
+# (starts compliance reviews), because TASK_WORKER cannot start an instance (BA decision
+# docs/uat/ba-decisions/2935.md items 2 and 5). It is granted with the QA realm accounts
+# (ai-dala-infra qa-uat-env.sh roles column TASK_WORKER,PROCESS_OPERATOR), not by this script;
+# no other persona (lars included) may hold it.
 #
 # Design: lib/letflow/design/iss0931-meridian-vortex-persona-actor-provisioning.md
 

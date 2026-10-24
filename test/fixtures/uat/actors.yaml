@@ -26,9 +26,9 @@ actors:
     note: "seed_meridian_persona_actors.sh PERSONAS line; TASK_WORKER implicit per script header"
   actor-meridian-claudia:
     tenant: meridian
-    builtin_roles: [TASK_WORKER]
+    builtin_roles: [TASK_WORKER, PROCESS_OPERATOR]
     routing_roles: [role-compliance-officer]
-    note: "seed_meridian_persona_actors.sh PERSONAS line; TASK_WORKER implicit per script header"
+    note: "seed_meridian_persona_actors.sh PERSONAS line; TASK_WORKER implicit per script header. PROCESS_OPERATOR because this persona starts the process (InstancesStart; TASK_WORKER cannot): BA decision docs/uat/ba-decisions/2935.md item 2; matches ai-dala-infra qa-uat-env.sh"
   actor-meridian-julia:
     tenant: meridian
     builtin_roles: [TASK_WORKER]
@@ -56,9 +56,9 @@ actors:
     note: "seed_meridian_persona_actors.sh PERSONAS line (role-credit-approver-l1 since ISS-1028: independent L1 approver, distinct from memo reviewer Ben); TASK_WORKER implicit per script header"
   actor-meridian-sophie:
     tenant: meridian
-    builtin_roles: [TASK_WORKER]
+    builtin_roles: [TASK_WORKER, PROCESS_OPERATOR]
     routing_roles: []
-    note: "seed_meridian_persona_actors.sh PERSONAS line (no routing role); TASK_WORKER implicit per script header"
+    note: "seed_meridian_persona_actors.sh PERSONAS line (no routing role); TASK_WORKER implicit per script header. PROCESS_OPERATOR because this persona starts the process (InstancesStart; TASK_WORKER cannot): BA decision docs/uat/ba-decisions/2935.md item 2; matches ai-dala-infra qa-uat-env.sh"
   actor-meridian-oliver:
     tenant: meridian
     builtin_roles: [TASK_WORKER]
