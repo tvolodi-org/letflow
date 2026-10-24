@@ -431,8 +431,11 @@ defmodule Letflow.Routers.Definitions do
 
       render_list_result(conn, Definitions.list_paginated(filters, opts))
     else
-      {:error, :invalid_page_size} -> Response.bad_request(conn, "invalid page_size")
-      {:error, :page_size_too_large} -> Response.bad_request(conn, "page_size out of range")
+      {:error, :invalid_page_size} ->
+        Response.bad_request(conn, "invalid page_size")
+
+      {:error, :page_size_too_large} ->
+        Response.bad_request(conn, Letflow.Api.Pagination.page_size_error_message())
     end
   end
 
@@ -532,8 +535,11 @@ defmodule Letflow.Routers.Definitions do
 
       render_search_result(conn, Definitions.search_paginated(q, params, opts))
     else
-      {:error, :invalid_page_size} -> Response.bad_request(conn, "invalid page_size")
-      {:error, :page_size_too_large} -> Response.bad_request(conn, "page_size out of range")
+      {:error, :invalid_page_size} ->
+        Response.bad_request(conn, "invalid page_size")
+
+      {:error, :page_size_too_large} ->
+        Response.bad_request(conn, Letflow.Api.Pagination.page_size_error_message())
     end
   end
 

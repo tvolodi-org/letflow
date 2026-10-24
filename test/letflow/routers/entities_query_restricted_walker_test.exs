@@ -1653,4 +1653,19 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
       assert body_of(replay)["detail"] == "invalid cursor"
     end
   end
+
+  describe "GH #3142 oversize page_size" do
+    test "page_size above the maximum -> 400 naming the limit" do
+      ctx = exam_ctx!("w-pgsz", ["TASK_WORKER"], false)
+      max = Letflow.Api.Pagination.max_page_size()
+
+      conn = query(ctx, %{"entity_type" => "answer_option", "page_size" => max + 1})
+
+      assert conn.status == 400
+      doc = body_of(conn)
+      assert doc["detail"] == Letflow.Api.Pagination.page_size_error_message()
+      assert doc["detail"] =~ Integer.to_string(max)
+      refute Map.has_key?(doc, "items")
+    end
+  end
 end

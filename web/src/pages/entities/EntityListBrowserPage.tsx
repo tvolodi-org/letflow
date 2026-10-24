@@ -107,7 +107,8 @@ function extractMessage(err: unknown): string {
 
 // ── component ─────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
+// Server maximum is 200 (Pagination.max_page_size/0); never offer more.
+export const PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
 
 export function EntityListBrowserPage(): React.ReactElement {
   const { entityType } = useParams<{ entityType: string }>();

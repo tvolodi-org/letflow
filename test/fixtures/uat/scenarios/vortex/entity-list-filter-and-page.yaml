@@ -107,11 +107,11 @@ steps:
   - step: 4
     actor: quality_manager
     action: >
-      Asks for more results on a single page than Vortex permits, and reads what
-      the screen tells him.
-    via: gui
+      Karl's list request asks for one more result per page than the platform permits
+      (201 where the limit is 200), and he reads the answer he gets.
+    via: api
     input:
-      requested_page_size: more rows per page than the platform permits
+      requested_page_size: 201
     sla_context:
       expected_within_hours: null
 
@@ -234,12 +234,12 @@ expected_outcomes:
       a clear message, rather than being quietly cut short so Karl believes he has
       seen everything.
     verification:
-      method: gui_screen
+      method: api_response
       detail: >
-        The request at step 4 is refused with a readable message stating the limit,
-        and no partial list is shown as though it were complete.
+        The request at step 4 is refused (HTTP 400) with a message that states the limit of 200,
+        and the answer contains no list of records.
       evidence: >
-        Screenshot of the message shown at step 4.
+        The recorded answer to the step 4 request: status and message text.
     on_fail:
       severity: MINOR
       business_impact: >

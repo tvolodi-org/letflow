@@ -482,7 +482,7 @@ defmodule Letflow.Modules.Exam.Router do
   # and falls through to a detail-free 500, same as every other unexpected
   # branch in this router.
   defp render_list_available_exams(conn, {:error, :page_size_too_large}, _prefix),
-    do: Response.bad_request(conn, "page_size out of range")
+    do: Response.bad_request(conn, Letflow.Api.Pagination.page_size_error_message())
 
   defp render_list_available_exams(conn, {:error, :invalid_cursor}, _prefix),
     do: Response.bad_request(conn, "invalid cursor")
