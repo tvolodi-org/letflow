@@ -38293,7 +38293,7 @@ requirements:
     depends_on: [REQ-508]
 
   - id: REQ-538
-    title: "Decision record for generic saved views over entities (shape of slice 1: saved list view definitions)"
+    title: "Decision record for generic saved views over records (shape of slice 1: saved list view definitions)"
     owner: CODE-DESIGNER
     status: pending
     stage: S7
@@ -38324,7 +38324,7 @@ requirements:
     depends_on: [REQ-393, REQ-311]
 
   - id: REQ-539
-    title: "Saved list view definitions over one entity type: tenant-schema storage, validated CRUD routes and EntitiesViewsManage permission (generic views, slice 1, backend)"
+    title: "Saved list view definitions over one record type: tenant-schema storage, validated CRUD routes and EntitiesViewsManage permission (generic views, slice 1, backend)"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
@@ -38360,7 +38360,7 @@ requirements:
     depends_on: [REQ-538, REQ-393, REQ-311]
 
   - id: REQ-540
-    title: "Saved view selector, save and delete on the entity list screen (generic views, slice 1, web)"
+    title: "Saved view selector, save and delete on the record list screen (generic views, slice 1, web)"
     owner: FRONTEND-DEV
     status: pending
     stage: S7
