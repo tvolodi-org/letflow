@@ -141,6 +141,8 @@ defmodule Letflow.Engine.Reconstruction do
      just to recover it; a genuinely correlation-key-bearing instance whose
      projection row was deleted and then write-back-inserted loses that one
      informational field until a later write repopulates it.
+     `scope_node_id` (REQ-531) IS restored on this insert path: it rides on `InstanceState`, set by the
+     INSTANCE_STARTED clause or a snapshot. The existing-row branch never touches it (write-once).
   3. **`replay_failure_reason()` gains two variants beyond the design doc
      §3 type block's literal list**, both explicitly anticipated by the design
      doc's own prose even though omitted from that literal `@type` block:
@@ -629,11 +631,14 @@ defmodule Letflow.Engine.Reconstruction do
     with {:ok, initial_variables} <- fetch_map_field(event, "initial_variables"),
          {:ok, initial_labels} <- fetch_labels_field(event, "initial_labels") do
       reseeded_state =
-        VariableLabels.put_merged(
-          state,
-          initial_variables,
-          VariableLabels.take(initial_labels, initial_variables)
-        )
+        %InstanceState{
+          VariableLabels.put_merged(
+            state,
+            initial_variables,
+            VariableLabels.take(initial_labels, initial_variables)
+          )
+          | scope_node_id: replayed_scope_node(event)
+        }
 
       worklist = Enum.map(reseeded_state.tokens, & &1.token_id)
 
@@ -1138,6 +1143,14 @@ defmodule Letflow.Engine.Reconstruction do
     )
   end
 
+  # REQ-531: the node the instance started under; absent or not a string (older events) is unscoped.
+  defp replayed_scope_node(event) do
+    case Map.get(event.payload, "scope_node_id") do
+      node_id when is_binary(node_id) -> node_id
+      _other -> nil
+    end
+  end
+
   defp fetch_string_field(event, key) do
     case Map.get(event.payload, key) do
       value when is_binary(value) -> {:ok, value}
@@ -1220,6 +1233,7 @@ defmodule Letflow.Engine.Reconstruction do
         current_nodes: Enum.map(instance_state.tokens, & &1.node_id),
         variables: instance_state.variables,
         variable_labels: instance_state.variable_labels,
+        scope_node_id: instance_state.scope_node_id,
         last_event_seq: last_sequence_number || 0
       }
 

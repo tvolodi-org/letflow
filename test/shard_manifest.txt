@@ -15,6 +15,7 @@
 1 test/letflow/definitions/snapshot_store_test.exs 8207.21
 1 test/letflow/definitions/vortex_production_order_release_fixture_test.exs 313.99
 1 test/letflow/docs/roles_scoped_approvers_test.exs 18.66
+1 test/letflow/engine/instance_scope_node_test.exs 4871.99
 1 test/letflow/engine/replay_paths_no_entity_write_test.exs 7928.39
 1 test/letflow/engine/script_task_entity_writes_test.exs 15196.36
 1 test/letflow/engine/service_task_replay_test.exs 2159.18
@@ -426,6 +427,7 @@
 8 test/letflow/iss0979_audit_chain_lock_test.exs 2773.96
 8 test/letflow/login_directory/backfill_test.exs 25935.97
 8 test/letflow/login_discovery/notifier/smtp_encoder_test.exs 34.16
+8 test/letflow/migrations/instance_projections_scope_node_id_migration_test.exs 4871.99
 8 test/letflow/modules/catalog_items/entity_definitions_test.exs 53.94
 8 test/letflow/modules/catalog_write_handlers_test.exs 16.79
 8 test/letflow/modules/exam/session_snapshot_test.exs 76449.82
