@@ -72,7 +72,7 @@ describe('ISS-0655 — BilimBagaEntityRoute renders EntityCrudPage for every wir
     expect(screen.queryByTestId('mock-entity-crud-page')).toBeNull()
   })
 
-  it('GH #2680: every BilimBaga entity type is written through the exam authoring binding', () => {
+  it('GH 2680: every BilimBaga entity type is written through the exam authoring binding', () => {
     for (const { entityType } of BILIMBAGA_ENTITY_TYPES) {
       const { unmount } = renderAt(entityType)
       expect(screen.getByTestId('mock-entity-crud-page').getAttribute('data-write-permission')).toBe(BILIMBAGA_WRITES.permission)

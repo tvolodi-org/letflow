@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * GH #2680 / REQ-510 slice 2 — which routes the generic EntityCrudPage's writes reach, and which
+ * GH 2680 / REQ-510 slice 2 — which routes the generic EntityCrudPage's writes reach, and which
  * controls the caller sees.
  *
  * Unlike EntityCrudPage.test.tsx, the entities API is NOT mocked here: the real client runs
@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import { screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { screen, cleanup, fireEvent, act } from '@testing-library/react'
 import { renderWithAccess } from '@/auth/access/testing'
 import { setToken, clearToken } from '@/api/client'
 expect.extend(jestDomMatchers)
@@ -60,10 +60,16 @@ const TAG_FIELDS: EntityFieldDef[] = [{ name: 'name', type: 'string', required: 
 const originalFetch = window.fetch
 let fetchSpy: ReturnType<typeof vi.fn>
 
+/** A response the client reads through json()/text() without a body stream: a stream would not settle under fake timers. */
 function jsonResponse(body: unknown, status = 200): Promise<Response> {
-  return Promise.resolve(
-    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }),
-  )
+  const response = {
+    ok: status < 400,
+    status,
+    headers: new Headers({ 'Content-Type': 'application/json' }),
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  }
+  return Promise.resolve(response as unknown as Response)
 }
 
 /** One record `r1` (version `v1`) and its active definition. A type with no fields gets an empty
@@ -121,6 +127,31 @@ function installMocks(entityType: string, fields: EntityFieldDef[]) {
   })
 }
 
+/** Runs the one-macrotask deferral of the page's click handlers (deferClickState) under fake timers. */
+function flushDeferred(): void {
+  act(() => {
+    vi.runAllTimers()
+  })
+}
+
+/** The element with that test id, after the deferred click state has been applied. */
+function byTestId(id: string): HTMLElement {
+  flushDeferred()
+  return screen.getByTestId(id)
+}
+
+function byText(text: string): HTMLElement {
+  flushDeferred()
+  return screen.getByText(text)
+}
+
+/** Lets the mutation promise chain (mutationFn, then onSuccess or onError) run to the end. */
+async function settle(): Promise<void> {
+  flushDeferred()
+  for (let i = 0; i < 50; i++) await Promise.resolve()
+  flushDeferred()
+}
+
 /** The URL and init of the last request the page sent. */
 function lastRequest(): { url: string; init: RequestInit } {
   const [url, init] = fetchSpy.mock.calls.at(-1) as [string, RequestInit]
@@ -128,27 +159,28 @@ function lastRequest(): { url: string; init: RequestInit } {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   setToken('test-token')
   fetchSpy = vi.fn().mockImplementation(() => jsonResponse({ record_id: 'r1' }))
   window.fetch = fetchSpy as unknown as typeof window.fetch
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   cleanup()
   window.fetch = originalFetch
   clearToken()
   vi.clearAllMocks()
 })
 
-describe('GH #2680 — the default path (no writes prop) still writes through /entities/records', () => {
+describe('GH 2680 — the default path (no writes prop) still writes through /entities/records', () => {
   it('delete goes to DELETE /entities/records/:type/:id and to no exam route', async () => {
     installMocks('tag', TAG_FIELDS)
     renderWithAccess(<EntityCrudPage entityType="tag" />, 'platformAdmin')
 
     fireEvent.click(screen.getByTestId('entity-delete-r1'))
-    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'))
-
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalled())
+    fireEvent.click(byTestId('confirm-dialog-confirm'))
+    await settle()
     const { url, init } = lastRequest()
     expect(url).toBe(`${RECORDS}/tag/r1`)
     expect(init.method).toBe('DELETE')
@@ -160,9 +192,8 @@ describe('GH #2680 — the default path (no writes prop) still writes through /e
     renderWithAccess(<EntityCrudPage entityType="tag" />, 'platformAdmin')
 
     fireEvent.click(screen.getByTestId('entity-edit-r1'))
-    fireEvent.click(screen.getByTestId('entity-form-submit'))
-
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalled())
+    fireEvent.click(byTestId('entity-form-submit'))
+    await settle()
     const { url, init } = lastRequest()
     expect(url).toBe(`${RECORDS}/tag/r1`)
     expect(init.method).toBe('PUT')
@@ -171,16 +202,15 @@ describe('GH #2680 — the default path (no writes prop) still writes through /e
   })
 })
 
-describe.each(BILIMBAGA_ENTITY_TYPES)('GH #2680 — BilimBaga type $entityType writes go to /modules/exam/authoring', ({ entityType }) => {
+describe.each(BILIMBAGA_ENTITY_TYPES)('GH 2680 — BilimBaga type $entityType writes go to /modules/exam/authoring', ({ entityType }) => {
   it('create goes to POST /modules/exam/authoring/:type', async () => {
     installMocks(entityType, [])
     renderWithAccess(<EntityCrudPage entityType={entityType} writes={BILIMBAGA_WRITES} />, 'platformAdmin')
 
     fireEvent.click(screen.getByTestId('entity-create-action'))
-    await waitFor(() => expect(screen.getByTestId('entity-form-modal')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('entity-form-submit'))
-
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalled())
+    expect(byTestId('entity-form-modal')).toBeInTheDocument()
+    fireEvent.click(byTestId('entity-form-submit'))
+    await settle()
     const { url, init } = lastRequest()
     expect(url).toBe(`${AUTHORING}/${entityType}`)
     expect(init.method).toBe('POST')
@@ -192,9 +222,8 @@ describe.each(BILIMBAGA_ENTITY_TYPES)('GH #2680 — BilimBaga type $entityType w
     renderWithAccess(<EntityCrudPage entityType={entityType} writes={BILIMBAGA_WRITES} />, 'platformAdmin')
 
     fireEvent.click(screen.getByTestId('entity-edit-r1'))
-    fireEvent.click(screen.getByTestId('entity-form-submit'))
-
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalled())
+    fireEvent.click(byTestId('entity-form-submit'))
+    await settle()
     const { url, init } = lastRequest()
     expect(url).toBe(`${AUTHORING}/${entityType}/r1`)
     expect(init.method).toBe('PUT')
@@ -207,9 +236,8 @@ describe.each(BILIMBAGA_ENTITY_TYPES)('GH #2680 — BilimBaga type $entityType w
     renderWithAccess(<EntityCrudPage entityType={entityType} writes={BILIMBAGA_WRITES} />, 'platformAdmin')
 
     fireEvent.click(screen.getByTestId('entity-delete-r1'))
-    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'))
-
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalled())
+    fireEvent.click(byTestId('confirm-dialog-confirm'))
+    await settle()
     const { url, init } = lastRequest()
     expect(url).toBe(`${AUTHORING}/${entityType}/r1`)
     expect(init.method).toBe('DELETE')
@@ -217,16 +245,17 @@ describe.each(BILIMBAGA_ENTITY_TYPES)('GH #2680 — BilimBaga type $entityType w
   })
 })
 
-describe('GH #2680 — the authoring routes’ errors are surfaced as the generic routes’ are', () => {
+describe('GH 2680 — the authoring routes’ errors are surfaced as the generic routes’ are', () => {
   it('a stale If-Match (409) on update shows the conflict banner', async () => {
     installMocks('tag', TAG_FIELDS)
     fetchSpy.mockImplementation(() => jsonResponse({ title: 'Conflict', type: 'stale_version' }, 409))
     renderWithAccess(<EntityCrudPage entityType="tag" writes={BILIMBAGA_WRITES} />, 'platformAdmin')
 
     fireEvent.click(screen.getByTestId('entity-edit-r1'))
-    fireEvent.click(screen.getByTestId('entity-form-submit'))
+    fireEvent.click(byTestId('entity-form-submit'))
+    await settle()
 
-    expect(await screen.findByTestId('entity-form-conflict-banner')).toBeInTheDocument()
+    expect(byTestId('entity-form-conflict-banner')).toBeInTheDocument()
     expect(lastRequest().url).toBe(`${AUTHORING}/tag/r1`)
   })
 
@@ -236,9 +265,10 @@ describe('GH #2680 — the authoring routes’ errors are surfaced as the generi
     renderWithAccess(<EntityCrudPage entityType="tag" writes={BILIMBAGA_WRITES} />, 'platformAdmin')
 
     fireEvent.click(screen.getByTestId('entity-edit-r1'))
-    fireEvent.click(screen.getByTestId('entity-form-submit'))
+    fireEvent.click(byTestId('entity-form-submit'))
+    await settle()
 
-    const banner = await screen.findByTestId('entity-form-error-banner')
+    const banner = byTestId('entity-form-error-banner')
     expect(banner).toHaveTextContent(entitiesMessages.en['entities.crud.form.restrictedFieldError'])
     expect(banner).not.toHaveTextContent(RESTRICTED_DETAIL)
   })
@@ -249,9 +279,10 @@ describe('GH #2680 — the authoring routes’ errors are surfaced as the generi
     renderWithAccess(<EntityCrudPage entityType="tag" writes={BILIMBAGA_WRITES} />, 'platformAdmin')
 
     fireEvent.click(screen.getByTestId('entity-edit-r1'))
-    fireEvent.click(screen.getByTestId('entity-form-submit'))
+    fireEvent.click(byTestId('entity-form-submit'))
+    await settle()
 
-    expect(await screen.findByTestId('entity-form-error-banner')).toHaveTextContent('Not Found')
+    expect(byTestId('entity-form-error-banner')).toHaveTextContent('Not Found')
   })
 
   it('a failed delete (409) shows the delete error message', async () => {
@@ -260,13 +291,14 @@ describe('GH #2680 — the authoring routes’ errors are surfaced as the generi
     renderWithAccess(<EntityCrudPage entityType="tag" writes={BILIMBAGA_WRITES} />, 'platformAdmin')
 
     fireEvent.click(screen.getByTestId('entity-delete-r1'))
-    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'))
+    fireEvent.click(byTestId('confirm-dialog-confirm'))
+    await settle()
 
-    expect(await screen.findByText(entitiesMessages.en['entities.crud.delete.error'])).toBeInTheDocument()
+    expect(byText(entitiesMessages.en['entities.crud.delete.error'])).toBeInTheDocument()
   })
 })
 
-describe('GH #2680 — write controls follow the screen’s permission', () => {
+describe('GH 2680 — write controls follow the screen’s permission', () => {
   it('a user with EntitiesRecordsWrite but not ExamAuthoringWrite sees no write controls on a BilimBaga type', () => {
     installMocks('tag', TAG_FIELDS)
     renderWithAccess(<EntityCrudPage entityType="tag" writes={BILIMBAGA_WRITES} />, 'operator')

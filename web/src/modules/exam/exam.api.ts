@@ -112,7 +112,7 @@ export const examApi = {
 
 const AUTHORING_BASE = '/api/v1/modules/exam/authoring'
 
-/** GH #2680 / REQ-510 slice 1: the exam module's write surface for the ten authoring types
+/** GH 2680 / REQ-510 slice 1: the exam module's write surface for the ten authoring types
  *  (`POST/PUT/DELETE /modules/exam/authoring/:entity_type[/:record_id]`, gated by
  *  `ExamAuthoringWrite`). Same three operations and argument shapes as `entitiesApi`'s
  *  writes, so `EntityCrudPage` takes either one as its write API. Bodies and responses are

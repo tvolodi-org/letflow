@@ -110,7 +110,7 @@ function formatCellValue(field: EntityFieldDef, value: unknown, uiLocale: string
 /** The write side of one screen: the API its create/update/delete calls go through, and the
  *  permission that shows its write controls. The default is `/entities/records` gated by
  *  `EntitiesRecordsWrite`; a caller that owns its types through a module route passes its own
- *  (GH #2680: the BilimBaga authoring types go through `/modules/exam/authoring`). */
+ *  (GH 2680: the BilimBaga authoring types go through `/modules/exam/authoring`). */
 export interface EntityWrites {
   api: Pick<typeof entitiesApi, 'createRecord' | 'updateRecord' | 'deleteRecord'>
   permission: Permission

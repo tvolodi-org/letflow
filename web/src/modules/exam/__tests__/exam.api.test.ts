@@ -145,9 +145,9 @@ describe('REQ-338 AC1 — examApi hits REQ-335s real route table', () => {
   })
 })
 
-/** GH #2680 / REQ-510 slice 2 — the authoring write client (examAuthoringApi) hits the exam
+/** GH 2680 / REQ-510 slice 2 — the authoring write client (examAuthoringApi) hits the exam
  *  module's authoring routes with the generic record routes' bodies. */
-describe('GH #2680 — examAuthoringApi hits /modules/exam/authoring', () => {
+describe('GH 2680 — examAuthoringApi hits /modules/exam/authoring', () => {
   it('createRecord -> POST /api/v1/modules/exam/authoring/:entity_type with field_values in the body', async () => {
     const fetchSpy = vi.fn().mockImplementation(() => jsonResponse({ record_id: 'r1' }, { status: 201 }))
     window.fetch = fetchSpy as unknown as typeof window.fetch

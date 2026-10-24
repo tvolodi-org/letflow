@@ -13,7 +13,7 @@ import { useIntl } from 'react-intl'
 import { EntityCrudPage } from '@/pages/entities/EntityCrudPage'
 import { EntitiesIntlProvider } from '@/i18n/EntitiesIntlProvider'
 import { isBilimBagaEntityType } from '@/config/bilimbagaEntities'
-import { BILIMBAGA_WRITES } from '../bilimbagaWrites'
+import { BILIMBAGA_WRITES } from './bilimbagaWrites'
 
 function NotFoundInner() {
   const intl = useIntl()

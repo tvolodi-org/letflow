@@ -1,4 +1,4 @@
-/** bilimbagaWrites — GH #2680 / REQ-510 slice 2
+/** bilimbagaWrites — GH 2680 / REQ-510 slice 2
  *
  *  The write side of the ten BilimBaga authoring entity types (the list in
  *  ./bilimbagaEntities.ts). `EntityCrudPage` takes it as its `writes` prop from
