@@ -148,3 +148,10 @@ PROVENANCE (historical, not current decision authority):
   authenticated sweep possible at all — see "Environment notes" above; both are
   candidate requirements in their own right, reported here rather than fixed at the
   source.
+
+## Definition view: `activation_state` (GH #2692, REQ-515)
+
+The definition view gained three optional read-only fields: `activation_state` (`"ok"` or
+`"needs_reactivation"`), `needs_reactivation_reason` and `needs_reactivation_at`. `status` is
+unchanged (still `ACTIVE`). The SPA does not render them today; `POST /definitions/:id/reactivate`
+is the in-place fix. No web or mobile code changed.

@@ -120,7 +120,11 @@ defmodule Letflow.Routers.DefinitionsTest do
                  "stage",
                  # GH #2590 / REQ-501 R2: read-only provenance; the hashes are never serialised
                  "owner_module",
-                 "owner_module_version"
+                 "owner_module_version",
+                 # GH #2692 / REQ-515: the second activation axis (status is unchanged)
+                 "activation_state",
+                 "needs_reactivation_reason",
+                 "needs_reactivation_at"
                ])
     end
 

@@ -336,6 +336,21 @@ defmodule Letflow.Api.Response do
     do: send_json(conn, 409, %{"error" => "entity_write_needs_reactivation"})
 
   @doc """
+  HTTP 409 — the definition's recorded activator lost its authority (GH #2692, REQ-515); a new
+  instance is refused before any token exists. Recovery: `POST /definitions/:id/reactivate`.
+  """
+  @spec definition_needs_reactivation(Plug.Conn.t()) :: Plug.Conn.t()
+  def definition_needs_reactivation(conn),
+    do: send_json(conn, 409, %{"error" => "definition_needs_reactivation"})
+
+  @doc """
+  HTTP 409 — `reactivate` on a definition that is not flagged (GH #2692, REQ-515).
+  """
+  @spec not_needs_reactivation(Plug.Conn.t()) :: Plug.Conn.t()
+  def not_needs_reactivation(conn),
+    do: send_json(conn, 409, %{"error" => "not_needs_reactivation"})
+
+  @doc """
   HTTP 422 — a graph with `entity_writes` promoted by a principal who is not a user of the
   TARGET tenant (GH #2587 PR B1, REVIEWER F2). Nothing is written; the graph is created as a
   draft in the target and activated by a target-tenant principal. The body reveals only that.
