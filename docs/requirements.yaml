@@ -37831,3 +37831,80 @@ requirements:
       - "9. Existing-tenant upgrade (the module-upgrade path of decision 0055 is not built; decision 0060 section Obligation: module install on main is first-install only, so the test calls activate_definition/4 directly): on a tenant with catalog_item and catalog_uom records, activating the new catalog_uom definition (decimal_scale integer, dimension string; no strict decimal added) succeeds, and activating the new catalog_item definition (tolerance_abs strict decimal added) is refused with {:decimal_strict_change, [\"tolerance_abs\"]} (lib/letflow/entities/definitions.ex, activate_definition/4; decision 0060 item 4), the old active version stays active, and catalog_item_uom (a first activation) succeeds. The refusal is a known, asserted outcome, not a failure of this requirement: the PR states that adopting strict fields on a tenant that already has catalog_item records needs a CODE-DESIGNER upgrade design (design 4.1 expects strict declarations in the first definition files), and does not attempt it."
       - "10. The literal assertions of REQ-474 AC 1 and AC 2 (and REQ-507 tests that name the field lists) are updated in the same PR; the PR states that it supersedes REQ-474 item 4 sentence No decimal field is introduced."
     depends_on: [REQ-474, REQ-507, REQ-502]
+
+  - id: REQ-529
+    title: "Driver Incident Report: forms for the operations assessment and finance estimate tasks (and their escalation tasks), with required fields"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S3
+    description: >
+      Source: process audit of swiftroute, task T-0295 (acceptance criterion EO-003 of
+      test/fixtures/uat/scenarios/swiftroute/driver-incident-assess-and-estimate.yaml, "the recorded
+      assessment and cost estimate are kept on the incident record", cannot be met because the
+      definition gives its people-steps no form); precedent: the Shipment Approval decision forms
+      (PR #2334, GH #2277, ISS-1008 / Q-990) and the required decision outputs of REQ-462, both in
+      test/fixtures/qa/swiftroute_process_definition.json (ops-review, ceo-approval).
+
+      CURRENT STATE (read on main): test/fixtures/qa/swiftroute_incident_process_definition.json is
+      Driver Incident Report v1.1. Its HUMAN_TASK nodes ops-assessment (role-ops-manager),
+      finance-estimate (role-accountant) and their D-ESC escalation tasks
+      escalate-ops-assessment-to-ceo and escalate-finance-estimate-to-ceo (role-ceo) carry only
+      role, escalation_timer_duration, escalation_role (and description). None has a form_schema or
+      required_outputs, and variable_schemas declares only injury_involved. A person completing
+      these tasks in the GUI therefore has no field in which to enter the assessment or the cost.
+      The UAT scenario already names the inputs: assessment_notes (step 2), estimated_cost_eur and
+      finance_notes (step 3).
+
+      BUILDS (definition and its copies only; no engine, route or web change):
+      1. ops-assessment and escalate-ops-assessment-to-ceo each get a form_schema (type object) with
+         assessment_notes: type string, title and description in business language; REQUIRED
+         (listed in form_schema.required and in the node's required_outputs). The assessment of
+         what happened and what must be done is the purpose of the step.
+      2. finance-estimate and escalate-finance-estimate-to-ceo each get a form_schema with
+         estimated_cost_eur: type number, minimum 0; REQUIRED (form_schema.required and the
+         node's required_outputs). Zero is a legal estimate; an omitted or null value is not.
+         finance_notes: type string; OPTIONAL (not in required, not in required_outputs).
+      3. variable_schemas gains entries for assessment_notes (string), estimated_cost_eur (number,
+         minimum 0) and finance_notes (string), so REQ-461 check 2
+         (:required_output_without_variable_schema) is satisfied and a wrongly typed completion is
+         refused server-side. The completion edges keep their `true` condition (timer-fire safe);
+         no routing reads the new keys, so REQ-461 check 3 does not apply.
+      4. The escalation tasks carry the same form and required_outputs as the task they replace, as
+         decided for D-ESC in REQ-462 (open_questions, REQ-459 design section 9 decision 1): a CEO
+         completing the escalated task must also leave the assessment or estimate on the record.
+         The stalled (fail-closed) path is unchanged: the ops-auto-close and finance-auto-close
+         notices produce no assessment or estimate, as today.
+      5. The version is incremented by one minor step from the version found on the working branch
+         (v1.1 at drafting) and the description says why, in the style of the Shipment Approval
+         v1.5/v1.6 lines. The simulation copy test/fixtures/simulation/swiftroute/process_shipment_dispatch.yaml
+         and test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs (which pins version 1.1,
+         graph equality and variable_schemas) are updated in step. scripts/seed_swiftroute_incident_definition.sh
+         is not changed: its tests show it creates and activates a newer fixture version and never downgrades.
+      6. Who sees the fields: the form is part of the task, so it is shown to, and completable by, the
+         holder of the task's role (role-ops-manager, role-accountant, and role-ceo on the escalation
+         tasks), exactly as the Shipment Approval decision forms are. This entry adds no new read or
+         write rule; the existing refusals (an Accountant cannot complete the operations assessment,
+         an Operations Manager cannot complete the finance estimate, see
+         test/fixtures/uat/scenarios/swiftroute/refusal-driver-incident-confidential.yaml) must stay true.
+      7. Existing QA data: auto-CD deploys main, so the seed activates the new version next to the
+         running one; instances started on v1.1 keep running on v1.1 (no migration of running
+         instances, nothing deactivated by this entry).
+    open_questions:
+      - "Field-level confidentiality of assessment_notes and finance_notes. A note may name the driver (the confidential refusal scenario treats the incident report as personal data). Whether a form field can carry a read restriction narrower than the task's role (INV-2, server-side field authorisation) is not settled by the sources read here. Default for this entry: no per-field restriction beyond the task's role; the process owner or a follow-up requirement decides whether notes must be hidden from other roles."
+      - "Whether assessment_notes needs a minimum length (so a single space is not an assessment) or finance_notes a maximum length. No source gives a number, so none is set here; the process owner decides."
+      - "estimated_cost_eur is a plain number in euro. Currency handling and the strict decimal type of decision 0060 are out of scope; the UAT scenario uses whole euro amounts."
+      - "The UAT scenario driver-incident-assess-and-estimate.yaml (EO-003) is the BA's artefact and is not edited by this entry; after it lands the BA re-checks that EO-003's verification can read the values from the instance history."
+    acceptance_criteria:
+      - "a test reads test/fixtures/qa/swiftroute_incident_process_definition.json and asserts that ops-assessment and escalate-ops-assessment-to-ceo each have form_schema.properties.assessment_notes of type string, form_schema.required == [\"assessment_notes\"] and required_outputs == [\"assessment_notes\"]"
+      - "a test asserts that finance-estimate and escalate-finance-estimate-to-ceo each have form_schema.properties estimated_cost_eur (type number, minimum 0) and finance_notes (type string), form_schema.required == [\"estimated_cost_eur\"] and required_outputs == [\"estimated_cost_eur\"]; finance_notes is in neither list"
+      - "a test asserts variable_schemas contains assessment_notes (string), estimated_cost_eur (number, minimum 0) and finance_notes (string) in addition to injury_involved (boolean)"
+      - "the fixture passes the definition validator with no violation: Definitions create and POST /definitions/:id/validate on the new fixture report no :required_output_without_variable_schema, no :invalid_required_outputs and no :required_outputs_on_non_human_task, and no decision_key_not_required: warning (real output quoted)"
+      - "engine test over the fixture: completing ops-assessment with assessment_notes omitted is refused with 422 (code output_refused, missing_keys naming assessment_notes), the task stays open and the instance is unchanged; completing it again with a note succeeds and the value is stored in the instance variables. The same pair for finance-estimate with estimated_cost_eur omitted, and a completion with estimated_cost_eur as a string or -1 is rejected by the variable schema"
+      - "engine test: finance-estimate completed with estimated_cost_eur 0 and no finance_notes succeeds (zero is accepted, notes are optional); with both fields it succeeds and both values are in the instance variables"
+      - "engine test: the instance reaches case-summary and COMPLETED only after both tasks are completed with their required fields, and completing escalate-ops-assessment-to-ceo or escalate-finance-estimate-to-ceo without its required field is refused in the same way (four nodes covered, one test per node id)"
+      - "the stalled path is unchanged: a test (or the existing swiftroute escalation tests, run and quoted) shows a timer-fired chain still ends in ops-auto-close / finance-auto-close and joins at parallel-join without an assessment or estimate"
+      - "the fixture version is one minor step above the version on the branch at the start (a test pins the new number in swiftroute_incident_qa_fixture_test.exs), the definition description names this requirement, and the simulation copy test/fixtures/simulation/swiftroute/process_shipment_dispatch.yaml has the same version, node forms and variable_schemas (the existing equality test passes, extended to forms)"
+      - "an Accountant cannot complete ops-assessment and an Operations Manager cannot complete finance-estimate after the change (the existing role refusal tests are run and quoted; a new one is added if none covers the task completion route)"
+      - "git diff --stat is quoted: only the incident QA fixture, its simulation copy, the alias sidecar if its version text changes, the fixture tests and documentation made wrong by the change are touched; no engine, router, web or seed-script file, and no other definition"
+      - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs and the swiftroute engine tests, and mix letflow.check_requirements_registration pass, real output quoted"
+    depends_on: [REQ-461, REQ-462]
