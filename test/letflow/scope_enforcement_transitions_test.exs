@@ -421,6 +421,16 @@ b", String.duplicate("x", 501), 5] do
 
       assert mode!(fx) == :off
     end
+
+    test "with a scoped approver present (REQ-532 AC 8) it is still :shadow_required and changes nothing" do
+      fx = F.admin_tenant!("req532-x5s")
+      _worker = F.scoped_task_worker!(fx.schema_name, true)
+
+      assert flip(fx, :on, "req532 try on") == {:error, :shadow_required}
+
+      assert mode!(fx) == :off
+      assert flip_entries(fx) == []
+    end
   end
 
   # --- T-X6 / T-X13 ----------------------------------------------------------------------------
