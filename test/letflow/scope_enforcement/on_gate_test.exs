@@ -9,11 +9,11 @@ defmodule Letflow.ScopeEnforcement.OnGateTest do
   snapshot) directly, with an injected `now`; the same gate inside `flip/4` (the `shadow -> on`
   transition) is exercised by the 2f-b tests.
 
-    * T-G1..T-G6: each of the six facts alone refuses with exactly its stable code, on top of a
-      tenant that satisfies every fact (so nothing else can fail), including the SEC conditions
+    * T-G1..T-G6: each of the five blocking facts alone refuses with exactly its stable code, on top
+      of a tenant that satisfies every fact (so nothing else can fail), including the SEC conditions
       for fact 3 (a flagged service-principal owner STILL counts) and fact 4 (C-4: interactive,
-      explicit, active, no token owner, no flagged principal);
-    * T-G8: ALL six failing at once are ALL named, in the fixed read order, with stable codes and
+      explicit, active, no token owner, no flagged principal). A scoped approver is no fact (REQ-532);
+    * T-G8: ALL five failing at once are ALL named, in the fixed read order, with stable codes and
       no id anywhere in the report (INV-2);
     * T-G9: a raise in any fact (a table renamed inside a rolled-back transaction, a prefix that
       is not a tenant schema name) PROPAGATES, never becomes "no failure" (INV-8);
@@ -44,13 +44,12 @@ defmodule Letflow.ScopeEnforcement.OnGateTest do
     :org_inconsistent,
     :tokens_exceed_owner,
     :zero_tenant_wide_admins,
-    :scoped_approvers_without_task_scope,
     :shadow_evidence_insufficient
   ]
 
   # --- helpers ---------------------------------------------------------------------------------
 
-  # A tenant that satisfies all six facts at `fx.now`.
+  # A tenant that satisfies all five facts at `fx.now`.
   defp green!(slug_prefix) do
     fx = F.shadow_tenant!(slug_prefix)
     :ok = F.satisfy!(fx, fx.now)
@@ -314,16 +313,31 @@ defmodule Letflow.ScopeEnforcement.OnGateTest do
     end
   end
 
-  describe "T-G5 fact 5: scoped approvers without a task scope" do
-    test "a scoped approver refuses with exactly [:scoped_approvers_without_task_scope]" do
+  describe "T-G5 scoped approvers: no longer a blocking fact (REQ-532 / GH #3091, AC 7)" do
+    test "a scoped approver does not refuse the flip; the count is still reported" do
       fx = green!("req519-g5a")
       _worker = F.scoped_task_worker!(fx.schema_name, true)
 
       {report, failed} = evaluate(fx)
 
-      assert failed == [:scoped_approvers_without_task_scope]
+      assert failed == []
       assert report.scoped_approvers == 1
       assert report.scoped_task_workers_without_task_scope == 0
+    end
+
+    test "AC 8: with a scoped approver present, zero tenant-wide admins still refuses, alone" do
+      fx = green!("req532-g5z")
+      _worker = F.scoped_task_worker!(fx.schema_name, true)
+      :ok = F.remove_memberships!(fx.schema_name, fx.admin.id)
+
+      assert {_report, [:zero_tenant_wide_admins]} = evaluate(fx)
+    end
+
+    test "AC 8: with a scoped approver present, missing shadow evidence still refuses, alone" do
+      fx = F.shadow_tenant!("req532-g5s")
+      _worker = F.scoped_task_worker!(fx.schema_name, true)
+
+      assert {_report, [:shadow_evidence_insufficient]} = evaluate(fx)
     end
 
     test "a scoped task worker who is NOT an approver is informational only and never blocks" do
@@ -358,7 +372,7 @@ defmodule Letflow.ScopeEnforcement.OnGateTest do
       fx = F.shadow_tenant!("req519-g8")
       schema = fx.schema_name
 
-      # fact 5 first: the scope-node writer needs a consistent tree
+      # a scoped approver: informational since REQ-532, it never refuses
       _worker = F.scoped_task_worker!(schema, true)
       # fact 1
       _gap = gap!(fx)
@@ -374,7 +388,7 @@ defmodule Letflow.ScopeEnforcement.OnGateTest do
       %{fx: fx}
     end
 
-    test "all six codes, in the fixed read order, none dropped", %{fx: fx} do
+    test "all five codes, in the fixed read order, none dropped", %{fx: fx} do
       {_report, failed} = evaluate(fx)
 
       assert failed == @codes
@@ -678,7 +692,6 @@ defmodule Letflow.ScopeEnforcement.OnGateTest do
 
       assert gate.blocking == [
                :bindings_without_row,
-               :scoped_approvers_without_task_scope,
                :shadow_evidence_insufficient
              ]
 

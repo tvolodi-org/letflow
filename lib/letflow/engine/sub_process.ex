@@ -525,6 +525,7 @@ defmodule Letflow.Engine.SubProcess do
         graph,
         child_initial_state,
         token_records,
+        Map.fetch!(changes, parent_scope_key),
         prefix
       )
     end)
@@ -686,6 +687,7 @@ defmodule Letflow.Engine.SubProcess do
          graph,
          child_initial_state,
          token_records,
+         scope_node_id,
          prefix
        ) do
     id_map = TaskActivation.token_id_to_record_id(child_initial_state.tokens, token_records)
@@ -697,7 +699,7 @@ defmodule Letflow.Engine.SubProcess do
            {:ok, token_record_id} <- Map.fetch(id_map, token.token_id),
            {:ok, attrs} <-
              TaskActivation.insert_attrs(child_instance_id, token_record_id, token, node),
-           {:ok, task} <- insert_task(repo, attrs, prefix) do
+           {:ok, task} <- TaskActivation.insert_task_row(repo, attrs, scope_node_id, prefix) do
         {:cont, {:ok, [task | acc]}}
       else
         :unknown_node -> {:halt, {:error, {:unknown_node_id, token.node_id}}}
@@ -709,12 +711,6 @@ defmodule Letflow.Engine.SubProcess do
       {:ok, tasks} -> {:ok, Enum.reverse(tasks)}
       {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp insert_task(repo, attrs, prefix) do
-    %Task{}
-    |> Task.insert_changeset(attrs)
-    |> repo.insert(prefix: prefix)
   end
 
   defp append_instance_started_event_for_child(
