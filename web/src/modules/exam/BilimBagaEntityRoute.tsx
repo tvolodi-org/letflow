@@ -13,6 +13,7 @@ import { useIntl } from 'react-intl'
 import { EntityCrudPage } from '@/pages/entities/EntityCrudPage'
 import { EntitiesIntlProvider } from '@/i18n/EntitiesIntlProvider'
 import { isBilimBagaEntityType } from '@/config/bilimbagaEntities'
+import { BILIMBAGA_WRITES } from './bilimbagaWrites'
 
 function NotFoundInner() {
   const intl = useIntl()
@@ -30,5 +31,5 @@ export default function BilimBagaEntityRoute() {
     )
   }
 
-  return <EntityCrudPage entityType={entityType as string} />
+  return <EntityCrudPage entityType={entityType as string} writes={BILIMBAGA_WRITES} />
 }

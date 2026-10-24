@@ -34,7 +34,7 @@
  */
 
 import { useMemo, useRef, useState } from 'react'
-import { P, useAccess } from '@/auth/access'
+import { P, useAccess, type Permission } from '@/auth/access'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useIntl, type IntlShape } from 'react-intl'
 import { entitiesApi } from '@/api/entities'
@@ -107,13 +107,28 @@ function formatCellValue(field: EntityFieldDef, value: unknown, uiLocale: string
   return String(value)
 }
 
-export interface EntityCrudPageProps {
-  entityType: string
+/** The write side of one screen: the API its create/update/delete calls go through, and the
+ *  permission that shows its write controls. The default is `/entities/records` gated by
+ *  `EntitiesRecordsWrite`; a caller that owns its types through a module route passes its own
+ *  (GH 2680: the BilimBaga authoring types go through `/modules/exam/authoring`). */
+export interface EntityWrites {
+  api: Pick<typeof entitiesApi, 'createRecord' | 'updateRecord' | 'deleteRecord'>
+  permission: Permission
 }
 
-function EntityCrudPageInner({ entityType }: EntityCrudPageProps) {
+export const DEFAULT_ENTITY_WRITES: EntityWrites = {
+  api: entitiesApi,
+  permission: P.EntitiesRecordsWrite,
+}
+
+export interface EntityCrudPageProps {
+  entityType: string
+  writes?: EntityWrites
+}
+
+function EntityCrudPageInner({ entityType, writes = DEFAULT_ENTITY_WRITES }: EntityCrudPageProps) {
   const intl = useIntl()
-  const canWrite = useAccess().can(P.EntitiesRecordsWrite)
+  const canWrite = useAccess().can(writes.permission)
   const qc = useQueryClient()
   const tenantKeys = useTenantScopedQueryKeys()
   const uiLocale = resolveUiLocale([intl.locale])
@@ -176,7 +191,7 @@ function EntityCrudPageInner({ entityType }: EntityCrudPageProps) {
   }
 
   const createMutation = useMutation({
-    mutationFn: (fieldValues: Record<string, unknown>) => entitiesApi.createRecord(entityType, fieldValues),
+    mutationFn: (fieldValues: Record<string, unknown>) => writes.api.createRecord(entityType, fieldValues),
     onSuccess: () => {
       setModal(null)
       setFormError(null)
@@ -189,7 +204,7 @@ function EntityCrudPageInner({ entityType }: EntityCrudPageProps) {
 
   const updateMutation = useMutation({
     mutationFn: ({ recordId, fieldValues, ifMatch }: { recordId: string; fieldValues: Record<string, unknown>; ifMatch?: string }) =>
-      entitiesApi.updateRecord(entityType, recordId, fieldValues, ifMatch),
+      writes.api.updateRecord(entityType, recordId, fieldValues, ifMatch),
     onSuccess: () => {
       setModal(null)
       setFormError(null)
@@ -201,7 +216,7 @@ function EntityCrudPageInner({ entityType }: EntityCrudPageProps) {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (recordId: string) => entitiesApi.deleteRecord(entityType, recordId),
+    mutationFn: (recordId: string) => writes.api.deleteRecord(entityType, recordId),
     onSuccess: () => {
       deleteInFlightRef.current = false
       setDeleteTarget(null)
