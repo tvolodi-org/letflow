@@ -38291,3 +38291,45 @@ requirements:
       - "11. Route inventory and scope-enforcement pins (route-count pins, route_scope snapshots and the __authz_routes__ tests) are updated for the three new routes, and the three routes are classified TENANT."
       - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permissions) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over test/letflow/documents/ and the authorization and route pin tests pass, real output quoted."
     depends_on: [REQ-508]
+
+  - id: REQ-540
+    title: "Configurable per-tenant number sequences for entity records and processes, on the 0056 D2 sequence mechanism"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-536 -- placeholder until the engine files the GitHub issue after the gate (no real dependency on REQ-536; it is the nearest pending entry the staleness lint accepts)
+    # Source: docs/migration/core-roadmap-20261014.md, section "Customization beyond scripts" ("number sequences"), and docs/migration/decisions/0056-*.md D2 (BINDING). Written by the business analyst (T-0448) 2026-10-25. Not yet validated.
+    description: >
+      Decision 0056 D2 already settles how a number is allocated for a versioned document: a
+      document_sequences row per (type_key, legal_entity_key, period) (lib/letflow/documents/document_sequence.ex,
+      migration priv/repo/migrations/20261022100001_create_document_tables.exs), the two-step
+      insert-if-absent then SELECT ... FOR UPDATE protocol in the same transaction as the state change,
+      a counter that only grows (database trigger), and set-next only through a tenant-scope route with a
+      reason and the two-admin rule. This requirement does NOT restate or change any of that, and does not
+      touch document numbering. It adds what D2 does not cover: a tenant administrator configures a named
+      number sequence (key, prefix, zero-padding, period year or none) and binds it to an entity type, so
+      that a new entity record of that type, or a new process instance of a named process definition,
+      receives a number such as ORD-2026-000042 stored in a read-only system field of the record or
+      instance. The allocation function is the one D2 describes (the same two-step lock protocol and the
+      same upward-only counter guard), reached through a second scope kind rather than a copy of the
+      table logic: the implementer states in the summary whether that is a new scope column on
+      document_sequences or a sibling table, and that choice is checked against the D4 trigger and the
+      INV-6 scoping proof. Entity records are written through lib/letflow/entities/records.ex and
+      instances through lib/letflow/instances.ex; the number is allocated inside the same transaction as
+      the insert, so a rolled-back create releases the number. All data is tenant data: the sequence rows
+      live in the tenant schema under the Ecto :prefix (INV-1) and carry tenant_id; no route takes a
+      tenant identifier from the request (INV-10). The feature is opt-in: an entity type or process with
+      no binding behaves exactly as today. Out of scope: document numbering (0056), back-filling numbers
+      onto existing records, UI for managing sequences, and any change to 0056.
+    acceptance_criteria:
+      - "1. Reuse, no duplication: document issue numbering (Letflow.Documents, 0056 D2) behaves as before; the existing document numbering tests pass unchanged, and a grep quoted in the summary shows the allocation function is shared with, not copied from, the document path."
+      - "2. Configuration: a tenant admin can create a sequence definition with key, prefix, zero-padding width and period (year or none), and bind it to one entity type or one process definition; an unknown entity type or process, a duplicate key and a padding width outside 1..12 each return 422 and change nothing."
+      - "3. Entity records: creating an entity record of a bound type stores the next number in a system field that no caller can write or change afterwards (a write attempt returns 422 and the value is unchanged); the format is <prefix>-<year>-<n padded>, or <prefix>-<n padded> for period none, with n starting at 1; a type with no binding creates records exactly as before."
+      - "4. Processes: starting an instance of a bound process definition stores its number on the instance; the number is shown on the instance read response; an unbound process is unchanged."
+      - "5. Period: the period is computed only from the server clock in the tenant's timezone, never supplied by the caller; the first number after a year change is 1 for a sequence with period year, and the old year's counter is unchanged."
+      - "6. Tenant scoping (INV-1, INV-6): sequence rows are read and written only through the tenant :prefix and carry tenant_id; a test with two tenants using the same sequence key shows each counts independently from 1, and a query path without the prefix is not present."
+      - "7. Concurrency and no gaps: allocation uses insert-if-absent then SELECT ... FOR UPDATE of the sequence row inside the create transaction, and takes the sequence row before the audit chain lock (the D2 lock order). A test starts at least 20 concurrent creates against one sequence and asserts the numbers are exactly 1..20 with no duplicate and no gap; a test that forces the create to roll back after allocation asserts the next create receives the released number."
+      - "8. Counter only grows: a direct lowering of a counter is refused by the database guard (same guard as 0056 D4 for document_sequences); a change of an existing sequence's prefix, period or next value goes through the 0056 D2 rule (mandatory reason, audit entry, second admin when the tenant has two or more) and writes an audit event, and a record already numbered keeps its number."
+      - "9. Authorization and not-found (INV-2, INV-5, INV-10): creating, binding and changing sequences needs a TENANT-scope permission held by TENANT_ADMIN and by no other role, classified in lib/letflow/api/authorization.ex with the roles matrix row in docs/roles.md and the permission golden updated; a caller without it gets 403, a sequence key that exists only in another tenant returns the same 404 as an absent key with an identical body, and a cross-tenant negative test covers each new route."
+      - "10. Route inventory and scope-enforcement pins (route-count pins, route_scope snapshots, __authz_routes__ tests) are updated for the new routes. SECURITY-REVIEWER and REVIEWER verdicts are recorded (tenant-data path, new permission). mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test of the new test files pass, real output quoted."
+    depends_on: [REQ-500]
