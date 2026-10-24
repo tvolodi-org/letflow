@@ -43,6 +43,8 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
 
   @stamp "lib/letflow/entities/managed_types/stamp.ex"
   @migration "priv/repo/migrations/20261016120001_allow_exam_managed_by_stamp.exs"
+  # GH #2680 slice 3: the sixteen-name exception, the second and last opener of the setting.
+  @migration_authoring "priv/repo/migrations/20261024120001_allow_exam_authoring_managed_by_stamp.exs"
   @step_writes "lib/letflow/entities/step_writes.ex"
   # GH #2682 PR a: the exam snapshot rollout bounds its definition writes with the same
   # literal `lock_timeout` / `statement_timeout` settings (never the stamp setting).
@@ -58,7 +60,7 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
   @mix_inventory "lib/mix/tasks/letflow.managed_types_tamper_inventory.ex"
 
   # Assertion 1: the only files whose string literals may carry the setting name.
-  @opener_files [@stamp, @migration]
+  @opener_files [@stamp, @migration, @migration_authoring]
   # Assertion 2: the files that build SQL text at runtime today. Regenerated from the tree by
   # TEST-DESIGNER for GH #2596 (the first run of this assertion printed exactly these sixteen);
   # adding a file here is a reviewed diff. `stamp.ex` is listed because the design names it; its
@@ -165,7 +167,8 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
   end
 
   # The migration's file name inside TenantProvisioning's manifest is not the setting.
-  defp strip_known(literal), do: String.replace(literal, "allow_exam_managed_by_stamp", "")
+  defp strip_known(literal),
+    do: String.replace(literal, ~r/allow_exam_(authoring_)?managed_by_stamp/, "")
 
   defp opener_literal?(literal) do
     stripped = strip_known(literal)
@@ -400,7 +403,14 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
     test "the scan set is non-vacuous", %{files: files} do
       paths = Enum.map(files, &elem(&1, 0))
 
-      for required <- [@stamp, @migration, @step_writes, @release, @mix_stamp] do
+      for required <- [
+            @stamp,
+            @migration,
+            @migration_authoring,
+            @step_writes,
+            @release,
+            @mix_stamp
+          ] do
         assert required in paths, required
       end
 

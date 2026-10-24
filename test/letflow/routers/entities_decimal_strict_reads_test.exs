@@ -137,7 +137,7 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
         else: Map.put(definition, :foreign_keys, foreign_keys)
 
     {:ok, _} =
-      Definitions.create_definition(
+      Letflow.ManagedTypesSupport.create_definition(
         %{
           definition: definition,
           created_by: ctx.user_id

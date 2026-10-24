@@ -7,8 +7,9 @@ defmodule Letflow.Modules.Exam.Authoring do
   Domain side of `POST/PUT/DELETE /api/v1/modules/exam/authoring/...` (the routes, the body
   schemas and the response rendering are in `Letflow.Modules.Exam.Router`). Every write goes
   through `Letflow.Entities.Records.*_record/3` with the exam module's own Owner
-  (`ManagedTypes.owner_for!/1`, the same as `Letflow.Modules.Exam.Session`), so the call keeps
-  working once a later slice adds these types to the manifest's `manages_entity_types`.
+  (`ManagedTypes.owner_for!/1`, the same as `Letflow.Modules.Exam.Session`). The manifest's
+  `manages_entity_types` declares these ten types (GH #2680 slice 3), so the generic `/records`
+  routes refuse them with `entity_type_managed`; this surface is the only writer that is left.
 
   `access/3` is the module counterpart of `Letflow.Entities.RecordAccess.write/3` WITHOUT its
   managed-type refusal: that function answers `:managed` for a stamped type, and this surface is

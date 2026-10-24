@@ -2,7 +2,8 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
   @moduledoc """
   GH #2596, design `lib/letflow/design/gh2596-exam-managed-types.md` section 4 and tests T-07,
   T-08, T-09, T-09b, T-10 (spec `test/specs/GH2596-exam-managed.md`): the database exception to
-  REQ-496 D3 immutability that migration `AllowExamManagedByStamp` adds to the trigger function
+  REQ-496 D3 immutability that migrations `AllowExamManagedByStamp` (six names) and
+  `AllowExamAuthoringManagedByStamp` (sixteen names, GH #2680 slice 3) add to the trigger function
   `entity_definitions_managed_by_guard()`.
 
   Runs OUTSIDE the Ecto sandbox transaction (SECURITY F-1): `async: false`, and
@@ -21,11 +22,11 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
   alias Letflow.Entities.ManagedTypes.Stamp
   alias Letflow.Entities.ManagedTypes.TamperInventory
   alias Letflow.ExamStampFixtures, as: Fx
-  alias Letflow.Repo.Migrations.AllowExamManagedByStamp
+  alias Letflow.Repo.Migrations.AllowExamAuthoringManagedByStamp
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning
 
-  @migration AllowExamManagedByStamp
+  @migration AllowExamAuthoringManagedByStamp
   @version Fx.exception_version()
   @old_version 20_261_014_100_001
   @old_migration Letflow.Repo.Migrations.AddManagedByToEntityDefinitions
@@ -164,26 +165,6 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
     )
   end
 
-  # The function body of the first `AS $$ ... $$ LANGUAGE` heredoc in a migration file, with the
-  # heredoc's own indentation removed (what Elixir's heredoc hands Postgres).
-  defp heredoc_bodies(path) do
-    source = File.read!(path)
-
-    for [_, body] <- Regex.scan(~r/AS \$\$(.*?)\$\$ LANGUAGE/s, source) do
-      lines = String.split(body, "\n")
-      begin_line = Enum.find(lines, &String.contains?(&1, "BEGIN"))
-      indent = byte_size(begin_line) - byte_size(String.trim_leading(begin_line))
-
-      lines
-      |> Enum.map(fn line ->
-        if String.length(line) >= indent and String.trim(String.slice(line, 0, indent)) == "",
-          do: String.slice(line, indent..-1//1),
-          else: String.trim_leading(line)
-      end)
-      |> Enum.join("\n")
-    end
-  end
-
   # ── T-07 ────────────────────────────────────────────────────────────────────────────────────
 
   describe "T-07 (AC3): with no setting the REQ-496 D3 guard is exactly as before" do
@@ -215,16 +196,18 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
 
   # ── T-08 ────────────────────────────────────────────────────────────────────────────────────
 
-  describe "T-08 (AC3): with the setting 'exam' the exception is exactly NULL -> 'exam' on the six" do
-    test "succeeds on each of the six runtime names", %{schema: schema} do
-      for name <- Fx.runtime_types() do
+  describe "T-08 (AC3): with the setting 'exam' the exception is exactly NULL -> 'exam' on the sixteen" do
+    test "succeeds on each of the six runtime names and each of the ten authoring names", %{
+      schema: schema
+    } do
+      for name <- Fx.runtime_types() ++ Fx.authoring_types() do
         id = row!(schema, name)
         assert :allowed = attempt(schema, id, "managed_by = 'exam'", "exam", false), name
       end
     end
 
-    test "is refused on each of the ten authoring names and on org_unit", %{schema: schema} do
-      for name <- Fx.authoring_types() ++ ["org_unit"] do
+    test "is refused on org_unit and on another declarer's name (catalog_uom)", %{schema: schema} do
+      for name <- ~w(org_unit catalog_uom) do
         id = row!(schema, name)
 
         assert {:refused, @refused} = attempt(schema, id, "managed_by = 'exam'", "exam", false),
@@ -360,31 +343,24 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
 
   # ── T-09b ───────────────────────────────────────────────────────────────────────────────────
 
-  describe "T-09b (AC3): AllowExamManagedByStamp down/up round trip" do
+  describe "T-09b (AC3): AllowExamAuthoringManagedByStamp down/up round trip" do
     @tag timeout: 120_000
-    test "down restores the previous body byte for byte and closes the exception; up reopens it; Stamp reports :exception_not_installed in between",
+    test "down restores the six-name body and the ten authoring names close; up reopens the sixteen; Stamp reports :exception_not_installed in between",
          %{schema: schema} do
       Fx.insert_exam_row!(schema)
       id = row!(schema, "session")
-
-      [old_body | _] =
-        heredoc_bodies(
-          "priv/repo/migrations/20261014100001_add_managed_by_to_entity_definitions.exs"
-        )
-
-      [_up_body, new_down_body] =
-        heredoc_bodies("priv/repo/migrations/20261016120001_allow_exam_managed_by_stamp.exs")
-
-      # The migration's own `down` text is the previous body, copied (not re-typed).
-      assert new_down_body == old_body
+      authoring_id = row!(schema, "question")
 
       up_body = prosrc(schema)
-      refute up_body == old_body
+      assert stamp_array(up_body) == sixteen()
       assert up_body =~ "letflow.managed_by_stamp"
 
       assert migrate(schema, @version, @migration, :down) == [@version]
-      assert prosrc(schema) == old_body
-      refute prosrc(schema) =~ "letflow.managed_by_stamp"
+
+      # `down` is the #2596 six-name body: the exception stays open for the runtime names only.
+      down_body = prosrc(schema)
+      assert stamp_array(down_body) == six()
+      assert down_body =~ "letflow.managed_by_stamp"
 
       assert [
                {"entity_definitions_managed_by_no_delete", "O",
@@ -393,10 +369,11 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
                 "entity_definitions_managed_by_guard"}
              ] = trigger_state(schema)
 
-      # With the exception retired the setting does nothing.
-      assert {:refused, @refused} = attempt(schema, id, "managed_by = 'exam'", "exam", false)
+      # The sixteen-name version is not applied now: the ten authoring names are refused and
+      # Stamp reports the missing exception instead of trying.
+      assert {:refused, @refused} =
+               attempt(schema, authoring_id, "managed_by = 'exam'", "exam", false)
 
-      # The tenant's schema_migrations no longer lists the version, so Stamp does not try.
       assert %{status: :exception_not_installed, rows_stamped: 0} = Stamp.run_tenant(schema, [])
       assert managed_by(schema, id) == nil
 
@@ -411,6 +388,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
              ] = trigger_state(schema)
 
       assert :allowed = attempt(schema, id, "managed_by = 'exam'", "exam", false)
+      assert :allowed = attempt(schema, authoring_id, "managed_by = 'exam'", "exam", false)
       assert {:refused, @refused} = attempt(schema, id, "managed_by = 'exam'", nil, false)
     end
 
@@ -423,29 +401,29 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
   # ── T-10 ────────────────────────────────────────────────────────────────────────────────────
 
   describe "T-10 (AC3): the three name lists are one list" do
-    test "migration stamp_names/0 == Stamp.stamp_names/0 == the literal six, a subset of the manifest set" do
-      literal =
-        Enum.sort(
-          ~w(certificate session session_answer session_event session_question session_question_score)
-        )
+    test "migration stamp_names/0 == Stamp.stamp_names/0 == the literal sixteen, a subset of the manifest set" do
+      literal = sixteen()
 
-      assert Enum.sort(AllowExamManagedByStamp.stamp_names()) == literal
+      assert Enum.sort(AllowExamAuthoringManagedByStamp.stamp_names()) == literal
       assert Enum.sort(Stamp.stamp_names()) == literal
-      assert Enum.sort(Fx.runtime_types()) == literal
+      assert Enum.sort(Fx.runtime_types() ++ Fx.authoring_types()) == literal
 
       manifest = MapSet.new(Letflow.Modules.Exam.manifest().manages_entity_types)
       assert MapSet.subset?(MapSet.new(literal), manifest)
     end
 
-    test "the function body's literal array holds exactly those six names", %{schema: schema} do
-      assert [[_, array]] = Regex.scan(~r/ARRAY\[([^\]]*)\]/, prosrc(schema))
-
-      literal =
-        ~r/'([a-z_]+)'/ |> Regex.scan(array) |> Enum.map(&List.last/1) |> Enum.sort()
-
-      assert literal == Enum.sort(AllowExamManagedByStamp.stamp_names())
-      # The ten authoring names are not in that array.
-      assert literal -- Fx.authoring_types() == literal
+    test "the function body's literal array holds exactly those sixteen names", %{schema: schema} do
+      assert stamp_array(prosrc(schema)) == sixteen()
     end
   end
+
+  # The sorted names in the trigger function's literal array (exactly one ARRAY in the body).
+  defp stamp_array(source) do
+    assert [[_, array]] = Regex.scan(~r/ARRAY\[([^\]]*)\]/, source)
+
+    ~r/'([a-z_]+)'/ |> Regex.scan(array) |> Enum.map(&List.last/1) |> Enum.sort()
+  end
+
+  defp sixteen, do: Enum.sort(six() ++ Fx.authoring_types())
+  defp six, do: Enum.sort(Fx.runtime_types())
 end

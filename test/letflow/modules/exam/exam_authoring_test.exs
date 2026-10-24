@@ -468,18 +468,20 @@ defmodule Letflow.Modules.Exam.ExamAuthoringTest do
     end
   end
 
-  # ── T-13, T-14: the types stay unmanaged; manifest ──
+  # ── T-13, T-14: the manifest; the planted tenant's rows are unstamped ──
 
   describe "slice boundary" do
-    test "T-13 the ten authoring types stay unmanaged and the generic route still works" do
+    test "T-13 the ten authoring types are declared (GH #2680 slice 3); this planted tenant's rows are unstamped, so the generic route still accepts them" do
       tenant = tenant("gh2680-unmanaged")
 
       for type <- Authoring.authoring_types() do
         assert ManagedTypes.owner_of(type, tenant.schema_name) == :unmanaged
-        refute type in Exam.manifest().manages_entity_types
+        assert type in Exam.manifest().manages_entity_types
       end
 
-      assert length(Exam.manifest().manages_entity_types) == 6
+      # The stamp (not the manifest) is what closes generic writes on an installed tenant: see
+      # `exam_managed_types_http_test.exs`, which runs the refusal on a stamped tenant.
+      assert length(Exam.manifest().manages_entity_types) == 16
       ctx = user_ctx(tenant, ["TENANT_ADMIN"])
 
       conn =

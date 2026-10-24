@@ -67,16 +67,25 @@ defmodule Letflow.Modules.Exam do
       ]
     },
     required_roles: [],
-    # GH #2596: the six runtime/result types only. The ten authoring types stay unmanaged
-    # (supervisor ruling 2026-10-16) until the authoring surface is the only writer: the surface
-    # now exists (`Letflow.Modules.Exam.Authoring`, GH #2680 slice 1); a later slice declares them.
+    # GH #2596: the six runtime/result types. GH #2680 slice 3: the ten authoring types too; the
+    # module's own authoring surface (`Letflow.Modules.Exam.Authoring`) is their only writer.
     manages_entity_types: [
       "certificate",
       "session",
       "session_answer",
       "session_event",
       "session_question",
-      "session_question_score"
+      "session_question_score",
+      "exam",
+      "exam_section",
+      "exam_question_rule",
+      "exam_question_rule_tag",
+      "exam_manual_question",
+      "question",
+      "answer_option",
+      "question_tag",
+      "tag",
+      "category"
     ],
     settings_schema: nil,
     route_policies: [

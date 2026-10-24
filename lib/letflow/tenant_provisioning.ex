@@ -822,6 +822,10 @@ defmodule Letflow.TenantProvisioning do
     # GH #3092 (REQ-531, decision 0051 T13): nullable write-once `instance_projections.scope_node_id`.
     {20_261_024_100_001, Letflow.Repo.Migrations.AddScopeNodeIdToInstanceProjections,
      "20261024100001_add_scope_node_id_to_instance_projections.exs"},
+    # GH #2680 slice 3: the #2596 stamp exception extended to the ten exam authoring names
+    # (16 frozen names in all). A NEW reviewed migration, as the #2596 header requires.
+    {20_261_024_120_001, Letflow.Repo.Migrations.AllowExamAuthoringManagedByStamp,
+     "20261024120001_allow_exam_authoring_managed_by_stamp.exs"},
     # GH #3091 (REQ-532, decision 0051 T13): backfills `tasks.scope_node_id` from each task's own
     # instance; re-runnable (IS NULL guard), a no-op down.
     {20_261_024_200_001, Letflow.Repo.Migrations.BackfillTasksScopeNodeId,
