@@ -38365,3 +38365,41 @@ requirements:
       - "8. The depends_on of the follow-on implementation requirements is stated in D8: each follow-on depends_on REQ-532 (the task scope writer, W3b) and cites decisions 0050 and 0051 in its description."
       - "9. mix letflow.check_requirements_registration passes with the REQ-538 entry present, and any test that scans docs/migration/decisions for headings or numbering is run, real output quoted."
     depends_on: [REQ-532]
+
+  - id: REQ-537
+    title: "Entry guard of the :self_service list admits /definitions, and the :self_service class text no longer says role-independent (prerequisite IMPL-525-0 of REQ-525; SEC-525-Q3 = Q3-a, SEC-525-Q1 = Option A)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3151
+    # Source: GH #2535; lib/letflow/design/req525-definitions-services-self-service.md section 6 row IMPL-525-0, with the SECURITY-REVIEWER rulings RECORDED in section 3 (SEC-525-Q1 = Option A, SEC-525-Q3 = Q3-a) and the test-impact paragraph of section 5; code read: lib/letflow/api/route_scope.ex (module SelfServiceEntry, @prefixes, check_route/1, @self_service_prefixes) and test/letflow/api/route_scope_self_service_entry_test.exs. Written by the business analyst (T-0437) 2026-10-25. Not yet validated.
+    description: >
+      Prerequisite of the REQ-525 implementation requirements (IMPL-525-A to C), which each add
+      one family of /definitions routes to @self_service_routes in lib/letflow/api/route_scope.ex.
+      Today those entries cannot be added: the compile-time entry guard of GH #2825, module
+      Letflow.Api.RouteScope.SelfServiceEntry, accepts a route only under /me or /help and
+      validate!/1 raises ArgumentError ("is not under /me or /help"), so the build stops. The
+      SECURITY-REVIEWER recorded two rulings in the REQ-525 design: SEC-525-Q3 = Q3-a (the guard
+      allow-list gains /definitions; the walk's forced list does not) and SEC-525-Q1 = Option A
+      (the class text no longer claims role independence, because the coarse allow of the policy
+      key already acts as the role gate before the class check). This requirement carries both
+      edits so that the class text is true before the first /definitions entry lands. One list edit
+      in route_scope.ex, two text edits (the :self_service definition in the moduledoc of
+      route_scope.ex, and the REQ-518 AC 21 walk rule text in docs/requirements.yaml), the typedoc
+      and comment of SelfServiceEntry, and two test files (the guard test and one walk test). It adds no route and no entry to @self_service_routes
+      (the entries come with IMPL-525-A to C), no seed and no migration. Option B (a role gate
+      inside the class) and Q3-b (dropping the path check) were rejected by the rulings and are
+      not part of this change.
+    acceptance_criteria:
+      - "1. Guard list: @prefixes in module SelfServiceEntry of lib/letflow/api/route_scope.ex is exactly [\"/me\", \"/help\", \"/definitions\"]; the match in check_route/1 stays a path-segment match (the path equals the prefix or starts with the prefix and a slash), and its error text names all three prefixes."
+      - "2. Walk list unchanged: @self_service_prefixes of the walk in route_scope.ex stays [\"/me\", \"/help\"], and @self_service_routes gains no entry in this change; a git diff of @self_service_routes is empty, so that the routes GET /definitions/:id, POST /definitions and the other definition routes the rulings leave :tenant_wide are not forced into the list."
+      - "3. Class text, moduledoc: the :self_service definition in the moduledoc of route_scope.ex no longer contains the words \"role-independent\"; it states that the class does not depend on the caller's scope rows and that the coarse permission of the policy key still applies. The rest of the definition (own principal data or tenant-level metadata, id only as a filter, no field from a scoped resource, a new SEC ruling needed to add one) is kept word for word."
+      - "4. Class text, walk rule: the DEFINITION sentence of REQ-518 AC 21 in docs/requirements.yaml (\"DEFINITION: `:self_service` = a tenant-level, non-sensitive, role-independent ...\") is reworded to the same meaning as criterion 3, as SEC-525-Q1 requires (\"the REQ-518 AC 21 walk rule text is updated to match\"). Only that wording changes: no status, no other criterion and no other entry of the register is touched. Any comment in lib/letflow/api/route_scope.ex or lib/letflow/api/scope/enforce.ex that restates the class as role-independent is reworded the same way. The historical design lib/letflow/design/req518-compiler-scope-filter.md (line 321 says role-independent) is left as history and not edited."
+      - "5. Typedoc and comment: the @typedoc of SelfServiceEntry (now \"One ruled `/me` or `/help` route\") and the comment above the module name /me, /help and /definitions, and say that the guard checks the shape of the path only, not which /definitions routes are ruled in."
+      - "6. Pinning test: in test/letflow/api/route_scope_self_service_entry_test.exs the test \"a route outside /me and /help is rejected\" is replaced by tests that assert (a) GET /mentor/modules and GET /entities/records/:entity_type are still rejected by validate!/1 with ArgumentError; (b) an entry for GET /definitions and one for GET /definitions/search (key :DefinitionsRead, class :self_service, a ruling id string) are accepted; (c) a route that merely begins with the same letters, GET /definitionsx/list, is rejected."
+      - "7. Walk-level proof of criterion 2: one test added to test/letflow/api/route_scope_self_service_test.exs (where the :self_service_not_listed walk tests live, T-S1) calls RouteScope.audit_routes/3 and asserts that with the committed list the walk reports no :self_service_not_listed for any /definitions route; the existing tests in test/letflow/api/route_scope_self_service_test.exs and test/letflow/api/route_scope_on_flip_blocker_test.exs stay green without edit."
+      - "8. The diff contains the edits of criteria 1 to 7 in lib/letflow/api/route_scope.ex, docs/requirements.yaml (the AC 21 wording of criterion 4 only; the REQ-537 entry itself is not changed), lib/letflow/api/scope/enforce.ex only if criterion 4 finds the old wording there, and the two test files of criteria 6 and 7; it contains no route, no new @self_service_routes entry, no seed and no migration, and the exact-set pins that count routes (length(snapshot) == 120 and the __authz_routes__ pins) are unchanged."
+      - "9. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and mix test test/letflow/api/route_scope_self_service_entry_test.exs test/letflow/api/route_scope_self_service_test.exs test/letflow/api/route_scope_on_flip_blocker_test.exs pass, real output quoted. SECURITY-REVIEWER verdict recorded (the change relaxes the GH #2825 guard) and REVIEWER verdict recorded."
+    open_questions:
+      - "None for the owner: SEC-525-Q1 and SEC-525-Q3 are recorded in the REQ-525 design. The requirement only carries them. If the implementer finds a third place that restates the class as role-independent, the change rewords it and names it in the summary."
+    depends_on: [REQ-525]
