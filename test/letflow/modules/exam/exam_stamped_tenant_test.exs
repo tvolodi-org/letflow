@@ -182,4 +182,71 @@ defmodule Letflow.Modules.Exam.StampedTenantTest do
                Records.create_record(attrs, schema, owner)
     end
   end
+
+  describe "GH #2689 M2/X1/M1: the size cap under the exam Owner (module profile)" do
+    defp session_attrs(candidate, snapshot_bytes) do
+      now = DateTime.utc_now()
+
+      %{
+        entity_type: "session",
+        field_values: %{
+          "exam_id" => Ecto.UUID.generate(),
+          "user_id" => candidate.id,
+          "status" => "in_progress",
+          "seed" => 1,
+          "started_at" => DateTime.to_iso8601(now),
+          "expires_at" => DateTime.to_iso8601(DateTime.add(now, 60, :second)),
+          "passed" => false,
+          "exam_snapshot" => %{"blob" => String.duplicate("x", snapshot_bytes)}
+        },
+        actor_id: candidate.id,
+        idempotency_key: Ecto.UUID.generate()
+      }
+    end
+
+    test "M2: a ~100 KiB snapshot is stored under the exam Owner (not the 64 KiB standard cap)" do
+      %{schema_name: schema, candidate: candidate} = stamped_tenant!()
+      owner = ManagedTypes.owner_for!(Letflow.Modules.Exam)
+
+      assert {:ok, %{record: %{entity_type: "session"}}} =
+               Records.create_record(session_attrs(candidate, 100_000), schema, owner)
+    end
+
+    test "M1: a snapshot over the 4 MiB backstop is an error tuple, nothing is written" do
+      %{schema_name: schema, candidate: candidate} = stamped_tenant!()
+      owner = ManagedTypes.owner_for!(Letflow.Modules.Exam)
+      before = event_count(schema)
+
+      assert {:error, {:record_size_exceeded, :value}} =
+               Records.create_record(session_attrs(candidate, 4_194_304 + 10), schema, owner)
+
+      assert event_count(schema) == before
+    end
+
+    test "X1: a stored 300 KiB session is re-saved (status change) with the snapshot carried over" do
+      %{schema_name: schema, candidate: candidate} = stamped_tenant!()
+      owner = ManagedTypes.owner_for!(Letflow.Modules.Exam)
+
+      assert {:ok, %{record: %{record_id: id}}} =
+               Records.create_record(session_attrs(candidate, 300_000), schema, owner)
+
+      stored = Repo.get_by!(Latest, [record_id: id], prefix: schema).field_values
+
+      assert {:ok, _} =
+               Records.update_record(
+                 %{
+                   entity_type: "session",
+                   record_id: id,
+                   field_values: Map.put(stored, "status", "submitted"),
+                   actor_id: candidate.id,
+                   idempotency_key: Ecto.UUID.generate()
+                 },
+                 schema,
+                 owner
+               )
+
+      assert Repo.get_by!(Latest, [record_id: id], prefix: schema).field_values["status"] ==
+               "submitted"
+    end
+  end
 end

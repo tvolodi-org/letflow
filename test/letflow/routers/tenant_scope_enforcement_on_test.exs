@@ -528,13 +528,12 @@ defmodule Letflow.Routers.TenantScopeEnforcementOnTest do
       assert entries(fx, @enabled) |> length() == 1
     end
 
-    test "each of facts 1 to 5 alone is named by its stable code, with the matching report count" do
+    test "each of facts 1 to 4 alone is named by its stable code, with the matching report count" do
       expected = [
         {:bindings_without_row, "bindings_without_row", 1},
         {:org_inconsistent, "org_consistency", "inconsistent"},
         {:tokens_exceed_owner, "tokens_exceeding_owner", 1},
-        {:zero_tenant_wide_admins, "explicit_tenant_wide_admins", 0},
-        {:scoped_approvers_without_task_scope, "scoped_approvers", 1}
+        {:zero_tenant_wide_admins, "explicit_tenant_wide_admins", 0}
       ]
 
       for {{code, count_key, value}, index} <- Enum.with_index(expected) do
@@ -576,12 +575,11 @@ defmodule Letflow.Routers.TenantScopeEnforcementOnTest do
 
       assert conn.status == 409
 
-      # the second admin keeps fact 4 satisfied; every other fact of 1..5 is broken
+      # the second admin keeps fact 4 satisfied; every other blocking fact is broken
       assert body(conn)["failed"] == [
                "bindings_without_row",
                "org_inconsistent",
-               "tokens_exceed_owner",
-               "scoped_approvers_without_task_scope"
+               "tokens_exceed_owner"
              ]
     end
   end

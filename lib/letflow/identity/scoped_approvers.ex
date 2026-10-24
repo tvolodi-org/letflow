@@ -1,6 +1,6 @@
 defmodule Letflow.Identity.ScopedApprovers do
   @moduledoc """
-  The "scoped approver" count that blocks the `on` flip (REQ-519 2f-a, GH #2535, AC 10; design
+  The "scoped approver" count reported by the `on` gate (REQ-519 2f-a, GH #2535, AC 10; design
   `lib/letflow/design/req519-enforced-writers-and-flag-on.md` section 4.5, SEC ruling S-4 and
   open question OQ-4).
 
@@ -20,11 +20,12 @@ defmodule Letflow.Identity.ScopedApprovers do
   lockout. A holder with ZERO applicable rows is not a scoped approver (it is denied outright
   and is already counted by gate fact 1, bindings without a row).
 
-  The blocker is removed ONLY by the requirement that ships a production writer for
-  `tasks.scope_node_id` (none exists today, design F14); no writer is added here. The count is
-  a plain read (two queries, bound values only, INV-7); inside the `on` gate it runs after
-  lock A and the scope-tree lock S, and every input is written under lock A. It is evaluated
-  at flip time only.
+  The count no longer blocks the flip. It was a blocker (REQ-519 AC 10, a refusal code that is
+  now removed) until REQ-532 / GH #3091 wrote `tasks.scope_node_id` from the instance's scope
+  node, so a scoped approver sees the tasks of its scope. The count is kept, informational, in the
+  flip report and the integrity report. It is a plain read (two queries, bound values only,
+  INV-7); inside the `on` gate it runs after lock A and the scope-tree lock S, and every input is
+  written under lock A.
   """
 
   import Ecto.Query
