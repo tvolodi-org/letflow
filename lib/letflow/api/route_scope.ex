@@ -123,13 +123,15 @@ defmodule Letflow.Api.RouteScope do
     "POST /tasks/:id/assign TasksAssign",
     "POST /tasks/:id/claim TasksComplete",
     "POST /tasks/:id/complete TasksComplete",
-    "POST /tasks/:id/reassign TasksReassign"
+    "POST /tasks/:id/reassign TasksReassign",
+    "POST /documents/:document_id/hold DocumentHold",
+    "POST /documents/:document_id/hold/release DocumentHold"
   ]
 
   # AC 19: every route of these routers is CLASSIFIED (declared or admin key table); a default-
   # sourced one fails `:data_route_default`, so a route added without a class breaks the build.
   # REQ-518 PR 2d added `Letflow.Routers.Tasks` together with the classification of its seven routes.
-  @data_routers [Letflow.Routers.Entities, Letflow.Routers.Tasks]
+  @data_routers [Letflow.Routers.Entities, Letflow.Routers.Tasks, Letflow.Routers.Documents]
 
   # `:self_service` routes are allowed from REQ-518 PR 2c-i-b (AC 21); WHICH routes is the
   # committed `@self_service_routes` list below (SEC F-1).
