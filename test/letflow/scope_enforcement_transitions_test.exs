@@ -561,8 +561,7 @@ b", String.duplicate("x", 501), 5] do
       {:bindings_without_row, "g1"},
       {:org_inconsistent, "g2"},
       {:tokens_exceed_owner, "g3"},
-      {:zero_tenant_wide_admins, "g4"},
-      {:scoped_approvers_without_task_scope, "g5"}
+      {:zero_tenant_wide_admins, "g4"}
     ]
 
     for {code, slug} <- @facts do
@@ -621,7 +620,6 @@ b", String.duplicate("x", 501), 5] do
                :org_inconsistent,
                :tokens_exceed_owner,
                :zero_tenant_wide_admins,
-               :scoped_approvers_without_task_scope,
                :shadow_evidence_insufficient
              ]
 

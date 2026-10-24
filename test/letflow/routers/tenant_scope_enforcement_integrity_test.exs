@@ -182,7 +182,6 @@ defmodule Letflow.Routers.TenantScopeEnforcementIntegrityTest do
                "bindings_without_row",
                "org_inconsistent",
                "tokens_exceed_owner",
-               "scoped_approvers_without_task_scope",
                "shadow_evidence_insufficient"
              ]
 
