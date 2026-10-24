@@ -272,6 +272,21 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
     dispatcher_config()[:default_backoff_cap_ms] || @default_backoff_cap_ms
   end
 
+  # GH #2688 / REQ-513: the age an `advanced` dispatch row must have before the stuck-advance
+  # landing may touch it. The floor is a hard rule (a live apply can still be inside its
+  # 20 s deadline plus the landing budget, design D3), not a tunable.
+  @stuck_advance_min_age_floor_seconds 120
+  @default_stuck_advance_min_age_seconds 600
+
+  @spec stuck_advance_min_age_seconds() :: pos_integer()
+  def stuck_advance_min_age_seconds do
+    configured =
+      dispatcher_config()[:stuck_advance_min_age_seconds] ||
+        @default_stuck_advance_min_age_seconds
+
+    max(configured, @stuck_advance_min_age_floor_seconds)
+  end
+
   defp dispatcher_config, do: Application.get_env(:letflow, :service_task_dispatcher, [])
 
   # ===========================================================================

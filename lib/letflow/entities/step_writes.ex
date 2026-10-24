@@ -34,11 +34,11 @@ defmodule Letflow.Entities.StepWrites do
   ## SERVICE_TASK origin (GH #2587 PR C2; design `gh2587-req499-pr-c-service-task-writes.md`)
 
   `ctx.origin` is `{:task, id}` (HUMAN) or `{:dispatch, id}` (a
-  SERVICE_TASK apply). The dispatch origin differs in three ways only: `source.dispatch_id` and
+  SERVICE_TASK apply). The dispatch origin differs in two ways only: `source.dispatch_id` and
   the `sys:step:<dispatch_id>:<i>` key (through `StepSource`), the write-side restriction subject
-  is `ctx.subject_id` (the activator; the event actor is the platform sentinel), and values are
-  capped at `service_size_caps/0` (64 KiB per value, 256 KiB per line, JSON encoding; refusal
-  `:validation_failed` with no field name). `ctx.guard_budget_ms` can only tighten the 10 s guard: the engine passes `min(10 s, remaining deadline - 8 s)`, where 8 s is the pre-guard bound of an attempt (`prepare/2` <= 4 s plus the dispatch/CAS-row and projection lock waits <= 4 s; the guard clock starts after both, at `:entity_writes_started`).
+  is `ctx.subject_id` (the activator; the event actor is the platform sentinel).
+  Value sizes are not an origin matter: the entity-side cap in `Records` (`Letflow.Entities.Record.SizeCap`, GH #2689) applies to every writer; a refusal is `:validation_failed` with no field name (detail `:value_too_large`).
+  `ctx.guard_budget_ms` can only tighten the 10 s guard: the engine passes `min(10 s, remaining deadline - 8 s)`, where 8 s is the pre-guard bound of an attempt (`prepare/2` <= 4 s plus the dispatch/CAS-row and projection lock waits <= 4 s; the guard clock starts after both, at `:entity_writes_started`).
 
   ## TypeAccess (GH #2808)
 
@@ -60,8 +60,8 @@ defmodule Letflow.Entities.StepWrites do
   builds exactly the steps it always did. `interpret_failure/2` maps a handler-range step key
   (`20 + line_index * 50 + ordinal`) back to the DECLARED line index. GH #2590 R5: the SERVICE
   origin composes handler calls the same way; the handler context gets `ctx.subject_id` (the
-  activator) as its field-restriction subject, `{:dispatch, id}` as its origin, and the byte caps
-  above apply to a handler write's values too (`check_service_sizes/2`).
+  activator) as its field-restriction subject, `{:dispatch, id}` as its origin, and the entity-side byte
+  cap applies to a handler write's values too (it is enforced in `Records.command_multi/3`).
 
   ## `validate_lines/2` (PR B1; design `gh2587-req499-pr-b-human-task-writes.md` section 6)
 
@@ -539,18 +539,6 @@ defmodule Letflow.Entities.StepWrites do
 
   @guard_budget_ms 10_000
 
-  # GH #2587 PR C2 (design D-C.7, OQ-C4): run-time size caps on values that come from a service
-  # response or a script output, applied to the {:dispatch, _} origin ONLY (the HUMAN path is not
-  # widened). Measured on the JSON encoding. A change is a reviewed diff: the numbers are pinned
-  # by a unit test. The follow-up is an entity-side per-record cap that replaces both.
-  @service_value_max_bytes 65_536
-  @service_line_max_bytes 262_144
-
-  @doc false
-  @spec service_size_caps() :: %{value_max_bytes: pos_integer(), line_max_bytes: pos_integer()}
-  def service_size_caps,
-    do: %{value_max_bytes: @service_value_max_bytes, line_max_bytes: @service_line_max_bytes}
-
   @doc """
   Appends the per-line write steps and the closing `:entity_writes` step to `multi`. With no
   lines and no `module_writes` it is the identity. See the moduledoc.
@@ -748,7 +736,6 @@ defmodule Letflow.Entities.StepWrites do
          :ok <- check_restrictions(normalized.fields, normalized.entity_type, ctx),
          :ok <- check_taint(normalized, labels, ctx),
          values = resolve_values(normalized.fields, variables),
-         :ok <- check_service_sizes(values, origin),
          {:ok, source} <-
            StepSource.new(
              Map.merge(origin_attrs(origin), %{
@@ -779,34 +766,6 @@ defmodule Letflow.Entities.StepWrites do
 
   defp origin_attrs({:task, id}), do: %{task_id: id}
   defp origin_attrs({:dispatch, id}), do: %{dispatch_id: id}
-
-  # D-C.7: per-value and per-line byte caps on the JSON encoding, service origin only. The
-  # refusal names no field (INV-2): `:value_too_large` -> `validation_failed`.
-  @doc false
-  @spec check_service_sizes(map(), {:task | :dispatch, Ecto.UUID.t()}) ::
-          :ok | {:error, :value_too_large | :line_malformed}
-  def check_service_sizes(_values, {:task, _id}), do: :ok
-
-  def check_service_sizes(values, {:dispatch, _id}) do
-    with {:ok, line_json} <- Jason.encode(values),
-         {:ok, encoded} <- encode_values(values) do
-      if byte_size(line_json) > @service_line_max_bytes or
-           Enum.any?(encoded, &(byte_size(&1) > @service_value_max_bytes)),
-         do: {:error, :value_too_large},
-         else: :ok
-    else
-      {:error, _not_encodable} -> {:error, :line_malformed}
-    end
-  end
-
-  defp encode_values(values) do
-    Enum.reduce_while(values, {:ok, []}, fn {_name, value}, {:ok, acc} ->
-      case Jason.encode(value) do
-        {:ok, json} -> {:cont, {:ok, [json | acc]}}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
-  end
 
   # A pinned line is re-checked at run time (a hand-edited snapshot): `expected`/`record`
   # present is a validation failure BEFORE any op check; an op other than "create" is
@@ -1090,9 +1049,12 @@ defmodule Letflow.Entities.StepWrites do
       :entity_write_restriction_widened ->
         {:refused, i, :write_not_permitted, :entity_write_restriction_widened}
 
-      # PR C2 (D-C.7): a service-origin value over the byte cap. No field name (INV-2).
-      :value_too_large ->
+      # GH #2689: the entity-side byte cap (`Record.SizeCap`), any origin. No field name (INV-2).
+      {:record_size_exceeded, _which} ->
         {:refused, i, :validation_failed, :value_too_large}
+
+      :record_not_encodable ->
+        {:refused, i, :validation_failed, :malformed}
 
       :entity_type_managed ->
         {:refused, i, :write_not_permitted, :managed}

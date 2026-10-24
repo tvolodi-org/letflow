@@ -543,6 +543,7 @@ defmodule Letflow.Engine do
   alias Letflow.Scheduler
   alias Letflow.Scheduler.Timer
   alias Letflow.Scheduler.TimerTypes
+  alias Letflow.ScopeNodePaths
 
   require Letflow.Scheduler.TimerTypes
   alias Letflow.ServiceCatalog
@@ -553,6 +554,7 @@ defmodule Letflow.Engine do
           optional(:definition_id) => Ecto.UUID.t(),
           optional(:definition_name) => String.t(),
           optional(:correlation_key) => String.t() | nil,
+          optional(:scope_node_id) => String.t() | nil,
           required(:initial_variables) => map(),
           required(:actor_id) => Ecto.UUID.t(),
           required(:idempotency_key) => String.t()
@@ -570,6 +572,7 @@ defmodule Letflow.Engine do
           | {:error, :definition_not_found}
           | {:error, :definition_not_active}
           | {:error, :duplicate_correlation_key}
+          | {:error, :invalid_scope_node}
           | {:error, {:snapshot_failed, term()}}
           | {:error, {:graph_structure_invalid, term()}}
           | {:error, {:activation_failed, term()}}
@@ -612,6 +615,25 @@ defmodule Letflow.Engine do
   `attrs[:actor_id]`/`attrs[:idempotency_key]` are required — plumbed
   straight through to `Letflow.EventStore.append/2`'s own identical
   requirement.
+
+  ## Scope node (REQ-531, decision 0051 T13/T14)
+
+  `attrs[:scope_node_id]` is the optional scope node the instance is started under: set once here,
+  never changed (`instance_projections.scope_node_id`, carried in `INSTANCE_STARTED` and
+  `InstanceState`). It must name an existing, non-retired `scope_node_paths` node of the tenant;
+  anything else (unknown, retired, malformed, another tenant's) is `{:error, :invalid_scope_node}`
+  before anything is written, and the node is re-checked under a `FOR SHARE` lock inside the
+  transaction. The three start paths:
+
+    * `POST /instances` accepts the optional field; `Letflow.Routers.Instances` additionally checks
+      that a scoped caller names a node inside its `InstancesStart` grants (same refusal as unknown);
+    * a sub-process child never takes a value from a caller: it inherits its parent's stored value
+      (`Letflow.Engine.SubProcess.append_start_multi/7`, both the `create/2` and `complete_task/3` paths);
+    * webhook and trigger starts: none exist today. Any future one must supply a node or the instance
+      stays unscoped (T14): an unscoped instance is visible to tenant-wide holders only.
+
+  The idempotent-replay comparison includes the node: the same key with a different node (or with
+  none) is `:idempotency_key_reuse`.
   """
   @spec create(attrs :: create_attrs(), opts :: opts()) ::
           {:ok, create_result()} | create_error()
@@ -624,6 +646,7 @@ defmodule Letflow.Engine do
          {:ok, initial_variables} <- fetch_initial_variables(attrs),
          :continue <- start_replay_check(attrs, initial_variables, prefix),
          :ok <- start_race_gate(attrs),
+         :ok <- validate_scope_node(attrs, prefix),
          {:ok, definition} <- resolve_definition(attrs, opts) do
       correlation_key = Map.get(attrs, :correlation_key)
       start_instance(definition, initial_variables, correlation_key, attrs, tenant_id, prefix)
@@ -650,6 +673,26 @@ defmodule Letflow.Engine do
       has_id and has_name -> {:error, :both_definition_id_and_name}
       not has_id and not has_name -> {:error, :missing_definition_reference}
       true -> :ok
+    end
+  end
+
+  # REQ-531 -- the optional start scope node. Advisory pre-check (a refusal here happens before
+  # `create_snapshot/3` writes anything); `persist/14` re-checks the node under a FOR SHARE lock.
+  # Absent or nil is an unscoped start. Unknown, retired, malformed and non-string all answer one
+  # code (INV-5): the caller learns nothing about which nodes exist.
+  defp validate_scope_node(attrs, prefix) do
+    case Map.get(attrs, :scope_node_id) do
+      nil ->
+        :ok
+
+      node_id when is_binary(node_id) and node_id != "" ->
+        case ScopeNodePaths.resolve(node_id, prefix) do
+          {:ok, %{node: %{retired_at: nil}}} -> :ok
+          _unknown_or_retired -> {:error, :invalid_scope_node}
+        end
+
+      _other ->
+        {:error, :invalid_scope_node}
     end
   end
 
@@ -717,6 +760,7 @@ defmodule Letflow.Engine do
       IdempotentReplay.same_uuid?(original.actor_id, Map.get(attrs, :actor_id)) and
       Map.get(payload, "initial_variables") == IdempotentReplay.canonical_json(vars) and
       Map.get(payload, "correlation_key") == Map.get(attrs, :correlation_key) and
+      Map.get(payload, "scope_node_id") == Map.get(attrs, :scope_node_id) and
       same_start_definition?(payload, attrs, prefix)
   end
 
@@ -836,8 +880,10 @@ defmodule Letflow.Engine do
          {:ok, parent_pins} <- parent_pins(attrs, prefix),
          {:ok, pins, conflicts} <- PinResolver.apply_inheritance(own_pins, parent_pins),
          {:ok, _snapshot} <- create_snapshot(instance_id, definition, prefix),
-         {:ok, new_instance_state, pending_events} <-
+         {:ok, activated_state, pending_events} <-
            activate(instance_id, graph, initial_variables),
+         # REQ-531: the start scope node rides on the state so snapshots and rebuilds keep it.
+         new_instance_state = %{activated_state | scope_node_id: Map.get(attrs, :scope_node_id)},
          {:ok, prepared_children} <-
            prepare_sub_process_children(
              instance_id,
@@ -2142,6 +2188,7 @@ defmodule Letflow.Engine do
 
     try do
       Multi.new()
+      |> lock_scope_node(Map.get(attrs, :scope_node_id), prefix)
       |> Multi.run(:instance_projection, fn repo, _changes ->
         # M1 always inserts :active, even when the landing-node dispatch above
         # already completed the instance (design doc §9 OQ-1a's :END success
@@ -2191,6 +2238,7 @@ defmodule Letflow.Engine do
           current_node_ids,
           initial_variables,
           new_instance_state.join_counters,
+          new_instance_state.scope_node_id,
           prefix
         )
       end)
@@ -2415,6 +2463,7 @@ defmodule Letflow.Engine do
          current_node_ids,
          initial_variables,
          join_counters,
+         scope_node_id,
          prefix
        ) do
     attrs = %{
@@ -2424,7 +2473,8 @@ defmodule Letflow.Engine do
       correlation_key: correlation_key,
       current_nodes: current_node_ids,
       variables: initial_variables,
-      join_counters: SnapshotWriter.serialize_join_counters(join_counters)
+      join_counters: SnapshotWriter.serialize_join_counters(join_counters),
+      scope_node_id: scope_node_id
     }
 
     %InstanceProjection{}
@@ -2528,6 +2578,7 @@ defmodule Letflow.Engine do
       else
         base_payload
       end
+      |> put_scope_node(Map.get(attrs, :scope_node_id))
 
     payload = Jason.encode!(payload_map)
 
@@ -2546,6 +2597,24 @@ defmodule Letflow.Engine do
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end
+
+  # REQ-531 -- authoritative scope-node check: the node row is share-locked to commit (the same
+  # rank-N lock `ScopedGrants` takes), so a concurrent retire either waits for this start or is seen
+  # here. No node, no step.
+  defp lock_scope_node(multi, nil, _prefix), do: multi
+
+  defp lock_scope_node(multi, node_id, prefix) do
+    Multi.run(multi, :scope_node, fn _repo, _changes ->
+      case ScopeNodePaths.lock_active_node_for_share!(node_id, prefix) do
+        {:ok, _node} -> {:ok, node_id}
+        {:error, _reason} -> {:error, :invalid_scope_node}
+      end
+    end)
+  end
+
+  # The key is present only when the instance has a node (REQ-531: "absent or null").
+  defp put_scope_node(payload_map, nil), do: payload_map
+  defp put_scope_node(payload_map, node_id), do: Map.put(payload_map, :scope_node_id, node_id)
 
   # M4 -- flips the instance_projections row to its true final status once
   # the INSTANCE_STARTED event (M3) has been appended while the row was
@@ -3211,6 +3280,28 @@ defmodule Letflow.Engine do
          {:ok, module_lines} <-
            list_attribute(Map.get(attributes, "module_writes"), length(lines)) do
       {:ok, lines, module_lines}
+    end
+  end
+
+  # GH #2688 / REQ-513 D5: is the dispatch's node in the entity-write class, by the SAME predicate
+  # the plan uses (`plan_entity_writes/3`: `declared_writes/1 != {:ok, [], []}`, a malformed
+  # attribute included). A missing snapshot or node is `:unreadable`: no write without a
+  # proven class.
+  @doc false
+  @spec stuck_entity_write_class?(Ecto.UUID.t(), String.t(), String.t()) ::
+          :in_class | :other_class | :unreadable
+  def stuck_entity_write_class?(instance_id, node_id, prefix) do
+    with {:ok, graph, _raw_graph} <- fetch_graph_with_raw(instance_id, prefix),
+         %{} = node <- find_node(graph, node_id) do
+      case node do
+        %{attributes: %{} = attributes} ->
+          if declared_writes(attributes) != {:ok, [], []}, do: :in_class, else: :other_class
+
+        _no_attributes ->
+          :other_class
+      end
+    else
+      _unreadable -> :unreadable
     end
   end
 
@@ -3992,7 +4083,8 @@ defmodule Letflow.Engine do
       variables: projection.variables,
       pending_task_nodes: pending_task_tokens,
       join_counters: SnapshotWriter.deserialize_join_counters(projection.join_counters),
-      variable_labels: projection.variable_labels
+      variable_labels: projection.variable_labels,
+      scope_node_id: projection.scope_node_id
     }
   end
 
@@ -6489,6 +6581,175 @@ defmodule Letflow.Engine do
         locked_projection: projection
       )
     end)
+  end
+
+  # ---- the stuck-`advanced` landing (GH #2688 / REQ-513, design D3/D4) ------------------------
+
+  @typedoc "What `land_stuck_service_dispatch/2` answers; one value per case (design D3)."
+  @type stuck_landing_result ::
+          {:ok, :landed | :already_final | :instance_moved_on | :not_in_class | :too_young}
+          | {:error, :not_found | :contention | :landing_failed}
+
+  @doc """
+  Lands an HTTP SERVICE_TASK dispatch row stuck `"advanced"` as an ExecutionError (instance
+  ERROR + one DLQ row), once. ONE transaction that re-checks everything under the dispatch row
+  lock (the same lock the apply path takes first, so a late apply and this landing serialise on
+  it): row still `advanced`, instance projection ACTIVE, completion key absent, row older than
+  the minimum age (`ServiceTaskDispatcher.stuck_advance_min_age_seconds/0`, floor 120 s), node
+  in the entity-write class (`stuck_entity_write_class?/3`). Any other state is a benign
+  `{:ok, _}` and nothing is written. The row's own status is never changed (as D-C.8).
+
+  A row id that is absent in `prefix` (unknown, or another tenant's) is `{:error, :not_found}`
+  in both cases: indistinguishable (INV-5). Nothing is written in an error case.
+  """
+  @spec land_stuck_service_dispatch(Ecto.UUID.t(), String.t()) :: stuck_landing_result()
+  def land_stuck_service_dispatch(dispatch_id, prefix)
+      when is_binary(dispatch_id) and is_binary(prefix) do
+    result =
+      rescue_service_contention(fn ->
+        Repo.transaction(stuck_landing_multi(dispatch_id, prefix))
+      end)
+
+    case result do
+      {:ok, %{stuck_dispatch: dispatch}} ->
+        record_stuck_advance_landed_audit(dispatch, prefix)
+        {:ok, :landed}
+
+      {:error, {:entity_write_refused, :contention, _code}} ->
+        {:error, :contention}
+
+      {:error, _step, reason, _changes} ->
+        classify_stuck_landing_failure(reason, dispatch_id)
+
+      {:error, reason} ->
+        classify_stuck_landing_failure(reason, dispatch_id)
+    end
+  end
+
+  defp classify_stuck_landing_failure(:stuck_not_found, _dispatch_id), do: {:error, :not_found}
+  defp classify_stuck_landing_failure(:stuck_already_final, _id), do: {:ok, :already_final}
+
+  defp classify_stuck_landing_failure(:stuck_instance_moved_on, _id),
+    do: {:ok, :instance_moved_on}
+
+  defp classify_stuck_landing_failure(:stuck_not_in_class, _id), do: {:ok, :not_in_class}
+  defp classify_stuck_landing_failure(:stuck_too_young, _id), do: {:ok, :too_young}
+
+  defp classify_stuck_landing_failure(reason, dispatch_id) do
+    # Logged as a classified tag only (the reason can hold variables).
+    tag = service_landing_failure_tag(reason)
+    Logger.error("stuck advance landing failed: dispatch_id=#{dispatch_id} reason=#{tag}")
+    {:error, if(tag == :contention, do: :contention, else: :landing_failed)}
+  end
+
+  defp stuck_landing_multi(dispatch_id, prefix) do
+    completion_key = "service_task_dispatch:#{dispatch_id}"
+
+    Multi.new()
+    |> Multi.run(:stuck_timeouts, fn repo, _changes ->
+      set_service_entity_write_timeouts(repo)
+      {:ok, :set}
+    end)
+    |> Multi.run(:stuck_dispatch, fn repo, _changes ->
+      case fetch_and_lock_service_task_dispatch(dispatch_id, repo, prefix) do
+        nil -> {:error, :stuck_not_found}
+        {:ok, %ServiceTaskDispatch{status: :advanced} = dispatch} -> {:ok, dispatch}
+        {:ok, _landed_or_completed} -> {:error, :stuck_already_final}
+      end
+    end)
+    |> Multi.run(:stuck_projection, fn repo, %{stuck_dispatch: dispatch} ->
+      case fetch_and_lock_instance_projection(repo, dispatch.instance_id, prefix) do
+        {:ok, projection} -> {:ok, projection}
+        {:error, _cancelled_error_or_gone} -> {:error, :stuck_instance_moved_on}
+      end
+    end)
+    |> Multi.run(:stuck_key_check, fn repo, _changes ->
+      if service_completion_key_present?(repo, completion_key, prefix),
+        do: {:error, :stuck_already_final},
+        else: {:ok, :absent}
+    end)
+    |> Multi.run(:stuck_age_check, fn _repo, %{stuck_dispatch: dispatch} ->
+      cutoff =
+        DateTime.add(
+          DateTime.utc_now(),
+          -ServiceTaskDispatcher.stuck_advance_min_age_seconds(),
+          :second
+        )
+
+      # `dispatched_at` is required on an `advanced` row; a nil one fails closed.
+      case dispatch.dispatched_at do
+        %DateTime{} = at ->
+          if DateTime.compare(at, cutoff) == :gt,
+            do: {:error, :stuck_too_young},
+            else: {:ok, :old}
+
+        nil ->
+          {:error, :stuck_too_young}
+      end
+    end)
+    |> Multi.run(:stuck_class_check, fn _repo, %{stuck_dispatch: dispatch} ->
+      case stuck_entity_write_class?(dispatch.instance_id, dispatch.node_id, prefix) do
+        :in_class -> {:ok, :in_class}
+        _other_or_unreadable -> {:error, :stuck_not_in_class}
+      end
+    end)
+    |> Multi.merge(fn %{stuck_dispatch: dispatch, stuck_projection: projection} ->
+      error_args = %{
+        instance_id: projection.instance_id,
+        error_type: :service_task_apply_lost,
+        affected: {:node, dispatch.node_id},
+        # fixed sentence, no values: the sweeper has no body, plan or line index
+        reason: "service task dispatch apply lost: result not recorded",
+        # the PRE-merge variables, as D-C.8
+        variables: projection.variables,
+        details: %{"dispatch_id" => dispatch.id, "code" => "dispatch_apply_lost"},
+        actor_id: EventStore.platform_actor_id(),
+        idempotency_key: completion_key
+      }
+
+      ExecutionError.append_multi(Multi.new(), error_args,
+        prefix: prefix,
+        locked_projection: projection
+      )
+    end)
+  end
+
+  # Best-effort, strictly after the landing transaction returned (ISS-0784 rollback note); ids and
+  # a fixed code only, no values.
+  defp record_stuck_advance_landed_audit(%ServiceTaskDispatch{} = dispatch, prefix) do
+    attrs = %{
+      actor_id: EventStore.platform_actor_id(),
+      action: "service_task.stuck_advance_landed",
+      resource_type: "instance",
+      resource_id: dispatch.instance_id,
+      before_state: nil,
+      after_state: %{
+        "node_id" => dispatch.node_id,
+        "dispatch_id" => dispatch.id,
+        "code" => "dispatch_apply_lost"
+      },
+      trace_id: nil
+    }
+
+    case Repo.transaction(fn -> Audit.insert_entry(Repo, attrs, prefix) end) do
+      {:ok, {:ok, _entry}} ->
+        :ok
+
+      _other ->
+        Logger.warning(
+          "could not record service_task.stuck_advance_landed for dispatch #{dispatch.id} " <>
+            "(instance #{dispatch.instance_id})"
+        )
+
+        :ok
+    end
+  rescue
+    _exception ->
+      Logger.warning(
+        "recording service_task.stuck_advance_landed for dispatch #{dispatch.id} raised"
+      )
+
+      :ok
   end
 
   # The script route lands through the CAS apply itself: `script_failure/7` writes the

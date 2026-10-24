@@ -227,9 +227,6 @@ defmodule Letflow.Entities.HandlerWrites do
 
     with :ok <- check_type_access(ctx, entity_type),
          :ok <- check_restrictions(ctx, entity_type, field_values),
-         # GH #2590 R5: values that may come from a service response or a script output are
-         # byte-capped on the service origin, exactly as a declarative line's are (D-C.7).
-         :ok <- StepWrites.check_service_sizes(field_values, ctx.origin),
          {:ok, source} <-
            StepSource.new(
              Map.merge(origin_attrs, %{
@@ -591,7 +588,7 @@ defmodule Letflow.Entities.HandlerWrites do
 
   # A `var` argument on a SERVICE_TASK node is EXTERNAL data (an HTTP response or a script output):
   # the handler must validate its type, shape and size. The platform only byte-caps the written
-  # values (`StepWrites.check_service_sizes/2`).
+  # values (the entity-side cap in `Records.command_multi/3`, GH #2689).
   #
   # Decision 0062 R5: a handler decides its own target fields, so the platform cannot know their
   # restriction set; a variable that carries any label is therefore never passed to a handler.

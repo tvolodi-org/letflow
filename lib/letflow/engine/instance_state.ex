@@ -73,6 +73,12 @@ defmodule Letflow.Engine.InstanceState do
   only by `Letflow.Engine.VariableMerge.merge/5`; a struct update that replaces `variables` must
   replace `variable_labels` in the same update (`Letflow.Engine.VariableLabels.put_merged/3`).
   An absent key means unlabelled.
+
+  ## `scope_node_id` (REQ-531)
+
+  The scope node the instance was started under (`nil` when unscoped). Set once at creation; it rides
+  on the state so a snapshot and a replay-from-snapshot rebuild keep it (the INSTANCE_STARTED event
+  is not replayed after a snapshot). A struct update keeps it; only a full construction must set it.
   """
 
   alias Letflow.Engine.JoinCounter
@@ -87,7 +93,8 @@ defmodule Letflow.Engine.InstanceState do
     pending_task_nodes: [],
     pending_service_task_nodes: [],
     join_counters: %{},
-    variable_labels: %{}
+    variable_labels: %{},
+    scope_node_id: nil
   ]
 
   @type status :: :active | :completed | :cancelled | :error
@@ -100,6 +107,7 @@ defmodule Letflow.Engine.InstanceState do
           pending_task_nodes: [Token.t()],
           pending_service_task_nodes: [Token.t()],
           join_counters: %{optional(String.t()) => JoinCounter.t()},
-          variable_labels: %{optional(String.t()) => [String.t()]}
+          variable_labels: %{optional(String.t()) => [String.t()]},
+          scope_node_id: String.t() | nil
         }
 end

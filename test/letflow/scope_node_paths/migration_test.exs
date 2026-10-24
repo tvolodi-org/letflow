@@ -40,6 +40,8 @@ defmodule Letflow.ScopeNodePaths.MigrationTest do
   # the NEWER tasks migration is rolled back before the older ones and re-applied after them.
   @tasks_version 20_261_019_200_001
   @tasks_migration Letflow.Repo.Migrations.AddScopeNodeIdToTasks
+  @instances_version 20_261_024_100_001
+  @instances_migration Letflow.Repo.Migrations.AddScopeNodeIdToInstanceProjections
 
   setup do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req496-mig")
@@ -150,6 +152,11 @@ defmodule Letflow.ScopeNodePaths.MigrationTest do
     )
 
     assert fk_constraint?(schema)
+
+    assert migrate(schema, @instances_version, @instances_migration, :down) == [
+             @instances_version
+           ]
+
     assert migrate(schema, @tasks_version, @tasks_migration, :down) == [@tasks_version]
     assert migrate(schema, @fk_version, @fk_migration, :down) == [@fk_version]
     refute fk_constraint?(schema)
@@ -174,6 +181,7 @@ defmodule Letflow.ScopeNodePaths.MigrationTest do
     assert migrate(schema, @fk_version, @fk_migration, :up) == [@fk_version]
     assert fk_constraint?(schema)
     assert migrate(schema, @tasks_version, @tasks_migration, :up) == [@tasks_version]
+    assert migrate(schema, @instances_version, @instances_migration, :up) == [@instances_version]
   end
 
   defp fk_constraint?(schema) do

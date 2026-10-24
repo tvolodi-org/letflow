@@ -36381,18 +36381,46 @@ requirements:
     depends_on: [REQ-496, REQ-499]
 
   - id: REQ-508
-    title: "Document retention policy (forever by default) and legal hold, slice 2 part 1 of decision 0056 D7"
+    title: "Document retention policy columns, hold columns and the eligibility query (decision 0063 part (a); amends 0056 D1, D4, D7)"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 2675
-    # Source: GH #2675 (filed by letflow-2). Blocked on GH #2588; NOT validated by REQ-VALIDATOR (failed twice 2026-10-16; needs an amending decision record for 0056 first). Id allocated by letflow-2.
+    # Source: GH #2675 (filed by letflow-2) and the amending decision record docs/migration/decisions/0063-versioned-documents-retention-and-hold.md ("Split", part (a)). Rewritten by the business analyst (T-0364) 2026-10-24 after REQ-VALIDATOR FAIL round 2; the hold functions and the routes are REQ-536 (part (b)). Not yet re-validated.
     description: >
-      Per-type retention policy (forever by default, configurable) and legal hold.
-      The GH #2675 body, including the validator findings section, is the content
-      authority.
+      Part (a) of the split required by decision 0063 ("Split"). One migration (priv/repo/migrations/
+      already holds 20261022100001_create_document_tables.exs and
+      20261022100002_create_document_immutability_triggers.exs from REQ-500) and one new module
+      under lib/letflow/documents/: (1) on document_types the three policy columns
+      retention_period_days, retention_from and retention_action with their CHECKs and the
+      period/action tie (0063 S3), replacing the never-created retention_class of 0056 D1;
+      (2) on documents the nine hold columns and their row-shape CHECKs (0063 S5, columns only,
+      no functions and no routes); (3) the column-aware exemption in guard_document_types() so
+      exactly the three retention columns may change once a document of the type exists
+      (0063 S3); (4) the eligibility query with an injected now (0063 S6), which returns version
+      ids and executes nothing; (5) the policy write function that updates the three columns and
+      writes document.retention_policy_changed in the same transaction (0063 S4), with no route.
+      Retention is per version; the time a version left issued is cancelled_at, or the issued_at
+      of the version named by superseded_by_version, and no superseded_at column is added
+      (0063 S1, S2). Not in this requirement: hold set and clear, the routes, the permissions
+      DocumentHold and DocumentsRetentionManage (REQ-536), and purge and archive execution
+      (REQ-509). The reason_code list is a product list that 0063 leaves to the owner
+      ("Not decided here"); the write function takes a reason_code and this requirement does
+      not fix its values. Decision 0063 was merged with status PROPOSED (ratification by the
+      owner or REVIEWER pending); the criteria below cite it as written.
     acceptance_criteria:
-      - "1. The acceptance criteria are those of GH #2675 after its design record. NOT DELIVERED."
+      - "1. Migration (0063 S3): document_types gains retention_period_days integer NULL (CHECK NULL or > 0), retention_from text NOT NULL DEFAULT 'issued' (CHECK in 'issued', 'superseded_or_cancelled'), retention_action text NOT NULL DEFAULT 'keep' (CHECK in 'keep', 'archive', 'purge'), and the tie CHECK ((retention_period_days IS NULL) = (retention_action = 'keep')). After the migration every existing type reads NULL / 'issued' / 'keep'. A test inserts a row violating each CHECK and asserts the database refuses it, including period 30 with 'keep' and NULL period with 'purge' or 'archive' (decision 0063 test A5)."
+      - "2. Migration (0063 S5): documents gains on_hold boolean NOT NULL DEFAULT false and the eight columns hold_set_at, hold_set_by, hold_reason_code, hold_reason_note, hold_cleared_at, hold_cleared_by, hold_clear_reason_code, hold_clear_reason_note, all NULL by default, with the four row-shape CHECKs of 0063 S5. A test asserts the database refuses on_hold = true with hold_set_at NULL, a set side with only some of its four columns filled, a clear side with only some of its four columns filled, and hold_cleared_at filled with hold_set_at NULL, and accepts the three legal shapes (never held, held, cleared) (decision 0063 test A7e)."
+      - "3. Trigger exemption (0063 S3): once a documents row of the type exists, an UPDATE of each of retention_period_days, retention_from and retention_action succeeds (with the tie kept), and an UPDATE of each of the eleven frozen columns key, tenant_id, owner_module, numbering_scope, number_prefix, number_pad, legal_entity_required, restricted_fields_allowed, declared_fields, template_ref, inserted_at is refused; one UPDATE changing a retention column and a frozen column is refused as a whole and the retention column is unchanged afterwards; DELETE and TRUNCATE stay refused (decision 0063 tests A3 and A3b). The trigger on document_versions is not changed."
+      - "4. Eligibility query (0063 S6) takes an injected now and returns version ids only; it performs no write. With the defaults (NULL period, 'keep') it returns no version for any status and any now (decision 0063 test A5)."
+      - "5. Eligibility by status (0063 S6, test A4): with a 30-day period, action 'purge', and now far past every date, a superseded and a cancelled version are returned, and a current issued version, an issued version that is not current, a draft and a discarded version are not returned."
+      - "6. Left-issued time (0063 S1, test A1): for a cancelled version the closing time used is its cancelled_at, for a superseded version it is the issued_at of the version named by superseded_by_version; a test asserts each against the dates set up in the fixture, and asserts that no superseded_at column exists on document_versions."
+      - "7. D15 reading (0063 S2, test A2): with period 30 days, a superseded version issued 31 days before now and closed 5 days before now is eligible under retention_from 'issued' and not eligible under 'superseded_or_cancelled'; under 'superseded_or_cancelled' it becomes eligible exactly when now reaches its closing time plus 30 days (one test at 29 days and one at 30 days after closing; the boundary is inclusive, as the predicate uses <=)."
+      - "8. Fail-safe (0063 S6, test A10): a superseded version whose superseded_by_version names a draft is not returned under 'superseded_or_cancelled', with now far past the period."
+      - "9. Hold excludes (0063 S5 and S6, test A7d): a version of a document with on_hold = true is not returned even when otherwise eligible, and the same version is returned once the hold columns are set to the cleared shape (set directly in the fixture, since the hold functions are REQ-536)."
+      - "10. Policy write function (0063 S4, tests A5 and A6): one call updates the three columns and inserts a document.retention_policy_changed event in the same transaction; the payload holds type_key, before and after (the three values each), reason_code and actor and no free text. A call that breaks the period/action tie is refused with an error that maps to 422 before the database CHECK is reached, and a refused call writes no event and changes no column. A test asserts the event and the column change roll back together when the event insert is forced to fail."
+      - "11. Scope boundary: the change adds no route and no permission (no DocumentHold and no DocumentsRetentionManage in lib/letflow/api/authorization.ex), checked by the reviewer against the git diff; no test pins that absence, so the later requirement that adds them does not have to break one; and the policy and eligibility code lives under lib/letflow/documents/ with its tests under test/letflow/documents/."
+      - "12. SECURITY-REVIEWER verdict recorded (mandatory: migration and trigger change on tenant schemas) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over test/letflow/documents/ pass, real output quoted. The change states how existing tenants' document_types and documents rows are handled (constant defaults, no row trigger fired)."
     depends_on: [REQ-500]
 
   - id: REQ-509
@@ -38224,3 +38252,41 @@ requirements:
       - "a test: review/1 runs without the Ecto sandbox checked out; git diff shows lib/letflow/platform/migration_rollout.ex and every router untouched"
       - "the summary quotes the 0055 D2 table rows used and a grep showing lib/letflow/module_upgrade/ does not exist; mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test of the new test file and mix letflow.check_requirements_registration pass, real output quoted"
     depends_on: [REQ-374]
+
+  - id: REQ-536
+    title: "Document legal hold set and clear, retention-policy and hold routes, permissions DocumentHold and DocumentsRetentionManage (decision 0063 part (b); 0056 D7, D8)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3106
+    # Source: GH #2675 (filed by letflow-2) and docs/migration/decisions/0063-versioned-documents-retention-and-hold.md ("Split", part (b)). Written by the business analyst (T-0364) 2026-10-24 as the second half of the REQ-508 split. Not yet validated.
+    description: >
+      Part (b) of the split required by decision 0063 ("Split"), landing after REQ-508 (part (a)),
+      whose hold columns and eligibility query it reads. Adds the hold set and clear functions
+      with their events (0063 S5), the permissions DocumentHold and DocumentsRetentionManage as
+      TENANT scope in lib/letflow/api/authorization.ex with the roles matrix row in docs/roles.md
+      and the golden (0063 S7), and the three routes of 0063 S7: PUT /documents/types/:key/retention,
+      POST /documents/:document_id/hold and POST /documents/:document_id/hold/release. These are
+      the first document routes and the first document-scoped authorization on main; 0063 S7 says
+      nothing in the repo can be copied for them, so the implementer checks them directly against
+      decision 0051, INV-5 and INV-10 (docs/agents/instructions/security-invariants.md). Hold is
+      document-level; a hold on a type is not modelled. Purge and archive execution is REQ-509.
+      The closed reason_code list is a product list that 0063 leaves to the owner; the routes
+      validate against whatever list the owner supplies and this requirement does not invent
+      values (open question, 0063 "Not decided here"). Whether the slice-1 permissions of 0056 D8
+      land in the same change is for the implementer to state (0063 S8). Decision 0063 was merged
+      with status PROPOSED (ratification pending); the criteria cite it as written.
+    acceptance_criteria:
+      - "1. Set (0063 S5, test A7): hold set on a not-held document requires reason_code and a non-blank reason_note, fills the four set-side columns, sets on_hold true, NULLs the whole clear side, and writes document.hold_set (document_id, reason_code, actor; the note is not in the payload) in the same transaction. A missing or blank reason_code or reason_note returns 422, checked before the state check; a test asserts that 422 also on an already-held document."
+      - "2. Clear (0063 S5, test A7): hold clear on a held document requires reason_code and a non-blank reason_note, fills the four clear-side columns, sets on_hold false, keeps the set side, and writes document.hold_cleared (document_id, reason_code, actor) in the same transaction. A missing or blank reason_code or reason_note returns 422."
+      - "3. Conflicts (0063 S5, tests A7a and A7b): set on an already-held document returns 409, changes no column and writes no event; clear on a never-held document and clear on an already-cleared document each return 409, change no column and write no event."
+      - "4. Set after clear (0063 S5, test A7c): set on a cleared document succeeds, overwrites the set side, NULLs the clear side and writes document.hold_set; after the sequence set, clear, set the audit chain holds hold_set, hold_cleared, hold_set in order."
+      - "5. Row lock and lock order (0063 S5 and Consequences, test A7f): each transition begins with SELECT ... FOR UPDATE on the documents row, reads on_hold after the lock, and takes the documents row before the audit chain row. The race itself cannot be forced; a source-scan test asserts the FOR UPDATE precedes the on_hold read and the event write in both functions. Because the hold path takes two row classes (0061 rule 5), a forced-overlap test ships in this change (barrier row, lock-queue FIFO, deadlock and lock-timeout reported through the Repo telemetry event) and passes before merge."
+      - "6. Permissions (0063 S7, S8, test A9): DocumentHold and DocumentsRetentionManage are named in the atom list, in core_permissions and in the permission scope map of lib/letflow/api/authorization.ex, both classified TENANT in permission_scope/1; the roles matrix row in docs/roles.md and the golden (priv/permission_matrix/effective.golden, checked by test/letflow/api/permission_matrix_test.exs and mix letflow.permission_matrix --check) are updated; a matrix test asserts TENANT_ADMIN holds both and PLATFORM_ADMIN and every other role hold neither."
+      - "7. Order of checks on every route (0063 S7): permission at the plug first, then body validation (422), then one scoped query on id and tenant prefix applying the caller's scope, then the state check (409) and the action with its audit event. A caller without the permission gets the same 403 for an existing and for an absent id."
+      - "8. Scope and not-found (0063 S7, INV-5, test A8): for the two hold routes, a document outside the caller's 0051 scope (resolved through issuing_org_unit_id), a document of another tenant and an absent id return the same 404 with identical headers and body; for the policy route an unknown key and a key of another tenant return the same 404. Refusals (403, 404, 409, 422) write no audit event; only successful changes are audited."
+      - "9. Policy route (0063 S4, S7): PUT /documents/types/:key/retention with retention_period_days (null for forever), retention_from, retention_action and reason_code calls the policy write function of REQ-508 and returns 422 for a body that breaks the period/action tie or lacks a reason_code; the route requires a tenant-wide grant of DocumentsRetentionManage, and a caller whose grant is scoped to part of the tenant is refused with 403 (the unchanged not_tenant_wide answer of lib/letflow/api/scope.ex and resource_scope :tenant_wide of decision 0051 M1), the retention columns stay unchanged and no event is written (test A9)."
+      - "10. INV-10 cross-tenant negative test (0063 S7, test A8): with a type key and a document that exist only in tenant A (the key registered by a module tenant B does not run), a TENANT_ADMIN of tenant B calling each of the three routes with that key or id receives the same 404 as for an absent id with a byte-identical body, and tenant A's retention columns and hold columns are unchanged afterwards. No route takes a tenant identifier from the request."
+      - "11. Route inventory and scope-enforcement pins (route-count pins, route_scope snapshots and the __authz_routes__ tests) are updated for the three new routes, and the three routes are classified TENANT."
+      - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permissions) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over test/letflow/documents/ and the authorization and route pin tests pass, real output quoted."
+    depends_on: [REQ-508]
