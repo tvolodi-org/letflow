@@ -38320,7 +38320,7 @@ requirements:
       - "1. A new file docs/migration/decisions/NNNN-<slug>.md exists, NNNN being the next free number, with the status line the neighbouring records use, and no file outside docs/migration/decisions/ changes."
       - "2. The record states, each with its source or marked as an assumption to be confirmed by the process owner: tenant-wide or per-user sharing; one entity type per view; the stored query replayed through POST /entities/query with no second read path; the permission that reads views and the permission that creates, edits and deletes them; storage in the tenant schema."
       - "3. The record names the tests the build requirements must carry: a cross-tenant negative test (INV-10), a field-redaction test (INV-2) and a not-found test (INV-5), and lists slices 2 to 4 as deferred, each as its own later requirement."
-      - "4. mix letflow.check_requirements_registration and the repository decision-record lints pass, real output quoted."
+      - "4. mix letflow.check_requirements_registration and mix letflow.check_issue_refs pass, real output quoted."
     depends_on: [REQ-393, REQ-311]
 
   - id: REQ-539
