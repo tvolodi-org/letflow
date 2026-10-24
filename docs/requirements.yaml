@@ -38296,7 +38296,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-536 -- scheduling order only, not a functional dependency: every stage-S7 deferral needs a live blocked-by (check_deferral_staleness S1), and REQ-536 is only an open S7 entry that satisfies that lint; the engine replaces this line with gh: <n> after the gate
+    gh: 3160
     # Source: docs/migration/core-roadmap-20261014.md, section "Customization beyond scripts" ("number sequences"); docs/migration/decisions/0056-versioned-documents.md D2 (BINDING, "Number sequences"). Written by the business analyst (T-0448) 2026-10-25.
     description: >
       Decision 0056 D2 fixes the PROTOCOL for gap-free numbering: insert-if-absent of the counter row,
