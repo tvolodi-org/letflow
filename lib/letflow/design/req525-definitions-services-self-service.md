@@ -97,8 +97,15 @@ tenant id); the tenant-isolation tests in the existing router tests stay.
 - The route walk (`RouteScope.audit_routes/3`) forces a route into `@self_service_routes` only under the
   prefixes `/me` and `/help` (`@self_service_prefixes`). A route outside them is `:self_service` only if
   it is both declared `scope: :self_service` and listed; either alone fails (`:self_service_list_mismatch`,
-  `:self_service_not_listed`). So `/definitions*`, `/solution-packs*` and `/services` can join with no
-  change to the walk's prefix rule.
+  `:self_service_not_listed`). The walk itself therefore needs no prefix change.
+- **The entry guard does block `/definitions*` today.** `RouteScope.SelfServiceEntry` (GH #2825) validates
+  every `@self_service_routes` entry when the module compiles; its `@prefixes ["/me", "/help"]` and
+  `check_route/1` return `{:error, "route ... is not under /me or /help"}`, and `validate!/1` raises
+  `ArgumentError`. An entry `GET /definitions` would stop the build. A test pins that rejection:
+  `test/letflow/api/route_scope_self_service_entry_test.exs:77` ("a route outside /me and /help is
+  rejected", which rejects `GET /mentor/modules` and `GET /entities/records/:entity_type`); the typedoc
+  "One ruled `/me` or `/help` route" and the comment above the module also say /me and /help.
+  This guard must change before any R01 to R05 entry can be added (decision SEC-525-Q3 below).
 
 ## 3. Open questions (AC 3). The security ruling decides; this record does not
 
@@ -111,15 +118,15 @@ AGENT_RUNNER and CANDIDATE. Two ways to reconcile:
 
 - **Option A, widen the class.** Reword the moduledoc definition so that "role-independent" means "does
   not depend on the caller's scope rows; the coarse permission of the policy key still applies", and
-  update the REQ-518 AC 21 walk rule text accordingly. The walk code needs no change (section 2.3).
+  update the REQ-518 AC 21 walk rule text accordingly. The walk code needs no change; the entry guard does (SEC-525-Q3, section 2.3).
 - **Option B, keep the definition and add a role gate inside the class.** A `:self_service` entry would
   carry an extra required-role or required-permission field, checked by `Enforce`. This needs a new field
   in `SelfServiceEntry`, a new branch in `Enforce.check/3` and `Shadow`, and a walk rule.
 
 Designer's facts for the decision, not the decision: Option B duplicates the coarse allow, which already
 is a per-permission role gate that runs before the class (section 2.3); no existing `:self_service` route
-needs one. Option A changes one paragraph and keeps the entry shape (`SelfServiceEntry.validate!/1`)
-unchanged. If SEC chooses B, every implementation requirement below grows by the gate and its tests, and
+needs one. Option A changes one paragraph and keeps the entry fields (`route, key, class, ruling`;
+the path guard still changes under either option, SEC-525-Q3). If SEC chooses B, every implementation requirement below grows by the gate and its tests, and
 the sizing of section 6 must be revisited. **Until SEC-525-Q1 is recorded in the security verdict on this
 change, no route below is ruled in effectively and every route stays `:tenant_wide`.**
 
@@ -137,6 +144,25 @@ scoped holder gets the same body shape as a tenant-wide holder and the SPA contr
 (`web/src/api/definitions.ts`, `DefinitionEditorPage`), so this record does not propose it. Proposed
 ruling text below assumes SEC accepts the graph; if SEC rejects it, R01 to R05 become "stays
 `:tenant_wide`" and nothing else in this record changes.
+
+### SEC-525-Q3: how does the entry guard (GH #2825) admit `/definitions*`? Needed under Option A and Option B
+`SelfServiceEntry` refuses any route outside `/me` and `/help` at compile time (section 2.3). It relaxes a
+GH #2825 guard, so it is a security decision, taken in the same verdict as Q1. Options, facts only:
+
+- **Q3-a, allowlist of ruled families.** `@prefixes` becomes `["/me", "/help", "/definitions"]`. Keeps a
+  guard against typos and unrelated paths; each later family (REQ-526, REQ-527) adds its own prefix. The
+  guard checks shape only: it does not say which `/definitions*` routes are ruled in (that is the ruling id
+  and the walk). R06 and R07 live under `/definitions` too and stay `:tenant_wide` by simply not being listed.
+- **Q3-b, drop the path check.** The walk (`:self_service_list_mismatch`, `:self_service_not_listed`) already
+  fails a listed route that is not declared `scope: :self_service` and the reverse. Less to maintain, but the
+  compile-time shape guard no longer rejects an entry for a route that does not exist.
+- Either way the `@self_service_prefixes` list (routes the walk FORCES into the list) stays `/me` and
+  `/help`; changing it would force R06 and R07 in, which no ruling allows.
+
+The designer's carrier proposal: a **prerequisite requirement IMPL-525-0** (guard change, its test and
+typedoc/comment text), filed first; IMPL-525-A to C depend on it. It is small (one list/function edit,
+one test file) and keeps A to C at one route group each. Until Q3 is recorded no entry can be added, so all
+routes stay `:tenant_wide`.
 
 ## 4. Rulings (AC 2)
 
@@ -171,7 +197,7 @@ ruled "only after a response-shaping change": the shaping candidates (graph-less
 
 For EACH route the requirement rules in (its own PR, its own ruling id):
 
-1. `@self_service_routes` in `lib/letflow/api/route_scope.ex` gets the entry `{route: "<METHOD> <full path>", key: <policy key>, class: :self_service, ruling: "<SEC-525-Rnn>"}` (the keys: `:DefinitionsRead` for R01 to R05).
+1. (After IMPL-525-0 has landed the guard change of SEC-525-Q3.) `@self_service_routes` in `lib/letflow/api/route_scope.ex` gets the entry `{route: "<METHOD> <full path>", key: <policy key>, class: :self_service, ruling: "<SEC-525-Rnn>"}` (the keys: `:DefinitionsRead` for R01 to R05).
 2. The route's `authz_get` declaration adds `scope: :self_service`. Both edits are needed, the walk fails on either alone.
 3. The route walk (`test/letflow/api/route_scope_walk_test.exs`) is green, and `test/fixtures/route_scope/tenant_wide_default_routes.txt` loses exactly that route's line and no other (`git diff` of the fixture shows one removed line per route).
 4. Under `on`, a SCOPED holder of `DefinitionsRead` (a tenant-role binding with scoped rows only) gets 200 and a body of the same shape (same keys, same types) as a tenant-wide holder's, with test data created in the same tenant. A principal without `DefinitionsRead` (AGENT_RUNNER or CANDIDATE) still gets the uniform 403 `insufficient permissions`, byte-identical to the 403 of an unmodified route (INV-5). The cross-tenant case: another tenant's definition id answers the same 404 as an absent id (INV-5).
@@ -209,9 +235,24 @@ Consequences, by file:
   `:tenant_wide` route (denies a scoped worker under `on`, allows an admin and a token). The R01 PR must
   switch `@tenant_wide_route` to a route that stays `:tenant_wide` after every REQ-525, REQ-526 and
   REQ-527 PR, that TASK_WORKER holds the coarse permission for, and that has a stable 200 for an admin.
-  Candidates must be checked against the REQ-526 and REQ-527 rulings; a route from R06 to R10 that a
-  TASK_WORKER may call (R06, R07, R10) is stable by this record. Its line 161 filters by `/me` and
+The named replacement is `GET /api/v1/services` (R10): it takes no id, TASK_WORKER holds its coarse  permission (`required_permission(:ServicesRead)` maps to `:DefinitionsRead`), and it stays `:tenant_wide`  by this record (REQ-526 and REQ-527 do not touch services). Its line 161 filters by `/me` and  `/help` prefixes, so it stays 4 and needs no change.
   `/help` prefixes, so it stays 4 and needs no change.
+- Entry guard (SEC-525-Q3, carried by IMPL-525-0): `route_scope_self_service_entry_test.exs:77` ("a route
+  outside /me and /help is rejected") changes: `GET /mentor/modules` and `GET /entities/records/:entity_type`
+  stay rejected, and a `/definitions` entry (Q3-a) is accepted; under Q3-b the test is replaced by a
+  walk-level assertion. The `SelfServiceEntry` typedoc ("One ruled `/me` or `/help` route") and the comment
+  above the module are reworded.
+- Exact snapshot-count pins, each asserting `length(snapshot) == 120` with a history comment the PR extends:
+
+      $ grep -rn "length(snapshot)" test
+      test/letflow/api/route_scope_on_flip_blocker_test.exs:71:  assert length(snapshot) > 100   (unaffected)
+      test/letflow/api/route_scope_resolver_test.exs:286:      assert length(snapshot) == 120
+      test/letflow/api/route_scope_self_service_test.exs:447:      assert length(snapshot) == 120
+      test/letflow/api/tasks_route_classes_test.exs:102:      assert length(snapshot) == 120
+
+  All three change in every implementation PR, by the number of fixture lines it removes, in merge order
+  A, B, C: 120 -> 118 after A (R01, R04), 116 after B (R02, R03), 115 after C (R05). If the order differs,
+  the PR computes the count from the fixture it leaves; the count must equal the line count of the fixture.
 - `route_scope_self_service_test.exs:331` pins the sorted list of the four members: each PR adds its
   entries to that expectation, and the test name ("exactly M1, M2, ...") is updated.
 - `scope_shadow_test.exs:212`, `authz_deny_log_test.exs:919` and `tenant_auditor_routes_test.exs:649,982`
@@ -225,11 +266,12 @@ Consequences, by file:
 ## 6. Implementation requirements to be filed (AC 5)
 
 Not filed by this task and no status flip: REQ-ANALYST files them from the recorded rulings. Owner
-ELIXIR-DEV, `depends_on: [REQ-525]`, `gh: 2535` for traceability, each sized to one agent turn
+ELIXIR-DEV, `depends_on: [REQ-525]` (A to C also on IMPL-525-0), `gh: 2535` for traceability, each sized to one agent turn
 (one or two route declarations, one list edit, one fixture edit, one test file).
 
 | proposed requirement | routes | why this size |
 |---|---|---|
+| IMPL-525-0 | (no route) | prerequisite: the entry-guard change of SEC-525-Q3, its test (`route_scope_self_service_entry_test.exs:77`) and typedoc; one function edit, one test file; A to C `depends_on` it |
 | IMPL-525-A | `GET /definitions` (R01), `GET /definitions/search` (R04) | collection reads; carries the `@tenant_wide_route` switch of the e2e test; two list entries |
 | IMPL-525-B | `GET /definitions/:id` (R02), `GET /definitions/active/:name` (R03) | single-object reads sharing the uniform-404 test |
 | IMPL-525-C | `GET /definitions/delta` (R05) | filed only if SEC keeps R05 ruled in; its own PR because its need is the weakest and it can be dropped without touching A and B |
@@ -270,7 +312,7 @@ validation as still refused.
 
 ## 9. Findings for the security review
 
-1. SEC-525-Q1 and SEC-525-Q2 are the two decisions this record cannot take; the proposed outcomes of
+1. SEC-525-Q1, SEC-525-Q2 and SEC-525-Q3 (the #2825 entry guard) are the three decisions this record cannot take; the proposed outcomes of
    R01 to R05 depend on both.
 2. `scope_enforcement_on_e2e_test.exs` is coupled to R01 through `@tenant_wide_route` (section 5): a
    route ruling that looks like a one-line list edit also moves the e2e fixture.
