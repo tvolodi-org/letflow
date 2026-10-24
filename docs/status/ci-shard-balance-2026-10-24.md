@@ -248,3 +248,63 @@ Criterion (c) is open: 2 of 4 post-#3135 runs are within 10 %, and a fifth quali
 does not exist yet. Repeat this measurement when five qualify. Shard 4/4 is light (491 to 570 s) in 3 of 4
 runs, so moving a file group (for example `exam_sessions_test.exs`, 134 s) from the heavy shards into
 shard 4 is the candidate rebalance if the pattern repeats; it is not done here (measurement only).
+
+## Repeat of the post-#3135 measurement over seven runs, T-0447
+
+Seven successful pull_request runs created after the #3135 merge (ae07cf45e) now qualify, all four
+`Backend shard N/4` jobs ran. Same definitions as above (shard wall = `completed_at` minus `started_at`
+from `gh api repos/tvolodi-org/letflow/actions/runs/<id>/jobs`; median of 4 = mean of the two middle
+walls). The first four rows are carried over from the T-0431 section; the last three are new.
+
+| Run id | Branch | Shard walls in s: s1 / s2 / s3 / s4 | Median | Slowest (shard) | Slowest / median | Within 10 %? |
+|---|---|---|---|---|---|---|
+| 40130206638 | team/T-0393 | 870 / 921 / 570 / 517 | 720.0 | 921 (s2) | +27.9 % | no |
+| 40132243112 | team/T-0422 | 840 / 891 / 891 / 861 | 876.0 | 891 (s2, s3) | +1.7 % | yes |
+| 40133321565 | team/T-0424 | 841 / 616 / 921 / 602 | 728.5 | 921 (s3) | +26.4 % | no |
+| 40134414792 | team/T-0422 | 880 / 893 / 863 / 491 | 871.5 | 893 (s2) | +2.5 % | yes |
+| 40136715557 | team/T-0429 | 842 / 623 / 871 / 864 | 853.0 | 871 (s3) | +2.1 % | yes |
+| 40137149046 | team/T-0427 | 581 / 885 / 877 / 645 | 761.0 | 885 (s2) | +16.3 % | no |
+| 40137958545 | team/T-0433 | 854 / 913 / 705 / 847 | 850.5 | 913 (s2) | +7.3 % | yes |
+
+New-run walls computed from job times: 40136715557 (22:01:07Z start; ends 22:15:09, 22:11:30, 22:15:38,
+22:15:31), 40137149046 (22:07:06Z; 22:16:47, 22:21:51, 22:21:43, 22:17:51), 40137958545 (22:18:18/19Z;
+22:32:33, 22:33:31, 22:30:03, 22:32:26).
+
+**Result:** criterion (c) "slowest slice within 10 % of the median" is **not met in all seven runs**: 4 of 7
+are within 10 % (40132243112, 40134414792, 40136715557, 40137958545), 3 are not (+27.9 %, +26.4 %,
++16.3 %). Pooled, the median of the seven slowest/median figures is +7.3 %, but the criterion is per run.
+
+### Outliers and dominating files
+
+- **40130206638 and 40133321565:** see the T-0431 section (shard 2/4 dominated by `exam_sessions_test.exs`,
+  `exam_authoring_test.exs` and `audit_test.exs:371`; shard 3/4 heavy as a whole).
+- **40137149046, outlier shard 2/4 (885 s, phase 809 s, partitions 5..8, job 121001024565):** the same
+  slice as the 40130206638 outlier. Partition 5's slowest test is again `test/letflow/audit_test.exs:371`
+  (37.5 s), followed by `test/letflow/modules/exam/exam_sessions_test.exs` (tests at lines 634, 614 and 829,
+  5.1, 5.1 and 3.6 s). The light shards were s1 (581 s) and s4 (645 s; phase 573 s, job 121001024566, whose
+  slowest tests are 6.3 s `sandbox_pool_test.exs:1216` and 5.2 s `letflow.lint_handoffs_test.exs:379`, so no
+  single heavy file).
+- The logs of 40137149046 also list "unlisted file" lines (test files absent from `test/shard_manifest.txt`,
+  for example `engine/reactivation_*_test.exs`, `routers/entities_size_cap_test.exs` in shard 2/4, and
+  `documents/*`, `engine/service_task_stuck_sweep_test.exs` in shard 4/4); the runner places those by a
+  default rule, so new files drift the balance until the manifest is rebuilt.
+- 40136715557 (light shard s2, 623 s) and 40137958545 (light shard s3, 705 s) are within 10 % because the
+  other three shards are close together.
+
+### Does the pattern repeat?
+
+Shard 4/4 is the (or a) light shard in 4 of 7 runs (40130206638: 517 s, 40133321565: 602 s, 40134414792:
+491 s, 40137149046: 645 s) and is within the heavy group in the other three. Shard 2/4 is the slowest shard
+in 5 of 7 runs (40130206638, 40132243112, 40134414792, 40137149046, 40137958545). The light shard moves
+(s2, s3, s4, s1 each light at least once), so the pattern "shard 4/4 light" is present but not stable
+(4 of 7), and no rebalance is made here.
+
+If a follow-up rebalance is wanted, the one module-file to move out of shard 2/4 (partitions 5..8) toward
+shard 4/4 is `test/letflow/modules/exam/exam_sessions_test.exs`: it is in the dominating group of both
+shard-2/4 outliers (134 s in 40130206638). The better-evidenced step is rebuilding the manifest with
+`scripts/test_shard_plan.sh --from-logs` from recent logs, which also places the unlisted files. No code,
+manifest or `ci.yml` change is made by this task.
+
+### Remainder of GH #2380
+
+Criterion (c) is open: 4 of 7 runs within 10 %, the worst at +27.9 %. The issue stays open (`Refs #2380`).
