@@ -106,3 +106,30 @@ is evidence, not an isolated effect.
    `--append`, and state the leave-one-out spread of the new partition.
 2. Measure five consecutive successful shard-running PR runs after that change lands, and apply the
    same wall-time test. Until then the balance criterion stays open.
+
+## Rebalance of `test/shard_manifest.txt` (T-0385, remainder step 1)
+
+Rebuilt with `scripts/test_shard_plan.sh --from-logs` from the `--slowest-modules` blocks of the 20
+shard job logs (4 shards each) of the five after-M=4 runs 40087843535, 40087904919, 40088375039,
+40089295338 and 40090740266 (job ids in the `# source:` header lines of the manifest). The tool
+averages each file's share of a run's module total and scales to the last run.
+
+- **Planned per-shard totals:** all 16 partitions plan to 551 s; each shard plans to 551 s slowest
+  partition (wall about 629 s with the tool's 1.14 factor). The plan is flat by construction on the
+  fitted weights, so it is not the expected spread.
+- **Leave-one-out spread (the honest figure):** plan from four runs, score on the fifth run's own
+  per-file times; slowest shard (heaviest of its 4 partitions) against the median shard:
+
+| Held-out run | New plan: shard slowest partition (s) | Slowest / median | Old manifest, same run |
+|---|---|---|---|
+| 40087843535 | 651 620 594 600 | +6.8 % | +4.2 % |
+| 40087904919 | 508 537 545 609 | +12.5 % | +25.4 % |
+| 40088375039 | 668 658 683 662 | +2.7 % | +5.4 % |
+| 40089295338 | 524 558 541 560 | +1.9 % | +35.0 % |
+| 40090740266 | 629 576 549 584 | +8.4 % | +15.8 % |
+
+  Mean +6.5 %, worst +12.5 %, 4 of 5 within 10 % (old manifest: mean +17.2 %, 1 of 5). The old
+  manifest scored on the runs reproduces the measured walls above (for example +25 % and +35 %),
+  which supports using this model.
+- **Still open:** measure five consecutive successful shard-running PR runs after this lands
+  against the 10 % criterion.

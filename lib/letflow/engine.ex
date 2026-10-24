@@ -3292,6 +3292,28 @@ defmodule Letflow.Engine do
     end
   end
 
+  # GH #2688 / REQ-513 D5: is the dispatch's node in the entity-write class, by the SAME predicate
+  # the plan uses (`plan_entity_writes/3`: `declared_writes/1 != {:ok, [], []}`, a malformed
+  # attribute included). A missing snapshot or node is `:unreadable`: no write without a
+  # proven class.
+  @doc false
+  @spec stuck_entity_write_class?(Ecto.UUID.t(), String.t(), String.t()) ::
+          :in_class | :other_class | :unreadable
+  def stuck_entity_write_class?(instance_id, node_id, prefix) do
+    with {:ok, graph, _raw_graph} <- fetch_graph_with_raw(instance_id, prefix),
+         %{} = node <- find_node(graph, node_id) do
+      case node do
+        %{attributes: %{} = attributes} ->
+          if declared_writes(attributes) != {:ok, [], []}, do: :in_class, else: :other_class
+
+        _no_attributes ->
+          :other_class
+      end
+    else
+      _unreadable -> :unreadable
+    end
+  end
+
   defp list_attribute(none, _index) when none in [nil, []], do: {:ok, []}
   defp list_attribute([_ | _] = lines, _index), do: {:ok, lines}
   defp list_attribute(_malformed, index), do: {:malformed, index}
@@ -6573,6 +6595,175 @@ defmodule Letflow.Engine do
         locked_projection: projection
       )
     end)
+  end
+
+  # ---- the stuck-`advanced` landing (GH #2688 / REQ-513, design D3/D4) ------------------------
+
+  @typedoc "What `land_stuck_service_dispatch/2` answers; one value per case (design D3)."
+  @type stuck_landing_result ::
+          {:ok, :landed | :already_final | :instance_moved_on | :not_in_class | :too_young}
+          | {:error, :not_found | :contention | :landing_failed}
+
+  @doc """
+  Lands an HTTP SERVICE_TASK dispatch row stuck `"advanced"` as an ExecutionError (instance
+  ERROR + one DLQ row), once. ONE transaction that re-checks everything under the dispatch row
+  lock (the same lock the apply path takes first, so a late apply and this landing serialise on
+  it): row still `advanced`, instance projection ACTIVE, completion key absent, row older than
+  the minimum age (`ServiceTaskDispatcher.stuck_advance_min_age_seconds/0`, floor 120 s), node
+  in the entity-write class (`stuck_entity_write_class?/3`). Any other state is a benign
+  `{:ok, _}` and nothing is written. The row's own status is never changed (as D-C.8).
+
+  A row id that is absent in `prefix` (unknown, or another tenant's) is `{:error, :not_found}`
+  in both cases: indistinguishable (INV-5). Nothing is written in an error case.
+  """
+  @spec land_stuck_service_dispatch(Ecto.UUID.t(), String.t()) :: stuck_landing_result()
+  def land_stuck_service_dispatch(dispatch_id, prefix)
+      when is_binary(dispatch_id) and is_binary(prefix) do
+    result =
+      rescue_service_contention(fn ->
+        Repo.transaction(stuck_landing_multi(dispatch_id, prefix))
+      end)
+
+    case result do
+      {:ok, %{stuck_dispatch: dispatch}} ->
+        record_stuck_advance_landed_audit(dispatch, prefix)
+        {:ok, :landed}
+
+      {:error, {:entity_write_refused, :contention, _code}} ->
+        {:error, :contention}
+
+      {:error, _step, reason, _changes} ->
+        classify_stuck_landing_failure(reason, dispatch_id)
+
+      {:error, reason} ->
+        classify_stuck_landing_failure(reason, dispatch_id)
+    end
+  end
+
+  defp classify_stuck_landing_failure(:stuck_not_found, _dispatch_id), do: {:error, :not_found}
+  defp classify_stuck_landing_failure(:stuck_already_final, _id), do: {:ok, :already_final}
+
+  defp classify_stuck_landing_failure(:stuck_instance_moved_on, _id),
+    do: {:ok, :instance_moved_on}
+
+  defp classify_stuck_landing_failure(:stuck_not_in_class, _id), do: {:ok, :not_in_class}
+  defp classify_stuck_landing_failure(:stuck_too_young, _id), do: {:ok, :too_young}
+
+  defp classify_stuck_landing_failure(reason, dispatch_id) do
+    # Logged as a classified tag only (the reason can hold variables).
+    tag = service_landing_failure_tag(reason)
+    Logger.error("stuck advance landing failed: dispatch_id=#{dispatch_id} reason=#{tag}")
+    {:error, if(tag == :contention, do: :contention, else: :landing_failed)}
+  end
+
+  defp stuck_landing_multi(dispatch_id, prefix) do
+    completion_key = "service_task_dispatch:#{dispatch_id}"
+
+    Multi.new()
+    |> Multi.run(:stuck_timeouts, fn repo, _changes ->
+      set_service_entity_write_timeouts(repo)
+      {:ok, :set}
+    end)
+    |> Multi.run(:stuck_dispatch, fn repo, _changes ->
+      case fetch_and_lock_service_task_dispatch(dispatch_id, repo, prefix) do
+        nil -> {:error, :stuck_not_found}
+        {:ok, %ServiceTaskDispatch{status: :advanced} = dispatch} -> {:ok, dispatch}
+        {:ok, _landed_or_completed} -> {:error, :stuck_already_final}
+      end
+    end)
+    |> Multi.run(:stuck_projection, fn repo, %{stuck_dispatch: dispatch} ->
+      case fetch_and_lock_instance_projection(repo, dispatch.instance_id, prefix) do
+        {:ok, projection} -> {:ok, projection}
+        {:error, _cancelled_error_or_gone} -> {:error, :stuck_instance_moved_on}
+      end
+    end)
+    |> Multi.run(:stuck_key_check, fn repo, _changes ->
+      if service_completion_key_present?(repo, completion_key, prefix),
+        do: {:error, :stuck_already_final},
+        else: {:ok, :absent}
+    end)
+    |> Multi.run(:stuck_age_check, fn _repo, %{stuck_dispatch: dispatch} ->
+      cutoff =
+        DateTime.add(
+          DateTime.utc_now(),
+          -ServiceTaskDispatcher.stuck_advance_min_age_seconds(),
+          :second
+        )
+
+      # `dispatched_at` is required on an `advanced` row; a nil one fails closed.
+      case dispatch.dispatched_at do
+        %DateTime{} = at ->
+          if DateTime.compare(at, cutoff) == :gt,
+            do: {:error, :stuck_too_young},
+            else: {:ok, :old}
+
+        nil ->
+          {:error, :stuck_too_young}
+      end
+    end)
+    |> Multi.run(:stuck_class_check, fn _repo, %{stuck_dispatch: dispatch} ->
+      case stuck_entity_write_class?(dispatch.instance_id, dispatch.node_id, prefix) do
+        :in_class -> {:ok, :in_class}
+        _other_or_unreadable -> {:error, :stuck_not_in_class}
+      end
+    end)
+    |> Multi.merge(fn %{stuck_dispatch: dispatch, stuck_projection: projection} ->
+      error_args = %{
+        instance_id: projection.instance_id,
+        error_type: :service_task_apply_lost,
+        affected: {:node, dispatch.node_id},
+        # fixed sentence, no values: the sweeper has no body, plan or line index
+        reason: "service task dispatch apply lost: result not recorded",
+        # the PRE-merge variables, as D-C.8
+        variables: projection.variables,
+        details: %{"dispatch_id" => dispatch.id, "code" => "dispatch_apply_lost"},
+        actor_id: EventStore.platform_actor_id(),
+        idempotency_key: completion_key
+      }
+
+      ExecutionError.append_multi(Multi.new(), error_args,
+        prefix: prefix,
+        locked_projection: projection
+      )
+    end)
+  end
+
+  # Best-effort, strictly after the landing transaction returned (ISS-0784 rollback note); ids and
+  # a fixed code only, no values.
+  defp record_stuck_advance_landed_audit(%ServiceTaskDispatch{} = dispatch, prefix) do
+    attrs = %{
+      actor_id: EventStore.platform_actor_id(),
+      action: "service_task.stuck_advance_landed",
+      resource_type: "instance",
+      resource_id: dispatch.instance_id,
+      before_state: nil,
+      after_state: %{
+        "node_id" => dispatch.node_id,
+        "dispatch_id" => dispatch.id,
+        "code" => "dispatch_apply_lost"
+      },
+      trace_id: nil
+    }
+
+    case Repo.transaction(fn -> Audit.insert_entry(Repo, attrs, prefix) end) do
+      {:ok, {:ok, _entry}} ->
+        :ok
+
+      _other ->
+        Logger.warning(
+          "could not record service_task.stuck_advance_landed for dispatch #{dispatch.id} " <>
+            "(instance #{dispatch.instance_id})"
+        )
+
+        :ok
+    end
+  rescue
+    _exception ->
+      Logger.warning(
+        "recording service_task.stuck_advance_landed for dispatch #{dispatch.id} raised"
+      )
+
+      :ok
   end
 
   # The script route lands through the CAS apply itself: `script_failure/7` writes the

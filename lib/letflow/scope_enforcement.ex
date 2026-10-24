@@ -62,13 +62,13 @@ defmodule Letflow.ScopeEnforcement do
 
   ## The `on` gate and its limits
 
-  The six facts (`OnGate`): T9 = 0, org consistency ok, no token exceeds its owner (tokens of a
+  The five facts (`OnGate`): T9 = 0, org consistency ok, no token exceeds its owner (tokens of a
   flagged service-principal owner STILL block: the flagged-service-principal exemption covers
   ONLY the mint subset check), at least one INTERACTIVE explicit tenant-wide TENANT_ADMIN (SEC
-  C-4: the flip route is interactive-only, so a tenant with none could not be turned off), no
-  scoped approver (a scoped TASK_WORKER in a routing group; removed only by the requirement
-  that ships a writer for `tasks.scope_node_id`, evaluated at flip time only), and the shadow
-  evidence (`Letflow.ScopeEnforcement.ShadowWindow`). Limits of the evidence, stated once: the
+  C-4: the flip route is interactive-only, so a tenant with none could not be turned off), and
+  the shadow evidence (`Letflow.ScopeEnforcement.ShadowWindow`). A scoped TASK_WORKER no longer
+  blocks the flip: since REQ-532 every task carries its instance's scope node (`tasks.scope_node_id`),
+  so the scoped-approver count is informational only. Limits of the evidence, stated once: the
   shadow period proves only the denials of tenant-wide and admin-plane routes (the sentence of
   `ShadowWindow.scope_sentence/0`, also in `docs/roles.md`); request counts include every
   authorized request of any principal, the flip request itself included, so criterion (b) is an
@@ -495,7 +495,7 @@ defmodule Letflow.ScopeEnforcement do
 
   defp transition_report!(_previous, _target, _tenant_id, _prefix, _now), do: nil
 
-  # shadow -> on: rank S (after A and T), then ALL six facts (4.4); every failing one is named.
+  # shadow -> on: rank S (after A and T), then ALL five facts (4.4); every failing one is named.
   # A raise propagates out of the transaction (no flag change; not a refusal, INV-8).
   defp on_checks!(tenant_id, prefix, now) do
     :ok = ScopeNodePaths.lock!(prefix)
@@ -537,7 +537,7 @@ defmodule Letflow.ScopeEnforcement do
   defp flip_entry(tenant_id, previous, target, reason, report, attrs) do
     after_state = %{"mode" => Atom.to_string(target), "reason" => reason}
 
-    # The tag decides the report's shape: `:on_gate` carries the six-fact OnGate report,
+    # The tag decides the report's shape: `:on_gate` carries the five-fact OnGate report,
     # `:three_facts` the stage-1 facts, `nil` none (every de-escalation).
     after_state =
       case report do

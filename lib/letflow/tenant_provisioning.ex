@@ -824,7 +824,11 @@ defmodule Letflow.TenantProvisioning do
      "20261024100001_add_scope_node_id_to_instance_projections.exs"},
     # GH #2692 (REQ-515): the `needs_reactivation_*` flag columns on `process_definitions`.
     {20_261_024_100_002, Letflow.Repo.Migrations.AddNeedsReactivationToProcessDefinitions,
-     "20261024100002_add_needs_reactivation_to_process_definitions.exs"}
+     "20261024100002_add_needs_reactivation_to_process_definitions.exs"},
+    # GH #3091 (REQ-532, decision 0051 T13): backfills `tasks.scope_node_id` from each task's own
+    # instance; re-runnable (IS NULL guard), a no-op down.
+    {20_261_024_200_001, Letflow.Repo.Migrations.BackfillTasksScopeNodeId,
+     "20261024200001_backfill_tasks_scope_node_id.exs"}
   ]
 
   @doc """

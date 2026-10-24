@@ -387,6 +387,11 @@ defmodule Letflow.Routers.Entities.RecordImport do
     %{"type" => "record_payload_invalid", "violations" => Enum.map(violations, &violation_map/1)}
   end
 
+  # GH #2689: the entity-side size cap; no field name, no size (INV-2).
+  defp import_reason_json({:record_size_exceeded, which}) when which in [:value, :record] do
+    %{"type" => "record_size_exceeded", "limit" => Atom.to_string(which)}
+  end
+
   defp import_reason_json({:definition_not_found, entity_type}) do
     %{"type" => "definition_not_found", "entity_type" => entity_type}
   end
