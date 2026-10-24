@@ -103,6 +103,13 @@ realms/actors, deployed definitions, and specs needing local Postgres). Prepare 
      remediation and are reported BLOCKED-by-environment — every other
      expected outcome in the same scenario is not exempted and must be
      verified normally by UAT-RUNNER.
+   - skipped (`disposition: skipped` in the sidecar, classification `UNBUILT_FEATURE` or
+     `COVERED_ELSEWHERE`): the preflight reports `env_limitation: SKIP` and lists the scenario
+     under `== SKIPPED SCENARIOS ==`; its checks do not count toward GAP or `ENV_NOT_READY`. The
+     scenario is recorded SKIPPED with the sidecar's `reason` and `issue_ref` verbatim, is not
+     executed, is not BLOCKED, and no issue is filed; the run report's counts show SKIPPED
+     separately. A sidecar with `applies_to_expected_outcomes` cannot be skipped (the preflight
+     exits non-zero).
    Re-run the preflight after each remediation round.
 4. Only scenarios still unmet after prep are BLOCKED. Classify each:
    - BLOCKED-by-environment: `ENV_*`, `CREDENTIALS_MISSING`, `PRECONDITION_NOT_MET`,
