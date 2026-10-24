@@ -37832,7 +37832,7 @@ requirements:
       - "10. The literal assertions of REQ-474 AC 1 and AC 2 (and REQ-507 tests that name the field lists) are updated in the same PR; the PR states that it supersedes REQ-474 item 4 sentence No decimal field is introduced."
     depends_on: [REQ-474, REQ-507, REQ-502]
 
-  - id: REQ-529
+  - id: REQ-530
     title: "Driver Incident Report: forms for the operations assessment and finance estimate tasks (and their escalation tasks), with required fields"
     owner: ELIXIR-DEV
     status: pending
@@ -37904,7 +37904,7 @@ requirements:
          running one; instances started on v1.1 keep running on v1.1 (no migration of running
          instances, nothing deactivated by this entry).
     open_questions:
-      - "Who may READ the stored assessment_notes, estimated_cost_eur and finance_notes. Decision 0062 (R1, R9) settles that human-typed values carry no labels, so the instance reads (:InstancesRead: GET /instances/:id, /reconstruct, /history) return them to every InstancesRead holder in scope; this entry changes no read rule. The confidential refusal scenario (refusal-driver-incident-confidential.yaml, EO-002) expects a dispatcher not handling the incident to see none of the driver's name, the description or the cost figures; the notes can name the driver and the cost is a named figure. Whether that expectation holds (which roles hold InstancesRead, and whether the GUI shows variables to them) is not established by this entry. This is access to sensitive data and belongs to the process owner: either a follow-up requirement restricts these reads, or the scenario is changed. Until decided, the BA treats EO-002 as possibly failing once the forms exist."
+      - "Who may READ the stored assessment_notes, estimated_cost_eur and finance_notes. Tracked on the board as GH #2932 (open, blocked on the owner's decision): this entry does not decide it. Decision 0062 (R1, R9) settles that human-typed values carry no labels, so the instance reads (:InstancesRead: GET /instances/:id, /reconstruct, /history) return them to every InstancesRead holder in scope; this entry changes no read rule. The confidential refusal scenario (refusal-driver-incident-confidential.yaml, EO-002) expects a dispatcher not handling the incident to see none of the driver's name, the description or the cost figures; the notes can name the driver and the cost is a named figure. Whether that expectation holds (which roles hold InstancesRead, and whether the GUI shows variables to them) is not established by this entry. This is access to sensitive data and belongs to the process owner: either a follow-up requirement restricts these reads, or the scenario is changed. Until decided, the BA treats EO-002 as possibly failing once the forms exist."
       - "Whether assessment_notes needs a minimum length (so a single space is not an assessment) or finance_notes a maximum length. No source gives a number, so none is set here; the process owner decides."
       - "estimated_cost_eur is a plain number in euro. Currency handling and the strict decimal type of decision 0060 are out of scope; the UAT scenario uses whole euro amounts."
       - "The UAT scenario driver-incident-assess-and-estimate.yaml (EO-003) is the BA's artefact and is not edited by this entry; after it lands the BA re-checks that EO-003's verification can read the values from the instance history."
