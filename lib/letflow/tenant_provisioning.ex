@@ -825,7 +825,11 @@ defmodule Letflow.TenantProvisioning do
     # GH #3091 (REQ-532, decision 0051 T13): backfills `tasks.scope_node_id` from each task's own
     # instance; re-runnable (IS NULL guard), a no-op down.
     {20_261_024_200_001, Letflow.Repo.Migrations.BackfillTasksScopeNodeId,
-     "20261024200001_backfill_tasks_scope_node_id.exs"}
+     "20261024200001_backfill_tasks_scope_node_id.exs"},
+    # GH #2688 (REQ-513 B2): partial `(dispatched_at, id) WHERE status = 'advanced'` index for the
+    # stuck-advance sweep; additive, no data change.
+    {20_261_024_300_001, Letflow.Repo.Migrations.AddStuckAdvanceIndex,
+     "20261024300001_add_stuck_advance_index.exs"}
   ]
 
   @doc """

@@ -38,16 +38,22 @@ defmodule Letflow.Engine.ServiceTaskDispatcher.Poller do
   use GenServer
 
   alias Letflow.Engine.ServiceTaskDispatcher
+  alias Letflow.Engine.ServiceTaskDispatcher.StuckSweep
   alias Letflow.Repo
   alias Letflow.TenantProvisioning.Registration
 
   import Ecto.Query
 
-  @type state :: %{last_tick_started_at: DateTime.t() | nil}
+  @type state :: %{
+          last_tick_started_at: DateTime.t() | nil,
+          last_sweep_at: DateTime.t() | nil,
+          stuck_cursors: %{String.t() => StuckSweep.cursor()},
+          sweep_rotation: non_neg_integer()
+        }
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts) do
-    GenServer.start_link(__MODULE__, %{last_tick_started_at: nil}, name: __MODULE__)
+    GenServer.start_link(__MODULE__, initial_state(), name: __MODULE__)
   end
 
   @impl true
@@ -67,7 +73,7 @@ defmodule Letflow.Engine.ServiceTaskDispatcher.Poller do
             ServiceTaskDispatcher.poll_and_dispatch(schema_name)
           end)
 
-          %{state | last_tick_started_at: now}
+          %{maybe_sweep(state, schemas, now) | last_tick_started_at: now}
 
         :error ->
           %{state | last_tick_started_at: now}
@@ -76,6 +82,47 @@ defmodule Letflow.Engine.ServiceTaskDispatcher.Poller do
     schedule_next_tick()
 
     {:noreply, new_state}
+  end
+
+  @doc false
+  @spec initial_state() :: state()
+  def initial_state do
+    %{last_tick_started_at: nil, last_sweep_at: nil, stuck_cursors: %{}, sweep_rotation: 0}
+  end
+
+  # GH #2688 / REQ-513: the stuck-`advanced` sweep, at most once per
+  # `stuck_advance_sweep_interval_ms`, and only when its mode is not `:off`. The tenant order
+  # rotates each sweep so a budget spent on early tenants cannot starve the later ones.
+  defp maybe_sweep(state, schemas, now) do
+    mode = ServiceTaskDispatcher.stuck_advance_mode()
+
+    if mode != :off and sweep_due?(state.last_sweep_at, now) do
+      cursors =
+        StuckSweep.run_all(rotate(schemas, state.sweep_rotation), state.stuck_cursors, now, mode)
+
+      %{
+        state
+        | last_sweep_at: now,
+          stuck_cursors: cursors,
+          sweep_rotation: state.sweep_rotation + 1
+      }
+    else
+      state
+    end
+  end
+
+  defp sweep_due?(nil, _now), do: true
+
+  defp sweep_due?(last, now),
+    do:
+      DateTime.diff(now, last, :millisecond) >=
+        ServiceTaskDispatcher.stuck_advance_sweep_interval_ms()
+
+  defp rotate([], _n), do: []
+
+  defp rotate(schemas, n) do
+    {head, tail} = Enum.split(schemas, rem(n, length(schemas)))
+    tail ++ head
   end
 
   defp tenant_schemas do
