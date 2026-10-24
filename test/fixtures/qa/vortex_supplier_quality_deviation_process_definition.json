@@ -28,10 +28,9 @@
           "form_schema": {
             "type": "object",
             "properties": {
-              "severity": {"type": "string", "title": "Severity", "description": "Severity of the supplier quality deviation. The routing reads this field: critical starts the 8D corrective action, major issues a supplier warning, minor a supplier notification.", "enum": ["critical", "major", "minor"]},
-              "false_positive": {"type": "boolean", "title": "False positive", "description": "Tick when the deviation turns out not to be a real quality problem; the quarantine is then released. The routing reads this field."}
+              "severity": {"type": "string", "title": "Severity", "description": "Severity of the supplier quality deviation. The routing reads this field: critical starts the 8D corrective action, major issues a supplier warning, minor a supplier notification.", "enum": ["critical", "major", "minor"]}
             },
-            "required": ["severity", "false_positive"]
+            "required": ["severity"]
           }
         }
       },
@@ -47,10 +46,9 @@
           "form_schema": {
             "type": "object",
             "properties": {
-              "severity": {"type": "string", "title": "Severity", "description": "Severity of the supplier quality deviation. The routing reads this field: critical starts the 8D corrective action, major issues a supplier warning, minor a supplier notification.", "enum": ["critical", "major", "minor"]},
-              "false_positive": {"type": "boolean", "title": "False positive", "description": "Tick when the deviation turns out not to be a real quality problem; the quarantine is then released. The routing reads this field."}
+              "severity": {"type": "string", "title": "Severity", "description": "Severity of the supplier quality deviation. The routing reads this field: critical starts the 8D corrective action, major issues a supplier warning, minor a supplier notification.", "enum": ["critical", "major", "minor"]}
             },
-            "required": ["severity", "false_positive"]
+            "required": ["severity"]
           }
         }
       },

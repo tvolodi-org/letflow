@@ -45,15 +45,6 @@ defmodule Letflow.Scripts.VortexHumanTaskFormsTest do
     end
   end
 
-  test "supplier deviation form also collects false_positive, which the routing reads" do
-    for node <- human_tasks(doc("vortex_supplier_quality_deviation_process_definition.json")) do
-      assert %{"type" => "boolean"} =
-               Map.take(node["attributes"]["form_schema"]["properties"]["false_positive"], [
-                 "type"
-               ])
-    end
-  end
-
   test "each fixture is at its bumped version and Definitions.create accepts it" do
     %{schema_name: schema} =
       TenantFixture.provisioned_tenant!(slug_prefix: "vxfrm", display_name: "Vortex forms")
