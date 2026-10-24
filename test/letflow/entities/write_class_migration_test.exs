@@ -28,7 +28,6 @@ defmodule Letflow.Entities.WriteClassMigrationTest do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.ProcessWritable
   alias Letflow.Repo

@@ -743,7 +743,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
         synthetic([
           {@fake, "attrs |> Records.create_record(prefix, owner)"},
           {"lib/letflow/fake_defs.ex",
-           "attrs |> Letflow.Entities.Letflow.ManagedTypesSupport.create_definition(prefix, owner)"},
+           "attrs |> Letflow.Entities.Definitions.create_definition(prefix, owner)"},
           {"lib/letflow/fake_ok.ex", "attrs |> Records.create_record(prefix, :tenant)"},
           {"lib/letflow/fake_chain.ex",
            "attrs |> Map.put(:x, 1) |> Records.update_record(prefix, owner)"}

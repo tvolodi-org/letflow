@@ -581,19 +581,15 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
       idempotency_key: idempotency_key
     }
 
-    # GH #2680 slice 3: a type a module manages (the exam's ten authoring types among them) is refused
-    # on the generic `Records` path of an installed tenant. Such a type is written with its module's
-    # owner, as the module's own surface does (a system path, not a request: this task has no HTTP user).
+    # GH #2680 slice 3: the ten exam authoring types are refused on the generic `Records` path of an
+    # installed tenant (403 entity_type_managed). They are written through the exam module's own
+    # authoring surface, a system path with no access check (this task has no HTTP user), as the
+    # fixtures do. The Records fallback only keeps this helper total.
     result =
-      case Letflow.Modules.Catalog.managed_name_declarations()[entity_type] do
-        nil ->
-          # scope-all: mix task, no HTTP user
-          Letflow.Entities.Records.create_record(attrs, prefix)
-
-        module_id ->
-          {:ok, module} = Letflow.Modules.Catalog.fetch(module_id)
-          owner = Letflow.Entities.ManagedTypes.owner_for!(module)
-          Letflow.Entities.Records.create_record(attrs, prefix, owner)
+      case Letflow.Modules.Catalog.create_via_module_surface(attrs, prefix) do
+        # scope-all: mix task, no HTTP user
+        :not_managed -> Letflow.Entities.Records.create_record(attrs, prefix)
+        result -> result
       end
 
     case result do
