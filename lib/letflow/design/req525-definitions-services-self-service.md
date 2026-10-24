@@ -127,23 +127,31 @@ Designer's facts for the decision, not the decision: Option B duplicates the coa
 is a per-permission role gate that runs before the class (section 2.3); no existing `:self_service` route
 needs one. Option A changes one paragraph and keeps the entry fields (`route, key, class, ruling`;
 the path guard still changes under either option, SEC-525-Q3). If SEC chooses B, every implementation requirement below grows by the gate and its tests, and
-the sizing of section 6 must be revisited. **Until SEC-525-Q1 is recorded in the security verdict on this
-change, no route below is ruled in effectively and every route stays `:tenant_wide`.**
+the sizing of section 6 must be revisited.
+
+**RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): SEC-525-Q1 = Option A.** The class text
+becomes "does not depend on the caller's scope rows; the coarse permission of the policy key still
+applies", and the REQ-518 AC 21 walk rule text is updated to match. Reason: the coarse allow already acts
+as the role gate before the class check, and Option B would duplicate it. Option B is rejected.
 
 ### SEC-525-Q2: is the `graph` field acceptable for a scoped holder?
 
 Rulings R01 to R05 return the full `graph` of every definition (draft and archived included for R01, R05).
 The graph is design content with an open attribute map; the secrets rule (INV-4) says credentials live
 behind `Letflow.Secrets` references, but nothing validates an attribute value that way. Argument for
-accepting: a scoped holder is by construction a member of the same four roles that already read the same
+accepting: a scoped holder is by construction a member of the same six roles that already read the same
 graph tenant-wide; org-scoped grants restrict which RECORDS and TASKS a person sees, and the graph holds
 no per-region data. Argument against: scoping is introduced to narrow what a regional worker sees, and a
 literal URL or note typed into a node would reach that person. The alternative that would answer "no"
 without keeping the route `:tenant_wide` is a graph-less summary body; it breaks the AC 4 rule that a
 scoped holder gets the same body shape as a tenant-wide holder and the SPA contract
-(`web/src/api/definitions.ts`, `DefinitionEditorPage`), so this record does not propose it. Proposed
-ruling text below assumes SEC accepts the graph; if SEC rejects it, R01 to R05 become "stays
-`:tenant_wide`" and nothing else in this record changes.
+(`web/src/api/definitions.ts`, `DefinitionEditorPage`), so this record does not propose it.
+
+**RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): SEC-525-Q2 = graph accepted for scoped
+holders.** Reason: a scoped holder of `DefinitionsRead` is in a role that already reads the same graph
+tenant-wide; scoping narrows records, tasks and instances, not design content; INV-4 already forbids
+literal credentials in a graph. (Reviewer note, not a defect of this change: nothing scans the open graph
+attribute map for credential-looking values, so INV-4 holds by convention.)
 
 ### SEC-525-Q3: how does the entry guard (GH #2825) admit `/definitions*`? Needed under Option A and Option B
 `SelfServiceEntry` refuses any route outside `/me` and `/help` at compile time (section 2.3). It relaxes a
@@ -161,15 +169,18 @@ GH #2825 guard, so it is a security decision, taken in the same verdict as Q1. O
 
 The designer's carrier proposal: a **prerequisite requirement IMPL-525-0** (guard change, its test and
 typedoc/comment text), filed first; IMPL-525-A to C depend on it. It is small (one list/function edit,
-one test file) and keeps A to C at one route group each. Until Q3 is recorded no entry can be added, so all
-routes stay `:tenant_wide`.
+one test file) and keeps A to C at one route group each.
+
+**RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): SEC-525-Q3 = Q3-a.** `@prefixes` of
+`SelfServiceEntry` becomes `/me`, `/help`, `/definitions`; the walk's `@self_service_prefixes` stays `/me`,
+`/help`. Reason: Q3-b would remove a fail-closed compile-time check. IMPL-525-0 carries the change.
 
 ## 4. Rulings (AC 2)
 
 Ruling ids are recorded here, not in `handoffs/` (this team does not touch it). Each ruling has its own
-reasoning; none relies on a sibling. Status of every ruling: **PROPOSED by the designer; effective only
-when the security review of this change records it by id.** A route whose ruling is not recorded stays
-`:tenant_wide`.
+reasoning; none relies on a sibling. Status of every ruling: **RECORDED by SECURITY-REVIEWER (T-0427
+security step, attempt 1)**, with the outcome in the table below. A route without a recorded ruling stays
+`:tenant_wide`. Each implementation PR still needs its own SECURITY-REVIEWER code verdict (section 5, item 7).
 
 Decision rule used for all ten: a route is ruled in only if (a) every field is T or P (no R field,
 section 2.2), (b) a scoped holder has a demonstrated functional need, otherwise the fail-closed 403
@@ -178,16 +189,16 @@ for (the class definition's FILTER rule), and (d) the route is a read.
 
 | id | route | outcome | reasoning |
 |---|---|---|---|
-| SEC-525-R01 | `GET /definitions` | **may be `:self_service`** (conditional on Q1 and Q2) | (a) all T/P; (b) the tenant dashboard calls `definitionsApi.list({page_size: 5})` (`web/src/pages/dashboard/TenantDashboardPage.tsx`) and the nav item "Definitions" is gated on `DefinitionsRead` (`AppShell.tsx`), so a scoped holder gets a broken dashboard today; (c) filters only (name, status, stage, cursor); (d) read. Cursor is unsigned and not a security control. |
-| SEC-525-R02 | `GET /definitions/:id` | **may be `:self_service`** (conditional on Q1 and Q2) | The id selects a tenant-level object that has no scope node, so (c) holds: no resource the caller must be scoped for is chosen. Unknown id and another tenant's id are the same 404 (INV-5, schema prefix). Needed by every drill-down from R01. |
-| SEC-525-R03 | `GET /definitions/active/:name` | **may be `:self_service`** (conditional on Q1 and Q2) | `name` is a lookup key of a tenant-level object; same body and same uniform 404 as R02. Needed for the "which version runs" lookup. |
-| SEC-525-R04 | `GET /definitions/search` | **may be `:self_service`** (conditional on Q1 and Q2) | Search is over `name` and `description` only (rank query), `q` is a filter and is not echoed, results are R01's bodies. Condition: the matched columns must not grow to `graph` or any R field without a new ruling. |
-| SEC-525-R05 | `GET /definitions/delta` | **may be `:self_service`** (conditional on Q1 and Q2) | Same bodies as R01 plus status history of the tenant's definitions; `next_since` is a change counter of a tenant-level sequence, not a resource count of anything scope-bound. The consumer is the mobile delta sync (REQ-125); whether a scoped mobile user exists is not shown by the code, so the need is the weakest of the five: SEC may keep it `:tenant_wide` without affecting R01 to R04. |
-| SEC-525-R06 | `GET /definitions/:id/export` | **stays `:tenant_wide`** | Body is R02's graph in the importable portable format; no extra T/P field, but no scoped need either: the only consumer is the editor's export action (`DefinitionEditorPage`, `definitionsApi.exportJson`), a designer tool. (b) fails, so the fail-closed 403 stays. Not reclassified because R02 is. |
-| SEC-525-R07 | `POST /definitions/:id/validate` | **stays `:tenant_wide`** | (d) fails: a POST that runs server-side work on a stored graph (design-time action, `useDefinitions` validate mutation) and whose error body contains generated violation messages naming node ids. No scoped need. Not a read in the class definition's sense. |
-| SEC-525-R08 | `POST /solution-packs/export` | **stays `:tenant_wide`** | (c) fails literally: the body's `definition_ids` select resources, and the response is a bundle (definitions, `variable_schemas`, manifest) in the install format. No scoped need (pack authoring). |
-| SEC-525-R09 | `POST /solution-packs/:pack_id/update-review` | **stays `:tenant_wide`** | (c) and (d) fail: caller-supplied artefact content and ids, and a response that reveals the tenant's stored base and resolution state per artefact. It is step one of a workflow whose apply step needs `DefinitionsCreate`, which no scoped read-only role holds. |
-| SEC-525-R10 | `GET /services` | **stays `:tenant_wide`** | All fields are T, but (b) fails: the only consumer is `ServicesPage` (`web/src/pages/admin/services/ServicesPage.tsx`, `servicesApi.listForTenant`), an administration page. `endpoint_url` and the request and response schemas describe integration topology that a scoped holder has no use for. The shaping alternative (drop `endpoint_url`, `owner_tenant_id`) was considered and rejected: it must apply to every caller, so it changes the contract the admin page uses, and the AC 4 rule keeps the body shape equal for scoped and tenant-wide holders. If a scoped consumer appears, a new requirement with its own ruling reopens this. |
+| SEC-525-R01 | `GET /definitions` | **may be `:self_service`**. RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): ruled in under Q1 = A and Q2 = accept. | (a) all T/P; (b) the tenant dashboard calls `definitionsApi.list({page_size: 5})` (`web/src/pages/dashboard/TenantDashboardPage.tsx`) and the nav item "Definitions" is gated on `DefinitionsRead` (`AppShell.tsx`), so a scoped holder gets a broken dashboard today; (c) filters only (name, status, stage, cursor); (d) read. Cursor is unsigned and not a security control. |
+| SEC-525-R02 | `GET /definitions/:id` | **may be `:self_service`**. RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): ruled in under Q1 = A and Q2 = accept. | The id selects a tenant-level object that has no scope node, so (c) holds: no resource the caller must be scoped for is chosen. Unknown id and another tenant's id are the same 404 (INV-5, schema prefix). Needed by every drill-down from R01. |
+| SEC-525-R03 | `GET /definitions/active/:name` | **may be `:self_service`**. RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): ruled in under Q1 = A and Q2 = accept. | `name` is a lookup key of a tenant-level object; same body and same uniform 404 as R02. Needed for the "which version runs" lookup. |
+| SEC-525-R04 | `GET /definitions/search` | **may be `:self_service`**. RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): ruled in under Q1 = A and Q2 = accept. | Search is over `name` and `description` only (rank query), `q` is a filter and is not echoed, results are R01's bodies. Condition: the matched columns must not grow to `graph` or any R field without a new ruling. |
+| SEC-525-R05 | `GET /definitions/delta` | **may be `:self_service`, on one condition**. RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): the bodies are R01's and the counter is tenant-level, but the IMPL-525-C PR must name the scoped consumer (mobile delta sync, REQ-125); otherwise IMPL-525-C is not filed and the route stays `:tenant_wide`. | Same bodies as R01 plus status history of the tenant's definitions; `next_since` is a change counter of a tenant-level sequence, not a resource count of anything scope-bound. Whether a scoped mobile user exists is not shown by the code, so the need is the weakest of the five. It can be dropped without affecting R01 to R04. |
+| SEC-525-R06 | `GET /definitions/:id/export` | **stays `:tenant_wide`**. RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): reasons agreed. | Body is R02's graph in the importable portable format; no extra T/P field, but no scoped need either: the only consumer is the editor's export action (`DefinitionEditorPage`, `definitionsApi.exportJson`), a designer tool. (b) fails, so the fail-closed 403 stays. Not reclassified because R02 is. |
+| SEC-525-R07 | `POST /definitions/:id/validate` | **stays `:tenant_wide`**. RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): reasons agreed. | (d) fails: a POST that runs server-side work on a stored graph (design-time action, `useDefinitions` validate mutation) and whose error body contains generated violation messages naming node ids. No scoped need. Not a read in the class definition's sense. |
+| SEC-525-R08 | `POST /solution-packs/export` | **stays `:tenant_wide`**. RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): reasons agreed. | (c) fails literally: the body's `definition_ids` select resources, and the response is a bundle (definitions, `variable_schemas`, manifest) in the install format. No scoped need (pack authoring). |
+| SEC-525-R09 | `POST /solution-packs/:pack_id/update-review` | **stays `:tenant_wide`**. RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): reasons agreed. | (c) and (d) fail: caller-supplied artefact content and ids, and a response that reveals the tenant's stored base and resolution state per artefact. It is step one of a workflow whose apply step needs `DefinitionsCreate`, which no scoped read-only role holds. |
+| SEC-525-R10 | `GET /services` | **stays `:tenant_wide`**. RECORDED by SECURITY-REVIEWER (T-0427 security step, attempt 1): reasons agreed. | All fields are T, but (b) fails: the only consumer is `ServicesPage` (`web/src/pages/admin/services/ServicesPage.tsx`, `servicesApi.listForTenant`), an administration page. `endpoint_url` and the request and response schemas describe integration topology that a scoped holder has no use for. The shaping alternative (drop `endpoint_url`, `owner_tenant_id`) was considered and rejected: it must apply to every caller, so it changes the contract the admin page uses, and the AC 4 rule keeps the body shape equal for scoped and tenant-wide holders. If a scoped consumer appears, a new requirement with its own ruling reopens this. |
 
 Summary: five routes may be ruled in (R01 to R05), five stay `:tenant_wide` (R06 to R10). No route is
 ruled "only after a response-shaping change": the shaping candidates (graph-less bodies, dropping
@@ -197,7 +208,8 @@ ruled "only after a response-shaping change": the shaping candidates (graph-less
 
 For EACH route the requirement rules in (its own PR, its own ruling id):
 
-1. (After IMPL-525-0 has landed the guard change of SEC-525-Q3.) `@self_service_routes` in `lib/letflow/api/route_scope.ex` gets the entry `{route: "<METHOD> <full path>", key: <policy key>, class: :self_service, ruling: "<SEC-525-Rnn>"}` (the keys: `:DefinitionsRead` for R01 to R05).
+1. (After IMPL-525-0 has landed the guard change of SEC-525-Q3 and the Option A class-text rewording of
+   SEC-525-Q1, both carried by IMPL-525-0, not by A.) `@self_service_routes` in `lib/letflow/api/route_scope.ex` gets the entry `{route: "<METHOD> <full path>", key: <policy key>, class: :self_service, ruling: "<SEC-525-Rnn>"}` (the keys: `:DefinitionsRead` for R01 to R05).
 2. The route's `authz_get` declaration adds `scope: :self_service`. Both edits are needed, the walk fails on either alone.
 3. The route walk (`test/letflow/api/route_scope_walk_test.exs`) is green, and `test/fixtures/route_scope/tenant_wide_default_routes.txt` loses exactly that route's line and no other (`git diff` of the fixture shows one removed line per route).
 4. Under `on`, a SCOPED holder of `DefinitionsRead` (a tenant-role binding with scoped rows only) gets 200 and a body of the same shape (same keys, same types) as a tenant-wide holder's, with test data created in the same tenant. A principal without `DefinitionsRead` (AGENT_RUNNER or CANDIDATE) still gets the uniform 403 `insufficient permissions`, byte-identical to the 403 of an unmodified route (INV-5). The cross-tenant case: another tenant's definition id answers the same 404 as an absent id (INV-5).
@@ -256,6 +268,11 @@ Consequences, by file:
   All three change in every implementation PR, by the number of fixture lines it removes, in merge order
   A, B, C: 120 -> 118 after A (R01, R04), 116 after B (R02, R03), 115 after C (R05). If the order differs,
   the PR computes the count from the fixture it leaves; the count must equal the line count of the fixture.
+- `route_scope_on_flip_blocker_test.exs`: T-RW2 asserts `length(list) == 4` (raise it by the entries the PR
+  adds); T-RW3 asserts an exact `@expected_rulings` map (add each `route => "SEC-525-Rnn"` entry); its own
+  `@prefixes ["/me", "/help"]` (line 29) stays unchanged under Q3-a, because the walk's forced prefixes do
+  not change. `scope_enforcement_on_e2e_test.exs:161` asserts `length(self_service) == 4`: raise it likewise.
+  Each implementation PR does this for its own entries, so CI does not find these pins first.
 - `route_scope_self_service_test.exs:331` pins the sorted list of the four members: each PR adds its
   entries to that expectation, and the test name ("exactly M1, M2, ...") is updated.
 - `scope_shadow_test.exs:212`, `authz_deny_log_test.exs:919` and `tenant_auditor_routes_test.exs:649,982`
@@ -274,14 +291,15 @@ ELIXIR-DEV, `depends_on: [REQ-525]` (A to C also on IMPL-525-0), `gh: 2535` for 
 
 | proposed requirement | routes | why this size |
 |---|---|---|
-| IMPL-525-0 | (no route) | prerequisite: the entry-guard change of SEC-525-Q3, its test (`route_scope_self_service_entry_test.exs:77`) and typedoc; one function edit, one test file; A to C `depends_on` it |
+| IMPL-525-0 | (no route) | prerequisite: the entry-guard change of SEC-525-Q3 (Q3-a: `@prefixes` becomes `/me`, `/help`, `/definitions`; `@self_service_prefixes` of the walk stays `/me`, `/help`), the Option A class-text rewording of SEC-525-Q1 (moduledoc definition and REQ-518 AC 21 walk rule text), its test (`route_scope_self_service_entry_test.exs:77`) and typedoc; one list edit, two text edits, one test file; A to C `depends_on` it |
 | IMPL-525-A | `GET /definitions` (R01), `GET /definitions/search` (R04) | collection reads; carries the `@tenant_wide_route` switch of the e2e test; two list entries |
 | IMPL-525-B | `GET /definitions/:id` (R02), `GET /definitions/active/:name` (R03) | single-object reads sharing the uniform-404 test |
-| IMPL-525-C | `GET /definitions/delta` (R05) | filed only if SEC keeps R05 ruled in; its own PR because its need is the weakest and it can be dropped without touching A and B |
+| IMPL-525-C | `GET /definitions/delta` (R05) | SEC-525-R05 condition (recorded): the PR names the scoped consumer (mobile delta sync); without that the requirement is not filed. Its own PR because its need is the weakest and it can be dropped without touching A and B |
 
-Not filed: R06 to R10 (stay `:tenant_wide`; no requirement). If SEC-525-Q1 picks Option B, a prerequisite
-requirement "role gate inside `:self_service`" (SelfServiceEntry field, `Enforce` and `Shadow` branch,
-walk rule, tests) is filed first and A to C depend on it.
+Not filed: R06 to R10 (stay `:tenant_wide`; no requirement). The Option-B branch (a role gate inside
+`:self_service`) is moot: SEC-525-Q1 recorded Option A, so no gate requirement is filed.
+The Option A class-text rewording (moduledoc of `route_scope.ex` and the REQ-518 AC 21 walk rule text) is
+carried by IMPL-525-0, so that the class text is true before the first `/definitions` entry lands.
 
 ## 7. Documentation updates per route (AC 6)
 
@@ -315,8 +333,9 @@ validation as still refused.
 
 ## 9. Findings for the security review
 
-1. SEC-525-Q1, SEC-525-Q2 and SEC-525-Q3 (the #2825 entry guard) are the three decisions this record cannot take; the proposed outcomes of
-   R01 to R05 depend on both.
+1. SEC-525-Q1, SEC-525-Q2 and SEC-525-Q3 (the #2825 entry guard) are the three decisions this record
+   cannot take; the outcomes of R01 to R05 depend on all three. All three and R01 to R10 are now RECORDED
+   by SECURITY-REVIEWER (T-0427 security step, attempt 1), see sections 3 and 4.
 2. `scope_enforcement_on_e2e_test.exs` is coupled to R01 through `@tenant_wide_route` (section 5): a
    route ruling that looks like a one-line list edit also moves the e2e fixture.
 3. The `graph` attribute map is open; the record found no validator that refuses a credential-looking
