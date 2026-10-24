@@ -603,9 +603,11 @@ jobs:
   # partition space N*M (scripts/test_parallel.sh); N must be the same on every leg. The files
   # of each global partition come from the timing manifest (TEST_PARALLEL_MANIFEST, see the
   # "Run test shard" step); its header total must equal N*M, or the leg fails before it runs.
-  # Adding or removing a test file: `scripts/test_shard_plan.sh --append scripts/test_shard_manifest.txt
-  # > new && mv new scripts/test_shard_manifest.txt` (the CV-1 test in
-  # test/scripts/test_shard_manifest_coverage_test.exs fails until a new file is listed).
+  # The manifest is a balance hint: a test file it does not list still runs, in one partition
+  # picked by a hash of its path, and a line for a removed file is skipped; the leg logs both
+  # (`test_parallel: unlisted file ...`, `manifest drift: N`). To keep the balance, after adding
+  # or removing test files: `scripts/test_shard_plan.sh --append scripts/test_shard_manifest.txt
+  # > new && mv new scripts/test_shard_manifest.txt`.
   # Same `if:` reasoning as backend_static. fetch-depth: 0 is kept (not a shallow clone):
   # several tests shell out to git (e.g. test/letflow/login_directory/no_secret_in_repo_test.exs)
   # and a shallow checkout would change what the suite sees relative to today's gate; the
@@ -722,11 +724,12 @@ jobs:
           TEST_NONPOOL_CONNECTION_RESERVE: 16
           # GH #2380 step 2: each global partition runs the files its timing manifest lists
           # (scripts/test_shard_manifest.txt, built by scripts/test_shard_plan.sh; header total
-          # must be N*M = 16). Unset, the partitions use Mix's round-robin over the file list.
+          # must be N*M = 16), plus any unlisted test file whose path hashes to it. Unset, the
+          # partitions use Mix's round-robin over the file list.
           TEST_PARALLEL_MANIFEST: scripts/test_shard_manifest.txt
           # GH #2380 step 1 (log-only): per-file test times for rebalancing the shards. The
           # --slowest-modules value is at least the largest partition: the manifest
-          # (884 files in 16 partitions, TEST_PARALLEL_N=4 x matrix M=4) puts 62 files on the
+          # (896 files in 16 partitions, TEST_PARALLEL_N=4 x matrix M=4) puts 63 files on the
           # busiest one; 80 leaves room for growth. Recheck after --append or a rebuild.
           TEST_PARALLEL_EXTRA_ARGS: "--slowest 40 --slowest-modules 80"
           TEST_PARALLEL_PRINT_SLOWEST: 1

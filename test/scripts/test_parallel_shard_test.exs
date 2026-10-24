@@ -23,6 +23,7 @@ defmodule Letflow.Scripts.TestParallelShardTest do
   use ExUnit.Case, async: false
 
   alias Letflow.Test.TestParallelCapture
+  alias Letflow.Test.TestShardManifest
 
   @moduletag :tmp_dir
   @moduletag timeout: 300_000
@@ -381,10 +382,22 @@ defmodule Letflow.Scripts.TestParallelShardTest do
 
   defp manifest_files(p), do: ["test/p#{p}_a_test.exs", "test/p#{p}_b_test.exs"]
 
-  defp write_manifest(tmp, total, partitions) do
+  # Creates each test file under the script's working directory (run_script/2 runs it in
+  # tmp/work), since the script runs only the manifest files that exist on disk.
+  defp write_disk_files(tmp, files) do
+    for f <- files do
+      path = Path.join([tmp, "work", f])
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, "")
+    end
+  end
+
+  # A manifest for `partitions` (2 files each, all created on disk) plus `extra_lines`.
+  defp write_manifest(tmp, total, partitions, extra_lines \\ []) do
     path = Path.join(tmp, "manifest.txt")
+    write_disk_files(tmp, Enum.flat_map(partitions, &manifest_files/1))
     body = for p <- partitions, f <- manifest_files(p), do: "#{p} #{f} 1.00\n"
-    File.write!(path, "# partitions: #{total}\n" <> Enum.join(body))
+    File.write!(path, "# partitions: #{total}\n" <> Enum.join(body) <> Enum.join(extra_lines))
     path
   end
 
@@ -446,6 +459,57 @@ defmodule Letflow.Scripts.TestParallelShardTest do
       assert out =~ "lists no test file for partition 7", out
       assert argv_parts(argv_dir) == [], out
       refute File.exists?(Path.join(argv_dir, "calls.log")), out
+    end
+
+    # A test file on disk the manifest does not list (added on main while a branch waits to
+    # merge) still runs, once, in the partition the fallback rule picks; a manifest line for a
+    # file that is gone is skipped. All 4 shards are run to show "exactly one".
+    test "unlisted files run in exactly one shard, stale lines in none",
+         %{tmp_dir: tmp} do
+      unlisted = ["test/new_a_test.exs", "test/sub/new_b_test.exs", "test/x/y/new_c_test.exs"]
+      stale = "test/removed_test.exs"
+
+      runs =
+        for k <- 1..4 do
+          dir = Path.join(tmp, "s#{k}")
+          manifest = write_manifest(dir, 16, 1..16, ["6 #{stale} 1.00\n"])
+          write_disk_files(dir, unlisted)
+
+          {status, lines, argv_dir} =
+            run_script(dir, [
+              {"TEST_PARALLEL_SHARD", "#{k}/4"},
+              {"TEST_PARALLEL_MANIFEST", manifest}
+            ])
+
+          out = Enum.join(lines, "\n")
+          assert status == 0, out
+          assert out =~ "test_parallel: manifest drift: 4 test file(s) unlisted or stale", out
+          {k, out, argv_dir}
+        end
+
+      for {k, out, argv_dir} <- runs, p <- ((k - 1) * 4 + 1)..(k * 4)//1 do
+        files = argv(argv_dir, p) |> Enum.filter(&String.ends_with?(&1, "_test.exs"))
+        mine = for f <- unlisted, TestShardManifest.fallback_partition(f, 16) == p, do: f
+
+        assert files == manifest_files(p) ++ mine, out
+        refute stale in files, out
+
+        for f <- mine,
+            do: assert(out =~ "test_parallel: unlisted file #{f} -> partition #{p}", out)
+      end
+
+      all_files =
+        for {k, _out, argv_dir} <- runs,
+            p <- ((k - 1) * 4 + 1)..(k * 4)//1,
+            f <- argv(argv_dir, p),
+            String.ends_with?(f, "_test.exs"),
+            do: f
+
+      for f <- unlisted, do: assert(Enum.count(all_files, &(&1 == f)) == 1, f)
+      assert length(all_files) == 32 + length(unlisted)
+
+      {_k, stale_out, _} = Enum.find(runs, fn {k, _, _} -> k == 2 end)
+      assert stale_out =~ "test_parallel: stale manifest line #{stale} (partition 6) skipped"
     end
   end
 end

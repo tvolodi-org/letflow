@@ -72,9 +72,11 @@
 #   partition its own list of test files instead of Mix's round-robin over the sorted file list.
 #   The manifest (scripts/test_shard_manifest.txt, built by scripts/test_shard_plan.sh) has the
 #   header `# partitions: P`, which must equal TOTAL (N*M), and each partition of this runner's
-#   slice must list at least one file; otherwise the run exits 1 before anything is compiled. A
-#   partition then runs `mix test <its files>` with no `--partitions`, since Mix would filter an
-#   explicit file list again. Unset, nothing changes.
+#   slice must get at least one file; otherwise the run exits 1 before anything is compiled. A
+#   test file on disk the manifest does not list runs in one partition chosen by a hash of its
+#   path, and a line for a file that is gone is skipped; both are logged, not errors (see the
+#   manifest block below). A partition then runs `mix test <its files>` with no `--partitions`,
+#   since Mix would filter an explicit file list again. Unset, nothing changes.
 #
 # Q-1037 / GH #2364 observability + diagnostic hooks (all default-off or
 # log-only; with nothing set the partitions' mix commands are unchanged):
@@ -230,10 +232,22 @@ fi
 # GH #2380 step 2: TEST_PARALLEL_MANIFEST=<file> assigns each test file to a global partition
 # (built by scripts/test_shard_plan.sh) instead of Mix's round-robin over the sorted file list.
 # Opt-in: unset, the partitions run `mix test --partitions TOTAL` exactly as before. Set, the
-# manifest must be for this TOTAL and must list at least one file for every partition of this
-# runner's slice. Checked here, before anything is compiled or launched, so a stale or partial
+# manifest must be for this TOTAL, and every partition of this runner's slice must end up with
+# at least one file. Checked here, before anything is compiled or launched, so a mismatched
 # manifest never runs a partial slice.
+#
+# The manifest is a balance hint, not the list of what runs: a test file added or removed on main
+# while a branch waits to merge must neither fail the run nor be dropped. So the effective
+# assignment is built from the files on disk (`find test -name '*_test.exs'`, the set Mix itself
+# would run): a listed file keeps its manifest partition; a file the manifest does not list goes to
+# partition (h mod TOTAL) + 1, where h is the path's polynomial hash (h = (h*31 + code) mod
+# 1000003 over its characters; printable ASCII counts by its code, any other character as 0); a
+# manifest line whose file is gone is skipped. Every file on disk thus runs in exactly one partition of exactly one shard.
+# Unlisted and stale files are logged, with their count, as the signal that the manifest needs
+# `scripts/test_shard_plan.sh --append` for balance; they are not an error.
+# test/support/test_shard_manifest.ex mirrors this rule for the coverage tests: keep them in step.
 manifest_path="${TEST_PARALLEL_MANIFEST:-}"
+manifest_effective=""
 if [ -n "$manifest_path" ]; then
   if [ ! -r "$manifest_path" ]; then
     echo "test_parallel: ERROR TEST_PARALLEL_MANIFEST='$manifest_path' is not readable" >&2
@@ -244,9 +258,31 @@ if [ -n "$manifest_path" ]; then
     echo "test_parallel: ERROR TEST_PARALLEL_MANIFEST='$manifest_path' is for ${manifest_total:-no} partitions but this run has TOTAL=$TOTAL -- refusing to run a partial or mismatched slice (regenerate it with scripts/test_shard_plan.sh)" >&2
     exit 1
   fi
+  # One "<partition> <path> <listed|unlisted|stale>" line per manifest line and per file on disk.
+  manifest_effective=$(
+    {
+      tr -d '\r' < "$manifest_path" | awk '!/^#/ && NF >= 2 { print "L " $1 " " $2 }'
+      if [ -d test ]; then find test -name '*_test.exs' | LC_ALL=C sort | sed 's/^/D /'; fi
+    } | awk -v T="$TOTAL" '
+      BEGIN { for (c = 32; c < 127; c++) ord[sprintf("%c", c)] = c }
+      $1 == "L" { if (!($3 in part)) { part[$3] = $2; order[++n] = $3 }; next }
+      $1 == "D" { path = substr($0, 3); disk[path] = 1; if (!(path in part)) unlisted[++u] = path }
+      END {
+        for (k = 1; k <= n; k++) {
+          path = order[k]
+          print part[path], path, ((path in disk) ? "listed" : "stale")
+        }
+        for (k = 1; k <= u; k++) {
+          path = unlisted[k]; h = 0
+          for (c = 1; c <= length(path); c++) h = (h * 31 + ord[substr(path, c, 1)]) % 1000003
+          print h % T + 1, path, "unlisted"
+        }
+      }
+    '
+  )
   i="$FIRST"
   while [ "$i" -le "$LAST" ]; do
-    manifest_count=$(tr -d '\r' < "$manifest_path" | awk -v p="$i" '$1 == p { n++ } END { print n + 0 }')
+    manifest_count=$(printf '%s\n' "$manifest_effective" | awk -v p="$i" '$1 == p && $3 != "stale" { n++ } END { print n + 0 }')
     if [ "$manifest_count" -eq 0 ]; then
       echo "test_parallel: ERROR TEST_PARALLEL_MANIFEST='$manifest_path' lists no test file for partition $i -- refusing to run an empty partition" >&2
       exit 1
@@ -254,6 +290,14 @@ if [ -n "$manifest_path" ]; then
     i=$((i + 1))
   done
   echo "test_parallel: partitions $FIRST..$LAST take their files from $manifest_path"
+  printf '%s\n' "$manifest_effective" | awk -v f="$FIRST" -v l="$LAST" '
+    $3 == "unlisted" && $1 >= f && $1 <= l { print "test_parallel: unlisted file " $2 " -> partition " $1 }
+    $3 == "stale" && $1 >= f && $1 <= l { print "test_parallel: stale manifest line " $2 " (partition " $1 ") skipped, file not on disk" }
+  '
+  manifest_drift=$(printf '%s\n' "$manifest_effective" | awk '$3 != "listed" { n++ } END { print n + 0 }')
+  if [ "$manifest_drift" -gt 0 ]; then
+    echo "test_parallel: manifest drift: $manifest_drift test file(s) unlisted or stale in $manifest_path (all partitions); balance only, run scripts/test_shard_plan.sh --append"
+  fi
 fi
 
 # --- Step 1: pre-compile MIX_ENV=test exactly once (AC5) -----------------
@@ -981,7 +1025,7 @@ while [ "$i" -le "$LAST" ]; do
   partition_files=()
   if [ -n "$manifest_path" ]; then
     partition_args=()
-    mapfile -t partition_files < <(tr -d '\r' < "$manifest_path" | awk -v p="$i" '$1 == p { print $2 }')
+    mapfile -t partition_files < <(printf '%s\n' "$manifest_effective" | awk -v p="$i" '$1 == p && $3 != "stale" { print $2 }')
   fi
   MIX_TEST_PARTITION="$i" MIX_BUILD_PATH="_build/test-partition-$i" LETFLOW_SKIP_ECTO_SETUP=1 \
     mix test ${partition_args[@]+"${partition_args[@]}"} --no-color $high_pool_demand_exclude "$@" ${extra_args[@]+"${extra_args[@]}"} ${partition_files[@]+"${partition_files[@]}"} \
