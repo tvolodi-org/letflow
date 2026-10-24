@@ -20,6 +20,7 @@ description: >
 
 actors:
   admin: actor-bilimbaga-admin
+  candidate: actor-bilimbaga-candidate
 
 preconditions:
   - description: A bilimbaga tenant exists with the exam solution pack installed
@@ -27,6 +28,10 @@ preconditions:
   - description: The tenant's existing exam content has been brought under the exam module's management (the one-time stamp has run for this tenant)
     check: custom
   - description: At least one exam with a question and answer choices exists on the tenant
+    check: custom
+  - description: A candidate (actor-bilimbaga-candidate) has started a session of that exam, which includes the question, and has not submitted it. If this session cannot be arranged in the environment, outcome EO-005 is BLOCKED, not PASS
+    check: custom
+  - description: The tenant administrator holds the general record writing and import permissions and the exam content writing permission (permission matrix, TENANT_ADMIN row)
     check: custom
 
 steps:
@@ -67,7 +72,7 @@ steps:
 
   - step: 7
     actor: admin
-    action: On the exam module's administration screen, changes the text of the same question and saves it
+    action: On the exam module's administration screen, changes the text of the question that the candidate's live session includes, and saves it
     via: gui
 
 expected_outcomes:

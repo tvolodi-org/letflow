@@ -1,4 +1,4 @@
-# Authored by BA-BILIMBAGA for GH #2680 / REQ-510 slices 2 and 3 (UAT design task T-0276).
+# Authored by BA-BILIMBAGA for GH #2680 / REQ-510 slice 2 (web switch) (UAT design task T-0276).
 # Happy path: the exam administrator maintains exam content on the admin screens, which now
 # write through the exam module's own authoring surface.
 ---
@@ -27,13 +27,13 @@ preconditions:
     check: process_definition_active
   - description: The tenant's existing exam content has been brought under the exam module's management (the one-time stamp has run for this tenant)
     check: custom
-  - description: The administrator account holds the exam content writing permission
+  - description: The administrator account is a tenant administrator, a role that holds the exam content writing permission (permission matrix, TENANT_ADMIN row)
     check: custom
 
 steps:
   - step: 1
     actor: admin
-    action: Opens the administration area of the exam module and the screen for categories, creates a category and a tag
+    action: On the category screen creates a category, and on the tag screen creates a tag
     via: gui
     produces:
       category_name: "the category's name as typed"
@@ -41,44 +41,55 @@ steps:
 
   - step: 2
     actor: admin
-    action: Opens the question screen, creates a question with a category and the tag, then creates three answer choices for it, one marked correct
+    action: On the question screen creates a question with the category, then creates three answer choices for it (one marked correct) and attaches the tag to the question as a tag on a question
     via: gui
     produces:
       question_text: "the question's text as typed"
 
   - step: 3
     actor: admin
-    action: Opens the exam screen and creates an exam, then adds a section, a rule that draws questions by the tag, and a hand-picked question to the exam
+    action: On the exam screen creates an exam, then creates a section of it, a rule that draws questions, a tag on that rule (the tag from step 1), and a hand-picked question of the exam
     via: gui
     produces:
       exam_title: "the exam's title as typed"
 
   - step: 4
     actor: admin
-    action: Changes the text of the question and the pass mark of the exam, and saves each
+    action: Changes and saves one item of each of the ten kinds in turn (exam pass mark, section title, rule count, tag on a rule, hand-picked question order, question text, answer choice text, tag on a question, tag name, category name), checking the list screen after each save
     via: gui
 
   - step: 5
     actor: admin
-    action: Opens a record that a colleague has changed since it was loaded and saves a change over the old version
+    action: In a first browser session opens a question for editing, and leaves the form unsaved
     via: gui
 
   - step: 6
     actor: admin
-    action: Removes the hand-picked question, the rule, one answer choice, the tag and the category created in this scenario
+    action: In a second browser session of the same administrator opens the same question, changes its text and saves
     via: gui
 
   - step: 7
     actor: admin
-    action: Opens the list screens of the ten kinds of exam content and looks for the items removed in step 6
+    action: Back in the first browser session saves a change over the old version of that question
+    via: gui
+
+  - step: 8
+    actor: admin
+    action: Removes one item of each of the ten kinds in turn, in an order that respects dependencies (hand-picked question, tag on a rule, rule, section, tag on a question, answer choices, question, exam, tag, category)
+    via: gui
+
+  - step: 9
+    actor: admin
+    action: Opens the list screens of the ten kinds of exam content and looks for the items removed in step 8
     via: gui
 
 expected_outcomes:
   - id: EO-001
     description: >
       Every kind of exam content (exam, section, question rule, tag on a rule, hand-picked
-      question, question, answer choice, tag on a question, tag, category) can be created,
-      changed and removed on its administration screen, and each action is accepted
+      question, question, answer choice, tag on a question, tag, category) can be created
+      (steps 1 to 3), changed (step 4) and removed (step 8) on its administration screen,
+      and each action is accepted
     verification:
       method: page_state
       detail: "Each create, change and remove on the ten screens succeeds, and the list shows the saved values after each save"
@@ -105,11 +116,12 @@ expected_outcomes:
 
   - id: EO-003
     description: >
-      Saving over a record that a colleague changed in the meantime is turned away with a
-      clear message, and the colleague's version is kept
+      Saving over a record that was changed in the meantime (steps 5 to 7) is turned away
+      with a clear message, and the version saved in step 6 is kept. If the environment
+      cannot hold two sessions of the administrator at once, this outcome is BLOCKED, not PASS
     verification:
       method: page_state
-      detail: "The step 5 save is refused with a conflict message and the stored record still holds the colleague's version"
+      detail: "The step 7 save is refused with a conflict message and the stored question still holds the step 6 text"
     on_fail:
       severity: MAJOR
       business_impact: >
@@ -122,13 +134,14 @@ expected_outcomes:
       Removed items no longer appear on the list screens and are not offered to candidates
     verification:
       method: page_state
-      detail: "None of the items removed in step 6 is listed in step 7"
+      detail: "None of the items removed in step 8 is listed in step 9"
     on_fail:
       severity: MAJOR
       business_impact: >
         A removed question that is still offered to candidates would be scored against an
         answer key the authors meant to retire.
       suggested_action: route_to_backend_dev
+
 
   - id: EO-005
     description: >
@@ -147,5 +160,5 @@ expected_outcomes:
 cleanup:
   cancel_open_instances: true
   description: >
-    Remove any exam content created in this scenario that step 6 did not remove, so a
+    Remove any exam content created in this scenario that step 8 did not remove, so a
     re-run starts from a clean tenant.

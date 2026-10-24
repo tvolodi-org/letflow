@@ -1,4 +1,4 @@
-# Authored by BA-BILIMBAGA for GH #2680 / REQ-510 slices 1 and 2 (UAT design task T-0276).
+# Authored by BA-BILIMBAGA for GH #2680 / REQ-510 slice 2 (UAT design task T-0276).
 # Refusal: a role without the exam content writing permission cannot maintain exam content.
 ---
 id: bilimbaga-exam-authoring-refusal-role-without-authoring-permission
