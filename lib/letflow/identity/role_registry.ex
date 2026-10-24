@@ -717,6 +717,10 @@ defmodule Letflow.Identity.RoleRegistry do
                 :in_place
               end
 
+            # GH #2692 (REQ-515): a platform binding turned routing removes the role from its group.
+            if role.kind == :platform_role and updated.kind != :platform_role,
+              do: :ok = reconcile_group_members!(bound, prefix)
+
             :ok = audit_binding_write({:kind_changed, role.kind}, updated, prefix, ctx, rows)
             # REQ-497 PR 1b N1 (design 6.2 (a)): converting the TENANT_ADMIN platform
             # binding away from platform must leave a tenant-wide admin. Rolls back on 0.
@@ -973,6 +977,15 @@ defmodule Letflow.Identity.RoleRegistry do
     )
   end
 
+  # GH #2692 (REQ-515): re-check the definitions activated by members of a group that lost a
+  # platform role; a failure rolls the whole binding write back.
+  defp reconcile_group_members!(group_id, prefix) do
+    case Letflow.Definitions.Reactivation.reconcile_group(group_id, prefix) do
+      {:ok, _marked} -> :ok
+      {:error, reason} -> Repo.rollback({:definition_reactivation_failed, reason})
+    end
+  end
+
   defp move_role(role, target, actor_id, reason, prefix, trace_id) do
     # REQ-497 PR 1b N1 transition rule (design 6.2 (c)): the before-count of a TA platform
     # binding, under lock A and the role row lock, before the write.
@@ -994,6 +1007,9 @@ defmodule Letflow.Identity.RoleRegistry do
         {:ok, updated} -> updated
         {:error, changeset} -> Repo.rollback(changeset)
       end
+
+    # GH #2692 (REQ-515): members of the group that LOST the role are re-checked, same transaction.
+    :ok = reconcile_group_members!(role.group_id, prefix)
 
     # REQ-497 W3: the binding's grant rows follow it to the target group (a raise is
     # caught by rebind_role/4's rescue since PR 1b, GH #2575).

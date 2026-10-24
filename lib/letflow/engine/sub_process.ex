@@ -103,6 +103,7 @@ defmodule Letflow.Engine.SubProcess do
           | {:input_schema_violation, entry_name :: String.t(),
              failures :: [ValidationFailure.t()]}
           | {:definition_not_found, term()}
+          | {:definition_needs_reactivation, definition_name :: String.t()}
           | {:pin_resolution_failed, term()}
 
   @typedoc "The two completion-time (output-filter) SPC-01 failure modes."
@@ -286,6 +287,11 @@ defmodule Letflow.Engine.SubProcess do
   defp failure_detail({:definition_not_found, _reason}),
     do: {"SUB_PROCESS_DEFINITION_NOT_FOUND", "definition_name", []}
 
+  # GH #2692 (REQ-515): the child definition's recorded activator lost its authority; the
+  # child is not started (nothing is written), the parent takes the ExecutionError path.
+  defp failure_detail({:definition_needs_reactivation, _name}),
+    do: {"SUB_PROCESS_DEFINITION_NEEDS_REACTIVATION", "definition_name", []}
+
   # GH #2694: the child definition's own pins (script / catalog / module / variable schema)
   # could not be resolved; the child is not started.
   defp failure_detail({:pin_resolution_failed, _reason}),
@@ -423,8 +429,14 @@ defmodule Letflow.Engine.SubProcess do
     case get_in(attributes || %{}, ["definition_name"]) do
       name when is_binary(name) and name != "" ->
         case Definitions.get_active_by_name(name, prefix: prefix) do
-          {:ok, definition} -> {:ok, definition}
-          {:error, reason} -> {:error, {:definition_not_found, reason}}
+          {:ok, %{needs_reactivation_at: %DateTime{}}} ->
+            {:error, {:definition_needs_reactivation, name}}
+
+          {:ok, definition} ->
+            {:ok, definition}
+
+          {:error, reason} ->
+            {:error, {:definition_not_found, reason}}
         end
 
       _other ->

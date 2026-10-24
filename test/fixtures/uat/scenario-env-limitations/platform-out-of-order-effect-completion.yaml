@@ -1,0 +1,18 @@
+scenario_id: platform-out-of-order-effect-completion
+applies_to_environments: [qa]
+disposition: skipped
+classification: COVERED_ELSEWHERE
+reason: |
+  The scenario has only via: system steps and no pipeline_test; a QA run drives
+  only the deployed HTTP/UI. Each expected outcome is verified in CI by the
+  existing tests below (outcome id | test file | test name).
+  EO-001 | test/letflow/ordering_test.exs | seq 2 inserted before seq 1; first cycle applies 1, second applies 2, events in order
+  EO-002 | test/letflow/ordering_test.exs | seq 3 with cursor at applied_seq=0 (next=1) stays PENDING; no event appended
+  EO-003 | test/letflow/ordering_test.exs | two concurrent try_apply calls on same completion yield one :applied and one failure; cursor advanced once
+  EO-004 | test/letflow/ordering_test.exs | each correlation's seq 1 is applied by its own run_cycle call
+  EO-005 | test/letflow/ordering_test.exs | seq 2 with missing predecessor and old enough is swept to DEAD with one DLQ entry
+recorded_by: ELIXIR-DEV
+recorded_at: "2026-10-24"
+issue_ref: ISS-0900
+review: >
+  Revisit if ordering_test.exs is removed or its cited tests are renamed.
