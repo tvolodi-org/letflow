@@ -133,7 +133,25 @@ Consequences to plan for:
 * A tenant that was never replayed to the `TASK_ENTITY_WRITES_APPLIED` v3 schema lands in ERROR
   with detail `event_schema_outdated`. Run `TenantProvisioning.replay_all_pending/0` for every
   tenant BEFORE the first handler-calling service definition is activated.
-* A handler value larger than the service byte caps (64 KiB per value, 256 KiB per line, the same
-  as declarative lines) is `validation_failed` with detail `value_too_large`.
+* A handler value larger than the entity-side byte caps (64 KiB per value, 256 KiB per record, measured as
+  the JSON encoding; `Letflow.Entities.Record.SizeCap`, the same for every writer) is `validation_failed`
+  with detail `value_too_large`.
 * The combined 20-line cap and the 49 creates per handler call apply; the handler-call deadline
   guard counts inside the 20 s service budget (an exhausted budget is contention and is re-applied).
+
+## Size cap on every writer (GH #2689, REQ-514)
+
+The byte cap (64 KiB per field value, 256 KiB per record, bytes of the JSON encoding; a string of N
+ASCII characters counts N + 2) is enforced once, in `Records`, for every writer, not only for the
+service origin. A step line or handler write that exceeds it is `validation_failed` with audit detail
+`value_too_large`; the generic HTTP create/update answers `422` with the constant detail
+`entity record exceeds the size limit` or `an entity record field value exceeds the size limit`; an
+import entry fails with `reason.type = "record_size_exceeded"` and `limit = "value" | "record"`. No
+field name or size is returned. A compiled-in module writing its own managed type (the exam module)
+has a larger backstop (4 MiB / 5 MiB).
+
+A record stored over the cap before this change (the only way to have one) is not repaired and does not
+block its writers: a value carried over byte-identical is not measured, and the record cap is not applied
+when the stored record is already over it. To shrink such a record, write a smaller value for the field
+through any unrestricted writer. An upsert by external ref onto an existing oversize record follows the
+same re-save rule as a direct update; the import route creates new records and applies the plain caps.

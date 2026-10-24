@@ -668,10 +668,6 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert [_record] = Fx.records(ctx.schema, "wide_rec")
     end
 
-    test "the two size caps are pinned named constants (a change is a reviewed diff)" do
-      assert StepWrites.service_size_caps() == %{value_max_bytes: 65_536, line_max_bytes: 262_144}
-    end
-
     test "a `var` naming the reserved namespace is omitted: the required field is then missing" do
       ctx = case!([Fx.line("stock_move", %{"label" => %{"var" => "_sys.move"}})])
 
