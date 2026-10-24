@@ -38092,6 +38092,167 @@ requirements:
       - "12. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_requirements_registration, mix letflow.check_boundaries, the route-inventory and scope-enforcement pin tests, and the scoped mix test over test/letflow/engine*, test/letflow/tasks*, test/letflow/identity*, test/letflow/scope_enforcement* and test/letflow/tasks/scope_node_id_no_writer_scan_test.exs pass, real output quoted"
     depends_on: [REQ-531, REQ-518, REQ-519]
 
+  - id: REQ-533
+    title: "UAT preflight and runner: a scenario-env-limitations sidecar can carry disposition skipped, so an unbuilt-feature or covered-elsewhere scenario is listed as SKIPPED with its reason and does not make the environment ENV_NOT_READY"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3098
+    description: >
+      Source: GH #1997 groups (1) and (2) (the full-corpus QA run reports scenarios that cannot be driven as
+      BLOCKED); the 2026-10-16 triage comment on GH #1997; the task text of T-0369: a scenario may be marked
+      env-scoped (skipped with a stated reason in full-corpus QA runs).
+      What exists today, read on main on 2026-10-24: scripts/uat_preflight.sh turns every matching sidecar in
+      test/fixtures/uat/scenario-env-limitations/ into env_limitation = GAP (the block that starts at
+      "lim = env_limitations.get(s["id"])"), and every GAP counts toward RESULT: ENV_NOT_READY in its SUMMARY.
+      .claude/agents/uat-runner.md (the preflight_report input) says a scenario with env_limitation GAP must
+      be recorded BLOCKED with the sidecar's reason and issue_ref; docs/agents/workflows/WF-05_uat_run.md
+      (the "environment-structural (permanent)" paragraph) says the GAP is expected and not re-filed. There is
+      no skipped status anywhere. A sidecar alone therefore cannot make a scenario "skipped, not BLOCKED";
+      that needs this change to the mechanism.
+      CHANGE: (1) a sidecar may carry an optional field disposition with the value skipped (absent = today's
+      behaviour, unchanged for every existing sidecar; there are four on main on 2026-10-24:
+      meridian-loan-origination-kyc-manual-review, platform-partition-retention-drop,
+      platform-tenant-switch-cache-isolation and swiftroute-tenant-onboarding-happy, none with a disposition
+      field). (2) scripts/uat_preflight.sh: for a matching sidecar with disposition
+      skipped (environment in applies_to_environments, as today), env_limitation is reported SKIP, not GAP;
+      the scenario is listed in a new "== SKIPPED SCENARIOS ==" section with classification, reason and
+      issue_ref; none of that scenario's checks counts toward GAP or toward ENV_NOT_READY (its other checks
+      are shown but not counted, because the scenario will not be driven). A sidecar with
+      applies_to_expected_outcomes cannot carry disposition skipped (a partly covered scenario must still run
+      its other outcomes); the preflight prints an error and exits non-zero for that combination. (3)
+      .claude/agents/uat-runner.md and docs/agents/workflows/WF-05_uat_run.md: a scenario the report lists as
+      SKIPPED is recorded SKIPPED with the sidecar's reason and issue_ref verbatim, is not executed, is not
+      BLOCKED, and files no issue; the run report's counts show SKIPPED separately. (4) The description of the
+      sidecar fields (a comment or doc, if one exists; the builder greps for it) names the new field and the
+      classifications UNBUILT_FEATURE and COVERED_ELSEWHERE as valid for a skipped sidecar.
+      The preflight needs python and a reachable QA base URL to run end to end; the builder runs it with
+      --environment qa (the slug the existing sidecars use) and quotes the output, or, if no QA URL is
+      reachable from the worktree, says so and tests the sidecar branch on a fixture corpus (the builder reads
+      the script's arguments first and reports which way it went).
+      NOT in this entry: the sidecars for the three scenarios (REQ-534), any scenario file, any lib/ or web/ file.
+    acceptance_criteria:
+      - "a fixture sidecar with disposition skipped and a matching environment makes the preflight print env_limitation SKIP for that scenario, list it under SKIPPED SCENARIOS with classification, reason and issue_ref, and leave the GAP counts and the RESULT line as they are without that scenario (a run over a fixture corpus in which that scenario would otherwise add GAPs, real output quoted)"
+      - "each of the four existing sidecars (meridian-loan-origination-kyc-manual-review, platform-partition-retention-drop, platform-tenant-switch-cache-isolation, swiftroute-tenant-onboarding-happy; none has a disposition field) is reported exactly as before: env_limitation GAP with the same text and the same effect on RESULT (before and after output compared per sidecar, quoted; any further sidecar added on main before the build is covered the same way)"
+      - "a sidecar that has both disposition skipped and applies_to_expected_outcomes makes the preflight exit non-zero with a message naming the sidecar file"
+      - "a sidecar for an environment slug other than the --environment value is ignored, as today"
+      - ".claude/agents/uat-runner.md and docs/agents/workflows/WF-05_uat_run.md state the SKIPPED rule: recorded with reason and issue_ref verbatim, not executed, not BLOCKED, no new issue filed (each of the four statements can be found by quote in the diff)"
+      - "git diff --stat is quoted: only scripts/uat_preflight.sh, the two doc files, the sidecar field description and a test or fixture for the preflight; no scenario file, no existing sidecar, no lib/ or web/ file"
+      - "scripts/ci_changed_paths.sh is run on the changed paths and its result quoted; every test that reads scripts/uat_preflight.sh by name (grep of test/) is run"
+    depends_on: []
+
+  - id: REQ-534
+    title: "UAT corpus: mark platform-sandbox-cross-tenant-probe (unbuilt feature) and platform-frontend-guard-selfcheck and platform-out-of-order-effect-completion (covered elsewhere) as skipped in QA full-corpus runs"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3103
+    description: >
+      Source: GH #1997 group (1), re-checked on main by T-0369 on 2026-10-24, and group (2) (the part that is
+      covered by existing tests). Depends on REQ-533, which provides the skipped disposition.
+      GROUP (1) RE-CHECK. Of the six scenarios of group (1), three are delivered and need no entry:
+      platform-definition-type-error-blocked and platform-instance-pin-survives-catalog-change have specs
+      (web/tests/e2e/pipelines/platform-definition-type-error-blocked.pipeline.e2e.spec.ts and
+      platform-instance-pin-survives-catalog-change.pipeline.e2e.spec.ts), and
+      web/tests/e2e/pipelines/renderer-states.pipeline.e2e.spec.ts (named by
+      test/fixtures/uat/scenarios/platform/renderer-permission-denied-surface.yaml) exists. Only
+      platform-sandbox-cross-tenant-probe is not runnable: its header NOTE (ISS-0527) says Letflow has not
+      built the runtime-agent sandbox claim/release subsystem; lib/letflow/router.ex lists
+      Letflow.Routers.AgentRequests, AgentResponses and AgentEvents as deferred; docs/issues/ISS-0890.yaml
+      records closed_not_applicable (like ISS-0740). Its NOTE already makes the preflight report
+      feature = GAP "feature-gap (UNBUILT_FEATURE)" (the unbuilt regex in scripts/uat_preflight.sh); what is
+      missing is only the disposition, because today that GAP makes the scenario BLOCKED. Building the
+      subsystem is a product decision for the owner and is not in this entry.
+      GROUP (3) needs no entry: both scenarios already have sidecars in
+      test/fixtures/uat/scenario-env-limitations/ (ISS-0901), and the tenant-switch-cache-isolation sidecar is
+      scoped to EO-001 only.
+      GROUP (2), covered part. docs/issues/ISS-0900.yaml (progress note of 2026-09-30) maps
+      platform-out-of-order-effect-completion onto test/letflow/ordering_test.exs and
+      platform-frontend-guard-selfcheck onto web tests (meta-control spec, bundle-scan.spec.ts, reporter.ts,
+      reportWriter.ts, and the a11y gate extended by PR #2023). The builder re-reads both scenarios and the
+      named tests and re-derives the expected-outcome-to-test mapping itself; a note is not a source. The
+      scenarios have only via: system steps and no pipeline_test, so the UAT runner has nothing to drive; the
+      test seam is the existing tests, not a new HTTP surface. Why this depends on the environment: a QA run
+      drives only the deployed HTTP/UI; these checks run in CI, so applies_to_environments is [qa].
+      BUILDS: three sidecars in test/fixtures/uat/scenario-env-limitations/ in the format of
+      platform-partition-retention-drop.yaml, each with disposition skipped, applies_to_environments [qa],
+      recorded_by, recorded_at, a review condition and an issue_ref (ISS-0890 for the sandbox probe, ISS-0900
+      for the other two). The sandbox sidecar has classification UNBUILT_FEATURE and a reason naming the
+      deferred Agent* routers; the other two have COVERED_ELSEWHERE and a reason listing, per expected outcome
+      id, the test file and test name that verifies it. An outcome with no existing test is written NOT
+      COVERED in the findings; that scenario gets no skipped sidecar (it is left out and reported), because
+      skipping it would hide an untested outcome.
+    acceptance_criteria:
+      - "a sidecar exists for the sandbox probe and for each of the other two scenarios whose outcomes are all mapped; each has disposition skipped, applies_to_environments [qa], the right classification and an issue_ref"
+      - "a test reads each COVERED_ELSEWHERE sidecar and asserts that every expected outcome id of the scenario file appears in the reason, every cited test path exists and every cited test name occurs in that file"
+      - "scripts/uat_preflight.sh --environment qa over the corpus lists the sidecar scenarios under SKIPPED SCENARIOS with their reasons and no longer counts their GAPs (real output quoted; if no QA URL is reachable, the same is shown on the fixture corpus and the limitation stated)"
+      - "the sandbox sidecar's review field states the removal condition: a runtime-agent sandbox subsystem exists and the owner has decided to test it"
+      - "git diff --stat is quoted: only the new sidecars and the test that checks them; no scenario file, no lib/ or web/ file, no existing test"
+    depends_on: [REQ-533]
+
+  - id: REQ-535
+    title: "Platform change-set review: a pure function classifies a whole set of platform-wide schema changes as accepted or refused before any company workspace is opened, using the change classes of decision 0055 (test seam, no route)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S6
+    gh: 3098
+    description: >
+      Source: GH #1997 group (2), scenario test/fixtures/uat/scenarios/platform/unsafe-migration-rejected.yaml
+      (EO-001, EO-002, EO-003); docs/issues/ISS-0902.yaml (genuinely unbuilt: lib/letflow/platform/migration_rollout.ex
+      has no concept of a change SET; its moduledoc scopes REQ-374 to one change); decision
+      docs/migration/decisions/0055-module-upgrade-migration-uninstall.md.
+      RELATION TO 0055 (stated, not re-decided). 0055 D2 classifies the changes of a module upgrade: Class B
+      covers a new required field or a default-less NOT NULL (refused unless a covering step and
+      ack_destructive are present); Class C is forbidden. D8 lists what an upgrade may not do. The scenario's
+      second set (make a field compulsory before it is filled) is that Class B rule, and its corrected set
+      (add optional, fill in batches, then make compulsory) is a covering step. This entry uses 0055's class
+      names (A/B/C) for classifying. 0055 D2 refuses Class B unless the new version declares a covering step AND
+      the apply carries ack_destructive whose set equals the plan's Class B step ids (making an existing field
+      required, i.e. constraint tightening, is Class B too). A platform-wide set has no per-tenant apply, so
+      whether it needs that acknowledgement is an open question below; this entry carries the acknowledgement
+      in the input (field ack_destructive, a list of change ids) and reports its absence or mismatch as a
+      separate violation kind, but does not decide that the platform must demand it outside review/1. What 0055 does not say
+      is how a platform-wide change that holds every workspace locked for an unbounded time (the scenario's
+      example: reworking stored history in place) is classed, and where a platform-level review is called
+      from; those are the open questions below and are not settled in a criterion. 0055's plan route is a
+      per-tenant HTTP route and is not built (no lib/letflow/module_upgrade/ exists on main on 2026-10-24); this
+      entry does not build it.
+      SURFACE (test seam): a new pure module Letflow.Platform.ChangeSetReview in lib/letflow/platform/ with
+      review(change_set) returning {:ok, plan} or {:error, {:rejected, violations}}; a violation carries the
+      change, the 0055 class where one applies, and the missing preparation. No HTTP route, no database
+      access, no tenant data, so INV-1 is not engaged.
+      INPUT (a NEW shape, not MigrationRollout's): MigrationRollout's column_spec
+      (lib/letflow/platform/migration_rollout.ex:118-128) allows only required(:nullable) => true plus pg_type,
+      references_entity and generated_as, and the module knows exactly one change kind, so it cannot express a
+      NOT NULL column, a default, a backfill or a history rewrite. review/1 takes
+      %{changes: [change], ack_destructive: [change_id]} where every change has id (string, unique in the set)
+      and kind, one of: add_column (fields entity_type, attribute, pg_type, nullable boolean, default optional),
+      backfill (entity_type, attribute), set_not_null (entity_type, attribute), rewrite_stored_history
+      (entity_type). "Ordered before" means earlier in the changes list. An unknown kind or a missing field
+      returns {:error, {:invalid_change_set, reason}}, not a violation. This entry does not modify
+      MigrationRollout. The verdict depends on the change set alone and the violations come in a fixed order
+      (by change id) (EO-003); the "same set in a different order" check in EO-003 compares verdicts for the
+      same list contents reordered only where no ordering constraint (backfill before set_not_null) is broken.
+      NOT in this entry: EO-004 (three-stage execution); EO-005 (reserved names), which is already enforced
+      for module-managed types by REQ-496 / GH #2530 (Letflow.Entities.Definitions returns
+      {:error, {:managed_name_taken, name}} and the definitions API answers the uniform 403 of decision 0050
+      D7), so REQ-496 is cited and no entry is written for it; and any route.
+    open_questions:
+      - "Whether a change that holds a workspace locked for an unbounded time (in-place rewrite of stored history) is a new class beside 0055's A/B/C, or Class C. 0055 does not say. The platform owner decides, by a decision record; until then review/1 reports it as a violation of kind unbounded_lock and does not name a class."
+      - "Whether a platform-wide change set needs the ack_destructive acknowledgement of 0055 D2 for Class B changes, and who gives it (a platform set has no per-tenant apply). review/1 reports a covered set_not_null change without acknowledgement as violation kind missing_ack and does not decide the policy; the owner decides by a decision record."
+      - "Whether MigrationRollout.start_rollout/3 must call review/1, whether a platform-operator route exposes it, and how it relates to 0055's per-tenant plan. This entry changes none of them; EO-004 depends on the answer."
+      - "Whether the scenario's 'a name the platform reserves' (step 6, EO-005) means only the managed type names REQ-496 already refuses, or a wider list. If wider, the owner names the list and a requirement is then written."
+    acceptance_criteria:
+      - "a test: a change set of three changes, one an in-place rewrite of stored history, returns {:error, {:rejected, violations}} naming that change and no other; no change of the set appears in an accepted plan"
+      - "a test: a set with add_column (nullable true) then set_not_null on it, no default and no backfill, is rejected with a violation naming the column and Class B"
+      - "a test: the same set with a backfill change ordered between them and the set_not_null id listed in ack_destructive is accepted; with the backfill but an empty ack_destructive it returns a missing_ack violation naming the change id (the ack policy itself stays an open question); with the backfill after the set_not_null it is rejected as not covered"
+      - "a test: a change set whose kind is unknown, or whose change lacks a required field, returns {:error, {:invalid_change_set, _}} and no violations list"
+      - "a test: review/1 called twice on the same set, and on the same set with its independent changes (no backfill/set_not_null ordering involved) listed in a different order, returns equal verdicts and equal violation lists (ordered by change id)"
+      - "a test: a set with two violations returns both (the whole set is reviewed, not stopped at the first)"
+      - "a test: review/1 runs without the Ecto sandbox checked out; git diff shows lib/letflow/platform/migration_rollout.ex and every router untouched"
+      - "the summary quotes the 0055 D2 table rows used and a grep showing lib/letflow/module_upgrade/ does not exist; mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test of the new test file and mix letflow.check_requirements_registration pass, real output quoted"
+    depends_on: [REQ-374]
+
   - id: REQ-536
     title: "Document legal hold set and clear, retention-policy and hold routes, permissions DocumentHold and DocumentsRetentionManage (decision 0063 part (b); 0056 D7, D8)"
     owner: ELIXIR-DEV
