@@ -38293,52 +38293,93 @@ requirements:
     depends_on: [REQ-508]
 
   - id: REQ-538
-    title: "Saved list view definitions over one entity type (columns, filter, sort), read through POST /entities/query and shown on the entity list screen (generic views, slice 1)"
+    title: "Decision record for generic saved views over entities (shape of slice 1: saved list view definitions)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- issue filed by the engine after the gate
+    # Source: docs/migration/core-roadmap-20261014.md, Wave 3 row "Generic list, pivot and graph views and a report builder over entities" (decision record marked "yes (new)"). Written by the business analyst (T-0443) 2026-10-25.
+    description: >
+      Design-only slice. The Wave 3 row of docs/migration/core-roadmap-20261014.md on generic
+      list, pivot and graph views and a report builder over entities says a new decision record is
+      needed. This requirement writes that record in docs/migration/decisions/ (next free number)
+      and nothing else: no migration, route, permission or web change. It decides the shape of
+      slice 1 (saved list view definitions: columns, filter and sort over one entity type) and
+      names the later slices (slice 2 pivot over POST /entities/query/aggregate, REQ-315; slice 3
+      graph; slice 4 report builder). Questions the record settles, with the process owner
+      confirming where the source is silent: whether a view is tenant-wide or per-user (no source
+      yet; the BA working assumption is tenant-wide, to be confirmed by the process owner);
+      one entity type per view; that a stored query is replayed through the existing
+      POST /entities/query path (lib/letflow/routers/entities.ex,
+      Letflow.Entities.RequestAccess.check/4, Query.Compiler, Allowlist, Cursor, FieldGrants) so
+      no second read path exists (INV-2, INV-1); which permission creates and edits a view
+      (candidate: a new TENANT-scope permission held by TENANT_ADMIN, with EntitiesQuery for
+      reading); how a view is stored in the tenant schema (INV-1, INV-6). Not the exam results
+      list of decision 0031 / REQ-350.
+    acceptance_criteria:
+      - "1. A new file docs/migration/decisions/NNNN-<slug>.md exists, NNNN being the next free number, with the status line the neighbouring records use, and no file outside docs/migration/decisions/ changes."
+      - "2. The record states, each with its source or marked as an assumption to be confirmed by the process owner: tenant-wide or per-user sharing; one entity type per view; the stored query replayed through POST /entities/query with no second read path; the permission that reads views and the permission that creates, edits and deletes them; storage in the tenant schema."
+      - "3. The record names the tests the build requirements must carry: a cross-tenant negative test (INV-10), a field-redaction test (INV-2) and a not-found test (INV-5), and lists slices 2 to 4 as deferred, each as its own later requirement."
+      - "4. mix letflow.check_requirements_registration and the repository decision-record lints pass, real output quoted."
+    depends_on: [REQ-393, REQ-311]
+
+  - id: REQ-539
+    title: "Saved list view definitions over one entity type: tenant-schema storage, validated CRUD routes and EntitiesViewsManage permission (generic views, slice 1, backend)"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
-    # Source: docs/migration/core-roadmap-20261014.md, Wave 3 row "Generic list, pivot and graph views and a report builder over entities" (decision record marked "yes (new)"). Written by the business analyst (T-0443) 2026-10-25. Not yet validated. Not the exam results-list scope of decision 0031 / REQ-350.
+    # impl_order: UNREGISTERED -- blocked-by: REQ-538 -- issue filed by the engine after the gate
+    # Source: docs/migration/core-roadmap-20261014.md, Wave 3 generic views row; the decision record of REQ-538. Written by the business analyst (T-0443) 2026-10-25.
     description: >
-      Slice 1 of the generic views item of Wave 3 of docs/migration/core-roadmap-20261014.md.
-      Today a user can browse one entity type on web/src/pages/entities/EntityListBrowserPage.tsx
-      (REQ-393, routed at entities/:entityType in web/src/router.tsx) with the filter builder
-      web/src/components/entities/EntityFilterBuilder.tsx, a sort control and a page-size control,
-      but nothing about that arrangement can be saved: every visit starts from the defaults. This
-      slice adds a per-tenant saved list view: a named definition over exactly one entity type
-      holding an ordered list of columns (field names), a filter (the clause list of
-      POST /entities/query) and a sort (the sort clause list of POST /entities/query), stored in
-      the tenant schema (INV-1; tenant_id kept inside the schema as well). A view is not a second
-      read path and not a cache of records: opening a view loads its definition, then the list
-      screen sends the stored filter, sort and columns as an ordinary POST /entities/query
-      (lib/letflow/routers/entities.ex, Letflow.Entities.RequestAccess.check/4, then
-      Letflow.Entities.Query.Compiler, Allowlist, Cursor and FieldGrants). Because of that the
-      type gate, the restricted-field guard, the searchable-field allowlist and the per-user field
-      redaction of the entity list (INV-2) apply to a view exactly as to a hand-built query, and a
-      view never widens what its caller could query directly. Permissions: reading and opening
-      views needs the existing EntitiesQuery permission; creating, editing and deleting a view
-      needs a new TENANT-scope permission EntitiesViewsManage, added to
-      lib/letflow/api/authorization.ex with its roles-matrix row in docs/roles.md and the golden
-      (priv/permission_matrix/effective.golden), held by TENANT_ADMIN and by no other built-in role
-      (PLATFORM_ADMIN included; docs/roles.md). Views are tenant-wide, shared by every holder of
-      EntitiesQuery who may read the type; a per-user private view is not in this slice. Out of
-      scope and deferred to named later slices, each its own requirement: slice 2 pivot view
-      (grouping over POST /entities/query/aggregate, REQ-315), slice 3 graph view, slice 4 report
-      builder (saved aggregate reports and export). Not in this slice either: sharing a view
-      across tenants, a view over joined types (REQ-300 joins), view versioning (the separate
-      Wave 3 item "Solution versioning and per-tenant overrides"). Open question for the owner, not
-      settled here: the roadmap marks this item as needing a new decision record; the first
-      criterion makes that record the first deliverable, and the criteria below assume the shape
-      stated in this description (one type per view, tenant-wide, query body reused unchanged).
+      Backend of slice 1 of generic views. Implements the shape the decision record of REQ-538
+      settles; where that record differs from the names below, the record wins and the criteria
+      are read with its terms. A saved view is a named definition over exactly one entity type
+      holding ordered columns, a filter (the clause list of POST /entities/query) and a sort,
+      stored in the tenant schema (INV-1; tenant_id kept inside the schema). A view is not a read
+      path for records: no route of this slice returns record data. The list screen replays a
+      stored view as an ordinary POST /entities/query (lib/letflow/routers/entities.ex,
+      Letflow.Entities.RequestAccess.check/4, Query.Compiler, Allowlist, Cursor, FieldGrants), so
+      the type gate, restricted-field guard and per-user redaction (INV-2) apply unchanged.
+      Reading views needs the existing EntitiesQuery permission; creating, editing and deleting
+      needs a new TENANT-scope permission EntitiesViewsManage in lib/letflow/api/authorization.ex
+      with its roles-matrix row in docs/roles.md and the golden
+      (priv/permission_matrix/effective.golden). TENANT_ADMIN is the only tenant role that holds
+      it; PLATFORM_ADMIN is allowed by the unconditional platform clause of
+      lib/letflow/api/authorization.ex, so its golden row is true like every other row. Out of
+      scope: the web screen (REQ-540), pivot (slice 2), graph (slice 3), report builder (slice
+      4), views across tenants, views over joined types (REQ-300), view versioning.
     acceptance_criteria:
-      - "1. Decision record: before any code, a new record in docs/migration/decisions/ (next free number) is written and cites this shape (storage in the tenant schema, one entity type per view, tenant-wide sharing, the stored query is replayed through POST /entities/query and no second read path exists, the permission split EntitiesQuery / EntitiesViewsManage). If the record is not ratified the implementer returns the open question instead of coding."
-      - "2. Storage: a tenant-schema migration in priv/repo/migrations/ creates the saved view table with tenant_id inside the schema, a name unique per entity type within a tenant, the entity type key, the ordered columns, the filter and the sort as stored query clauses, and created/updated actor and timestamps. A test asserts that a view created in tenant A is absent from the tenant B schema (INV-1, INV-6)."
-      - "3. Validation on write: create and update validate the filter and sort clauses with the same Letflow.Entities.Query.Allowlist and clause rules POST /entities/query uses, and every column against the type's fields. A body naming a field that is not on the type, an unknown operator or an unknown sort direction returns 422 with a named error and stores nothing. A test per case."
-      - "4. Routes and permissions: list, read, create, update and delete routes for views exist; list and read require EntitiesQuery, create, update and delete require EntitiesViewsManage. EntitiesViewsManage is TENANT scope in lib/letflow/api/authorization.ex, its docs/roles.md row and the golden are updated, and a matrix test asserts TENANT_ADMIN holds it and PLATFORM_ADMIN and every other built-in role do not. A caller without it gets the same 403 for an existing and an absent view id."
-      - "5. Server-side field authorisation (INV-2): opening a view through the list screen issues an ordinary POST /entities/query; a test with a user who lacks the grant on one stored column or filter field shows that the value is redacted exactly as for a hand-built query and the field value never appears in the response; a user without access to the entity type gets the same answer for the view as for the type directly. No route of this slice returns record data."
-      - "6. Not-found and forbidden (INV-5): a view of an entity type the caller may not read, a view of another tenant and an absent view id return the same 404 with identical headers and body."
-      - "7. INV-10 cross-tenant negative test: with a view id and an entity type key that exist only in tenant A, a TENANT_ADMIN of tenant B calling each view route (read, update, delete) receives the same 404 as for an absent id with a byte-identical body, and tenant A's view row is unchanged afterwards. No view route takes a tenant identifier from the request."
-      - "8. Web: web/src/pages/entities/EntityListBrowserPage.tsx offers a view selector, applies the selected view's columns, filter and sort to the existing controls, and shows save and delete controls only to a user holding EntitiesViewsManage. Vitest tests cover: selecting a view sets the controls, the request body sent is the stored filter and sort with the page-size control unchanged, a user without the manage permission sees no save control, and a stored column the response redacts is not rendered. Strings go through the app's i18n mechanism (web/src/__tests__/entities-i18n-grep.test.ts passes)."
-      - "9. Audit and pins: create, update and delete each write an audit event in the same transaction; refusals write none. Route inventory and scope-enforcement pins (__authz_routes__ tests, route_scope snapshots, route-count pins) are updated for the new routes, all classified TENANT."
-      - "10. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permission) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration, the scoped mix test over the new view tests and the authorization and route pin tests, and cd web && npm run check pass, real output quoted."
-    depends_on: [REQ-393, REQ-311]
+      - "1. Storage: a tenant-schema migration in priv/repo/migrations/ creates the saved view table with tenant_id inside the schema, a name unique per entity type within a tenant, the entity type key, ordered columns, filter and sort as stored query clauses, and created/updated actor and timestamps. A test asserts that a view created in tenant A is absent from the tenant B schema (INV-1, INV-6)."
+      - "2. Validation on write: create and update validate filter and sort with the same Letflow.Entities.Query.Allowlist and clause rules POST /entities/query uses, and every column against the type fields. A field not on the type, an unknown operator or an unknown sort direction returns 422 with a named error and stores nothing. One test per case."
+      - "3. Routes and permissions: list, read, create, update and delete routes exist; list and read require EntitiesQuery, the other three require EntitiesViewsManage. EntitiesViewsManage is TENANT scope; a matrix test asserts TENANT_ADMIN holds it and every other tenant built-in role does not, and the golden is updated. A caller without the permission gets the same 403 for an existing and an absent view id."
+      - "4. Field authorisation (INV-2): a test shows that a view whose stored filter or columns name a field the caller has no grant on, replayed through POST /entities/query, redacts that field exactly as a hand-built query does; no view route response contains a record value."
+      - "5. Not-found and forbidden (INV-5): a view of an entity type the caller may not read, a view of another tenant and an absent view id return the same 404 with identical headers and body."
+      - "6. INV-10 cross-tenant negative test: with a view id and entity type key that exist only in tenant A, a TENANT_ADMIN of tenant B calling read, update and delete receives the same 404 as for an absent id with a byte-identical body, and the tenant A view row is unchanged afterwards. No view route takes a tenant identifier from the request."
+      - "7. Audit and pins: create, update and delete each write an audit event in the same transaction; refusals write none. Route inventory and scope-enforcement pins (__authz_routes__ tests, route_scope snapshots, route-count pins) are updated for the new routes, all classified TENANT."
+      - "8. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permission) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the new view tests and the authorization and route pin tests pass, real output quoted."
+    depends_on: [REQ-538, REQ-393, REQ-311]
+
+  - id: REQ-540
+    title: "Saved view selector, save and delete on the entity list screen (generic views, slice 1, web)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-539 -- issue filed by the engine after the gate
+    # Source: docs/migration/core-roadmap-20261014.md, Wave 3 generic views row; REQ-393 (the list screen). Written by the business analyst (T-0443) 2026-10-25.
+    description: >
+      Web part of slice 1 of generic views. web/src/pages/entities/EntityListBrowserPage.tsx
+      (REQ-393, routed at entities/:entityType in web/src/router.tsx) with
+      web/src/components/entities/EntityFilterBuilder.tsx gets a view selector wired to the view
+      routes of REQ-539. Selecting a view applies its columns, filter and sort to the existing
+      controls; the list is then read by the ordinary POST /entities/query, never from the view
+      itself, so server-side redaction (INV-2) applies. Save and delete controls are shown only to
+      a user holding EntitiesViewsManage. Out of scope: pivot, graph and report builder (later
+      slices), per-user private views, any backend change.
+    acceptance_criteria:
+      - "1. Vitest: selecting a view sets the columns, filter and sort controls to the stored values."
+      - "2. Vitest: the request body sent after selecting a view is the stored filter and sort, with the page-size control value unchanged."
+      - "3. Vitest: a user without EntitiesViewsManage sees the selector but no save or delete control; a user with it sees both."
+      - "4. Vitest: a stored column that the response redacts is not rendered as a value."
+      - "5. User-visible strings go through the app i18n mechanism; web/src/__tests__/entities-i18n-grep.test.ts passes."
+      - "6. cd web && npm run check passes, real output quoted; REVIEWER verdict recorded."
+    depends_on: [REQ-539, REQ-393]
