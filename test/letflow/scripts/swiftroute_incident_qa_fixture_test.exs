@@ -46,13 +46,14 @@ defmodule Letflow.Scripts.SwiftrouteIncidentQaFixtureTest do
   defp edge_shape(e),
     do: {e["id"], e["source"], e["target"], e["condition"], e["is_default"] == true}
 
-  test "the QA fixture is Driver Incident Report v1.1 and matches the simulation copy and alias" do
+  test "the QA fixture is Driver Incident Report v1.2 and matches the simulation copy and alias" do
     j = json()
     y = yaml()
     {:ok, a} = YamlElixir.read_from_file(@alias_file)
 
     assert j["name"] == "Driver Incident Report"
-    assert j["version"] == "1.1"
+    assert j["version"] == "1.2"
+    assert j["description"] =~ "REQ-530"
     assert j["name"] == y["name"]
     assert j["version"] == y["version"]
     assert j["name"] == a["definition_name"], "preflight resolves the alias by this exact name"
@@ -125,6 +126,58 @@ defmodule Letflow.Scripts.SwiftrouteIncidentQaFixtureTest do
   test "variable_schemas declare the condition variable as a boolean" do
     schemas = Map.new(json()["variable_schemas"], &{&1["variable_key"], &1["json_schema"]})
     assert schemas["injury_involved"]["type"] == "boolean"
+  end
+
+  # REQ-530 / GH #3086: the people-steps' form fields, and the typed variables they write.
+  test "ops-assessment and escalate-ops-assessment-to-ceo require assessment_notes (string) and nothing else" do
+    for id <- ~w(ops-assessment escalate-ops-assessment-to-ceo) do
+      attrs = node(json(), id)["attributes"]
+
+      assert attrs["form_schema"]["properties"]["assessment_notes"]["type"] == "string", id
+      assert attrs["form_schema"]["required"] == ["assessment_notes"], id
+      assert attrs["required_outputs"] == ["assessment_notes"], id
+    end
+  end
+
+  test "finance-estimate and escalate-finance-estimate-to-ceo require estimated_cost_eur (number, minimum 0); finance_notes is optional" do
+    for id <- ~w(finance-estimate escalate-finance-estimate-to-ceo) do
+      attrs = node(json(), id)["attributes"]
+      props = attrs["form_schema"]["properties"]
+
+      assert props["estimated_cost_eur"]["type"] == "number", id
+      assert props["estimated_cost_eur"]["minimum"] == 0, id
+      assert props["finance_notes"]["type"] == "string", id
+      assert attrs["form_schema"]["required"] == ["estimated_cost_eur"], id
+      assert attrs["required_outputs"] == ["estimated_cost_eur"], id
+      refute "finance_notes" in attrs["form_schema"]["required"], id
+      refute "finance_notes" in attrs["required_outputs"], id
+    end
+  end
+
+  test "variable_schemas type the three form values next to injury_involved" do
+    schemas = Map.new(json()["variable_schemas"], &{&1["variable_key"], &1["json_schema"]})
+
+    assert schemas["injury_involved"] == %{"type" => "boolean"}
+    assert schemas["assessment_notes"] == %{"type" => "string"}
+    assert schemas["estimated_cost_eur"] == %{"type" => "number", "minimum" => 0}
+    assert schemas["finance_notes"] == %{"type" => "string"}
+  end
+
+  test "the form, required_outputs and variable_schemas of the four people-steps equal the simulation copy" do
+    j = json()
+    y = yaml()
+
+    for id <- @escalation_nodes do
+      assert node(j, id)["attributes"]["form_schema"] == node(y, id)["attributes"]["form_schema"],
+             "#{id}: form_schema drifted from the simulation YAML"
+
+      assert node(j, id)["attributes"]["required_outputs"] ==
+               node(y, id)["attributes"]["required_outputs"],
+             "#{id}: required_outputs drifted from the simulation YAML"
+    end
+
+    assert Enum.sort_by(j["variable_schemas"], & &1["variable_key"]) ==
+             Enum.sort_by(y["variable_schemas"], & &1["variable_key"])
   end
 
   describe "seed script" do
@@ -239,13 +292,13 @@ defmodule Letflow.Scripts.SwiftrouteIncidentQaFixtureTest do
     end
 
     test "ACTIVE at the fixture version: idempotent no-op (no POST at all)" do
-      {calls, out} = seed_calls("1.1")
+      {calls, out} = seed_calls("1.2")
       assert Enum.reject(calls, &String.starts_with?(&1, "GET ")) == [], inspect(calls)
       assert out =~ "skipping creation"
     end
 
     test "ACTIVE newer than the fixture: never downgrades (no POST)" do
-      {calls, _} = seed_calls("1.2")
+      {calls, _} = seed_calls("1.3")
       assert Enum.reject(calls, &String.starts_with?(&1, "GET ")) == [], inspect(calls)
     end
 

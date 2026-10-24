@@ -1984,6 +1984,49 @@ defmodule Letflow.Routers.TasksTest do
     end
   end
 
+  # REQ-530 (GH #3086): the Driver Incident Report's people-steps are assigned by role. ops-assessment
+  # is role-ops-manager and finance-estimate is role-accountant (test/letflow/engine/swiftroute_escalation_timer_test.exs
+  # pins those assignees on the real fixture); the other role must be refused at the complete route.
+  defp insert_user_holding_role!(tenant, role_name) do
+    user = insert_user!(tenant, %{username: unique_name("req530-" <> role_name)})
+    group = insert_group!(tenant, %{})
+    insert_group_member!(tenant, group.id, user.id)
+    insert_role!(tenant, role_name, group.id)
+    user.id
+  end
+
+  describe "REQ-530: the other incident role cannot complete a people-step (403 at the complete route)" do
+    setup do: %{tenant: TenantFixture.provisioned_tenant!(slug_prefix: "req530-role")}
+
+    test "an Accountant cannot complete ops-assessment (role-ops-manager); the task stays pending",
+         %{tenant: tenant} do
+      caller = insert_user_holding_role!(tenant, "role-accountant")
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "role-ops-manager"})
+
+      conn =
+        build_conn(:post, "/#{task.id}/complete", tenant, roles: ["TASK_WORKER"], user_id: caller)
+        |> dispatch()
+
+      assert conn.status == 403
+      assert Jason.decode!(conn.resp_body)["detail"] == "caller does not hold the assigned role"
+      assert Repo.get!(EngineTask, task.id, prefix: tenant.schema_name).status == :pending
+    end
+
+    test "an Operations Manager cannot complete finance-estimate (role-accountant); the task stays pending",
+         %{tenant: tenant} do
+      caller = insert_user_holding_role!(tenant, "role-ops-manager")
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "role-accountant"})
+
+      conn =
+        build_conn(:post, "/#{task.id}/complete", tenant, roles: ["TASK_WORKER"], user_id: caller)
+        |> dispatch()
+
+      assert conn.status == 403
+      assert Jason.decode!(conn.resp_body)["detail"] == "caller does not hold the assigned role"
+      assert Repo.get!(EngineTask, task.id, prefix: tenant.schema_name).status == :pending
+    end
+  end
+
   describe "ISS-0942 AC3/AC7: 403 on a task assigned to a ROLE the caller does not hold -- the live UAT exploit" do
     setup do: %{tenant: TenantFixture.provisioned_tenant!(slug_prefix: "iss0942-ac3")}
 

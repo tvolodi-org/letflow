@@ -347,7 +347,15 @@ defmodule Letflow.Simulation.Seed do
       created_by: created_by
     }
 
-    with {:ok, definition} <- Definitions.create(attrs, prefix: prefix),
+    # REQ-530: a fixture that declares required_outputs also declares their variable_schemas,
+    # which the registration check (REQ-461) needs; register them with the definition.
+    entries =
+      Enum.map(Map.get(process_fixture, "variable_schemas", []), fn e ->
+        %{variable_key: e["variable_key"], json_schema: e["json_schema"], description: nil}
+      end)
+
+    with {:ok, definition} <-
+           Definitions.create_with_variable_schemas(attrs, entries, prefix: prefix),
          {:ok, %{definition: activated}} <- Definitions.activate(definition.id, prefix: prefix) do
       {:ok, activated}
     else

@@ -1,7 +1,7 @@
 {
   "name": "Driver Incident Report",
-  "version": "1.1",
-  "description": "Driver submits a field incident (accident, cargo damage, theft). Ops assessment and finance estimate run in parallel; the case is summarised and closed only after both are done. Exercises: parallel fork/join, timer escalation. Escalation follows D-ESC: timer -> higher role -> fail closed (ISS-1007 / Q-989; BA ruling GH #2281). ops-assessment (role-ops-manager, P1D) -> escalate-ops-assessment-to-ceo (role-ceo, P1D) -> stalled: ops-auto-close notice; finance-estimate (role-accountant, P1D) -> escalate-finance-estimate-to-ceo (role-ceo, P1D) -> stalled: finance-auto-close notice. A stalled branch never marks the incident assessed or costed; it rejoins parallel-join through its notice node. The injury gate defaults toward more scrutiny: an absent or unrecognised injury_involved value takes the safety notification. v1.1 (GH #2933) drops the v1.0 ops-escalation-timer TIMER branch (e12/e13): it fed parallel-join, so the AND-join waited a full P1D even when both tasks completed; ops-assessment already carries its own escalation timer. QA deployment payload (ISS-1022 / Q-1004, GH #2294); the simulation copy is test/fixtures/simulation/swiftroute/process_shipment_dispatch.yaml and the two are kept in step by test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs.",
+  "version": "1.2",
+  "description": "Driver submits a field incident (accident, cargo damage, theft). Ops assessment and finance estimate run in parallel; the case is summarised and closed only after both are done. Exercises: parallel fork/join, timer escalation. Escalation follows D-ESC: timer -> higher role -> fail closed (ISS-1007 / Q-989; BA ruling GH #2281). ops-assessment (role-ops-manager, P1D) -> escalate-ops-assessment-to-ceo (role-ceo, P1D) -> stalled: ops-auto-close notice; finance-estimate (role-accountant, P1D) -> escalate-finance-estimate-to-ceo (role-ceo, P1D) -> stalled: finance-auto-close notice. A stalled branch never marks the incident assessed or costed; it rejoins parallel-join through its notice node. The injury gate defaults toward more scrutiny: an absent or unrecognised injury_involved value takes the safety notification. v1.1 (GH #2933) drops the v1.0 ops-escalation-timer TIMER branch (e12/e13): it fed parallel-join, so the AND-join waited a full P1D even when both tasks completed; ops-assessment already carries its own escalation timer. v1.2 (REQ-530, GH #3086; process audit T-0295, EO-003): the people-steps had no form, so assessment_notes and estimated_cost_eur could not be entered. ops-assessment and escalate-ops-assessment-to-ceo carry a form with assessment_notes (string, required); finance-estimate and escalate-finance-estimate-to-ceo carry a form with estimated_cost_eur (number, minimum 0, required) and finance_notes (string, optional). The required fields are declared as required_outputs (a completion without them is refused 422 output_refused) and typed in variable_schemas. The stalled branch is unchanged: its notices produce neither value. QA deployment payload (ISS-1022 / Q-1004, GH #2294); the simulation copy is test/fixtures/simulation/swiftroute/process_shipment_dispatch.yaml and the two are kept in step by test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs.",
   "graph": {
     "nodes": [
       {
@@ -35,7 +35,19 @@
         "attributes": {
           "role": "role-ops-manager",
           "escalation_timer_duration": "P1D",
-          "escalation_role": "role-ceo"
+          "escalation_role": "role-ceo",
+          "required_outputs": ["assessment_notes"],
+          "form_schema": {
+            "type": "object",
+            "properties": {
+              "assessment_notes": {
+                "type": "string",
+                "title": "Assessment",
+                "description": "Operations Manager assessment of the incident: what happened and what must be done next. Required; the incident record keeps it."
+              }
+            },
+            "required": ["assessment_notes"]
+          }
         }
       },
       {
@@ -45,7 +57,19 @@
           "role": "role-ceo",
           "description": "top of chain: escalation_role is nominal; stalled = fail closed",
           "escalation_timer_duration": "P1D",
-          "escalation_role": "role-ceo"
+          "escalation_role": "role-ceo",
+          "required_outputs": ["assessment_notes"],
+          "form_schema": {
+            "type": "object",
+            "properties": {
+              "assessment_notes": {
+                "type": "string",
+                "title": "Assessment",
+                "description": "CEO assessment of the incident, escalated from Operations: what happened and what must be done next. Required; the incident record keeps it."
+              }
+            },
+            "required": ["assessment_notes"]
+          }
         }
       },
       {
@@ -54,7 +78,25 @@
         "attributes": {
           "role": "role-accountant",
           "escalation_timer_duration": "P1D",
-          "escalation_role": "role-ceo"
+          "escalation_role": "role-ceo",
+          "required_outputs": ["estimated_cost_eur"],
+          "form_schema": {
+            "type": "object",
+            "properties": {
+              "estimated_cost_eur": {
+                "type": "number",
+                "minimum": 0,
+                "title": "Estimated cost (EUR)",
+                "description": "Estimated cost of the incident in euro. Required; zero is a valid estimate."
+              },
+              "finance_notes": {
+                "type": "string",
+                "title": "Finance notes",
+                "description": "Optional notes on how the estimate was reached."
+              }
+            },
+            "required": ["estimated_cost_eur"]
+          }
         }
       },
       {
@@ -64,7 +106,25 @@
           "role": "role-ceo",
           "description": "top of chain: escalation_role is nominal; stalled = fail closed",
           "escalation_timer_duration": "P1D",
-          "escalation_role": "role-ceo"
+          "escalation_role": "role-ceo",
+          "required_outputs": ["estimated_cost_eur"],
+          "form_schema": {
+            "type": "object",
+            "properties": {
+              "estimated_cost_eur": {
+                "type": "number",
+                "minimum": 0,
+                "title": "Estimated cost (EUR)",
+                "description": "Estimated cost of the incident in euro, escalated from Finance. Required; zero is a valid estimate."
+              },
+              "finance_notes": {
+                "type": "string",
+                "title": "Finance notes",
+                "description": "Optional notes on how the estimate was reached."
+              }
+            },
+            "required": ["estimated_cost_eur"]
+          }
         }
       },
       {
@@ -219,6 +279,25 @@
       "variable_key": "injury_involved",
       "json_schema": {
         "type": "boolean"
+      }
+    },
+    {
+      "variable_key": "assessment_notes",
+      "json_schema": {
+        "type": "string"
+      }
+    },
+    {
+      "variable_key": "estimated_cost_eur",
+      "json_schema": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
+    {
+      "variable_key": "finance_notes",
+      "json_schema": {
+        "type": "string"
       }
     }
   ]
