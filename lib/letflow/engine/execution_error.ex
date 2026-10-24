@@ -119,6 +119,7 @@ defmodule Letflow.Engine.ExecutionError do
           | :subprocess_interface_violation
           | :form_expression_evaluation_failed
           | :form_cross_field_validation_failed
+          | :service_task_apply_lost
           | atom()
 
   @typedoc "AC1's 'affected node or field', a two-member tagged union."
