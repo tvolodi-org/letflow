@@ -37880,17 +37880,30 @@ requirements:
          and test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs (which pins version 1.1,
          graph equality and variable_schemas) are updated in step. scripts/seed_swiftroute_incident_definition.sh
          is not changed: its tests show it creates and activates a newer fixture version and never downgrades.
-      6. Who sees the fields: the form is part of the task, so it is shown to, and completable by, the
+      6. Who sees the fields, in two parts.
+         (a) Entering them: the form is part of the task, so it is shown to, and completable by, the
          holder of the task's role (role-ops-manager, role-accountant, and role-ceo on the escalation
-         tasks), exactly as the Shipment Approval decision forms are. This entry adds no new read or
-         write rule; the existing refusals (an Accountant cannot complete the operations assessment,
-         an Operations Manager cannot complete the finance estimate, see
-         test/fixtures/uat/scenarios/swiftroute/refusal-driver-incident-confidential.yaml) must stay true.
+         tasks), exactly as the Shipment Approval decision forms are. The existing refusals (an
+         Accountant cannot complete the operations assessment, an Operations Manager cannot complete
+         the finance estimate, see test/fixtures/uat/scenarios/swiftroute/refusal-driver-incident-confidential.yaml
+         EO-001) must stay true.
+         (b) Reading them afterwards: once a task is completed the values are instance variables
+         (assessment_notes, estimated_cost_eur, finance_notes). They are returned by the instance
+         reads (GET /instances/:id, /reconstruct, /history in lib/letflow/routers/instances.ex, route
+         permission :InstancesRead; values shaped by Response.public_variables/3), which redact only
+         LABELLED variables. Decision 0062 (R1 and R9) states that a value a human types is not
+         derived from a restricted field and carries no labels. So, as the code and 0062 stand, these
+         three values are visible to every caller who holds InstancesRead within the caller's
+         scope, not only to the task's role. This entry does NOT change that. Whether it satisfies
+         EO-002 of the confidential refusal scenario (a dispatcher not handling the incident sees none
+         of the driver's name, the description or the cost figures) is NOT established here: the
+         scenario's step 4 is a GUI screen, and which roles hold InstancesRead is not read by this
+         entry. It is recorded as open question 1 for the process owner (access to sensitive data).
       7. Existing QA data: auto-CD deploys main, so the seed activates the new version next to the
          running one; instances started on v1.1 keep running on v1.1 (no migration of running
          instances, nothing deactivated by this entry).
     open_questions:
-      - "Field-level confidentiality of assessment_notes and finance_notes. A note may name the driver (the confidential refusal scenario treats the incident report as personal data). Whether a form field can carry a read restriction narrower than the task's role (INV-2, server-side field authorisation) is not settled by the sources read here. Default for this entry: no per-field restriction beyond the task's role; the process owner or a follow-up requirement decides whether notes must be hidden from other roles."
+      - "Who may READ the stored assessment_notes, estimated_cost_eur and finance_notes. Decision 0062 (R1, R9) settles that human-typed values carry no labels, so the instance reads (:InstancesRead: GET /instances/:id, /reconstruct, /history) return them to every InstancesRead holder in scope; this entry changes no read rule. The confidential refusal scenario (refusal-driver-incident-confidential.yaml, EO-002) expects a dispatcher not handling the incident to see none of the driver's name, the description or the cost figures; the notes can name the driver and the cost is a named figure. Whether that expectation holds (which roles hold InstancesRead, and whether the GUI shows variables to them) is not established by this entry. This is access to sensitive data and belongs to the process owner: either a follow-up requirement restricts these reads, or the scenario is changed. Until decided, the BA treats EO-002 as possibly failing once the forms exist."
       - "Whether assessment_notes needs a minimum length (so a single space is not an assessment) or finance_notes a maximum length. No source gives a number, so none is set here; the process owner decides."
       - "estimated_cost_eur is a plain number in euro. Currency handling and the strict decimal type of decision 0060 are out of scope; the UAT scenario uses whole euro amounts."
       - "The UAT scenario driver-incident-assess-and-estimate.yaml (EO-003) is the BA's artefact and is not edited by this entry; after it lands the BA re-checks that EO-003's verification can read the values from the instance history."
@@ -37902,9 +37915,10 @@ requirements:
       - "engine test over the fixture: completing ops-assessment with assessment_notes omitted is refused with 422 (code output_refused, missing_keys naming assessment_notes), the task stays open and the instance is unchanged; completing it again with a note succeeds and the value is stored in the instance variables. The same pair for finance-estimate with estimated_cost_eur omitted, and a completion with estimated_cost_eur as a string or -1 is rejected by the variable schema"
       - "engine test: finance-estimate completed with estimated_cost_eur 0 and no finance_notes succeeds (zero is accepted, notes are optional); with both fields it succeeds and both values are in the instance variables"
       - "engine test: the instance reaches case-summary and COMPLETED only after both tasks are completed with their required fields, and completing escalate-ops-assessment-to-ceo or escalate-finance-estimate-to-ceo without its required field is refused in the same way (four nodes covered, one test per node id)"
-      - "the stalled path is unchanged: a test (or the existing swiftroute escalation tests, run and quoted) shows a timer-fired chain still ends in ops-auto-close / finance-auto-close and joins at parallel-join without an assessment or estimate"
+      - "the stalled path is unchanged: test/letflow/engine/swiftroute_escalation_timer_test.exs, updated, still shows a timer-fired chain ending in ops-auto-close / finance-auto-close and joining at parallel-join without an assessment or estimate. That file must change because it loads the simulation copy and completes escalate-ops-assessment-to-ceo, ops-assessment and finance-estimate with empty output %{} (the complete! calls near lines 333, 341, 348-349), which the new required_outputs refuse with 422; those calls now pass the required keys. test/letflow/simulation/req206_swiftroute_test.exs, test/letflow/scripts/swiftroute_d_esc_escalation_fixture_test.exs and test/letflow/scripts/shipped_definitions_variable_schemas_test.exs read the same fixtures and are run and quoted; they change only if they fail for this reason"
       - "the fixture version is one minor step above the version on the branch at the start (a test pins the new number in swiftroute_incident_qa_fixture_test.exs), the definition description names this requirement, and the simulation copy test/fixtures/simulation/swiftroute/process_shipment_dispatch.yaml has the same version, node forms and variable_schemas (the existing equality test passes, extended to forms)"
       - "an Accountant cannot complete ops-assessment and an Operations Manager cannot complete finance-estimate after the change (the existing role refusal tests are run and quoted; a new one is added if none covers the task completion route)"
-      - "git diff --stat is quoted: only the incident QA fixture, its simulation copy, the alias sidecar if its version text changes, the fixture tests and documentation made wrong by the change are touched; no engine, router, web or seed-script file, and no other definition"
+      - "git diff --stat is quoted: only the incident QA fixture, its simulation copy, the alias sidecar if its version text changes, the fixture tests, the engine and simulation tests named in the stalled-path criterion and documentation made wrong by the change are touched; no engine, router, web or seed-script file, and no other definition"
       - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs and the swiftroute engine tests, and mix letflow.check_requirements_registration pass, real output quoted"
-    depends_on: [REQ-461, REQ-462]
+      - "SECURITY-REVIEWER verdict recorded (mandatory, as for REQ-462: the change alters what a completion may omit on four HUMAN_TASK nodes of a tenant-data path, and the values may be personal data); the review states the reader set of the stored values from part (b) of BUILDS item 6"
+    depends_on: [REQ-460, REQ-461, REQ-462]
