@@ -132,8 +132,8 @@ defmodule Letflow.Documents.ConstraintsTest do
     end
   end
 
-  describe "A-19: artefact_hash stays NULL and no slice-2 column exists" do
-    test "documents has no hold column and document_versions.artefact_hash is NULL on every row",
+  describe "A-19: artefact_hash stays NULL and no column named hold exists" do
+    test "documents has no column named hold and document_versions.artefact_hash is NULL on every row",
          ctx do
       %{rows: columns} =
         exec!(

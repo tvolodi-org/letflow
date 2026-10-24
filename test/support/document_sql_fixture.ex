@@ -122,6 +122,70 @@ defmodule Letflow.DocumentSqlFixture do
     id
   end
 
+  @doc """
+  Inserts a version directly in `status` with explicit times (REQ-508 retention tests).
+  `issued_at` is a `DateTime` or nil; `opts` takes `:cancelled_at` (DateTime) and
+  `:superseded_by` (id of an existing version of the same document). The CHECKs of the
+  table allow a direct insert of a superseded or cancelled row.
+  """
+  def insert_version_at!(
+        schema,
+        tenant_id,
+        document_id,
+        version_no,
+        status,
+        issued_at,
+        opts \\ []
+      ) do
+    id = Keyword.get_lazy(opts, :id, &Ecto.UUID.generate/0)
+    cancelled_at = Keyword.get(opts, :cancelled_at)
+    cancelled? = status == "cancelled"
+    hashed? = status in ["issued", "superseded", "cancelled"]
+
+    exec!(
+      """
+      INSERT INTO #{table(schema, "document_versions")}
+        (id, tenant_id, document_id, version_no, status, content, content_hash,
+         issued_at, issued_by, superseded_by_version, cancelled_at, cancelled_by,
+         cancel_reason, discarded_at, inserted_at)
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, '{}'::jsonb,
+              CASE WHEN $6::boolean THEN $7 END,
+              $8::timestamptz, CASE WHEN $6::boolean THEN $9::uuid END,
+              $10::uuid, $11::timestamptz, CASE WHEN $12::boolean THEN $9::uuid END,
+              CASE WHEN $12::boolean THEN 'reason' END,
+              CASE WHEN $5 = 'discarded' THEN now() END, now())
+      """,
+      [
+        id,
+        tenant_id,
+        document_id,
+        version_no,
+        status,
+        hashed?,
+        @hash,
+        issued_at,
+        Ecto.UUID.generate(),
+        Keyword.get(opts, :superseded_by),
+        cancelled_at,
+        cancelled?
+      ]
+    )
+
+    id
+  end
+
+  @doc "Sets the retention policy of a type directly (period may be nil)."
+  def set_policy!(schema, key, period, from, action) do
+    exec!(
+      """
+      UPDATE #{table(schema, "document_types")}
+         SET retention_period_days = $2, retention_from = $3, retention_action = $4
+       WHERE key = $1
+      """,
+      [key, period, from, action]
+    )
+  end
+
   @doc "Moves a draft version to issued, the way the context will (status, time, who, hash)."
   def issue!(schema, version_id) do
     exec!(

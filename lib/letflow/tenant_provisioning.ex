@@ -825,7 +825,11 @@ defmodule Letflow.TenantProvisioning do
     # GH #3091 (REQ-532, decision 0051 T13): backfills `tasks.scope_node_id` from each task's own
     # instance; re-runnable (IS NULL guard), a no-op down.
     {20_261_024_200_001, Letflow.Repo.Migrations.BackfillTasksScopeNodeId,
-     "20261024200001_backfill_tasks_scope_node_id.exs"}
+     "20261024200001_backfill_tasks_scope_node_id.exs"},
+    # REQ-508 / GH #2675 (decision 0063 part (a)): retention policy columns on document_types,
+    # hold columns on documents, and the column-aware guard_document_types().
+    {20_261_025_100_001, Letflow.Repo.Migrations.AddDocumentRetentionAndHold,
+     "20261025100001_add_document_retention_and_hold.exs"}
   ]
 
   @doc """
