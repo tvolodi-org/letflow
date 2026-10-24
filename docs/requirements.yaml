@@ -37923,3 +37923,304 @@ requirements:
       - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs and the swiftroute engine tests, and mix letflow.check_requirements_registration pass, real output quoted"
       - "SECURITY-REVIEWER verdict recorded (mandatory, as for REQ-462: the change alters what a completion may omit on four HUMAN_TASK nodes of a tenant-data path, and the values may be personal data); the review states the reader set of the stored values from part (b) of BUILDS item 6"
     depends_on: [REQ-460, REQ-461, REQ-462]
+
+  - id: REQ-531
+    title: "Core: instance scope node set at instance start (instance_projections.scope_node_id), prerequisite of the W3b task scope writer"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3092
+    # Source: GH #2870 (W3b, "from the instance or process scope"); decision 0051 T13 and T14 and its script-principal paragraph (docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md); REQ-518 (scope_node_paths, the tasks column and readers); REQ-519 AC 10, AC 23, AC 24; lib/letflow/event_store/instance_projection.ex; lib/letflow/routers/instances.ex; lib/letflow/engine.ex create/2; lib/letflow/engine/sub_process.ex.
+    description: >
+      Source: GH #2870; decision 0051 T13, T14.
+      Decision 0051 T13 settles where the scope comes from: "Instances, variables and
+      history carry a `scope_node` set at instance start, never re-derived from the caller
+      later. An instance started by a system path with no node is `:unresolvable` for
+      scoped principals (visible to tenant-wide holders only)." T14 adds that "inbound
+      webhooks / trigger starts must supply a `scope_node` or the instance is
+      `:unresolvable`", and the script-principal paragraph says a script's outputs take the
+      instance's scope. So the source for tasks is the INSTANCE, set once at start; a
+      process definition is not the source because T13 sets the scope per instance at
+      start, not per definition. This requirement gives the instance that value; REQ-532
+      then copies it onto tasks.
+
+      Today the instance row is the event-sourced projection `instance_projections`
+      (lib/letflow/event_store/instance_projection.ex, migration
+      priv/repo/migrations/20260816120003_create_instance_projections.exs) and carries no
+      scope node; lib/letflow/routers/instances.ex records `scope_node` nil "while
+      instances carry none".
+
+      WHAT IS BUILT (one change):
+      (a) Column. instance_projections gets a nullable scope_node_id text column, FK to
+      scope_node_paths(node_id) ON DELETE RESTRICT, partial index on non-NULL values.
+      (b) Event. The INSTANCE_STARTED payload carries scope_node_id (key absent or null
+      when none). Letflow.Engine.create/2 writes the column in the same multi that inserts the
+      projection row and the INSTANCE_STARTED event (there is no separate instance projector); a rebuild with Letflow.Engine.Reconstruction.reconstruct_instance/2 (write_back: true) reproduces the value, also when the replay starts from a snapshot (select_replay_source), so the snapshot state carries scope_node_id too.
+      (c) Start paths, each decided:
+        1. POST /instances (authz_post "/" :InstancesStart in
+           lib/letflow/routers/instances.ex, handle_create -> Letflow.Engine.create/2):
+           ACCEPTS an optional request field `scope_node_id` (string). Absent or null
+           leaves the instance unscoped (NULL, T13 "no node": invisible to scoped
+           principals, visible to tenant-wide holders). Present: validated as an existing,
+           non-retired scope_node_paths node; for a caller whose InstancesStart authority
+           is scoped, the node must lie inside the caller's scope; a tenant-wide caller
+           may name any active node of its own tenant.
+        2. Sub-process child instances (lib/letflow/engine/sub_process.ex
+           append_start_multi, which writes the child's INSTANCE_STARTED): INHERIT the
+           parent's scope_node_id (T13: set at start, never re-derived from a caller).
+        3. Webhook and trigger starts (0051 T14): grep of lib/ for callers of
+           Engine.create/2 outside design notes finds only handle_create, so no such start
+           path exists today and none is changed. Any future one must supply a node or
+           the instance stays unscoped (T14); that is stated in the Engine.create/2 doc.
+      (d) Read. The scope_node_id is returned by GET /instances/:id and GET /instances
+      (authz_get "/:id" and "/" :InstancesRead in lib/letflow/routers/instances.ex),
+      null when unscoped.
+
+      DEPENDS ON REQ-518 (scope_node_paths and the scope resolution helpers) and REQ-517
+      (lock order for scope_node_paths). REQ-532 depends on this requirement.
+
+      OUT OF SCOPE: tasks (REQ-532); changing who can see an instance (the instance read
+      filters are unchanged); turning `on` for any production tenant; a UI for choosing the
+      scope; re-scoping a running instance.
+    open_questions:
+      - "Whether an `on` tenant should refuse an unscoped start of a definition whose tasks are routed to scoped roles. This requirement keeps NULL (decision 0051 T13 already defines the unscoped case as unresolvable for scoped principals and changes nothing for existing flows); refusing the start would be a production rule for the process owner."
+      - "How a future webhook or trigger start supplies its node (0051 T14 requires it but no such start exists in lib/ today). Not decided here."
+    acceptance_criteria:
+      - "1. a migration adds a nullable scope_node_id text column to instance_projections with a foreign key to scope_node_paths(node_id) ON DELETE RESTRICT and a partial index on non-NULL values; it is registered in Letflow.TenantProvisioning.tenant_scoped_migrations/0 and a migration test shows up and down in a populated tenant schema, with existing rows NULL"
+      - "2. POST /instances with scope_node_id of an existing active node answers 201, the INSTANCE_STARTED event payload carries that scope_node_id, and GET /instances/:id and GET /instances return it; a test then completes a task of the instance and asserts the value is unchanged"
+      - "3. POST /instances without scope_node_id, or with null, gives an instance whose scope_node_id is null in the projection, the event and both reads; the existing POST /instances tests pass unchanged"
+      - "4. projection rebuild: a test deletes the instance_projections row of a scoped instance, rebuilds the projection from the event stream with Letflow.Engine.Reconstruction.reconstruct_instance/2 (write_back: true), and asserts scope_node_id equals the value from the INSTANCE_STARTED payload; a second case does the same with a snapshot present so the replay starts from the snapshot (select_replay_source) and the value still survives"
+      - "5. POST /instances with an unknown, retired, or malformed (not a string, or an empty string) scope_node_id is refused 422 with no instance, no event and no task created"
+      - "6. who may start a scoped instance: a caller holding InstancesStart only through a scoped grant who names a node inside the grant is accepted; the same caller naming a node outside the grant gets the same status and body as an unknown node (INV-5); a tenant-wide caller may name any active node of its tenant"
+      - "7. a sub-process child instance has the same scope_node_id as its parent in its INSTANCE_STARTED payload and in the projection (test with a scoped parent and with an unscoped parent giving NULL)"
+      - "8. cross-tenant negative test (INV-10): a scope_node_id that exists only in tenant B's scope tree, given to POST /instances in tenant A, is refused as an unknown node and nothing is written in either tenant"
+      - "9. the Engine.create/2 doc names the three start paths above and states that a future webhook or trigger start must supply a node or stay unscoped (decision 0051 T14); the grep of Engine.create callers in lib/ is quoted in the PR"
+      - "10. SECURITY-REVIEWER verdict recorded (mandatory: new input on a tenant-data route, migration on tenant schemas, scope validation)"
+      - "10a. REQ-518 AC 12 scan (test/letflow/tasks/scope_node_id_no_writer_scan_test.exs, Letflow.Tasks.ScopeNodeIdNoWriterScanTest, a SEC merge condition) pins the lib/ files that name scope_node_id to an exact list; the new code in instance_projection.ex, routers/instances.ex, engine.ex and sub_process.ex would break it. The change extends the pinned ledger with an 'instance side' entry listing exactly those files and their enclosing functions, and the scan asserts that none of those functions mentions the Task schema or the tasks table, so the task-side 'no writer of tasks.scope_node_id' property still holds until REQ-532; the scanner-live and changeset-ignores-attrs tests stay; SECURITY-REVIEWER records that the extension weakens nothing"
+      - "11. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_requirements_registration, mix letflow.check_boundaries, the route-inventory and scope-enforcement pin tests, and the scoped mix test over test/letflow/engine*, test/letflow/event_store*, test/letflow/routers/instances*, test/letflow/identity* and test/letflow/tasks/scope_node_id_no_writer_scan_test.exs pass, real output quoted"
+    depends_on: [REQ-517, REQ-518]
+
+  - id: REQ-532
+    title: "Core: W3b task scope writer, tasks.scope_node_id copied from the instance at task creation, backfill, and removal of the scoped-approver blocker"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3091
+    # Source: GH #2870 (W3b); REQ-519 AC 10, AC 23, AC 24 and its out-of-scope paragraph; REQ-518 AC 13, 17 and 20 (the column and its readers); decision 0051 T13 (instance scope set at start) and A1(7) (blocker removed by the requirement that ships the writer); lib/letflow/identity/scoped_approvers.ex moduledoc ("removed ONLY by the requirement that ships a production writer for tasks.scope_node_id"); docs/roles.md "Known limitation: scoped approvers (stage 2)".
+    description: >
+      Source: GH #2870; REQ-519 AC 10, AC 23, AC 24; REQ-518 AC 12, AC 13, AC 17, AC 20; REQ-531. Note: REQ-518 AC 12 says no production code writes the column; this requirement is the one that changes that rule (AC 11a).
+      The column tasks.scope_node_id exists (migration
+      priv/repo/migrations/20261019200001_add_scope_node_id_to_tasks.exs: nullable text,
+      FK tasks_scope_node_id_fkey to scope_node_paths, partial index) and is READ by
+      lib/letflow/tasks.ex (the scope_node_id IN (ids) list predicate and the task
+      resolver) and lib/letflow/tasks/scope_resolver.ex, but NO code path writes it
+      (lib/letflow/engine/task_activation.ex insert_attrs builds the row without it).
+      Under scope enforcement `on`, a scoped TASK_WORKER therefore sees no task, and
+      lib/letflow/identity/scoped_approvers.ex makes the flip to `on` refuse with
+      `scoped_approvers_without_task_scope` (REQ-519 AC 10). This requirement ships the
+      writer and removes that blocker in the same change.
+
+      WHAT IS BUILT (one change):
+      (a) Writer. When the engine inserts a task row (task_activation.ex, both the
+      append_multi and the append_multi_from_existing_records paths) it sets
+      tasks.scope_node_id to the instance's scope_node_id from REQ-531 (the source, per
+      decision 0051 T13: the value set at instance start, never re-derived from a caller);
+      an instance with none gives NULL (unchanged fail-closed behaviour: visible only to
+      tenant-wide principals).
+      (b) Backfill. A tenant-scoped Ecto data migration, registered in
+      Letflow.TenantProvisioning.tenant_scoped_migrations/0 and run once per tenant schema,
+      sets tasks.scope_node_id from instance_projections.scope_node_id where the task's
+      value is NULL and the instance has one. Since no instance carries a scope before
+      REQ-531, the expected result in every existing tenant is zero rows changed. It is
+      not a release task and has no dry-run mode; it is tested through up and down. No
+      scope is guessed.
+      (c) Blocker removal. The `scoped_approvers_without_task_scope` refusal is removed
+      from the `on` gate (lib/letflow/scope_enforcement/on_gate.ex,
+      lib/letflow/identity/scoped_approvers.ex), the docs/roles.md limitation section is
+      rewritten, and the informational count `scoped_task_workers_without_task_scope` is
+      removed or redefined.
+
+      DEPENDS ON REQ-531 (the instance scope node), REQ-518 (the column, F1 and the task
+      routes that read it) and REQ-519 (the gate that holds the blocker).
+
+      OUT OF SCOPE: turning `on` for any production tenant (REQ-519 AC 24 stays a human
+      step); how an instance gets its scope (REQ-531); re-scoping a running instance;
+      changing F1 or the task routes.
+    open_questions:
+      - "None beyond REQ-531's: an instance without a scope keeps NULL tasks (decision 0051 T13: unresolvable for scoped principals)."
+    acceptance_criteria:
+      - "1. a task created for an instance with scope_node_id N has tasks.scope_node_id == N, for the first task, for a task created after a gateway or a parallel join, and for a task created through append_multi_from_existing_records (one test per insert path)"
+      - "2. a task created for an instance without a scope node has tasks.scope_node_id NULL, and a tenant-wide TASK_WORKER sees and completes it exactly as before (the existing task tests pass unchanged)"
+      - "3. a task of a sub-process child instance carries the child's scope_node_id, which REQ-531 makes equal to the parent's"
+      - "4. end to end under the stored flag value `on` (driven through the REQ-517 test-support helper): a scoped-only TASK_WORKER in the task's routing role whose grant covers node N sees the task in GET /tasks and /tasks/inbox and can claim and complete it; the same user gets the 404-equivalent answer for a task of a node outside the grant and for a task with NULL scope; a user outside the routing role gets 404 even with the grant"
+      - "5. backfill migration: a test seeds, in a tenant schema before the migration, tasks of a scoped instance with NULL scope and tasks of an unscoped instance, runs the migration up, and asserts the first kind now equals their instance's scope_node_id and the second stays NULL; a task that already has a scope_node_id is not changed; down leaves the data in place; in a tenant with no scoped instance the migration changes zero rows"
+      - "6. the audit entry for task creation does not change shape (Task.audit_state/1 still excludes scope_node_id, per REQ-518); a test pins it"
+      - "7. REQ-519 AC 10 blocker removed in the same change: the flip to `on` is no longer refused with scoped_approvers_without_task_scope when scoped approvers exist; the tests of REQ-519 AC 10 that assert the refusal are replaced by tests that assert the flip proceeds, and a source scan asserts the string appears nowhere in lib/"
+      - "8. the other flip preconditions are unchanged: a test shows zero_tenant_wide_admins and shadow_required still refuse the flip with a scoped approver present"
+      - "9. docs/roles.md 'Known limitation: scoped approvers (stage 2)' is rewritten to say that tasks carry the scope node of their instance and that a task of an unscoped instance stays invisible to scoped callers; the three REQ-518 AC 17 sentences and the source-scan test that pins them are removed; the moduledocs of scoped_approvers.ex and on_gate.ex and any runbook naming the blocker are updated; the grep for scoped_approvers_without_task_scope and W3b across docs/, lib/ and test/ is quoted"
+      - "10. the PR body states that this requirement satisfies the W3b precondition of REQ-519 AC 23/24 and that it sets no production tenant to `on` (AC 24 stays a human step)"
+      - "11. SECURITY-REVIEWER verdict recorded (mandatory: tenant-data path, migration on tenant schemas, change of an access gate)"
+      - "11a. REQ-518 AC 12 ('no production code writes it; a source-scan test over lib/ asserts no writer') is changed by this requirement and the register says so: in test/letflow/tasks/scope_node_id_no_writer_scan_test.exs the 'no writer' ledger and the test that no function writing the Task schema or the tasks table names the column are replaced by a pinned ledger of exactly the new writers (the two insert paths in lib/letflow/engine/task_activation.ex, by enclosing function) and the backfill migration under priv/repo/migrations; any other writer, in any form the scanner covers, still fails; the scanner-live seeded-writer tests and the changeset-ignores-attrs test (no Engine.Task changeset casts the column) are kept; the REQ-518 AC 12 text and the test moduledoc are updated; the replacement is reviewed by SECURITY-REVIEWER because the original was a SEC merge condition, and the verdict is recorded"
+      - "12. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_requirements_registration, mix letflow.check_boundaries, the route-inventory and scope-enforcement pin tests, and the scoped mix test over test/letflow/engine*, test/letflow/tasks*, test/letflow/identity*, test/letflow/scope_enforcement* and test/letflow/tasks/scope_node_id_no_writer_scan_test.exs pass, real output quoted"
+    depends_on: [REQ-531, REQ-518, REQ-519]
+
+  - id: REQ-533
+    title: "UAT preflight and runner: a scenario-env-limitations sidecar can carry disposition skipped, so an unbuilt-feature or covered-elsewhere scenario is listed as SKIPPED with its reason and does not make the environment ENV_NOT_READY"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3098
+    description: >
+      Source: GH #1997 groups (1) and (2) (the full-corpus QA run reports scenarios that cannot be driven as
+      BLOCKED); the 2026-10-16 triage comment on GH #1997; the task text of T-0369: a scenario may be marked
+      env-scoped (skipped with a stated reason in full-corpus QA runs).
+      What exists today, read on main on 2026-10-24: scripts/uat_preflight.sh turns every matching sidecar in
+      test/fixtures/uat/scenario-env-limitations/ into env_limitation = GAP (the block that starts at
+      "lim = env_limitations.get(s["id"])"), and every GAP counts toward RESULT: ENV_NOT_READY in its SUMMARY.
+      .claude/agents/uat-runner.md (the preflight_report input) says a scenario with env_limitation GAP must
+      be recorded BLOCKED with the sidecar's reason and issue_ref; docs/agents/workflows/WF-05_uat_run.md
+      (the "environment-structural (permanent)" paragraph) says the GAP is expected and not re-filed. There is
+      no skipped status anywhere. A sidecar alone therefore cannot make a scenario "skipped, not BLOCKED";
+      that needs this change to the mechanism.
+      CHANGE: (1) a sidecar may carry an optional field disposition with the value skipped (absent = today's
+      behaviour, unchanged for every existing sidecar; there are four on main on 2026-10-24:
+      meridian-loan-origination-kyc-manual-review, platform-partition-retention-drop,
+      platform-tenant-switch-cache-isolation and swiftroute-tenant-onboarding-happy, none with a disposition
+      field). (2) scripts/uat_preflight.sh: for a matching sidecar with disposition
+      skipped (environment in applies_to_environments, as today), env_limitation is reported SKIP, not GAP;
+      the scenario is listed in a new "== SKIPPED SCENARIOS ==" section with classification, reason and
+      issue_ref; none of that scenario's checks counts toward GAP or toward ENV_NOT_READY (its other checks
+      are shown but not counted, because the scenario will not be driven). A sidecar with
+      applies_to_expected_outcomes cannot carry disposition skipped (a partly covered scenario must still run
+      its other outcomes); the preflight prints an error and exits non-zero for that combination. (3)
+      .claude/agents/uat-runner.md and docs/agents/workflows/WF-05_uat_run.md: a scenario the report lists as
+      SKIPPED is recorded SKIPPED with the sidecar's reason and issue_ref verbatim, is not executed, is not
+      BLOCKED, and files no issue; the run report's counts show SKIPPED separately. (4) The description of the
+      sidecar fields (a comment or doc, if one exists; the builder greps for it) names the new field and the
+      classifications UNBUILT_FEATURE and COVERED_ELSEWHERE as valid for a skipped sidecar.
+      The preflight needs python and a reachable QA base URL to run end to end; the builder runs it with
+      --environment qa (the slug the existing sidecars use) and quotes the output, or, if no QA URL is
+      reachable from the worktree, says so and tests the sidecar branch on a fixture corpus (the builder reads
+      the script's arguments first and reports which way it went).
+      NOT in this entry: the sidecars for the three scenarios (REQ-534), any scenario file, any lib/ or web/ file.
+    acceptance_criteria:
+      - "a fixture sidecar with disposition skipped and a matching environment makes the preflight print env_limitation SKIP for that scenario, list it under SKIPPED SCENARIOS with classification, reason and issue_ref, and leave the GAP counts and the RESULT line as they are without that scenario (a run over a fixture corpus in which that scenario would otherwise add GAPs, real output quoted)"
+      - "each of the four existing sidecars (meridian-loan-origination-kyc-manual-review, platform-partition-retention-drop, platform-tenant-switch-cache-isolation, swiftroute-tenant-onboarding-happy; none has a disposition field) is reported exactly as before: env_limitation GAP with the same text and the same effect on RESULT (before and after output compared per sidecar, quoted; any further sidecar added on main before the build is covered the same way)"
+      - "a sidecar that has both disposition skipped and applies_to_expected_outcomes makes the preflight exit non-zero with a message naming the sidecar file"
+      - "a sidecar for an environment slug other than the --environment value is ignored, as today"
+      - ".claude/agents/uat-runner.md and docs/agents/workflows/WF-05_uat_run.md state the SKIPPED rule: recorded with reason and issue_ref verbatim, not executed, not BLOCKED, no new issue filed (each of the four statements can be found by quote in the diff)"
+      - "git diff --stat is quoted: only scripts/uat_preflight.sh, the two doc files, the sidecar field description and a test or fixture for the preflight; no scenario file, no existing sidecar, no lib/ or web/ file"
+      - "scripts/ci_changed_paths.sh is run on the changed paths and its result quoted; every test that reads scripts/uat_preflight.sh by name (grep of test/) is run"
+    depends_on: []
+
+  - id: REQ-534
+    title: "UAT corpus: mark platform-sandbox-cross-tenant-probe (unbuilt feature) and platform-frontend-guard-selfcheck and platform-out-of-order-effect-completion (covered elsewhere) as skipped in QA full-corpus runs"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3103
+    description: >
+      Source: GH #1997 group (1), re-checked on main by T-0369 on 2026-10-24, and group (2) (the part that is
+      covered by existing tests). Depends on REQ-533, which provides the skipped disposition.
+      GROUP (1) RE-CHECK. Of the six scenarios of group (1), three are delivered and need no entry:
+      platform-definition-type-error-blocked and platform-instance-pin-survives-catalog-change have specs
+      (web/tests/e2e/pipelines/platform-definition-type-error-blocked.pipeline.e2e.spec.ts and
+      platform-instance-pin-survives-catalog-change.pipeline.e2e.spec.ts), and
+      web/tests/e2e/pipelines/renderer-states.pipeline.e2e.spec.ts (named by
+      test/fixtures/uat/scenarios/platform/renderer-permission-denied-surface.yaml) exists. Only
+      platform-sandbox-cross-tenant-probe is not runnable: its header NOTE (ISS-0527) says Letflow has not
+      built the runtime-agent sandbox claim/release subsystem; lib/letflow/router.ex lists
+      Letflow.Routers.AgentRequests, AgentResponses and AgentEvents as deferred; docs/issues/ISS-0890.yaml
+      records closed_not_applicable (like ISS-0740). Its NOTE already makes the preflight report
+      feature = GAP "feature-gap (UNBUILT_FEATURE)" (the unbuilt regex in scripts/uat_preflight.sh); what is
+      missing is only the disposition, because today that GAP makes the scenario BLOCKED. Building the
+      subsystem is a product decision for the owner and is not in this entry.
+      GROUP (3) needs no entry: both scenarios already have sidecars in
+      test/fixtures/uat/scenario-env-limitations/ (ISS-0901), and the tenant-switch-cache-isolation sidecar is
+      scoped to EO-001 only.
+      GROUP (2), covered part. docs/issues/ISS-0900.yaml (progress note of 2026-09-30) maps
+      platform-out-of-order-effect-completion onto test/letflow/ordering_test.exs and
+      platform-frontend-guard-selfcheck onto web tests (meta-control spec, bundle-scan.spec.ts, reporter.ts,
+      reportWriter.ts, and the a11y gate extended by PR #2023). The builder re-reads both scenarios and the
+      named tests and re-derives the expected-outcome-to-test mapping itself; a note is not a source. The
+      scenarios have only via: system steps and no pipeline_test, so the UAT runner has nothing to drive; the
+      test seam is the existing tests, not a new HTTP surface. Why this depends on the environment: a QA run
+      drives only the deployed HTTP/UI; these checks run in CI, so applies_to_environments is [qa].
+      BUILDS: three sidecars in test/fixtures/uat/scenario-env-limitations/ in the format of
+      platform-partition-retention-drop.yaml, each with disposition skipped, applies_to_environments [qa],
+      recorded_by, recorded_at, a review condition and an issue_ref (ISS-0890 for the sandbox probe, ISS-0900
+      for the other two). The sandbox sidecar has classification UNBUILT_FEATURE and a reason naming the
+      deferred Agent* routers; the other two have COVERED_ELSEWHERE and a reason listing, per expected outcome
+      id, the test file and test name that verifies it. An outcome with no existing test is written NOT
+      COVERED in the findings; that scenario gets no skipped sidecar (it is left out and reported), because
+      skipping it would hide an untested outcome.
+    acceptance_criteria:
+      - "a sidecar exists for the sandbox probe and for each of the other two scenarios whose outcomes are all mapped; each has disposition skipped, applies_to_environments [qa], the right classification and an issue_ref"
+      - "a test reads each COVERED_ELSEWHERE sidecar and asserts that every expected outcome id of the scenario file appears in the reason, every cited test path exists and every cited test name occurs in that file"
+      - "scripts/uat_preflight.sh --environment qa over the corpus lists the sidecar scenarios under SKIPPED SCENARIOS with their reasons and no longer counts their GAPs (real output quoted; if no QA URL is reachable, the same is shown on the fixture corpus and the limitation stated)"
+      - "the sandbox sidecar's review field states the removal condition: a runtime-agent sandbox subsystem exists and the owner has decided to test it"
+      - "git diff --stat is quoted: only the new sidecars and the test that checks them; no scenario file, no lib/ or web/ file, no existing test"
+    depends_on: [REQ-533]
+
+  - id: REQ-535
+    title: "Platform change-set review: a pure function classifies a whole set of platform-wide schema changes as accepted or refused before any company workspace is opened, using the change classes of decision 0055 (test seam, no route)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S6
+    gh: 3098
+    description: >
+      Source: GH #1997 group (2), scenario test/fixtures/uat/scenarios/platform/unsafe-migration-rejected.yaml
+      (EO-001, EO-002, EO-003); docs/issues/ISS-0902.yaml (genuinely unbuilt: lib/letflow/platform/migration_rollout.ex
+      has no concept of a change SET; its moduledoc scopes REQ-374 to one change); decision
+      docs/migration/decisions/0055-module-upgrade-migration-uninstall.md.
+      RELATION TO 0055 (stated, not re-decided). 0055 D2 classifies the changes of a module upgrade: Class B
+      covers a new required field or a default-less NOT NULL (refused unless a covering step and
+      ack_destructive are present); Class C is forbidden. D8 lists what an upgrade may not do. The scenario's
+      second set (make a field compulsory before it is filled) is that Class B rule, and its corrected set
+      (add optional, fill in batches, then make compulsory) is a covering step. This entry uses 0055's class
+      names (A/B/C) for classifying. 0055 D2 refuses Class B unless the new version declares a covering step AND
+      the apply carries ack_destructive whose set equals the plan's Class B step ids (making an existing field
+      required, i.e. constraint tightening, is Class B too). A platform-wide set has no per-tenant apply, so
+      whether it needs that acknowledgement is an open question below; this entry carries the acknowledgement
+      in the input (field ack_destructive, a list of change ids) and reports its absence or mismatch as a
+      separate violation kind, but does not decide that the platform must demand it outside review/1. What 0055 does not say
+      is how a platform-wide change that holds every workspace locked for an unbounded time (the scenario's
+      example: reworking stored history in place) is classed, and where a platform-level review is called
+      from; those are the open questions below and are not settled in a criterion. 0055's plan route is a
+      per-tenant HTTP route and is not built (no lib/letflow/module_upgrade/ exists on main on 2026-10-24); this
+      entry does not build it.
+      SURFACE (test seam): a new pure module Letflow.Platform.ChangeSetReview in lib/letflow/platform/ with
+      review(change_set) returning {:ok, plan} or {:error, {:rejected, violations}}; a violation carries the
+      change, the 0055 class where one applies, and the missing preparation. No HTTP route, no database
+      access, no tenant data, so INV-1 is not engaged.
+      INPUT (a NEW shape, not MigrationRollout's): MigrationRollout's column_spec
+      (lib/letflow/platform/migration_rollout.ex:118-128) allows only required(:nullable) => true plus pg_type,
+      references_entity and generated_as, and the module knows exactly one change kind, so it cannot express a
+      NOT NULL column, a default, a backfill or a history rewrite. review/1 takes
+      %{changes: [change], ack_destructive: [change_id]} where every change has id (string, unique in the set)
+      and kind, one of: add_column (fields entity_type, attribute, pg_type, nullable boolean, default optional),
+      backfill (entity_type, attribute), set_not_null (entity_type, attribute), rewrite_stored_history
+      (entity_type). "Ordered before" means earlier in the changes list. An unknown kind or a missing field
+      returns {:error, {:invalid_change_set, reason}}, not a violation. This entry does not modify
+      MigrationRollout. The verdict depends on the change set alone and the violations come in a fixed order
+      (by change id) (EO-003); the "same set in a different order" check in EO-003 compares verdicts for the
+      same list contents reordered only where no ordering constraint (backfill before set_not_null) is broken.
+      NOT in this entry: EO-004 (three-stage execution); EO-005 (reserved names), which is already enforced
+      for module-managed types by REQ-496 / GH #2530 (Letflow.Entities.Definitions returns
+      {:error, {:managed_name_taken, name}} and the definitions API answers the uniform 403 of decision 0050
+      D7), so REQ-496 is cited and no entry is written for it; and any route.
+    open_questions:
+      - "Whether a change that holds a workspace locked for an unbounded time (in-place rewrite of stored history) is a new class beside 0055's A/B/C, or Class C. 0055 does not say. The platform owner decides, by a decision record; until then review/1 reports it as a violation of kind unbounded_lock and does not name a class."
+      - "Whether a platform-wide change set needs the ack_destructive acknowledgement of 0055 D2 for Class B changes, and who gives it (a platform set has no per-tenant apply). review/1 reports a covered set_not_null change without acknowledgement as violation kind missing_ack and does not decide the policy; the owner decides by a decision record."
+      - "Whether MigrationRollout.start_rollout/3 must call review/1, whether a platform-operator route exposes it, and how it relates to 0055's per-tenant plan. This entry changes none of them; EO-004 depends on the answer."
+      - "Whether the scenario's 'a name the platform reserves' (step 6, EO-005) means only the managed type names REQ-496 already refuses, or a wider list. If wider, the owner names the list and a requirement is then written."
+    acceptance_criteria:
+      - "a test: a change set of three changes, one an in-place rewrite of stored history, returns {:error, {:rejected, violations}} naming that change and no other; no change of the set appears in an accepted plan"
+      - "a test: a set with add_column (nullable true) then set_not_null on it, no default and no backfill, is rejected with a violation naming the column and Class B"
+      - "a test: the same set with a backfill change ordered between them and the set_not_null id listed in ack_destructive is accepted; with the backfill but an empty ack_destructive it returns a missing_ack violation naming the change id (the ack policy itself stays an open question); with the backfill after the set_not_null it is rejected as not covered"
+      - "a test: a change set whose kind is unknown, or whose change lacks a required field, returns {:error, {:invalid_change_set, _}} and no violations list"
+      - "a test: review/1 called twice on the same set, and on the same set with its independent changes (no backfill/set_not_null ordering involved) listed in a different order, returns equal verdicts and equal violation lists (ordered by change id)"
+      - "a test: a set with two violations returns both (the whole set is reviewed, not stopped at the first)"
+      - "a test: review/1 runs without the Ecto sandbox checked out; git diff shows lib/letflow/platform/migration_rollout.ex and every router untouched"
+      - "the summary quotes the 0055 D2 table rows used and a grep showing lib/letflow/module_upgrade/ does not exist; mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test of the new test file and mix letflow.check_requirements_registration pass, real output quoted"
+    depends_on: [REQ-374]

@@ -239,7 +239,8 @@ defmodule Letflow.Engine.SnapshotWriter do
       "variables" => instance_state.variables,
       "pending_task_nodes" => Enum.map(instance_state.pending_task_nodes, &token_to_map/1),
       "join_counters" => serialize_join_counters(instance_state.join_counters),
-      "variable_labels" => instance_state.variable_labels
+      "variable_labels" => instance_state.variable_labels,
+      "scope_node_id" => instance_state.scope_node_id
     }
   end
 
@@ -309,7 +310,9 @@ defmodule Letflow.Engine.SnapshotWriter do
       pending_task_nodes: Enum.map(Map.fetch!(state, "pending_task_nodes"), &token_from_map/1),
       join_counters: deserialize_join_counters(Map.fetch!(state, "join_counters")),
       # A snapshot written before decision 0062 lacks the key: no labels.
-      variable_labels: Map.get(state, "variable_labels", %{})
+      variable_labels: Map.get(state, "variable_labels", %{}),
+      # Likewise a snapshot written before REQ-531: unscoped.
+      scope_node_id: Map.get(state, "scope_node_id")
     }
   end
 
