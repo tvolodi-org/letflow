@@ -38069,6 +38069,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
+    # impl_order: UNREGISTERED
     gh: 3092
     description: >
       Source: GH #1997 groups (1) and (2) (the full-corpus QA run reports scenarios that cannot be driven as
@@ -38118,6 +38119,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
+    # impl_order: UNREGISTERED
     gh: 3091
     description: >
       Source: GH #1997 group (1), re-checked on main by T-0369 on 2026-10-24, and group (2) (the part that is
@@ -38167,6 +38169,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S6
+    # impl_order: UNREGISTERED
     gh: 3098
     description: >
       Source: GH #1997 group (2), scenario test/fixtures/uat/scenarios/platform/unsafe-migration-rejected.yaml
