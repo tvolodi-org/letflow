@@ -375,6 +375,14 @@ describe("REQ-393 — EntityListBrowserPage", () => {
   });
 });
 
+describe("EntityListBrowserPage page-size options", () => {
+  it("offers no page size above the server maximum of 200", async () => {
+    const { PAGE_SIZE_OPTIONS } = await import("../EntityListBrowserPage");
+    expect([...PAGE_SIZE_OPTIONS]).toEqual([25, 50, 100, 200]);
+    expect(Math.max(...PAGE_SIZE_OPTIONS)).toBeLessThanOrEqual(200);
+  });
+});
+
 // ── GH 3141: definition 404 renders the empty list (INV-5) ────────────────────
 
 function definitionMocks(def: { data?: EntityDefinition; error?: unknown }) {

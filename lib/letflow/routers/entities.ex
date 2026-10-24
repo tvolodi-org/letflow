@@ -1097,7 +1097,7 @@ defmodule Letflow.Routers.Entities do
   end
 
   defp render_list_definitions(conn, {:error, :page_size_too_large}),
-    do: Response.bad_request(conn, "page_size out of range")
+    do: Response.bad_request(conn, Letflow.Api.Pagination.page_size_error_message())
 
   defp render_list_definitions(conn, {:error, :invalid_cursor}),
     do: Response.bad_request(conn, "invalid cursor")
@@ -2028,7 +2028,7 @@ defmodule Letflow.Routers.Entities do
       )
 
   defp render_query_error(conn, :page_size_too_large),
-    do: Response.bad_request(conn, "page_size out of range")
+    do: Response.bad_request(conn, Letflow.Api.Pagination.page_size_error_message())
 
   defp render_query_error(conn, :invalid_cursor), do: Response.bad_request(conn, "invalid cursor")
 
