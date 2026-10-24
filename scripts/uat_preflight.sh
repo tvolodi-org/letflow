@@ -362,14 +362,17 @@ def try_login(aid, user, realms):
         realm = dedup[0] if dedup else "bpm-default"
         cached = realm_status.get((aid, realm))
         if cached == "OK": return ("OK", realm)
-        if cached == "BAD_CRED": return ("BAD_CRED", None)
+        if cached in ("BAD_CRED", "NO_APP_ROLE"): return (cached, None)
         st, _ = http("GET", base + "/api/v1/me/modules", auth(cred))
         if st == 200:
             tokens[(aid, realm)] = cred
             realm_status[(aid, realm)] = "OK"
             return ("OK", realm)
-        realm_status[(aid, realm)] = "BAD_CRED"
-        return ("BAD_CRED", None)
+        # 401 = token rejected (credential/realm problem); 403 = token accepted but Letflow
+        # resolves no app role for the user (GH #3112) -- different owner, different fix.
+        state = "NO_APP_ROLE" if st == 403 else "BAD_CRED"
+        realm_status[(aid, realm)] = state
+        return (state, None)
     # kind == "password": qa-login protocol, own OIDC grant, one realm at a time.
     for realm in dedup:
         cached = realm_status.get((aid, realm))
@@ -666,7 +669,7 @@ for s in scenarios:
     if cred_listing is None:
         c["actors"] = ("UNKNOWN", "credential source unusable: %s" % cred_err, "ai-dala-infra")
     else:
-        missing, unknown, bad, need = [], [], [], 0
+        missing, unknown, bad, norole, need = [], [], [], [], 0
         for aid in s["actor_ids"]:
             if aid.startswith("actor-system-") or aid == "actor-any": continue
             need += 1
@@ -684,13 +687,17 @@ for s in scenarios:
                     users = [u for u in cred_listing if u != "admin-user" and (u == nm or u.startswith(nm + "-"))]
             if not users: missing.append(aid); continue
             state, realm_used = try_login(aid, users[0], realms_for(aid, t))
-            if state != "OK": bad.append("%s(%s)" % (aid, state))
+            if state == "NO_APP_ROLE": norole.append("%s(%s)" % (aid, state))
+            elif state != "OK": bad.append("%s(%s)" % (aid, state))
             else: scenario_ok_tokens.append((aid, s["actor_labels"].get(aid, []), tokens[(aid, realm_used)]))
-        if missing or bad:
-            reason = []
+        if missing or bad or norole:
+            reason, owners = [], []
             if missing: reason.append("no seeded user: " + ", ".join(missing))
             if bad: reason.append("login failed: " + ", ".join(bad))
-            c["actors"] = ("GAP", "; ".join(reason), "ai-dala-infra (Keycloak users) + letflow-seed (scripts/seed_*_actors.sh)")
+            if norole: reason.append("authenticated, but Letflow resolves no role for this user in tenant %s; check the tenant's platform-role bindings (RoleBackfill) and the user's group memberships: %s" % (t, ", ".join(norole)))
+            if missing or bad: owners.append("ai-dala-infra (Keycloak users) + letflow-seed (scripts/seed_*_actors.sh)")
+            if norole: owners.append("letflow (tenant role bindings: RoleBackfill / group memberships)")
+            c["actors"] = ("GAP", "; ".join(reason), "; ".join(owners))
         elif unknown:
             c["actors"] = ("UNKNOWN", "cannot map: " + ", ".join(unknown), "")
         else:
