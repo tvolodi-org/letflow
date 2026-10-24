@@ -330,7 +330,10 @@ defmodule Letflow.Engine.SwiftrouteEscalationTimerTest do
   test "a completed CEO escalation task rejoins the AND-join exactly like the original would" do
     {schema, id} = incident!()
     fire_escalation_at!(schema, id, "ops-assessment")
-    complete!(schema, task!(schema, id, "escalate-ops-assessment-to-ceo"), %{})
+
+    complete!(schema, task!(schema, id, "escalate-ops-assessment-to-ceo"), %{
+      "assessment_notes" => "escalated assessment"
+    })
 
     # the ops branch is done and waiting at the join; finance is still outstanding
     assert projection(schema, id).status == :active
@@ -338,15 +341,16 @@ defmodule Letflow.Engine.SwiftrouteEscalationTimerTest do
     refute "case-summary" in dispatched_nodes(schema, id)
 
     # an ordinary (non-escalated) completion of the other branch still works (e8 carries `true`)
-    complete!(schema, task!(schema, id, "finance-estimate"), %{})
+    complete!(schema, task!(schema, id, "finance-estimate"), %{"estimated_cost_eur" => 0})
     refute "finance-estimate" in projection(schema, id).current_nodes
   end
 
   # GH #2933: the join must not wait on a third (timer) branch.
   test "ops-assessment and finance-estimate completing reaches case-summary with no timer fired" do
     {schema, id} = incident!()
-    complete!(schema, task!(schema, id, "ops-assessment"), %{})
-    complete!(schema, task!(schema, id, "finance-estimate"), %{})
+    complete!(schema, task!(schema, id, "ops-assessment"), %{"assessment_notes" => "assessed"})
+
+    complete!(schema, task!(schema, id, "finance-estimate"), %{"estimated_cost_eur" => 1200})
 
     assert "case-summary" in dispatched_nodes(schema, id)
     advance_service_task!(schema, id, "case-summary", %{})

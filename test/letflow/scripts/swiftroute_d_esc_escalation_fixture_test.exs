@@ -2,7 +2,7 @@ defmodule Letflow.Scripts.SwiftrouteDEscEscalationFixtureTest do
   @moduledoc """
   ISS-1007 / Q-989 (GH #2276) -- the BA ruling "D-ESC" (GH #2281) applied to the SwiftRoute
   definitions: "Shipment Approval" (QA JSON v1.5 + its simulation YAML copy) and "Driver Incident
-  Report" (QA JSON v1.1 + its simulation YAML copy; the QA fixture and seed were added by
+  Report" (QA JSON v1.2 + its simulation YAML copy; the QA fixture and seed were added by
   ISS-1022 / Q-1004, GH #2294).
   Timer -> higher role -> fail closed.
 

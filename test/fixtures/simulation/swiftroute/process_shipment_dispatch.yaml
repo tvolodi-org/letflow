@@ -52,12 +52,20 @@
 # (scenarios/shipment-ops-timeout-escalation.yaml). The QA copy is test/fixtures/qa/swiftroute_incident_process_definition.json
 # (seed: scripts/seed_swiftroute_incident_definition.sh; ISS-1022 / Q-1004, GH #2294); the two are kept in
 # step by test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs.
+# REQ-530 / GH #3086 (v1.2): the four people-steps (ops-assessment, escalate-ops-assessment-to-ceo,
+# finance-estimate, escalate-finance-estimate-to-ceo) carry a form_schema and required_outputs, and
+# variable_schemas types assessment_notes, estimated_cost_eur and finance_notes. Mirrors the QA JSON;
+# test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs keeps the two equal.
 name: Driver Incident Report
-version: "1.1"
+version: "1.2"
 description: >
   Driver submits a field incident (accident, cargo damage, theft).
   Ops assessment and finance estimate run in parallel. Exercises:
   parallel fork/join, timer escalation.
+  v1.2 (REQ-530, GH #3086; process audit T-0295, EO-003): the people-steps had no form, so
+  assessment_notes and estimated_cost_eur could not be entered. The ops steps require
+  assessment_notes; the finance steps require estimated_cost_eur (minimum 0) and take finance_notes
+  optionally. The required fields are required_outputs (a completion without them is refused 422).
   Escalation follows D-ESC: timer -> higher role -> fail closed (ISS-1007 / Q-989):
   ops-assessment (role-ops-manager, P1D) -> escalate-ops-assessment-to-ceo (role-ceo, P1D) ->
   stalled: ops-auto-close (the notice: the incident closes unresolved for that branch, it is never
@@ -90,6 +98,15 @@ graph:
         role: role-ops-manager
         escalation_timer_duration: "P1D"
         escalation_role: role-ceo
+        required_outputs: [assessment_notes]
+        form_schema:
+          type: object
+          properties:
+            assessment_notes:
+              type: string
+              title: Assessment
+              description: "Operations Manager assessment of the incident: what happened and what must be done next. Required; the incident record keeps it."
+          required: [assessment_notes]
     - id: escalate-ops-assessment-to-ceo
       node_type: HUMAN_TASK
       attributes:
@@ -97,12 +114,35 @@ graph:
         description: "top of chain: escalation_role is nominal; stalled = fail closed"
         escalation_timer_duration: "P1D"
         escalation_role: role-ceo
+        required_outputs: [assessment_notes]
+        form_schema:
+          type: object
+          properties:
+            assessment_notes:
+              type: string
+              title: Assessment
+              description: "CEO assessment of the incident, escalated from Operations: what happened and what must be done next. Required; the incident record keeps it."
+          required: [assessment_notes]
     - id: finance-estimate
       node_type: HUMAN_TASK
       attributes:
         role: role-accountant
         escalation_timer_duration: "P1D"
         escalation_role: role-ceo
+        required_outputs: [estimated_cost_eur]
+        form_schema:
+          type: object
+          properties:
+            estimated_cost_eur:
+              type: number
+              minimum: 0
+              title: "Estimated cost (EUR)"
+              description: "Estimated cost of the incident in euro. Required; zero is a valid estimate."
+            finance_notes:
+              type: string
+              title: Finance notes
+              description: "Optional notes on how the estimate was reached."
+          required: [estimated_cost_eur]
     - id: escalate-finance-estimate-to-ceo
       node_type: HUMAN_TASK
       attributes:
@@ -110,6 +150,20 @@ graph:
         description: "top of chain: escalation_role is nominal; stalled = fail closed"
         escalation_timer_duration: "P1D"
         escalation_role: role-ceo
+        required_outputs: [estimated_cost_eur]
+        form_schema:
+          type: object
+          properties:
+            estimated_cost_eur:
+              type: number
+              minimum: 0
+              title: "Estimated cost (EUR)"
+              description: "Estimated cost of the incident in euro, escalated from Finance. Required; zero is a valid estimate."
+            finance_notes:
+              type: string
+              title: Finance notes
+              description: "Optional notes on how the estimate was reached."
+          required: [estimated_cost_eur]
     - id: ops-auto-close
       node_type: SERVICE_TASK
       attributes:
@@ -202,3 +256,18 @@ graph:
     - id: e11
       source: case-summary
       target: end
+
+variable_schemas:
+  - variable_key: injury_involved
+    json_schema:
+      type: boolean
+  - variable_key: assessment_notes
+    json_schema:
+      type: string
+  - variable_key: estimated_cost_eur
+    json_schema:
+      type: number
+      minimum: 0
+  - variable_key: finance_notes
+    json_schema:
+      type: string
