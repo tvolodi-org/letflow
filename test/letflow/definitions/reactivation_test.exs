@@ -75,7 +75,12 @@ defmodule Letflow.Definitions.ReactivationTest do
   test "RA-T1: deactivating the activator marks the definition" do
     ctx = case!()
 
-    assert {:ok, _} = Identity.update_user_status(ctx.user.id, :inactive, opts(ctx))
+    assert {:ok, _} =
+             Identity.update_user_status(
+               ctx.user.id,
+               :inactive,
+               [tenant_id: ctx.tenant.tenant_id] ++ opts(ctx)
+             )
 
     row = reload!(ctx.schema, ctx.definition)
     assert %DateTime{} = row.needs_reactivation_at
@@ -140,7 +145,14 @@ defmodule Letflow.Definitions.ReactivationTest do
 
   test "RA-T4: idempotent, the first reason is kept" do
     ctx = case!()
-    assert {:ok, _} = Identity.update_user_status(ctx.user.id, :inactive, opts(ctx))
+
+    assert {:ok, _} =
+             Identity.update_user_status(
+               ctx.user.id,
+               :inactive,
+               [tenant_id: ctx.tenant.tenant_id] ++ opts(ctx)
+             )
+
     first = reload!(ctx.schema, ctx.definition)
 
     delete_user!(ctx)
@@ -176,7 +188,13 @@ defmodule Letflow.Definitions.ReactivationTest do
 
     result =
       Repo.transaction(fn ->
-        {:ok, _} = Identity.update_user_status(ctx.user.id, :inactive, opts(ctx))
+        {:ok, _} =
+          Identity.update_user_status(
+            ctx.user.id,
+            :inactive,
+            [tenant_id: ctx.tenant.tenant_id] ++ opts(ctx)
+          )
+
         Repo.rollback(:writer_failed)
       end)
 
@@ -186,7 +204,13 @@ defmodule Letflow.Definitions.ReactivationTest do
 
   test "RA-A1: marking writes a definition.mark_needs_reactivation audit row with the reason" do
     ctx = case!()
-    assert {:ok, _} = Identity.update_user_status(ctx.user.id, :inactive, opts(ctx))
+
+    assert {:ok, _} =
+             Identity.update_user_status(
+               ctx.user.id,
+               :inactive,
+               [tenant_id: ctx.tenant.tenant_id] ++ opts(ctx)
+             )
 
     assert [entry] = Fx.audit_rows(ctx.schema, "definition.mark_needs_reactivation")
     assert entry.resource_id == ctx.definition.id
@@ -200,7 +224,13 @@ defmodule Letflow.Definitions.ReactivationTest do
     {_group, _role} = bind_admin!(ctx.schema, [second])
     v1 = ctx.definition
 
-    assert {:ok, _} = Identity.update_user_status(ctx.user.id, :inactive, opts(ctx))
+    assert {:ok, _} =
+             Identity.update_user_status(
+               ctx.user.id,
+               :inactive,
+               [tenant_id: ctx.tenant.tenant_id] ++ opts(ctx)
+             )
+
     assert reload!(ctx.schema, v1).needs_reactivation_at != nil
 
     activator =
