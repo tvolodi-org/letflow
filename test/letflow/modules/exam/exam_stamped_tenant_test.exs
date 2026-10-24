@@ -43,9 +43,15 @@ defmodule Letflow.Modules.Exam.StampedTenantTest do
     content = Fx.build_exam!(schema)
     candidate = Fx.insert_user!(schema)
 
-    assert %{status: :stamped, rows_stamped: 6, error: nil} = Stamp.run_tenant(schema, [])
+    # 12 = 6 runtime types + 6 authoring types that build_exam! creates (answer_option, category,
+    # exam, exam_manual_question, exam_question_rule, question). The other four authoring types
+    # (exam_section, exam_question_rule_tag, question_tag, tag) have no row here, so are not stamped.
+    assert %{status: :stamped, rows_stamped: 12, error: nil} = Stamp.run_tenant(schema, [])
 
-    for name <- Fx.runtime_types() do
+    built_authoring =
+      ~w(answer_option category exam exam_manual_question exam_question_rule question)
+
+    for name <- Fx.runtime_types() ++ built_authoring do
       assert {:ok, "exam"} = ManagedTypes.owner_of(name, schema)
     end
 
