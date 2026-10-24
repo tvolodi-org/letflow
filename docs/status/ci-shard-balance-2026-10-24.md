@@ -186,3 +186,65 @@ Criterion (c) stays open: 4 of 5 consecutive runs are within 10 %, one run is +4
 rebalance of `test/shard_manifest.txt` using the shard logs of run 40115295981 (shard 3/4 `--slowest`
 block against the other three), or a repeat of the five-run measurement once enough new runs exist,
 is the next step. The `test_parallel_shard_test.exs:281` timeout is a separate CI-health item.
+
+## Measurement after #3135 (shard-3 test load fix), T-0431
+
+Source: `gh run list --workflow CI --json conclusion,headSha,createdAt,event` and the job start and end
+times of `gh api repos/tvolodi-org/letflow/actions/runs/<id>/jobs`, same definitions as above. PR #3135 is
+merge ae07cf45e (merge-group run created 2026-10-24T20:08:37Z). Cutoff: pull_request runs created after that.
+
+### Set selection
+
+Only **4** runs qualify, fewer than the five asked for, so the result is partial. Counted from the run
+list at the time of writing (newest run created 21:46:35Z):
+
+- **Used (successful pull_request, 4 shard jobs ran):** 40130206638, 40132243112, 40133321565, 40134414792.
+- **Not used:** 40131861891 (team/T-0423, the shard job was skipped, docs-only), 40131696297 (team/T-0424,
+  conclusion failure, not examined), and every push and merge_group run.
+
+| Run id | headSha | Branch | Shard walls in s: s1 / s2 / s3 / s4 | Median | Slowest (shard) | Slowest / median | Within 10 %? |
+|---|---|---|---|---|---|---|---|
+| 40130206638 | da110edc38ce | team/T-0393 | 870 / 921 / 570 / 517 | 720.0 | 921 (s2) | +27.9 % | no |
+| 40132243112 | 6c55598324e7 | team/T-0422 | 840 / 891 / 891 / 861 | 876.0 | 891 (s2, s3) | +1.7 % | yes |
+| 40133321565 | 3fbeb82f9283 | team/T-0424 | 841 / 616 / 921 / 602 | 728.5 | 921 (s3) | +26.4 % | no |
+| 40134414792 | 459c31e31f14 | team/T-0422 | 880 / 893 / 863 / 491 | 871.5 | 893 (s2) | +2.5 % | yes |
+
+Full shas: da110edc38ce0eb6b4b00ab3fc24bd9b907dfc11, 6c55598324e7e269efca4fcb48eabb148d533147,
+3fbeb82f9283cf5ca53722c434d08bbbbd42b9f8, 459c31e31f14da9242019c5046c0a8bc5c189a32.
+
+**Result:** criterion (c) "slowest slice within 10 % of the median" is **not met on all runs**: 2 of 4 are
+within 10 %, and 2 are at +27.9 % and +26.4 %. It is not met on five consecutive runs, so GH #2380 stays
+open. The earlier outlier (shard 3/4 at +49.1 %) is gone, but a different pattern has taken its place.
+
+### Outliers
+
+Both outlier runs have two light and two heavy shards (shard 3 and 4 at 570 and 517 s in 40130206638;
+shard 2 and 4 at 616 and 602 s in 40133321565), so the median sits between the two groups. The slowest
+shard is the heavy group's top, not a single runaway.
+
+- **40130206638, outlier shard 2/4 (921 s, phase 845 s, partitions 5..8).** Dominated by
+  `test/letflow/modules/exam/exam_sessions_test.exs` (`Letflow.Modules.Exam.RouterTest`, 133.7 s in
+  partition 5), `test/letflow/modules/exam/exam_authoring_test.exs` (43.0 s), the single test
+  `test/letflow/audit_test.exs:371` (42.2 s), `exam_stamped_tenant_test.exs` (18.0 s),
+  `catalog_items/install_test.exs` (16.9 s) and `engine/module_write_failure_codes_test.exs` (17.7 s).
+  Light shard 4/4 had a phase of 450 s.
+- **40133321565, outlier shard 3/4 (921 s, phase 839 s, partitions 9..12).** All four partitions
+  ended within the same second, so this shard is balanced inside itself; it is heavy as a whole. Largest
+  files: `test/letflow/modules/exam/exam_snapshot_late_router_test.exs` (32.7 s),
+  `test/letflow/modules/org/read_api_test.exs` (29.4 s), `engine/module_write_audit_test.exs` (17.3 s),
+  `modules/install_activation_test.exs` (14.1 s). Light shard 2/4 had a phase of 543 s (partitions
+  5..8 up to 543 s) against 765 s in shard 1/4.
+
+The light shards are not the same shards in the two runs (s3 and s4, then s2 and s4), and the same
+slice (partitions 5..8, `exam/` and `modules/` files) was light in one run and heavy in the other. The
+manifest was not changed between the runs (this task did not diff it per run), so the swing looks like run variance, not a fixed heavy file
+group; wall times and slowest-test blocks alone do not tell runner speed from test load apart. Runs
+40132243112 and 40134414792 came out within +1.7 % and +2.5 %, except that
+shard 4/4 was 491 s in the second.
+
+### Remainder of GH #2380
+
+Criterion (c) is open: 2 of 4 post-#3135 runs are within 10 %, and a fifth qualifying pull_request run
+does not exist yet. Repeat this measurement when five qualify. Shard 4/4 is light (491 to 570 s) in 3 of 4
+runs, so moving a file group (for example `exam_sessions_test.exs`, 134 s) from the heavy shards into
+shard 4 is the candidate rebalance if the pattern repeats; it is not done here (measurement only).
