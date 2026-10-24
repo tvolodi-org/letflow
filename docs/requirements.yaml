@@ -38292,7 +38292,7 @@ requirements:
       - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permissions) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over test/letflow/documents/ and the authorization and route pin tests pass, real output quoted."
     depends_on: [REQ-508]
   - id: REQ-541
-    title: "Number sequences for entity records: tenant-scoped sequence definitions and a gap-free allocator, bound to an entity type"
+    title: "Number sequences for records: tenant-scoped sequence definitions and a gap-free allocator, bound to a record type"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
