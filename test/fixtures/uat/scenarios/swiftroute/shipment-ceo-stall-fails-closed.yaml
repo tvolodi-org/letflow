@@ -1,0 +1,121 @@
+# Authored by BA-SWIFTROUTE for T-0322 (process audit T-0295, finding 3). Definition:
+# test/fixtures/qa/swiftroute_process_definition.json, ceo-approval has escalation_timer_duration
+# PT4H and its timeout edge goes to auto-reject (fail closed; the CEO is the top of the chain).
+# Sensitive action covered: releasing (step 4 is a refusal).
+---
+id: swiftroute-shipment-ceo-stall-fails-closed
+company_id: swiftroute
+process_id: proc-swiftroute-shipment-approval
+title: When the CEO does not co-sign in time, the shipment is rejected and never released
+version: "1.0"
+tags: [escalation, timeout, fail_closed]
+
+description: >
+  A dispatcher submits a shipment of 750 euro and the Operations Manager approves it. The CEO
+  does not act within 4 hours. There is nobody above the CEO to escalate to, so the shipment must
+  fail closed: it ends as rejected and is never released.
+
+  WHO ADVANCES THE TIMER (BA decision T-0321, point 5): test control, not a persona's step.
+  UAT-RUNNER uses a swiftroute tooling account holding the Process Operator responsibility. That
+  account is not in the actor roster and none is invented here: until infrastructure provides it,
+  step 3 is BLOCKED (or SKIP if the advance-timer endpoint is unavailable), never PASS.
+
+  PRECONDITION (BA decision T-0321): the dispatcher holds the Process Operator responsibility in
+  the swiftroute realm. If step 1 is refused for lack of that right, the scenario is BLOCKED.
+
+actors:
+  dispatcher:  actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+  ceo:         actor-swiftroute-alice
+
+preconditions:
+  - description: Shipment approval process definition is active
+    check: process_definition_active
+  - description: No open shipment approval instances for SwiftRoute
+    check: no_pending_instances
+  - description: >
+      The dispatcher can start a shipment (Process Operator responsibility, BA decision T-0321).
+    check: custom
+    detail: Step 1 returns a created instance; a refusal at step 1 means BLOCKED.
+  - description: >
+      A swiftroute tooling account holding the Process Operator responsibility is available to
+      UAT-RUNNER for step 3 (UAT assumption, to be confirmed by the process owner).
+    check: custom
+    detail: If no such account is available, step 3 is BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      Submits a shipment request for 20 packages to Munich, declared value 750 euro,
+      standard cargo.
+    via: api
+    input:
+      shipment_id: sim-ship-stall-001
+      destination: Munich
+      declared_value: 750
+      cargo_type: standard
+      requesting_actor_id: actor-swiftroute-lena
+    produces:
+      instance_id: "the process instance ID for this shipment request"
+
+  - step: 2
+    actor: ops_manager
+    action: Reviews the shipment request and approves it. The CEO is then asked to co-sign and does nothing.
+    via: gui
+    input:
+      ops_decision: approve
+
+  - step: 3
+    actor: system
+    action: >
+      The 4-hour CEO co-signature timer fires. UAT-RUNNER, using the swiftroute tooling account
+      described above (not a persona), advances the timer instead of waiting 4 real hours.
+    via: api
+    input:
+      timer_node_id: ceo-approval
+    note: >
+      Requires the advance-timer endpoint of the instance and an account that may advance
+      timers. If either is not available, this scenario is marked SKIP with severity MINOR.
+
+  - step: 4
+    actor: ops_manager
+    action: >
+      Tries to give the co-signature himself now that the CEO has not acted, so that the
+      shipment is released after all.
+    expect_refusal: true
+    via: api
+    input:
+      ceo_decision: approve
+
+expected_outcomes:
+  - id: EO-001
+    description: After the timer fires, the shipment ends as rejected and is not released.
+    verification:
+      method: instance_state
+      detail: >
+        After step 3: the ceo-approval task is cancelled, the auto-reject step ran, instance
+        status == COMPLETED and end node is 'end-rejected'. release-shipment never ran.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A high-value shipment could be released, or left open forever, because the CEO did not
+        co-sign, which breaks the company's financial control policy.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: Nobody else can give the CEO's co-signature afterwards.
+    verification:
+      method: audit_event
+      detail: >
+        After step 4: the attempt was refused because no co-signature is open for this
+        shipment, and the history contains no approval in place of the CEO.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The record could show a release that the CEO never signed.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the sim-ship-stall-001 instance if not already completed.

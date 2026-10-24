@@ -7,6 +7,9 @@
 # synthetic fixtures under test/fixtures/simulation/<company>/scenarios/ instead. Do
 # not edit the ported content below except to keep it byte-identical to a re-pull of
 # the same commit.
+#
+# T-0322 (process audit T-0295, BA decision T-0321): the dispatcher (Lena) starts the shipment with
+# the Process Operator responsibility; a refusal at step 1 means BLOCKED, never PASS.
 ---
 id: swiftroute-shipment-high-value-happy
 company_id: swiftroute

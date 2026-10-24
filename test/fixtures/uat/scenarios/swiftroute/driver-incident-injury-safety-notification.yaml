@@ -1,0 +1,105 @@
+# Authored by BA-SWIFTROUTE for T-0322 (process audit T-0295, finding 3: no scenario covers an
+# incident with injury). Definition: test/fixtures/qa/swiftroute_incident_process_definition.json
+# v1.1, injury-check gateway: injury_involved == true goes through safety-notification before the
+# two parallel tasks. Deployed by scripts/seed_swiftroute_incident_definition.sh.
+# Sensitive action covered: approving/costing (step 2 is a refusal).
+#
+# The human tasks of this definition have no form (audit finding 2, a definition change that
+# belongs to the team, not this file), so the tasks are completed here through the API.
+---
+id: swiftroute-driver-incident-injury-safety-notification
+company_id: swiftroute
+process_id: proc-swiftroute-driver-incident
+title: An incident with an injury sends the safety notification before assessment and costing
+version: "1.0"
+tags: [safety, injury]
+
+description: >
+  A driver reports an accident in which someone was hurt. Before anyone assesses or costs the
+  case, the safety notification must be sent. After that, the Operations Manager and the
+  Accountant do their jobs as for any incident.
+
+  PRECONDITION (BA decision T-0321): the dispatcher holds the Process Operator responsibility in
+  the swiftroute realm. If step 1 is refused for lack of that right, the scenario is BLOCKED.
+
+actors:
+  dispatcher:  actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+  accountant:  actor-swiftroute-hans
+
+preconditions:
+  - description: Driver incident report process definition is active
+    check: process_definition_active
+  - description: No open incident instances for SwiftRoute
+    check: no_pending_instances
+  - description: >
+      The dispatcher can start an incident (Process Operator responsibility, BA decision T-0321).
+    check: custom
+    detail: Step 1 returns a created instance; a refusal at step 1 means BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      Records an incident reported by a driver: a collision on the way to Hamburg in which the
+      driver was lightly injured, with a short description.
+    via: api
+    input:
+      incident_id: sim-incident-injury-001
+      incident_type: accident
+      injury_involved: true
+      description: "Collision at a junction near Hamburg; the driver has a minor injury."
+    produces:
+      instance_id: "the process instance ID for this incident"
+
+  - step: 2
+    actor: accountant
+    action: >
+      Tries to record the operations assessment of the incident, which belongs to the
+      Operations Manager.
+    expect_refusal: true
+    via: api
+    input:
+      assessment_notes: "No view on the cause."
+
+  - step: 3
+    actor: ops_manager
+    action: Completes the operations assessment of the incident.
+    via: api
+
+  - step: 4
+    actor: accountant
+    action: Completes the finance estimate of the incident.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The safety notification is sent, and both tasks are created after it.
+    verification:
+      method: instance_state
+      detail: >
+        After step 1: safety-notification ran before the ops-assessment and finance-estimate
+        tasks were created, and both tasks are open.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An injury is handled like cargo damage and the people responsible for safety are not told.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: The wrong department is refused, and the case closes only after both tasks are done.
+    verification:
+      method: instance_state
+      detail: >
+        After step 2: the refusal is of the assessment task (the Accountant is not the Operations
+        Manager's routing role) and the task is still open. After step 4: instance status ==
+        COMPLETED and case-summary ran.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An injury case is closed without both checks, or the wrong department can do them.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the sim-incident-injury-001 instance if not already completed.
