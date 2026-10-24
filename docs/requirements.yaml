@@ -38335,7 +38335,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3166
     # Source: GH #2535; lib/letflow/design/req525-definitions-services-self-service.md section 6 row IMPL-525-B, section 4 rulings SEC-525-R02 and SEC-525-R03 (RECORDED by SECURITY-REVIEWER, T-0427), section 5 acceptance criteria 1 to 8, section 7 documentation table row IMPL-525-B; code read: lib/letflow/routers/definitions.ex (authz_get "/active/:name" and authz_get "/:id") and test/fixtures/route_scope/tenant_wide_default_routes.txt (the lines "GET /definitions/:id DefinitionsRead" and "GET /definitions/active/:name DefinitionsRead"). Written by the business analyst (T-0439) 2026-10-25. Not yet validated.
     description: >
       Second implementation slice of REQ-525 (IMPL-525-B): the two single-object definition reads,
