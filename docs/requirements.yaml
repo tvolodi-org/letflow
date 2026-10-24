@@ -38297,7 +38297,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- issue filed by the engine after the gate
+    gh: 3153
     # Source: docs/migration/core-roadmap-20261014.md, Wave 3 row "Generic list, pivot and graph views and a report builder over entities" (decision record marked "yes (new)"). Written by the business analyst (T-0443) 2026-10-25.
     description: >
       Design-only slice. The Wave 3 row of docs/migration/core-roadmap-20261014.md on generic
@@ -38328,7 +38328,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-538 -- issue filed by the engine after the gate
+    gh: 3155
     # Source: docs/migration/core-roadmap-20261014.md, Wave 3 generic views row; the decision record of REQ-538. Written by the business analyst (T-0443) 2026-10-25.
     description: >
       Backend of slice 1 of generic views. Implements the shape the decision record of REQ-538
@@ -38364,7 +38364,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-539 -- issue filed by the engine after the gate
+    gh: 3157
     # Source: docs/migration/core-roadmap-20261014.md, Wave 3 generic views row; REQ-393 (the list screen). Written by the business analyst (T-0443) 2026-10-25.
     description: >
       Web part of slice 1 of generic views. web/src/pages/entities/EntityListBrowserPage.tsx
