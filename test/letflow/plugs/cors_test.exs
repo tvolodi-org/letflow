@@ -11,16 +11,21 @@ defmodule Letflow.Plugs.CorsTest do
   cases, matching `test/letflow/plugs/tenant_status_test.exs`'s precedent of a
   dedicated per-plug test file that still exercises the plug through real dispatch.
 
-  No database dependency — `Letflow.Plugs.Cors` reads only `Application.get_env/3`
-  and the request's headers, so plain `ExUnit.Case` is used, matching
-  `router_test.exs`'s own DB-free rationale.
+  `Letflow.Plugs.Cors` itself reads only `Application.get_env/3` and the request's
+  headers, but the `/api/tenant-config` requests below reach the route handler, which
+  looks up the default-realm tenant in Postgres. `Letflow.DataCase` gives each test its
+  own sandbox connection. Without it, that lookup used whatever sandbox mode the
+  previous sync module left behind: right after a `DataCase` sync module, the shared
+  owner can still be registered while it exits, and the lookup then exits with
+  "owner #PID<...> exited", which `Identity.safe_get_tenant_by_slug/2` does not rescue
+  (GH #2380 step 2, CI shard 4/4, partition 16, after `Letflow.EventStore.MigrationsTest`).
 
   Design reference: `lib/letflow/design/req118-cors.md`, especially §0.5 (rejection
   is "omit the header," never a distinct HTTP status) and §1 (the exact header-value
   table this file's assertions are pinned to).
   """
 
-  use ExUnit.Case, async: false
+  use Letflow.DataCase, async: false
 
   import Plug.Test
   import Plug.Conn
