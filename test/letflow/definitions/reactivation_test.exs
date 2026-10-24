@@ -8,6 +8,8 @@ defmodule Letflow.Definitions.ReactivationTest do
 
   import Ecto.Query
 
+  alias Letflow.Definitions
+  alias Letflow.Definitions.Activator
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.Reactivation
   alias Letflow.EntityWritesFixture, as: Fx
@@ -190,6 +192,71 @@ defmodule Letflow.Definitions.ReactivationTest do
     assert entry.resource_id == ctx.definition.id
     assert entry.before_state["needs_reactivation_reason"] == nil
     assert entry.after_state["needs_reactivation_reason"] == "activator_deactivated"
+  end
+
+  test "RA-T8: rolling back to a flagged version clears the flag" do
+    ctx = case!()
+    second = Fx.user!(ctx.schema, "second-admin")
+    {_group, _role} = bind_admin!(ctx.schema, [second])
+    v1 = ctx.definition
+
+    assert {:ok, _} = Identity.update_user_status(ctx.user.id, :inactive, opts(ctx))
+    assert reload!(ctx.schema, v1).needs_reactivation_at != nil
+
+    activator =
+      Activator.from_auth_context(%{user_id: second.id, roles: ["TENANT_ADMIN"]}, false)
+
+    {:ok, v2} =
+      Definitions.create(
+        %{name: v1.name, version: "2.0.0", graph: v1.graph, created_by: second.id},
+        prefix: ctx.schema
+      )
+
+    assert {:ok, _} = Definitions.activate(v2.id, prefix: ctx.schema, activator: activator)
+    assert reload!(ctx.schema, v1).status == :deprecated
+
+    assert {:ok, _} =
+             Definitions.rollback_definition_version(v1.name, v1.version, second.id,
+               prefix: ctx.schema,
+               activator: activator,
+               permission_checker: fn _actor, _tenant -> true end,
+               event_appender: fn _attrs, _prefix ->
+                 {:ok, %{event_id: Ecto.UUID.generate()}}
+               end
+             )
+
+    row = reload!(ctx.schema, v1)
+    assert row.status == :active
+    assert row.needs_reactivation_at == nil
+    assert row.needs_reactivation_reason == nil
+    assert {_id, _task} = Fx.start!(ctx.schema, row)
+  end
+
+  test "RA-T9: changing the activator's admin binding to a routing kind marks the definition" do
+    ctx = case!()
+    {group, _role} = bind_admin!(ctx.schema, [ctx.user])
+    keeper = Fx.user!(ctx.schema, "keeper")
+
+    # A live TENANT_ADMIN token owner keeps the last-admin guard satisfied.
+    %Letflow.Identity.ApiToken{}
+    |> Letflow.Identity.ApiToken.insert_changeset(%{
+      user_id: keeper.id,
+      name: "ra-keeper",
+      token_hash: Fx.unique("hash"),
+      roles: ["TENANT_ADMIN"]
+    })
+    |> Repo.insert!(prefix: ctx.schema)
+
+    assert {:ok, _} =
+             Identity.RoleRegistry.upsert_role(
+               "TENANT_ADMIN",
+               :process_routing_role,
+               group.id,
+               opts(ctx)
+             )
+
+    assert reload!(ctx.schema, ctx.definition).needs_reactivation_reason ==
+             "activator_lost_entities_records_write"
   end
 
   test "RA-T6: every authority-removing writer calls Reactivation, exempt ones are named" do

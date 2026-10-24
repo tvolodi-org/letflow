@@ -3331,7 +3331,15 @@ defmodule Letflow.Definitions do
       |> where([d], d.id == ^target_row.id)
       |> select([d], d)
       |> Repo.update_all(
-        [set: [status: :active, updated_at: now, activated_by: activated_by]],
+        [
+          set: [
+            status: :active,
+            updated_at: now,
+            activated_by: activated_by,
+            needs_reactivation_at: nil,
+            needs_reactivation_reason: nil
+          ]
+        ],
         prefix: prefix
       )
 

@@ -230,5 +230,20 @@ defmodule Letflow.Engine.ReactivationServiceTest do
 
       assert child_projections(ctx, child) == 0
     end
+
+    test "after reactivate the same parent flow starts the child" do
+      {ctx, child, parent} = setup_pair(true)
+      assert {:error, _} = create(ctx, parent.id)
+
+      admin = Fx.user!(ctx.schema, "new-activator")
+
+      activator =
+        Activator.from_auth_context(%{user_id: admin.id, roles: ["TENANT_ADMIN"]}, false)
+
+      assert {:ok, _} = Definitions.reactivate(child.id, prefix: ctx.schema, activator: activator)
+
+      assert {:ok, %{instance_id: _}} = create(ctx, parent.id)
+      assert child_projections(ctx, child) == 1
+    end
   end
 end

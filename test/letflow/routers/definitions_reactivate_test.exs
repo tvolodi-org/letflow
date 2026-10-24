@@ -116,6 +116,10 @@ defmodule Letflow.Routers.DefinitionsReactivateTest do
     assert foreign.status == 404
     assert malformed.status == 404
     assert unknown.resp_body == foreign.resp_body
+
+    untouched = Repo.get!(ProcessDefinition, other.definition.id, prefix: other.schema)
+    assert untouched.activated_by == other.definition.activated_by
+    assert untouched.needs_reactivation_at == nil
     assert row(ctx).needs_reactivation_at != nil
   end
 

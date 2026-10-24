@@ -10,8 +10,12 @@ defmodule Letflow.Definitions.Reactivation do
   unique active-name index stay untouched. The API shows it as `activation_state`.
 
   `reconcile_user/2` is public and idempotent. It runs inside the writer's transaction at each
-  site that can remove a principal's authority (user deactivation, group member removal, group
-  delete, IdP sync, role binding writers), so the mark is atomic with its cause. The application
+  site that can remove a principal's authority (user deactivation, group member removal, role
+  binding writers incl. kind change and move), so the mark is atomic with its cause. Group
+  delete (memberless groups only) and IdP sync (adds memberships only) are exempt: they cannot
+  remove authority. Residual: if the activator is re-signed and deactivated concurrently, the
+  deactivation's row snapshot can miss the re-signed row, which stays unflagged; the run-time
+  check still refuses fail-closed. The application
   has no user-delete path; an ABSENT activator is reachable only out of band, and tooling that
   removes a user row calls this function. `Letflow.Engine` stays the fail-closed backstop: its
   run-time check treats an absent or inactive activator as `entity_write_needs_reactivation`.
