@@ -1,7 +1,7 @@
 # Ported from R-Co tests/simulation/companies/vortex/process_production_order_release.yaml (ISS-0388).
 # Filename kept as process_quality_check.yaml to avoid breaking test references.
 name: Production Order Release
-version: "1.9"
+version: "1.10"
 description: >
   Multi-level release gate for a new production order. Planner creates the order;
   Production Manager reviews; if value > 10000 Financial Controller signs off.
