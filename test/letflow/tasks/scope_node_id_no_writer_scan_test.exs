@@ -4,8 +4,11 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
   `lib/letflow/design/req518-compiler-scope-filter.md` C.1, 10.3; spec `test/specs/REQ-518-2d.md`;
   SEC code-gate step-24 MERGE CONDITION: "T-F2 (lib/ source scan: no writer of scope_node_id incl.
   insert_all keyword forms and TaskActivation; absent from cast lists and response maps)"):
-  nothing under `lib/` writes `tasks.scope_node_id`. The only writer is
-  `Letflow.Support.TaskScopeFixture` (test/support, compiled in :test only, NOT scanned).
+  the only function under `lib/` that writes `tasks.scope_node_id` is
+  `Letflow.Engine.TaskActivation.insert_task_row/4` (REQ-532 / GH #3091, pinned exactly by name).
+  `Letflow.Support.TaskScopeFixture` (test/support, compiled in :test only, NOT scanned) keeps its own
+  raw-SQL writer for tests. `.md` history files under `lib/letflow/design/` are not scanned: they are
+  records of past designs, not code.
 
   The scan parses every `lib/**/*.ex` file (comments are not in the AST; `@doc`, `@moduledoc` and
   `@typedoc` text is skipped) and finds every use of the name `scope_node_id`, as an atom or inside
@@ -38,8 +41,15 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
   @type_attrs [:type, :typep, :opaque, :spec, :callback]
 
   # file => the sorted list of enclosing labels of every use in CODE (docs and comments excluded)
+  # REQ-532 / GH #3091: the task-side WRITER is `TaskActivation.insert_task_row/4`, the one place that
+  # sets the column (from the instance's value). Its two callers carry the value in the same file.
   @task_ledger %{
     "lib/letflow/engine/task.ex" => ["@type", "def audit_state/1", "schema"],
+    "lib/letflow/engine/task_activation.ex" => [
+      "def append_multi/6",
+      "def append_multi_from_existing_records/7",
+      "def insert_task_row/4"
+    ],
     "lib/letflow/tasks.ex" => ["def in_scope/3", "defp filter_by_scope/2"],
     "lib/letflow/tasks/scope_resolver.ex" => ["def task_scope/1"]
   }
@@ -255,20 +265,46 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
 
     defp label_of({kind, _, [head | _]}), do: "#{kind} #{label(head)}"
 
-    test "no function that WRITES and mentions the Task schema or the tasks table names the column (insert_all, update_all, insert, update, put_change, change)" do
+    test "the only function that WRITES the tasks table and names the column is TaskActivation.insert_task_row/4 (REQ-532 pin)" do
       defs =
         for file <- lib_files(),
             ast = file |> File.read!() |> Code.string_to_quoted!(),
             def_node <- task_writing_defs(ast) do
-          {file, Macro.to_string(def_node)}
+          {file, def_node}
         end
 
       # the capture is live: the engine and the task context DO write tasks
       assert length(defs) >= 5
 
-      for {file, text} <- defs do
-        refute text =~ "scope_node_id", file
+      writers =
+        for {file, def_node} <- defs,
+            Macro.to_string(def_node) =~ "scope_node_id",
+            do: {file, label_of(def_node)}
+
+      # exact pin: any other writer of a `tasks` row that names the column fails here
+      assert writers == [{"lib/letflow/engine/task_activation.ex", "def insert_task_row/4"}]
+    end
+
+    test "REQ-532 AC 7: the scoped-approver refusal code appears nowhere in lib/*.ex code" do
+      for file <- lib_files() do
+        refute File.read!(file) =~ "scoped_approvers_without_task_scope", file
       end
+    end
+
+    test "the migrations that name the column on the tasks table are exactly the REQ-518 DDL and the REQ-532 backfill" do
+      named =
+        "priv/repo/migrations"
+        |> File.ls!()
+        |> Enum.sort()
+        |> Enum.filter(fn file ->
+          source = File.read!(Path.join("priv/repo/migrations", file))
+          String.contains?(source, "scope_node_id") and String.contains?(source, "tasks")
+        end)
+
+      assert named == [
+               "20261019200001_add_scope_node_id_to_tasks.exs",
+               "20261024200001_backfill_tasks_scope_node_id.exs"
+             ]
     end
 
     @write_funs [

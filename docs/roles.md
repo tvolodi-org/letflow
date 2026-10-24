@@ -66,9 +66,7 @@ Record history consequence (REQ-516 S2, decision 0059 D2): the history route mas
 
 ## Known limitation: scoped approvers (stage 2)
 
-Tasks carry no scope node until W3b; this is a known limitation of stage 2, not a bug.
-A scoped-only approver cannot see, claim or complete any task while scope enforcement is on for the tenant.
-This gap blocks turning scope enforcement on for any tenant that has scoped approvers, until the W3b writer of tasks.scope_node_id lands.
+Each task carries the scope node of the instance it was created for: `tasks.scope_node_id` is copied from `instance_projections.scope_node_id` when the task is created, and existing tasks were backfilled from their own instance (REQ-532 / GH #3091). A task of an instance with no scope node keeps NULL, which is fail-closed: a scoped caller never sees it, and a tenant-wide holder sees it as before. Scoped approvers therefore see the tasks of their scope, and the flip to `on` is no longer refused for scoped approvers.
 
 Under scope enforcement a user who holds a task route only through scoped grants may see, claim or complete a task only if the user is in the task's routing role and holds a TASK_WORKER grant whose subtree covers the task's scope node. A grant of another role (PROCESS_OPERATOR, TENANT_ADMIN) never substitutes for the TASK_WORKER grant, and a task without a scope node is invisible to a scoped caller. Assigning and reassigning a task follow the route permission itself.
 
@@ -106,7 +104,7 @@ While a tenant's scope enforcement is `on`, the login-time sync of IdP role clai
 
 A refusal is a 409 `enforcement_precondition_failed` whose `failed` array lists every failing code, with the counts (`report`) and the evidence summary (`evidence`); a refused flip to `on` writes one `scope.enforcement_refused` audit entry. A successful flip writes `scope.enforcement_enabled` (the mode went up: off < shadow < on) or `scope.enforcement_disabled` (it went down) in the same transaction as the change.
 
-The gate for `shadow` to `on`, stable codes: `bindings_without_row`, `org_inconsistent`, `tokens_exceed_owner` (tokens of a flagged service principal still count; the flagged-service-principal exemption covers only the mint subset check), `zero_tenant_wide_admins` (at least one active, interactive human with an explicit tenant-wide TENANT_ADMIN grant is required: token owners and flagged service principals do not count, because only such a user can turn enforcement off), `scoped_approvers_without_task_scope` (see the scoped approvers limitation above), `shadow_evidence_insufficient` (the tenant has been in `shadow` for at least `scope_shadow_min_days` days, default 7; at least `scope_shadow_min_requests` requests, default 100, over the window; requests on every date of the window; no `no_grant_rows` or `grants_unavailable` would-deny). The thresholds are server configuration only. `GET /api/v1/tenant/scope-enforcement/integrity` shows the same facts as a lock-free snapshot in its `on_gate` block (`findings` is the older informational list; `on_gate.blocking` is what the `on` flip will check).
+The gate for `shadow` to `on`, stable codes: `bindings_without_row`, `org_inconsistent`, `tokens_exceed_owner` (tokens of a flagged service principal still count; the flagged-service-principal exemption covers only the mint subset check), `zero_tenant_wide_admins` (at least one active, interactive human with an explicit tenant-wide TENANT_ADMIN grant is required: token owners and flagged service principals do not count, because only such a user can turn enforcement off), `shadow_evidence_insufficient` (the tenant has been in `shadow` for at least `scope_shadow_min_days` days, default 7; at least `scope_shadow_min_requests` requests, default 100, over the window; requests on every date of the window; no `no_grant_rows` or `grants_unavailable` would-deny). The thresholds are server configuration only. `GET /api/v1/tenant/scope-enforcement/integrity` shows the same facts as a lock-free snapshot in its `on_gate` block (`findings` is the older informational list; `on_gate.blocking` is what the `on` flip will check).
 
 The shadow period proves only the denials of tenant-wide and admin-plane routes; denials on the data path (compiler predicate, 404 equivalence, writes, bulk and import, F1) are proven by the REQ-518 tests and the end-to-end suite, not by shadow.
 
@@ -114,18 +112,18 @@ The flip request itself counts as a shadow request, and request counts include e
 
 ## What `on` means in production today
 
-Read this before flipping any tenant. Only pilot tenants may be flipped, and pilot use must wait for the open items: the tenant-level metadata reads for scoped users (RA-6, REQ-525..527, filed in #2862); the last-admin gap (#2869: a tenant stored `on` can end with nobody able to turn it off; the operator break-glass is built, GH #2883, and the guard that prevents the gap is built, GH #2869 part (a), 0051 A12); and the writer of `tasks.scope_node_id` (W3b, #2870). The decision-record amendment is 0051 A8-A10 (PR #2871); A11 records the GH #2883 break-glass; A12 records the GH #2869 last-admin guard.
+Read this before flipping any tenant. Only pilot tenants may be flipped, and pilot use must wait for the open items: the tenant-level metadata reads for scoped users (RA-6, REQ-525..527, filed in #2862); the last-admin gap (#2869: a tenant stored `on` can end with nobody able to turn it off; the operator break-glass is built, GH #2883, and the guard that prevents the gap is built, GH #2869 part (a), 0051 A12); and the writer of `tasks.scope_node_id` (W3b, #2870), which REQ-532 (GH #3091) delivers, so it is no longer open. The decision-record amendment is 0051 A8-A10 (PR #2871); A11 records the GH #2883 break-glass; A12 records the GH #2869 last-admin guard.
 
 1. A tenant that passes the gate can be set to `on` by an interactive tenant-wide TENANT_ADMIN, only from `shadow`, with an audit trail.
 2. `on` delivers: the admin plane is closed to scoped admins, scoped users get a uniform 403 on every tenant-wide route, binding writers and IdP sync no longer widen anyone, and the grant tables fail closed.
-3. `on` does NOT deliver data-level scoping in production. No installed module declares scope, so a scoped user sees no entity data; and no writer sets `tasks.scope_node_id`, so a scoped task worker sees no task and a scoped approver cannot claim or complete one.
+3. `on` does NOT deliver data-level scoping in production. No installed module declares scope, so a scoped user sees no entity data. A task is visible to a scoped task worker only when its instance's scope node is in the worker's scope (`tasks.scope_node_id`, REQ-532); a task of an unscoped instance is visible only to tenant-wide holders.
 4. The shadow period proves only the denials of tenant-wide and admin-plane routes (the sentence above).
 5. Scoped users lose definitions, entity-definition, instance and service reads until the tenant-level metadata follow-up (RA-6) ships.
 6. Do not scope the CANDIDATE binding: the exam routes stay tenant-wide, so a scoped CANDIDATE gets 403 and exam sessions break.
 7. To turn `on` off: an interactive tenant-wide TENANT_ADMIN, with a mandatory reason. Tokens cannot. When no such admin can log in, use the platform-operator break-glass command `Letflow.Release.ScopeBreakGlass` (`mix letflow.scope_enforcement.break_glass`), which has no HTTP route and needs a mandatory reason and an operator label.
 8. A platform tenant stored as `on` does not restrict its PLATFORM_ADMIN on platform-scope routes; grants never decide platform scope.
 
-The scoped-approver blocker is evaluated at flip time only: a scoped approver created after `on` is fail-closed and shown in the `on_gate` information count of the integrity report.
+The scoped-approver count (`scoped_approvers`) is informational and never refuses the flip: it is shown in the `on_gate` counts of the integrity report, and a scoped task worker who holds no routing role is shown in `information`.
 
 **Conditions and cautions for any flip** (they are not numbered items above and not limitations):
 

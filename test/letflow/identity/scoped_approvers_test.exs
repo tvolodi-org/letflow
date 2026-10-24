@@ -85,14 +85,14 @@ defmodule Letflow.Identity.ScopedApproversTest do
       assert ScopedApprovers.count(schema) == %{approvers: 1, task_workers_not_approvers: 1}
     end
 
-    test "the gate (fact 5) reports the approver and names the stable code" do
+    test "the gate reports the approver and does not refuse the flip (REQ-532, informational)" do
       fx = F.shadow_tenant!("req519-p1e")
       :ok = F.satisfy!(fx, fx.now)
       _w = F.scoped_task_worker!(fx.schema_name, true)
 
       {report, failed} = OnGate.evaluate(fx.tenant_id, fx.schema_name, fx.now)
 
-      assert failed == [:scoped_approvers_without_task_scope]
+      assert failed == []
       assert report.scoped_approvers == 1
     end
   end
