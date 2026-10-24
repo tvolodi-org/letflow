@@ -48,7 +48,6 @@ defmodule Letflow.ScopeEnforcement.RefusedAuditTest do
     {:org_inconsistent, "org_consistency", "inconsistent"},
     {:tokens_exceed_owner, "tokens_exceeding_owner", 1},
     {:zero_tenant_wide_admins, "explicit_tenant_wide_admins", 0},
-    {:scoped_approvers_without_task_scope, "scoped_approvers", 1},
     {:shadow_evidence_insufficient, "bindings_without_row", 0}
   ]
 
@@ -78,11 +77,6 @@ defmodule Letflow.ScopeEnforcement.RefusedAuditTest do
 
   defp break!(:zero_tenant_wide_admins, fx),
     do: F.remove_memberships!(fx.schema_name, fx.admin.id)
-
-  defp break!(:scoped_approvers_without_task_scope, fx) do
-    _ = F.scoped_task_worker!(fx.schema_name, true)
-    :ok
-  end
 
   defp break!(:shadow_evidence_insufficient, _fx), do: :ok
 
@@ -143,7 +137,7 @@ defmodule Letflow.ScopeEnforcement.RefusedAuditTest do
       end
     end
 
-    test "the payload keys are the closed sets: six preconditions, the evidence block, six reasons" do
+    test "the payload keys are the closed sets: six preconditions, the evidence block, five reasons" do
       fx = broken!(:bindings_without_row, "req519-f-keys")
       {report, failed} = OnGate.evaluate(fx.tenant_id, fx.schema_name, fx.now)
       assert :ok = record(fx, :shadow, failed, report)

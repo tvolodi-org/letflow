@@ -144,19 +144,13 @@ defmodule Letflow.Support.OnGateFixture do
   def break_fact!(fx, :zero_tenant_wide_admins),
     do: remove_memberships!(fx.schema_name, fx.admin.id)
 
-  def break_fact!(fx, :scoped_approvers_without_task_scope) do
-    _worker = scoped_task_worker!(fx.schema_name, true)
-    :ok
-  end
-
-  @doc "Breaks facts 1 to 5 at once (every fact the de-escalations must ignore)."
+  @doc "Breaks facts 1 to 4 at once (every fact the de-escalations must ignore)."
   @spec break_all_facts!(map()) :: :ok
   def break_all_facts!(fx) do
     for code <- [
           :bindings_without_row,
           :org_inconsistent,
           :tokens_exceed_owner,
-          :scoped_approvers_without_task_scope,
           :zero_tenant_wide_admins
         ] do
       :ok = break_fact!(fx, code)

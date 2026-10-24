@@ -1,6 +1,6 @@
 defmodule Letflow.ScopeEnforcement.OnGate do
   @moduledoc """
-  The six facts the `shadow -> on` flip must satisfy (REQ-519 2f-a, GH #2535, AC 9 and 10;
+  The five facts the `shadow -> on` flip must satisfy (REQ-519 2f-a, GH #2535, AC 9 and 10;
   design `lib/letflow/design/req519-enforced-writers-and-flag-on.md` section 4.4, SEC rulings
   C-4, S-4 and S-5 of
   `handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-04-security-reviewer-design.json`).
@@ -13,7 +13,7 @@ defmodule Letflow.ScopeEnforcement.OnGate do
   2f-b); the wire shapes below are the ONE serialisation shared by the audit entries, the 409
   refusal body and the integrity endpoint.
 
-  Facts, in read order; ALL six are evaluated every time so a refusal names every failure:
+  Facts, in read order; ALL five are evaluated every time so a refusal names every failure:
 
     1. `bindings_without_row` -- T9, `RoleScopeGrants.bindings_without_row_count/1`, fails when > 0.
     2. `org_inconsistent` -- `ScopeNodePaths.Consistency.check/1`, fails unless status `:ok`
@@ -24,11 +24,11 @@ defmodule Letflow.ScopeEnforcement.OnGate do
        (SEC C-4: active, interactive, explicit; no token owner, no flagged service principal),
        fails when = 0. The flip route is interactive-only, so a tenant with no such admin
        could not be switched off through the API.
-    5. `scoped_approvers_without_task_scope` -- `Letflow.Identity.ScopedApprovers.count/1`
-       `approvers`, fails when > 0 (removed only by the requirement that ships a writer for
-       `tasks.scope_node_id`). The count of scoped task workers who are not approvers is
-       INFORMATIONAL and never blocks.
-    6. `shadow_evidence_insufficient` -- `Letflow.ScopeEnforcement.ShadowWindow.evaluate/3`.
+    5. `shadow_evidence_insufficient` -- `Letflow.ScopeEnforcement.ShadowWindow.evaluate/3`.
+
+  The scoped-approver count (`Letflow.Identity.ScopedApprovers.count/1`) is INFORMATIONAL and never
+  blocks. It was a blocking fact until REQ-532 / GH #3091, which writes `tasks.scope_node_id` from
+  the instance's scope node, so a scoped task worker is no longer refused by a missing task scope.
 
   A raise anywhere propagates (INV-8): inside the flip it rolls the transaction back, no flag
   change, answered as a server fault and NOT recorded as a refusal. The report holds counts,
@@ -45,7 +45,6 @@ defmodule Letflow.ScopeEnforcement.OnGate do
           | :org_inconsistent
           | :tokens_exceed_owner
           | :zero_tenant_wide_admins
-          | :scoped_approvers_without_task_scope
           | :shadow_evidence_insufficient
 
   @type report :: %{
@@ -73,9 +72,10 @@ defmodule Letflow.ScopeEnforcement.OnGate do
   end
 
   @doc """
-  The five blocking counts as a string-keyed map (`bindings_without_row`, `org_consistency`,
+  The counts as a string-keyed map (`bindings_without_row`, `org_consistency`,
   `tokens_exceeding_owner`, `explicit_tenant_wide_admins`, `scoped_approvers`), read from an
-  `t:report/0` or from the `counts` of the integrity snapshot.
+  `t:report/0` or from the `counts` of the integrity snapshot. Four of them back a blocking fact;
+  `scoped_approvers` is informational (REQ-532).
   """
   @spec counts_state(map()) :: %{String.t() => term()}
   def counts_state(counts) do
@@ -121,7 +121,7 @@ defmodule Letflow.ScopeEnforcement.OnGate do
   end
 
   @doc """
-  Evaluates the six facts for the tenant at the instant `now`. Returns the report and the
+  Evaluates the five facts for the tenant at the instant `now`. Returns the report and the
   failing fact codes, in read order (empty when the gate is satisfied).
   """
   @spec evaluate(tenant_id :: Ecto.UUID.t(), prefix :: String.t(), now :: DateTime.t()) ::
@@ -148,7 +148,6 @@ defmodule Letflow.ScopeEnforcement.OnGate do
         {:org_inconsistent, report.org_consistency != :ok},
         {:tokens_exceed_owner, report.tokens_exceeding_owner > 0},
         {:zero_tenant_wide_admins, report.explicit_tenant_wide_admins == 0},
-        {:scoped_approvers_without_task_scope, report.scoped_approvers > 0},
         {:shadow_evidence_insufficient, not evidence_ok?}
       ]
       |> Enum.filter(fn {_code, failed?} -> failed? end)
