@@ -154,7 +154,7 @@ actors:
     tenant: vortex
     builtin_roles: [TASK_WORKER]
     routing_roles: [role-finance-director]
-    note: "seed_vortex_persona_actors.sh PERSONAS line (actor-vortex-greta|role-finance-director); TASK_WORKER implicit per script header. REQ-471 / GH #2479: decides escalate-budget-approval-to-finance-director. Persona name proposed by the requirement, BA-VORTEX confirms. UAT-class: the Keycloak account is unrequested, so scenarios using this actor are blocked until it exists"
+    note: "seed_vortex_persona_actors.sh PERSONAS line (actor-vortex-greta|role-finance-director); TASK_WORKER implicit per script header. REQ-471 / GH #2479: decides escalate-budget-approval-to-finance-director. Persona name proposed by the requirement, BA-VORTEX confirms. UAT-class: the QA Keycloak account was approved by the owner on 2026-10-22 (GH #3048) and provisioned by infra (ai-dala-infra 9ebd1ee)"
   actor-vortex-max:
     tenant: vortex
     builtin_roles: [TASK_WORKER]
