@@ -1,0 +1,99 @@
+# Authored by BA-SWIFTROUTE for T-0322 (process audit T-0295, finding 3). Definition:
+# test/fixtures/qa/swiftroute_process_definition.json, edge e4: declared_value <= 500 goes from
+# the Operations Manager's approval straight to release, without the CEO. The 500 boundary is the
+# definition's own rule. Sensitive action covered: approving (step 3 is a refusal).
+---
+id: swiftroute-shipment-small-value-no-ceo
+company_id: swiftroute
+process_id: proc-swiftroute-shipment-approval
+title: A shipment worth 500 euro or less is approved by the Operations Manager alone and released
+version: "1.0"
+tags: [approval, threshold]
+
+description: >
+  A dispatcher submits a shipment with a declared value of exactly 500 euro. The Operations
+  Manager approves it. Because the value does not exceed 500 euro, the CEO is not asked and the
+  shipment is released. The dispatcher still cannot approve her own shipment.
+
+  PRECONDITION (BA decision T-0321): the dispatcher holds the Process Operator responsibility in
+  the swiftroute realm. If step 1 is refused for lack of that right, the scenario is BLOCKED,
+  not PASS.
+
+actors:
+  dispatcher:  actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+
+preconditions:
+  - description: Shipment approval process definition is active
+    check: process_definition_active
+  - description: No open shipment approval instances for SwiftRoute
+    check: no_pending_instances
+  - description: >
+      The dispatcher can start a shipment (Process Operator responsibility, BA decision T-0321).
+    check: custom
+    detail: Step 1 returns a created instance; a refusal at step 1 means BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      Submits a shipment request for 8 packages to Leipzig, declared value 500 euro,
+      standard cargo.
+    via: api
+    input:
+      shipment_id: sim-ship-small-001
+      destination: Leipzig
+      declared_value: 500
+      cargo_type: standard
+      requesting_actor_id: actor-swiftroute-lena
+    produces:
+      instance_id: "the process instance ID for this shipment request"
+
+  - step: 2
+    actor: dispatcher
+    action: >
+      Tries to give the Operations Manager's approval for the shipment she has just submitted.
+    expect_refusal: true
+    via: api
+    input:
+      ops_decision: approve
+
+  - step: 3
+    actor: ops_manager
+    action: Reviews the shipment request and approves it.
+    via: gui
+    input:
+      ops_decision: approve
+      ops_notes: "Capacity available, standard cargo, approved."
+
+expected_outcomes:
+  - id: EO-001
+    description: The dispatcher is refused at step 2 and the shipment still waits for the Operations Manager.
+    verification:
+      method: instance_state
+      detail: >
+        After step 2: the attempt was refused, the operations review is still open and assigned
+        to the Operations Manager.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A dispatcher could approve her own shipments, so the first control would not exist.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: After the Operations Manager approves, the shipment is released without any CEO task.
+    verification:
+      method: instance_state
+      detail: >
+        After step 3: no ceo-approval task was ever created for the instance, release-shipment
+        ran, instance status == COMPLETED and end node is 'end-approved'.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Either small shipments wait for the CEO unnecessarily, or the 500 euro limit is not
+        applied as written and the company's approval policy is not followed.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the sim-ship-small-001 instance if not already completed.

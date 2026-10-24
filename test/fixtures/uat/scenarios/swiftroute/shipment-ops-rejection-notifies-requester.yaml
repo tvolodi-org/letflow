@@ -1,0 +1,102 @@
+# Authored by BA-SWIFTROUTE for T-0322 (process audit T-0295, finding 3: no scenario walks the
+# Operations Manager's rejection). Definition: test/fixtures/qa/swiftroute_process_definition.json,
+# edge e2 (ops_decision == reject) leads to notify-requester, then end-rejected.
+# Sensitive action covered: approving (step 3 is a refusal on a closed shipment).
+---
+id: swiftroute-shipment-ops-rejection-notifies-requester
+company_id: swiftroute
+process_id: proc-swiftroute-shipment-approval
+title: When the Operations Manager rejects a shipment, the requester is told and the CEO is not asked
+version: "1.0"
+tags: [rejection, approval]
+
+description: >
+  A dispatcher submits a shipment of 750 euro. The Operations Manager rejects it. The
+  requester must be notified, the shipment must end as rejected, it must never be released,
+  and the CEO must not receive a co-signature task for a shipment that is already rejected.
+
+  PRECONDITION (BA decision T-0321): the dispatcher holds the Process Operator responsibility in
+  the swiftroute realm, which is what lets her start a shipment. If step 1 is refused for lack of
+  that right, the scenario is BLOCKED, not PASS.
+
+actors:
+  dispatcher:  actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+  ceo:         actor-swiftroute-alice
+
+preconditions:
+  - description: Shipment approval process definition is active
+    check: process_definition_active
+  - description: No open shipment approval instances for SwiftRoute
+    check: no_pending_instances
+  - description: >
+      The dispatcher can start a shipment (Process Operator responsibility, BA decision T-0321).
+    check: custom
+    detail: Step 1 returns a created instance; a refusal at step 1 means BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      Submits a shipment request for 12 packages to Cologne, declared value 750 euro,
+      standard cargo.
+    via: api
+    input:
+      shipment_id: sim-ship-rej-001
+      destination: Cologne
+      declared_value: 750
+      cargo_type: standard
+      requesting_actor_id: actor-swiftroute-lena
+    produces:
+      instance_id: "the process instance ID for this shipment request"
+
+  - step: 2
+    actor: ops_manager
+    action: Reviews the shipment request and rejects it.
+    via: gui
+    input:
+      ops_decision: reject
+
+  - step: 3
+    actor: ceo
+    action: >
+      Tries to give the CEO's co-signature on the shipment the Operations Manager has already
+      rejected.
+    expect_refusal: true
+    via: api
+    input:
+      ceo_decision: approve
+
+expected_outcomes:
+  - id: EO-001
+    description: The requester is notified of the rejection and the shipment ends as rejected.
+    verification:
+      method: instance_state
+      detail: >
+        After step 2: the notify-requester step ran, instance status == COMPLETED and end node
+        is 'end-rejected'.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The dispatcher is never told her shipment was rejected, so the cargo waits for an answer
+        that will not come.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      The CEO receives no co-signature task, and the shipment is never released to the drivers.
+    verification:
+      method: task_assigned
+      detail: >
+        After step 2: no ceo-approval task exists for the instance and release-shipment did not
+        run. The step 3 attempt is refused because there is nothing open to sign, and it records
+        no approval.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A rejected shipment could still be released, which defeats the first control over shipments.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the sim-ship-rej-001 instance if not already completed.

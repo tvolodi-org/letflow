@@ -1,0 +1,118 @@
+# Authored by BA-SWIFTROUTE for T-0322 (process audit T-0295, finding 3). Definition:
+# test/fixtures/qa/swiftroute_incident_process_definition.json v1.1: ops-assessment (role-ops-manager,
+# P1D) -> escalate-ops-assessment-to-ceo (role-ceo, P1D) -> ops-auto-close notice, which rejoins the
+# join without marking the incident assessed. Sensitive action covered: approving (step 5 refusal).
+#
+# Timer step: test control by a swiftroute tooling account holding the Process Operator
+# responsibility (BA decision T-0321, point 5); not in the roster, none is invented here.
+---
+id: swiftroute-driver-incident-ops-assessment-lapses
+company_id: swiftroute
+process_id: proc-swiftroute-driver-incident
+title: An operations assessment nobody does goes to the CEO, then closes with a notice instead of being marked done
+version: "1.0"
+tags: [escalation, timeout, fail_closed]
+
+description: >
+  A driver reports cargo damage. The Finance estimate is done in time. The Operations Manager
+  does not assess the incident within a day, so it goes to the CEO. The CEO does not act within
+  a further day either. The assessment then ends with a notice that it timed out, and the case is
+  closed without the incident ever being recorded as assessed.
+
+  PRECONDITIONS (BA decision T-0321): the dispatcher holds the Process Operator responsibility in
+  the swiftroute realm (a refusal at step 1 means BLOCKED); a swiftroute tooling account with the
+  Process Operator responsibility is available for the timer steps (UAT assumption, to be
+  confirmed by the process owner). Without it steps 3 and 4 are BLOCKED (SKIP if the advance-timer
+  endpoint is unavailable), never PASS.
+
+actors:
+  dispatcher: actor-swiftroute-lena
+  accountant: actor-swiftroute-hans
+  ceo:        actor-swiftroute-alice
+
+preconditions:
+  - description: Driver incident report process definition is active
+    check: process_definition_active
+  - description: No open incident instances for SwiftRoute
+    check: no_pending_instances
+  - description: >
+      The dispatcher can start an incident, and a tooling account that may advance timers exists.
+    check: custom
+    detail: Step 1 returns a created instance; no timer account means steps 3 and 4 are BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      Records an incident reported by a driver: cargo damaged in transit, no injury.
+    via: api
+    input:
+      incident_id: sim-incident-lapse-001
+      incident_type: cargo damage
+      injury_involved: false
+      description: "One pallet damaged on the way to Bremen."
+    produces:
+      instance_id: "the process instance ID for this incident"
+
+  - step: 2
+    actor: accountant
+    action: Completes the finance estimate of the incident in time.
+    via: api
+
+  - step: 3
+    actor: system
+    action: >
+      The one-day timer of the operations assessment fires (advanced by UAT-RUNNER with the
+      tooling account, not waited for).
+    via: api
+    input:
+      timer_node_id: ops-assessment
+
+  - step: 4
+    actor: system
+    action: >
+      The one-day timer of the CEO's escalated assessment fires (advanced the same way).
+    via: api
+    input:
+      timer_node_id: escalate-ops-assessment-to-ceo
+
+  - step: 5
+    actor: ceo
+    action: >
+      Tries to complete the escalated assessment after it has timed out.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: After the first timer, the CEO (and not the Operations Manager) holds the assessment task.
+    verification:
+      method: task_assigned
+      detail: >
+        After step 3: an escalate-ops-assessment-to-ceo task is assigned to role-ceo and no
+        ops-assessment task remains open for role-ops-manager.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An unassessed incident is stuck with an absent manager and nobody higher is asked.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      After the second timer, the assessment ends with a timeout notice, the incident is not
+      recorded as assessed, and the case is closed.
+    verification:
+      method: instance_state
+      detail: >
+        After step 4: ops-auto-close ran, no ops assessment values exist on the incident,
+        case-summary ran and instance status == COMPLETED. The step 5 attempt is refused
+        because the task is closed.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An incident could be shown as assessed when nobody assessed it, or stay open forever.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the sim-incident-lapse-001 instance if not already completed.

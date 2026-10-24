@@ -9,6 +9,7 @@ reason: >
   Names the Driver Incident Report definition (the simulation fixture
   process_shipment_dispatch.yaml; the filename is historical) for the new
   swiftroute/driver-incident-assess-and-estimate.yaml scenario (ISS-1010 / Q-992).
-  NO QA seed script deploys this definition yet, so uat_preflight's definitions
-  check will report a GAP for it until one is added (a code change, not a UAT-file
-  change; the other swiftroute definition seed is scripts/seed_swiftroute_definition.sh).
+  UPDATE (T-0322): the earlier text "no QA seed script deploys this definition yet" is stale.
+  scripts/seed_swiftroute_incident_definition.sh deploys test/fixtures/qa/swiftroute_incident_process_definition.json
+  (Driver Incident Report v1.1) and has run on QA. The fixture key above still names the simulation
+  copy, which test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs keeps in step with it.

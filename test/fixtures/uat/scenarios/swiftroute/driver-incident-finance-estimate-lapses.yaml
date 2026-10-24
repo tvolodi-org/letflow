@@ -1,0 +1,119 @@
+# Authored by BA-SWIFTROUTE for T-0322 (process audit T-0295, finding 3). Definition:
+# test/fixtures/qa/swiftroute_incident_process_definition.json v1.1: finance-estimate
+# (role-accountant, P1D) -> escalate-finance-estimate-to-ceo (role-ceo, P1D) -> finance-auto-close
+# notice, which rejoins the join without marking the incident costed. Sensitive action covered:
+# approving/costing (step 5 refusal).
+#
+# Timer step: test control by a swiftroute tooling account holding the Process Operator
+# responsibility (BA decision T-0321, point 5); not in the roster, none is invented here.
+---
+id: swiftroute-driver-incident-finance-estimate-lapses
+company_id: swiftroute
+process_id: proc-swiftroute-driver-incident
+title: A finance estimate nobody does goes to the CEO, then closes with a notice instead of being marked costed
+version: "1.0"
+tags: [escalation, timeout, fail_closed]
+
+description: >
+  A driver reports cargo damage. The operations assessment is done in time. The Accountant does
+  not estimate the cost within a day, so it goes to the CEO. The CEO does not act within a further
+  day either. The estimate then ends with a notice that it timed out, and the case is closed
+  without the incident ever being recorded as costed.
+
+  PRECONDITIONS (BA decision T-0321): the dispatcher holds the Process Operator responsibility in
+  the swiftroute realm (a refusal at step 1 means BLOCKED); a swiftroute tooling account with the
+  Process Operator responsibility is available for the timer steps (UAT assumption, to be
+  confirmed by the process owner). Without it steps 3 and 4 are BLOCKED (SKIP if the advance-timer
+  endpoint is unavailable), never PASS.
+
+actors:
+  dispatcher:  actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+  ceo:         actor-swiftroute-alice
+
+preconditions:
+  - description: Driver incident report process definition is active
+    check: process_definition_active
+  - description: No open incident instances for SwiftRoute
+    check: no_pending_instances
+  - description: >
+      The dispatcher can start an incident, and a tooling account that may advance timers exists.
+    check: custom
+    detail: Step 1 returns a created instance; no timer account means steps 3 and 4 are BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      Records an incident reported by a driver: cargo damaged in transit, no injury.
+    via: api
+    input:
+      incident_id: sim-incident-lapse-002
+      incident_type: cargo damage
+      injury_involved: false
+      description: "One pallet damaged on the way to Kiel."
+    produces:
+      instance_id: "the process instance ID for this incident"
+
+  - step: 2
+    actor: ops_manager
+    action: Completes the operations assessment of the incident in time.
+    via: api
+
+  - step: 3
+    actor: system
+    action: >
+      The one-day timer of the finance estimate fires (advanced by UAT-RUNNER with the tooling
+      account, not waited for).
+    via: api
+    input:
+      timer_node_id: finance-estimate
+
+  - step: 4
+    actor: system
+    action: >
+      The one-day timer of the CEO's escalated estimate fires (advanced the same way).
+    via: api
+    input:
+      timer_node_id: escalate-finance-estimate-to-ceo
+
+  - step: 5
+    actor: ceo
+    action: >
+      Tries to complete the escalated finance estimate after it has timed out.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: After the first timer, the CEO (and not the Accountant) holds the estimate task.
+    verification:
+      method: task_assigned
+      detail: >
+        After step 3: an escalate-finance-estimate-to-ceo task is assigned to role-ceo and no
+        finance-estimate task remains open for role-accountant.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An uncosted incident is stuck with an absent accountant and nobody higher is asked.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      After the second timer, the estimate ends with a timeout notice, the incident is not
+      recorded as costed, and the case is closed.
+    verification:
+      method: instance_state
+      detail: >
+        After step 4: finance-auto-close ran, no cost estimate exists on the incident,
+        case-summary ran and instance status == COMPLETED. The step 5 attempt is refused
+        because the task is closed.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An incident could be shown as costed when nobody costed it, or stay open forever.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the sim-incident-lapse-002 instance if not already completed.
