@@ -37923,3 +37923,173 @@ requirements:
       - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over test/letflow/scripts/swiftroute_incident_qa_fixture_test.exs and the swiftroute engine tests, and mix letflow.check_requirements_registration pass, real output quoted"
       - "SECURITY-REVIEWER verdict recorded (mandatory, as for REQ-462: the change alters what a completion may omit on four HUMAN_TASK nodes of a tenant-data path, and the values may be personal data); the review states the reader set of the stored values from part (b) of BUILDS item 6"
     depends_on: [REQ-460, REQ-461, REQ-462]
+
+  - id: REQ-531
+    title: "UAT corpus: mark platform-sandbox-cross-tenant-probe as an unbuilt-feature scenario so full-corpus QA runs skip it with a stated reason"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED
+    description: >
+      Source: GH #1997 group (1), re-checked on main by T-0369 on 2026-10-24. Of the six group-1 scenarios,
+      three are delivered and need no entry: platform-definition-type-error-blocked and
+      platform-instance-pin-survives-catalog-change now have specs
+      (web/tests/e2e/pipelines/platform-definition-type-error-blocked.pipeline.e2e.spec.ts,
+      platform-instance-pin-survives-catalog-change.pipeline.e2e.spec.ts), and
+      web/tests/e2e/pipelines/renderer-states.pipeline.e2e.spec.ts (named by
+      test/fixtures/uat/scenarios/platform/renderer-permission-denied-surface.yaml) exists too. Only
+      platform-sandbox-cross-tenant-probe is still not runnable. Its scenario file
+      (test/fixtures/uat/scenarios/platform/sandbox-cross-tenant-probe.yaml, header NOTE ISS-0527) targets a
+      runtime-agent sandbox claim/release subsystem that Letflow never built: lib/letflow/router.ex lists
+      Letflow.Routers.AgentRequests, AgentResponses and AgentEvents as deferred, and Letflow.SandboxPool is
+      unrelated. docs/issues/ISS-0890.yaml records the disposition closed_not_applicable (same as ISS-0740 for
+      agent-artifact-resubmit-idempotent). The scenario is nevertheless still in the corpus, so a full-corpus QA
+      run reports it BLOCKED.
+
+      DECISION IN THIS ENTRY: do NOT build the runtime-agent subsystem (no source asks for it; building it is a
+      product decision for the owner). Mark the scenario env-scoped: add
+      test/fixtures/uat/scenario-env-limitations/platform-sandbox-cross-tenant-probe.yaml in the format of
+      platform-partition-retention-drop.yaml in the same folder (scenario_id, applies_to_environments,
+      classification UNBUILT_FEATURE, reason, recorded_by, recorded_at, issue_ref, review). No scenario file,
+      lib/ or web/ change. scripts/uat_preflight.sh already reads these sidecars (the env_limit_dir block) and
+      prints the classification inside the reason text; the builder reads that block first to confirm an
+      UNBUILT_FEATURE classification is shown as a skip with reason and not as a failure.
+    acceptance_criteria:
+      - "test/fixtures/uat/scenario-env-limitations/platform-sandbox-cross-tenant-probe.yaml exists with scenario_id platform-sandbox-cross-tenant-probe, classification UNBUILT_FEATURE and a reason that names lib/letflow/router.ex's deferred Agent* routes and ISS-0740 / ISS-0890"
+      - "running scripts/uat_preflight.sh over the corpus lists platform-sandbox-cross-tenant-probe as skipped with that reason and not as BLOCKED or as an error (real output quoted); the two existing platform sidecars still appear unchanged"
+      - "the review field of the sidecar states the condition for removing it: a Letflow runtime-agent sandbox subsystem exists and the owner has decided to test it"
+      - "git diff --stat is quoted: only the new sidecar (and a test or doc line that pins the list of sidecars, if one exists) is touched; no scenario file, no lib/ or web/ file"
+    depends_on: []
+
+  - id: REQ-532
+    title: "UAT corpus: record platform-frontend-guard-selfcheck and platform-out-of-order-effect-completion as covered by existing tests, with a mapping the full-corpus run can show"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED
+    description: >
+      Source: GH #1997 group (2); docs/issues/ISS-0900.yaml progress note of 2026-09-30. The scenarios have
+      only via: system steps and no pipeline_test, so UAT-RUNNER has nothing to drive and reports BLOCKED. The
+      test seam is the existing tests, not a new HTTP surface:
+      (a) platform-out-of-order-effect-completion: ISS-0900 maps EO-001..EO-005 onto
+      test/letflow/ordering_test.exs (REQ-199, ORD-01..04; AC3/AC4/AC5/AC7/AC8). No product gap.
+      (b) platform-frontend-guard-selfcheck: EO-001/002/003/005 are covered by web/tests (meta-control spec,
+      bundle-scan.spec.ts, reporter.ts / reportWriter.ts); EO-004 had one gap (the a11y gate lacked the
+      process detail surface), fixed by PR #2023 (web/tests/a11y/).
+      The builder re-reads both scenarios and the named tests and re-derives the EO-to-test mapping itself (a
+      note is not a source); an EO that turns out not covered is reported in findings and is NOT mapped.
+
+      BUILDS: one sidecar per scenario in test/fixtures/uat/scenario-env-limitations/ with classification
+      COVERED_ELSEWHERE (the sidecar loader in scripts/uat_preflight.sh shows any classification string),
+      whose reason lists, per expected outcome, the test file and test name that verifies it. No scenario file,
+      product code or existing test is changed. A scenario whose outcomes are all covered elsewhere is skipped
+      in full-corpus QA runs with that reason; it is not reported as passed by UAT.
+    acceptance_criteria:
+      - "two sidecars exist (platform-frontend-guard-selfcheck.yaml, platform-out-of-order-effect-completion.yaml) with classification COVERED_ELSEWHERE; each reason lists every expected outcome id of its scenario with an existing test file path and test name (a test reads each sidecar and asserts every cited path exists and every cited test name occurs in that file)"
+      - "scripts/uat_preflight.sh over the corpus shows both scenarios as skipped with their reasons, not BLOCKED (real output quoted)"
+      - "if any expected outcome of the two scenarios has no existing test, that outcome is named in the sidecar as NOT COVERED and in the summary; it is not mapped by rewording"
+      - "git diff --stat is quoted: only the two sidecars and the test that checks them are touched"
+    depends_on: []
+
+  - id: REQ-533
+    title: "Platform migration pre-flight: review a whole change set before any company workspace is opened, reject unbounded-duration and under-specified changes, deterministic verdict (module and test seam)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S6
+    # impl_order: UNREGISTERED
+    description: >
+      Source: GH #1997 group (2), scenario test/fixtures/uat/scenarios/platform/unsafe-migration-rejected.yaml
+      (EO-001, EO-002, EO-003); docs/issues/ISS-0902.yaml (genuinely unbuilt: lib/letflow/platform/migration_rollout.ex
+      has no concept of a change SET; its moduledoc scopes REQ-374 to one change).
+      SURFACE: a new pure module Letflow.Platform.MigrationPreflight in lib/letflow/platform/ with one function
+      review(change_set) returning {:ok, plan} or {:error, {:rejected, violations}}, called by tests (the test
+      seam). No HTTP route, no database access and no tenant data are touched, so INV-1 is not engaged; a route
+      that exposes the review to the platform operator is a later entry (open question 1).
+      RULES (only those the scenario states): a change set is rejected as a whole, before any workspace is
+      opened, if it contains (1) a change that holds a workspace locked for an unbounded time (the scenario's
+      example: reworking stored history in place), or (2) a change that makes a field compulsory before values
+      exist for it (NOT NULL without a default or a backfill step). The verdict is a function of the change set
+      alone: the same input gives the same verdict and the same ordered violations on every call (EO-003).
+      The builder reads the scenario's steps 1-3 and EO-001..003 first and takes the change vocabulary from
+      MigrationRollout's existing change shape; no change kinds beyond those two rules are invented.
+      NOT in this entry: EO-004 (staged add / fill in / enforce execution) and EO-005 (reserved names, REQ-534).
+    open_questions:
+      - "Whether start_rollout/3 must call review/1 itself (changing REQ-374's runner) or the pre-flight stays a separate step, and whether an operator route exposes it. The platform owner decides; this entry changes neither MigrationRollout nor any route. EO-004 (three-stage execution) needs that answer and is not covered here."
+      - "Which duration counts as unbounded is given by no source. The entry defines it structurally (a change kind that rewrites existing rows in place under the workspace lock) and sets no number; the owner confirms the list of such change kinds."
+    acceptance_criteria:
+      - "a test: a change set of three changes, one of them an in-place rewrite of stored history, returns {:error, {:rejected, violations}} naming that change and no other, and no change of the set appears in an accepted plan"
+      - "a test: a change set containing a NOT NULL column without default or backfill is rejected with a violation naming the column; the same column with a default (or with a backfill change ordered before the constraint) is accepted"
+      - "a test: review/1 over the same change set called twice, and over the same set with its changes listed in a different order, returns equal verdicts and equal violation lists"
+      - "a test: a set with two violations returns both (the whole set is reviewed, not stopped at the first)"
+      - "a test: review/1 runs without the Ecto sandbox checked out (no database call), and git diff shows lib/letflow/platform/migration_rollout.ex untouched"
+      - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test of the new test file and mix letflow.check_requirements_registration pass, real output quoted"
+    depends_on: [REQ-374]
+
+  - id: REQ-534
+    title: "Platform reserved names: a company cannot create an object with a name the platform reserves, and the refusal names it"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S6
+    # impl_order: UNREGISTERED
+    description: >
+      Source: GH #1997 group (2), scenario test/fixtures/uat/scenarios/platform/unsafe-migration-rejected.yaml
+      (EO-005, step 6); docs/issues/ISS-0902.yaml (no reserved-name protection exists in the codebase; hits in
+      tenant_provisioning.ex and audit.ex are unrelated). This is a tenant-data write path, so SECURITY-REVIEWER
+      is mandatory and INV-1/INV-5 apply.
+      THE SOURCE DOES NOT SAY which object kind step 6 creates nor which names are reserved. The builder reads
+      step 6 and the schema and migration modules that name platform-owned objects, and takes the one object
+      kind the step uses; it does not guess a list: the reserved names are the names the platform itself owns,
+      held in one module attribute that a test checks against the platform's own migrations or schemas (a test
+      fails if a platform-owned name is missing from the list). Anything the builder cannot trace to the
+      scenario or to code goes into its summary as an open question and is not invented.
+      Behaviour: the create request of that kind, from a tenant caller, with a reserved name is refused before
+      any row is written, with a 422-class error whose body names the offending name; nothing is created in the
+      tenant's schema; a non-reserved name still works.
+    open_questions:
+      - "Which object kind and which names are reserved: the scenario says only 'a name the platform reserves for itself'. The process owner confirms the list before release."
+    acceptance_criteria:
+      - "a test: a tenant caller creating the chosen object kind with a reserved name receives the refusal naming that name, and the count of objects of that kind in the tenant schema is unchanged"
+      - "a test: the same request with a name that is not reserved succeeds"
+      - "a test: the reserved-name list contains every platform-owned name of that kind found by the test's own scan of the platform migrations or schemas (a name added to the platform without being listed fails the test)"
+      - "a cross-tenant negative test (INV-10): the refusal in tenant A reveals nothing about tenant B's objects, and a tenant caller cannot read or change the reserved list through any route"
+      - "SECURITY-REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted and scoped mix test pass, real output quoted"
+    depends_on: [REQ-533]
+
+  - id: REQ-535
+    title: "Outbox backpressure: Letflow.Plugs.OutboxCap refuses new inbound writes with a retry-after when a company's pending outgoing queue is at its limit, and reopens at a lower level (flag off by default)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S6
+    # impl_order: UNREGISTERED
+    description: >
+      Source: GH #1997 group (2), scenario test/fixtures/uat/scenarios/platform/outbox-cap-backpressure.yaml
+      (steps 1-5); docs/issues/ISS-0903.yaml; the moduledoc of lib/letflow/plugs/api_pipeline.ex, which lists
+      Letflow.Plugs.OutboxCap (R-Co middleware/outbox_cap.zig) as not yet ported.
+      UAT assumption, to be confirmed by the process owner: no module named outbox exists in lib/letflow/
+      (grep -rli outbox lib finds only api_pipeline.ex). The only persisted queue of outgoing messages is
+      webhook delivery (lib/letflow/webhooks/delivery.ex, table webhook_delivery_attempts). This entry takes
+      "the queue of outgoing messages" to be the pending (not yet delivered, not dead) delivery attempts of the
+      caller's tenant. If the owner says another queue is meant, this entry is revised.
+      BUILDS: (1) a plug in lib/letflow/plugs/, placed in the API pipeline, active only when a feature flag
+      (default off; reason: new enforcement on every inbound write) is on. It counts the tenant's pending
+      attempts through the tenant's Ecto prefix and, at or above a configured limit, answers inbound WRITE
+      requests with 429 and a Retry-After header until the count falls to a configured lower reopen level
+      (hysteresis, so it does not flap); reads and other tenants are never refused. (2) Limit and reopen level
+      come from configuration with NO default number (no source gives one); the flag on with either unset is a
+      configuration error, not an open gate. (3) A repeat of a refused request with the same idempotency
+      reference (scenario step 3) after reopening is processed once, using the existing idempotency mechanism:
+      the builder reads it and adds none. (4) An engine-internal caller (step 4) cannot be turned away: a step
+      that must place a message on a full queue fails with a retryable error and is rescheduled by the existing
+      retry path; the builder reads the engine's retry path first and reports in findings if none exists,
+      rather than building one here.
+    open_questions:
+      - "Limit and reopen numbers and the Retry-After value: no source gives them; the process owner sets them per environment."
+      - "Whether the queue to cap is webhook delivery (assumed above) or a future outbox subsystem."
+    acceptance_criteria:
+      - "a test: with the flag on, limit L and reopen level R configured, and L pending delivery attempts in tenant A, an inbound write for tenant A returns 429 with a Retry-After header and writes nothing; a GET for tenant A is not refused"
+      - "a test (INV-10 style): tenant A at its limit does not refuse tenant B's writes, and the 429 body and headers carry no count or data of tenant B"
+      - "a test: after the queue falls below L but stays above R the plug still refuses; at or below R it accepts again, and the same idempotency reference sent before and after reopening results in one processed request"
+      - "a test: with the flag off (the default) nothing is refused at any depth; with the flag on and a limit or reopen level unset, configuration validation fails with a message naming the missing key"
+      - "a test of the engine-internal path: a step that cannot enqueue because the queue is full fails with a retryable error and is not lost (or, if the existing retry path cannot do this, the gap is stated in findings and this criterion is replaced by that statement)"
+      - "SECURITY-REVIEWER verdict recorded (tenant-scoped count on a request path); mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test, mix letflow.check_requirements_registration and a grep of test/ for api_pipeline pins pass, real output quoted"
+    depends_on: [REQ-374]
