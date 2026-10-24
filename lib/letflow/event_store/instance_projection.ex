@@ -125,6 +125,12 @@ defmodule Letflow.EventStore.InstanceProjection do
   `null: false`, `default: %{}`. Written only through `Letflow.Engine.VariableMerge.merge/5`'s
   result; an absent key is unlabelled, and rows that predate the column read `%{}`.
 
+  ## `scope_node_id` (REQ-531, decision 0051 T13)
+
+  Added by `priv/repo/migrations/20261024100001_add_scope_node_id_to_instance_projections.exs`: the
+  scope node the instance was started under, nullable (existing rows stay NULL). Write-once: only
+  `insert_changeset/2` casts it; `update_changeset/2` does not, so no code path re-scopes an instance.
+
   ## No `tenant_id` column (Decision 0006 D2)
 
   This table carried `tenant_id` until Decision 0006 D2
@@ -168,6 +174,9 @@ defmodule Letflow.EventStore.InstanceProjection do
     field(:parent_instance_id, Ecto.UUID)
     field(:parent_token_id, Ecto.UUID)
 
+    # REQ-531 (decision 0051 T13): the scope node the instance was started under; nullable, write-once.
+    field(:scope_node_id, :string)
+
     timestamps(inserted_at: :started_at, type: :utc_datetime_usec)
   end
 
@@ -191,7 +200,8 @@ defmodule Letflow.EventStore.InstanceProjection do
       :join_counters,
       :variable_labels,
       :parent_instance_id,
-      :parent_token_id
+      :parent_token_id,
+      :scope_node_id
     ])
     |> validate_required([:instance_id, :status, :definition_id])
     |> unique_constraint(:correlation_key, name: :uq_instance_correlation)

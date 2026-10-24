@@ -17,6 +17,11 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
   The scanner is proven LIVE on seeded writers of each form. The unrelated grants area
   (`role_scope_grants.scope_node_id`) is pinned as a set of files that never touch tasks.
 
+  REQ-531 / GH #3092 adds the INSTANCE side: `instance_projections.scope_node_id` is written once at
+  instance start. Its uses are a second exact ledger by enclosing function (`@instance_ledger`), and
+  no function of it may name the Task schema or the tasks table. The task-side property above is
+  unchanged: still nothing writes `tasks.scope_node_id` until the task scope writer (REQ-532).
+
   Behavioral half: no changeset function of `Letflow.Engine.Task` casts the column (every public
   `*_changeset/2` is discovered by reflection and fed a map that names it), and the audit exclusion
   has ONE owner, `Letflow.Engine.Task.audit_state/1`, used at exactly seven call sites in three
@@ -37,6 +42,62 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
     "lib/letflow/engine/task.ex" => ["@type", "def audit_state/1", "schema"],
     "lib/letflow/tasks.ex" => ["def in_scope/3", "defp filter_by_scope/2"],
     "lib/letflow/tasks/scope_resolver.ex" => ["def task_scope/1"]
+  }
+
+  # REQ-531 / GH #3092: the INSTANCE side. `instance_projections.scope_node_id` is written once at start
+  # (insert_changeset only), inherited by sub-process children, carried in `InstanceState`, replayed and
+  # read back. An exact, closed list by enclosing function: any further use fails this test and has to be
+  # added here on purpose, never by loosening the equality.
+  @instance_ledger %{
+    "lib/letflow/engine.ex" => [
+      "@type",
+      "defp append_instance_started_event/8",
+      "defp build_instance_state/3",
+      "defp build_instance_state/3",
+      "defp insert_instance_projection/10",
+      "defp persist/14",
+      "defp persist/14",
+      "defp put_scope_node/2",
+      "defp same_start_request?/4",
+      "defp same_start_request?/4 (string)",
+      "defp start_instance/6",
+      "defp start_instance/6",
+      "defp validate_scope_node/2"
+    ],
+    "lib/letflow/engine/instance_state.ex" => ["@type", "module"],
+    "lib/letflow/engine/reconstruction.ex" => [
+      "defp apply_event/4",
+      "defp replayed_scope_node/1 (string)",
+      "defp upsert_projection/5",
+      "defp upsert_projection/5"
+    ],
+    "lib/letflow/engine/snapshot_writer.ex" => [
+      "defp deserialize_state/2",
+      "defp deserialize_state/2 (string)",
+      "defp serialize_state/1",
+      "defp serialize_state/1 (string)"
+    ],
+    "lib/letflow/engine/sub_process.ex" => [
+      "defp insert_child_instance_projection/10",
+      "defp put_scope_node/2",
+      "defp read_parent_scope_node/3",
+      "defp read_parent_scope_node/3",
+      "defp read_parent_scope_node/3",
+      "defp with_scope_node/2",
+      "defp with_scope_node/2"
+    ],
+    "lib/letflow/event_store/instance_projection.ex" => ["def insert_changeset/2", "schema"],
+    "lib/letflow/routers/instances.ex" => [
+      "defp create_attrs/3",
+      "defp create_attrs/3 (string)",
+      "defp handle_create/1 (string)",
+      "defp instance_map/2",
+      "defp instance_map/2 (string)",
+      "defp list_item_map/1",
+      "defp list_item_map/1 (string)",
+      "defp render_create/2 (string)",
+      "module (string)"
+    ]
   }
 
   # the grants / node-path area: `role_scope_grants.scope_node_id` and its callers. None may touch tasks.
@@ -119,10 +180,12 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
           {file, labels}
         end
 
-      expected_files = Map.keys(@task_ledger) ++ @grants_area ++ @strings_only
+      expected_files =
+        Map.keys(@task_ledger) ++ Map.keys(@instance_ledger) ++ @grants_area ++ @strings_only
+
       assert Enum.sort(Map.keys(found)) == Enum.sort(expected_files)
 
-      for {file, labels} <- @task_ledger do
+      for {file, labels} <- Map.merge(@task_ledger, @instance_ledger) do
         assert Map.fetch!(found, file) == labels, file
       end
 
@@ -152,6 +215,45 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
         assert refs == [], "#{file} touches tasks: #{inspect(refs)}"
       end
     end
+
+    test "no instance-side function that names the column mentions the Task schema or the tasks table (REQ-531)" do
+      for {file, labels} <- @instance_ledger do
+        ast = file |> File.read!() |> Code.string_to_quoted!()
+        names = labels |> Enum.map(&String.replace(&1, " (string)", "")) |> Enum.uniq()
+
+        for def_node <- column_defs(ast), label_of(def_node) in names do
+          {_n, refs} =
+            Macro.prewalk(def_node, [], fn
+              {:__aliases__, _, parts} = n, acc ->
+                {n, if(List.last(parts) == :Task, do: [:task_alias | acc], else: acc)}
+
+              bin, acc when is_binary(bin) ->
+                {bin, if(bin in ["tasks", "task"], do: [:tasks_table | acc], else: acc)}
+
+              n, acc ->
+                {n, acc}
+            end)
+
+          assert refs == [], "#{file} #{label_of(def_node)} touches tasks: #{inspect(refs)}"
+        end
+      end
+    end
+
+    # every def / defp of an AST that names the column (the scanner's own predicate)
+    defp column_defs(ast) do
+      {_ast, acc} =
+        Macro.prewalk(ast, [], fn
+          {kind, _, [_head | _]} = node, acc when kind in [:def, :defp] ->
+            {node, if(uses(Macro.to_string(node)) == [], do: acc, else: [node | acc])}
+
+          node, acc ->
+            {node, acc}
+        end)
+
+      acc
+    end
+
+    defp label_of({kind, _, [head | _]}), do: "#{kind} #{label(head)}"
 
     test "no function that WRITES and mentions the Task schema or the tasks table names the column (insert_all, update_all, insert, update, put_change, change)" do
       defs =
