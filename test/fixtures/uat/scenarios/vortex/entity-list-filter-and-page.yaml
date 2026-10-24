@@ -31,7 +31,7 @@ description: >
   cleared for, and that a record type he is not permitted to see gives him nothing
   to go on.
 
-pipeline_test: web/tests/e2e/pipelines/entity-list-query.pipeline.e2e.spec.ts
+pipeline_test: web/tests/e2e/pipelines/vortex-entity-list-filter-and-page.pipeline.e2e.spec.ts
 # NOTE (refreshed 2026-10-12; replaces the ISS-0526/ISS-0527 wording that said
 # this spec file does not exist): the pipeline_test named above exists on main
 # (checked 2026-10-12). Whether this scenario can run is decided per run by the
