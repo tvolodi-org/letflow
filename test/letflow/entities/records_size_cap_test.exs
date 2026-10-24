@@ -31,7 +31,9 @@ defmodule Letflow.Entities.RecordsSizeCapTest do
     fields = [
       %{name: "title", type: :string, required: true},
       %{name: "blob", type: :string, required: false},
-      %{name: "blob2", type: :string, required: false}
+      %{name: "blob2", type: :string, required: false},
+      %{name: "blob3", type: :string, required: false},
+      %{name: "blob4", type: :string, required: false}
     ]
 
     {:ok, row} =
@@ -96,12 +98,45 @@ defmodule Letflow.Entities.RecordsSizeCapTest do
     assert event_count(s) == before
   end
 
-  test "AC1 create: the record cap, whole map counts", %{schema: s} do
-    # 4 x 60_000 + title stays under 262_144; adding a fifth value of 60_000 passes the record cap
-    # only through a second field here, so use two fields of 65_536 plus two long titles
-    big = %{"title" => str(65_536), "blob" => str(65_536), "blob2" => str(65_536)}
-    assert {:ok, _} = create(s, big)
-    assert {:error, {:record_size_exceeded, :value}} = create(s, %{big | "blob" => str(65_537)})
+  test "AC1 create: the record cap, 262_144 bytes accepted and one more refused", %{schema: s} do
+    base = %{
+      "title" => "t",
+      "blob" => str(65_536),
+      "blob2" => str(65_536),
+      "blob3" => str(65_536)
+    }
+
+    room = 262_144 - byte_size(Jason.encode!(Map.put(base, "blob4", "")))
+    at_cap = Map.put(base, "blob4", String.duplicate("x", room))
+    assert byte_size(Jason.encode!(at_cap)) == 262_144
+    assert {:ok, _} = create(s, at_cap)
+    before = event_count(s)
+
+    over = Map.put(base, "blob4", String.duplicate("x", room + 1))
+    assert {:error, {:record_size_exceeded, :record}} = create(s, over)
+    assert event_count(s) == before
+  end
+
+  test "U7 update: preserved restricted keys count toward the record cap", %{schema: s} do
+    keep = %{"blob2" => str(65_536), "blob3" => str(65_536), "blob4" => str(65_536)}
+    {:ok, %{record: rec}} = create(s, Map.merge(%{"title" => "t", "blob" => "s"}, keep))
+    before = event_count(s)
+
+    # the supplied fields alone are small; the merged map (with the stored blob2..blob4) is not
+    assert {:error, {:record_size_exceeded, :record}} =
+             Records.update_record(
+               %{
+                 entity_type: @type_name,
+                 record_id: rec.record_id,
+                 field_values: %{"title" => "t", "blob" => str(65_536)},
+                 preserve_keys: MapSet.new(Map.keys(keep)),
+                 actor_id: @actor,
+                 idempotency_key: Ecto.UUID.generate()
+               },
+               s
+             )
+
+    assert event_count(s) == before
   end
 
   test "Item 2/3 update: the merged full-replacement map is capped", %{schema: s} do
@@ -167,6 +202,35 @@ defmodule Letflow.Entities.RecordsSizeCapTest do
              )
 
     assert event_count(s) == before
+  end
+
+  test "G3b upsert by external ref onto a stored oversize record follows the update re-save rule",
+       %{schema: s} do
+    ref = %{"system" => "erp", "id" => "2"}
+
+    upsert = fn fv ->
+      Records.upsert_record_by_external_ref(
+        %{
+          entity_type: @type_name,
+          external_ref: ref,
+          field_values: fv,
+          actor_id: @actor,
+          idempotency_key: Ecto.UUID.generate()
+        },
+        s
+      )
+    end
+
+    assert {:ok, %{record: %{record_id: id}}} = upsert.(%{"title" => "t"})
+    over = str(65_536 + 500)
+    store_raw!(s, id, %{"title" => "t", "blob" => over})
+    stored = Repo.get_by!(Latest, [record_id: id], prefix: s).field_values
+
+    assert {:ok, _} = upsert.(%{stored | "title" => "renamed"})
+    assert Repo.get_by!(Latest, [record_id: id], prefix: s).field_values["blob"] == over
+
+    assert {:error, {:record_size_exceeded, :value}} =
+             upsert.(%{"title" => "t", "blob" => str(65_536 + 900)})
   end
 
   test "C1 classify_step_error/1 maps the size refusals to validation_failed" do

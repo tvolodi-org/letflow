@@ -257,6 +257,43 @@ defmodule Letflow.Scheduler.RecordDeadlineSweepTest do
   end
 
   # ---------------------------------------------------------------------------
+  # GH #2689 D1 -- a stored record over the entity size cap still transitions
+  # ---------------------------------------------------------------------------
+
+  describe "GH #2689 D1: the sweep on a record stored over the size cap" do
+    test "the oversize value is carried over unchanged, the status flips, nothing is retried" do
+      ctx = tenant_ctx("gh2689-sweep")
+
+      create_active_definition!(ctx.schema_name, %{
+        name: "widget",
+        display_name: "Widget",
+        fields: widget_fields() ++ [%{name: "blob", type: :string}]
+      })
+
+      record = create_record!(ctx.schema_name, %{"due_at" => past_iso(60), "state" => "open"})
+      over = String.duplicate("x", 65_536 + 500)
+
+      # Stored over the cap the way a pre-cap record is: written directly.
+      {1, _} =
+        Repo.update_all(
+          from(l in Latest, where: l.record_id == ^record.record_id),
+          [set: [field_values: Map.put(record.field_values, "blob", over)]],
+          prefix: ctx.schema_name
+        )
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          RecordDeadlineSweep.run(ctx.schema_name, rule())
+        end)
+
+      refute log =~ "one record failed to transition"
+      {:ok, reloaded} = Latest.get(record.record_id, "widget", ctx.schema_name)
+      assert reloaded.field_values["state"] == "closed"
+      assert reloaded.field_values["blob"] == over
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # INV-1 -- a sweep rule configured for one tenant never transitions
   # another tenant's data.
   # ---------------------------------------------------------------------------

@@ -87,6 +87,7 @@ defmodule Letflow.Routers.EntitiesSizeCapTest do
     assert conn.status == 422
     body = body_of(conn)
     assert body["detail"] == "an entity record field value exceeds the size limit"
+    assert Map.get(body, "errors", []) == []
     refute conn.resp_body =~ "blob"
     refute conn.resp_body =~ "xxxx"
   end

@@ -153,5 +153,5 @@ has a larger backstop (4 MiB / 5 MiB).
 A record stored over the cap before this change (the only way to have one) is not repaired and does not
 block its writers: a value carried over byte-identical is not measured, and the record cap is not applied
 when the stored record is already over it. To shrink such a record, write a smaller value for the field
-through any unrestricted writer. Re-importing or upserting by external ref an unchanged legacy oversize
-value is refused for that entry; use a direct update instead.
+through any unrestricted writer. An upsert by external ref onto an existing oversize record follows the
+same re-save rule as a direct update; the import route creates new records and applies the plain caps.
