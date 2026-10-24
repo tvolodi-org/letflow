@@ -38335,7 +38335,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3166
     # Source: GH #2535; lib/letflow/design/req525-definitions-services-self-service.md section 4 (rulings SEC-525-R01 and SEC-525-R04, both RECORDED by SECURITY-REVIEWER), section 5 (the criteria every implementation requirement carries, and the test-impact list), section 6 row IMPL-525-A, section 7 (docs table, row IMPL-525-A) and section 9 (finding 2, the e2e coupling). Written by the business analyst (T-0438) 2026-10-25. The REQ id is chosen above the ids that open team branches already carry (REQ-538 to REQ-544). Not yet validated.
     description: >
       First of the REQ-525 implementation requirements that rule definition reads into the
