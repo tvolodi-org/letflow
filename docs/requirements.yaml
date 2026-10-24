@@ -37929,7 +37929,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3092
     # Source: GH #2870 (W3b, "from the instance or process scope"); decision 0051 T13 and T14 and its script-principal paragraph (docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md); REQ-518 (scope_node_paths, the tasks column and readers); REQ-519 AC 10, AC 23, AC 24; lib/letflow/event_store/instance_projection.ex; lib/letflow/routers/instances.ex; lib/letflow/engine.ex create/2; lib/letflow/engine/sub_process.ex.
     description: >
       Source: GH #2870; decision 0051 T13, T14.
@@ -38005,7 +38005,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3091
     # Source: GH #2870 (W3b); REQ-519 AC 10, AC 23, AC 24 and its out-of-scope paragraph; REQ-518 AC 13, 17 and 20 (the column and its readers); decision 0051 T13 (instance scope set at start) and A1(7) (blocker removed by the requirement that ships the writer); lib/letflow/identity/scoped_approvers.ex moduledoc ("removed ONLY by the requirement that ships a production writer for tasks.scope_node_id"); docs/roles.md "Known limitation: scoped approvers (stage 2)".
     description: >
       Source: GH #2870; REQ-519 AC 10, AC 23, AC 24; REQ-518 AC 12, AC 13, AC 17, AC 20; REQ-531. Note: REQ-518 AC 12 says no production code writes the column; this requirement is the one that changes that rule (AC 11a).
