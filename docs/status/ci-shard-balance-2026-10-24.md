@@ -133,3 +133,56 @@ averages each file's share of a run's module total and scales to the last run.
   which supports using this model.
 - **Still open:** measure five consecutive successful shard-running PR runs after this lands
   against the 10 % criterion.
+
+## Measurement after the rebalance (#3108, merge f0cef958b), T-0411
+
+#3108 merged 2026-10-24T14:49Z. Data: `gh api repos/tvolodi-org/letflow/actions/runs/<id>/jobs`, shard
+wall = `completed_at` minus `started_at` (same definition as above; median of 4 = mean of the two middle
+walls).
+
+**Set:** the five consecutive successful pull_request runs, all with `backend=true` (all four
+`Backend shard N/4` jobs ran and succeeded), created after the merge and ordered by creation time:
+40112510464 (team/T-0372), 40112806948 (team/T-0395), 40115071502 (team/T-0406), 40115295981
+(team/T-0381), 40117820537 (team/T-0402, PR 3122). Not counted: 40114967784 (team/T-0407, created
+17:11:11Z, between the 3rd and 4th run), whose shards were skipped, so `ci_changed_paths.sh` gave
+`backend=false` (docs-only). The merge_group runs (PRs 3109, 3110, 3117, 3119, 3124, 3125) were not
+measured; the criterion is stated on PR runs.
+
+| Run id | Shard walls in s: s1 / s2 / s3 / s4 | Median | Slowest (shard) | Slowest / median | Within 10 %? |
+|---|---|---|---|---|---|
+| 40112510464 | 841 / 868 / 561 / 855 | 848.0 | 868 (s2) | +2.4 % | yes |
+| 40112806948 | 841 / 724 / 728 / 813 | 770.5 | 841 (s1) | +9.1 % | yes |
+| 40115071502 | 544 / 815 / 858 / 834 | 824.5 | 858 (s3) | +4.1 % | yes |
+| 40115295981 | 561 / 576 / 853 / 568 | 572.0 | 853 (s3) | +49.1 % | no |
+| 40117820537 | 846 / 927 / 864 / 712 | 855.0 | 927 (s2) | +8.4 % | yes |
+
+**Result:** 4 of 5 runs are within 10 % of their median shard wall. Criterion (c) is **not met**: the
+gap is run 40115295981, where shard 3/4 took 853 s against a 572 s median (+49.1 %, +281 s). Worst of
+the other four: +9.1 %. Before the rebalance 2 of 5 were within 10 % (+16.7 % pooled); this is the
+4 of 5 the leave-one-out plan predicted. Median of the per-run slowest wall: 858 s (before the
+rebalance: 880 s).
+
+The outlier is one slow shard against three that finished in 561 to 576 s, the opposite of a flat plan
+with a light shard (runs 3 and 1 have one light shard of 544 and 561 s instead). The balance is
+better, but one shard in five can still run about 280 s over; the cause (a heavy file group moved
+into one shard, or runner speed) was not isolated from wall times alone. The shard 3/4 job of
+40115295981 started at 17:20:11Z, later than shard 2/4 (17:18:01Z), so queueing and runner
+variance are not excluded.
+
+### Main push run 40115295998 (Backend shard 2/4)
+
+This is a push run on main (sha 4ab907c2b, created 17:15:31Z), not a pull_request run, so it is not in
+the set. Shard 2/4 (job 120935257235) failed on **a test, not on time**: its wall was 713 s
+(17:18:00Z to 17:29:53Z), in line with the other shards (829, 678 and 536 s), and the phase was 627 s.
+The log shows `combined: 3818 tests, 0 properties, 1 failures` and the single failure
+`test/scripts/test_parallel_shard_test.exs:281` ("shard 3 of 3 with N=4 runs global partitions 9..12
+of 12", `test_parallel.sh did not finish within 120000 ms`). That test starts `test_parallel.sh` itself
+with a 120 s limit, so it is sensitive to load on a shard that is running 4 partitions; it is a
+flaky-under-load candidate, not a rebalance effect.
+
+## Remainder of GH #2380 after T-0411
+
+Criterion (c) stays open: 4 of 5 consecutive runs are within 10 %, one run is +49.1 %. A further
+rebalance of `test/shard_manifest.txt` using the shard logs of run 40115295981 (shard 3/4 `--slowest`
+block against the other three), or a repeat of the five-run measurement once enough new runs exist,
+is the next step. The `test_parallel_shard_test.exs:281` timeout is a separate CI-health item.

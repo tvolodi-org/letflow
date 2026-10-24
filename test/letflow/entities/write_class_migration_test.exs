@@ -28,7 +28,6 @@ defmodule Letflow.Entities.WriteClassMigrationTest do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.ProcessWritable
   alias Letflow.Repo
@@ -219,7 +218,7 @@ defmodule Letflow.Entities.WriteClassMigrationTest do
       insert_row!(schema, tenant_id, "roles_x", write_class: "identity_adjacent")
 
       assert {:error, {:validation, [violation]}} =
-               Definitions.create_definition(
+               Letflow.ManagedTypesSupport.create_definition(
                  %{
                    definition:
                      definition("roles_x", %{
@@ -247,7 +246,7 @@ defmodule Letflow.Entities.WriteClassMigrationTest do
       %{schema_name: schema} = TenantFixture.provisioned_tenant!(slug_prefix: "gh2618-t5")
 
       assert {:ok, %EntityDefinition{} = row} =
-               Definitions.create_definition(
+               Letflow.ManagedTypesSupport.create_definition(
                  %{
                    definition:
                      definition("feedback_note", %{
@@ -272,7 +271,7 @@ defmodule Letflow.Entities.WriteClassMigrationTest do
       insert_row!(schema, tenant_id, "users_x", write_class: "identity_adjacent")
 
       assert {:error, {:validation, [%{rule: :writable_by_process_not_permitted}]}} =
-               Definitions.create_definition(
+               Letflow.ManagedTypesSupport.create_definition(
                  %{
                    definition:
                      definition("users_x", %{

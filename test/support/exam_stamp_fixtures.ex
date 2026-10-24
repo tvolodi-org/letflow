@@ -48,7 +48,7 @@ defmodule Letflow.ExamStampFixtures do
   @authoring_types ~w(answer_option category exam exam_manual_question exam_question_rule
                       exam_question_rule_tag exam_section question question_tag tag)
 
-  @exception_version 20_261_016_120_001
+  @exception_version 20_261_024_120_001
 
   @type tenant :: %{tenant_id: Ecto.UUID.t(), schema_name: String.t()}
 
@@ -56,11 +56,11 @@ defmodule Letflow.ExamStampFixtures do
   @spec runtime_types() :: [String.t()]
   def runtime_types, do: @runtime_types
 
-  @doc "The ten authoring type names that stay tenant-editable by the 2026-10-16 ruling."
+  @doc "The ten authoring type names the exam module manages since GH #2680 slice 3."
   @spec authoring_types() :: [String.t()]
   def authoring_types, do: @authoring_types
 
-  @doc "The tenant-schema `schema_migrations` version of `AllowExamManagedByStamp`."
+  @doc "The tenant-schema `schema_migrations` version of `AllowExamAuthoringManagedByStamp` (sixteen names)."
   @spec exception_version() :: pos_integer()
   def exception_version, do: @exception_version
 

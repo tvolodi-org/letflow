@@ -1,6 +1,11 @@
 -- GH #2683 / REQ-512: read-only report of authoring edits made while an exam had a live session.
 --
--- Interim control until REQ-511 (exam authoring audit) and REQ-510 land. Generic record writes
+-- Since GH #2680 slice 3 the ten authoring types are exam-managed too. On a stamped tenant the generic
+-- /records route refuses them (403 entity_type_managed), so their edits go through the module routes.
+-- The report still lists those module-route edits. Generic edits made on a tenant before its stamp ran
+-- are listed as they were: the stamp does not rewrite events.
+--
+-- Generic record writes
 -- leave an events row (actor, time, idempotency key, full field_values) and nothing else, so this
 -- statement reads those events per tenant and lists the edits that touched an exam while a
 -- candidate session on it was live.

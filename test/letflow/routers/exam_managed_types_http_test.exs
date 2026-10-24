@@ -4,12 +4,12 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
   `lib/letflow/design/gh2596-exam-managed-types.md` sections 4.4 and 10 (spec
   `test/specs/GH2596-exam-managed.md`): the generic HTTP surface on an exam tenant AFTER the stamp.
 
-    * T-20: each of the six runtime types refuses generic POST / PUT / DELETE / import with the
-      constant 403 `entity_type_managed`, for a write-permission role AND TENANT_ADMIN; the record
-      is unchanged and no `ENTITY_RECORD_*` event is appended. Fails on main, where the six are
-      unmanaged and the writes succeed.
-    * T-23 (control, the ruling): the ten AUTHORING types stay writable through the same routes for
-      both caller kinds, and the stamp touched none of their definition rows.
+    * T-20 (GH #2680 slice 3): each of the sixteen exam types (the six runtime types and the ten
+      authoring types) refuses generic POST / PUT / DELETE / import with the constant 403
+      `entity_type_managed`, for a write-permission role AND TENANT_ADMIN; the record is unchanged and
+      no `ENTITY_RECORD_*` event is appended.
+    * T-23: the stamp stamps each of the ten authoring rows; an answer-key grant does not reopen the
+      generic routes for `question` and `answer_option`.
     * T-22: reads (query, aggregate, definitions, answer-key field restriction) behave as before.
     * T-12: the definitions API (create / activate) still cannot stamp or unstamp, even with a
       `managed_by` key in the body, after the exception exists.
@@ -39,6 +39,8 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
   alias Letflow.EventStore.Event
   alias Letflow.ExamFixtures
   alias Letflow.ExamStampFixtures, as: Fx
+  alias Letflow.Identity
+  alias Letflow.Identity.Tenant
   alias Letflow.Identity.User
 
   @entities_opts Letflow.Routers.Entities.init([])
@@ -80,6 +82,52 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
     |> assign(:auth_context, %{user_id: ctx.actor_id, tenant_id: ctx.tenant_id, roles: roles})
     |> assign(:trace_id, @trace)
     |> Letflow.Routers.Entities.call(@entities_opts)
+  end
+
+  # A TENANT_ADMIN token of the tenant of `ctx`, for the module's own authoring routes.
+  defp tenant_admin!(ctx) do
+    user = insert_user!(ctx.schema)
+
+    {:ok, %{plaintext: token}} =
+      Identity.create_token(user.id, %{roles: @admin, expires_at: nil}, prefix: ctx.schema)
+
+    %{token: token, slug: Repo.get!(Tenant, ctx.tenant_id).slug, user_id: user.id}
+  end
+
+  # The answer-key fields a caller without a grant cannot write (as exam_authoring_test grants them).
+  @answer_key_fields [
+    {"question", "explanation"},
+    {"answer_option", "is_correct"},
+    {"answer_option", "likert_weight"},
+    {"answer_option", "likert_polarity"}
+  ]
+
+  defp grant_answer_key!(%{user_id: user_id}, schema) do
+    for {type, field} <- @answer_key_fields do
+      Repo.insert_all(
+        "user_entity_grants",
+        [
+          %{
+            id: Ecto.UUID.bingenerate(),
+            user_id: Ecto.UUID.dump!(user_id),
+            entity_type: type,
+            field_name: field,
+            inserted_at: NaiveDateTime.utc_now()
+          }
+        ],
+        prefix: schema
+      )
+    end
+  end
+
+  # `path` is relative to `/api/v1/modules/exam/authoring`, e.g. "/category/<id>".
+  defp authoring_call(%{token: token, slug: slug}, method, path, body) do
+    Plug.Test.conn(method, "/api/v1/modules/exam/authoring" <> path, body && Jason.encode!(body))
+    |> put_req_header("content-type", "application/json")
+    |> put_req_header("authorization", "Bearer " <> token)
+    |> put_req_header("x-tenant-slug", slug)
+    |> put_req_header("x-trace-id", @trace)
+    |> Letflow.Router.call(Letflow.Router.init([]))
   end
 
   defp managed_body, do: Error.serialise(%{Error.entity_type_managed() | trace_id: @trace})
@@ -261,19 +309,16 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
         {type, ExamFixtures.create_record!(schema, type, values(type, 1)).record_id}
       end
 
-    ten_before_stamp = Fx.dump(schema, @ten)
-
     items_before =
       for type <- @six, into: %{}, do: {type, query_items(tenant_id, actor.id, schema, type)}
 
-    assert %{status: :stamped, rows_stamped: 6, error: nil} = Stamp.run_tenant(schema, [])
+    assert %{status: :stamped, rows_stamped: 16, error: nil} = Stamp.run_tenant(schema, [])
 
     {:ok,
      tenant_id: tenant_id,
      schema: schema,
      actor_id: actor.id,
      records: records,
-     ten_before_stamp: ten_before_stamp,
      items_before: items_before}
   end
 
@@ -286,12 +331,12 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
 
   # ── T-20 ────────────────────────────────────────────────────────────────────────────────────
 
-  describe "T-20 (AC5): generic writes of the six runtime types are refused on a stamped tenant" do
+  describe "T-20 (AC5, GH #2680 slice 3 for the ten): generic writes of the sixteen exam types are refused on a stamped tenant" do
     test "POST, PUT and DELETE -> the constant 403 for a write-permission role and TENANT_ADMIN; record unchanged; no event",
          ctx do
       events_before = event_count(ctx.schema)
 
-      for type <- @six, roles <- [@operator, @admin] do
+      for type <- @six ++ @ten, roles <- [@operator, @admin] do
         id = ctx.records[type]
         before = stored(ctx, type, id)
         count_before = record_count(ctx.schema, type)
@@ -328,7 +373,7 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
          ctx do
       events_before = event_count(ctx.schema)
 
-      for type <- @six do
+      for type <- @six ++ @ten do
         count_before = record_count(ctx.schema, type)
 
         assert_managed!(
@@ -359,91 +404,18 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
 
   # ── T-23 ────────────────────────────────────────────────────────────────────────────────────
 
-  describe "T-23 (AC5 control, the ruling): the ten authoring types stay writable" do
-    test "the stamp touched none of the ten authoring definition rows", ctx do
-      assert Fx.dump(ctx.schema, @ten) == ctx.ten_before_stamp
-      for name <- @ten, do: assert(Fx.managed_by_map(ctx.schema)[name] == [nil], name)
-    end
-
-    # GH #2784: the exam answer-key restrictions (`Exam.answer_key_fields/0`) sit on two of the ten
-    # UNMANAGED authoring types (`question.explanation`; `answer_option.is_correct` and the likert
-    # fields). The generic write routes now honour them for a caller holding no grant: a POST
-    # naming a restricted key is the constant 403, any PUT on such a type is a 403 (it replaces
-    # `field_values` wholesale), DELETE succeeds with the restricted value redacted. The other
-    # eight authoring types carry no restriction and stay fully writable.
-    test "POST, PUT, DELETE and import for each authoring type, for both caller kinds", ctx do
-      keys_by_type =
-        Letflow.Modules.Exam.answer_key_fields()
-        |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-
-      for type <- @ten, roles <- [@operator, @admin] do
-        label = "#{type} as #{inspect(roles)}"
-
-        names_restricted_key? =
-          Enum.any?(Map.keys(values(type, 5)), &(&1 in Map.get(keys_by_type, type, [])))
-
-        created =
-          call_entities(ctx, roles, :post, "/records/#{type}", %{
-            "field_values" => values(type, 5)
-          })
-
-        if names_restricted_key? do
-          assert created.status == 403, "POST #{label}: #{created.resp_body}"
-
-          assert body_of(created)["detail"] ==
-                   "one or more requested fields are restricted for this caller"
-
-          refute created.resp_body == managed_body()
-        else
-          assert created.status == 201, "POST #{label}: #{created.resp_body}"
-        end
-
-        record_id = ExamFixtures.create_record!(ctx.schema, type, values(type, 7)).record_id
-
-        updated =
-          call_entities(ctx, roles, :put, "/records/#{type}/#{record_id}", %{
-            "field_values" => values(type, 6)
-          })
-
-        if Enum.any?(Map.keys(values(type, 6)), &(&1 in Map.get(keys_by_type, type, []))) do
-          assert updated.status == 403, "PUT #{label}: #{updated.resp_body}"
-
-          assert body_of(updated)["detail"] ==
-                   "one or more requested fields are restricted for this caller"
-
-          refute updated.resp_body == managed_body()
-        else
-          assert updated.status == 200, "PUT #{label}: #{updated.resp_body}"
-        end
-
-        deleted = call_entities(ctx, roles, :delete, "/records/#{type}/#{record_id}", nil)
-        assert deleted.status == 200, "DELETE #{label}: #{deleted.resp_body}"
-
-        if type == "answer_option" do
-          assert body_of(deleted)["field_values"]["is_correct"] == "__field_redacted__"
-        end
-      end
-
-      for type <- @ten do
-        imported =
-          call_entities(ctx, @admin, :post, "/records/#{type}/import", import_document(type, 1))
-
-        assert imported.status == 200, "import #{type}: #{imported.resp_body}"
-        refute imported.resp_body == managed_body()
-
-        [entry] = body_of(imported)["results"]
-
-        if type == "answer_option" do
-          assert entry["reason"] == %{"type" => "field_restricted"}, imported.resp_body
-        else
-          assert entry["status"] == "ok", imported.resp_body
-        end
-      end
-    end
-
-    # The remedy for the refusals above: a field grant for the authoring actor.
-    test "an actor holding the answer-key grants writes question and answer_option (PUT 200)",
+  describe "T-23 (AC5, GH #2680 slice 3): the stamp covers the ten authoring types" do
+    test "the stamp stamped each of the ten authoring definition rows (managed_by = 'exam')",
          ctx do
+      map = Fx.managed_by_map(ctx.schema)
+
+      for name <- @ten, do: assert(map[name] == ["exam"], name)
+    end
+
+    # GH #2784: the answer-key grant used to open the generic write routes for `question` and
+    # `answer_option`. On a stamped tenant the generic routes refuse these types for everyone, so a
+    # grant does not reopen them; the module's own routes honour the grant (exam_authoring_test).
+    test "an actor holding the answer-key grants is still refused on the generic routes", ctx do
       now = NaiveDateTime.utc_now()
 
       rows =
@@ -462,27 +434,96 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
 
       for type <- ["question", "answer_option"], roles <- [@operator, @admin] do
         label = "#{type} as #{inspect(roles)}"
+        record_id = ctx.records[type]
 
-        created =
+        assert_managed!(
           call_entities(ctx, roles, :post, "/records/#{type}", %{
             "field_values" => values(type, 5)
-          })
+          }),
+          "POST #{label}"
+        )
 
-        assert created.status == 201, "POST #{label}: #{created.resp_body}"
-
-        record_id = ExamFixtures.create_record!(ctx.schema, type, values(type, 7)).record_id
-
-        updated =
+        assert_managed!(
           call_entities(ctx, roles, :put, "/records/#{type}/#{record_id}", %{
             "field_values" => values(type, 6)
-          })
-
-        assert updated.status == 200, "PUT #{label}: #{updated.resp_body}"
-
-        if type == "answer_option" do
-          assert body_of(updated)["field_values"]["is_correct"] == true
-        end
+          }),
+          "PUT #{label}"
+        )
       end
+    end
+  end
+
+  # ── T-A3 ────────────────────────────────────────────────────────────────────────────────────
+
+  describe "T-A3 (AC3, GH #2680 slice 3): the module's own authoring routes keep working on a stamped tenant" do
+    test "POST 201, PUT 200, DELETE 200 for each of the ten authoring types as tenant A's TENANT_ADMIN; the definitions stay managed_by exam",
+         ctx do
+      admin = tenant_admin!(ctx)
+      grant_answer_key!(admin, ctx.schema)
+
+      for type <- @ten do
+        post = authoring_call(admin, "POST", "/#{type}", %{"field_values" => values(type, 3)})
+        assert post.status == 201, "POST #{type}: #{post.status} #{post.resp_body}"
+        id = body_of(post)["record_id"]
+
+        put =
+          authoring_call(admin, "PUT", "/#{type}/#{id}", %{"field_values" => values(type, 4)})
+
+        assert put.status == 200, "PUT #{type}: #{put.status} #{put.resp_body}"
+
+        del = authoring_call(admin, "DELETE", "/#{type}/#{id}", nil)
+        assert del.status == 200, "DELETE #{type}: #{del.status} #{del.resp_body}"
+        assert stored(ctx, type, id).deleted
+      end
+
+      managed =
+        Repo.all(from(d in EntityDefinition, where: d.name in ^@ten, select: d.managed_by),
+          prefix: ctx.schema
+        )
+
+      assert length(managed) == 10
+      assert Enum.all?(managed, &(&1 == "exam"))
+    end
+  end
+
+  # ── T-A4 ────────────────────────────────────────────────────────────────────────────────────
+
+  describe "T-A4 (INV-10, GH #2680 slice 3): an admin of tenant B cannot reach a stamped authoring row of tenant A" do
+    test "PUT and DELETE of A's stamped category by B's TENANT_ADMIN: the same 404 as a random id; A's row unchanged",
+         ctx do
+      %{tenant_id: tenant_b_id, schema_name: schema_b} = Fx.full_tenant!("gh2596-http-b")
+      assert %{status: :stamped, error: nil} = Stamp.run_tenant(schema_b, [])
+      user_b = insert_user!(schema_b)
+
+      {:ok, %{plaintext: token_b}} =
+        Identity.create_token(user_b.id, %{roles: @admin, expires_at: nil}, prefix: schema_b)
+
+      slug_b = Repo.get!(Tenant, tenant_b_id).slug
+      category_id = ctx.records["category"]
+
+      # Positive control (review of attempt 1): A's own admin reaches the same row, so the 404s
+      # below cannot come from a route that refuses stamped rows for every caller.
+      admin_a = tenant_admin!(ctx)
+      fv = %{"field_values" => values("category", 2)}
+      assert authoring_call(admin_a, "PUT", "/category/#{category_id}", fv).status == 200
+
+      before = stored(ctx, "category", category_id)
+
+      assert Repo.one(
+               from(d in EntityDefinition, where: d.name == "category", select: d.managed_by),
+               prefix: ctx.schema
+             ) == "exam"
+
+      admin_b = %{token: token_b, slug: slug_b}
+      put = authoring_call(admin_b, "PUT", "/category/#{category_id}", fv)
+      del = authoring_call(admin_b, "DELETE", "/category/#{category_id}", nil)
+      rnd_put = authoring_call(admin_b, "PUT", "/category/#{Ecto.UUID.generate()}", fv)
+      rnd_del = authoring_call(admin_b, "DELETE", "/category/#{Ecto.UUID.generate()}", nil)
+
+      assert [put.status, del.status] == [404, 404]
+      assert put.resp_body == rnd_put.resp_body
+      assert del.resp_body == rnd_del.resp_body
+      assert stored(ctx, "category", category_id) == before
     end
   end
 
@@ -556,17 +597,17 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
         assert definition_count(ctx.schema, name) == before
       end
 
-      # Control: a plain NEW VERSION of the unmanaged authoring name is accepted and stays unstamped.
+      # Control: a NEW VERSION of a stamped authoring name is refused too: the stamp is per name,
+      # not per version, so the tenant path cannot add a version of `tag` once the module manages it.
       created = call_entities(ctx, @designer, :post, "/definitions", body.("tag"))
-      assert created.status == 201, created.resp_body
-      assert Fx.managed_by_map(ctx.schema)["tag"] == [nil]
+      assert_managed!(created, "new version of tag")
 
       assert_stamps_intact!(ctx)
     end
 
-    test "POST /definitions/:name/activate on a stamped name is refused; an authoring name is not stamped by activation",
+    test "POST /definitions/:name/activate on a stamped name (sixteen) is refused",
          ctx do
-      for name <- @six do
+      for name <- @six ++ @ten do
         assert_managed!(
           call_entities(ctx, @designer, :post, "/definitions/#{name}/activate", %{
             "rationale" => "x"
@@ -575,19 +616,13 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
         )
       end
 
-      activated =
-        call_entities(ctx, @designer, :post, "/definitions/tag/activate", %{"rationale" => "x"})
-
-      refute activated.resp_body == managed_body()
-      assert Fx.managed_by_map(ctx.schema)["tag"] == [nil]
       assert_stamps_intact!(ctx)
     end
   end
 
   defp assert_stamps_intact!(ctx) do
     map = Fx.managed_by_map(ctx.schema)
-    for name <- @six, do: assert(map[name] == ["exam"], name)
-    for name <- @ten, do: assert(map[name] == [nil], name)
+    for name <- @six ++ @ten, do: assert(map[name] == ["exam"], name)
   end
 
   # ── T-13 ────────────────────────────────────────────────────────────────────────────────────

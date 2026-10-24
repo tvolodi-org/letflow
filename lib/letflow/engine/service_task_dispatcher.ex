@@ -287,6 +287,44 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
     max(configured, @stuck_advance_min_age_floor_seconds)
   end
 
+  # The mode flag defaults `:off` (new product behaviour: a live ACTIVE instance becomes ERROR);
+  # any value that is not `:shadow` or `:on` reads as `:off`. The rest are tunables (design D2).
+  @spec stuck_advance_mode() :: :off | :shadow | :on
+  def stuck_advance_mode do
+    case dispatcher_config()[:stuck_advance_mode] do
+      mode when mode in [:shadow, :on] -> mode
+      _off_or_unknown -> :off
+    end
+  end
+
+  @spec stuck_advance_sweep_interval_ms() :: pos_integer()
+  def stuck_advance_sweep_interval_ms,
+    do: positive_config(:stuck_advance_sweep_interval_ms, 60_000)
+
+  @spec stuck_advance_batch_size() :: pos_integer()
+  def stuck_advance_batch_size, do: positive_config(:stuck_advance_batch_size, 20)
+
+  @spec stuck_advance_scan_page_size() :: pos_integer()
+  def stuck_advance_scan_page_size, do: positive_config(:stuck_advance_scan_page_size, 100)
+
+  @spec stuck_advance_scan_limit() :: pos_integer()
+  def stuck_advance_scan_limit, do: positive_config(:stuck_advance_scan_limit, 1000)
+
+  @spec stuck_advance_sweep_budget_ms() :: non_neg_integer()
+  def stuck_advance_sweep_budget_ms do
+    case dispatcher_config()[:stuck_advance_sweep_budget_ms] do
+      ms when is_integer(ms) and ms >= 0 -> ms
+      _unset_or_invalid -> 1000
+    end
+  end
+
+  defp positive_config(key, default) do
+    case dispatcher_config()[key] do
+      value when is_integer(value) and value > 0 -> value
+      _unset_or_invalid -> default
+    end
+  end
+
   defp dispatcher_config, do: Application.get_env(:letflow, :service_task_dispatcher, [])
 
   # ===========================================================================

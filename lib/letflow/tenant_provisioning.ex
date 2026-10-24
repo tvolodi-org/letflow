@@ -822,15 +822,23 @@ defmodule Letflow.TenantProvisioning do
     # GH #3092 (REQ-531, decision 0051 T13): nullable write-once `instance_projections.scope_node_id`.
     {20_261_024_100_001, Letflow.Repo.Migrations.AddScopeNodeIdToInstanceProjections,
      "20261024100001_add_scope_node_id_to_instance_projections.exs"},
+    # GH #2680 slice 3: the #2596 stamp exception extended to the ten exam authoring names
+    # (16 frozen names in all). A NEW reviewed migration, as the #2596 header requires.
+    {20_261_024_120_001, Letflow.Repo.Migrations.AllowExamAuthoringManagedByStamp,
+     "20261024120001_allow_exam_authoring_managed_by_stamp.exs"},
     # GH #3091 (REQ-532, decision 0051 T13): backfills `tasks.scope_node_id` from each task's own
     # instance; re-runnable (IS NULL guard), a no-op down.
     {20_261_024_200_001, Letflow.Repo.Migrations.BackfillTasksScopeNodeId,
      "20261024200001_backfill_tasks_scope_node_id.exs"},
+    # GH #2688 (REQ-513 B2): partial `(dispatched_at, id) WHERE status = 'advanced'` index for the
+    # stuck-advance sweep; additive, no data change.
+    {20_261_024_300_001, Letflow.Repo.Migrations.AddStuckAdvanceIndex,
+     "20261024300001_add_stuck_advance_index.exs"},
     # REQ-508 / GH #2675 (decision 0063 part (a)): retention policy columns on document_types,
     # hold columns on documents, and the column-aware guard_document_types().
     {20_261_025_100_001, Letflow.Repo.Migrations.AddDocumentRetentionAndHold,
-     "20261025100001_add_document_retention_and_hold.exs"}
   ]
+     "20261025100001_add_document_retention_and_hold.exs"}
 
   @doc """
   The designated tenant-scoped subset of `priv/repo/migrations/` —

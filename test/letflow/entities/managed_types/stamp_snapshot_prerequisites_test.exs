@@ -36,6 +36,7 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotPrerequisitesTest do
   alias Mix.Tasks.Letflow.StampManagedTypes
 
   @six Fx.runtime_types()
+  @ten Fx.authoring_types()
 
   @statuses [
     :stamped,
@@ -141,7 +142,7 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotPrerequisitesTest do
 
       # rollout first, then stamp
       assert %{status: :upgraded} = Rollout.run_tenant(schema, [])
-      assert %{status: :stamped, rows_stamped: 8, prerequisites_missing: []} = run!(schema, [])
+      assert %{status: :stamped, rows_stamped: 14, prerequisites_missing: []} = run!(schema, [])
 
       for {name, values} <- Map.take(Fx.managed_by_map(schema), @six) do
         assert {name, values} == {name, ["exam"]}
@@ -197,7 +198,7 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotPrerequisitesTest do
       assert_nothing_stamped!(schema)
 
       assert {:ok, 5} = Exam.ensure_answer_key_restrictions(schema)
-      assert %{status: :stamped, rows_stamped: 6, prerequisites_missing: []} = run!(schema, [])
+      assert %{status: :stamped, rows_stamped: 12, prerequisites_missing: []} = run!(schema, [])
     end
 
     test "ONE missing pair is enough, and it is the snapshot pair that matters most" do
@@ -241,18 +242,18 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotPrerequisitesTest do
 
       assert %{
                status: :stamped,
-               rows_stamped: 8,
+               rows_stamped: 18,
                conflicts: [],
                prerequisites_missing: [],
                error: nil
              } = report
 
-      assert report.types_stamped |> Enum.uniq() |> Enum.sort() == Enum.sort(@six)
+      assert report.types_stamped |> Enum.uniq() |> Enum.sort() == Enum.sort(@six ++ @ten)
       assert Fx.managed_by_map(schema)["session"] == ["exam"]
       assert Enum.all?(Fx.dump(schema, ["session"]), &(&1.managed_by == "exam"))
       assert length(Fx.dump(schema, ["session"])) == 3
 
-      assert %{status: :nothing_to_stamp, rows_stamped: 0, rows_already_stamped: 8} =
+      assert %{status: :nothing_to_stamp, rows_stamped: 0, rows_already_stamped: 18} =
                run!(schema, [])
     end
 
@@ -267,7 +268,7 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotPrerequisitesTest do
 
       Fx.activate!(hostile_active, "certificate")
 
-      assert %{status: :stamped, rows_stamped: 5, conflicts: [conflict]} =
+      assert %{status: :stamped, rows_stamped: 15, conflicts: [conflict]} =
                run!(hostile_active, [])
 
       assert %{type: "certificate", reason: :shape_not_compatible} = conflict
@@ -281,7 +282,7 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotPrerequisitesTest do
         fields: [Fx.field("foo", :string)]
       })
 
-      assert %{status: :stamped, rows_stamped: 7, conflicts: []} = run!(hostile_inactive, [])
+      assert %{status: :stamped, rows_stamped: 17, conflicts: []} = run!(hostile_inactive, [])
       assert Fx.managed_by_map(hostile_inactive)["certificate"] == ["exam"]
     end
 
@@ -311,12 +312,12 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotPrerequisitesTest do
   describe "when the prerequisites are judged" do
     test "a fully stamped tenant stays :nothing_to_stamp even if a restriction row disappears later" do
       %{schema_name: schema} = ready_tenant!("gh2682-b-stamped")
-      assert %{status: :stamped, rows_stamped: 6} = run!(schema, [])
+      assert %{status: :stamped, rows_stamped: 12} = run!(schema, [])
       assert ExamFixtures.delete_answer_key_restrictions!(schema) == 5
 
       assert %{
                status: :nothing_to_stamp,
-               rows_already_stamped: 6,
+               rows_already_stamped: 12,
                prerequisites_missing: [],
                rows_stamped: 0
              } = run!(schema, [])
@@ -389,7 +390,7 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotPrerequisitesTest do
              } =
                blocked_report
 
-      assert %{status: :stamped, rows_stamped: 6, prerequisites_missing: []} = ready_report
+      assert %{status: :stamped, rows_stamped: 12, prerequisites_missing: []} = ready_report
       assert report.gate_blocked_total >= 1
 
       assert report.gate_blocked_total ==

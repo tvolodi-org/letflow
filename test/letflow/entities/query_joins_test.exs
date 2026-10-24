@@ -69,7 +69,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
 
   defp create_active_definition!(schema, definition) do
     assert {:ok, entity_definition} =
-             Definitions.create_definition(
+             Letflow.ManagedTypesSupport.create_definition(
                %{definition: definition, created_by: Ecto.UUID.generate()},
                schema
              )

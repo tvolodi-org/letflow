@@ -115,7 +115,7 @@ defmodule Letflow.ClientKeyNamespaceTest do
 
   defp seed_widget!(ctx) do
     {:ok, _} =
-      Definitions.create_definition(
+      Letflow.ManagedTypesSupport.create_definition(
         %{
           definition: %{
             name: "widget",

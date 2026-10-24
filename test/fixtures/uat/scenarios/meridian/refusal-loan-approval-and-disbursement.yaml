@@ -19,13 +19,14 @@ description: >
   credit manager each try to cast a vote that belongs to someone else, and the bank must
   refuse every attempt. After the committee has approved, the credit manager and the
   analyst try to release the money, which only loan operations may do, and are refused.
-  The analyst also tries to look at the credit director's waiting approval work, and the
+  A plain task worker (oliver) tries to look at the credit director's waiting approval work, and the
   risk manager tries to export the full borrower records with personal details unmasked;
   both are refused. Finally the real committee members vote and loan operations
   disburses, so the loan still completes normally.
 
 actors:
   analyst: actor-meridian-sophie
+  plain_worker: actor-meridian-oliver
   credit_manager: actor-meridian-ben
   risk_manager: actor-meridian-miriam
   committee_member_cro: actor-meridian-thomas
@@ -106,9 +107,11 @@ steps:
     expect_refusal: true
 
   - step: 7
-    actor: analyst
+    actor: plain_worker
     action: >
-      The analyst tries to open the credit director's waiting approval work for this
+      A task worker with no routing role and no operator role (BA decision 2935 item 4: the analyst
+      starts the process and holds PROCESS_OPERATOR, which reads the whole task queue) tries to open
+      the credit director's waiting approval work for this
       loan, which holds the committee's commercial assessment of the borrower
     via: api
     expect_refusal: true

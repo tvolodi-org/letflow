@@ -25,6 +25,7 @@ defmodule Letflow.ExamFixtures do
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.Entities.Definitions
+  alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Identity.Tenant
@@ -244,20 +245,22 @@ defmodule Letflow.ExamFixtures do
   `Installs.install("exam", ...)`: the six managed runtime types (`session`, `session_question`,
   `session_answer`, `session_question_score`, `session_event`, `certificate`) already exist from the
   pack, stamped `managed_by = 'exam'`, so they are ACTIVATED as installed (a `:tenant`
-  `create_definition/2` of those names is refused). The authoring types (and `category`) are created
-  and activated from `priv/modules/exam/entity_definitions/*.json` exactly as in
-  `activate_exam_definitions!/1`. `Exam.on_install/2` is not called again (the install ran it).
+  `create_definition/2` of those names is refused). The authoring types (GH #2680 slice 3: the ten,
+  `category` among them) are likewise the pack's stamped rows: each is checked by
+  `assert_single_pack_row!` and activated with `Definitions.activate_definition`, not created from
+  `priv/modules/exam/entity_definitions/*.json` as in `activate_exam_definitions!/1`.
+  `Exam.on_install/2` is not called again (the install ran it).
   """
   @spec activate_exam_definitions_after_pack_install!(schema_name :: String.t()) :: :ok
   def activate_exam_definitions_after_pack_install!(schema_name) do
     authoring =
       (@entity_types -- @runtime_entity_types) ++ @extra_entity_types_for_exam_fixtures_task
 
-    for entity_type <- authoring do
-      create_active_definition!(schema_name, load_definition!(entity_type))
-    end
+    # GH #2680 slice 3: the pack's own rows of the authoring names are stamped at install, so they
+    # are activated as installed (a second, planted row of the same name would be ambiguous).
+    for entity_type <- @runtime_entity_types ++ authoring do
+      assert_single_pack_row!(schema_name, entity_type)
 
-    for entity_type <- @runtime_entity_types do
       assert {:ok, _activated} =
                Definitions.activate_definition(
                  entity_type,
@@ -272,17 +275,45 @@ defmodule Letflow.ExamFixtures do
 
   @doc """
   GH #2680: activates the authoring types `provisioned_tenant_with_exam_definitions/1` leaves out
-  (`exam_section`, `exam_question_rule_tag`, `question_tag`, `tag`), from the same pack
-  definitions, so the whole authoring surface of the exam module can be written in a test tenant.
-  Kept separate so no existing caller of the provisioning function changes behaviour.
+  (`exam_section`, `exam_question_rule_tag`, `question_tag`, `tag`), so the whole authoring surface
+  of the exam module can be written in a test tenant. On a tenant where the exam pack was installed,
+  the pack's stamped row of each name is activated; a tenant without it gets a planted version, as
+  before. Kept separate so no existing caller of the provisioning function changes behaviour.
   """
   @spec activate_remaining_authoring_definitions!(schema_name :: String.t()) :: :ok
   def activate_remaining_authoring_definitions!(schema_name) do
     for entity_type <- ~w(exam_section exam_question_rule_tag question_tag tag) do
-      create_active_definition!(schema_name, load_definition!(entity_type))
+      if pack_row?(schema_name, entity_type) do
+        assert_single_pack_row!(schema_name, entity_type)
+
+        assert {:ok, _activated} =
+                 Definitions.activate_definition(
+                   entity_type,
+                   Ecto.UUID.generate(),
+                   "go-live",
+                   schema_name
+                 )
+      else
+        create_active_definition!(schema_name, load_definition!(entity_type))
+      end
     end
 
     :ok
+  end
+
+  # True when the exam pack's stamped row of `name` exists in `schema` (a real install ran).
+  defp pack_row?(schema, name) do
+    Repo.exists?(from(d in EntityDefinition, where: d.name == ^name and d.managed_by == "exam"),
+      prefix: schema
+    )
+  end
+
+  # On an installed tenant a name has exactly one row, the pack's stamped one (two rows make
+  # `get_definition_by_name` ambiguous and give the stamp mixed rows).
+  defp assert_single_pack_row!(schema, name) do
+    rows = Repo.all(from(d in EntityDefinition, where: d.name == ^name), prefix: schema)
+
+    assert [%EntityDefinition{managed_by: "exam"}] = rows
   end
 
   @doc "Creates a record via `Letflow.Entities.Records.create_record/2`, asserting success."
@@ -290,7 +321,7 @@ defmodule Letflow.ExamFixtures do
           Letflow.Entities.Record.Latest.t()
   def create_record!(schema, entity_type, field_values, actor_id \\ Ecto.UUID.generate()) do
     assert {:ok, %{record: record}} =
-             Records.create_record(
+             write_create(
                %{
                  entity_type: entity_type,
                  field_values: field_values,
@@ -363,7 +394,7 @@ defmodule Letflow.ExamFixtures do
     assert {:ok, current} = Latest.get(record_id, entity_type, schema)
 
     assert {:ok, %{record: record}} =
-             Records.update_record(
+             write_update(
                %{
                  entity_type: entity_type,
                  record_id: record_id,
@@ -383,7 +414,7 @@ defmodule Letflow.ExamFixtures do
   @spec delete_record!(String.t(), String.t(), Ecto.UUID.t()) :: :ok
   def delete_record!(schema, entity_type, record_id) do
     assert {:ok, _result} =
-             Records.delete_record(
+             write_delete(
                %{
                  entity_type: entity_type,
                  record_id: record_id,
@@ -394,6 +425,27 @@ defmodule Letflow.ExamFixtures do
              )
 
     :ok
+  end
+
+  # GH #2680 slice 3: the ten authoring types are managed by the exam module, so the generic
+  # `Records` path refuses them on an installed tenant (`entity_type_managed`). Fixtures write them
+  # through the module's own surface, as its routes do; every other type stays on `Records`.
+  defp write_create(%{entity_type: entity_type} = attrs, schema) do
+    if entity_type in Exam.Authoring.authoring_types(),
+      do: Exam.Authoring.create(attrs, schema),
+      else: Records.create_record(attrs, schema)
+  end
+
+  defp write_update(%{entity_type: entity_type} = attrs, schema) do
+    if entity_type in Exam.Authoring.authoring_types(),
+      do: Exam.Authoring.update(attrs, schema),
+      else: Records.update_record(attrs, schema)
+  end
+
+  defp write_delete(%{entity_type: entity_type} = attrs, schema) do
+    if entity_type in Exam.Authoring.authoring_types(),
+      do: Exam.Authoring.delete(attrs, schema),
+      else: Records.delete_record(attrs, schema)
   end
 
   @doc """

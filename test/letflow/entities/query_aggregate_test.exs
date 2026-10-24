@@ -49,7 +49,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
     }
 
     {:ok, entity_definition} =
-      Definitions.create_definition(
+      Letflow.ManagedTypesSupport.create_definition(
         %{definition: document, created_by: Ecto.UUID.generate()},
         ctx.schema_name
       )
