@@ -38097,7 +38097,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-508 -- part (b) lands after the columns of part (a); the GitHub issue is filed after the requirement gate
+    gh: 3106
     # Source: GH #2675 (filed by letflow-2) and docs/migration/decisions/0063-versioned-documents-retention-and-hold.md ("Split", part (b)). Written by the business analyst (T-0364) 2026-10-24 as the second half of the REQ-508 split. Not yet validated.
     description: >
       Part (b) of the split required by decision 0063 ("Split"), landing after REQ-508 (part (a)),
