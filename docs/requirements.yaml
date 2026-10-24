@@ -37929,7 +37929,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3092
     description: >
       Source: GH #1997 groups (1) and (2) (the full-corpus QA run reports scenarios that cannot be driven as
       BLOCKED); the 2026-10-16 triage comment on GH #1997; the task text of T-0369: a scenario may be marked
@@ -37978,7 +37978,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3091
     description: >
       Source: GH #1997 group (1), re-checked on main by T-0369 on 2026-10-24, and group (2) (the part that is
       covered by existing tests). Depends on REQ-531, which provides the skipped disposition.
@@ -38027,7 +38027,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S6
-    # impl_order: UNREGISTERED
+    gh: 3098
     description: >
       Source: GH #1997 group (2), scenario test/fixtures/uat/scenarios/platform/unsafe-migration-rejected.yaml
       (EO-001, EO-002, EO-003); docs/issues/ISS-0902.yaml (genuinely unbuilt: lib/letflow/platform/migration_rollout.ex
