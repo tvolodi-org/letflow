@@ -543,6 +543,7 @@ defmodule Letflow.Engine do
   alias Letflow.Scheduler
   alias Letflow.Scheduler.Timer
   alias Letflow.Scheduler.TimerTypes
+  alias Letflow.ScopeNodePaths
 
   require Letflow.Scheduler.TimerTypes
   alias Letflow.ServiceCatalog
@@ -553,6 +554,7 @@ defmodule Letflow.Engine do
           optional(:definition_id) => Ecto.UUID.t(),
           optional(:definition_name) => String.t(),
           optional(:correlation_key) => String.t() | nil,
+          optional(:scope_node_id) => String.t() | nil,
           required(:initial_variables) => map(),
           required(:actor_id) => Ecto.UUID.t(),
           required(:idempotency_key) => String.t()
@@ -571,6 +573,7 @@ defmodule Letflow.Engine do
           | {:error, :definition_not_active}
           | {:error, :definition_needs_reactivation}
           | {:error, :duplicate_correlation_key}
+          | {:error, :invalid_scope_node}
           | {:error, {:snapshot_failed, term()}}
           | {:error, {:graph_structure_invalid, term()}}
           | {:error, {:activation_failed, term()}}
@@ -613,6 +616,25 @@ defmodule Letflow.Engine do
   `attrs[:actor_id]`/`attrs[:idempotency_key]` are required — plumbed
   straight through to `Letflow.EventStore.append/2`'s own identical
   requirement.
+
+  ## Scope node (REQ-531, decision 0051 T13/T14)
+
+  `attrs[:scope_node_id]` is the optional scope node the instance is started under: set once here,
+  never changed (`instance_projections.scope_node_id`, carried in `INSTANCE_STARTED` and
+  `InstanceState`). It must name an existing, non-retired `scope_node_paths` node of the tenant;
+  anything else (unknown, retired, malformed, another tenant's) is `{:error, :invalid_scope_node}`
+  before anything is written, and the node is re-checked under a `FOR SHARE` lock inside the
+  transaction. The three start paths:
+
+    * `POST /instances` accepts the optional field; `Letflow.Routers.Instances` additionally checks
+      that a scoped caller names a node inside its `InstancesStart` grants (same refusal as unknown);
+    * a sub-process child never takes a value from a caller: it inherits its parent's stored value
+      (`Letflow.Engine.SubProcess.append_start_multi/7`, both the `create/2` and `complete_task/3` paths);
+    * webhook and trigger starts: none exist today. Any future one must supply a node or the instance
+      stays unscoped (T14): an unscoped instance is visible to tenant-wide holders only.
+
+  The idempotent-replay comparison includes the node: the same key with a different node (or with
+  none) is `:idempotency_key_reuse`.
   """
   @spec create(attrs :: create_attrs(), opts :: opts()) ::
           {:ok, create_result()} | create_error()
@@ -625,6 +647,7 @@ defmodule Letflow.Engine do
          {:ok, initial_variables} <- fetch_initial_variables(attrs),
          :continue <- start_replay_check(attrs, initial_variables, prefix),
          :ok <- start_race_gate(attrs),
+         :ok <- validate_scope_node(attrs, prefix),
          {:ok, definition} <- resolve_definition(attrs, opts) do
       correlation_key = Map.get(attrs, :correlation_key)
       start_instance(definition, initial_variables, correlation_key, attrs, tenant_id, prefix)
@@ -651,6 +674,26 @@ defmodule Letflow.Engine do
       has_id and has_name -> {:error, :both_definition_id_and_name}
       not has_id and not has_name -> {:error, :missing_definition_reference}
       true -> :ok
+    end
+  end
+
+  # REQ-531 -- the optional start scope node. Advisory pre-check (a refusal here happens before
+  # `create_snapshot/3` writes anything); `persist/14` re-checks the node under a FOR SHARE lock.
+  # Absent or nil is an unscoped start. Unknown, retired, malformed and non-string all answer one
+  # code (INV-5): the caller learns nothing about which nodes exist.
+  defp validate_scope_node(attrs, prefix) do
+    case Map.get(attrs, :scope_node_id) do
+      nil ->
+        :ok
+
+      node_id when is_binary(node_id) and node_id != "" ->
+        case ScopeNodePaths.resolve(node_id, prefix) do
+          {:ok, %{node: %{retired_at: nil}}} -> :ok
+          _unknown_or_retired -> {:error, :invalid_scope_node}
+        end
+
+      _other ->
+        {:error, :invalid_scope_node}
     end
   end
 
@@ -718,6 +761,7 @@ defmodule Letflow.Engine do
       IdempotentReplay.same_uuid?(original.actor_id, Map.get(attrs, :actor_id)) and
       Map.get(payload, "initial_variables") == IdempotentReplay.canonical_json(vars) and
       Map.get(payload, "correlation_key") == Map.get(attrs, :correlation_key) and
+      Map.get(payload, "scope_node_id") == Map.get(attrs, :scope_node_id) and
       same_start_definition?(payload, attrs, prefix)
   end
 
@@ -845,8 +889,10 @@ defmodule Letflow.Engine do
          {:ok, parent_pins} <- parent_pins(attrs, prefix),
          {:ok, pins, conflicts} <- PinResolver.apply_inheritance(own_pins, parent_pins),
          {:ok, _snapshot} <- create_snapshot(instance_id, definition, prefix),
-         {:ok, new_instance_state, pending_events} <-
+         {:ok, activated_state, pending_events} <-
            activate(instance_id, graph, initial_variables),
+         # REQ-531: the start scope node rides on the state so snapshots and rebuilds keep it.
+         new_instance_state = %{activated_state | scope_node_id: Map.get(attrs, :scope_node_id)},
          {:ok, prepared_children} <-
            prepare_sub_process_children(
              instance_id,
@@ -2151,6 +2197,7 @@ defmodule Letflow.Engine do
 
     try do
       Multi.new()
+      |> lock_scope_node(Map.get(attrs, :scope_node_id), prefix)
       |> Multi.run(:instance_projection, fn repo, _changes ->
         # M1 always inserts :active, even when the landing-node dispatch above
         # already completed the instance (design doc §9 OQ-1a's :END success
@@ -2200,6 +2247,7 @@ defmodule Letflow.Engine do
           current_node_ids,
           initial_variables,
           new_instance_state.join_counters,
+          new_instance_state.scope_node_id,
           prefix
         )
       end)
@@ -2424,6 +2472,7 @@ defmodule Letflow.Engine do
          current_node_ids,
          initial_variables,
          join_counters,
+         scope_node_id,
          prefix
        ) do
     attrs = %{
@@ -2433,7 +2482,8 @@ defmodule Letflow.Engine do
       correlation_key: correlation_key,
       current_nodes: current_node_ids,
       variables: initial_variables,
-      join_counters: SnapshotWriter.serialize_join_counters(join_counters)
+      join_counters: SnapshotWriter.serialize_join_counters(join_counters),
+      scope_node_id: scope_node_id
     }
 
     %InstanceProjection{}
@@ -2537,6 +2587,7 @@ defmodule Letflow.Engine do
       else
         base_payload
       end
+      |> put_scope_node(Map.get(attrs, :scope_node_id))
 
     payload = Jason.encode!(payload_map)
 
@@ -2555,6 +2606,24 @@ defmodule Letflow.Engine do
       {:error, reason} -> {:error, {:event_append_failed, reason}}
     end
   end
+
+  # REQ-531 -- authoritative scope-node check: the node row is share-locked to commit (the same
+  # rank-N lock `ScopedGrants` takes), so a concurrent retire either waits for this start or is seen
+  # here. No node, no step.
+  defp lock_scope_node(multi, nil, _prefix), do: multi
+
+  defp lock_scope_node(multi, node_id, prefix) do
+    Multi.run(multi, :scope_node, fn _repo, _changes ->
+      case ScopeNodePaths.lock_active_node_for_share!(node_id, prefix) do
+        {:ok, _node} -> {:ok, node_id}
+        {:error, _reason} -> {:error, :invalid_scope_node}
+      end
+    end)
+  end
+
+  # The key is present only when the instance has a node (REQ-531: "absent or null").
+  defp put_scope_node(payload_map, nil), do: payload_map
+  defp put_scope_node(payload_map, node_id), do: Map.put(payload_map, :scope_node_id, node_id)
 
   # M4 -- flips the instance_projections row to its true final status once
   # the INSTANCE_STARTED event (M3) has been appended while the row was
@@ -4006,7 +4075,8 @@ defmodule Letflow.Engine do
       variables: projection.variables,
       pending_task_nodes: pending_task_tokens,
       join_counters: SnapshotWriter.deserialize_join_counters(projection.join_counters),
-      variable_labels: projection.variable_labels
+      variable_labels: projection.variable_labels,
+      scope_node_id: projection.scope_node_id
     }
   end
 

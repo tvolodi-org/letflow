@@ -1,8 +1,8 @@
 # REQ-457 residual (GH #2363, BA-PLATFORM): refusal scenario for the read-only auditor of a customer.
 # Authored new; not a port. The auditor is a NEW persona (actor-swiftroute-auditor).
-# STATUS: BLOCKED, not PASS, until the owner gives a written APPROVE for assigning the
-# TENANT_AUDITOR realm role to the auditor's QA account (UAT-class action). The role exists in the
-# QA realms (infra T-0214) but is assigned to nobody.
+# STATUS: runnable. The owner gave a written APPROVE on 2026-10-22 (GH #3047) and infra created the
+# auditor's QA account with the TENANT_AUDITOR realm role only (ai-dala-infra commit 9ebd1ee).
+# A run is not a PASS until its steps are observed.
 # Every step below is expected to be REFUSED. A step the product lets through is a finding, not a
 # reason to rewrite the step.
 ---
@@ -10,14 +10,14 @@ id: platform-refusal-tenant-auditor-read-only
 scope: platform
 title: A customer's auditor can look but cannot change anything
 version: "1.0"
-tags: [access, refusal, regression, auditor, blocked]
+tags: [access, refusal, regression, auditor]
 
 description: >
   A customer may give a person the right to inspect its records without changing them,
   for example an outside auditor. This scenario has SwiftRoute's auditor try to change
   the data of their own company. The attempt must be turned down plainly, and nothing
-  may change. Blocked until the owner approves, in writing, giving the auditor role to
-  the test account.
+  may change. The test account holds the auditor role, approved in writing by the owner
+  (GH #3047).
 
 actors:
   customer_auditor: actor-swiftroute-auditor
@@ -28,8 +28,8 @@ preconditions:
   - description: The auditor account holds the read-only auditor role of SwiftRoute and nothing else
     check: custom
     detail: >
-      Blocked until the owner's written approval for giving the auditor role to the test
-      account. The refusal only means something if the person really is a read-only auditor.
+      Checked at run time against the QA realm (the owner's approval is GH #3047). The refusal
+      only means something if the person really is a read-only auditor.
 
 steps:
   - step: 1

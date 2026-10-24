@@ -90,8 +90,8 @@ defmodule Letflow.Scripts.SwiftrouteRosterAccountantTest do
   test "the seed script's personas agree with the roster's swiftroute routing roles" do
     personas = script_personas()
 
-    # The read-only auditor (GH #2363) has no seeded account: assigning the TENANT_AUDITOR realm role
-    # is blocked on the owner's written APPROVE. It must stay free of routing roles meanwhile.
+    # The read-only auditor (GH #2363) is provisioned by infra, not by the seed script (GH #3047).
+    # It must stay free of routing roles: TENANT_AUDITOR only.
     auditor = swiftroute_actors()["actor-swiftroute-auditor"]
     assert auditor["builtin_roles"] == ["TENANT_AUDITOR"]
     assert auditor["routing_roles"] == []

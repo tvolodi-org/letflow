@@ -4,8 +4,8 @@
 # escalate-to-ceo, budget-gate, budget-approval, escalate-budget-approval-to-finance-director, assign-line,
 # notify-planner; edges timeout-capacity-review, e3, e5, timeout-budget-approval, e7-escalated).
 # Depends on the roster entry for actor-vortex-greta (finance director, role-finance-director). The Keycloak
-# account for greta is UAT-class infrastructure and has NOT been requested by this change: this scenario is
-# added but not run, and is blocked until that account exists.
+# account for greta is UAT-class infrastructure; the owner approved it on 2026-10-22 (GH #3048) and infra
+# provisioned it (ai-dala-infra 9ebd1ee), so the scenario is no longer blocked on it.
 # The same-user separation refusal (the person who decided an earlier step may not decide the budget
 # escalation) is covered by the engine test test/letflow/engine/req466_vortex_distinct_from_test.exs; here the
 # CEO is refused because he does not hold the finance director role.
