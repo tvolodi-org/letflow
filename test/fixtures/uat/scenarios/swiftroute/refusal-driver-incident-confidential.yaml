@@ -3,9 +3,12 @@
 # and seeing personal data (a driver's incident report). Not covered here: paying (no SwiftRoute
 # process pays), changing users (refusal-user-administration.yaml).
 #
-# DEPENDENCIES: as for driver-incident-assess-and-estimate.yaml, no QA seed script deploys the
-# Driver Incident Report definition yet; the preflight definitions check reports a gap until
-# one does.
+# DEPENDENCIES: the Driver Incident Report definition is deployed by
+# scripts/seed_swiftroute_incident_definition.sh (it has run on QA; the earlier "no seed script
+# yet" note was stale). Step 1 needs a dispatcher who may start an instance: Lena holds the
+# Process Operator responsibility per BA decision T-0321. Tobias stays a plain TASK_WORKER
+# on purpose, so the refusal at step 4 rests on his having no part in the incident. If step 1 is
+# refused, steps 2 to 4 are BLOCKED, never PASS: there is no incident to be refused on.
 ---
 id: swiftroute-refusal-driver-incident-confidential
 company_id: swiftroute

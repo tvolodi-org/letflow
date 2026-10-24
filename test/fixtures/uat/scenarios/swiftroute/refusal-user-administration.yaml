@@ -2,12 +2,13 @@
 # changing users or roles. Not covered here: approving and seeing personal data
 # (refusal-shipment-approval.yaml, refusal-driver-incident-confidential.yaml), paying (no
 # SwiftRoute process pays).
+# Revised for T-0322 (process audit T-0295): every step now names its target and its input.
 ---
 id: swiftroute-refusal-user-administration
 company_id: swiftroute
 process_id: proc-swiftroute-shipment-approval
 title: Dispatchers and managers cannot change who works in SwiftRoute or what they may do
-version: "1.0"
+version: "1.1"
 tags: [refusal, users]
 
 description: >
@@ -16,6 +17,10 @@ description: >
   themselves or anyone else a more powerful responsibility, which would let them go round
   every approval in the company.
 
+  The new employee in step 2 is test data: an e-mail address on the example domain that no
+  one in SwiftRoute holds, so a successful attempt would be visible. The dispatcher and the
+  Operations Manager are the roster's actor-swiftroute-lena and actor-swiftroute-marco.
+
 actors:
   dispatcher:  actor-swiftroute-lena
   ops_manager: actor-swiftroute-marco
@@ -23,28 +28,45 @@ actors:
 preconditions:
   - description: Shipment approval process definition is active
     check: process_definition_active
+  - description: >
+      Before step 1, the responsibilities of the dispatcher and the existence of the account
+      "uat-new-employee@swiftroute.example" are recorded (the account must not exist), so that
+      "nothing changed" can be judged afterwards.
+    check: custom
+    detail: Read through the company's user administration before step 1.
 
 steps:
   - step: 1
     actor: dispatcher
     action: >
-      Tries to give herself the Operations Manager's responsibilities, so that she can approve
-      the shipments she submits.
+      Tries to give herself the Operations Manager's responsibility (role-ops-manager), so that
+      she can approve the shipments she submits. Target: her own account, actor-swiftroute-lena.
     expect_refusal: true
     via: api
+    input:
+      target_user: actor-swiftroute-lena
+      responsibility_to_add: role-ops-manager
 
   - step: 2
     actor: ops_manager
     action: >
-      Tries to add a new employee to SwiftRoute and give that person the CEO's responsibilities.
+      Tries to add a new employee to SwiftRoute and give that person the CEO's responsibility
+      (role-ceo).
     expect_refusal: true
     via: api
+    input:
+      new_user_email: "uat-new-employee@swiftroute.example"
+      responsibility_to_add: role-ceo
 
   - step: 3
     actor: ops_manager
-    action: Tries to deactivate the dispatcher's account.
+    action: >
+      Tries to deactivate the dispatcher's account. Target: actor-swiftroute-lena.
     expect_refusal: true
     via: api
+    input:
+      target_user: actor-swiftroute-lena
+      change: deactivate
 
 expected_outcomes:
   - id: EO-001
@@ -53,8 +75,10 @@ expected_outcomes:
     verification:
       method: audit_event
       detail: >
-        After step 3: the dispatcher still has only her own responsibilities, no new employee
-        exists, and the dispatcher's account is still active.
+        After step 3, compared with the record taken before step 1: the dispatcher still has
+        no role-ops-manager responsibility, "uat-new-employee@swiftroute.example" does not
+        exist, and the dispatcher's account is still active. Each refusal is a refusal of
+        user administration (no right to change users), not a failure to find the target.
     on_fail:
       severity: BLOCKER
       business_impact: >

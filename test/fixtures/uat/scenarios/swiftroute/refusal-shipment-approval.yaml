@@ -7,6 +7,12 @@
 #
 # No separate-person rule is claimed here: the refusal at step 2 rests only on the dispatcher
 # not being one of the Operations Managers.
+#
+# T-0322 (process audit T-0295, BA decision T-0321): the dispatcher (Lena) starts the shipment
+# with the Process Operator responsibility. That responsibility also lets her complete tasks
+# tenant-wide, so the refusals at steps 2 and 5 rest on her lacking the routing roles
+# role-ops-manager and role-ceo (docs/roles.md). If step 1 is refused for lack of the start
+# right, steps 2 to 5 are BLOCKED, never PASS: there is no shipment to be refused on.
 ---
 id: swiftroute-refusal-shipment-approval
 company_id: swiftroute

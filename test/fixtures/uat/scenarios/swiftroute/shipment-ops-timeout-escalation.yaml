@@ -1,41 +1,57 @@
-# Ported verbatim from R-Co tests/simulation/scenarios/swiftroute-shipment-ops-timeout-escalation.yaml
+# Ported from R-Co tests/simulation/scenarios/swiftroute-shipment-ops-timeout-escalation.yaml
 # (https://github.com/tvolodi/R-Co, commit d19bfec4a9ec492345346bfccd8e389bd9cd92db).
-# Byte-identical below this header except for this comment block itself and the
-# pipeline_test annotation noted below, if present. Read by UAT-RUNNER as a narrative
-# scenario script (prose action/detail/evidence fields) -- NOT consumed by
-# Letflow.Simulation.Runner.run/1, which requires the differently-shaped, disclosed-
-# synthetic fixtures under test/fixtures/simulation/<company>/scenarios/ instead. Do
-# not edit the ported content below except to keep it byte-identical to a re-pull of
-# the same commit.
+# Read by UAT-RUNNER as a narrative scenario script (prose action/detail/evidence fields) -- NOT
+# consumed by Letflow.Simulation.Runner.run/1, which requires the differently-shaped fixtures under
+# test/fixtures/simulation/<company>/scenarios/ instead.
 #
 # EXCEPTION (ISS-1009(a) / Q-991, BA-SWIFTROUTE, process-audit PA-SWIFTROUTE-003): aligned with the
 # deployed definition test/fixtures/qa/swiftroute_process_definition.json, which is the source of
 # truth: ops-review has escalation_timer_duration PT2H (not 4 hours) with escalation_role role-ceo,
 # and the escalated task ceo-approval reads variables.ceo_decision (not capacity_decision).
-# No longer byte-identical to the ported source for those three points only.
+#
+# Revised for T-0322 (process audit T-0295, BA decision T-0321): the dispatcher is Lena, not Tobias
+# (Tobias must stay an uninvolved TASK_WORKER); the timer step names who advances it; the stale
+# "4 real hours" is corrected to the 2-hour timer.
 ---
 id: swiftroute-shipment-ops-timeout-escalation
 company_id: swiftroute
 process_id: proc-swiftroute-shipment-approval
 title: Shipment escalates to CEO when ops manager does not respond in time
-version: "1.0"
+version: "1.1"
 tags: [escalation, timeout]
 
 description: >
   When an operations manager does not act on a shipment approval request
   within 2 hours, the process must automatically escalate to the CEO.
-  This scenario verifies the timer escalation path works correctly —
+  This scenario verifies the timer escalation path works correctly --
   the CEO receives the escalated task and can approve or reject directly,
   without waiting for the ops manager. This is a critical safety mechanism
   that prevents time-sensitive deliveries from being stuck indefinitely.
 
+  WHO ADVANCES THE TIMER (BA decision T-0321, point 5): advancing the clock is test control, not a
+  business act, so it is not a persona's step. UAT-RUNNER does it with a swiftroute tooling account
+  that holds the Process Operator responsibility. That account is not in the actor roster yet and
+  none is invented here: until infrastructure provides it, step 2 is BLOCKED (or SKIP if the
+  advance-timer endpoint is unavailable) and the scenario must not be reported PASS.
+
 actors:
-  dispatcher: actor-swiftroute-tobias
+  dispatcher: actor-swiftroute-lena
   ceo:        actor-swiftroute-alice
 
 preconditions:
   - description: Shipment approval process definition is active
     check: process_definition_active
+  - description: >
+      The dispatcher can start a shipment (she holds the Process Operator responsibility in the
+      swiftroute realm, BA decision T-0321). If step 1 is refused for lack of that right, the
+      scenario is BLOCKED, not PASS.
+    check: custom
+    detail: Step 1 returns a created instance; a refusal at step 1 means BLOCKED.
+  - description: >
+      A swiftroute tooling account holding the Process Operator responsibility is available to
+      UAT-RUNNER for step 2 (UAT assumption, to be confirmed by the process owner).
+    check: custom
+    detail: If no such account is available, step 2 is BLOCKED.
 
 steps:
   - step: 1
@@ -50,22 +66,22 @@ steps:
       destination: Berlin
       declared_value: 200
       cargo_type: standard
-      requesting_actor_id: actor-swiftroute-tobias
+      requesting_actor_id: actor-swiftroute-lena
     produces:
       instance_id: "the process instance ID for this shipment"
 
   - step: 2
     actor: system
     action: >
-      The 2-hour operations manager review timer fires.
-      UAT-RUNNER advances the timer by injecting a timer-fire event
-      rather than waiting 4 real hours.
+      The 2-hour operations manager review timer fires. UAT-RUNNER, using the swiftroute
+      tooling account described above (not a persona), advances the timer by injecting a
+      timer-fire event rather than waiting the 2 real hours.
     via: api
     input:
       timer_node_id: ops-review
     note: >
-      Requires POST /api/v1/instances/:id/advance-timer endpoint.
-      If not available, this scenario is marked SKIP with severity MINOR.
+      Requires the advance-timer endpoint of the instance and an account that may advance
+      timers. If either is not available, this scenario is marked SKIP with severity MINOR.
 
   - step: 3
     actor: ceo
@@ -88,16 +104,15 @@ expected_outcomes:
       severity: BLOCKER
       business_impact: >
         Shipments can stall indefinitely when an operations manager is
-        unavailable. The escalation path is broken — the CEO has no way
+        unavailable. The escalation path is broken -- the CEO has no way
         to unblock time-sensitive deliveries.
       suggested_action: route_to_wf03
 
   - id: EO-002
     description: >
       After the CEO approves, the shipment is released and the process
-      completes successfully. Because the declared value is below €500,
-      no additional CEO co-sign step is required — the escalation
-      approval alone is sufficient.
+      completes successfully. The escalation goes straight to the CEO's
+      task, so the CEO's one approval is sufficient; no second sign-off is asked.
     verification:
       method: instance_state
       detail: instance status == COMPLETED and end node is 'end-approved'
@@ -111,7 +126,7 @@ expected_outcomes:
   - id: EO-003
     description: >
       The original operations manager task is no longer actionable after
-      the escalation fires — they cannot retroactively approve or reject
+      the escalation fires -- they cannot retroactively approve or reject
       after the CEO has already acted
     verification:
       method: audit_event
