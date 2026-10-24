@@ -1,0 +1,20 @@
+scenario_id: platform-sandbox-cross-tenant-probe
+applies_to_environments: [qa]
+disposition: skipped
+classification: UNBUILT_FEATURE
+reason: >
+  The scenario targets a runtime-agent sandbox claim/release subsystem
+  (coordinator, worker and foreign-worker actors taking and releasing
+  workspaces) that Letflow has not built. lib/letflow/router.ex lists
+  Letflow.Routers.AgentRequests, Letflow.Routers.AgentResponses and
+  Letflow.Routers.AgentEvents as deferred routes, and docs/issues/ISS-0890.yaml
+  records the scenario closed_not_applicable. Letflow.SandboxPool is an
+  unrelated internal ephemeral-schema pool and is not a stand-in. There is no
+  HTTP surface for a QA run to drive, so every expected outcome (EO-001 to
+  EO-005) is untestable until the subsystem exists.
+recorded_by: ELIXIR-DEV
+recorded_at: "2026-10-24"
+issue_ref: ISS-0890
+review: >
+  Remove this sidecar when a runtime-agent sandbox subsystem exists (the
+  Agent* routers are no longer deferred) and the owner has decided to test it.

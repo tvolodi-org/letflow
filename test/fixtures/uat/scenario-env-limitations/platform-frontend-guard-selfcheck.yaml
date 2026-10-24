@@ -1,0 +1,21 @@
+scenario_id: platform-frontend-guard-selfcheck
+applies_to_environments: [qa]
+disposition: skipped
+classification: COVERED_ELSEWHERE
+reason: |
+  The scenario has only via: system steps and no pipeline_test; a QA run drives
+  only the deployed HTTP/UI. Each expected outcome is verified in CI by the
+  existing tests below (outcome id | test file | test name).
+  EO-001 | web/tests/guards/meta-control.spec.ts | regex matches offender
+  EO-002 | web/tests/guards/meta-control.spec.ts | regex does NOT match bystander
+  EO-003 | web/tests/guards/bundle-scan.spec.ts | built bundle contains no guard violations
+  EO-004 | web/tests/e2e/a11y-gate.e2e.spec.ts | TC-GRD-UI-06-E2E-SURFACE-
+  EO-004 | web/tests/e2e/a11y-gate.e2e.spec.ts | TC-GRD-UI-06-E2E-FAIL
+  EO-004 | web/tests/e2e/a11y-gate.e2e.spec.ts | TC-GRD-UI-06-E2E-MINOR
+  EO-005 | web/tests/unit/guardReporter.test.ts | TC-GR-02
+recorded_by: ELIXIR-DEV
+recorded_at: "2026-10-24"
+issue_ref: ISS-0900
+review: >
+  Revisit if one of the cited tests is removed or renamed, or if a QA-drivable
+  surface for the build gate is added.
