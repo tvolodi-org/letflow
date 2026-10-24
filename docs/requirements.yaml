@@ -38297,7 +38297,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-532 -- not yet filed as an issue; the engine files it after the gate
+    gh: 3153
     # Source: docs/migration/core-roadmap-20261014.md Wave 2 row "Org-relative task assignment (resolver via the module Catalog, not in the engine)", DR column "yes (new)"; docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md "Q3. Task candidates" (a true resolver hook, manager-of and delegation, "comes later through the module Catalog (Letflow.Modules.Catalog), not in the engine") and Follow-ups F3 "resolver hook"; docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md D1 (org has org_unit and org_unit_membership only; position is "NOT built in slice 0"). Written by the business analyst (T-0441) 2026-10-25. Not yet validated.
     description: >
       Source: core roadmap Wave 2; decision 0051 Q3 and F3; decision 0050 D1, D8. The roadmap says this item
