@@ -89,7 +89,7 @@ actors:
     tenant: swiftroute
     builtin_roles: [TENANT_AUDITOR]
     routing_roles: []
-    note: "GH #2363 / REQ-457: read-only auditor persona, new (no existing persona reused). The TENANT_AUDITOR realm role exists in the QA realms (infra T-0214) and is assigned to nobody; assigning it to this account is UAT-class and BLOCKED until the owner gives a written APPROVE to infra. No seed script creates this account yet"
+    note: "GH #2363 / REQ-457: read-only auditor persona, new (no existing persona reused). The TENANT_AUDITOR realm role exists in the QA realms (infra T-0214) and was assigned to this account only: the owner APPROVED it in writing on 2026-10-22 (GH #3047) and infra created the account (ai-dala-infra commit 9ebd1ee). No team seed script creates it"
 
   actor-swiftroute-tobias:
     tenant: swiftroute
