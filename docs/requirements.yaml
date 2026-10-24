@@ -38291,3 +38291,54 @@ requirements:
       - "11. Route inventory and scope-enforcement pins (route-count pins, route_scope snapshots and the __authz_routes__ tests) are updated for the three new routes, and the three routes are classified TENANT."
       - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permissions) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over test/letflow/documents/ and the authorization and route pin tests pass, real output quoted."
     depends_on: [REQ-508]
+
+  - id: REQ-537
+    title: "WMS procurement slice 1: typed purchase request with mandatory-field and total validation, BPM approve/reject/return decisions bound to the approved document version (PR-01, PR-03, PR-06)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-500 -- GitHub issue is filed by the engine after the requirement gate; verify_binding is delivered by REQ-500
+    # Source: docs/WMS/WMS_Procurement_Requirements_Draft.md section 3 (PR-01, PR-03, PR-06) and section 1 "Implementation boundary"; docs/migration/decisions/0056-versioned-documents.md D4 ("Approval binds a version hash") and D9; docs/migration/decisions/0057-wms-customer-draft-reconciliation.md; docs/guides/adding-an-application-module.md. Written by the business analyst (T-0449) 2026-10-25. Not yet validated.
+    description: >
+      First procurement slice of the WMS module family (draft section 3). A requester creates a purchase
+      request for materials, works or services; BPM decides; the module records each decision against the
+      exact document version that was approved. Needs no core change: it is a module that uses the
+      versioned documents of decision 0056 (REQ-500) and the module guide docs/guides/adding-an-application-module.md
+      (layout, manifest, write handlers, route policies, permissions golden); it does not change the engine,
+      the document tables or the authorization core. If the implementer finds a core change is needed, that
+      is reported as a finding and the slice is split, not widened.
+
+      Scope. (1) PR-01: the purchase request content (requester, department, justification, required date,
+      priority, and one or more typed lines: description, quantity, unit, estimated unit cost and total cost;
+      works and services lines also scope, deliverables and completion date), with validation and with line
+      and request totals calculated by the module. (2) PR-03: the module operations that BPM calls for the
+      approve, reject and return decisions; the approval route, assignment, delegation and thresholds are BPM
+      configuration and are not coded here (draft section 1, "BPM controls when ... which approval or
+      exception path follows"). (3) PR-06, the part this slice can deliver: the module records the document
+      version and content hash of each decision and refuses to let a decision on one version authorize a
+      changed version, using documents.verify_binding of decision 0056 D4 (REQ-500).
+
+      Later slices, named so they are not lost and not part of this one: PR-02 (attachments through the
+      document store, preserved submitted version), PR-04 (procurement task assignment, supplier and PO
+      references), PR-05 (line-level fulfillment), PR-07 (stock and duplicate-demand view before approval),
+      and the audit-history half of PR-06 (line revisions, attachments and fulfillment history).
+
+      Open questions for the process owner, not settled here: the closed lists of priority values, request
+      kinds' mandatory works/services fields beyond those in the draft, currency handling (a single currency
+      per request is assumed for UAT only), and the rule for return (whether a returned request is edited as
+      a new draft version of the same document). The draft marks PR-01 as S/P (stated and proposed), so these
+      need customer validation before contract baseline.
+    acceptance_criteria:
+      - "1. Create (PR-01): a purchase request is saved with requester, department, justification, required date, priority and at least one line. Each line has a kind (material, work or service), description, quantity greater than zero, unit and estimated unit cost not below zero. A work or service line also requires scope, deliverables and completion date. A request that lacks any mandatory field, or has no lines, is rejected with a validation error naming each missing field, and nothing is saved."
+      - "2. Totals (PR-01): the module calculates every line total as quantity times estimated unit cost and the request total as the sum of its line totals, using exact decimal arithmetic (no floating point), and stores them with the request. A client-supplied total that differs from the calculated value is ignored or rejected; a test with lines such as 3 x 0.10 and 2 x 19.99 asserts the exact stored totals."
+      - "3. Reference data (PR-01): the unit of a line and the department are checked against the installed shared masters (module catalog_items unit read API, module org read API); an unknown or retired value is a validation error. No new master table is created by this slice."
+      - "4. Versioned document (PR-01, PR-06, decision 0056): each submitted request is one document with a purchase-request document type; saving a change after submission creates a new version of the same document and never edits the submitted version. A test asserts that the earlier version's content and content hash are unchanged after a later version is created."
+      - "5. BPM operations (PR-03): the module exposes operations that BPM can call to submit a request and to record approve, reject and return, each taking the document id, the version number, the content hash, the performer and an idempotency key. Repeating a call with the same idempotency key returns the first result and records one decision only. The module contains no approval route, threshold, assignee or delegation logic."
+      - "6. Route independence (PR-03): a test deploys two different process definitions on the same module (for example one approval step and two approval steps in sequence) that call the same operations, and both complete without any change to module code or to the module manifest."
+      - "7. Decision record (PR-03): each accepted decision stores the decision (approve, reject or return), the performer, the time from the server clock, the document id, the version number and the content hash, and writes one audit event in the same transaction. Refusals (validation, stale version, no permission) write no audit event, only telemetry, as decision 0056 D9 states for document refusals."
+      - "8. Version binding (PR-06): an approve decision for version N is accepted only if documents.verify_binding(document_id, N, content_hash) is true at the moment of the decision. When the document has a later issued version M, an approval recorded for N is reported as not authorizing M: a lookup of 'is version M approved' returns false, and the module refuses to treat the request as approved for further steps until BPM records a decision for M. A test covers: approve N, create and issue N+1, then check that N+1 is not approved and that an approve call that still carries N's hash is refused as stale."
+      - "9. Refusal of changed or cancelled content (PR-06): an approve decision with a content hash that does not match the stored version, for a cancelled or superseded version, or for a non-existent version is refused with the same error shape and no decision is recorded."
+      - "10. Authorization and tenancy: the operations are available only to callers holding the permissions added to the module manifest (a requester may submit and revise only their own request; only a performer holding the approval permission may record a decision; a requester cannot approve their own request). A document or request of another tenant, outside the caller's scope or absent returns the same not-found answer (INV-5). A cross-tenant negative test (INV-10 style) shows tenant B cannot read or decide tenant A's request by id. The permissions golden and docs/roles.md are updated as the module guide requires."
+      - "11. No core change: the diff of this requirement touches no file under lib/letflow/engine/, lib/letflow/documents/ or lib/letflow/api/authorization.ex core permission lists except the module's own registered permission entries that the module guide prescribes; the implementer states this check in the summary."
+      - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data operations and permissions) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the new module's tests pass, real output quoted."
+    depends_on: [REQ-500, REQ-506, REQ-507]
