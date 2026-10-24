@@ -144,6 +144,13 @@ export function EntityListBrowserPage(): React.ReactElement {
     enabled: safeEntityType.length > 0,
   });
 
+  // INV-5: a 404 on the active definition (restricted or non-existent type) is
+  // indistinguishable from a permitted type with no records, so it renders the
+  // empty list rather than the error boundary.
+  const definitionNotFound =
+    definitionQuery.isError &&
+    (definitionQuery.error as unknown as ApiError | null)?.status === 404;
+
   const definition = definitionQuery.data;
   const fields: EntityFieldDef[] = useMemo(
     () => definition?.definition.fields ?? [],
@@ -165,7 +172,7 @@ export function EntityListBrowserPage(): React.ReactElement {
         page_size: committedPageSize,
         cursor,
       }),
-    enabled: safeEntityType.length > 0,
+    enabled: safeEntityType.length > 0 && !definitionNotFound,
     retry: false,
   });
 
@@ -255,7 +262,7 @@ export function EntityListBrowserPage(): React.ReactElement {
 
   const defState = definitionQuery.isLoading
     ? "loading"
-    : definitionQuery.isError
+    : definitionQuery.isError && !definitionNotFound
       ? classifyError(definitionQuery.error)
       : "success";
 

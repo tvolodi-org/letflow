@@ -70,7 +70,9 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :AttachmentLinksIssue,
     # GH 2534 PR 7b-1
     :ScriptsWrite,
-    :ScriptsPublish
+    :ScriptsPublish,
+    :DocumentHold,
+    :DocumentsRetentionManage
   ]
 
   @new_permissions [

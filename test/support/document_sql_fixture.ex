@@ -84,7 +84,12 @@ defmodule Letflow.DocumentSqlFixture do
         (id, tenant_id, type_key, issuing_org_unit_id, inserted_at)
       VALUES ($1::uuid, $2::uuid, $3, $4::uuid, now())
       """,
-      [id, tenant_id, type_key, Ecto.UUID.generate()]
+      [
+        id,
+        tenant_id,
+        type_key,
+        Keyword.get_lazy(opts, :issuing_org_unit_id, &Ecto.UUID.generate/0)
+      ]
     )
 
     id
