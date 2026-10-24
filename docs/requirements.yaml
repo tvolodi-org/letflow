@@ -38297,7 +38297,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-525 -- prerequisite of the REQ-525 implementation requirements IMPL-525-A to C; no issue yet
+    gh: 3151
     # Source: GH #2535; lib/letflow/design/req525-definitions-services-self-service.md section 6 row IMPL-525-0, with the SECURITY-REVIEWER rulings RECORDED in section 3 (SEC-525-Q1 = Option A, SEC-525-Q3 = Q3-a) and the test-impact paragraph of section 5; code read: lib/letflow/api/route_scope.ex (module SelfServiceEntry, @prefixes, check_route/1, @self_service_prefixes) and test/letflow/api/route_scope_self_service_entry_test.exs. Written by the business analyst (T-0437) 2026-10-25. Not yet validated.
     description: >
       Prerequisite of the REQ-525 implementation requirements (IMPL-525-A to C), which each add
