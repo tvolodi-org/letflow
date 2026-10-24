@@ -4,8 +4,9 @@ defmodule Letflow.Support.TaskScopeFixture do
   `lib/letflow/design/req518-compiler-scope-filter.md` C.1 to C.4, 10.3; spec
   `test/specs/REQ-518-2d.md`).
 
-  `set_scope_node!/3` is the ONLY writer of `tasks.scope_node_id` (no production code writes the
-  column; direct, parameterised SQL so that no changeset or schema path can be mistaken for one).
+  `set_scope_node!/3` is a test-only writer of `tasks.scope_node_id` for rows the engine did not
+  create (the production writer is `TaskActivation.insert_task_row/4`, REQ-532). It uses direct,
+  parameterised SQL so that no changeset or schema path can be mistaken for one.
   The only interpolation is the schema name, quoted (INV-7).
 
   Everything else builds ONE committed, provisioned tenant (`provision!/1`: the REQ-517 grants

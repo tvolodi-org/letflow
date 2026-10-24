@@ -2,8 +2,8 @@
 #
 # REQ-518 / GH #2535 PR 2d (AC 12; design lib/letflow/design/req518-compiler-scope-filter.md
 # C.1, decision 0051 D9): a nullable `tasks.scope_node_id`, the scope node a task belongs to
-# for the approver rule F1. NO production code writes it (tasks carry no scope node until W3b);
-# a NULL node is visible only to tenant-wide principals. The only writer is the test-support
+# for the approver rule F1. Written only by `TaskActivation.insert_task_row/4` (REQ-532 / GH #3091);
+# a NULL node is visible only to tenant-wide principals. Tests also write it through the test-support
 # helper `Letflow.Support.TaskScopeFixture`.
 #
 # VERSION: the design names 20261019100001, which GH #2659 (REQ-505 PR-1) took first; Ecto

@@ -37,7 +37,6 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     org_inconsistent
     tokens_exceed_owner
     zero_tenant_wide_admins
-    scoped_approvers_without_task_scope
     shadow_evidence_insufficient
   )
 

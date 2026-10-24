@@ -313,18 +313,34 @@ defmodule Letflow.Engine.TaskActivation do
           id_map =
             token_id_to_record_id(new_instance_state.tokens, token_records)
 
-          insert_newly_pending(repo, newly_pending, id_map, graph, instance_id, prefix)
+          insert_newly_pending(
+            repo,
+            newly_pending,
+            id_map,
+            graph,
+            instance_id,
+            new_instance_state.scope_node_id,
+            prefix
+          )
       end
     end)
   end
 
-  defp insert_newly_pending(repo, newly_pending, id_map, graph, instance_id, prefix) do
+  defp insert_newly_pending(
+         repo,
+         newly_pending,
+         id_map,
+         graph,
+         instance_id,
+         scope_node_id,
+         prefix
+       ) do
     newly_pending
     |> Enum.reduce_while({:ok, []}, fn %Token{} = token, {:ok, acc} ->
       with %Graph.Node{} = node <- find_node(graph.nodes, token.node_id) || :unknown_node,
            {:ok, token_record_id} <- fetch_token_record_id(id_map, token.token_id),
            {:ok, attrs} <- insert_attrs(instance_id, token_record_id, token, node),
-           {:ok, task} <- do_insert(repo, attrs, prefix) do
+           {:ok, task} <- do_insert(repo, attrs, scope_node_id, prefix) do
         {:cont, {:ok, [task | acc]}}
       else
         :unknown_node ->
@@ -417,19 +433,27 @@ defmodule Letflow.Engine.TaskActivation do
             newly_pending,
             graph,
             instance_id,
+            new_instance_state.scope_node_id,
             prefix
           )
       end
     end)
   end
 
-  defp insert_newly_pending_from_existing_records(repo, newly_pending, graph, instance_id, prefix) do
+  defp insert_newly_pending_from_existing_records(
+         repo,
+         newly_pending,
+         graph,
+         instance_id,
+         scope_node_id,
+         prefix
+       ) do
     newly_pending
     |> Enum.reduce_while({:ok, []}, fn %Token{} = token, {:ok, acc} ->
       with {:ok, token_record_id} <- cast_token_record_id(token.token_id),
            %Graph.Node{} = node <- find_node(graph.nodes, token.node_id) || :unknown_node,
            {:ok, attrs} <- insert_attrs(instance_id, token_record_id, token, node),
-           {:ok, task} <- do_insert(repo, attrs, prefix) do
+           {:ok, task} <- do_insert(repo, attrs, scope_node_id, prefix) do
         {:cont, {:ok, [task | acc]}}
       else
         :unknown_node ->
@@ -463,18 +487,39 @@ defmodule Letflow.Engine.TaskActivation do
     end
   end
 
-  defp do_insert(repo, attrs, prefix) do
-    %Task{}
+  @doc """
+  The one writer of a `tasks` row created by the engine (REQ-532, decision
+  0051 T13). The task's `scope_node_id` is the instance's own value, passed in
+  by the caller from `InstanceState.scope_node_id`; a `nil` scope gives a NULL
+  column (fail-closed: only tenant-wide holders see such a task).
+
+  The column is set on the struct, not cast: `Task.insert_changeset/2` keeps
+  it out of every cast list, so no attrs map can choose a different scope.
+  Sub-process child tasks (`Letflow.Engine.SubProcess`) are written here too.
+  """
+  @spec insert_task_row(
+          repo :: module(),
+          attrs :: map(),
+          scope_node_id :: String.t() | nil,
+          prefix :: String.t()
+        ) :: {:ok, Task.t()} | {:error, Ecto.Changeset.t()}
+  def insert_task_row(repo, attrs, scope_node_id, prefix) do
+    %Task{scope_node_id: scope_node_id}
     |> Task.insert_changeset(attrs)
     |> repo.insert(prefix: prefix)
+  end
+
+  defp do_insert(repo, attrs, scope_node_id, prefix) do
+    repo
+    |> insert_task_row(attrs, scope_node_id, prefix)
     |> case do
       {:ok, %Task{} = task} -> record_task_create_audit(repo, task, prefix)
       {:error, %Ecto.Changeset{} = changeset} -> {:error, changeset}
     end
   end
 
-  # REQ-195 (OQ-1) -- do_insert/3 is the single call site, shared by
-  # append_multi/6 and append_multi_from_existing_records/6 above, that
+  # REQ-195 (OQ-1) -- do_insert/4 is the single call site, shared by
+  # append_multi/6 and append_multi_from_existing_records/7 above, that
   # creates a `tasks` row anywhere in this codebase (`Letflow.Tasks` itself
   # has no create entrypoint -- see this module's moduledoc). No actor
   # context reaches this function today: neither public function threads one
