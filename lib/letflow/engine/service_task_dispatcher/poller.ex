@@ -33,6 +33,13 @@ defmodule Letflow.Engine.ServiceTaskDispatcher.Poller do
   every tick, so a runtime override takes effect on the very next tick.
   Jitter is applied only to the inter-tick scheduling delay, never to any
   `next_attempt_at` value.
+
+  ## Stuck-advance sweep (GH #2688 / REQ-513)
+
+  Each tick also runs `StuckSweep.run_all/4`, gated to at most one sweep per
+  `stuck_advance_sweep_interval_ms` and skipped entirely while `stuck_advance_mode` is `:off`
+  (the default). Per-tenant keyset cursors and the tenant rotation live in this process's state
+  only; a restart starts the walk over.
   """
 
   use GenServer
@@ -98,7 +105,10 @@ defmodule Letflow.Engine.ServiceTaskDispatcher.Poller do
 
     if mode != :off and sweep_due?(state.last_sweep_at, now) do
       cursors =
-        StuckSweep.run_all(rotate(schemas, state.sweep_rotation), state.stuck_cursors, now, mode)
+        schemas
+        |> rotate(state.sweep_rotation)
+        |> StuckSweep.run_all(state.stuck_cursors, now, mode)
+        |> Map.take(schemas)
 
       %{
         state

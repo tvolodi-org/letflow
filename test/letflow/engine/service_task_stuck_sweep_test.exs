@@ -75,6 +75,19 @@ defmodule Letflow.Engine.ServiceTaskStuckSweepTest do
 
   defp status(ctx), do: Fx.projection!(ctx.schema, ctx.instance_id).status
 
+  # One Poller tick driven directly; the :tick it schedules for itself is flushed.
+  defp tick(state) do
+    {:noreply, new_state} = Poller.handle_info(:tick, state)
+
+    receive do
+      :tick -> :ok
+    after
+      0 -> :ok
+    end
+
+    new_state
+  end
+
   defp assert_untouched(ctx) do
     assert status(ctx) == :active
     assert error_events(ctx) == []
@@ -333,6 +346,50 @@ defmodule Letflow.Engine.ServiceTaskStuckSweepTest do
                stuck_cursors: %{},
                sweep_rotation: 0
              }
+    end
+
+    test "a tick sweeps once, then the interval gate holds the next tick back" do
+      config!(stuck_advance_mode: :on, stuck_advance_sweep_interval_ms: 3_600_000)
+      base = base!()
+      first = stuck!(base)
+
+      state = tick(Poller.initial_state())
+      assert status(first) == :error
+      assert %DateTime{} = state.last_sweep_at
+      assert state.sweep_rotation == 1
+      assert Map.has_key?(state.stuck_cursors, base.schema)
+
+      second = stuck!(base)
+      held = tick(state)
+      assert status(second) == :active
+      assert held.last_sweep_at == state.last_sweep_at
+      assert held.sweep_rotation == 1
+
+      due = tick(%{state | last_sweep_at: DateTime.add(DateTime.utc_now(), -3_700, :second)})
+      assert status(second) == :error
+      assert due.sweep_rotation == 2
+    end
+
+    test "mode :off never sweeps on a tick" do
+      config!(stuck_advance_mode: :off)
+      ctx = base!() |> stuck!()
+
+      state = tick(Poller.initial_state())
+      assert state.last_sweep_at == nil
+      assert state.sweep_rotation == 0
+      assert_untouched(ctx)
+    end
+
+    test "the tenant order rotates between sweeps" do
+      config!(stuck_advance_mode: :on, stuck_advance_sweep_budget_ms: 0)
+      base = base!()
+      ctx = stuck!(base)
+
+      # a zero budget sweeps nobody, but the rotation still advances
+      state = tick(Poller.initial_state())
+      assert state.sweep_rotation == 1
+      assert state.stuck_cursors == %{}
+      assert_untouched(ctx)
     end
   end
 
