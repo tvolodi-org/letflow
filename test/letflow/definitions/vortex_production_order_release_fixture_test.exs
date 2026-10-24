@@ -58,8 +58,8 @@ defmodule Letflow.Definitions.VortexProductionOrderReleaseFixtureTest do
     Enum.filter(ids, &(by_id[&1]["node_type"] == "END"))
   end
 
-  test "fixture version is 1.9 (1.9 = GH #3118 assign-line body_template added; 1.8 = REQ-471 finance-director escalation; 1.7 = REQ-466 distinct_from; 1.6 = REQ-462 required_outputs; 1.4 = ISS-1027 variable_schemas; 1.5 = ISS-1002 D-ESC timers; forces QA re-seed)" do
-    assert qa_doc()["version"] == "1.9"
+  test "fixture version is 1.10 (1.10 = GH #3140 form_schema on every HUMAN_TASK; 1.9 = GH #3118 assign-line body_template added; 1.8 = REQ-471 finance-director escalation; 1.7 = REQ-466 distinct_from; 1.6 = REQ-462 required_outputs; 1.4 = ISS-1027 variable_schemas; 1.5 = ISS-1002 D-ESC timers; forces QA re-seed)" do
+    assert qa_doc()["version"] == "1.10"
   end
 
   test "GH #3118: assign-line sends the assigned line in its body_template" do
@@ -237,7 +237,7 @@ defmodule Letflow.Definitions.VortexProductionOrderReleaseFixtureTest do
     sim = sim_doc()
 
     assert sim["version"] == qa["version"]
-    assert qa["version"] == "1.9"
+    assert qa["version"] == "1.10"
     assert qa["description"] =~ "REQ-471 / GH #2479"
 
     project = fn doc ->
