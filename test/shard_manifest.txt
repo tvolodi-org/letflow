@@ -15,6 +15,7 @@
 1 test/letflow/definitions/sub_process_interface_test.exs 30.16
 1 test/letflow/dlq_test.exs 10850.61
 1 test/letflow/engine/expr_test.exs 24.57
+1 test/letflow/engine/instance_scope_node_test.exs 5302.86
 1 test/letflow/engine/pin_rebind_test.exs 11835.50
 1 test/letflow/engine/pin_resolver_script_test.exs 4860.22
 1 test/letflow/engine/plugin_registry_test.exs 4.38
@@ -73,6 +74,7 @@
 2 test/letflow/engine/pin_resolver_test.exs 56.39
 2 test/letflow/engine/req465_meridian_loan_distinct_from_test.exs 3570.06
 2 test/letflow/engine/req466_swiftroute_distinct_from_test.exs 1639.57
+2 test/letflow/engine/req530_incident_required_outputs_test.exs 5302.86
 2 test/letflow/engine/service_task_dispatcher_test.exs 28083.10
 2 test/letflow/engine/service_task_entity_writes_lock_order_test.exs 25911.35
 2 test/letflow/engine/shipped_definition_variable_schemas_engine_test.exs 9259.53
@@ -247,6 +249,7 @@
 5 test/letflow/login_discovery/dispatch_test.exs 2996.90
 5 test/letflow/login_discovery/enablement_runbook_test.exs 27.71
 5 test/letflow/login_discovery/notifier/smtp_test.exs 242.73
+5 test/letflow/migrations/instance_projections_scope_node_id_migration_test.exs 5302.86
 5 test/letflow/modules/defmanifest_test.exs 69.00
 5 test/letflow/modules/exam/certificate_document_test.exs 867.49
 5 test/letflow/modules/exam/pack_install_test.exs 1368.03
