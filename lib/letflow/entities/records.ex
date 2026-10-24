@@ -25,6 +25,15 @@ defmodule Letflow.Entities.Records do
   naming the field (GH #2832). Residual: the referenced row's scope can change between the check
   and the commit (no lock is taken on it).
 
+  ## The entity-side size cap (GH #2689, REQ-514)
+
+  Right after the inner check normalises the payload, `Letflow.Entities.Record.SizeCap` measures
+  the map that will be stored (for an update, the merged full-replacement map) in bytes of its JSON
+  encoding: per value and per record, for every writer (create, update, upsert, `command_multi/3`).
+  The profile (`:standard`, or `:module` for a direct `Owner` write) comes from the authority, never
+  from request data. A stored record already over the cap can be re-saved (see `SizeCap`).
+  Refusals are `{:error, {:record_size_exceeded, :value | :record}}` and `{:error, :record_not_encodable}`.
+
   ## The inner/outer validation split (AC7)
 
   Each command function runs REQ-227's **inner** check
@@ -192,6 +201,7 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.Query.Types, as: QueryTypes
   alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Entities.Record.SizeCap
   alias Letflow.Entities.Record.Validator
   alias Letflow.Entities.ScopeDeclaration
   alias Letflow.Entities.ScopedWrites
@@ -296,6 +306,7 @@ defmodule Letflow.Entities.Records do
   @type command_error ::
           {:error, {:definition_not_found, entity_type :: String.t()}}
           | {:error, {:record_payload_invalid, Validator.violations() | [Violation.t()]}}
+          | {:error, SizeCap.error()}
           | {:error, {:record_not_found, record_id :: Ecto.UUID.t()}}
           | {:error, {:record_already_deleted, record_id :: Ecto.UUID.t()}}
           | {:error, :record_version_conflict}
@@ -336,6 +347,7 @@ defmodule Letflow.Entities.Records do
           | {:error, {:definition_not_found, String.t()}}
           | {:error, :entity_type_managed}
           | {:error, {:record_payload_invalid, Validator.violations() | [Violation.t()]}}
+          | {:error, SizeCap.error()}
           | {:error, {:entity_type_instance_missing, String.t()}}
           | {:error, :invalid_schema_name}
           | EventStore.append_error()
@@ -416,7 +428,8 @@ defmodule Letflow.Entities.Records do
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
          {:ok, scope_ctx} <- resolve_scope(attrs, entity_type, prefix),
-         {:ok, field_values} <- validate_field_values(definition, field_values),
+         {:ok, field_values} <-
+           validate_field_values(definition, field_values, size_profile(authority), nil),
          :ok <- scope_new_value(scope_ctx, field_values),
          :ok <- scope_new_references(scope_ctx, definition, field_values, prefix) do
       record_id = Ecto.UUID.generate()
@@ -521,7 +534,7 @@ defmodule Letflow.Entities.Records do
          :ok <- reject_step_key(attrs),
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
-         {:ok, normalised} <- validate_field_values(definition, field_values) do
+         {:ok, normalised} <- validate_field_values(definition, field_values, nil, nil) do
       # `external_ref` is parsed above and travels separately; `idempotency_match` and
       # `legacy_original` are create-only internals that the upsert never forwards.
       command_attrs = Map.drop(attrs, [:external_ref, :idempotency_match, :legacy_original])
@@ -702,7 +715,8 @@ defmodule Letflow.Entities.Records do
          :ok <- ensure_not_deleted(existing_record, record_id),
          preserve = preserve_keys(attrs),
          merged = merge_preserved(field_values, existing_record, preserve),
-         {:ok, field_values} <- validate_merged(definition, merged, preserve),
+         {:ok, field_values} <-
+           validate_merged(definition, merged, preserve, size_profile(authority), existing_record),
          :ok <- scope_new_value(scope_ctx, field_values),
          :ok <- scope_new_references(scope_ctx, definition, field_values, prefix) do
       expected = pin_expected(expected, existing_record, preserve)
@@ -860,7 +874,8 @@ defmodule Letflow.Entities.Records do
     with {:ok, line} <- check_step_command(command),
          {:ok, definition} <- fetch_active_definition(line.entity_type, prefix),
          :ok <- check_write_authority(definition, line.entity_type, authority),
-         {:ok, field_values} <- validate_field_values(definition, line.field_values),
+         {:ok, field_values} <-
+           validate_field_values(definition, line.field_values, :standard, nil),
          {:ok, instance_id} <- fetch_step_instance_id(line.entity_type, prefix) do
       ctx = %{
         kind: :create,
@@ -934,6 +949,8 @@ defmodule Letflow.Entities.Records do
   def classify_step_error({:definition_changed, _type}), do: {:refused, :entity_type_inactive}
   def classify_step_error(:entity_type_managed), do: {:refused, :write_not_permitted}
   def classify_step_error({:record_payload_invalid, _}), do: {:refused, :validation_failed}
+  def classify_step_error({:record_size_exceeded, _}), do: {:refused, :validation_failed}
+  def classify_step_error(:record_not_encodable), do: {:refused, :validation_failed}
   def classify_step_error({:entity_append_only, _type}), do: {:refused, :entity_append_only}
   def classify_step_error(:record_version_conflict), do: {:refused, :record_version_conflict}
   def classify_step_error({:record_not_found, _id}), do: {:refused, :write_not_permitted}
@@ -1111,8 +1128,8 @@ defmodule Letflow.Entities.Records do
 
   # A violation that names a preserved key (or no key at all, e.g. a document-level `required`)
   # could leak a restricted name: it becomes `:preserved_value_invalid` (the router's constant 403).
-  defp validate_merged(definition, merged, preserve) do
-    case validate_field_values(definition, merged) do
+  defp validate_merged(definition, merged, preserve, profile, existing_record) do
+    case validate_field_values(definition, merged, profile, existing_record.field_values) do
       {:error, {:record_payload_invalid, violations}} = error ->
         if MapSet.size(preserve) > 0 and Enum.any?(violations, &touches_preserved?(&1, preserve)),
           do: {:error, :preserved_value_invalid},
@@ -1993,12 +2010,30 @@ defmodule Letflow.Entities.Records do
   # scale-padded strings); every caller must store/append/fingerprint that map,
   # not its input. A definition with no strict decimal field returns the input
   # unchanged.
-  defp validate_field_values(%EntityDefinition{} = definition, field_values) do
+  # GH #2689: the entity-side size cap (`Record.SizeCap`) runs here, on the NORMALISED map that is
+  # stored, so every writer shares one enforcement point. `profile` nil skips the size check (the
+  # upsert pre-check: create_record/update_record measure again inside); `stored` is the stored
+  # map of an update (grandfather rule, see SizeCap).
+  defp validate_field_values(%EntityDefinition{} = definition, field_values, profile, stored) do
     case Validator.normalize_record_payload(definition_document(definition), field_values) do
-      {:ok, normalised} -> {:ok, normalised}
+      {:ok, normalised} -> check_size(normalised, profile, stored)
       {:error, violations} -> {:error, {:record_payload_invalid, violations}}
     end
   end
+
+  defp check_size(normalised, nil, _stored), do: {:ok, normalised}
+
+  defp check_size(normalised, profile, stored) do
+    case SizeCap.check(normalised, profile, stored) do
+      :ok -> {:ok, normalised}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # An `Owner` is a compiled-in module writing its own managed type (derived from the Catalog,
+  # never from a request): it gets the module backstop profile.
+  defp size_profile(:tenant), do: :standard
+  defp size_profile(owner) when is_struct(owner, ManagedTypes.Owner), do: :module
 
   defp hex_version(%EntityDefinition{logical_shape_version: version}) do
     Base.encode16(version, case: :lower)

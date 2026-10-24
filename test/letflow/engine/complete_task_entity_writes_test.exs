@@ -294,6 +294,20 @@ defmodule Letflow.Engine.CompleteTaskEntityWritesTest do
       assert length(Fx.all_records(ctx.schema)) == 2
     end
 
+    # GH #2689 H1: the entity-side cap widens to the HUMAN origin (accepted, REQ-514).
+    test "a HUMAN value over the entity cap is validation_failed with detail value_too_large" do
+      ctx = case!([Fx.line("stock_move", %{"label" => %{"var" => "label"}})])
+      before = event_count(ctx)
+
+      assert {:error, {:entity_write_refused, 0, :validation_failed}} =
+               Fx.complete(ctx, %{"label" => String.duplicate("x", 70_000)})
+
+      assert_nothing_written(ctx, before)
+      assert [entry] = Fx.audit_rows(ctx.schema, "entity_write.refused")
+      assert entry.after_state["detail"] == "value_too_large"
+      refute inspect(entry.after_state) =~ "label"
+    end
+
     test "a :transition execution error (no matching edge) writes nothing (F-2)" do
       graph = %{
         "nodes" => [

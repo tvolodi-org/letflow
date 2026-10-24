@@ -438,6 +438,7 @@ defmodule Letflow.Routers.Entities.RecordWrites do
   #   {:definition_not_found, _}     -> 404  (INV-5)
   #   {:record_not_found, _}         -> 404  (INV-5)
   #   {:record_payload_invalid, v}   -> 422 with the violation list
+  #   {:record_size_exceeded, _}     -> 422 constant detail (GH #2689, Record.SizeCap)
   #   {:payload_validation_failed,_} -> 422
   #   {:record_already_deleted, _}   -> 409
   #   :record_version_conflict       -> 409 (record-version-conflict, GH #2528;
@@ -513,6 +514,14 @@ defmodule Letflow.Routers.Entities.RecordWrites do
       }
     )
   end
+
+  # GH #2689: the entity-side size cap. 422 (the body fit the transport; the entity contract is
+  # violated). Constant detail, no field name, no size (INV-2).
+  defp render_record_command(conn, {:error, {:record_size_exceeded, :record}}, _status),
+    do: Response.unprocessable(conn, "entity record exceeds the size limit")
+
+  defp render_record_command(conn, {:error, {:record_size_exceeded, :value}}, _status),
+    do: Response.unprocessable(conn, "an entity record field value exceeds the size limit")
 
   # ⛔ UNREACHABLE through these three routes, and no test drives it
   # (REQ-310 rework round 1, REVIEWER). This is REQ-024's OUTER envelope
