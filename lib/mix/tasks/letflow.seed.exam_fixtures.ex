@@ -574,16 +574,25 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
   end
 
   defp create_record!(prefix, actor_id, entity_type, idempotency_key, field_values) do
-    # scope-all: mix task, no HTTP user
-    case Letflow.Entities.Records.create_record(
-           %{
-             entity_type: entity_type,
-             field_values: field_values,
-             actor_id: actor_id,
-             idempotency_key: idempotency_key
-           },
-           prefix
-         ) do
+    attrs = %{
+      entity_type: entity_type,
+      field_values: field_values,
+      actor_id: actor_id,
+      idempotency_key: idempotency_key
+    }
+
+    # GH #2680 slice 3: the ten exam authoring types are managed by the exam module, so the
+    # generic `Records` path refuses them on an installed tenant. The module's own surface writes
+    # them (a system path, not a request: this task has no HTTP user).
+    result =
+      if entity_type in Letflow.Modules.Exam.Authoring.authoring_types() do
+        Letflow.Modules.Exam.Authoring.create(attrs, prefix)
+      else
+        # scope-all: mix task, no HTTP user
+        Letflow.Entities.Records.create_record(attrs, prefix)
+      end
+
+    case result do
       {:ok, %{record: record}} ->
         record.record_id
 

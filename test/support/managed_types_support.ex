@@ -62,6 +62,25 @@ defmodule Letflow.ManagedTypesSupport do
 
   # GH #2618: the class a legacy row gets from the migration backfill (`org_` names are `org_tree`,
   # every other name here is `ordinary`). Only the names these fixtures plant are covered.
+  @doc """
+  `Letflow.Entities.Definitions.create_definition/2` for a test tenant (GH #2680 slice 3). The ten
+  exam authoring names are reserved on a tenant without the exam module (GH #2581, the first
+  creation is refused `:entity_type_managed`), so their first version is planted, as
+  `plant_legacy_definition!/2` does. Every other name is created exactly as before.
+  """
+  @spec create_definition(attrs :: map(), schema :: String.t()) ::
+          {:ok, EntityDefinition.t()} | {:error, term()}
+  def create_definition(%{definition: %{name: name} = definition} = attrs, schema) do
+    if name in Letflow.Modules.Exam.Authoring.authoring_types() do
+      {:ok, plant_legacy_definition!(schema, definition)}
+    else
+      Letflow.Entities.Definitions.create_definition(attrs, schema)
+    end
+  end
+
+  def create_definition(attrs, schema),
+    do: Letflow.Entities.Definitions.create_definition(attrs, schema)
+
   defp legacy_write_class("org_" <> _rest), do: "org_tree"
   defp legacy_write_class(_name), do: "ordinary"
 end

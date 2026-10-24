@@ -818,7 +818,11 @@ defmodule Letflow.TenantProvisioning do
     # GH #2618 (decision 0054 D4a.2 amendment): the `write_class` column that replaces the interim
     # denied-name list for `writable_by_process`; backfilled from that list, then immutable.
     {20_261_023_100_001, Letflow.Repo.Migrations.AddWriteClassToEntityDefinitions,
-     "20261023100001_add_write_class_to_entity_definitions.exs"}
+     "20261023100001_add_write_class_to_entity_definitions.exs"},
+    # GH #2680 slice 3: the #2596 stamp exception extended to the ten exam authoring names
+    # (16 frozen names in all). A NEW reviewed migration, as the #2596 header requires.
+    {20_261_024_120_001, Letflow.Repo.Migrations.AllowExamAuthoringManagedByStamp,
+     "20261024120001_allow_exam_authoring_managed_by_stamp.exs"}
   ]
 
   @doc """

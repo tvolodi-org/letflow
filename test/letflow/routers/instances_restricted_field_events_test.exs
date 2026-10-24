@@ -90,7 +90,7 @@ defmodule Letflow.Routers.InstancesRestrictedFieldEventsTest do
 
   defp create_active_definition!(ctx, definition) do
     {:ok, entity_definition} =
-      Definitions.create_definition(
+      Letflow.ManagedTypesSupport.create_definition(
         %{definition: definition, created_by: ctx.user_id},
         ctx.schema_name
       )

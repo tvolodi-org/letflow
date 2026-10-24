@@ -454,7 +454,7 @@ defmodule Letflow.Entities.Query.RequestGuardTest do
 
   defp define!(t, definition) do
     {:ok, d} =
-      Definitions.create_definition(%{definition: definition, created_by: t.user_id}, t.schema)
+      Letflow.ManagedTypesSupport.create_definition(%{definition: definition, created_by: t.user_id}, t.schema)
 
     {:ok, _} = Definitions.activate_definition(d.name, t.user_id, "go-live", t.schema)
     :ok

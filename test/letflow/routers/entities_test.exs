@@ -181,7 +181,7 @@ defmodule Letflow.Routers.EntitiesTest do
     }
 
     {:ok, definition} =
-      Definitions.create_definition(
+      Letflow.ManagedTypesSupport.create_definition(
         %{definition: document, created_by: ctx.user_id},
         ctx.schema_name
       )
@@ -198,7 +198,7 @@ defmodule Letflow.Routers.EntitiesTest do
   # :not_found.
   defp seed_definition_only!(ctx, name \\ "widget") do
     {:ok, definition} =
-      Definitions.create_definition(
+      Letflow.ManagedTypesSupport.create_definition(
         %{
           definition: %{
             name: name,
@@ -1144,7 +1144,7 @@ defmodule Letflow.Routers.EntitiesTest do
       ctx = tenant_ctx("req336-ac4-dup-unique-422")
 
       {:ok, definition} =
-        Definitions.create_definition(
+        Letflow.ManagedTypesSupport.create_definition(
           %{
             definition: %{
               name: "tag",
@@ -1275,7 +1275,7 @@ defmodule Letflow.Routers.EntitiesTest do
 
   defp create_active_definition!(ctx, definition) do
     {:ok, entity_definition} =
-      Definitions.create_definition(
+      Letflow.ManagedTypesSupport.create_definition(
         %{definition: definition, created_by: ctx.user_id},
         ctx.schema_name
       )
@@ -3416,7 +3416,7 @@ defmodule Letflow.Routers.EntitiesTest do
   # module (the real string-keyed JSONB round-trip), plus one record.
   defp gh2529_append_only_record!(ctx) do
     {:ok, _row} =
-      Definitions.create_definition(
+      Letflow.ManagedTypesSupport.create_definition(
         %{
           definition: %{
             name: "ledger",
@@ -3471,7 +3471,7 @@ defmodule Letflow.Routers.EntitiesTest do
       )
 
     {:ok, _row} =
-      Definitions.create_definition(
+      Letflow.ManagedTypesSupport.create_definition(
         %{definition: document, created_by: ctx.user_id},
         ctx.schema_name
       )
