@@ -116,6 +116,12 @@ defmodule Letflow.Definitions.ProcessDefinition do
     # `Letflow.Definitions.ActivatedBy`), and a reader refuses an unsigned or mismatching one.
     field(:activated_by, :map)
 
+    # GH #2692 / REQ-515: set when the recorded activator lost its authority (see
+    # `Letflow.Definitions.Reactivation`); both NULL otherwise. Server-owned like `activated_by`:
+    # neither changeset casts them, `status` stays `:active`.
+    field(:needs_reactivation_at, :utc_datetime_usec)
+    field(:needs_reactivation_reason, :string)
+
     # GH #2590 / REQ-501 PR R2 (decision 0054 D6, design D-R.8): the four-column module
     # ownership stamp. NULL (all four) for every row except a version inserted by
     # `Letflow.Definitions.create_owned/3` from a module install. NEVER castable: neither

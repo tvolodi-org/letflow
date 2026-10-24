@@ -64,6 +64,7 @@ defmodule Letflow.Identity do
   alias Letflow.Api.Authorization
   alias Letflow.Api.Pagination
   alias Letflow.Audit
+  alias Letflow.Definitions.Reactivation
   alias Letflow.Identity.ApiToken
   alias Letflow.Identity.AuditContext
   alias Letflow.Identity.Group
@@ -452,6 +453,7 @@ defmodule Letflow.Identity do
           | {:error, :last_tenant_wide_admin}
           | {:error, :last_interactive_tenant_wide_admin}
           | {:error, {:token_revocation_failed, term()}}
+          | {:error, {:definition_reactivation_failed, term()}}
 
   # GH 2564 (design §2): a write is a status write when the request carries `status`,
   # whatever its value. Chosen from the request, not the row, because the tenant admin
@@ -517,6 +519,13 @@ defmodule Letflow.Identity do
             do: revoke_owner_tokens(updated.id, prefix, ctx),
             else: {:ok, []}
         end)
+        |> Multi.run(:definition_reactivation, fn _repo, %{user: updated} ->
+          # GH #2692 (REQ-515): definitions activated under this user are marked in the same
+          # transaction as the deactivation.
+          if updated.status == :inactive,
+            do: Reactivation.reconcile_user(updated.id, prefix),
+            else: {:ok, []}
+        end)
       end)
       |> Multi.merge(fn %{locked_user: locked, user: updated} = changes ->
         after_state = Audit.struct_state(updated, [:password_hash])
@@ -569,6 +578,9 @@ defmodule Letflow.Identity do
 
         {:error, :revoked_tokens, reason, _changes} ->
           {:error, {:token_revocation_failed, reason}}
+
+        {:error, :definition_reactivation, reason, _changes} ->
+          {:error, {:definition_reactivation_failed, reason}}
 
         {:error, :audit, reason, _changes} ->
           {:error, reason}
@@ -1211,6 +1223,7 @@ defmodule Letflow.Identity do
           | {:error, :group_not_found}
           | {:error, :last_tenant_wide_admin}
           | {:error, :last_interactive_tenant_wide_admin}
+          | {:error, {:definition_reactivation_failed, term()}}
           | {:error, {:audit_failed, term()}}
           | {:error, {:transaction_failed, Exception.t()}}
   def remove_group_member(group_id, user_id, opts) do
@@ -1295,6 +1308,15 @@ defmodule Letflow.Identity do
            ) do
         {:ok, _entry} -> :ok
         {:error, reason} -> Repo.rollback({:audit_failed, reason})
+      end
+    end
+
+    # GH #2692 (REQ-515): definitions activated under this user are re-checked in the same
+    # transaction as the removal.
+    if count == 1 do
+      case Reactivation.reconcile_user(user_id, prefix) do
+        {:ok, _marked} -> :ok
+        {:error, reason} -> Repo.rollback({:definition_reactivation_failed, reason})
       end
     end
 

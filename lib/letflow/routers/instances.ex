@@ -662,6 +662,9 @@ defmodule Letflow.Routers.Instances do
   defp render_create(conn, {:error, :definition_not_active}),
     do: Response.conflict(conn, "only an ACTIVE definition can be started")
 
+  defp render_create(conn, {:error, :definition_needs_reactivation}),
+    do: Response.definition_needs_reactivation(conn)
+
   defp render_create(conn, {:error, :duplicate_correlation_key}),
     do:
       Response.conflict(

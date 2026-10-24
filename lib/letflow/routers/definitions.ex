@@ -37,6 +37,7 @@ defmodule Letflow.Routers.Definitions do
   | patch                  | `PATCH /definitions/:id`          | `Letflow.Definitions.update/3`                          | `DefinitionsWrite` | 200 / 404 / 409 / 422 |
   | delete                 | `DELETE /definitions/:id`         | `hard_delete/2` (DRAFT) or `deprecate/2`+`archive/2` (ACTIVE/DEPRECATED) | `DefinitionsWrite` | 204 / 200 / 404 / 409 |
   | activate               | `POST /definitions/:id/activate`  | `Letflow.Definitions.activate/2`                        | `DefinitionsWrite` | 200 / 404 / 409 / 422 |
+  | reactivate             | `POST /definitions/:id/reactivate` | `Letflow.Definitions.reactivate/2`                     | `DefinitionsActivate` (GH #2692) | 200 / 404 / 409 / 422 |
   | deprecate              | `POST /definitions/:id/deprecate` | `Letflow.Definitions.deprecate/2`                       | `DefinitionsWrite` (REQ-082 divergence — see below) | 200 / 404 / 409 |
   | archive                | `POST /definitions/:id/archive`   | `Letflow.Definitions.archive/2`                         | `DefinitionsWrite` (REQ-082 divergence — see below) | 200 / 404 / 409 |
   | import                 | `POST /definitions/import`        | `Letflow.Definitions.ExportImport.import_with_variable_schemas/4` | `DefinitionsWrite` (REQ-082 divergence — see below) | 201 / 422 |
@@ -258,6 +259,12 @@ defmodule Letflow.Routers.Definitions do
   # file does not have.
   authz_post "/:id/activate", :DefinitionsActivate do
     handle_activate(conn, conn.params["id"])
+  end
+
+  # GH #2692 (REQ-515): in-place re-activation of an ACTIVE definition flagged
+  # `needs_reactivation`; the caller becomes the new signed activator.
+  authz_post "/:id/reactivate", :DefinitionsActivate do
+    handle_reactivate(conn, conn.params["id"])
   end
 
   authz_post "/:id/deprecate", :DefinitionsDeprecate do
@@ -955,6 +962,31 @@ defmodule Letflow.Routers.Definitions do
     render_activate(conn, Definitions.activate(raw_id, activate_opts))
   end
 
+  # ── POST /definitions/:id/reactivate (GH #2692, REQ-515) ──
+
+  defp handle_reactivate(conn, raw_id) do
+    reactivate_opts =
+      Keyword.put(conn.assigns.scoped_opts, :activator, Letflow.Api.Context.activator(conn))
+
+    render_reactivate(conn, Definitions.reactivate(raw_id, reactivate_opts))
+  end
+
+  defp render_reactivate(conn, {:ok, %ProcessDefinition{} = definition}),
+    do: Response.ok(conn, definition_map(definition))
+
+  defp render_reactivate(conn, {:error, :not_found}), do: Response.not_found(conn)
+
+  defp render_reactivate(conn, {:error, :not_needs_reactivation}),
+    do: Response.not_needs_reactivation(conn)
+
+  defp render_reactivate(conn, {:error, :graph_structure_invalid}),
+    do: Response.unprocessable(conn, "definition graph is not well-formed")
+
+  defp render_reactivate(conn, {:error, {:entity_writes_invalid, violations}}),
+    do: Response.entity_writes_invalid(conn, violations)
+
+  defp render_reactivate(conn, {:error, _common_error}), do: Response.internal_error(conn)
+
   defp render_activate(conn, {:ok, %{definition: definition}}),
     do: Response.ok(conn, definition_map(definition))
 
@@ -1124,7 +1156,7 @@ defmodule Letflow.Routers.Definitions do
   # criteria do not require it; it is the same defect class (a server-recorded provenance
   # column named in a request body, silently ignored today) and one list entry. Dropping it
   # from `@server_owned_fields` has no other effect.
-  @server_owned_fields ~w(owner_module owner_module_version owner_manifest_hash owner_body_hash activated_by)
+  @server_owned_fields ~w(owner_module owner_module_version owner_manifest_hash owner_body_hash activated_by needs_reactivation_at needs_reactivation_reason)
 
   defp reject_server_owned_fields(body) when is_map(body) do
     case Enum.filter(@server_owned_fields, &Map.has_key?(body, &1)) do
@@ -1191,7 +1223,12 @@ defmodule Letflow.Routers.Definitions do
       # GH #2590 / REQ-501 R2: which module shipped this version (null for a tenant-created
       # one). Read-only. The ownership HASHES are never serialised (OQ-R11).
       "owner_module" => definition.owner_module,
-      "owner_module_version" => definition.owner_module_version
+      "owner_module_version" => definition.owner_module_version,
+      # GH #2692 (REQ-515): `status` stays ACTIVE; this second axis says the recorded activator lost
+      # its authority. The reason is a closed code, never an id.
+      "activation_state" => activation_state(definition),
+      "needs_reactivation_reason" => definition.needs_reactivation_reason,
+      "needs_reactivation_at" => optional_iso8601(definition.needs_reactivation_at)
     }
   end
 
@@ -1207,6 +1244,11 @@ defmodule Letflow.Routers.Definitions do
       "exported_at" => document.exported_at
     }
   end
+
+  defp activation_state(%ProcessDefinition{needs_reactivation_at: %DateTime{}}),
+    do: "needs_reactivation"
+
+  defp activation_state(%ProcessDefinition{}), do: "ok"
 
   defp optional_iso8601(nil), do: nil
   defp optional_iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)

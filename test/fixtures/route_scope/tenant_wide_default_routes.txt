@@ -61,6 +61,7 @@ POST /definitions DefinitionsCreate
 POST /definitions/:id/activate DefinitionsActivate
 POST /definitions/:id/archive DefinitionsArchive
 POST /definitions/:id/deprecate DefinitionsDeprecate
+POST /definitions/:id/reactivate DefinitionsActivate
 POST /definitions/:id/validate DefinitionsRead
 POST /definitions/:process_key/rollback DefinitionsRollback
 POST /definitions/import DefinitionsImport

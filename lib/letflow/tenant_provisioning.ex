@@ -818,7 +818,10 @@ defmodule Letflow.TenantProvisioning do
     # GH #2618 (decision 0054 D4a.2 amendment): the `write_class` column that replaces the interim
     # denied-name list for `writable_by_process`; backfilled from that list, then immutable.
     {20_261_023_100_001, Letflow.Repo.Migrations.AddWriteClassToEntityDefinitions,
-     "20261023100001_add_write_class_to_entity_definitions.exs"}
+     "20261023100001_add_write_class_to_entity_definitions.exs"},
+    # GH #2692 (REQ-515): the `needs_reactivation_*` flag columns on `process_definitions`.
+    {20_261_024_100_001, Letflow.Repo.Migrations.AddNeedsReactivationToProcessDefinitions,
+     "20261024100001_add_needs_reactivation_to_process_definitions.exs"}
   ]
 
   @doc """

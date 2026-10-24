@@ -569,6 +569,7 @@ defmodule Letflow.Engine do
           | {:error, :invalid_initial_variables}
           | {:error, :definition_not_found}
           | {:error, :definition_not_active}
+          | {:error, :definition_needs_reactivation}
           | {:error, :duplicate_correlation_key}
           | {:error, {:snapshot_failed, term()}}
           | {:error, {:graph_structure_invalid, term()}}
@@ -791,9 +792,17 @@ defmodule Letflow.Engine do
   end
 
   defp interpret_definition_lookup({:ok, definition}) do
-    case definition.status do
-      :active -> {:ok, definition}
-      _other -> {:error, :definition_not_active}
+    case definition do
+      # GH #2692 (REQ-515): the recorded activator lost its authority; refuse a NEW start
+      # before any token exists, so a SERVICE task cannot make its external call first.
+      %{status: :active, needs_reactivation_at: %DateTime{}} ->
+        {:error, :definition_needs_reactivation}
+
+      %{status: :active} ->
+        {:ok, definition}
+
+      _other ->
+        {:error, :definition_not_active}
     end
   end
 
@@ -3385,6 +3394,11 @@ defmodule Letflow.Engine do
   # re-validated here: the structure (below), then the signature (T-0250, GH #2644:
   # `Letflow.Definitions.ActivatedBy.verify/3`, bound to this row's id, version and graph).
   # Anything unsigned, forged, copied or unverifiable is the re-activation refusal (fail closed).
+  # GH #2692 (REQ-515): a definition flagged `needs_reactivation` is refused first, with the
+  # same error as a bad document, so both write paths keep their 409 / ERROR + DLQ shapes.
+  defp recorded_activator(%{needs_reactivation_at: %DateTime{}}, _prefix),
+    do: {:error, :entity_write_needs_reactivation}
+
   defp recorded_activator(%{activated_by: activated_by} = definition, prefix) do
     with {:ok, uuid, pairs} <- recorded_activator_document(activated_by),
          {:ok, :verified} <- ActivatedBy.verify(activated_by, definition, prefix) do

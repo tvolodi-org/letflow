@@ -82,7 +82,7 @@ The result of the service call is not stored, so there is no automatic re-apply:
   the signature change, including the QA rows that auto-CD deploys), when the document or graph was
   edited or copied to another definition, version or tenant, or when that key was rotated, disabled
   or is missing. Nothing is back-filled or re-signed automatically. Recovery: cancel the instance,
-  then reactivate the definition with a current principal. Reactivation, rollback and promotion all
+  then reactivate the definition with a current principal (in place: see below). Reactivation, rollback and promotion all
   sign the document again. Key rotation: put the new version of the key first, then disable the
   old one; documents signed under the old version are refused until the definition is reactivated.
 - `validation_failed` / `write_not_permitted` / `entity_append_only` / `entity_type_inactive`: fix
@@ -92,6 +92,34 @@ The result of the service call is not stored, so there is no automatic re-apply:
 - `entity_write_contention`: transient; cancel and restart after the contention clears.
 - `entity_write_failed`: an internal fault; the engine log carries the failing step atom and the
   dispatch id only.
+
+### `needs_reactivation` and in-place re-activation (GH #2692, REQ-515)
+
+Since GH #2692 the platform marks the definition when the authority is lost, instead of
+discovering it at the first write. A definition whose recorded activator is deactivated, is gone
+(user row removed out of band) or no longer holds `EntitiesRecordsWrite` (removed from the group
+that holds the role, or the role binding moved or turned into a routing role) gets
+`needs_reactivation_at` and a closed `needs_reactivation_reason`
+(`activator_deactivated`, `activator_absent`, `activator_lost_entities_records_write`). In the API
+the definition keeps `status: "ACTIVE"` and shows `activation_state: "needs_reactivation"`; the
+mark is written in the same transaction as its cause, with a `definition.mark_needs_reactivation`
+audit row. Tooling that removes a user row directly must call
+`Letflow.Definitions.Reactivation.reconcile_user/2`; the run-time check stays the backstop.
+
+- New instances, started directly or through a call activity, are refused before any token or
+  dispatch row exists: `409 definition_needs_reactivation` on `POST /instances`, and a parent
+  whose call activity names the definition takes the ERROR path with
+  `SUB_PROCESS_DEFINITION_NEEDS_REACTIVATION` (at create the whole create is refused). No
+  SERVICE call is made for work that cannot be applied.
+- Instances already running: HUMAN tasks stay pending and completion returns
+  `409 entity_write_needs_reactivation`; a SERVICE task that reaches its apply lands in ERROR with
+  a DLQ entry as described above.
+- Recovery in place: `POST /definitions/:id/reactivate` (needs `DefinitionsActivate`; the caller
+  must also hold `EntitiesRecordsWrite`, be an active user, and the graph must still validate).
+  The caller becomes the new signed activator and the flag is cleared (`definition.reactivate`
+  audit row). Pending HUMAN tasks and un-applied SERVICE tasks then proceed unchanged. `409
+  not_needs_reactivation` for a row that is not flagged. Instances already in ERROR are not
+  resumed: cancel and restart them.
 
 ## Known residual
 
