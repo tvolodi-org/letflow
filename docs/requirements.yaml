@@ -37837,6 +37837,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S3
+    # impl_order: UNREGISTERED -- the GitHub issue for this requirement is filed by the engine after merge; the entry then gets its `gh:` line.
     description: >
       Source: process audit of swiftroute, task T-0295 (acceptance criterion EO-003 of
       test/fixtures/uat/scenarios/swiftroute/driver-incident-assess-and-estimate.yaml, "the recorded
