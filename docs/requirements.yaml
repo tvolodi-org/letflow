@@ -38297,7 +38297,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3155
     # Source: docs/migration/decisions/0053-tenant-scripted-rules.md (scope list "Record E", follow-up note F13, D5 "reserved for Records E/F", D7 last paragraph, deviation 8, row-lock answer); docs/migration/core-roadmap-20261014.md Wave 2 row "Entity pre-write validation and derived-field scripts (second invocation point)"; REQ-499 (GH #2587, done) and decision 0054, which replace the "needs REQ-484" prerequisite named in 0053. Written by the business analyst (T-0442) 2026-10-25. Not yet validated.
     description: >
       Decision 0053 names "Record E, entity pre-write script hook and derived fields" (hook 2) as
