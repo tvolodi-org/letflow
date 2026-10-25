@@ -38508,7 +38508,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED
+    # impl_order: UNREGISTERED -- blocked-by: REQ-545 -- no code dependency; ordering only, the engine files the issue when this entry is registered
     description: >
       Core roadmap, Customization beyond scripts (data import). Record import exists on main:
       REQ-314 (design, lib/letflow/design/req314-entity-record-bulk-export-import.md), REQ-318
@@ -38523,6 +38523,8 @@ requirements:
       entity_type checks, the permission atom and its gate, per-entry partial success, the
       upsert mode and its error reasons, the 404 folding) applies to a CSV upload exactly as to
       the JSON document and is not restated here; read REQ-314, REQ-318, REQ-320 and REQ-505.
+      The one thing that is not automatic is the body-size limit, which today is enforced by the
+      JSON body parser and so must be enforced explicitly for a text/csv body (criterion 10).
       This requirement defines only what is new: the CSV format, the column-to-field mapping, the
       type coercion into the JSON entry shape, and the mapping of errors back to CSV lines.
 
@@ -38555,9 +38557,13 @@ requirements:
       then reported by the existing validation, not by the converter.
 
       COERCION (text to JSON value, by the declared type of the field). string and enum: the cell
-      text as is. integer: base-10 digits with an optional sign, as a JSON integer. decimal: the
-      canonical decimal string, passed as a string (the strict-decimal rule of
-      lib/letflow/design/gh2654-decimal-exact-strings.md; never converted through a float).
+      text as is. integer: base-10 digits with an optional sign, as a JSON integer. decimal:
+      depends on the field, because decision 0060 and
+      lib/letflow/design/gh2654-decimal-exact-strings.md (GH #2654) make strictness a per-field
+      opt-in (decimal_strict: true). On a decimal_strict field the canonical decimal string is
+      passed on unchanged, as a string. On a field that is not decimal_strict the cell is passed
+      as the JSON number that a JSON document carrying the same literal decodes to, exactly as
+      the JSON route would receive it (so that field has the same precision limits as for JSON).
       boolean: true or false, case-insensitive. date: YYYY-MM-DD. datetime: ISO 8601 with a zone.
       json: the cell parsed as JSON. localized_text: the cell parsed as a JSON object. A cell that
       does not fit is a row error (below); the converter never guesses and never repairs a value.
@@ -38573,15 +38579,16 @@ requirements:
       - "1. A pure converter exists (module name chosen by the implementer and stated in the PR). A unit test over it, with no database, feeds a CSV with a header and three data rows (one quoted cell containing a comma, one quoted cell containing a line break and a doubled quote, one empty cell) and asserts the exact entries produced: the empty cell yields no key (not null, not an empty string), the quoted cells yield the unquoted text. Real output quoted."
       - "2. Format tests: a UTF-8 file with a byte-order mark gives the same entries as the same file without; a file with invalid UTF-8 bytes is refused whole with a 422 and a constant reason, before any row is read; LF and CRLF line endings give identical entries; a blank line is skipped; a data row with more or fewer cells than the header is a row error carrying its line number; a missing header row (empty body) is refused whole."
       - "3. Mapping tests: a header naming no field of the active definition, a duplicate header, and external_ref_system without external_ref_id (or the reverse) each refuse the whole file with a 422 and a constant reason, and a test asserts that zero records exist for the entity type afterwards."
-      - "4. Coercion tests, one positive and one negative case per field type of lib/letflow/entities/definition/validator.ex (string, integer, decimal, boolean, date, datetime, enum, json, localized_text): the positive case asserts the JSON value passed on (a decimal stays the same string, e.g. a value of 17 significant digits survives unchanged); the negative case asserts a row error with the header name and the CSV line, and that the other rows of the same file are still processed."
+      - "4. Coercion tests, one positive and one negative case per field type of lib/letflow/entities/definition/validator.ex (string, integer, decimal, boolean, date, datetime, enum, json, localized_text): the positive case asserts the JSON value passed on; decimal is tested on both kinds of field, a decimal_strict field keeping the same string (e.g. a value of 17 significant digits survives unchanged) and a non-strict decimal field receiving the JSON number the equivalent JSON document would carry, and in both cases the record is accepted by the existing validation; the negative case asserts a row error with the header name and the CSV line, and that the other rows of the same file are still processed."
       - "5. Row-error line numbers: a test file whose bad row follows a quoted cell with an embedded line break asserts the reported line is the physical line on which that row starts (header = line 1). A test asserts the response never contains the text of the failing cell."
-      - "6. Route test (same route, content type text/csv): a CSV of valid rows creates the same records, with the same response shape and the same status, as the equivalent JSON document posted to the same route in the same test, and the CSV line number is present on each result. A CSV with one row that the existing path refuses (a field_values violation) returns the existing partial-success response, with that row existing error plus its CSV line."
+      - "6. Route test (same route, content type text/csv): a CSV of valid rows creates the same records, with the same response shape plus a line member on each result, and the same status, as the equivalent JSON document posted to the same route in the same test. A CSV with one row that the existing path refuses (a field_values violation) returns the existing partial-success response, with that row existing error plus its CSV line."
       - "7. Upsert test: with the upsert mode requested, a CSV carrying external_ref_system and external_ref_id columns, posted twice, leaves one record per external reference (the second post reports unchanged), matching test/letflow/routers/entities_import_upsert_test.exs for JSON; a CSV without those columns in upsert mode reports the existing external_ref_invalid reason per row."
       - "8. No new write path: a test or grep, quoted in the PR, shows the converter module has no alias of Repo, Ecto or any Records function and that the only record write calls of the route are the ones it already had; git diff --name-only shows no new route (route-count pins in test/ unchanged) and no change to lib/letflow/entities/records.ex or lib/letflow/entities/import_upsert.ex."
       - "9. Carried over, not re-specified: the cross-tenant negative test of REQ-320 is run for a CSV body against the same route (a caller of tenant A importing a CSV for an entity type that exists only in tenant B gets the same response as for a type that does not exist, and tenant B has no new record); and the same permission refusal as for JSON is asserted for a CSV request from a caller without the import permission, with nothing written. Both cite the REQ-320 test they mirror."
-      - "10. JSON is unchanged: the existing import tests (the files under test/ that post to the import path, including entities_import_upsert_test.exs) pass unmodified, real output quoted; the table row of the route in the moduledoc of lib/letflow/routers/entities.ex names the text/csv content type and cites the converter by module name, not by line number."
-      - "11. Out of scope and left to later requirement candidates, named in the PR summary and not built here: a web import screen in web/src (none exists today), a column-mapping step where header names differ from field names, other delimiters or encodings, and Excel (xlsx) input."
+      - "10. Limits carried over, not re-specified: a text/csv body larger than the size limit REQ-320 applies to the JSON body is refused with the same 413 as the JSON case, before any conversion and with nothing written, and a CSV with more data rows than REQ-320's record cap gets the same 413 as the JSON case with nothing written. Each test cites the REQ-320 test it mirrors and asserts the status and reason equal that test's."
+      - "11. JSON is unchanged: the existing import tests (the files under test/ that post to the import path, including entities_import_upsert_test.exs) pass unmodified, real output quoted; the table row of the route in the moduledoc of lib/letflow/routers/entities.ex names the text/csv content type and cites the converter by module name, not by line number."
+      - "12. Out of scope and left to later requirement candidates, named in the PR summary and not built here: a web import screen in web/src (none exists today), a column-mapping step where header names differ from field names, other delimiters or encodings, and Excel (xlsx) input."
     open_questions:
-      - "UAT assumption, to be confirmed by the process owner: header names equal field names and the delimiter is a comma. A file exported with semicolons (common for some regional spreadsheet settings) is refused until the later mapping/delimiter candidate in criterion 11 is built."
+      - "UAT assumption, to be confirmed by the process owner: header names equal field names and the delimiter is a comma. A file exported with semicolons (common for some regional spreadsheet settings) is refused until the later mapping/delimiter candidate in criterion 12 is built."
       - "The reserved headers external_ref_system and external_ref_id and the way the request asks for the upsert mode are new names introduced here; no decision record covers them. The implementer states them in the PR; REVIEWER confirms they match the JSON entry shape of REQ-505."
     depends_on: [REQ-314, REQ-318, REQ-320, REQ-505]
