@@ -7,6 +7,11 @@ defmodule Letflow.NumberSequences do
   pipeline (`Letflow.Entities.Records`) numbers a record of a bound type inside its create
   transaction, on every create path.
 
+  ## Audited create
+
+  `create_definition/2` is the unaudited, code-only writer; `create_definition_audited/3` is the
+  one for routes: it writes the definition and its audit entry in one transaction.
+
   ## Not the document allocator
 
   This is a new, small allocator. It follows the gap-free protocol of decision 0056 D2
@@ -47,6 +52,10 @@ defmodule Letflow.NumberSequences do
   import Ecto.Changeset
   import Ecto.Query
 
+  require Logger
+
+  alias Ecto.Multi
+  alias Letflow.Audit
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.NumberSequences.Counter
@@ -56,6 +65,12 @@ defmodule Letflow.NumberSequences do
   alias Letflow.TenantProvisioning
 
   @definition_keys ~w(key entity_type prefix padding period)a
+
+  @type actor :: %{
+          required(:user_id) => String.t() | nil,
+          optional(:trace_id) => String.t() | nil,
+          optional(atom()) => term()
+        }
 
   @type allocation :: %{number: pos_integer(), formatted: String.t(), period: String.t()}
 
@@ -72,13 +87,76 @@ defmodule Letflow.NumberSequences do
   @spec create_definition(map(), schema_prefix :: String.t()) ::
           {:ok, Definition.t()} | {:error, term()}
   def create_definition(attrs, schema_prefix) when is_map(attrs) and is_binary(schema_prefix) do
-    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(schema_prefix),
-         {:ok, changeset} <- definition_changeset(attrs, tenant_id),
-         :ok <- check_bindable(get_change(changeset, :entity_type), schema_prefix) do
+    with {:ok, changeset} <- prepare_definition(attrs, schema_prefix) do
       case Repo.insert(changeset, prefix: schema_prefix) do
         {:ok, definition} -> {:ok, definition}
         {:error, %Ecto.Changeset{} = invalid} -> {:error, invalid}
       end
+    end
+  end
+
+  @doc """
+  `create_definition/2` with an audit entry (action `number_sequence_definition.create`) written
+  in the same transaction: the definition and its audit row are stored together or not at all.
+
+  `actor` carries the acting principal as `:user_id` (and an optional `:trace_id`). A refusal
+  answers the same shape as `create_definition/2` and writes neither a definition nor an audit
+  entry. A failure of the transaction itself (for example an unusable audit table) rolls it back
+  and answers `{:error, {:transaction_failed, exception}}`; it does not raise.
+  """
+  @spec create_definition_audited(map(), actor(), schema_prefix :: String.t()) ::
+          {:ok, Definition.t()} | {:error, term()}
+  def create_definition_audited(attrs, actor, schema_prefix)
+      when is_map(attrs) and is_map(actor) and is_binary(schema_prefix) do
+    with {:ok, changeset} <- prepare_definition(attrs, schema_prefix) do
+      Multi.new()
+      |> Multi.insert(:definition, changeset, prefix: schema_prefix)
+      |> Multi.merge(fn %{definition: d} ->
+        Audit.append_multi(
+          Multi.new(),
+          :audit,
+          %{
+            actor_id: Map.get(actor, :user_id),
+            action: "number_sequence_definition.create",
+            resource_type: "number_sequence_definition",
+            resource_id: d.id,
+            before_state: nil,
+            after_state: %{
+              id: d.id,
+              key: d.key,
+              entity_type: d.entity_type,
+              prefix: d.prefix,
+              padding: d.padding,
+              period: d.period
+            },
+            trace_id: Map.get(actor, :trace_id)
+          },
+          schema_prefix
+        )
+      end)
+      |> run_audited(schema_prefix)
+    end
+  end
+
+  # Audit.insert_entry raises on a database failure and Repo.transaction does not convert a
+  # raise, so it is rescued here (INV-8); only the exception module is logged (INV-4).
+  defp run_audited(multi, schema_prefix) do
+    case Repo.transaction(multi, prefix: schema_prefix) do
+      {:ok, %{definition: definition}} -> {:ok, definition}
+      {:error, :definition, %Ecto.Changeset{} = invalid, _changes} -> {:error, invalid}
+      {:error, _step, reason, _changes} -> {:error, {:transaction_failed, reason}}
+    end
+  rescue
+    error ->
+      Logger.error("number sequence definition create failed: #{inspect(error.__struct__)}")
+      {:error, {:transaction_failed, error}}
+  end
+
+  defp prepare_definition(attrs, schema_prefix) do
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(schema_prefix),
+         {:ok, changeset} <- definition_changeset(attrs, tenant_id),
+         :ok <- check_bindable(get_change(changeset, :entity_type), schema_prefix) do
+      {:ok, changeset}
     end
   end
 
