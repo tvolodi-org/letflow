@@ -211,6 +211,6 @@ DocumentHold                    yes            no               no              
 DocumentsRetentionManage        yes            no               no               no          no           no        yes          no             tenant
 IntegrationMappingsManage       yes            no               no               no          no           no        yes          no             tenant
 LabelsManage                    yes            no               no               no          no           no        yes          no             tenant
-EntitiesViewsManage            yes            no               no               no          no           no        yes          no             tenantNotificationTemplatesManage     yes            no               no               no          no           no        yes          no             tenant
+EntitiesViewsManage            yes            no               no               no          no           no        yes          no             tenant
 NotificationTemplatesManage     yes            no               no               no          no           no        yes          no             tenant
 ```

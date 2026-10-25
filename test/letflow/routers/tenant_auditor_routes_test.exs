@@ -706,7 +706,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # --- AC2: 403 block --------------------------------------------------------------------------
 
   describe "AC2 completeness guards" do
-    test "the routers mounted in ApiPipeline are exactly the 32 named in the table: a new router fails here" do
+    test "the routers mounted in ApiPipeline are exactly the 34 named in the table: a new router fails here" do
       mounted = mounted_routers()
       named = Enum.map(@named_routes, &elem(&1, 0))
 
@@ -784,7 +784,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert_unchanged(before, ctx)
     end
 
-    test "through the full pipeline with a real auditor token, all 32 mounts (and the Modules router with the exam module installed)",
+    test "through the full pipeline with a real auditor token, all 34 mounts (and the Modules router with the exam module installed)",
          ctx do
       {:ok, _tenant_module} =
         Installs.install("exam", Ecto.UUID.generate(),
