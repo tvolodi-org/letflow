@@ -610,9 +610,10 @@ defmodule Letflow.Scripts do
         rule = lock_row!(prefix, key, version)
         if rule.status not in from, do: Repo.rollback(:version_immutable)
 
-        # GH 2534 PR 7c-1 (D3, C19): retiring a version an ACTIVE definition binds is blocked;
-        # the row lock above serialises with activation's FOR SHARE read. Revoke (the incident
-        # action) is never blocked.
+        # GH 2534 PR 7c-1 (D3, C19): retiring a version an ACTIVE definition binds, or one an
+        # entity type hook binding pins (EntityTypeHooks.referenced_by_binding?/3, GH 3217), is
+        # blocked; the row lock above serialises with activation's FOR SHARE read. Revoke (the
+        # incident action) is never blocked.
         if to == :retired and
              (Letflow.Scripts.Runtime.referenced_by_active_definition?(
                 prefix,

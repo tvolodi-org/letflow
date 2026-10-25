@@ -419,6 +419,73 @@ defmodule Letflow.EntityTypeHooksTest do
       assert {:ok, _} = Hooks.bind(s, t, pin(published!(s)), actor())
     end
 
+    defp handler_definition!(schema, status) do
+      graph = %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{
+            "id" => "ht",
+            "node_type" => "HUMAN_TASK",
+            "attributes" => %{
+              "role" => "REVIEWER",
+              "module_writes" => [
+                %{
+                  "module" => "fixture_ledger",
+                  "handler" => "post_balance_only",
+                  "args" => %{"item" => %{"var" => "item"}}
+                }
+              ]
+            }
+          },
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => [
+          %{"id" => "e1", "source" => "start", "target" => "ht"},
+          %{"id" => "e2", "source" => "ht", "target" => "end"}
+        ]
+      }
+
+      {:ok, row} =
+        Letflow.Definitions.create(
+          %{
+            name: "h5-def-#{System.unique_integer([:positive])}",
+            version: "1",
+            graph: graph,
+            created_by: Ecto.UUID.generate()
+          },
+          prefix: schema
+        )
+
+      row |> Ecto.Changeset.change(status: status) |> Repo.update!(prefix: schema)
+    end
+
+    test "H5 an ACTIVE definition with a handler line on the type refuses; a draft does not", %{
+      schema: s
+    } do
+      # The Catalog handler `post_balance_only` targets "fxl_balance". The name is reserved for
+      # the module, so an unmanaged row of that name is made by renaming a tenant type.
+      EW.define_type!(s, "r567_h5", %{})
+
+      {1, _} =
+        Repo.update_all(
+          from(e in EntityDefinition, where: e.name == "r567_h5"),
+          [set: [name: "fxl_balance"]],
+          prefix: s
+        )
+
+      target = "fxl_balance"
+      handler_definition!(s, :draft)
+      assert {:ok, _} = Hooks.bind(s, target, pin(published!(s)), actor())
+      assert {:ok, _} = Hooks.unbind(s, target, actor())
+
+      handler_definition!(s, :active)
+      before_b = bindings(s)
+      before_a = audits(s)
+      assert Hooks.bind(s, target, pin(published!(s)), actor()) == {:error, :entity_type_hooked}
+      assert bindings(s) == before_b
+      assert audits(s) == before_a
+    end
+
     test "H6 the query is bound-parameter jsonb containment" do
       src = File.read!("lib/letflow/entity_type_hooks.ex")
       assert src =~ ~s|fragment("? @> ?", d.graph, type(^document, :map))|
