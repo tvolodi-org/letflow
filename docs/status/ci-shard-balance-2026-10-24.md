@@ -308,3 +308,29 @@ manifest or `ci.yml` change is made by this task.
 ### Remainder of GH #2380
 
 Criterion (c) is open: 4 of 7 runs within 10 %, the worst at +27.9 %. The issue stays open (`Refs #2380`).
+
+## Manifest rebuilt from post-#3135 logs, T-0454 (remainder step 1 of the T-0447 note)
+
+`test/shard_manifest.txt` was rebuilt with `scripts/test_shard_plan.sh --from-logs` from the 20 shard job
+logs (4 shards each) of five post-#3135 pull_request runs: 40132243112, 40134414792, 40136715557,
+40137149046 and 40137958545 (run and job ids are in the `# source:` header lines of the manifest; logs saved as
+`<run>-<job>.log` from `gh api repos/tvolodi-org/letflow/actions/jobs/<job>/logs`). Weights are scaled to the
+last run (40137958545). Rerunning the tool on the same logs gives byte-identical output (checked with `cmp`).
+Then `--append` was run on the result: it changed nothing, because the rebuild already lists all 923
+`test/**/*_test.exs` files, among them the files the T-0447 logs reported as "unlisted"
+(`engine/reactivation_*`, `routers/entities_size_cap_test.exs`, `documents/*`,
+`engine/service_task_stuck_sweep_test.exs`), which now carry measured weights.
+
+Planner balance table (`test_shard_plan:` stderr):
+
+| Partition | Planned load (s) | | Shard | Partitions | Slowest partition (s) | Planned wall (s) |
+|---|---|---|---|---|---|---|
+| 1 to 16 | 632 each | | 1/4 | 1..4 | 632 | ~721 |
+| | | | 2/4 | 5..8 | 632 | ~721 |
+| | | | 3/4 | 9..12 | 632 | ~721 |
+| | | | 4/4 | 13..16 | 632 | ~721 |
+
+**Predicted slowest / median: +0.0 %** (16 partitions at 632 s, 4 shards at about 721 s wall with the tool's
+1.14 factor). As in the T-0385 rebuild, this is flat by construction on the fitted weights; it is not the
+expected spread. The honest figure is the next measurement: criterion (c) is confirmed only by later
+shard-running CI runs after this lands. No leave-one-out scoring was done here.
