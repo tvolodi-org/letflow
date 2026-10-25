@@ -860,7 +860,10 @@ defmodule Letflow.TenantProvisioning do
     # REQ-567 / GH #3217: entity-type hook bindings (empty for existing tenants, no row altered; also
     # widens the script_rules hook_kind CHECK to allow entity_write).
     {20_261_025_500_002, Letflow.Repo.Migrations.CreateEntityTypeHookBindings,
-     "20261025500002_create_entity_type_hook_bindings.exs"}
+     "20261025500002_create_entity_type_hook_bindings.exs"},
+    # REQ-561 / GH #3194: tenant-defined scheduled jobs (one empty table per tenant schema).
+    {20_261_026_100_001, Letflow.Repo.Migrations.CreateScheduledJobs,
+     "20261026100001_create_scheduled_jobs.exs"}
   ]
 
   @doc """

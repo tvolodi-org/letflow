@@ -70,7 +70,7 @@ defmodule Letflow.Scheduler.Poller do
   ## ISS-0421 addition -- bounded per-tenant concurrency within each sweep
   (design `iss0421-poller-bounded-concurrency.md`)
 
-  Each of the seven per-tenant sweeps below iterates `schemas` via
+  Each of the seven per-tenant sweeps below (the eighth and ninth are described in their own sections) iterates `schemas` via
   `Task.async_stream/3` instead of `Enum.each/2`, bounding how many tenants'
   calls are in flight together for that ONE sweep. The seven sweeps
   themselves remain strictly sequential relative to each other (design §2) --
@@ -186,6 +186,16 @@ defmodule Letflow.Scheduler.Poller do
   `Letflow.Scheduler.RecordDeadlineSweep`'s own moduledoc for the full design
   reasoning (rule declaration/authorization, INV-1, the SKIP LOCKED and
   per-record isolation mechanisms).
+
+  ## REQ-561 addition -- tenant scheduled jobs
+  (`lib/letflow/scheduler/scheduled_job_sweep.ex`)
+
+  A NINTH per-tenant sweep, `maybe_run_scheduled_job_sweep/1`, written like
+  `maybe_run_deadline_sweep/1`: one `run_sweep/4` per tick, `with_admission/3`, an inline
+  `try/rescue -> :ok`, no new process and no new `Task`. It runs only while
+  `Letflow.ScheduledJobs.enabled?/0` (config `:scheduled_jobs`, default off) is true, read fresh every
+  tick. See `Letflow.Scheduler.ScheduledJobSweep` for how a tenant job differs from a platform timer
+  and from the record transition sweep.
   """
 
   use GenServer
@@ -196,8 +206,10 @@ defmodule Letflow.Scheduler.Poller do
   alias Letflow.Engine
   alias Letflow.Metrics.Registry, as: MetricsRegistry
   alias Letflow.Obs.Alerts
+  alias Letflow.ScheduledJobs
   alias Letflow.Scheduler
   alias Letflow.Scheduler.RecordDeadlineSweep
+  alias Letflow.Scheduler.ScheduledJobSweep
   alias Letflow.TenantProvisioning.Registration
 
   import Ecto.Query
@@ -274,6 +286,7 @@ defmodule Letflow.Scheduler.Poller do
           maybe_run_ordering_sweeper(schemas)
           maybe_run_ordering_metrics(schemas)
           maybe_run_deadline_sweep(schemas)
+          maybe_run_scheduled_job_sweep(schemas)
           Map.put(partition_maintenance_state, :last_tick_started_at, now)
 
         :error ->
@@ -462,6 +475,23 @@ defmodule Letflow.Scheduler.Poller do
         end)
       end)
     end)
+  end
+
+  # REQ-561: tenant scheduled jobs. The flag is read fresh on every tick; while it is false (the
+  # default) nothing is claimed or queried. Same shape as maybe_run_deadline_sweep/1: one run_sweep/4,
+  # with_admission, inline try/rescue.
+  defp maybe_run_scheduled_job_sweep(schemas) do
+    if ScheduledJobs.enabled?() do
+      run_sweep(schemas, :scheduled_job_sweep, Admission.global_cap(), fn schema_name ->
+        with_admission(schema_name, :scheduled_job_sweep, fn ->
+          try do
+            ScheduledJobSweep.run(schema_name)
+          rescue
+            _ -> :ok
+          end
+        end)
+      end)
+    end
   end
 
   defp tenant_schemas do
