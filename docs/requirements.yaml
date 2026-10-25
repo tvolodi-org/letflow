@@ -40422,6 +40422,121 @@ requirements:
       - "10. The route-inventory pins touched by the change (grep __authz_routes__ and length(snapshot) across test/) are re-derived and the new values stated in the pull request; no new route is added by this slice."
       - "11. The pull request carries a SECURITY-REVIEWER verdict (mandatory) and names slices B, C and D of 0070 D6 as later requirements that this change does not build."
     depends_on: [REQ-566, "owner confirmation of decision 0070 Q2 (write model) and Q3 (permission for write grants): the feature task must not start before it"]
+
+  - id: REQ-572
+    title: "Tenant provisioner credential and the server-to-server provisioning routes under /admin/v1 (portfolio contract v0.1): create, read, suspend, resume, expire, and a delete that is refused until the owner decides"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3252
+    # Source: ai-dala-portfolio/contracts/provisioning.md draft v0.1 (rules 1-6, the six calls, "What Letflow must build"; decisions D-011, D-012, D-013 there); docs/migration/decisions/0048-pending-tenant-admin-grant.md (sections 1-3), 0044-hybrid-identity-model.md, 0046-admin-scopes-and-role-charter.md (D4, D5), 0006-identity-tables-schema-per-tenant.md (D2, R5); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-4, INV-5, INV-8, INV-10); docs/runbooks/onboarding-new-tenant-realm.md; the team note state/tasks/T-0222/foundation-notes.md (what deactivate and delete can do today); code read: lib/letflow/routers/tenants.ex (create/deactivate/reactivate, :TenantsManage), lib/letflow/identity.ex (create_tenant/1, deactivate_tenant/1, reactivate_tenant/1, set_tenant_status), lib/letflow/identity/tenant.ex (create_changeset/3, status enum), lib/letflow/routers/onboarding.ex (admin_email check, pending grant), lib/letflow/identity/pending_admin_grants.ex, lib/letflow/tenant_onboarding.ex (provision_and_migrate/1), lib/letflow/plugs/api_pipeline.ex, lib/letflow/api/response.ex (429, Retry-After). Amends 0048 section 1 item 3 (second grant creation path); code read also: priv/repo/migrations/20261008000001_create_pending_tenant_admin_grants.exs. Written by the business analyst (T-0560) 2026-10-25. Not yet validated.
+    description: >
+      The portfolio's front door (the landing-page project) must ask Letflow, server to server, to create,
+      read, suspend, resume, expire and delete a tenant (contract: ai-dala-portfolio/contracts/provisioning.md).
+      Today only a PLATFORM_ADMIN token of the platform tenant can create a tenant (POST /tenants, :TenantsManage
+      in lib/letflow/routers/tenants.ex, or POST /onboarding with admin_email in lib/letflow/routers/onboarding.ex),
+      which is far too strong for a front door. This requirement adds a narrow provisioner credential and six
+      routes. It is realm-agnostic: it does not decide how a tenant gets a Keycloak realm (open question 1).
+      What the product can do today, stated plainly. (a) Create: exists, as Identity.create_tenant/1 followed by
+      Letflow.TenantOnboarding.provision_and_migrate/1; new here is that the caller supplies the tenant id and the
+      credential is not a PLATFORM_ADMIN token. (b) Suspend and resume map to Identity.deactivate_tenant/1 and
+      Identity.reactivate_tenant/1 (status :inactive / :active; the platform tenant is protected, answered
+      :platform_tenant_protected). (c) Expire maps to the same deactivation plus a recorded state "expired";
+      the tenant's schema, rows, slug and realm binding all stay. (d) Delete has NO capability today: no code
+      removes a tenant, drops its schema or frees its realm, and the tenant-to-realm binding is permanent
+      (decision 0048 section 2; docs/runbooks/onboarding-new-tenant-realm.md; T-0222 foundation note). So in
+      this requirement DELETE is a route that is refused (criterion 9) and the status "deleted" is never
+      produced; whether and how a delete is built is an owner decision (open question 2). (e) Resume of an
+      expired tenant is refused (criterion 8): the contract allows resume only from suspended.
+      Design choices fixed here so that one implementation is possible. (1) Routes are mounted at /admin/v1 in
+      lib/letflow/router.ex, OUTSIDE the /api/v1 ApiPipeline and its OIDC authentication, behind one new plug
+      that accepts only the provisioner credential. A provisioner request never builds an auth_context and holds no
+      role and no Authorization.evaluate_access/2 permission. The routes read and write the global tenants table and
+      the new provisioning table below; no tenant row (instance, task, user, record, file) is ever read or returned.
+      The only writes under a tenant :prefix are two, both on a schema the request just created: the schema
+      provisioning and migration done by Letflow.TenantOnboarding.provision_and_migrate/1, and the one pending-grant
+      insert of item (6). The prefix is derived server-side by Letflow.TenantProvisioning.schema_name_for_tenant/1
+      from the tenant id of the row just created; no request value selects a schema (INV-1, INV-6). (2) The credential is one opaque bearer value per
+      deployment (one front door), configured by the environment variable LETFLOW_PROVISIONER_CREDENTIAL_SHA256
+      holding the lowercase hex SHA-256 of the value (reason: the product then never holds the usable secret, INV-4;
+      the secret itself lives in the front door's server secrets). It is read at boot in config/runtime.exs. When
+      the variable is unset or blank, every /admin/v1 path answers 404 with an empty-structure body identical to
+      an unmatched path (contract rule 6). Comparison is constant time. Rotation is open question 4. (3) New
+      global table tenant_lifecycles (unrelated to the schema registrations of Letflow.TenantProvisioning, which live in tenant_schemas; migration under priv/repo/migrations/), one row per provisioned tenant,
+      columns tenant_id (primary key, references tenants.id), lifecycle (active | suspended | expired), tier
+      (demo | production), language (ru | kk | en), expires_at (nullable utc datetime, demo only), owner_grant_stored (boolean, default false), inserted_at,
+      updated_at. It holds NO e-mail address (decision 0048 section 1 items 2 and 8). It is a global registry in the
+      public schema like tenants, not tenant data, so decision 0006 D2 (tenant data lives in the tenant's schema) does
+      not apply to it; it is read and written only by the provisioning routes. (4) The caller's tenant_id becomes tenants.id (create_changeset/3
+      does not cast :id today; a provisioning-only changeset sets it). The slug is derived deterministically as "t-"
+      followed by the 32 lowercase hex digits of the id; display_name is the request name; tier demo sets
+      tenant_type "test" and tier production sets tenant_type "production" (REQ-469 text allows production to be
+      set only by a PLATFORM_ADMIN, so this is flagged for the SECURITY-REVIEWER, open question 6); language is stored in
+      tenant_lifecycles only and is not written to tenant settings. (5) Idempotence: a repeated POST with an existing
+      tenant_id answers 200 with the same body and changes nothing, whatever the other body fields say, except that
+      while tenant_lifecycles.owner_grant_stored is false (the column of item (3), set true in the transaction of
+      the grant insert) the repeat stores the grant for its own owner_email and then answers 200.
+      (6) First administrator, and an AMENDMENT of decision 0048. Decision 0048 section 1 item 3 says a pending grant
+      is created ONLY by the onboarding call (POST /onboarding with admin_email), and
+      priv/repo/migrations/20261008000001_create_pending_tenant_admin_grants.exs pins that with the CHECK
+      created_via = 'onboarding'; Letflow.Identity.PendingAdminGrants.create/3 documents exactly one caller and
+      requires a creator %{user_id: uuid}, whose id decision 0048 section 1 item 8 writes to the platform audit chain.
+      The provisioner has no user. This requirement therefore adds a second creation path: (i) a migration widens the
+      CHECK to created_via IN ('onboarding', 'provisioning'); (ii) a new function
+      Letflow.Identity.PendingAdminGrants.create_provisioned/2 (email_key, opts with :prefix and :platform_prefix)
+      stores the grant with created_via 'provisioning', in one transaction with the TENANT-chain entry
+      tenant.admin_grant.created (nil actor, as in create/3, details created_via 'provisioner') and the PLATFORM-chain
+      entry platform.tenant_admin_grant.created with a nil actor and details grant_id, tenant_id and created_via
+      'provisioner' (the credential is the only identity there is: no credential value, hash or e-mail is recorded);
+      create/3 is unchanged and stays the only onboarding path. The bind and revoke paths of that module (bind_on_login/5, revoke/3, which write the fixed @created_via_class "platform_operator_onboarding" into their tenant-chain entries) take the creator class from the grant row instead: "platform_operator_onboarding" for 'onboarding', "provisioner" for 'provisioning'. (iii) The person with the normalised owner_email
+      becomes TENANT_ADMIN at their first sign-in through the tenant's own realm with email_verified true, by the
+      existing binding. No realm role, no user row and no token is created for the owner. The amendment needs a
+      recorded decision (an amendment section in 0048 or a new record) and REVIEWER and SECURITY-REVIEWER sign-off
+      before implementation (open question 8). Where this departs from POST /onboarding: onboarding keeps the tenant
+      and answers 201 with administrator.state not_stored when the grant insert fails; the front door has no such
+      field, so here a failed grant after the tenant commit answers 500 internal_error, the tenant, its schema and its
+      provisioning row stay (provisioning a schema is a step separate from the tenants row and is not undone), and a
+      repeated POST with the same tenant_id completes the grant (criterion 6). (7) The tenant is
+      created with no idp_realm_id, as POST /onboarding does when it is absent; the realm is bound later by the
+      existing operator route, and until then nobody can sign in. login_url is built from the deployment's public
+      base URL (LETFLOW_PUBLIC_BASE_URL, config/runtime.exs) and the tenant slug; how a person reaches a
+      per-tenant login page is part of open question 1 and the criterion pins only the field's presence and shape.
+      (8) Rate limit: a fixed window per credential of 60 requests per 60 seconds, in a counter local to the node
+      (ETS); the 61st request in the window answers 429 with the Retry-After header in whole seconds. The numbers
+      are a default, to be tuned (open question 5).
+      Out of scope: realm creation or binding, the welcome e-mail (open question 7), any delete or data purge,
+      retention, rotation of the credential, a console or web screen, mobile, and the front door itself.
+      SECURITY-REVIEWER is mandatory (a new credential, a tenant creation path outside the OIDC pipeline, decision
+      0046 D4). Tests that will move: the route and scope pins listed in the letflow-domain skill (a new forward in
+      lib/letflow/router.ex outside ApiPipeline may not move the api route pins, which the implementer must state with
+      the grep over test/ for __authz_routes__, tenant_wide_default_routes.txt and the length pins), the tenant-table
+      pins are NOT moved because tenant_lifecycles is global.
+    acceptance_criteria:
+      - "1. Off when unconfigured: with LETFLOW_PROVISIONER_CREDENTIAL_SHA256 unset or blank, each of POST /admin/v1/tenants, GET /admin/v1/tenants/:id, POST /admin/v1/tenants/:id/suspend, /resume, /expire and DELETE /admin/v1/tenants/:id answers 404 with a body byte-identical to the body of a request to an unmatched path, with or without an Authorization header; no row is written."
+      - "2. Credential check: with the variable set to the SHA-256 of a value V, a request with header Authorization: Bearer V is accepted; a request with no header, a malformed header, a wrong value, or a valid PLATFORM_ADMIN OIDC token in the header answers 401 with body {\"error\": \"unauthorized\", \"message\": <text>} and writes nothing. The 401 body does not differ between the missing and the wrong value. The comparison uses a constant-time function (the test names it)."
+      - "3. Narrowness (negative tests): the credential V sent to any path outside /admin/v1 (GET /api/v1/tenants, GET /api/v1/identity/users, POST /api/v1/tenants, GET /api/v1/instances, and one route from every router mounted in lib/letflow/plugs/api_pipeline.ex that the test enumerates) answers 401 or the route's normal unauthenticated answer and never 200; no /admin/v1 route returns any row of a tenant schema (instances, tasks, users, records, files), any user, any token or any e-mail address; there is no /admin/v1 route that creates, lists or revokes a credential or an API token, or lists tenants; a PLATFORM_ADMIN OIDC token sent to /admin/v1 is refused (criterion 2)."
+      - "4. Create: POST /admin/v1/tenants with a body {tenant_id: <uuid>, name: \"Acme\", language: \"en\", tier: \"demo\", owner_email: \"a@b.example\"} and the credential answers 201 with exactly the keys tenant_id, status (\"active\"), server_url (the deployment public base URL, LETFLOW_PUBLIC_BASE_URL) and handover, where handover is {login_url}; this is the body of the portfolio contract v0.1 (the task brief's shorter {tenant_id, status, login_url} differs, open question 9); afterwards the tenants table holds a row with id equal to tenant_id, slug \"t-\" followed by the 32 hex digits, display_name \"Acme\", tenant_type \"test\", idp_realm_id NULL; tenant_lifecycles holds lifecycle \"active\", tier \"demo\", language \"en\"; the tenant's schema is provisioned and migrated (Letflow.TenantOnboarding.provision_and_migrate/1 returned {:ok, _}) and tenant_lifecycles.owner_grant_stored is true. Tier \"production\" gives tenant_type \"production\". Database state is checked by a test, not only the response."
+      - "5. Validation: each of the following answers 400 {\"error\": \"invalid_request\", \"message\": <text naming the field, not echoing the value>} and writes nothing: tenant_id not a uuid; name blank or longer than 200 characters; language not ru, kk or en; tier not demo or production; owner_email not ASCII, longer than 254 characters or failing the pending-grant address check used by POST /onboarding; expires_at present with tier production; expires_at not an ISO 8601 UTC time or not in the future; an unknown key in the body; a body that is not a JSON object. A tenant_id in a path that is not a uuid answers 404 not_found."
+      - "6. Idempotence and conflict: when tenant_lifecycles.owner_grant_stored is true, a second POST with the same tenant_id answers 200 with the same body as the 201 and changes no row (updated_at of both rows unchanged, no second pending grant, no second audit entry), including when name, tier, language or owner_email differ from the first call; when owner_grant_stored is false the repeat is governed by criterion 7 instead; two concurrent POSTs with one tenant_id yield exactly one 201 and one 200 and one tenant row. A POST whose derived slug is already used by a tenant with a different id answers 409 {\"error\": \"conflict\", ...}. A repeated suspend on a suspended tenant, resume on an active tenant, and expire on an expired tenant answer 200 with the current status and change nothing."
+      - "7. First administrator by pending grant: after a create with owner_email \"Owner@Example.com\", the tenant holds exactly one open pending TENANT_ADMIN grant keyed by the normalised address (trim and lower-case, decision 0048 section 1 item 2), and no user, group membership or role row was written for it; when a user then signs in with the tenant's realm and a verified e-mail equal to the address, the existing binding makes that user TENANT_ADMIN (the test may use the existing grant-binding test helpers); a user with the same address but email_verified false is not bound. The grant row carries created_via \"provisioning\" (the migration widening the CHECK to onboarding and provisioning is applied and a test inserts both values and refuses a third), the platform-chain entry platform.tenant_admin_grant.created has a nil actor and created_via \"provisioner\", the tenant-chain entry has a nil actor, and PendingAdminGrants.create/3 is unchanged (its test still passes). The grant insert and the owner_grant_stored update are one transaction. If the grant cannot be stored (the test makes create_provisioned/2 return an error through an injection the implementer names, for example an application-env test hook read by the provisioning router; dropping the table inside the request is not possible because the same request creates the schema), the create answers 500 {\"error\": \"internal_error\", \"message\": <text>}, the tenant row, its schema and its tenant_lifecycles row (owner_grant_stored false) remain, and no e-mail address is logged; a repeated POST with the same tenant_id once the failure is gone answers 200 and the tenant then holds exactly one grant, while a repeat whose own grant insert fails again answers 500 internal_error in the same shape and leaves owner_grant_stored false. The tenant-chain entries of bind and revoke (tenant.admin_grant.bound, tenant.admin_grant.revoked) take created_via from the grant row: \"platform_operator_onboarding\" for a row with created_via 'onboarding' and \"provisioner\" for 'provisioning'; the bind entry of a provisioned grant carries created_via \"provisioner\", and the existing onboarding pins (test/letflow/identity/pending_admin_binding_test.exs, pending_admin_grants_test.exs) stay unchanged and green. The grant is written in the new tenant's own schema and in no other: with tenants A and B provisioned, A's create leaves B's grants table unchanged. No log line, audit entry or response body of any /admin/v1 route contains the owner_email (checked by a log-capture test)."
+      - "8. Suspend, resume, expire map to deactivate and reactivate: suspend on an active tenant answers 200 {status: \"suspended\"}, the tenants row has status :inactive, lifecycle \"suspended\", and the tenant's own users are then refused by the existing tenant-status gate (a request with a tenant token answers 403 tenant_inactive); resume on a suspended tenant answers 200 {status: \"active\"} and the gate admits them again; expire on an active or suspended tenant answers 200 {status: \"expired\"}, the row has status :inactive and lifecycle \"expired\", and every row of its schema is still present (a count before and after); resume on an expired tenant answers 409 conflict and changes nothing; suspend on an expired tenant answers 409 conflict. The platform tenant (slug bpm-default) answers 409 conflict on suspend and expire (Identity.deactivate_tenant/1 returns :platform_tenant_protected) and the response does not say that it is the platform tenant. An unknown or non-provisioned tenant id (a tenant created through POST /tenants has no tenant_lifecycles row) answers 404 not_found on every route, and the body is byte-identical for both cases (INV-5)."
+      - "9. Delete is refused: DELETE /admin/v1/tenants/:id for a provisioned tenant answers 409 {\"error\": \"conflict\", \"message\": <text saying delete is not supported>} and changes nothing (the tenants row, tenant_lifecycles row, schema and realm binding are all unchanged, counted by a test); for an unknown id it answers 404 not_found. No response and no stored value of any route ever carries status \"deleted\". A comment in the router's moduledoc cites open question 2 as the reason."
+      - "10. Read: GET /admin/v1/tenants/:id answers 200 with exactly the keys tenant_id, status (active | suspended | expired), tier, created_at, expires_at (null when none), where status is the lifecycle column; two reads of the same tenant answer the same body; the body carries no slug, no realm, no e-mail, no counts, no settings."
+      - "11. Rate limit: with the default window, the 61st request within 60 seconds with the credential answers 429 {\"error\": \"rate_limited\", \"message\": <text>} with a Retry-After header holding a whole number of seconds between 1 and 60, and writes nothing; the next window admits again (the test injects the clock). A request without a valid credential does not consume the credential's budget and is not counted against it (the unauthorized flood cannot lock the front door out)."
+      - "12. Error shape: every non-2xx answer of the six routes is a JSON object with exactly the keys error and message, and error is one of invalid_request, unauthorized, rate_limited, not_found, conflict ; an unexpected failure (for example the database is down, or the failed grant of criterion 7) answers 500 {\"error\": \"internal_error\", \"message\": <text>}, the one code outside the contract list, named in the moduledoc, and no stack, SQL or e-mail address appears (INV-8)."
+      - "13. Security record: the moduledoc of the new router lists the invariants kept (INV-1 and INV-6 no tenant row is read or returned, and the only tenant-prefix writes are the schema provisioning and the one grant insert, under a prefix derived from the new tenant id (criterion 7); INV-2 the response keys are an allowlist; INV-4 only a hash is configured; INV-5 criterion 8; INV-8 criterion 12; INV-10 the credential is bound to no tenant and cannot reach a tenant route) and decision 0046 D4 (no PLATFORM_ADMIN in a customer tenant: the provisioner is not a role and creates none). A cross-tenant negative test: with two provisioned tenants A and B, suspend and expire of A leave B's lifecycle, status and data unchanged, and no /admin/v1 response for A contains any value stored for B."
+      - "14. Process: the PR records a SECURITY-REVIEWER verdict in its Gates block before merge; the migrations are additive (a new table; the grants CHECK widened to also allow provisioning, no row changed) and the implementer states how a database that already holds tenants is handled (no backfill; tenants without a provisioning row are invisible to /admin/v1); mix letflow.check_requirements_registration and test/letflow/ci_backend_path_filter_test.exs pass with real output quoted; docs/runbooks gets one short section on the credential variable (name, hash form, off when unset) without any secret value."
+    open_questions:
+      - "1. Realm for a provisioned tenant (owner): (a) limited Keycloak admin client, (b) one shared demo realm for many tenants (the permanent 1:1 tenant-to-realm binding of decision 0006 R5 and 0048 section 2 would have to change), (c) a pool of pre-made realms the front door claims; production tenants may differ from demo ones. Until decided, a provisioned tenant has no realm and nobody can sign in; this requirement does not settle it."
+      - "2. Delete (owner, operators): may a tenant be deleted at all, or only deactivated? A person's data may have to be erased on request. Today there is no capability (no schema drop, no realm release); criterion 9 refuses DELETE until this is decided."
+      - "3. Retention after expiry (owner): how long an expired tenant's data is kept before a delete is allowed."
+      - "4. Where the front door keeps the credential and how it is rotated (infra; security, so the owner). This requirement supports one hash value in the environment and no rotation."
+      - "5. Abuse limits (next-team and product operators): the 60 per 60 seconds per credential is a default; the per-visitor limit belongs to the front door."
+      - "6. May a provisioner create a tier production tenant (tenant_type production), given REQ-469 lets only a PLATFORM_ADMIN of the platform tenant set it? SECURITY-REVIEWER and owner."
+      - "7. Who sends the welcome e-mail: the contract proposes the front door; this requirement sends none."
+      - "8. Amendment of decision 0048 section 1 item 3 (REVIEWER, SECURITY-REVIEWER, owner): a pending grant may then be created by a second path, the provisioner, with created_via 'provisioning' and a nil actor in both audit chains. A decision record or an amendment section in 0048 must be recorded before implementation; the alternative is to keep one path and have the front door's tenant created by a platform operator, which defeats the narrow credential."
+      - "9. The 201 body: the portfolio contract v0.1 gives {tenant_id, status, server_url, handover: {login_url}} (followed here); the task brief gave {tenant_id, status, login_url}. The contract owner confirms the contract shape."
+    depends_on: [REQ-075, REQ-447]
   - id: REQ-571
     title: "Per-tenant print-template overrides (decision 0068 D8) slice S1: closed layout schema, validator and pure PDF renderer with an embedded Unicode font; no table, no route"
     owner: ELIXIR-DEV
@@ -40518,3 +40633,79 @@ requirements:
       - "9. SECURITY-REVIEWER verdict is recorded (mandatory: INV-2 projection boundary, template injection and active content, error and log content) and REVIEWER verdict is recorded; a source-scanning test or lint that reads files by name, if the developer adds one, appears in the PR summary together with the grep for existing tests that scan lib/letflow/documents/."
       - "10. mix letflow.check_requirements_registration and the static checks (mix letflow.check.static) pass with real output quoted, and the added tests (S1-schema, S1-text-only, S1-glyph, D5-redact and those of criteria 6 and 7) pass with real output quoted."
     depends_on: [REQ-564, REQ-550, REQ-542]
+  - id: REQ-574
+    title: "Extension points in module processes slice X1: manifest declaration of points, point checks in Catalog.validate/1 and activation check for sites (decision 0071 D9 X1, no route, no table, no run-time dispatch)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3256
+    # Source: docs/migration/decisions/0071-extension-points-in-module-processes.md (D1 "Not settled by the source", D3 table rows for module.ex, catalog.ex and graph.ex, D4 refusals, D8, D9 slice X1, OP-6); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D4 (precedent for rejecting keys); docs/migration/decisions/0053-tenant-scripted-rules.md D1 (key format); docs/agents/instructions/security-invariants.md (INV-1, INV-8); code read: lib/letflow/modules/module.ex (manifest type), lib/letflow/modules/catalog.ex (validate/2, rules 7 to 12), lib/letflow/modules/manifest_hash.ex (surface/1), lib/letflow/definitions.ex (run_semantic_validation/2, activate/2, interpret_activate_result/1), lib/letflow/definitions/graph.ex (Violation, validate_flow/1), lib/letflow/definitions/process_definition.ex (name, owner_module, owner_module_version). Written by the business analyst (T-0562) 2026-10-25. Not yet validated.
+    description: >
+      Source: decision 0071 D1 and D9 slice X1; core roadmap "Customization beyond scripts", bullet
+      "extension points in module processes".
+      The problem. Decision 0071 D1 says an extension point is a named site that a module VERSION declares in
+      its manifest against one of its own process definitions; a tenant never creates one. On main nothing of
+      this exists (`grep -rni extension_point lib` prints nothing, 0071 "What main already has"). Slice X1 is the
+      declaration and its checks only: later slices add the attachment table and routes (X2), run-time dispatch
+      (X3), upgrade handling (X4), pinning (X5) and the entity-write kind (X6). X1 is the first slice because
+      every later one needs a validated declaration to attach to.
+      What this slice builds.
+      (1) A new OPTIONAL manifest key `:extension_points` in the manifest type of lib/letflow/modules/module.ex.
+      Each point is a map with `name` (binary matching `^[a-z][a-z0-9_]{0,63}$`, the script-key format of 0053 D1;
+      unique within the module version), `kind` (closed set, one value: `"script_step"`), `site` (a map with
+      `definition`, the name of one of the module's own process definitions, `node_id`, a node id of that
+      definition's graph, and `position`, closed set, one value: `"after"`), `input` (a list of variable names
+      handed to the attachment) and `returns` (a map of variable name to type name that the attachment may
+      return). Absent or `[]` is valid.
+      (2) A new rule 13 in `Letflow.Modules.Catalog.validate/2` (lib/letflow/modules/catalog.ex), run after rule
+      12. It checks the SHAPE of the declaration only and returns, first one found:
+      `{:invalid_extension_points, value}` (the key is not a list, or an element is not a map with exactly the
+      five keys above, or `name`, `kind`, `site.position` or the types of `input` and `returns` are outside the
+      shapes above), `{:duplicate_extension_point, name}` (two points of one manifest share a name),
+      `{:unknown_extension_point_kind, kind}` (a `kind` not in the closed set).
+      (3) The site activation check in lib/letflow/definitions/graph.ex: a new public function
+      `Graph.check_extension_sites/2` taking a graph and the list of points of the module version that owns the
+      definition, returning a list of `Graph.Violation` (new code `:extension_site_unknown_node`, added to the
+      `Violation.code` type) with one violation per point whose `site.definition` equals this definition's name
+      and whose `site.node_id` is not a node id of the graph. `Letflow.Definitions.run_semantic_validation/2`
+      (lib/letflow/definitions.ex) appends its result to the violations it already collects, only when the
+      definition row has `owner_module` set and a registered manifest has that id and a `version` equal to the
+      row's `owner_module_version`; otherwise it appends nothing. The refusal therefore reaches the caller
+      through the existing `{:error, {:semantic_validation_failed, violations}}` of `Definitions.activate/2`,
+      which `interpret_activate_result/1` and the activation router already pass through; no new error shape,
+      route or response function is added.
+      What this slice does NOT build. No route and no change to any router or to the route inventory. No table
+      and no migration (the attachment table is X2). No run-time dispatch and no change to lib/letflow/engine.ex,
+      the engine's dispatcher or pin modules. No attach or detach, no permission and no change to
+      priv/permission_matrix/effective.golden. No upgrade-plan handling (X4). No change to the module's
+      process-definition row or pack document. `Letflow.Modules.ManifestHash.surface/1` does not cover the new
+      key in this slice: whether the declaration belongs in the manifest hash (and so in the owner stamp that
+      the upgrade logic compares) is not settled by 0071; it is for X4 to decide and is listed under
+      open_questions. No feature flag is added: a declaration with no attachment has no run-time effect.
+      Also not checked in X1: (a) 0071 D1/D5 say `returns` is a subset of the variables the module already
+      declares; rule 13 cannot see the per-tenant variable schemas, so X1 only checks the SHAPE of `returns`
+      (a map of binary to binary) and the subset check belongs to the slice that binds an attachment (X2/X3);
+      (b) a point whose `site.definition` names no process definition of the module is not refused, because
+      `Catalog.validate/2` cannot see the pack and the activation check ignores points aimed at other
+      definitions.
+      Existing modules. No manifest in the production config (config/config.exs) declares `:extension_points`,
+      so every production module validates and activates exactly as today; the new activation check does
+      nothing for a definition whose owner module declares no points. The only registered manifest that
+      declares points is the test fixture of criterion 6.
+    open_questions:
+      - "OP-6 of decision 0071 (owner question): manifest shape, point-name prefix, point checks and the site activation check. Options in 0071: checks in Catalog.validate/1 plus graph.ex activation, or checks in the manifest callback only. This requirement is written at 0071's recommendation (Catalog.validate/1 for names and kinds, graph.ex activation for unknown sites). If the owner decides otherwise, this requirement is revised before it is built. Whether point names carry a module prefix is also under OP-6; this entry does not require one, names are unique within one module version only."
+      - "OP-2 of decision 0071: before or after the site. This entry allows the single position value `after` at 0071's recommendation; a second value is a later change to the closed set."
+      - "Whether the manifest hash covers the declaration is not settled by 0071 (see description); X4 decides."
+      - "The returns-subset rule of 0071 D1/D5 and the check that `site.definition` names a real definition of the module are not done in X1 (see description); X2/X3 decide where they are enforced."
+      - "The 0071 sign-off by SECURITY-REVIEWER and REVIEWER is recorded as pending in the record; this slice touches no tenant-data path, but the owner may want 0071 accepted first."
+    acceptance_criteria:
+      - "In test/letflow/modules/catalog_test.exs, a manifest with `:extension_points` containing two points with the same `name` is refused by `Catalog.validate/1` with exactly `{:error, {:duplicate_extension_point, name}}`, naming the repeated name."
+      - "A point whose `kind` is not `\"script_step\"` is refused with `{:error, {:unknown_extension_point_kind, kind}}`; a point with a `name` outside `^[a-z][a-z0-9_]{0,63}$`, with a `site.position` other than `\"after\"`, with a missing site key, or an `:extension_points` value that is not a list is refused with `{:error, {:invalid_extension_points, value}}`. Each case has its own test."
+      - "A manifest with a valid `:extension_points` list (two distinct names, kind `script_step`, position `after`) is accepted by `Catalog.validate/1`, and rule 13 runs after rule 12: a manifest that fails rule 12 and also has a duplicate point name returns the rule 12 error."
+      - "A module without the key behaves exactly as today: `Catalog.validate/1` returns `:ok` for every manifest of the production module list in config/config.exs (test), `[]` and an absent key give the same result, and `Letflow.Modules.ManifestHash.compute/1` returns the same digest for a manifest with and without a valid `:extension_points` list."
+      - "In test/letflow/definitions/graph_test.exs, `Graph.check_extension_sites/2` called with a graph and a point whose `site.definition` equals the definition's name and whose `site.node_id` is not a node of the graph returns one `Violation` with code `:extension_site_unknown_node`; with a node id that is in the graph it returns `[]`; a point whose `site.definition` names another definition is ignored (returns `[]`)."
+      - "In test/letflow/definitions_test.exs, using a new test-only module under test/support/modules/fixture_points/ that declares one point and is added to the `config :letflow, :modules` list in config/test.exs (the catalog's module list is fixed at compile time, as for the other fixtures under test/support/modules/): `Definitions.activate/2` of a draft whose `owner_module` and `owner_module_version` match that fixture manifest, with a point on a node id that the graph lacks returns `{:error, {:semantic_validation_failed, violations}}` with an `:extension_site_unknown_node` violation, and the definition stays `draft`. The same draft with the point's node id corrected activates (`{:ok, %{already_active: false}}`)."
+      - "A draft with `owner_module` nil, or whose owner module declares no points, or whose `owner_module_version` differs from every registered manifest version, activates exactly as before (test per case); no `:extension_site_unknown_node` violation is produced."
+      - "The change adds no route (the route-inventory and `__authz_routes__` pins in test/ are unchanged), no migration file in priv/repo/migrations/, no change to lib/letflow/engine.ex and no change to priv/permission_matrix/effective.golden; the implementer lists the greps over test/ that show this."
+      - "`mix format`, `mix compile --warnings-as-errors` and `mix letflow.check.static` pass; the moduledoc and `@doc` of `Catalog.validate/2` and the manifest type in module.ex describe rule 13 and the new key."
+    depends_on: [REQ-568, REQ-550, REQ-562]
