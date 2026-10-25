@@ -38834,7 +38834,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-544 -- the purchase request module of slice 1 is not delivered yet
+    gh: 3188
     # Source: docs/WMS/WMS_Procurement_Requirements_Draft.md section 1 ("Process boundaries", "Implementation boundary"), section 2 (role "Procurement officer"; paragraph "BPM and module contract"), section 3 (PR-04, PR-05, "Request states"), CS-03 (separation-of-duties rules are configured in BPM); docs/requirements.yaml REQ-474 description point 5 (Counterparty is NOT built); docs/migration/decisions/0057-wms-customer-draft-reconciliation.md D1 (the module owns suppliers and purchase orders; masters carry a nullable external_ref) and D6 (the handler checks the outcome contract, never the route); docs/migration/decisions/0056-versioned-documents.md D9 (refusals are counted, not audited per attempt); docs/guides/adding-an-application-module.md; docs/requirements.yaml entry REQ-544 (the slice-1 module this one extends). Written by the business analyst (T-0462) 2026-10-25. Not yet validated.
     description: >
       Second procurement slice of the WMS module family (draft section 3). It extends the purchase request module
