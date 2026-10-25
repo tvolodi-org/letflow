@@ -369,6 +369,36 @@ mail_adapter =
               "(none only for a loopback host and never in :prod)."
   end
 
+# REQ-572 / GH 3252 (decision 0072 D6): the tenant provisioner credential, QA only. ALL variables are
+# OPTIONAL and unset writes nothing (`/admin/v1` then answers 404). Only SHA-256 hashes are configured,
+# never the credential. Every raise names the variable, never a value (INV-4). Parsed by the single
+# parser Letflow.TenantProvisioner.Config.
+provisioner_env =
+  ~w(LETFLOW_PROVISIONER_CREDENTIAL_SHA256 LETFLOW_PROVISIONER_READONLY_CREDENTIAL_SHA256
+     LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS
+     LETFLOW_PUBLIC_BASE_URL)
+  |> Map.new(fn name -> {name, System.get_env(name)} end)
+
+case Letflow.TenantProvisioner.Config.parse(provisioner_env, config_env()) do
+  {:ok, provisioner_parsed} ->
+    if provisioner_parsed.auth != [] do
+      config :letflow, Letflow.Plugs.ProvisionerAuth, provisioner_parsed.auth
+    end
+
+    if provisioner_parsed.provisioner != [] do
+      config :letflow, Letflow.TenantProvisioner, provisioner_parsed.provisioner
+    end
+
+    if provisioner_parsed.public_base_url do
+      config :letflow, :provisioner_public_base_url, provisioner_parsed.public_base_url
+    end
+
+  {:error, provisioner_var} ->
+    raise "environment variable #{provisioner_var} is invalid; the value is not echoed. The " <>
+            "credential variables take 64 lowercase hex characters (a SHA-256), and the write " <>
+            "and read hashes must differ."
+end
+
 # ISS-0993 / ISS-0994 (design iss0993-platform-scope-separation.md section 3): OPTIONAL
 # LETFLOW_PLATFORM_TENANT_ID, the tenants.id UUID of the platform tenant (not a secret,
 # never echoed). Unset, empty or whitespace writes nothing (config/config.exs default
