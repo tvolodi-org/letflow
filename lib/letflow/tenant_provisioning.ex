@@ -849,6 +849,10 @@ defmodule Letflow.TenantProvisioning do
     # for existing tenants; no row altered.
     {20_261_025_300_001, Letflow.Repo.Migrations.CreateLabelOverrides,
      "20261025300001_create_label_overrides.exs"},
+    # REQ-565 / GH #3201: tenant integration mappings (one table, no credential column). Empty for
+    # existing tenants; no row altered.
+    {20_261_025_400_001, Letflow.Repo.Migrations.CreateIntegrationMappings,
+     "20261025400001_create_integration_mappings.exs"},
     # REQ-561 / GH #3194: tenant-defined scheduled jobs (one empty table per tenant schema).
     {20_261_026_100_001, Letflow.Repo.Migrations.CreateScheduledJobs,
      "20261026100001_create_scheduled_jobs.exs"}

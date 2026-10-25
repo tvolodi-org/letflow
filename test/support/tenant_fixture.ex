@@ -163,6 +163,7 @@ defmodule Letflow.TenantFixture do
     "group_members",
     "groups",
     "help_content",
+    "integration_mappings",
     "instance_attachments",
     "instance_definition_snapshots",
     "instance_projections",
