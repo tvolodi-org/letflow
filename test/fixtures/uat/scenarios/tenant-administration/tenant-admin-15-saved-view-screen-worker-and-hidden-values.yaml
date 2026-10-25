@@ -1,0 +1,166 @@
+# T-0599 (BA): TENANT ADMIN group, scenario 15: the record list screen for a person who may not manage views, and the hidden value in a saved column.
+# Covers REQ-556 criterion 3 (a user without the view permission sees the chooser but no save or delete control; the administrator sees both) and
+# criterion 4 (a stored column whose value the server hides is shown as nothing, not as a value). Criterion 1 and 2 are also exercised for the worker
+# (a chosen view gives its list). The refusal: the worker cannot save or delete a view, and a worker cannot read a hidden value through a view.
+# Sources: docs/requirements.yaml REQ-556 criteria 3 and 4, REQ-555; web/src/pages/entities/EntityListBrowserPage.tsx (canManage from the view
+# permission; a hidden value is shown as an empty cell); web/src/components/entities/EntityViewBar.tsx (the save and delete controls exist only for a
+# manager); docs/roles.md (EntitiesViewsManage: tenant administrator and platform administrator only; EntitiesQuery: also task worker);
+# test/fixtures/uat/scenarios/tenant-administration/matrix-0-prepare-process-and-data.yaml (record type "UAT payee", protected field "bank account", values
+# "UAT-ACCT-0001" and "UAT-ACCT-0002", invented); test/fixtures/uat/actors.yaml (alice: SwiftRoute TENANT_ADMIN; lena: SwiftRoute task worker).
+# The hiding of the field is a server rule that the screen only shows; the exact refusals of the routes are in scenarios 13 and in restricted-fields-1.
+# The four sensitive actions: "see sensitive data" is in this flow (step 4 is the accepted view choice, step 5 is the refusal for the bank account values,
+# step 6 shows the administrator's sight); "change users", approve and pay are not in this flow.
+# The English texts depend on the browser language; the translated texts are checked in scenario 14.
+---
+id: tenant-administration-15-saved-view-screen-worker-and-hidden-values
+scope: tenant-administration
+title: A task worker sees the saved views but cannot save or delete one, and a protected value stays hidden when a saved view lists its column
+version: "1.0"
+tags: [tenant-admin, saved-views, gui, record-list, refusal, sensitive-data, restricted-field]
+
+description: >
+  The administrator of SwiftRoute saves the view "UAT payee overview" of the record type "UAT payee" with the columns name and bank account. The
+  bank account field is protected, so that anyone but the administrator sees it masked. A SwiftRoute task worker opens the list screen of the type and
+  finds the chooser with the view, but no "Save as view", no name box and no "Delete view". The worker chooses the view: the column bank account is
+  listed, but its cells show nothing, not the number and not a stand-in that looks like a number. The administrator opens the same view and sees both
+  invented numbers. The administrator then deletes the view.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  worker: actor-swiftroute-lena
+
+preconditions:
+  - description: tenant-administration matrix-0 passed in this run for SwiftRoute (record type "UAT payee" with the fields name and bank account, the bank account protected, two payee records "Payee One" with "UAT-ACCT-0001" and "Payee Two" with "UAT-ACCT-0002", invented values)
+    check: custom
+    detail: If matrix-0 did not run, or the bank account is not protected, the scenario is BLOCKED, not PASS. The protection is a server rule; this scenario does not set it.
+  - description: The SwiftRoute task worker may read the records of "UAT payee" and holds no right on the bank account field; no saved view of "UAT payee" exists
+    check: custom
+    detail: If the worker may not read the type, the list is empty and the report says so; the controls in step 2 are still judged. If a view of the type exists from an earlier run, the administrator deletes it first and the report says so.
+  - description: The browser used has English as its language
+    check: system_seeded
+    detail: The English texts of the screen depend on it. If the browser language cannot be set, the scenario is BLOCKED, not PASS.
+  - description: The SwiftRoute administrator holds the view permission; the SwiftRoute worker does not
+    check: system_seeded
+    detail: Per the role matrix, only the tenant administrator and the platform operator hold it.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator opens the list screen of the record type "UAT payee", ticks the columns name and bank account only, types the view name "UAT payee
+      overview" and presses "Save as view". The administrator notes the controls shown and the list.
+    via: gui
+    input:
+      view_name: UAT payee overview
+  - step: 2
+    actor: worker
+    action: >
+      The task worker opens the list screen of the record type "UAT payee" and notes what the view chooser offers and which of these exist on the screen:
+      "Save as view", the view-name box, "Delete view".
+    via: gui
+  - step: 3
+    actor: worker
+    action: >
+      The task worker looks for any way on the screen to save a view or to delete the view "UAT payee overview" (the chooser, the columns, the page) and
+      notes that none is offered.
+    expect_refusal: true
+    via: gui
+  - step: 4
+    actor: worker
+    action: >
+      The task worker chooses the view "UAT payee overview" and notes the columns and which records are listed.
+    via: gui
+  - step: 5
+    actor: worker
+    action: >
+      The task worker tries to read the bank account of "Payee One" and of "Payee Two" in the column of the chosen view, and looks over the whole screen for
+      "UAT-ACCT-0001" and "UAT-ACCT-0002". The worker notes what each cell of the column bank account holds.
+    expect_refusal: true
+    via: gui
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator opens the list screen, chooses the view "UAT payee overview" and notes the columns, the records and the cells of the column bank
+      account.
+    via: gui
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator deletes the view "UAT payee overview" (presses "Delete view" and confirms) and notes the chooser.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator sees the save and delete controls and the saved view appears with its columns.
+    verification:
+      method: gui_screen
+      detail: After step 1 the controls "Save as view", the name box and "Delete view" are shown; the chooser holds "UAT payee overview", chosen; the columns name and bank account are shown.
+      evidence: Screen after step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot maintain the saved views of a record type.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A task worker sees the view chooser with the saved view, and no control to save or delete a view.
+    verification:
+      method: gui_screen
+      detail: In step 2 the chooser holds "(no view)" and "UAT payee overview"; "Save as view", the view-name box and "Delete view" are not on the screen at all (not merely greyed out).
+      evidence: Screen after step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A person without the right is offered controls that cannot work, or cannot use the views of the company.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The worker has no way on the screen to save or delete a view.
+    verification:
+      method: gui_screen
+      detail: In step 3 no control, menu entry or shortcut on the screen saves or deletes a view; the view "UAT payee overview" is still chosen-able afterwards and appears in the administrator's chooser in step 6.
+      evidence: Screens of the search in step 3, and the chooser of step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A person without the right could change what the company's users see.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Choosing the view gives the worker its list with the columns of the view.
+    verification:
+      method: gui_screen
+      detail: After step 4 the columns name and bank account are shown, and "Payee One" and "Payee Two" are listed.
+      evidence: Screen after step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A task worker cannot use the saved views of the company.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The worker is refused the protected bank account values; the column shows no value.
+    verification:
+      method: gui_screen
+      detail: In step 5 every cell of bank account is empty, and neither "UAT-ACCT-0001" nor "UAT-ACCT-0002" appears anywhere on the screen.
+      evidence: Screen after step 5 (the whole screen, not only the cells).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A saved view would reveal a protected bank account number to a person who may not see it.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: The administrator, who holds the right on the field, sees both invented numbers in the same view.
+    verification:
+      method: gui_screen
+      detail: After step 6 the cell of bank account reads "UAT-ACCT-0001" for Payee One and "UAT-ACCT-0002" for Payee Two.
+      evidence: Screen after step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: The protection hides the value from the person who is meant to see it, so the check in step 5 proves nothing.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: The administrator deletes the view and the chooser no longer holds it.
+    verification:
+      method: gui_screen
+      detail: After step 7 the chooser holds "(no view)" only.
+      evidence: Screen after step 7.
+    on_fail:
+      severity: MINOR
+      business_impact: A test view stays behind in the company's list.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The view is deleted in step 7; if the run stopped earlier the administrator deletes "UAT payee overview" on the screen. The record type "UAT payee" and its protection stay as prepared by matrix-0.

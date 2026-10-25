@@ -46,6 +46,7 @@ defmodule Letflow.Scripts.Runtime do
   alias Letflow.Scripts.Validation
 
   @hook_kind "service_task"
+  @form_hook_kind "form_validation"
 
   @type binding_reason ::
           :script_not_published
@@ -90,41 +91,65 @@ defmodule Letflow.Scripts.Runtime do
 
   @doc """
   The `script_lookup` closure for `prefix`: one query of `script_rules` by `(key, version)`.
-  `{:ok, %{resolved_id, version, sha256}}` ONLY for a `published` `service_task` version;
-  absent, draft, discarded, retired and revoked are all `{:error, :not_found}` (D1: a retired
-  version gets no new pins).
+  `{:ok, %{resolved_id, version, sha256, hook_kind}}` ONLY for a `published` `service_task`
+  version, or a `published` `form_validation` version while `Letflow.Scripts.form_validation_enabled?/0`
+  holds (REQ-569); absent, draft, discarded, retired and revoked are all `{:error, :not_found}` (D1: a
+  retired version gets no new pins). `hook_kind` lets the pin resolver check the kind against the
+  node type that binds it.
   """
   @spec pin_lookup(String.t()) ::
           (String.t(), pos_integer() ->
-             {:ok, %{resolved_id: String.t(), version: String.t(), sha256: String.t()}}
+             {:ok,
+              %{
+                required(:resolved_id) => String.t(),
+                required(:version) => String.t(),
+                required(:sha256) => String.t(),
+                optional(:hook_kind) => String.t()
+              }}
              | {:error, :not_found})
   def pin_lookup(prefix) when is_binary(prefix) do
     fn key, version ->
       with true <- Validation.key?(key) and is_integer(version) and version > 0,
-           %ScriptRule{status: :published, hook_kind: @hook_kind} = rule <-
-             Repo.get_by(ScriptRule, [key: key, version: version], prefix: prefix) do
+           %ScriptRule{status: :published, hook_kind: hook_kind} = rule <-
+             Repo.get_by(ScriptRule, [key: key, version: version], prefix: prefix),
+           true <- pinnable_kind?(hook_kind) do
         {:ok,
-         %{resolved_id: rule.id, version: Integer.to_string(rule.version), sha256: rule.sha256}}
+         %{
+           resolved_id: rule.id,
+           version: Integer.to_string(rule.version),
+           sha256: rule.sha256,
+           hook_kind: rule.hook_kind
+         }}
       else
         _ -> {:error, :not_found}
       end
     end
   end
 
+  defp pinnable_kind?(@hook_kind), do: true
+  defp pinnable_kind?(@form_hook_kind), do: Letflow.Scripts.form_validation_enabled?()
+  defp pinnable_kind?(_other), do: false
+
   # ── activation refusal (design 4.5) ─────────────────────────────────────────
 
   @doc """
-  The activation check (D2). For every `(key, version)` bound by a SERVICE_TASK node, in graph
-  node order: a key already bound with a different version is `:script_version_conflict`;
-  the row is read `FOR SHARE` (so a concurrent retire, which locks it `FOR UPDATE`, waits);
-  anything but a `published` `service_task` version is `:script_not_published`; then the
+  The activation check (D2). For every `(key, version)` bound by a SERVICE_TASK node
+  (`script_key`/`script_version`, a `service_task` version) or a HUMAN_TASK node
+  (`validation_script_key`/`validation_script_version`, a `form_validation` version, REQ-569), in
+  graph node order: a key already bound with a different version is `:script_version_conflict`
+  (any mix of node types); the same key and version bound by the other node type is
+  `:script_not_published` at the later node (one row has one kind); the row is read `FOR SHARE`
+  (so a concurrent retire, which locks it `FOR UPDATE`, waits);
+  anything but a `published` version of the node type's kind is `:script_not_published` (a
+  `form_validation` version also needs `Letflow.Scripts.form_validation_enabled?/0`); then the
   closed output schema (C11a). Declared `reads` are allowed
   (7c-2) and re-checked on every run (`prepare_run/3`). Last (GH #2587 PR A1b, design 2A.2
   L9): a declared `input_schema` property in the reserved engine namespace
   (`VariableMerge.reserved_key?/1`) is `{:expression_references_reserved_variable, [ref]}`,
   `ref` naming the node and the property (`location: :script_input`), because
   `ScriptInput.build/4` reads declared inputs as exact flat keys. The first failing node is
-  reported. Then the restriction flow (decision 0062 R5a, R12): `:script_output_restriction_widened`
+  reported. Then the restriction flow (decision 0062 R5a, R12), SERVICE_TASK only (a validation
+  hook writes nothing, decision 0067 D4): `:script_output_restriction_widened`
   and `:service_task_restricted_variable_reference`. MUST run inside the caller's transaction.
   """
   @spec check_bindings(Graph.t(), String.t()) ::
@@ -135,16 +160,15 @@ defmodule Letflow.Scripts.Runtime do
               [Letflow.Definitions.ReservedReferences.reserved_reference()]}}
   def check_bindings(%Graph{nodes: nodes}, prefix) when is_binary(prefix) do
     nodes
-    |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
     |> Enum.reduce_while({:ok, %{}}, fn node, {:ok, seen} ->
-      case script_binding(node.attributes) do
+      case node_binding(node) do
         nil ->
           {:cont, {:ok, seen}}
 
-        {key, version} ->
-          case check_one_binding(seen, key, version, prefix) do
+        {key, version, kind} ->
+          case check_one_binding(seen, key, version, prefix, kind) do
             :ok ->
-              {:cont, {:ok, Map.put(seen, key, version)}}
+              {:cont, {:ok, Map.put(seen, key, {version, kind})}}
 
             {:reserved_input, property} ->
               {:halt,
@@ -162,6 +186,16 @@ defmodule Letflow.Scripts.Runtime do
       {:error, _} = error -> error
     end
   end
+
+  defp node_binding(%{node_type: :SERVICE_TASK, attributes: attributes}) do
+    with {key, version} <- script_binding(attributes), do: {key, version, @hook_kind}
+  end
+
+  defp node_binding(%{node_type: :HUMAN_TASK, attributes: attributes}) do
+    with {key, version} <- validation_binding(attributes), do: {key, version, @form_hook_kind}
+  end
+
+  defp node_binding(_node), do: nil
 
   # ── restriction flow (decision 0062 R5a, R12; part 3) ────────────────────────
 
@@ -293,15 +327,28 @@ defmodule Letflow.Scripts.Runtime do
 
   defp script_binding(_attributes), do: nil
 
-  defp check_one_binding(seen, key, version, prefix) do
-    case Map.fetch(seen, key) do
-      {:ok, ^version} -> :ok
-      {:ok, _other} -> {:error, :script_version_conflict}
-      :error -> check_binding_row(key, version, prefix)
+  defp validation_binding(attributes) when is_map(attributes) do
+    case Map.get(attributes, "validation_script_key") do
+      key when is_binary(key) and key != "" ->
+        {key, Map.get(attributes, "validation_script_version")}
+
+      _ ->
+        nil
     end
   end
 
-  defp check_binding_row(key, version, prefix) do
+  defp validation_binding(_attributes), do: nil
+
+  defp check_one_binding(seen, key, version, prefix, kind) do
+    case Map.fetch(seen, key) do
+      {:ok, {^version, ^kind}} -> :ok
+      {:ok, {^version, _other_kind}} -> {:error, :script_not_published}
+      {:ok, {_other_version, _kind}} -> {:error, :script_version_conflict}
+      :error -> check_binding_row(key, version, prefix, kind)
+    end
+  end
+
+  defp check_binding_row(key, version, prefix, kind) do
     rule =
       if Validation.key?(key) and is_integer(version) and version > 0 do
         Repo.one(
@@ -314,10 +361,12 @@ defmodule Letflow.Scripts.Runtime do
       end
 
     case rule do
-      %ScriptRule{status: :published, hook_kind: @hook_kind, manifest: manifest} ->
-        if closed_output_schema?(manifest),
-          do: check_reserved_inputs(manifest),
-          else: {:error, :script_output_schema_open}
+      %ScriptRule{status: :published, hook_kind: ^kind, manifest: manifest} ->
+        cond do
+          not pinnable_kind?(kind) -> {:error, :script_not_published}
+          closed_output_schema?(manifest) -> check_reserved_inputs(manifest)
+          true -> {:error, :script_output_schema_open}
+        end
 
       _absent_or_not_published ->
         {:error, :script_not_published}
@@ -349,7 +398,8 @@ defmodule Letflow.Scripts.Runtime do
   # ── retire block (design 4.5, C19) ───────────────────────────────────────────
 
   @doc """
-  Whether an ACTIVE process definition binds `(key, version)`: one query over
+  Whether an ACTIVE process definition binds `(key, version)` (a SERVICE_TASK `script_key` pair or a
+  HUMAN_TASK `validation_script_key` pair): one query over
   `process_definitions` (through the leaf schema module, no call into the
   `Letflow.Definitions` context) with the jsonb containment document passed as a BOUND
   parameter (INV-7).
@@ -361,9 +411,23 @@ defmodule Letflow.Scripts.Runtime do
       "nodes" => [%{"attributes" => %{"script_key" => key, "script_version" => version}}]
     }
 
+    validation_document = %{
+      "nodes" => [
+        %{
+          "attributes" => %{
+            "validation_script_key" => key,
+            "validation_script_version" => version
+          }
+        }
+      ]
+    }
+
     Repo.exists?(
       from(d in ProcessDefinition,
-        where: d.status == :active and fragment("? @> ?", d.graph, type(^document, :map))
+        where:
+          d.status == :active and
+            (fragment("? @> ?", d.graph, type(^document, :map)) or
+               fragment("? @> ?", d.graph, type(^validation_document, :map)))
       ),
       prefix: prefix
     )
