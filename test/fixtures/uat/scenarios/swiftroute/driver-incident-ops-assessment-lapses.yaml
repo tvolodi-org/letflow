@@ -1,5 +1,5 @@
 # Authored by BA-SWIFTROUTE for T-0322 (process audit T-0295, finding 3). Definition:
-# test/fixtures/qa/swiftroute_incident_process_definition.json v1.1: ops-assessment (role-ops-manager,
+# test/fixtures/qa/swiftroute_incident_process_definition.json v1.2: ops-assessment (role-ops-manager,
 # P1D) -> escalate-ops-assessment-to-ceo (role-ceo, P1D) -> ops-auto-close notice, which rejoins the
 # join without marking the incident assessed. Sensitive action covered: approving (step 5 refusal).
 #
@@ -58,6 +58,9 @@ steps:
     actor: accountant
     action: Completes the finance estimate of the incident in time.
     via: api
+    input:
+      estimated_cost_eur: 950
+      finance_notes: "One pallet written off."
 
   - step: 3
     actor: system
@@ -80,8 +83,11 @@ steps:
     actor: ceo
     action: >
       Tries to complete the escalated assessment after it has timed out.
+      The assessment notes are supplied, so the refusal can only be about the closed task.
     expect_refusal: true
     via: api
+    input:
+      assessment_notes: "Assessment attempted after the deadline."
 
 expected_outcomes:
   - id: EO-001
@@ -105,8 +111,8 @@ expected_outcomes:
       method: instance_state
       detail: >
         After step 4: ops-auto-close ran, no ops assessment values exist on the incident,
-        case-summary ran and instance status == COMPLETED. The step 5 attempt is refused
-        because the task is closed.
+        case-summary ran and instance status == COMPLETED. The step 5 attempt is refused with 409 "task is not pending"
+        (not 422: the value is supplied), because the task is closed.
     on_fail:
       severity: MAJOR
       business_impact: >

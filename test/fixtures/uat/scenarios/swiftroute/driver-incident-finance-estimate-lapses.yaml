@@ -1,5 +1,5 @@
 # Authored by BA-SWIFTROUTE for T-0322 (process audit T-0295, finding 3). Definition:
-# test/fixtures/qa/swiftroute_incident_process_definition.json v1.1: finance-estimate
+# test/fixtures/qa/swiftroute_incident_process_definition.json v1.2: finance-estimate
 # (role-accountant, P1D) -> escalate-finance-estimate-to-ceo (role-ceo, P1D) -> finance-auto-close
 # notice, which rejoins the join without marking the incident costed. Sensitive action covered:
 # approving/costing (step 5 refusal).
@@ -59,6 +59,8 @@ steps:
     actor: ops_manager
     action: Completes the operations assessment of the incident in time.
     via: api
+    input:
+      assessment_notes: "One pallet damaged by shifting load; carrier at fault."
 
   - step: 3
     actor: system
@@ -81,8 +83,11 @@ steps:
     actor: ceo
     action: >
       Tries to complete the escalated finance estimate after it has timed out.
+      The estimated cost is supplied, so the refusal can only be about the closed task.
     expect_refusal: true
     via: api
+    input:
+      estimated_cost_eur: 950
 
 expected_outcomes:
   - id: EO-001
@@ -106,8 +111,8 @@ expected_outcomes:
       method: instance_state
       detail: >
         After step 4: finance-auto-close ran, no cost estimate exists on the incident,
-        case-summary ran and instance status == COMPLETED. The step 5 attempt is refused
-        because the task is closed.
+        case-summary ran and instance status == COMPLETED. The step 5 attempt is refused with 409 "task is not pending"
+        (not 422: the value is supplied), because the task is closed.
     on_fail:
       severity: MAJOR
       business_impact: >
