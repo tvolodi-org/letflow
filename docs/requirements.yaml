@@ -40918,7 +40918,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-571 -- the slice calls Letflow.Documents.PrintLayout.validate/3, whose register entry REQ-571 is still pending
+    gh: 3289
     # Source: docs/migration/decisions/0068-per-tenant-print-template-overrides.md (D3 storage and the C3-manage test text, D5 field restrictions, D7 authority and audit, D8 "S2 Storage, management API and audit", Open owner questions Q1, Q3, Q4, "Tests the implementation slices must add", Threats for SECURITY-REVIEWER); docs/migration/decisions/0056-versioned-documents.md D4 (column-aware immutability trigger, priv/repo/migrations/20261022100002_create_document_immutability_triggers.exs) and D9 (audit shape); docs/requirements.yaml REQ-571 (Letflow.Documents.PrintLayout in lib/letflow/documents/print_layout.ex, validate/3 and the violation shape); lib/letflow/routers/documents.ex (the /documents router and its authz_put/authz_post form); lib/letflow/documents/hold.ex (an audit-in-transaction writer, action names such as "document.hold_set"); lib/letflow/documents.ex (check_restricted reads entity_field_restrictions); lib/letflow/api/authorization.ex (core permission list, last entry :NotificationTemplatesManage of REQ-563); docs/roles.md; test/support/tenant_fixture.ex (@expected_tenant_tables). Written by the business analyst (T-0638) 2026-10-26. Not yet validated.
     description: >
       Slice S2 of decision 0068 (docs/migration/decisions/0068-per-tenant-print-template-overrides.md, D8).
