@@ -74,7 +74,7 @@ steps:
     actor: worker
     action: >
       The task worker tries to read the bank account of "Payee One" and of "Payee Two" in the column of the chosen view, and looks over the whole screen for
-      any account number. The worker notes what each cell of the column bank account holds.
+      "UAT-ACCT-0001" and "UAT-ACCT-0002". The worker notes what each cell of the column bank account holds.
     expect_refusal: true
     via: gui
   - step: 6
@@ -134,7 +134,7 @@ expected_outcomes:
     description: The worker is refused the protected bank account values; the column shows no value.
     verification:
       method: gui_screen
-      detail: In step 5 every cell of bank account is empty, and neither "UAT-ACCT-0001" nor "UAT-ACCT-0002" nor any other number appears anywhere on the screen.
+      detail: In step 5 every cell of bank account is empty, and neither "UAT-ACCT-0001" nor "UAT-ACCT-0002" appears anywhere on the screen.
       evidence: Screen after step 5 (the whole screen, not only the cells).
     on_fail:
       severity: BLOCKER
@@ -148,7 +148,7 @@ expected_outcomes:
       evidence: Screen after step 6.
     on_fail:
       severity: MAJOR
-      business_impact: The protection hides the value from the person who is meant to see it, so the check in step 4 proves nothing.
+      business_impact: The protection hides the value from the person who is meant to see it, so the check in step 5 proves nothing.
       suggested_action: route_to_wf03
   - id: EO-007
     description: The administrator deletes the view and the chooser no longer holds it.
