@@ -25,6 +25,13 @@ defmodule Letflow.Routers.Webhooks do
   `getDeliveries/2`) and `web/src/types/api.ts`'s `WebhookSubscription` and
   `WebhookDeliveryAttempt` types.
 
+  ## Outbound mapping link (REQ-565 slice 2)
+
+  `PATCH .../subscriptions/:id` also accepts `outbound_mapping_id` (a uuid of an outbound
+  integration mapping of the tenant, or `null` to clear). A body that contains the key needs
+  `:IntegrationMappingsManage` as well (403 "insufficient permissions" otherwise, checked before
+  any database access); a refused id is one 422 for inbound, other-tenant, unknown and malformed ids.
+
   ## Delivery attempts (REQ-184)
 
   `GET /api/v1/webhooks/subscriptions/:id/deliveries` reads rows persisted by
@@ -109,8 +116,10 @@ defmodule Letflow.Routers.Webhooks do
 
   use Letflow.Api.AuthorizedRouter
 
+  alias Letflow.Api.Authorization
   alias Letflow.Api.Pagination
   alias Letflow.Api.Response
+  alias Letflow.PlatformTenant
   alias Letflow.Webhooks
   alias Letflow.Webhooks.Delivery
   alias Letflow.Webhooks.Subscription
@@ -175,11 +184,13 @@ defmodule Letflow.Routers.Webhooks do
   # ── PATCH /webhooks/subscriptions/:id (design §3.3) ───────────────────────
 
   defp handle_update(conn, id) do
-    with {:ok, body} <- object_body(conn) do
+    with {:ok, body} <- object_body(conn),
+         :ok <- authorize_link(conn, body) do
       attrs =
         %{}
         |> maybe_put(body, "status", :status)
         |> maybe_put(body, "is_active", :is_active)
+        |> maybe_put(body, "outbound_mapping_id", :outbound_mapping_id)
 
       case Webhooks.update(id, attrs, conn.assigns.scoped_opts) do
         {:ok, subscription} ->
@@ -194,13 +205,41 @@ defmodule Letflow.Routers.Webhooks do
         {:error, :invalid_status} ->
           Response.bad_request(conn, "status/is_active is missing or invalid")
 
+        {:error, :invalid_mapping} ->
+          Response.unprocessable(conn, "invalid outbound_mapping_id")
+
         {:error, %Ecto.Changeset{}} ->
           Response.unprocessable(conn, "unable to update webhook subscription")
       end
     else
       {:error, :malformed_json} ->
         Response.bad_request(conn, "request body must be a JSON object")
+
+      {:error, :forbidden} ->
+        # Same detail as Letflow.Plugs.Authorize's deny (INV-5: one uniform 403).
+        Response.forbidden(conn, "insufficient permissions")
     end
+  end
+
+  # Linking a mapping is a mapping-administration act: a body that carries the key (even null)
+  # needs :IntegrationMappingsManage on top of the route's :WebhooksManage. Other fields do not.
+  defp authorize_link(conn, body) do
+    if Map.has_key?(body, "outbound_mapping_id") and
+         not holds?(conn, :IntegrationMappingsManage),
+       do: {:error, :forbidden},
+       else: :ok
+  end
+
+  # Recomputed from the DB-resolved auth context (never a request value).
+  defp holds?(conn, permission) do
+    context = conn.assigns.auth_context
+    platform_tenant? = PlatformTenant.platform_tenant?(Map.get(context, :tenant_id))
+
+    Authorization.has_permission_in_scope?(
+      Authorization.effective_roles(Map.get(context, :roles, []), platform_tenant?),
+      permission,
+      platform_tenant?
+    )
   end
 
   # ── DELETE /webhooks/subscriptions/:id (design §3.4) ──────────────────────
@@ -304,7 +343,8 @@ defmodule Letflow.Routers.Webhooks do
       "last_attempt_at" => iso8601(subscription.last_attempt_at),
       "last_failure_at" => iso8601(subscription.last_failure_at),
       "paused_at" => iso8601(subscription.paused_at),
-      "created_at" => iso8601(subscription.created_at)
+      "created_at" => iso8601(subscription.created_at),
+      "outbound_mapping_id" => subscription.outbound_mapping_id
     }
   end
 

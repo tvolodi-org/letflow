@@ -5,7 +5,8 @@ defmodule Letflow.Routers.IntegrationMappings do
   `:IntegrationMappingsManage` (TENANT_ADMIN and PLATFORM_ADMIN only).
 
     * `POST /` -- 201 with the mapping; `GET /` -- 200 `{"items": [...]}` ordered by name.
-    * `GET /:id`, `PUT /:id` (replaces name, direction and rules), `DELETE /:id` (204).
+    * `GET /:id`, `PUT /:id` (replaces name, direction and rules), `DELETE /:id` (204, or a fixed 409
+    while a webhook subscription still links the mapping).
 
   The permission check runs before any handler, so a caller without it sees one identical 403 for an
   existing and an absent id (INV-5). A holder gets one fixed 404 for an absent, malformed or
@@ -64,6 +65,8 @@ defmodule Letflow.Routers.IntegrationMappings do
 
   defp error(conn, {:invalid, _code}),
     do: Response.unprocessable(conn, "invalid integration mapping")
+
+  defp error(conn, :in_use), do: Response.conflict(conn, "integration mapping is in use")
 
   defp error(conn, :internal), do: Response.internal_error(conn)
 
