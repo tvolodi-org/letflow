@@ -90,6 +90,9 @@ defmodule Letflow.Webhooks.Subscription do
     field(:last_failure_at, :utc_datetime)
     field(:paused_at, :utc_datetime)
     field(:created_at, :utc_datetime)
+    # REQ-565 slice 2: the linked outbound integration mapping, or nil (unmapped delivery).
+    # No foreign key; see `Letflow.Webhooks.update/3`.
+    field(:outbound_mapping_id, :binary_id)
   end
 
   @type t :: %__MODULE__{
@@ -105,7 +108,8 @@ defmodule Letflow.Webhooks.Subscription do
           last_attempt_at: DateTime.t() | nil,
           last_failure_at: DateTime.t() | nil,
           paused_at: DateTime.t() | nil,
-          created_at: DateTime.t()
+          created_at: DateTime.t(),
+          outbound_mapping_id: Ecto.UUID.t() | nil
         }
 
   @doc """
@@ -160,6 +164,16 @@ defmodule Letflow.Webhooks.Subscription do
     subscription
     |> cast(attrs, [:status, :paused_at])
     |> validate_required([:status])
+  end
+
+  @doc """
+  Structural changeset for linking or clearing the outbound integration mapping (REQ-565 slice 2).
+  Casts exactly `:outbound_mapping_id`; the caller has already proven the mapping exists, is
+  outbound and belongs to the tenant.
+  """
+  @spec link_changeset(t(), attrs :: map()) :: Ecto.Changeset.t()
+  def link_changeset(subscription, attrs) do
+    cast(subscription, attrs, [:outbound_mapping_id])
   end
 
   @doc """
