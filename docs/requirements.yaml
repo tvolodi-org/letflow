@@ -40264,7 +40264,7 @@ requirements:
       - "Whether the feature flag is later replaced by the per-tenant script policy once F-3 is built is not decided here; F-3 states it. The flag is removed or kept by the requirement that makes the hook run."
     depends_on: [REQ-559]
 
-  - id: REQ-570
+  - id: REQ-571
     title: "Per-tenant print-template overrides (decision 0068 D8) slice S1: closed layout schema, validator and pure PDF renderer with an embedded Unicode font; no table, no route"
     owner: ELIXIR-DEV
     status: pending
@@ -40279,7 +40279,7 @@ requirements:
       permission, no audit event and no call into Letflow.Repo; storage, management API and audit are slice
       S2, resolution at issue is slice S3, the web editor is S4, the Kazakhstan forms are S5 and are NOT in
       this entry. Nothing in lib/letflow/modules/exam/ changes: certificate_document.ex keeps rendering
-      with the pdf library (decision 0033).
+      with the pdf library and its Latin-1 path (decision 0033). The change appends an amendment to decision 0033 (see THE FONT).
       WHERE IT LIVES. New module Letflow.Documents.PrintLayout in lib/letflow/documents/print_layout.ex,
       with helper modules under lib/letflow/documents/print_layout/ as the developer sees fit. Public
       functions, fixed here so the later slices can cite them:
@@ -40311,7 +40311,7 @@ requirements:
       one bundled font file, DejaVu Sans Regular, added at priv/fonts/DejaVuSans.ttf together with its
       licence text at priv/fonts/DejaVuSans.LICENSE (Bitstream Vera licence, which allows embedding and
       redistribution). The whole font program is embedded (no subsetting) as a Flate stream. The
-      font key accepted in a layout is "dejavu-sans" and nothing else. If the developer finds that the
+      font key accepted in a layout is "dejavu-sans" and nothing else. DECISION 0033: the addendum of docs/migration/decisions/0033-pdf-qr-rendering-dependencies.md (ISS-0679) decided no new font-embedding code and says to re-open it when the Latin-1 limit is revisited; decision 0068 D2 says the first slice spikes the font path through an amendment of 0033. So this change appends an amendment to 0033 that re-opens the ISS-0679 addendum, records the hand-built CID-font path in Letflow.Documents.PrintLayout, the font file priv/fonts/DejaVuSans.ttf and its licence, and the reason 0068 D2 gives, and states that certificate_document.ex keeps the pdf Latin-1 path; REVIEWER signs the amendment. The renderer choice is therefore not settled by this entry alone. If the developer finds that the
       font file does not map every letter of the RU alphabet and of Ә Ғ Қ Ң Ө Ұ Ү Һ І (both cases),
       the work stops and is reported in findings; no other font is substituted silently.
       RULES OF THE OUTPUT. The output has no JavaScript, no OpenAction, no AA, no Launch, no URI or
@@ -40343,13 +40343,13 @@ requirements:
       NOT IN THIS ENTRY: any table, migration, trigger, route, permission, audit event, role change,
       resolution order, pinned columns on document_versions, tenant byte store or image block (S2, S3);
       a web editor (S4); any official Kazakhstan form wording (S5, Q1); any change to
-      lib/letflow/modules/exam/, to decision 0033 or to mix.exs; the tests C3-render, C3-manage,
+      lib/letflow/modules/exam/ or to mix.exs, and any change to decision 0033 other than the amendment named above; the tests C3-render, C3-manage,
       D5-later-restriction, D4-pinned, S2-* and S3-*, which belong to later slices.
     open_questions:
       - "Q2 and Q5 of decision 0068 are recorded above as assumptions, to be confirmed by the process owner; if the owner picks a template language (Q2 b) this slice's schema is replaced by a new record."
       - "Whether the repository may carry a 700 KB font file in priv/fonts (embedded whole in every PDF) or the owner wants subsetting later; this slice embeds the whole font and a later requirement may subset."
     acceptance_criteria:
-      - "1. Letflow.Documents.PrintLayout.validate/3 and render/4 exist in lib/letflow/documents/print_layout.ex with the signatures and the violation shape %{rule: atom, path: list} of the description; neither calls Letflow.Repo, reads the clock, the environment or the network (checked by a test that scans the module files for Repo, DateTime, System and :httpc), and git diff shows no change under priv/repo/, lib/letflow/routers/, lib/letflow/modules/ or mix.exs; the only added non-Elixir file is the font and its licence under priv/fonts/."
+      - "1. Letflow.Documents.PrintLayout.validate/3 and render/4 exist in lib/letflow/documents/print_layout.ex with the signatures and the violation shape %{rule: atom, path: list} of the description; neither calls Letflow.Repo, reads the clock, the environment or the network (checked by a test that scans the module files for Repo, DateTime, System and :httpc), and git diff shows no change under priv/repo/, lib/letflow/routers/, lib/letflow/modules/ or mix.exs; the only added non-Elixir, non-test files are the font and its licence under priv/fonts/ and the appended amendment to docs/migration/decisions/0033-pdf-qr-rendering-dependencies.md, which re-opens the ISS-0679 addendum, records the CID-font path in Letflow.Documents.PrintLayout, the font file and licence and the reason of 0068 D2, states that certificate_document.ex keeps the pdf Latin-1 path, and is signed by REVIEWER."
       - "2. Test S1-schema: validate returns :ok for a layout using each of the five block types; and returns {:error, violations} with a distinct rule and the exact path for each of: an unknown block type, an unknown key on a block (url, href, script, expr, if), a missing or repeated page block, layout_schema_version other than 1, a literal over 500 characters, more than 200 blocks, more than 12 columns, and a font other than dejavu-sans. A literal containing the text http://example.test and the text {{x.y}} is accepted and, after render, appears unchanged in the extracted page text and no value is substituted."
       - "3. Test S1-text-only: for a layout whose literals include /JavaScript, /JS (alert(1)), /Launch, /URI (http://example.test) and /OpenAction, the bytes of the rendered PDF, searched both raw and after inflating every Flate stream, contain none of the names /JavaScript, /JS, /Launch, /URI, /OpenAction, /AA, /GoTo, /GoToR, /SubmitForm, /AcroForm, /EmbeddedFile, /Annots; the document information dictionary has no /CreationDate, /ModDate or /Producer."
       - "4. Test S1-glyph: render of a layout whose literal text and field values contain a RU sample (the whole upper- and lower-case Russian alphabet) and a KK sample (Ә Ғ Қ Ң Ө Ұ Ү Һ І and their lower-case letters), all marked as test samples, returns {:ok, bytes}; the text recovered from the PDF through its ToUnicode CMap equals the input text exactly and contains no question mark that the input did not contain; a field value with a character the font has no glyph for (a code point outside the font's cmap, chosen by the test from the font) returns {:error, [%{rule: :unsupported_glyph, path: path}]} and the inspected error contains no part of that value."
