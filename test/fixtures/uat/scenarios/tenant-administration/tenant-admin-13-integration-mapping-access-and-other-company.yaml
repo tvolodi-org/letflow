@@ -16,7 +16,7 @@
 id: tenant-administration-13-integration-mapping-access-and-other-company
 scope: tenant-administration
 title: Only the administrator may use integration mappings, a refusal does not reveal whether a mapping exists, and one company never sees another's
-version: "1.0"
+version: "1.1"
 tags: [tenant-admin, integration-mappings, refusal, access, cross-tenant, isolation]
 
 description: >
@@ -67,7 +67,7 @@ steps:
   - step: 5
     actor: tenant_admin_b
     action: >
-      The Bilimbaga administrator lists the mappings, reads E, reads M, tries to replace E (a valid new body), tries to replace M, tries to remove
+      The Bilimbaga administrator reads E, reads M, tries to replace E (a valid new body), tries to replace M, tries to remove
       E and tries to remove M. Each answer (status, body and content type) is noted.
     expect_refusal: true
     via: api
@@ -100,7 +100,7 @@ expected_outcomes:
     description: A task worker, the read-only auditor and a process operator are refused on all five routes.
     verification:
       method: http_status
-      detail: Every one of the eight requests in each of steps 2, 3 and 4 answers 403. No mapping is created, changed or removed by them, and the list of step 7 shows only the administrators' mappings.
+      detail: Every one of the eight requests in each of steps 2, 3 and 4 answers 403. No mapping is created, changed or removed by them, and the list of step 7 shows no mapping stored by them.
       evidence: The 24 refusal answers of steps 2 to 4.
     on_fail:
       severity: BLOCKER
@@ -120,7 +120,7 @@ expected_outcomes:
     description: For the administrator of another company, a mapping of SwiftRoute gets the same fixed not-found answer as a number that never existed, for read, replace and remove.
     verification:
       method: http_status
-      detail: In step 5 the answers for E and for M are 404 and equal in status, body and content-type header for read, replace and remove (three pairs). The list of step 5 does not contain "only-swiftroute".
+      detail: In step 5 the answers for E and for M are 404 and equal in status, body and content-type header for read, replace and remove (three pairs). The list of step 6 does not contain "only-swiftroute".
       evidence: The answers of step 5.
     on_fail:
       severity: BLOCKER

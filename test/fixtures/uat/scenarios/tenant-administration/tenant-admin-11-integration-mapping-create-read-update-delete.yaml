@@ -13,7 +13,7 @@
 id: tenant-administration-11-integration-mapping-crud
 scope: tenant-administration
 title: The administrator creates, lists, reads, replaces and removes integration mappings, and every change is in the audit log
-version: "1.0"
+version: "1.1"
 tags: [tenant-admin, integration-mappings, audit]
 
 description: >
@@ -28,7 +28,7 @@ actors:
   tenant_admin: actor-swiftroute-alice
 
 preconditions:
-  - description: SwiftRoute is set up with its administrator; SwiftRoute has no integration mapping named "partner-orders-out", "partner-orders-in", "inert-text" or "largest"
+  - description: SwiftRoute is set up with its administrator; SwiftRoute has no integration mapping named "partner-orders-out", "partner-orders-out-v2", "partner-orders-in", "inert-text" or "largest" (other mappings in the company do not matter, because this scenario judges only the mappings it names)
     check: system_seeded
     detail: If one exists, the administrator removes it first (a mapping that a webhook subscription still uses cannot be removed; then report BLOCKED for the steps that name it) and notes that in the report.
 
@@ -85,7 +85,7 @@ steps:
   - step: 9
     actor: tenant_admin
     action: >
-      Clean-up: the administrator removes "partner-orders-out-v2", "inert-text" and "largest", and asks for the list.
+      Clean-up: the administrator removes, by the numbers noted, only "partner-orders-out-v2", "inert-text" and "largest", and asks for the list.
     via: api
 
 expected_outcomes:
@@ -103,7 +103,7 @@ expected_outcomes:
     description: The list and the single reading show the company's own mappings as stored, ordered by name.
     verification:
       method: api_response
-      detail: In step 3 the list answers 200 with exactly the two mappings, "partner-orders-in" before "partner-orders-out", and each reading (200) equals the answer to its creation in name, direction and rules.
+      detail: In step 3 the list answers 200 and, among the mappings this scenario names, has exactly "partner-orders-in" then "partner-orders-out" in that order (other mappings of the company are ignored), and each reading (200) equals the answer to its creation in name, direction and rules.
       evidence: The list and the two readings.
     on_fail:
       severity: MAJOR
@@ -143,7 +143,7 @@ expected_outcomes:
     description: A removed mapping is gone, and removing answers with no content.
     verification:
       method: http_status
-      detail: In step 7 the removal answers 204, asking for the removed mapping answers 404, and the list no longer has "partner-orders-in". The clean-up in step 9 answers 204 three times and the final list is empty.
+      detail: In step 7 the removal answers 204, asking for the removed mapping answers 404, and the list no longer has "partner-orders-in". The clean-up in step 9 answers 204 three times and the final list has none of the mappings this scenario stored (other mappings are ignored).
       evidence: The answers of steps 7 and 9.
     on_fail:
       severity: MAJOR

@@ -4,13 +4,15 @@
 # Sources: docs/requirements.yaml REQ-565 criteria 2, 3, 9; lib/letflow/routers/integration_mappings.ex (every validation failure is the same 422 and
 # "echoes no value"); lib/letflow/integration_mappings.ex (name 1..100 characters, direction, rule keys to/from/const/required, "required" only with
 # "from", a const is a string, number, boolean or null, path parts of letters, digits, underscore and hyphen).
-# A name already used by another mapping is refused too (criterion 2); it is step 3.
+# A name already used by another mapping is refused too (criterion 2); it is step 5.
+# Steps marked expect_refusal contain only requests that are refused; every request that must be accepted is a step of its own (steps 3, 4, 8, 12, 14).
+# The scenario judges only the mappings it names; mappings of other scenarios or earlier runs in the company are neither counted nor removed.
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
 ---
 id: tenant-administration-12-integration-mapping-validation-refusals
 scope: tenant-administration
 title: A mapping with a bad name, direction, size, path or rule is refused with one answer and nothing is stored
-version: "1.0"
+version: "1.1"
 tags: [tenant-admin, integration-mappings, refusal, validation]
 
 description: >
@@ -18,53 +20,75 @@ description: >
   characters, a name already in use, a direction that is neither outbound nor inbound, 101 rules, a path of 9 parts, a path of more than 200
   characters, a rule with neither a source nor a fixed value or with both, a path part that is empty or contains a space, a code-like
   text, a rule with an unknown key, two rules writing the same place, a rule writing inside another rule's place, and a replacement that breaks
-  the same rules. All are refused with the same answer, which repeats none of the values sent, and the company's list shows only the good mapping.
+  the same rules. All are refused with the same answer, which repeats none of the values sent, and the company's list shows none of the refused
+  mappings. The limits themselves (a name of 100 characters, a path of 8 parts, rules writing to sibling places) are accepted in steps of their own.
 
 actors:
   tenant_admin: actor-swiftroute-alice
 
 preconditions:
-  - description: SwiftRoute is set up with its administrator; SwiftRoute has no integration mapping named "good-one"
+  - description: SwiftRoute is set up with its administrator; SwiftRoute has no integration mapping named "good-one", "second-one", "eight-parts" or "two-places", and none whose name is the letter n repeated 100 times
     check: system_seeded
-    detail: If one exists, remove it first and note that in the report.
+    detail: If one exists, remove it first and note that in the report. Other mappings in the company do not matter to this scenario.
 
 steps:
   - step: 1
     actor: tenant_admin
     action: >
       The administrator stores a mapping named "good-one", direction outbound, with one rule: copy "a.b" to "x.y". The administrator notes the
-      mapping number.
+      mapping number (G).
     via: api
   - step: 2
     actor: tenant_admin
     action: >
-      The administrator tries to store a mapping with an empty name, then one whose name has 101 characters, then one with a name of exactly
-      100 characters (for the report: this one is accepted; the administrator notes its number and removes it at the end). Each answer is noted.
+      The administrator tries to store a mapping with an empty name, then one whose name is the letter n written 101 times in a row
+      (nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn). Each mapping has direction outbound and
+      one valid rule. Each answer is noted.
     expect_refusal: true
     via: api
   - step: 3
     actor: tenant_admin
     action: >
-      The administrator tries to store a second mapping named "good-one" (outbound, one valid rule), and tries to rename a second valid mapping to
-      "good-one". For the second try the administrator first stores a valid mapping named "second-one" and notes its number. Each refusal is noted.
-    expect_refusal: true
+      The administrator stores a mapping whose name is the letter n written exactly 100 times in a row
+      (nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn), direction outbound, one valid rule.
+      The administrator notes the answer and the mapping number (N).
     via: api
   - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator stores a valid mapping named "second-one" (outbound, one valid rule) and notes its number (S).
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator tries to store another mapping named "good-one" (outbound, one valid rule), and tries to rename "second-one" (number S) to
+      "good-one" with a valid body. Each refusal is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
     actor: tenant_admin
     action: >
       The administrator tries to store a valid mapping with the direction "both", then with the direction "OUTBOUND", then with no direction. Each
       answer is noted.
     expect_refusal: true
     via: api
-  - step: 5
+  - step: 7
     actor: tenant_admin
     action: >
-      The administrator tries to store a mapping of 101 rules (the rules write to "k1" up to "k101" a fixed text "v"). The administrator then
-      tries a source path of 9 parts ("a.b.c.d.e.f.g.h.i"), then a source path of 8 parts (accepted, noted), then a destination path of 9 parts,
-      then a source path of 201 characters (letters and dots, parts valid). Each answer is noted.
+      The administrator tries to store a mapping of 101 rules (the rules write the fixed text "v" to "k1" up to "k101"). The administrator then
+      tries a source path of 9 parts ("a.b.c.d.e.f.g.h.i"), then a destination path of 9 parts, then a source path that is one single part of
+      201 letters "a" with no dot
+      (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);
+      only its length is wrong. Each answer is noted.
     expect_refusal: true
     via: api
-  - step: 6
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator stores a mapping named "eight-parts", outbound, with one rule: copy the source path "a.b.c.d.e.f.g.h" (8 parts) to "out".
+      The administrator notes the answer and the mapping number (P).
+    via: api
+  - step: 9
     actor: tenant_admin
     action: >
       The administrator tries these single rules, one mapping each: a rule with only a destination; a rule with a source and a fixed value
@@ -72,42 +96,57 @@ steps:
       fixed value that is an object. Each answer is noted.
     expect_refusal: true
     via: api
-  - step: 7
+  - step: 10
     actor: tenant_admin
     action: >
       The administrator tries these source paths, one mapping each: "a..b" (empty part), "a b" (space), "a.$(x)", "a.{{x}}", "$.items[?(@.price>1)]",
       "a.#{1+1}", "a/b". Each answer is noted.
     expect_refusal: true
     via: api
-  - step: 8
+  - step: 11
     actor: tenant_admin
     action: >
       The administrator tries a mapping with two rules that write to the same place ("out.id" twice), then one whose rules write to "out" and to
-      "out.id" (one place inside the other), then one that writes to "out.id" and "out.name" (accepted, noted). Each answer is noted.
+      "out.id" (one place inside the other). Each answer is noted.
     expect_refusal: true
     via: api
-  - step: 9
+  - step: 12
     actor: tenant_admin
     action: >
-      The administrator tries to replace "good-one" with a body that breaks a rule (direction "both"), and then with a body that has 101 rules.
-      Each answer is noted, then the mapping "good-one" is read.
+      The administrator stores a mapping named "two-places", outbound, with two rules: copy "a" to "out.id" and copy "b" to "out.name" (sibling
+      places). The administrator notes the answer and the mapping number (T).
+    via: api
+  - step: 13
+    actor: tenant_admin
+    action: >
+      The administrator tries to replace "good-one" (number G) with a body that breaks a rule (direction "both"), and then with a body that has 101
+      rules. Each answer is noted.
     expect_refusal: true
     via: api
-  - step: 10
+  - step: 14
     actor: tenant_admin
     action: >
-      The administrator asks for the list of mappings and compares it with what was accepted (the good mapping, "second-one", the 100-character
-      name of step 2, the 8-part source path of step 5 and the two-place mapping of step 8). Clean-up follows: the administrator removes every
-      mapping in the list.
+      The administrator reads the mapping "good-one" by its number G.
+    via: api
+  - step: 15
+    actor: tenant_admin
+    action: >
+      The administrator asks for the list of mappings and looks only at the mappings this scenario names: "good-one", "second-one",
+      "eight-parts", "two-places", the mapping with the 100-letter name, and every name tried in the refused steps.
+    via: api
+  - step: 16
+    actor: tenant_admin
+    action: >
+      Clean-up: the administrator removes only the mappings this scenario stored, by the numbers noted: G, N, S, P and T.
     via: api
 
 expected_outcomes:
   - id: EO-001
-    description: Every refused case of steps 2 to 9 gets the same refusal, status 422, with the same body shape.
+    description: Every refused case of steps 2, 5, 6, 7, 9, 10, 11 and 13 gets the same refusal, status 422, with the same body shape.
     verification:
       method: http_status
-      detail: All refusals in steps 2 to 9 are 422 and their bodies are equal in shape (the same fields and the same fixed message), whatever the cause.
-      evidence: The refusal answers of steps 2 to 9.
+      detail: All refusals in those steps are 422 and their bodies are equal in shape (the same fields and the same fixed message), whatever the cause.
+      evidence: The refusal answers of steps 2, 5, 6, 7, 9, 10, 11 and 13.
     on_fail:
       severity: MAJOR
       business_impact: A refusal that differs by cause lets a caller probe the rules, and a different status breaks the screens that handle one refusal.
@@ -116,18 +155,18 @@ expected_outcomes:
     description: A refusal repeats nothing that was sent.
     verification:
       method: api_response
-      detail: No refusal body contains the name, a rule path, a fixed text or any other value sent in that request (for example none of "good-one", "both", "a..b" or the 101-character name).
-      evidence: The refusal answers of steps 2 to 9 searched for the sent values.
+      detail: No refusal body contains the name, a rule path, a fixed text or any other value sent in that request (for example none of "good-one", "both", "a..b" or the 101-letter name).
+      evidence: The refusal answers of steps 2, 5, 6, 7, 9, 10, 11 and 13 searched for the sent values.
     on_fail:
       severity: MAJOR
       business_impact: Values typed by an administrator are echoed in answers and may reach logs.
       suggested_action: route_to_wf03
   - id: EO-003
-    description: The boundaries are exact. 100 characters of name, 100 rules, 8 parts of path and sibling places are accepted; 101 characters, 101 rules, 9 parts and a path over 200 characters are refused.
+    description: The boundaries are exact. 100 characters of name, 8 parts of path and sibling places are accepted; 101 characters, 101 rules, 9 parts and a path over 200 characters are refused.
     verification:
       method: http_status
-      detail: The 100-character name (step 2), the 8-part source path (step 5) and the two-place mapping (step 8) answer 201; the empty name, the 101-character name, the 101 rules, the 9-part source path, the 9-part destination path and the 201-character path answer 422. The 100-rule boundary is accepted in scenario 11.
-      evidence: The answers of steps 2, 5 and 8.
+      detail: The 100-letter name (step 3), the 8-part source path (step 8) and the two-place mapping (step 12) answer 201; the empty name and the 101-letter name (step 2), the 101 rules, the 9-part source path, the 9-part destination path and the single 201-letter part (step 7) answer 422. The 201-letter path has one part, so only the length limit can refuse it. The 100-rule boundary is accepted in scenario 11.
+      evidence: The answers of steps 2, 3, 7, 8 and 12.
     on_fail:
       severity: MINOR
       business_impact: Limits are enforced at the wrong size, so valid mappings are refused or oversized ones are kept.
@@ -136,8 +175,8 @@ expected_outcomes:
     description: A name already used is refused for a new mapping and for a rename, and the existing mapping is unchanged.
     verification:
       method: http_status
-      detail: Both tries of step 3 answer 422; the list of step 10 has exactly one mapping named "good-one", with its first rule (copy "a.b" to "x.y").
-      evidence: The answers of step 3 and the list of step 10.
+      detail: Both tries of step 5 answer 422; in the list of step 15 exactly one mapping is named "good-one" (number G) and the one named "second-one" is still named "second-one"; the reading of step 14 shows the first rule (copy "a.b" to "x.y").
+      evidence: The answers of step 5, the reading of step 14 and the list of step 15.
     on_fail:
       severity: MAJOR
       business_impact: Two mappings with one name make the one a subscription points to ambiguous.
@@ -146,8 +185,8 @@ expected_outcomes:
     description: A direction other than the two exact words "outbound" and "inbound" is refused, including a different letter case and a missing direction.
     verification:
       method: http_status
-      detail: The three answers of step 4 and the replacement of step 9 with the direction "both" are 422.
-      evidence: The answers of steps 4 and 9.
+      detail: The three answers of step 6 and the replacement of step 13 with the direction "both" are 422.
+      evidence: The answers of steps 6 and 13.
     on_fail:
       severity: MAJOR
       business_impact: A mapping with no clear direction is stored and may be applied on the wrong side.
@@ -156,8 +195,8 @@ expected_outcomes:
     description: A rule must have a destination and exactly one of a source or a fixed value; only the four known keys are allowed; "required" belongs to a source rule; a fixed value is text, number, true or false, or null.
     verification:
       method: http_status
-      detail: All six tries of step 6 answer 422.
-      evidence: The answers of step 6.
+      detail: All six tries of step 9 answer 422.
+      evidence: The answers of step 9.
     on_fail:
       severity: MAJOR
       business_impact: Ambiguous or unknown rules are stored, so the body sent to a partner would not be what the administrator meant.
@@ -166,8 +205,8 @@ expected_outcomes:
     description: A path with an empty part, a space, or any character other than letters, digits, underscore and hyphen is refused; code-like text in a path is refused, not interpreted.
     verification:
       method: http_status
-      detail: All seven tries of step 7 answer 422.
-      evidence: The answers of step 7.
+      detail: All seven tries of step 10 answer 422.
+      evidence: The answers of step 10.
     on_fail:
       severity: BLOCKER
       business_impact: A path that is a query or template language could be interpreted as code when a mapping is applied.
@@ -176,8 +215,8 @@ expected_outcomes:
     description: Two rules that write to the same place, or one inside the other, are refused; rules writing to sibling places are accepted.
     verification:
       method: http_status
-      detail: The first two tries of step 8 answer 422; the third answers 201.
-      evidence: The answers of step 8.
+      detail: Both tries of step 11 answer 422; the mapping of step 12 answers 201.
+      evidence: The answers of steps 11 and 12.
     on_fail:
       severity: MAJOR
       business_impact: One rule would overwrite another and the body sent to a partner would depend on rule order.
@@ -186,18 +225,18 @@ expected_outcomes:
     description: A replacement that breaks the rules is refused and the mapping keeps its stored content.
     verification:
       method: api_response
-      detail: The two tries of step 9 answer 422 and the reading of "good-one" still shows its name, direction outbound and the one rule copying "a.b" to "x.y".
-      evidence: The answers and the reading of step 9.
+      detail: The two tries of step 13 answer 422 and the reading of "good-one" in step 14 answers 200 and still shows its name, direction outbound and the one rule copying "a.b" to "x.y".
+      evidence: The answers of step 13 and the reading of step 14.
     on_fail:
       severity: MAJOR
       business_impact: A failed edit leaves a half-changed mapping.
       suggested_action: route_to_wf03
   - id: EO-010
-    description: Nothing refused is stored. Only the accepted mappings are in the company's list.
+    description: Nothing refused is stored. Of the mappings this scenario names, only the accepted ones are in the company's list.
     verification:
       method: api_response
-      detail: The list of step 10 has exactly the mappings accepted (the good mapping, "second-one", the 100-character name, the mapping with the 8-part source path and the two-place mapping), and no other.
-      evidence: The list of step 10.
+      detail: In the list of step 15 the mappings "good-one", "second-one", "eight-parts", "two-places" and the one with the 100-letter name are present, once each; no mapping with an empty name, with the 101-letter name, or with any other name tried in a refused step is present. Other mappings in the list are ignored.
+      evidence: The list of step 15.
     on_fail:
       severity: MAJOR
       business_impact: Refused definitions are stored anyway.
@@ -205,4 +244,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: Remove every integration mapping that SwiftRoute has after the scenario (those the scenario stored).
+  description: Remove the integration mappings this scenario stored (numbers G, N, S, P and T, or by their names) if they are left; remove no other mapping.
