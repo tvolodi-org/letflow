@@ -401,6 +401,7 @@ outcome alone:
 |---|---|
 | `{:error, {:unresolved_conflict, artefact_type, artefact_id}}` | `409`, detail names both (caller-supplied values, safe to echo — same reasoning `render_install/2`'s `key` echo convention uses for caller-submitted identifiers) |
 | `{:error, :empty_artefact_set}` | `422` (route-level pre-check makes this unreachable in practice, same defensive-only status as §3.4) |
+| `{:error, :version_not_newer}` / `{:error, :version_downgrade}` (REQ-573: apply only for the equal case; update-review answers the plan on equal and refuses a downgrade) | `422`, detail is the bare code |
 | Resolution shape validation failures (§4.2) | `422`, field-level, at the route layer before the context function is even called |
 | `common_error()` members | `500`, same treatment as §3.4 |
 | `{:error, {:invalid_resolution, ...}}` | Not reachable through the router (the router's own §4.2 validation rejects a malformed `resolutions[]` entry before the context call) — kept in the type as a defensive contract for a non-HTTP caller (e.g. a future CLI/test harness calling `apply_pack_update/6` directly), same "unreachable via the route, still typed" idiom `render_install/2`'s trailing catch-all documents. |

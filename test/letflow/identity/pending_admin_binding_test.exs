@@ -962,6 +962,33 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
     refute encoded =~ "owner@example.com"
   end
 
+  # REQ-572 / decision 0072 D5(a), test C9: a grant made by the provisioner credential binds like any
+  # other, and its bound entry names the creator class read from the grant row.
+  test "a provisioned grant binds and its bound entry carries the provisioner creator class", %{
+    w: w
+  } do
+    {:ok, key} = PendingAdminGrants.normalize_email("owner@example.com")
+
+    {:ok, grant} =
+      PendingAdminGrants.create_provisioned(key,
+        prefix: w.tenant.schema_name,
+        platform_prefix: w.platform.schema_name
+      )
+
+    assert grant.created_via == "provisioning"
+
+    assert %{result: :bound} = H.login(w, email: "owner@example.com", verified: true)
+    assert [entry] = H.entries(w.tenant.schema_name, "tenant.admin_grant.bound")
+    assert entry.after_state["created_via"] == "provisioner"
+
+    assert [created] = H.entries(w.tenant.schema_name, "tenant.admin_grant.created")
+    assert created.actor_id == nil
+    assert created.after_state["created_via"] == "provisioning"
+
+    assert [platform] = H.entries(w.platform.schema_name, "platform.tenant_admin_grant.created")
+    assert platform.actor_id == nil
+  end
+
   test "the platform bind entry contains only grant_id, tenant_id and bound_user_id and no e-mail",
        %{w: w} do
     grant = H.create_grant!(w, "owner@example.com")
