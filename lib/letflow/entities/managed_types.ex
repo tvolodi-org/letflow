@@ -346,6 +346,15 @@ defmodule Letflow.Entities.ManagedTypes do
   end
 
   @doc """
+  The entity types the `module_writes` lines of one node resolve to through the module catalog
+  (lines it cannot resolve contribute nothing). Used by `Letflow.EntityTypeHooks` to see whether an
+  active definition writes to a type, without naming the handler machinery itself.
+  """
+  @spec module_write_targets([map()]) :: [String.t()]
+  def module_write_targets(lines) when is_list(lines),
+    do: Letflow.Entities.HandlerWrites.registered_targets(lines)
+
+  @doc """
   Takes the transaction-scoped create lock for each of `names` in the tenant schema
   `prefix`: deduplicated, names failing the managed-name format skipped, sorted
   ascending (byte order), one `pg_advisory_xact_lock(496_001, hashtext(...))` each.
