@@ -39420,3 +39420,100 @@ requirements:
     open_questions:
       - "For the process owner: may PROCESS_DESIGNER also create jobs; should a job run as a dedicated service principal instead of its creating user; are the 5-minute minimum interval and the 5-failure automatic disable acceptable. A scheduled job that runs a tenant script needs a new hook kind and a decision record under 0053 D0 and is a later slice."
     depends_on: []
+  - id: REQ-564
+    title: "Tenant-owned record types (core roadmap, Customization beyond scripts), slice 0: decision record for per-type write permission, 0051 scope declaration, module references by id, and generated lists, forms and lookups"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- slice 0 is a decision record; its sources (decisions 0050, 0051, 0053) are accepted and shipped, so it has no pending blocker (check_deferral_staleness S1 may flag it while stage S7 is active)
+    # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (bullet "tenant-owned entity types"); docs/migration/decisions/0053-tenant-scripted-rules.md "Requirement candidates" (a); decisions 0050 (D3 reference contract, D6, D8) and 0051 (D1, D5, D6, D7, D11, D12); code read: lib/letflow/entities/type_access.ex (moduledoc: restriction rows govern access to a type and carry no read/write distinction; authorized?/3), lib/letflow/entities/definition_access.ex (create/3, activate/3), lib/letflow/entities/step_writes.ex (check_type_access/2), lib/letflow/entities/scope_declaration.ex (moduledoc: a declaration is owned by a module, "never read from a tenant definition"; a type no manifest names is :undeclared and returns no data to a scoped caller), lib/letflow/entities/managed_types.ex. Written by the business analyst (T-0493) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap "Customization beyond scripts", bullet "tenant-owned entity types"; decision
+      0053, requirement candidate (a). A tenant-owned type is a record type a tenant creates for itself
+      through the definitions API, fully theirs, with no module owner. Runtime definitions, activation
+      with column promotion, the generic record form and list, per-type access restriction (REQ-394) and
+      per-field restriction (REQ-231) already exist (0053 candidate (a), "What exists today").
+      Five gaps remain (0053, "What is missing"): (1) referencing module record types by id under the
+      0050 reference contract; (2) reference pickers and related lists for tenant-defined relations in
+      the UI; (3) list and form generation beyond the generic form; (4) per-type WRITE permission;
+      (5) a 0051 scope declaration for the tenant type.
+      WHY THIS IS SLICE 0, NOT ONE CHANGE. Gaps (4) and (5) change who may write and which rows a scoped
+      caller sees, on the tenant-data path, and two of their rules are not settled by any source read:
+      (a) The moduledoc of Letflow.Entities.ScopeDeclaration says a declaration is owned by a module and
+      is never read from a tenant definition, so that a tenant cannot declare, widen or remove one;
+      a tenant-owned type is therefore :undeclared today, and a scoped caller gets no data from it. How a
+      tenant type obtains a declaration (a core-owned setting that only the tenant administrator sets,
+      an always-tenant-wide rule, or another way) is a security decision that 0051 D5 and D6 do not make
+      for types without a module.
+      (b) The moduledoc of Letflow.Entities.TypeAccess describes one restriction row per type with no
+      read/write distinction. Whether a write permission is a second grant table, a mode on the existing
+      grant row, or a permission list on the definition is not settled by the source, and each choice
+      changes what a user who today holds a grant can do after the change (backward compatibility, see
+      the rule "each item is opt-in or backward compatible" in the roadmap).
+      Gap (1) depends on how decision 0050 D3.6 ("declarative-only, no core reference type, no FK in
+      slice 1") is extended to tenant types, which is itself a record-level choice. Gaps (2) and (3) are
+      web work that consumes the outcome of (1), (4) and (5).
+      THIS REQUIREMENT'S WHOLE DELIVERABLE is one decision record, a document under
+      docs/migration/decisions/ with the next free four-digit number on main at the time of the change.
+      It builds no code, no migration, no seed, no route, no UI and no test, and it does not modify any
+      other decision record. The implementation is written as separate requirements only after the record
+      is accepted; each depends_on this one.
+      THE RECORD MUST DECIDE (each as a numbered D- section with reasons and sources; where no source
+      settles a point it says "not settled by the source" and puts it to the owner as an open point with
+      options and a recommendation, it does not pick silently):
+      D1 Tenant isolation: a tenant-owned type, its records, its write grants and its scope declaration
+      live in the tenant schema under the Ecto :prefix with tenant_id in each row (INV-1); no platform,
+      worker or admin path reads them without the prefix; each new route that takes a tenant identifier
+      has a cross-tenant negative test (INV-10) and answers a cross-tenant or unknown type with the same
+      response as an absent one (INV-5). The record lists the new data-access paths it expects and the
+      proof INV-6 requires for each.
+      D2 Per-type write permission: the model chosen (see (b) above), who may grant it (the role and
+      route-level permission), its default for every existing tenant-owned type (an existing user who
+      can write today keeps that ability unless the record rules otherwise and says how existing rows are
+      handled), whether read access is implied by write access, and how it composes with TypeAccess,
+      FieldGrants and the managed_by write lock, which stays absolute for module-managed types. The write
+      paths it covers are named: the generic record routes, the record import, and the process-step and
+      handler entity writes (Letflow.Entities.StepWrites.check_type_access/2).
+      D3 Scope declaration for a tenant-owned type (decision 0051 D5, D6, D7, D11): how the type gets
+      {:column, field} or :tenant_wide, who may set it, that the column is a promoted and indexed field
+      (activation promotes only fields named in a constraints entry), what happens to a tenant type with
+      no declaration (the record states whether it stays :undeclared, which returns no data to a scoped
+      caller, or defaults to :tenant_wide, and why that is safe), that a tenant cannot widen a module
+      type's declaration, and the 404 behaviour for an out-of-scope record. Stage 2 of 0051 (the scoped
+      data path, the approver rule and enforced-tenant writers, REQ-517, REQ-518, REQ-519) is the base
+      the record builds on.
+      D4 Module references by id (decision 0050 D3, D8): how a tenant type declares a field that
+      references a module record (for example a catalog item) by its immutable record_id; that the
+      referencing write runs the module's lookup and active? checks (0050 D3.5), so a dangling, retired
+      or other-tenant target is refused; what stays declarative-only under 0050 D3.6 and what, if
+      anything, is promoted to a foreign key; and the snapshot rule of 0050 D3.4 for documents.
+      D5 Lookups, related lists, generated lists and forms: what the server returns so the web app can
+      render a reference picker and a related list (response shape per route, field authorisation INV-2
+      applied to the picked and listed records, the per-type read and scope rules applied to the target
+      type), and what "generated" means for a list and a form beyond the generic form (derived from the
+      definition only, or with stored layout overrides; the record states which, and leaves
+      per-tenant form, list and print-template overrides to their own roadmap item).
+      D6 Implementation slices: the record lists the requirements it expects, each small enough for one
+      change and each depending on this one, in a stated order, and says none is filed or built by this
+      slice.
+      BOUNDARY. Owned here: tenant-owned types only. Not owned: extensions to MODULE types (the x_ layer,
+      REQ-550), per-tenant form, list and print-template overrides, number sequences, saved list views,
+      and module uninstall. A decision of 0050, 0051 or 0053 is not changed; where the record needs one
+      changed, it says so as an open point for its own amending record.
+      Not in this change: any code, migration, seed, route, UI and test; any edit of docs/requirements.yaml
+      beyond this entry.
+    acceptance_criteria:
+      - "1. One new record exists under docs/migration/decisions/ with the next free four-digit number on main at the time of the change; its header names this requirement, says it builds on decisions 0050, 0051 and 0053 (candidate (a)), and lists the five gaps of 0053 candidate (a) with the section of the record that settles each."
+      - "2. Section D1 states that tenant-owned types, their records, write grants and scope declaration live in the tenant schema under the Ecto :prefix with tenant_id in each row (INV-1), requires a cross-tenant negative test for every new route that takes a tenant identifier (INV-10), and states that a cross-tenant or unknown type gets the same response as an absent one (INV-5)."
+      - "3. Section D2 chooses one write-permission model, names the role and permission that grant it, states the default for every existing tenant-owned type and how existing rows and users are handled (no user who can write today loses or gains write access unless the record says so and why), states how it composes with TypeAccess, FieldGrants and the managed_by write lock, and names every write path it covers (generic record routes, record import, process-step and handler entity writes)."
+      - "4. Section D3 states how a tenant-owned type obtains a 0051 scope declaration, who may set it, and what a type without one does for a scoped caller; it states that a tenant cannot declare or widen the scope of a module-managed type, and it cites decision 0051 D5, D6, D7 and D11 and the module path lib/letflow/entities/scope_declaration.ex that the author opened."
+      - "5. Section D4 states how a tenant type references a module record by its record_id, that the referencing write uses the module's lookup and active? checks so that a retired, dangling or other-tenant target is refused, and which part of decision 0050 D3.6 (declarative-only, no foreign key) is kept or amended."
+      - "6. Section D5 states the server response a reference picker and a related list need, that field authorisation (INV-2) and the per-type read and scope rules apply to the target type, and what \"generated list and form\" means; it names per-tenant form, list and print-template overrides as outside this record."
+      - "7. Each of D1 to D6 states its decision, reasons and the sources opened with file paths that the author opened (no path taken from this requirement text). A point that no source settles is written as \"not settled by the source\" and listed in an open-points section with options and a recommendation, not decided silently."
+      - "8. Section D6 lists the implementation requirements the record expects (at least one for write permission, one for scope declaration, one for module references, one for the web lookups and generated forms), each with its dependency on the record, and states that none is filed or built by this slice; the record contains no implementation code."
+      - "9. The record's Sign-off section (as in decision 0055) carries a REVIEWER verdict and a SECURITY-REVIEWER verdict, because the record sets tenant-data authorisation, scope and storage rules."
+      - "10. The change adds only the record: mix letflow.check.static passes with real output quoted, and git diff main...HEAD shows no change under lib/, test/, priv/, web/ or apps/."
+    open_questions:
+      - "How a tenant-owned type obtains a 0051 scope declaration is not settled by the source: ScopeDeclaration reads declarations from module manifests only and states a tenant cannot declare one. The owner (security) decides between a core-owned tenant-administrator setting, a fixed tenant_wide rule, and another route; the record puts the options to the owner with a recommendation."
+      - "Whether write permission is a second grant table, a mode on the existing TypeAccess grant row or a list on the definition is not settled by the source; the record puts it to the owner with the effect on existing users of each option."
+    depends_on: ["decision 0050 (D3, D8)", "decision 0051 stage 2 (D5, D6, D7, D11)", "decision 0053 (candidate (a))", REQ-394, REQ-231, REQ-496]
