@@ -853,6 +853,10 @@ defmodule Letflow.TenantProvisioning do
     # existing tenants; no row altered.
     {20_261_025_400_001, Letflow.Repo.Migrations.CreateIntegrationMappings,
      "20261025400001_create_integration_mappings.exs"},
+    # REQ-555 / GH #3157 (decision 0066): saved list view definitions (`entity_views`). Empty table
+    # for existing tenants; no row altered.
+    {20_261_025_500_001, Letflow.Repo.Migrations.CreateEntityViews,
+     "20261025500001_create_entity_views.exs"},
     # REQ-561 / GH #3194: tenant-defined scheduled jobs (one empty table per tenant schema).
     {20_261_026_100_001, Letflow.Repo.Migrations.CreateScheduledJobs,
      "20261026100001_create_scheduled_jobs.exs"}
