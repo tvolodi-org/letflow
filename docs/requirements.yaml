@@ -39436,6 +39436,101 @@ requirements:
       - "For the process owner: who owns contracts and legal documents and where they are created, and when the purchase-order record that 0057 D1 gives the module is built (draft section 1, IN-01); whether a line may have several suppliers; the rule for a line cancelled after partial fulfilment; whether recording a supplier, reference or officer on a closed or cancelled request is refused (the draft forbids only physical fulfilment). The UAT assumptions in the description stand until confirmed."
     depends_on: [REQ-544]
 
+  - id: REQ-563
+    title: "Tenant notification templates, backend: tenant-scoped storage of message templates per registered template key, a placeholder allow-list without secret values, :NotificationTemplatesManage and a render preview"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3199
+    # Source: docs/migration/core-roadmap-20261014.md, "Customization beyond scripts" ("notification templates", line 106); REQ-551 (label overrides, the sibling slice that names templates as a later candidate); docs/migration/decisions/0043-email-first-login-ba-decisions.md, D-B (REQ-441, login-discovery notifier; "leaks no enumeration signal"); lib/letflow/login_discovery/notifier.ex, notifier/smtp.ex, notifier/noop.ex; docs/agents/instructions/security-invariants.md (INV-1, INV-4, INV-5, INV-10); lib/letflow/api/authorization.ex; lib/letflow/audit.ex. Written by the business analyst (T-0488) 2026-10-25. Not yet validated.
+    description: >
+      A tenant cannot today control the wording of any message the platform composes for its users.
+      The only mail code on main is the login-discovery notifier (Letflow.LoginDiscovery.Notifier,
+      lib/letflow/login_discovery/notifier.ex, adapters notifier/smtp.ex and notifier/noop.ex, REQ-441).
+      That notifier is OUT OF SCOPE of this requirement: its message stays fixed in code, is not
+      templated, and this change must not edit those files (its wording rule, that it must not say or
+      imply whether an address is registered, must not be tenant-changeable). No other notification
+      sender of messages to tenant users exists on main. Checked: grep -rli notif lib/ outside
+      lib/letflow/design/ lists the REQ-441 files (lib/letflow/login_discovery.ex,
+      lib/letflow/routers/login_discovery.ex, lib/letflow/login_discovery/), lib/letflow/obs/alerts.ex
+      and lib/letflow/engine/script_task_dispatcher.ex (it calls
+      Alerts.notify_script_hmac_secret_missing), and lib/letflow/supervisor/infrastructure.ex; the
+      two Alerts users are platform-operator alerts (Letflow.Obs.Alerts moduledoc table, "Audience:
+      Platform operator diagnostics", REQ-201), not messages to tenant users and out of scope. So this slice delivers templates as stored, validated, renderable data and does NOT
+      send anything. Delivery by mail or in-app, and the call sites that use a template, are later
+      requirement candidates.
+
+      Template keys. A template belongs to a template key from a registry in code (one module,
+      Letflow.NotificationTemplates.Registry). The registry has exactly one key in this slice:
+      "task_assigned" (UAT assumption, chosen by the BA as the commonest tenant-visible message; to be
+      confirmed by the process owner). Each registry entry declares: the key, the default subject and
+      body text of the platform, and the placeholder allow-list of that key. A key not in the registry
+      cannot be stored. The allow-list of "task_assigned" is: task_name, process_name, assignee_name,
+      due_date, tenant_name. Every one is a display value of the tenant's own data. The allow-list is
+      an allow-list: a placeholder not named in it is refused.
+
+      No secret values (INV-4). The allow-list never contains a credential, token, password, API key,
+      session or link carrying a one-time token, nor a value resolved through Letflow.Secrets; a
+      template cannot reference a secret by reference or by name either. A test asserts that no
+      registry placeholder name is a secret reference and that the render function receives only the
+      explicit values passed by the caller, never reads Letflow.Secrets and never reads the
+      environment. Template text is public wording shown to the tenant's own users, is not a secret,
+      and may be logged and audited.
+
+      Storage. One tenant-schema table (Ecto :prefix, tenant_id kept in the row, INV-1; migration in
+      priv/repo/migrations/ with the tenant-schema mechanism the neighbouring tenant tables use):
+      template_key, locale, subject, body, updated_by, timestamps; unique on (template_key, locale).
+      Locale rule: a BCP-47 style tag matching the same pattern as Letflow.Identity.Tenant @locale_regex
+      (lib/letflow/identity/tenant.ex); the locale need not be one of the tenant's configured
+      locales (a template may be stored ahead of enabling a locale). Limits after trimming: subject
+      1..200 characters with no control character; body 1..5000 characters, newlines allowed, other
+      control characters refused. Value syntax: plain text; the only markup is the placeholder form
+      {name} with name matching [a-z_]+ and present in the key's allow-list; any other brace use,
+      HTML and ICU plural/select forms are refused (stored and returned as strings; nothing interprets
+      HTML in the backend).
+
+      Permission. New permission atom :NotificationTemplatesManage in lib/letflow/api/authorization.ex,
+      granted to TENANT_ADMIN, and (unconditional clause of Authorization) to PLATFORM_ADMIN; not
+      granted to any other role. A tenant user is never given PLATFORM_ADMIN to test it
+      (docs/roles.md). The implementer settles with SECURITY-REVIEWER whether the existing
+      :TenantSettingsManage would do instead; the criteria below hold for either name.
+
+      Routes (the tenant comes from the auth context only; no route takes a tenant identifier):
+      GET /api/v1/notification-templates lists the caller tenant's stored templates;
+      PUT /api/v1/notification-templates/:template_key (body locale, subject, body) creates or replaces
+      one; DELETE /api/v1/notification-templates/:template_key?locale= removes one (the platform
+      default then applies; a DELETE of a registered key and locale with no stored template in the
+      caller's tenant answers 404 with the body of Letflow.Api.Response.not_found/1,
+      lib/letflow/api/response.ex); POST /api/v1/notification-templates/:template_key/preview (body locale,
+      optional subject and body, and sample values for the allow-listed placeholders) returns the
+      rendered subject and body without storing anything. Render rule: the template of the requested
+      locale, else the platform default of the key; an allow-listed placeholder with no sample value
+      renders as an empty string; placeholder values are inserted as plain text, never re-scanned for
+      placeholders. Every write is audited through lib/letflow/audit.ex with template_key, locale and
+      the actor; the audit event carries the key and locale only, not the text.
+
+      Not in this change, each a later requirement candidate: sending (mail adapter use, in-app
+      delivery), the call sites that render a template, an admin screen, more template keys,
+      attachments, and any change to the REQ-441 login-discovery notifier. Sibling slices of the same
+      roadmap line: label overrides (REQ-551, REQ-553); scheduled jobs and integration mappings are
+      separate requirements.
+    acceptance_criteria:
+      - "1. Storage per tenant: a template stored by tenant A is in tenant A's schema only (Ecto :prefix, tenant_id in the row); a test stores a template as tenant A and shows the table of tenant B has no row and a list by tenant B returns an empty list. The unique pair (template_key, locale) refuses a second row; PUT on the same pair replaces the text and answers 200, a new pair answers 201."
+      - "2. Registry: only the key task_assigned exists. PUT for any other key answers 404 with the body of Letflow.Api.Response.not_found/1 (lib/letflow/api/response.ex) and stores nothing. A test lists the registry and finds exactly the keys and the allow-list task_name, process_name, assignee_name, due_date, tenant_name for task_assigned."
+      - "3. Placeholder allow-list: PUT answers 422 and stores nothing for a text containing a placeholder outside the key's allow-list (for example {password}, {api_key}, {secret_ref}, {tenant_id}), for an unbalanced or empty brace ({, }, {}), for a name with an uppercase letter or digit, and for an ICU plural/select form. A text using only allow-listed placeholders, with none, or with the same one repeated, is accepted. A test covers each case."
+      - "4. No secret values (INV-4): a test asserts that no allow-listed placeholder name of any registry key names a credential, that no allow-listed placeholder name and no accepted template text contains a secret reference of the form Letflow.Secrets @reference_format (lib/letflow/secrets.ex; sec://tenant/<a>/<b>/<c>[#n]), that a PUT whose text contains a sec:// reference answers 422, that the render function takes its values only from its arguments, and (by reading the module source or by stubbing) that rendering calls neither Letflow.Secrets nor Application/System environment lookups. A test shows that a placeholder value supplied in preview that looks like a placeholder (for example the text {tenant_name}) is output literally and not expanded."
+      - "5. Limits: subject of exactly 200 characters and body of exactly 5000 are accepted; 201 and 5001 answer 422; empty or whitespace-only subject or body answers 422; a newline in the body is accepted; a newline or other control character in the subject, or a control character other than newline in the body, answers 422; a locale not matching the Tenant locale pattern answers 422. A test covers each boundary."
+      - "6. Permission: the new permission atom :NotificationTemplatesManage exists in lib/letflow/api/authorization.ex and is granted to TENANT_ADMIN and PLATFORM_ADMIN and to no other role; a test over the role table shows it. GET, PUT, DELETE and POST preview answer 200/201/204/200 for a TENANT_ADMIN and the uniform 403 insufficient permissions (Letflow.Api.Scope.Enforce, lib/letflow/api/scope/enforce.ex) for a TASK_WORKER and for a PROCESS_DESIGNER of the same tenant, for an unauthenticated caller 401. The route-count and authz pins found by grep over test/ for __authz_routes__ and length(snapshot) are updated."
+      - "7. Render and preview: with a stored template for locale ru and the key task_assigned, preview for locale ru returns the stored subject and body with the supplied values inserted; preview for a locale with no stored template returns the platform default text of the key; preview with a body in the request renders that body without storing; a missing sample value renders an empty string; the result of a preview is the same on a second call (no state kept). DELETE of a stored template makes the next preview return the platform default."
+      - "8. Audit: each successful PUT and DELETE writes one audit event carrying template_key, locale and the acting principal and not the subject or body text; a test reads the event. A refused write (422, 403) writes no event."
+      - "9. REQ-441 stays out: git diff of the change shows no edit to lib/letflow/login_discovery/ (notifier.ex, notifier/smtp.ex, notifier/noop.ex) and no template lookup is reachable from deliver_tenant_list/2; test/letflow/login_discovery/notifier_no_leak_test.exs still passes unchanged. The PR body names the REQ-441 notifier as explicitly out of scope and lists sending, call sites, admin screen and more keys as later requirement candidates."
+      - "10. Cross-tenant negative test (INV-10): the routes take no tenant identifier; a test with a template stored only in tenant A shows that a TENANT_ADMIN of tenant B gets no text of tenant A from GET and preview (preview returns the platform default), that a DELETE of the same key and locale by tenant B answers 404 with the body of Letflow.Api.Response.not_found/1 (the same as a DELETE of a template that exists nowhere), and leaves tenant A's template unchanged. A tenant_id sent in query or body is ignored and a test shows the token's tenant is used."
+      - "11. Not-found versus forbidden (INV-5): a caller without the permission gets identical status, identical body and identical content-type header (other headers such as a request id are not compared) for a key and locale that have a stored template and for ones that do not; a test compares them within one run."
+      - "12. Gates: SECURITY-REVIEWER verdict (INV-1, INV-4, INV-5, INV-6, INV-10; new tenant table, new permission, new routes) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static, the new backend test files, test/letflow/ci_backend_path_filter_test.exs and the route-count and authz pins pass, real output quoted."
+    open_questions:
+      - "UAT assumption, to be confirmed by the process owner: the first and only template key is task_assigned, with the placeholders task_name, process_name, assignee_name, due_date, tenant_name, and the limits are subject 200 / body 5000 characters; all are chosen by the BA, not set by a decision record. Whether the permission is a new :NotificationTemplatesManage or the existing :TenantSettingsManage is a design choice for the implementer to settle with SECURITY-REVIEWER. Which message first consumes a template (and so the sending channel) is open and is the next requirement candidate."
+    depends_on: []
+
   - id: REQ-564
     title: "Per-tenant print-template overrides, including Kazakhstan print forms (core roadmap, Customization beyond scripts), slice 0: decision record for how a tenant replaces the printed layout of a document type"
     owner: CODE-DESIGNER
