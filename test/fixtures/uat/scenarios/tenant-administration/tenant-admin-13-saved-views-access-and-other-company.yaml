@@ -1,0 +1,157 @@
+# T-0556 (BA): TENANT ADMIN group, scenario 13: saved list views, who may write them, and that one company never sees another's.
+# Covers REQ-555 criteria 3 (only the tenant administrator holds the view permission; the same 403 for an existing and an absent view),
+# 5 (a view of another company and an absent view get the same 404), 6 (cross-company negative: read, change and delete from another
+# company's administrator get the absent-id answer and the view is unchanged; no route names a company) and 1 (a view of company A is absent
+# from company B).
+# Sources: docs/requirements.yaml REQ-555 criteria 1, 3, 5, 6; docs/roles.md (EntitiesViewsManage: TENANT_ADMIN and PLATFORM_ADMIN only;
+# EntitiesQuery: also task worker and tenant auditor); test/fixtures/uat/actors.yaml (alice: SwiftRoute TENANT_ADMIN; lena: SwiftRoute task
+# worker; auditor: SwiftRoute TENANT_AUDITOR; actor-bilimbaga-admin: Bilimbaga TENANT_ADMIN, whose token needs a qa-login mapping that is not
+# yet approved; ben: Meridian task worker).
+# Approver, payer and user-changing steps are not in this flow; "see sensitive data" is covered by the no-record-value check of scenario 11.
+---
+id: tenant-administration-13-saved-views-access-and-other-company
+scope: tenant-administration
+title: Only the administrator may write saved views, with one refusal for a missing or existing view, and another company never sees or changes them
+version: "1.0"
+tags: [tenant-admin, saved-views, access, cross-tenant, refusal, isolation]
+
+description: >
+  The administrator of SwiftRoute saves the view "UAT private to SwiftRoute" over the record type "UAT view ticket". A task worker and the
+  read-only auditor of SwiftRoute can read the view but are refused when they create, change or delete one; their refusal is the same for
+  the existing view and for an identifier that no view has. A Meridian user and the administrator of Bilimbaga do not see the view. The
+  Bilimbaga administrator tries to read, change and delete it by its id, and for a record type that exists only in SwiftRoute: every answer
+  is the answer for a view that does not exist, and SwiftRoute's view is unchanged. A request that names SwiftRoute as the company is
+  ignored. The Bilimbaga administrator then saves a view with the same name over a record type of the same name in their own company, and
+  each company sees only its own.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+  auditor_a: actor-swiftroute-auditor
+  reader_b: actor-meridian-ben
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute, Meridian and Bilimbaga are set up; the record type "UAT view ticket" is active in SwiftRoute and does not exist in Meridian; no saved view exists in any of the three companies
+    check: system_seeded
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token), report BLOCKED for steps 5, 6 and 8 and run the others; EO-003 and EO-004 are then BLOCKED, and EO-002 is judged on step 4 (the Meridian user) alone. If the worker or the auditor may not read the record type, the list in their step is empty and the report says so; their refusals are still judged.
+  - description: The tenant administrator of SwiftRoute holds the view permission and no other SwiftRoute actor of this scenario does
+    check: system_seeded
+    detail: Per the role matrix, only the tenant administrator (and the platform operator) holds it.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute saves the view "UAT private to SwiftRoute" over "UAT view ticket" with the columns title and status, and
+      notes its id and a second identifier that no view has (a well-formed one made up for the test).
+    via: api
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker lists the views and reads the view of step 1. Then the task worker tries to create a view, to change the view of step 1
+      and to delete it, and tries to change and delete the made-up identifier. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor_a
+    action: >
+      The read-only auditor lists the views and reads the view of step 1. Then the auditor tries to create a view, to change the view of step
+      1 and to delete it, and tries to change and delete the made-up identifier. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: reader_b
+    action: >
+      A Meridian user lists the views, searches the answer for "SwiftRoute", and reads the view of step 1 by its id. The answers are noted.
+    via: api
+  - step: 5
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator lists the views, searches the answer for "SwiftRoute", and reads, changes (new name "UAT taken over") and
+      deletes the view of step 1 by its id. Then the administrator reads, changes and deletes the made-up identifier of step 1. All answers are
+      noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to save a view over the record type "UAT view ticket", which exists only in SwiftRoute, and notes the
+      answer. The administrator then repeats a read, with the company SwiftRoute named in the address and in the body of a change, and notes
+      whose view the answer is about.
+    expect_refusal: true
+    via: api
+    input:
+      company_named_in_request: SwiftRoute
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute reads the view of step 1 and lists the views, and compares them with step 1.
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator creates the record type "UAT view ticket" in their own company with the field title, saves the view "UAT
+      private to SwiftRoute" over it with the column title, and lists the views. The administrator of SwiftRoute then lists the views too.
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute deletes the view of step 1, and the Bilimbaga administrator deletes the view of step 8.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker and the read-only auditor can read views but are refused when they create, change or delete, with one refusal for an existing and for a missing view.
+    verification:
+      method: http_status
+      detail: In steps 2 and 3 the lists and the reading are 200; every create, change and delete is 403; for each caller the 403 for the existing view and for the made-up identifier have the same status, the same body and the same headers.
+      evidence: The reads and the five refusals of each of steps 2 and 3, and the view read in step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee, or an outside auditor, could rewrite or delete the saved lists of the company, or learn which lists exist.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Another company sees no view of SwiftRoute, in a list or by id.
+    verification:
+      method: api_response
+      detail: The lists of steps 4 and 5 are empty and contain no part of the name or the word "SwiftRoute"; the reading by id in steps 4 and 5 is 404.
+      evidence: The lists and readings of steps 4 and 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer's list definitions, which name its record types and fields, show in another customer's system.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Another company's administrator cannot change or delete SwiftRoute's view, and every answer equals the answer for a view that does not exist.
+    verification:
+      method: http_status
+      detail: In step 5 the read, change and delete of the real id and of the made-up id are all 404 with byte-identical bodies and headers; in step 7 the view of SwiftRoute has its original name, columns and times.
+      evidence: The six answers of step 5 compared byte for byte, and the view of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer could delete or rewrite another customer's saved lists, or find out which lists exist.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A record type that exists only in another company is answered as not found, and a company named in the request is ignored.
+    verification:
+      method: http_status
+      detail: In step 6 the creation over the SwiftRoute-only type is 404 with the same body as the absent views of step 5; the read with SwiftRoute named answers as for a missing view of Bilimbaga, and the change names nothing of SwiftRoute; the view of SwiftRoute is unchanged in step 7.
+      evidence: The answers of step 6 and the view of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be pointed at another customer's data by naming the customer, or reveal which record types it has.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Two companies that save a view with the same name over a record type of the same name each see only their own.
+    verification:
+      method: api_response
+      detail: In step 8 the Bilimbaga list holds one view with the column title only, and the SwiftRoute list holds one view with the columns title and status; neither list holds the other's columns or identifier.
+      evidence: The two lists of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Companies overwrite or read each other's list definitions.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the view "UAT private to SwiftRoute" in SwiftRoute and in Bilimbaga, and the record type "UAT view ticket" the Bilimbaga administrator created, if retirement is possible; otherwise note it for the test customer's retirement.
