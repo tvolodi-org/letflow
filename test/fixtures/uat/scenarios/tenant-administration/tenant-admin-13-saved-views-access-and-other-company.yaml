@@ -22,9 +22,10 @@ description: >
   Bilimbaga administrator tries to read, change and delete it by its id, and for a record type that exists only in SwiftRoute: every answer
   is the answer for a view that does not exist, and SwiftRoute's view is unchanged. A request that names SwiftRoute as the company is
   ignored. The Bilimbaga administrator then saves a view with the same name over a record type of the same name in their own company, and
-  each company sees only its own. Finally the administrator of SwiftRoute restricts the record type so that no role is granted access;
-  the task worker then no longer sees the view, and reading it gives the same answer as for an identifier no view has. The restriction is
-  lifted afterwards.
+  each company sees only its own. Finally the administrator of SwiftRoute creates a separate record type "UAT view restricted ticket",
+  saves a view over it, and restricts that type so that only the administrator keeps access (the API can add a restriction but not
+  remove one, so the main record type "UAT view ticket" is never restricted). The task worker then no longer sees that view, and reading
+  it gives the same answer as for an identifier no view has.
 
 actors:
   tenant_admin_a: actor-swiftroute-alice
@@ -36,7 +37,7 @@ actors:
 preconditions:
   - description: SwiftRoute, Meridian and Bilimbaga are set up; the record type "UAT view ticket" is active in SwiftRoute and does not exist in Meridian or in Bilimbaga, and carries no access restriction; no saved view exists in any of the three companies
     check: system_seeded
-    detail: If the record type "UAT view ticket" already exists in Bilimbaga (for example from an earlier run), step 6 and EO-004 are BLOCKED, and step 8 and EO-005 use it as it is. If the Bilimbaga administrator cannot sign in (no approved test token), report BLOCKED for steps 5, 6 and 8 and run the others; EO-003 and EO-004 are then BLOCKED, and EO-002 is judged on step 4 (the Meridian user) alone. If the worker or the auditor may not read the record type, the list in their step is empty and the report says so; their refusals are still judged.
+    detail: The record type "UAT view restricted ticket" may already exist in SwiftRoute, restricted with the administrator's grant, from an earlier run; step 9 then uses it as it is. If the record type "UAT view ticket" already exists in Bilimbaga (for example from an earlier run), step 6 and EO-004 are BLOCKED, and step 8 and EO-005 use it as it is. If the Bilimbaga administrator cannot sign in (no approved test token), report BLOCKED for steps 5, 6 and 8 and run the others; EO-003 and EO-004 are then BLOCKED, and EO-002 is judged on step 4 (the Meridian user) alone. If the worker or the auditor may not read the record type, the list in their step is empty and the report says so; their refusals are still judged.
   - description: The tenant administrator of SwiftRoute holds the view permission and no other SwiftRoute actor of this scenario does
     check: system_seeded
     detail: Per the role matrix, only the tenant administrator (and the platform operator) holds it.
@@ -99,20 +100,21 @@ steps:
   - step: 9
     actor: tenant_admin_a
     action: >
-      The administrator of SwiftRoute restricts the record type "UAT view ticket" so that no role is granted access to it (the restriction
-      import of the record-type access administration, with no grant), and notes the answer.
+      The administrator of SwiftRoute creates the record type "UAT view restricted ticket" with the field title (if it already exists
+      restricted from an earlier run, it is used as it is), saves the view "UAT restricted view" over it with the column title, and notes
+      the view's id. The administrator then sends one restriction import that restricts "UAT view restricted ticket" and grants access to
+      it to the administrator's own user only, and notes the answer.
     via: api
   - step: 10
     actor: worker_a
     action: >
-      The task worker lists the views, reads the view of step 1 by its id, and reads the made-up identifier of step 1. The answers are noted.
+      The task worker lists the views, reads the view of step 9 by its id, and reads the made-up identifier of step 1. The answers are noted.
     expect_refusal: true
     via: api
   - step: 11
     actor: tenant_admin_a
     action: >
-      The administrator of SwiftRoute lifts the restriction of step 9 (restores the access the record type had) and reads the view of step 1
-      again to confirm it is back and unchanged.
+      The administrator of SwiftRoute, who holds the access grant, reads the view of step 9 to confirm it is unchanged, and deletes it.
     via: api
   - step: 12
     actor: tenant_admin_a
@@ -165,7 +167,7 @@ expected_outcomes:
     description: A view of a record type the caller may not read is answered as not found, the same as a view that does not exist.
     verification:
       method: http_status
-      detail: In step 10 the task worker's list does not contain the view; the reading of the real id and of the made-up id are both 404 with the same status, the same body byte for byte and the same headers apart from per-request ones (date, request id). In step 11 the view is readable again with its original content.
+      detail: In step 10 the task worker's list does not contain the view of step 9; the reading of the real id and of the made-up id are both 404 with the same status, the same body byte for byte and the same headers apart from per-request ones (date, request id). In step 11 the administrator, who holds the grant, still reads the view with its original content.
       evidence: The three answers of step 10 and the reading of step 11.
     on_fail:
       severity: BLOCKER
@@ -184,4 +186,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: Lift the restriction of step 9 if it is still in place. Delete the view "UAT private to SwiftRoute" in SwiftRoute and in Bilimbaga, and the record type "UAT view ticket" the Bilimbaga administrator created, if retirement is possible; otherwise note it for the test customer's retirement.
+  description: Delete the view "UAT private to SwiftRoute" in SwiftRoute and in Bilimbaga, and the record type "UAT view ticket" the Bilimbaga administrator created, if retirement is possible; otherwise note it for the test customer's retirement. The record type "UAT view restricted ticket" and its restriction stay, because the API cannot remove a restriction; they are retired with the test customer, and a later run reuses them as they are.
