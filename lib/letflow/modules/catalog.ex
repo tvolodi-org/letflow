@@ -383,6 +383,19 @@ defmodule Letflow.Modules.Catalog do
   `{:invalid_document_org_resolver, value}` (not a loaded module exporting `unit_exists?/2` and
   `legal_entity_of/2`), `{:duplicate_document_org_resolver, other_id}` (another known manifest
   declares one too). Absent is valid.
+
+  Rule 13 (REQ-574, decision 0071 D9 slice X1) runs after rule 12: the optional
+  `:extension_points` key, a list of extension point declarations (string-keyed maps with
+  `name`, `kind`, `site`, `input`, `returns`). The check order is: shape, then kind, then
+  duplicate names; the first problem found is returned. Errors:
+  `{:invalid_extension_points, value}` (not a list, or an element that is not a map with
+  exactly those keys, a name outside `^[a-z][a-z0-9_]{0,63}$`, a `site` that is not
+  `definition`/`node_id` (non-empty strings) plus `position` `"after"`, an `input` that is not a
+  list of strings, or a `returns` that is not a string-to-string map),
+  `{:unknown_extension_point_kind, kind}` (a string kind other than `"script_step"`),
+  `{:duplicate_extension_point, name}` (the first repeated name). Absent and `[]` are valid and
+  equal. Shape only: that `site.definition` names a definition of the module and the `returns`
+  subset are not checked here.
   """
   @spec validate(Module.manifest(), [Module.manifest()]) :: :ok | {:error, {atom(), term()}}
   def validate(manifest, known_manifests) do
@@ -402,7 +415,8 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_permissions_not_declared_elsewhere(manifest, known_manifests),
          :ok <- validate_write_handlers(manifest, entry_module),
          :ok <- validate_scope_declarations(manifest, known_manifests),
-         :ok <- validate_document_org_resolver(manifest, known_manifests) do
+         :ok <- validate_document_org_resolver(manifest, known_manifests),
+         :ok <- validate_extension_points(manifest) do
       :ok
     end
   end
@@ -652,6 +666,70 @@ defmodule Letflow.Modules.Catalog do
         end
     end
   end
+
+  # Rule 13 (REQ-574). The optional `:extension_points` key: shape, then kind, then duplicates.
+  @extension_point_keys ~w(input kind name returns site)
+  @extension_point_kinds ["script_step"]
+  @extension_point_positions ["after"]
+  @extension_point_name ~r/\A[a-z][a-z0-9_]{0,63}\z/
+
+  defp validate_extension_points(manifest) do
+    case Map.fetch(manifest, :extension_points) do
+      :error -> :ok
+      {:ok, points} when is_list(points) -> check_extension_points(points)
+      {:ok, other} -> {:error, {:invalid_extension_points, other}}
+    end
+  end
+
+  defp check_extension_points(points) do
+    cond do
+      not Enum.all?(points, &extension_point_shape?/1) ->
+        {:error, {:invalid_extension_points, points}}
+
+      bad = Enum.find(points, &(&1["kind"] not in @extension_point_kinds)) ->
+        {:error, {:unknown_extension_point_kind, bad["kind"]}}
+
+      dup = first_duplicate(Enum.map(points, & &1["name"])) ->
+        {:error, {:duplicate_extension_point, dup}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp first_duplicate(names) do
+    names
+    |> Enum.reduce_while(MapSet.new(), fn name, seen ->
+      if MapSet.member?(seen, name),
+        do: {:halt, {:dup, name}},
+        else: {:cont, MapSet.put(seen, name)}
+    end)
+    |> case do
+      {:dup, name} -> name
+      _none -> nil
+    end
+  end
+
+  defp extension_point_shape?(%{} = point) do
+    point |> Map.keys() |> Enum.sort() == @extension_point_keys and
+      is_binary(point["name"]) and Regex.match?(@extension_point_name, point["name"]) and
+      is_binary(point["kind"]) and extension_site_shape?(point["site"]) and
+      is_list(point["input"]) and Enum.all?(point["input"], &is_binary/1) and
+      is_map(point["returns"]) and
+      Enum.all?(point["returns"], fn {k, v} -> is_binary(k) and is_binary(v) end)
+  end
+
+  defp extension_point_shape?(_other), do: false
+
+  defp extension_site_shape?(%{} = site) do
+    site |> Map.keys() |> Enum.sort() == ~w(definition node_id position) and
+      non_empty_binary?(site["definition"]) and non_empty_binary?(site["node_id"]) and
+      site["position"] in @extension_point_positions
+  end
+
+  defp extension_site_shape?(_other), do: false
+
+  defp non_empty_binary?(v), do: is_binary(v) and v != ""
 
   defp resolver_module?(resolver) do
     is_atom(resolver) and not is_nil(resolver) and Code.ensure_loaded?(resolver) and
