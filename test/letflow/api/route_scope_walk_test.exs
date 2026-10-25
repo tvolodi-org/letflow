@@ -362,7 +362,13 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  # REQ-536: the policy route is tenant-wide, the two hold routes are resolvers
                  {"PUT", "/types/:key/retention", :tenant_wide},
                  {"POST", "/:document_id/hold", document_resolver},
-                 {"POST", "/:document_id/hold/release", document_resolver}
+                 {"POST", "/:document_id/hold/release", document_resolver},
+                 # REQ-555: the five saved-view routes are all tenant-wide
+                 {"GET", "/", :tenant_wide},
+                 {"GET", "/:id", :tenant_wide},
+                 {"POST", "/", :tenant_wide},
+                 {"PUT", "/:id", :tenant_wide},
+                 {"DELETE", "/:id", :tenant_wide}
                ])
 
       assert scopes |> Enum.map(fn {router, _entry} -> router end) |> Enum.uniq() |> Enum.sort() ==
@@ -370,6 +376,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  Letflow.Routers.Definitions,
                  Letflow.Routers.Documents,
                  Letflow.Routers.Entities,
+                 Letflow.Routers.EntityViews,
                  Letflow.Routers.Help,
                  Letflow.Routers.Instances,
                  Letflow.Routers.Labels,

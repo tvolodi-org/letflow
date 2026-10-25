@@ -86,6 +86,8 @@ defmodule Letflow.Api.AuthorizationTest do
       :DocumentsRetentionManage,
       :LabelsManage,
       :IntegrationMappingsManage,
+      # REQ-555 (decision 0066 D4)
+      :EntitiesViewsManage,
       :NotificationTemplatesManage
     ]
 
@@ -476,7 +478,8 @@ defmodule Letflow.Api.AuthorizationTest do
           46 => "forty-six",
           47 => "forty-seven",
           48 => "forty-eight",
-          49 => "forty-nine"
+          49 => "forty-nine",
+          50 => "fifty"
         }
         |> Map.get(actual_count)
 
@@ -1069,7 +1072,8 @@ defmodule Letflow.Api.AuthorizationTest do
           46 => "forty-six",
           47 => "forty-seven",
           48 => "forty-eight",
-          49 => "forty-nine"
+          49 => "forty-nine",
+          50 => "fifty"
         }
         |> Map.get(actual_count)
 
@@ -1568,7 +1572,8 @@ defmodule Letflow.Api.AuthorizationTest do
           46 => "forty-six",
           47 => "forty-seven",
           48 => "forty-eight",
-          49 => "forty-nine"
+          49 => "forty-nine",
+          50 => "fifty"
         }
         |> Map.get(actual_count)
 
@@ -2430,6 +2435,8 @@ defmodule Letflow.Api.AuthorizationTest do
                    :DocumentsRetentionManage,
                    :LabelsManage,
                    :IntegrationMappingsManage,
+                   # REQ-555 (decision 0066 D4)
+                   :EntitiesViewsManage,
                    :NotificationTemplatesManage
                  ]
 
