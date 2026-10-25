@@ -1,0 +1,168 @@
+# T-0575 (BA): TENANT ADMIN group, scenario 16: what a partner receives when a subscription is linked to a mapping.
+# Covers REQ-565 slice 2: criterion 5 (mapped body, signature of exactly those bytes, dead-letter copy is the mapped body, a restricted value stays
+# masked), criterion 6 (no link: same body and signature as before), criterion 7 (required value missing, body over 256 KB, mapping gone: no request,
+# no failure counted, no value in the error), criterion 8 (sending half: rules writing "url", "target_url" or "host" change only body keys; the
+# private-address check still applies at sending).
+# THIS SCENARIO CANNOT RUN AGAINST A DEPLOYED INSTANCE, and it is not hidden: nothing in the product starts a webhook delivery by itself
+# (lib/letflow has no caller of Letflow.Webhooks.deliver/3 outside its own module; the same fact is stated in
+# restricted-fields-5-record-history-redaction.yaml, design assumption A4) and the delivery routes only list attempts. There is no way for a UAT
+# actor to make Letflow send, and no partner endpoint that records what arrives. The steps are written for the day a trigger exists; until then the
+# limitation file test/fixtures/uat/scenario-env-limitations/tenant-administration-16-integration-mapping-mapped-outbound-delivery.yaml maps each
+# outcome to the backend test that checks it (test/letflow/webhooks_mapping_test.exs). The link itself is run in scenarios 14 and 15.
+# Sources: docs/requirements.yaml REQ-565 criteria 5 to 8; lib/letflow/webhooks.ex (deliver/3, map_payload_for_delivery); test/letflow/webhooks_mapping_test.exs.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users): "see sensitive data" is step 4 (a masked value must not come
+# back through a mapping); the others are not in this flow.
+---
+id: tenant-administration-16-integration-mapping-mapped-outbound-delivery
+scope: tenant-administration
+title: A delivery of a linked subscription sends the mapped body with a matching signature, keeps restricted values masked, fails closed without sending, and never leaves the subscription's address
+version: "1.0"
+tags: [tenant-admin, integration-mappings, webhooks, delivery, refusal, blocked-by-environment]
+
+description: >
+  A SwiftRoute subscription is linked to an outbound mapping. When an event is delivered, the partner receives only the fields the mapping names,
+  under the names the mapping gives, and the signature matches those exact bytes. A restricted field that a rule copies arrives masked. When all
+  attempts fail the dead-letter copy is the mapped body. A subscription with no link sends the original body as before. A delivery whose required
+  value is missing, whose mapped body is over 256 KB, or whose mapping was removed sends nothing and counts no failure. A mapping that writes an
+  address into the body does not change where the delivery goes, and a private address is still refused at sending.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  system: actor-system-delivery
+
+preconditions:
+  - description: A way exists in the test environment to make Letflow deliver one event to a subscription and to read the exact request a test partner receives
+    check: system_seeded
+    detail: The product offers none today. Without it every step is BLOCKED (ENV_NOT_SUPPORTED), not PASS, and the backend tests named in the limitation file are the evidence.
+  - description: SwiftRoute has a record type with one restricted field and the administrator holds no grant on it
+    check: system_seeded
+    detail: Needed for step 4 only; without it step 4 is BLOCKED.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator stores a subscription to the test partner address and an outbound mapping with the rules: copy "order.number" to "orderNumber";
+      copy "order.lines.0.sku" to "firstSku"; write the fixed text "letflow" to "source". The administrator links them.
+    via: api
+  - step: 2
+    actor: system
+    action: >
+      An event with the fields order.number "A-17", order.lines.0.sku "SKU-9" and an extra field "internalNote" is delivered to the subscription. The
+      request the partner receives (body, signature header) is noted, and the signature is recomputed over the received body bytes with the subscription's key.
+    via: system
+  - step: 3
+    actor: system
+    action: >
+      The test partner is made to answer with an error for every attempt, and the event of step 2 is delivered again until its attempts are used up. The
+      dead-letter entry for it is read.
+    via: system
+  - step: 4
+    actor: system
+    action: >
+      A rule is added that copies the restricted field to "restrictedCopy", and an event whose restricted field holds a real value is delivered. The request
+      the partner receives is noted.
+    via: system
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator clears the link of the subscription. The event of step 2 is delivered once more to the working partner and the received body and
+      signature are noted.
+    via: api
+  - step: 6
+    actor: system
+    action: >
+      The administrator links the subscription to a mapping with a rule that requires "order.number", and an event without that field is delivered. The
+      result of the delivery, the partner's request log and the subscription's failure count are noted. The same is done with a mapping whose rules produce a
+      body over 256 KB, and with a mapping that was removed after the link was set (by the test setup, since the product refuses that removal).
+    expect_refusal: true
+    via: system
+  - step: 7
+    actor: system
+    action: >
+      A mapping with rules writing the fixed text "https://example.com/other" to "url", "target_url" and "host" is linked, and an event is delivered. The
+      address the request went to is noted.
+    via: system
+  - step: 8
+    actor: system
+    action: >
+      The subscription's address is a private one (for example a host-local address), set by the test setup since the product refuses it at storing, and an
+      event is delivered. The partner's request log is noted.
+    expect_refusal: true
+    via: system
+
+expected_outcomes:
+  - id: EO-001
+    description: The partner receives exactly the mapped body, and the signature covers exactly those bytes.
+    verification:
+      method: system_state
+      detail: In step 2 the body has "orderNumber" "A-17", "firstSku" "SKU-9", "source" "letflow" and nothing else (no "internalNote", no "order"); the recomputed signature equals the signature header.
+      evidence: The received request of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The partner gets a shape it cannot read, or a body whose signature it rejects.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: After the last failed attempt the dead-letter copy is the mapped body.
+    verification:
+      method: system_state
+      detail: The dead-letter entry of step 3 holds the mapped body of step 2, not the original event.
+      evidence: The dead-letter entry of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A retry from the dead-letter queue would send a different shape than the first delivery, or store fields the mapping removed.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A restricted value that a rule copies arrives masked, never as the real value.
+    verification:
+      method: system_state
+      detail: In step 4 the partner's body has "restrictedCopy" with the hidden placeholder and the real value occurs nowhere in the request.
+      evidence: The received request of step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A mapping would let a company send out a value that is restricted from people.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Without a link the body and signature are those of the original event.
+    verification:
+      method: system_state
+      detail: In step 5 the body is the full original event (with "internalNote") and the signature matches it.
+      evidence: The received request of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Subscriptions without a mapping changed behaviour for existing partners.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A delivery whose mapping fails sends nothing and counts no failure, and the error names no value.
+    verification:
+      method: system_state
+      detail: For each of the three cases of step 6 the delivery result is a mapping failure that names the missing rule, "body too large" or "mapping not found" and no field value; the partner's request log has no request; the failure count of the subscription is unchanged; the original event is not sent.
+      evidence: The delivery results, the request log and the failure count of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A broken mapping could send the unmapped event, pause the subscription or leak values into logs.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: A mapping that writes an address into the body does not change where the delivery goes.
+    verification:
+      method: system_state
+      detail: In step 7 the body holds the fixed text under "url", "target_url" and "host", and the request went to the subscription's own address.
+      evidence: The received request and its address in step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A mapping could redirect a company's deliveries.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: A private address is still refused at sending, with or without a mapping.
+    verification:
+      method: system_state
+      detail: In step 8 no request reaches the partner log and the delivery is refused by the address check.
+      evidence: The request log and the delivery result of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could make Letflow call an internal address (server-side request forgery).
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the test mappings and the subscription.

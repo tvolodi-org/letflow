@@ -1,0 +1,179 @@
+# T-0575 (BA): TENANT ADMIN group, scenario 15: who may link a mapping to a subscription, and that a link never crosses companies.
+# Covers REQ-565 slice 2: criterion 12 (a process operator, who may manage subscriptions but not mappings, is refused with the uniform 403 when the
+# request contains the link field, set or empty, and the link is unchanged; the same operator changing another field still succeeds; a mapping of
+# another company is refused with the same 422 as an unknown number), criterion 13 (a subscription of company B cannot be linked to a mapping of
+# company A; company A cannot change company B's subscription).
+# Sources: docs/requirements.yaml REQ-565 criteria 12 and 13; lib/letflow/routers/webhooks.ex (authorize_link: the key present, even null, needs the
+# mapping permission, checked before any lookup; moduledoc: one 422 for inbound, other-company, unknown and malformed numbers; unknown subscription
+# number answers 404); docs/roles.md (PROCESS_OPERATOR: WebhooksManage yes, IntegrationMappingsManage no; TENANT_ADMIN holds both);
+# test/fixtures/uat/actors.yaml (alice: SwiftRoute TENANT_ADMIN; claudia: Meridian PROCESS_OPERATOR; actor-bilimbaga-admin: Bilimbaga TENANT_ADMIN).
+# The roster has no PROCESS_OPERATOR in SwiftRoute; the operator refusal is tried by Claudia in her own company Meridian, with a mapping number of
+# SwiftRoute for the cross-company part: the answer is the same uniform refusal because the permission is checked before any lookup.
+# A caller who holds neither right (task worker, auditor) is covered for the five mapping routes in scenario 13; here the interesting caller is the
+# one who holds the subscription right only.
+# Refused steps contain only requests that are refused; accepted requests are steps of their own (steps 3, 5, 7, 8, 10).
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
+---
+id: tenant-administration-15-integration-mapping-link-access-and-other-company
+scope: tenant-administration
+title: Only a holder of the mapping right may set or clear the link of a subscription, and one company can neither link to nor change another company's objects
+version: "1.0"
+tags: [tenant-admin, integration-mappings, webhooks, refusal, access, cross-tenant, isolation]
+
+description: >
+  A Meridian process operator manages a webhook subscription of her company. She may pause and resume it, but when a request contains the link
+  to a mapping, whether it sets a number or clears it, she is refused with the same answer whatever the number is, and the subscription keeps its
+  link. The Bilimbaga administrator, who may use mappings, tries to link a Bilimbaga subscription to a mapping of SwiftRoute and gets the same
+  answer as for a number that never existed; linking to Bilimbaga's own outbound mapping is accepted. The SwiftRoute administrator tries to link
+  and to change Bilimbaga's subscription and gets the same answer as for a subscription that never existed.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  operator_m: actor-meridian-claudia
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute, Meridian and Bilimbaga are set up; none has an integration mapping named "swift-out" or "bili-out"
+    check: system_seeded
+    detail: If one exists, remove it first (clear the link of a subscription that uses it) and note that in the report. If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note), report BLOCKED for steps 6 to 10 and run the others; EO-003 and EO-004 are then BLOCKED.
+  - description: The addresses https://example.com/meridian-link-test and https://example.com/bilimbaga-link-test are accepted by the product as outbound addresses
+    check: system_seeded
+    detail: If the product refuses them because the test environment cannot resolve the name, report BLOCKED for the steps that store a subscription (2 and 6) and the steps that depend on them.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator stores a mapping named "swift-out", direction outbound, with one rule: copy "a" to "b". The administrator notes
+      its number (X).
+    via: api
+  - step: 2
+    actor: operator_m
+    action: >
+      The Meridian process operator stores a webhook subscription with the target address "https://example.com/meridian-link-test". She notes
+      the subscription number (SM). The answer shows no link to a mapping.
+    via: api
+  - step: 3
+    actor: operator_m
+    action: >
+      The operator pauses the subscription SM and then resumes it (two requests that change only the status, no link in them). She notes both answers.
+    via: api
+  - step: 4
+    actor: operator_m
+    action: >
+      The operator tries three requests on SM, each containing the link field: link to X (SwiftRoute's number), link to the number U (well-formed,
+      issued to no mapping), and clear the link (empty value). Each answer (status, body and content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: operator_m
+    action: >
+      The operator asks for the list of subscriptions and finds SM, noting its link, status and target address.
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator stores a webhook subscription with the target address "https://example.com/bilimbaga-link-test" and notes its
+      number (SB), and stores a mapping named "bili-out", direction outbound, with one rule: copy "p" to "q", noting its number (B).
+    via: api
+  - step: 7
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to link SB to X (SwiftRoute's mapping) and to the number U. Both answers (status, body and content type)
+      are noted.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator links SB to B (Bilimbaga's own mapping), then asks for the list of subscriptions and finds SB.
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator tries to link SB (Bilimbaga's subscription) to X, tries to pause SB, tries to read the delivery attempts of SB,
+      tries to remove SB, and makes the same four requests on the number V (well-formed, issued to no subscription). Each answer (status, body and
+      content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for the list of subscriptions and finds SB (still linked to B and active), then clears the link of SB.
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator removes X and notes the answer (no subscription of SwiftRoute uses it).
+    via: api
+  - step: 12
+    actor: tenant_admin_b
+    action: >
+      Clean-up: the Bilimbaga administrator removes SB and B. The Meridian operator removes SM.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A process operator is refused whenever the request contains the link field, with one identical answer whatever the value.
+    verification:
+      method: http_status
+      detail: The three requests of step 4 answer 403 with equal body and content-type header (the same refusal as for any caller without the right).
+      evidence: The three answers of step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Staff who may only manage subscriptions could change what the company sends to its partners, or learn which mapping numbers exist.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The refused operator changes nothing, and her other work on the subscription still succeeds.
+    verification:
+      method: api_response
+      detail: Step 3 answers 200 for both status changes; in step 5 the entry of SM shows no link, the status "ACTIVE" and the target address of step 2.
+      evidence: The answers of step 3 and the list entry of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Either a refused request changed the subscription, or the operator can no longer pause and resume subscriptions as before.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A subscription of one company cannot be linked to a mapping of another company, and the answer is the one for a number that never existed.
+    verification:
+      method: http_status
+      detail: In step 7 both requests answer 422 with equal body and content-type header; the list in step 10 first shows SB linked to B only, never to X.
+      evidence: The answers of step 7 and the list entry of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could attach another company's mapping to its own webhook, or find out that the mapping exists.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: The mapping administrator links a subscription to the company's own outbound mapping.
+    verification:
+      method: api_response
+      detail: Step 8 answers 200 and the list entry of SB shows the link B.
+      evidence: The answer and the list entry of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: The link works for no one, or only for the first company.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The administrator of one company cannot link, change, read the deliveries of or remove another company's subscription, and gets the answer for a subscription that never existed.
+    verification:
+      method: http_status
+      detail: In step 9 the four requests on SB answer 404 and are equal to the four requests on V in status, body and content-type header; in step 10 SB is still active, still linked to B, and still listed.
+      evidence: The eight answers of step 9 and the list entry of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could change or remove another company's webhook, or detect that it exists.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: Removing a mapping of SwiftRoute is not blocked by another company's subscription.
+    verification:
+      method: http_status
+      detail: Step 11 answers 204 for X.
+      evidence: The answer of step 11.
+    on_fail:
+      severity: MINOR
+      business_impact: One company's subscription could keep another company's mapping alive, or the product mixes the two companies' links.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove "swift-out" from SwiftRoute, "bili-out" and its subscription from Bilimbaga, and the Meridian subscription, if they are left (clear a link before removing the mapping).

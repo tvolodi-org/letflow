@@ -1,0 +1,192 @@
+# T-0575 (BA): TENANT ADMIN group, scenario 14: the administrator links an outbound integration mapping to a webhook subscription.
+# Covers REQ-565 slice 2: criterion 12 (the link: an inbound mapping, an unknown number and a malformed number are refused with one identical
+# answer and change nothing; an outbound mapping of the company is stored; null clears it; removing a mapping that a subscription uses answers
+# 409 and removes nothing; after the link is cleared the removal succeeds), the link half of criterion 8 (a rule that names "url" or
+# "target_url" changes nothing about where the subscription sends), criterion 9 (the subscription and mapping answers hold no signing key).
+# Not covered here: the body that is really sent (criteria 5, 6, 7 and the sending half of 8): see scenario 16 and its limitation file.
+# Sources: docs/requirements.yaml REQ-565 criteria 8, 9, 12; lib/letflow/routers/webhooks.ex (moduledoc "Outbound mapping link": one 422 for
+# inbound, other-company, unknown and malformed numbers; subscription_json shows outbound_mapping_id and no secret except hmac_secret_once at
+# creation); lib/letflow/routers/integration_mappings.ex (409 "integration mapping is in use"); docs/roles.md (WebhooksManage and
+# IntegrationMappingsManage: TENANT_ADMIN holds both); test/fixtures/uat/actors.yaml (actor-swiftroute-alice).
+# Refused steps (5, 8, 11) contain only requests that are refused; every request that must be accepted is a step of its own. Step 11 is the INV-9 refusal: an outbound address that is not https, or is private, host-local or cloud-metadata, and a change of target address (criterion 8, address half; the validator itself runs again on every delivery, see scenario 16). A 5xx there is a finding: the create route has no clause for the validator error in lib/letflow/routers/webhooks.ex handle_create.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow. The refusals are those of the flow:
+# a wrong link and the removal of a mapping in use. The refusal for a caller without the right is in scenario 15.
+---
+id: tenant-administration-14-integration-mapping-link-to-subscription
+scope: tenant-administration
+title: The administrator links an outbound mapping to a webhook subscription, wrong links are refused, a mapping in use cannot be removed, and the link never changes where the subscription sends
+version: "1.0"
+tags: [tenant-admin, integration-mappings, webhooks, refusal, link]
+
+description: >
+  The administrator of SwiftRoute stores a webhook subscription, an outbound mapping whose rules also write the fixed texts "url" and "target_url"
+  into the body, and an inbound mapping. Linking the subscription to the inbound mapping, to a number that no mapping has and to a text that is not
+  a number is refused three times with the same answer, and the subscription is unchanged. Linking it to the outbound mapping is accepted; the
+  answer shows the link and the same target address as before. Removing the mapping while the subscription uses it is refused and the mapping
+  stays. Clearing the link is accepted, after which the mapping can be removed. No answer shows the signing key of the subscription.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator; SwiftRoute has no integration mapping named "link-out" or "link-in" (other mappings and subscriptions of the company do not matter, because this scenario judges only the ones it creates)
+    check: system_seeded
+    detail: If one exists, the administrator removes it first (a mapping that a subscription still uses cannot be removed; then report BLOCKED) and notes that in the report.
+  - description: The address https://example.com/swiftroute-link-test is accepted by the product as an outbound address (it is public and uses https)
+    check: system_seeded
+    detail: If the product refuses it because the test environment cannot resolve the name, report BLOCKED for the whole scenario, not FAIL.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator stores a webhook subscription with the target address "https://example.com/swiftroute-link-test". The administrator notes
+      the subscription number (S), the target address in the answer, the status, and the signing key that is shown once in the creation answer (K).
+      The answer shows no link to a mapping.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator stores a mapping named "link-out", direction outbound, with three rules: copy "order.number" to "orderNumber"; write the
+      fixed text "https://example.com/other" to "url"; write the fixed text "https://example.com/other" to "target_url". The administrator notes
+      the mapping number (O).
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator stores a mapping named "link-in", direction inbound, with one rule: copy "ref" to "reference". The administrator notes the
+      mapping number (I).
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator asks for the list of subscriptions and finds S. The administrator notes S's link (none), target address and status.
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator tries to link S to I (the inbound mapping), to the number U (well-formed, issued to no mapping) and to the text "not-a-number".
+      Each answer (status, body and content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator asks for the list of subscriptions and finds S again, noting its link, target address and status.
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator links S to O (the outbound mapping). The administrator notes the answer, then asks for the list of subscriptions and finds S.
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator tries to remove O while S uses it, then reads O.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator reads O (it is still there with its three rules). The administrator then clears the link of S (sets the link to nothing) and
+      asks for the list of subscriptions and finds S.
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: >
+      The administrator removes O and notes the answer, then tries to read O.
+    via: api
+  - step: 11
+    actor: tenant_admin
+    action: >
+      The administrator tries to store a subscription with each of these target addresses: "http://example.com/plain" (no encryption), "https://169.254.169.254/latest" (the cloud
+      address of the host), "https://10.0.0.5/hook" (a private network address) and "https://127.0.0.1/hook" (the host itself). The administrator also tries to change the target
+      address of S to "https://example.com/other" in a request that has no other field. Each answer (status and body) is noted.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin
+    action: >
+      The administrator asks for the list of subscriptions, which holds S with its original target address and holds no subscription with any of the four refused addresses.
+    via: api
+  - step: 13
+    actor: tenant_admin
+    action: >
+      Clean-up: the administrator removes I and removes S.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A subscription is not linked to an inbound mapping, to an unknown number or to a malformed number, and the three refusals are the same answer.
+    verification:
+      method: http_status
+      detail: Each of the three requests of step 5 answers 422 with equal body and content-type header. The subscription in step 6 shows no link, the same target address and the same status as in step 4.
+      evidence: The three answers of step 5 and the list entries of steps 4 and 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A subscription could point at a mapping that cannot be applied, or the refusals tell a caller which mapping numbers exist.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A subscription is linked to an outbound mapping of its own company, and the link is shown.
+    verification:
+      method: api_response
+      detail: Step 7 answers 200; the answer and the list entry of S show the link O, the status and target address of step 4 unchanged.
+      evidence: The answer and the list entry of step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot make a partner receive the shape the mapping describes.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A mapping that a subscription uses cannot be removed, and nothing is removed by the try.
+    verification:
+      method: http_status
+      detail: The removal in step 8 answers 409 and the reading in step 9 answers 200 with the name "link-out" and its three rules.
+      evidence: The answers of steps 8 and 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: Removing a mapping in use would make the next delivery of the subscription fail.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Clearing the link is accepted, and afterwards the mapping can be removed.
+    verification:
+      method: api_response
+      detail: Step 9 answers 200 for the clearing and the list entry of S shows no link; step 10 answers 204 for the removal and the reading of O then answers 404.
+      evidence: The answers of steps 9 and 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company cannot retire a mapping it no longer wants.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A mapping whose rules write "url" and "target_url" does not change the target address of the subscription.
+    verification:
+      method: api_response
+      detail: In steps 7 and 9 the target address of S is still "https://example.com/swiftroute-link-test", the same as in step 1, not "https://example.com/other".
+      evidence: The target address in the answers of steps 1, 7 and 9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A mapping could redirect a company's webhook to an address the product never checked.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: No answer about the subscription or the mapping shows the signing key.
+    verification:
+      method: api_response
+      detail: The key K (shown once in step 1) does not occur in any answer of steps 2 to 10, nor in the readings of O.
+      evidence: The answers of steps 2 to 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The key that proves a delivery comes from the company would be exposed.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: An outbound address that is not https, or that is a private, host-local or cloud-metadata address, is refused, and the target address of an existing subscription cannot be changed.
+    verification:
+      method: http_status
+      detail: The four store requests of step 11 are refused with a client error (4xx), and so is the change of the target address of S; a 5xx answer to any of them is a failure of this outcome, not a pass. The list in step 12 holds S with the address of step 1 and no subscription with a refused address.
+      evidence: The five answers of step 11 and the list of step 12.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could make Letflow send its data to an internal or unencrypted address (server-side request forgery).
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the mappings "link-out" and "link-in" and the subscription created in step 1 if they are left (clear the link first).
