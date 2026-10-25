@@ -39436,6 +39436,92 @@ requirements:
       - "For the process owner: who owns contracts and legal documents and where they are created, and when the purchase-order record that 0057 D1 gives the module is built (draft section 1, IN-01); whether a line may have several suppliers; the rule for a line cancelled after partial fulfilment; whether recording a supplier, reference or officer on a closed or cancelled request is refused (the draft forbids only physical fulfilment). The UAT assumptions in the description stand until confirmed."
     depends_on: [REQ-544]
 
+  - id: REQ-564
+    title: "Per-tenant print-template overrides, including Kazakhstan print forms (core roadmap, Customization beyond scripts), slice 0: decision record for how a tenant replaces the printed layout of a document type"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3202
+    # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts", bullet "per-tenant form, list and print-template overrides, including KZ print forms"; docs/migration/decisions/0056-versioned-documents.md D5 ("Per-tenant print-template overrides are a later customization candidate ... NOT decided here. This record only reserves template_ref"), D8 (declared_fields, restricted fields), open point 6 (RU/KK wording owner) and the list "Tenant print-template overrides (D5)"; docs/migration/decisions/0053-tenant-scripted-rules.md "Requirement candidates" and candidate (b); lib/letflow/modules/exam/certificate_document.ex (the one in-tree code-built renderer); lib/letflow/documents.ex and lib/letflow/documents/document_type.ex (type registration). Written by the business analyst (T-0492) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap "Customization beyond scripts"; decision 0056 D5, D8 and open point 6;
+      decision 0053 candidate list. The roadmap item names three override kinds: form, list and print
+      template. REQ-550 (the x_ layer record) decides in its D1 which of form and list overrides its layer
+      carries; this requirement owns ONLY the print-template part, including the KZ print forms, and
+      leaves form and list overrides to REQ-550 and its follow-ups.
+      Why it is a decision record first. Decision 0056 D5 is DIRECTION only: templates are code shipped
+      with a module (lib/letflow/modules/exam/certificate_document.ex is a code-built layout, not a
+      template engine), versioned by template_version, and a tenant override is expressly "NOT decided
+      here". Letting a tenant change what is printed on a legal document touches tenant data (INV-1),
+      restricted fields (INV-2), and template injection (0056 threat T10), and the source does not settle
+      the storage, the template language or who authors it. A developer cannot build that in one sitting
+      without these rulings, so this requirement is SLICE 0: its whole deliverable is the decision
+      record, a document under docs/migration/decisions/ with the next free number at the time of the
+      change. It builds no code, no migration, no seed, no route and no test. The implementation is
+      written as separate requirements after the record is accepted; each depends_on this one.
+      WHAT THE RECORD MUST DECIDE (each as a numbered D- section with reasons and sources; where the
+      source does not settle a point the record says "not settled by the source" and puts it to the
+      owner as an open point with options, it does not pick silently):
+      D1 What an override replaces: the layout and labels of a document type's printed output (for
+      example RU and KK wording, column order, headers, logo, footer), versus what it may never touch:
+      the content snapshot, content_hash, numbering, signatures and the declared_fields projection of
+      0056 D8. The record states that an override changes presentation only.
+      D2 Template form and authoring: the options (a structured declarative layout stored as tenant
+      data and interpreted by core; a template language with placeholders; an uploaded file) with the
+      reasons for the one the record recommends, and the 0056 T10 rule (PDF text only, no active
+      content, no scripts) applied to it. The record states that a tenant script (decision 0053) does
+      not author or run a print template.
+      D3 Storage, resolution and :prefix: where an override lives (tenant schema, :prefix scoping,
+      tenant_id carried in each row, INV-1), how a document type's template_ref (0056 D4/D5) resolves
+      to tenant override first and module default second, and what happens when a tenant override is
+      invalid or missing at render time (fail closed or fall back to the module template; the record
+      picks one and gives the reason).
+      D4 Binding to document versions: whether the override version used is recorded on the issued
+      version next to template_version and in the document.issued event, and the rule that a later
+      override change never alters an issued version, whose stored artefact is authoritative and is never
+      regenerated (0056 D5 primary rule). The record states how a reprint of an issued version behaves.
+      D5 Field restrictions in the rendered output (INV-2): an override receives only the projection of
+      content onto the type's declared_fields (0056 D8); the record states that an override cannot widen
+      that projection, that an override naming a field outside it fails the render closed, and that a
+      restriction added after the override was saved makes the next issue refuse.
+      D6 Kazakhstan print forms: the record names which forms are meant, taking the list (З-1 receipt, З-2 release, З-5 movement, Р-1 act, СНТ data set, ТТН) from the Context section of 0056 and the type key kz.z1 from 0056 D1, and it names the RU and KK languages and who owns the official wording.
+      0056 open point 6 and
+      the NF-07 matrix make that a customer decision (Kazakhmys accounting/legal); the record states it
+      as an open owner question with options, and states that the first implementation slice carries
+      the override mechanism but no official KZ wording until the owner answers.
+      D7 Authority and audit: which permission manages overrides, which role holds it, a separation
+      between the person who authors an override and the person who issues documents with it, the
+      audit events written in the same transaction (override saved, activated, retired; payloads carry
+      ids and hashes, never content), and that the management route takes the tenant from the auth
+      context and never from the request (INV-10).
+      D8 Slice plan for the implementation requirements, each sized to one change, each with its
+      depends_on and its tests, and naming SECURITY-REVIEWER as a mandatory gate for every slice.
+      DEPENDENCIES. REQ-550 (x_ layer record: its D1 draws the line between its override kinds and this
+      one, so the record cites that D1 and does not repeat it) and REQ-542 (versioned documents service
+      part 1, where document types, template_ref and the declared_fields projection are registered).
+      Decision 0056 is a source, not a dependency: if the record binds print forms to document versions
+      (D4), it cites 0056 D5 and D8 and does not amend them; any change to 0056 is stated as an
+      amendment in the record header.
+      NOT IN THIS ENTRY: any lib/, web/ or apps/ change, any migration, seed, route or test; the x_
+      field and validation layer (REQ-550); form and list overrides; PDF signature, retention and legal
+      hold (0056 D6, D7); a decision on the official Kazakhstan wording, which stays an open owner point.
+    open_questions:
+      - "Official RU and KK wording of the Kazakhstan print forms (D6): who at the customer owns and signs it off, and which forms apply to which transaction (0056 open point 6, NF-07). Until the owner answers, no slice carries official KZ wording."
+      - "Template form (D2): structured declarative layout, placeholder language or uploaded file. Recommendation to be given in the record; the owner decides if the options differ on cost to the tenant."
+    acceptance_criteria:
+      - "1. One new record exists under docs/migration/decisions/ with the next free four-digit number on origin/main at the time of the change, with a status line and a Sources section listing the files opened (the roadmap row, 0056 D5 and D8, 0053, REQ-550 as registered in docs/requirements.yaml, lib/letflow/modules/exam/certificate_document.ex, lib/letflow/documents/document_type.ex); the diff contains no file under lib/, test/, priv/, web/ or apps/."
+      - "2. The record has sections D1 to D8 as described in this entry, each stating its decision, its reasons and its source, findable by its heading (checked by grep of the headings); it contains no placeholder text and no unmarked guess: a point the sources do not settle is marked 'not settled by the source' and listed as an open owner question."
+      - "3. D3 states the resolution order tenant override then module default and what a render does when the override is invalid, and names the test a later slice must add: a tenant A override is never used to render a document of tenant B, and a request to manage an override for tenant B made with a tenant A credential gets a response indistinguishable from not-found (INV-10, INV-5)."
+      - "4. D4 states whether the override version is recorded on the issued version and in the document.issued event, states that a later override change does not alter an issued version and that the stored artefact is never regenerated, and cites 0056 D5 for the rule."
+      - "5. D5 states that an override receives only the declared_fields projection and names the test a later slice must add: an override that references a restricted field, or a field outside the projection, fails the render closed and the output contains no value of that field (INV-2)."
+      - "6. D6 contains the Kazakhstan question as an open owner question with at least two options and a recommendation, names the forms from 0056 (the forms listed in the Context section of 0056 and the type key kz.z1 of 0056 D1) it refers to, and states that no official wording is shipped before the owner answers."
+      - "7. D2 states that template output is PDF text only with no active content (0056 T10), that a tenant script does not author or run a template (0053), and the chosen template form with the reasons for rejecting the other two."
+      - "8. D7 names the permission and the role that manage overrides, states the authoring-versus-issuing separation or states that it is not settled by the source, lists the audit events, and states that no audit payload carries template content."
+      - "9. D8 lists the implementation slices, each sized to one change, each with its depends_on (at least this requirement, REQ-550 and REQ-542) and its tests, including the cross-tenant negative test of criterion 3 and the redaction test of criterion 5 in the first slice that adds a route or a render path, and names SECURITY-REVIEWER as a mandatory gate for every slice."
+      - "10. The header names this requirement, states that form and list overrides are out of scope and belong to REQ-550 and its follow-ups, and states whether the record amends 0056 (it quotes the sentence replaced) or only builds on it."
+      - "11. mix letflow.check_requirements_registration passes with the REQ-564 entry present, real output quoted."
+    depends_on: [REQ-550, REQ-542]
+
   - id: REQ-561
     title: "Tenant-defined scheduled jobs: a tenant table of recurring jobs that start a published process definition, run by the existing Scheduler.Poller (core roadmap, Customization beyond scripts)"
     owner: ELIXIR-DEV
