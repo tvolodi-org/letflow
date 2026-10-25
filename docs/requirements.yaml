@@ -39415,3 +39415,94 @@ requirements:
       - "10. The header names this requirement, states that form and list overrides are out of scope and belong to REQ-550 and its follow-ups, and states whether the record amends 0056 (it quotes the sentence replaced) or only builds on it."
       - "11. mix letflow.check_requirements_registration passes with the REQ-564 entry present, real output quoted."
     depends_on: [REQ-550, REQ-542]
+
+  - id: REQ-561
+    title: "Tenant-defined scheduled jobs: a tenant table of recurring jobs that start a published process definition, run by the existing Scheduler.Poller (core roadmap, Customization beyond scripts)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3194
+    # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (the candidate "integration mappings, scheduled jobs, notification templates and label overrides"); docs/migration/decisions/0053-tenant-scripted-rules.md D1 (hook_kind list: only service_task now, other kinds reserved) and its non-binding note "Customization beyond scripts" (scheduled jobs need their own record or requirement); lib/letflow/scheduler/poller.ex (moduledoc, REQ-331 addition: sweeps run on the one supervised ticker with with_admission/3 and run_sweep/4); lib/letflow/scheduler/record_deadline_sweep.ex (moduledoc: rules are deploy-time config and no tenant can declare one); lib/letflow/engine.ex (create/2); docs/agents/instructions/security-invariants.md INV-1, INV-2, INV-5, INV-8, INV-10. Written by the business analyst (T-0489) 2026-10-25. Not yet validated.
+    description: >
+      Tenants cannot today make anything happen on a schedule. Two mechanisms exist and neither is this one.
+      (1) Platform timers (lib/letflow/scheduler.ex, schema lib/letflow/scheduler/timer.ex): a timer belongs to one
+      running process instance and wakes that instance (poll_and_fire/1, fire_timer/2, maybe_rearm_timer/3); it
+      cannot start a new instance and is created by the engine, not by a tenant. (2) The generic record transition
+      sweep (lib/letflow/scheduler/record_deadline_sweep.ex, Poller's eighth sweep, REQ-331): its rules are
+      declared in application config by the platform operator, it only moves a record's status when a datetime field
+      has passed, and its moduledoc states that no tenant-facing path can create a rule. This requirement adds a
+      third thing: a tenant-owned definition of a recurring job, stored in the tenant schema, which the same
+      Scheduler.Poller runs when due.
+
+      Scope of this one change, and nothing wider. A job is a row in a new tenant-schema table (follow the
+      neighbouring tenant tables; the tenant is the schema prefix, INV-1) with: a key (unique per tenant), a title,
+      the name of a process definition, optional initial variables (a plain map of literals; a value that looks like
+      a secret is refused, because secrets exist only by reference through Letflow.Secrets (INV-4) and this slice
+      stores no reference at all), an optional scope node id, an interval in whole minutes, an anchor time (UTC), an
+      enabled flag, next_run_at, last_run_at, last_outcome, consecutive_failures, and the creating user id. The
+      action a job performs is exactly one: start a new instance of the named published process definition through
+      Letflow.Engine.create/2 (lib/letflow/engine.ex) with the job's variables and with the job's creating user as
+      actor. A job that runs a tenant script is NOT in this slice: 0053 D1 reserves hook kinds other than
+      service_task for later records, so a scheduled-script job (a new hook kind, a limits review and a decision
+      record under 0053 D0) is a later slice. A script can already be reached by a scheduled job through a process
+      whose service task has route kind script.
+
+      The due-run mechanism is a ninth per-tenant sweep on Scheduler.Poller, built exactly like
+      maybe_run_deadline_sweep/1 (run_sweep/4 over tenant schemas, with_admission/3, inline rescue): no new
+      GenServer, no new supervisor child, no process per job, no second ticker. The new module is a plain context
+      module in the style of Letflow.Scheduler.RecordDeadlineSweep (called by Poller, owns no state). Due jobs are
+      claimed per tenant schema with FOR UPDATE SKIP LOCKED (as Letflow.Scheduler.claim_due_timer_ids/2 does) and
+      each job runs in its own transaction, so one job failing never stops another job or another tenant.
+
+      Schedule semantics, fixed so that only one implementation is acceptable: the interval is a whole number of
+      minutes from 5 to 10080 (one week); next_run_at is always the anchor plus a whole multiple of the interval;
+      cron expressions, time zones and calendar rules (last day of month, working days) are out of scope. Missed
+      runs: if the platform was down or the sweep was late and several slots have passed, the job runs once, for the
+      latest missed slot, and next_run_at moves to the first slot after now; the slots in between are skipped, not
+      replayed, and their count is stored in last_outcome details. The instance start uses the idempotency key job id
+      plus slot time, so two sweeps (two nodes, a restart) claiming the same slot create one instance. Failure: a
+      start that returns an error tuple or raises is caught, stored as last_outcome (a stable code from a closed
+      list, never inspect output), increases consecutive_failures and still advances next_run_at, so a failing job
+      does not loop; the 5th consecutive failure sets enabled to false in the same transaction and writes an audit
+      event; a success resets the counter. An unknown, unpublished or retired definition is such a failure. A job
+      whose creating user is deactivated or no longer holds :InstancesStart (or no longer satisfies the scope rule
+      for the job's scope node id) fails with the code actor_not_allowed and counts as a failure. The closed list of
+      last_outcome codes is: ok, definition_not_found, definition_not_active, definition_needs_reactivation,
+      actor_not_allowed, start_failed, raised (the first three failure codes mirror the create_error type of
+      Letflow.Engine.create/2 in lib/letflow/engine.ex).
+
+      Management is through a new tenant-scoped router with create, read, list, update (title, variables, interval,
+      anchor, scope), enable and disable. A new core permission (the implementer names it in
+      lib/letflow/api/authorization.ex and classifies it tenant, as 0053 D6 does for the scripts permissions) is
+      granted to TENANT_ADMIN only; the role set stays closed (0046). It is not granted to any role except
+      TENANT_ADMIN, PLATFORM_ADMIN holding it only through the unconditional platform clause of
+      core_role_allows?/2. A caller needs, in addition, the core permission :InstancesStart (the policy key of
+      POST /instances in lib/letflow/api/authorization.ex), and for a job with a scope node id the same scope rule
+      that authorize_start_scope/2 in lib/letflow/routers/instances.ex applies to POST /instances; create and
+      enable are refused if the caller fails either, so a job cannot start what its owner could not start by hand. The feature is behind a new application config flag, default false; while false the sweep does nothing
+      and every management route answers the same not-found as an absent route does. Every create, update, enable,
+      disable, automatic disable and run writes an audit event in the same transaction.
+
+      Open questions for the process owner, not settled here: whether PROCESS_DESIGNER may also create jobs (this
+      slice says TENANT_ADMIN only, the safer default for something that starts work unattended); whether a job
+      should run as a dedicated service principal instead of its creating user (this slice uses the creating user so
+      that no new principal kind is introduced). The 5-minute minimum interval and the 5-failure automatic disable
+      are UAT assumptions, to be confirmed by the process owner. Scheduled-script jobs and cron expressions are later
+      slices.
+    acceptance_criteria:
+      - "1. Storage and tenancy (INV-1, INV-6): the job table lives in the tenant schema, created by a migration under priv/repo/migrations/ that reaches existing tenant schemas by the same mechanism the neighbouring tenant tables use, and every read and write of it passes the tenant schema as an explicit prefix. A test with two tenants creates a job in tenant A and asserts that tenant B's list and read never see it and that the sweep for tenant B starts no instance for it."
+      - "2. Schedule validation: create and update refuse, with a typed validation error naming the field and storing nothing, an interval that is not a whole number of minutes from 5 to 10080, a missing or non-UTC anchor, a key that is empty or already used in the tenant, and initial variables that are not a plain map. A table-driven test covers 4, 5, 10080 and 10081 minutes and each other refusal. next_run_at is stored as the anchor plus a whole multiple of the interval, the first such slot not before the creation time."
+      - "3. Due-run mechanism on the existing ticker (REQ-185, REQ-331 shape): Letflow.Scheduler.Poller gets one more per-tenant sweep written like maybe_run_deadline_sweep/1; the diff adds no GenServer, no supervisor child and no Task started per job outside run_sweep/4, and the existing supervision tests (test/letflow/supervisor/pollers_test.exs) pass unchanged. A test with two enabled jobs, one due and one not due, runs one sweep for the tenant and asserts exactly one new instance of the due job's definition, carrying the job's variables, and that the due job's last_run_at, last_outcome and next_run_at are updated in the same transaction."
+      - "4. Action is an existing engine action only: a run calls Letflow.Engine.create/2 with the job's definition name, variables, scope node and creating user as actor, and with the idempotency key job id plus slot time. The module has no code path that evaluates tenant source code, an expression from the job row, a URL or a shell command (INV-3, INV-9). Variables with a key named password, token, secret or api_key and a non-empty literal value are refused at create and update with a typed error; no Secrets reference is stored or resolved in this slice (INV-4). A test asserts both."
+      - "5. Missed runs: for an enabled job whose next_run_at is 3.5 intervals in the past, one sweep starts exactly one instance, sets next_run_at to the first slot after now and records the number of skipped slots (3); a second sweep immediately afterwards starts nothing. A disabled job with a past next_run_at is not run."
+      - "6. Duplicate claim: two concurrent sweeps for the same tenant (two tasks in the test, with sandbox allowance) create at most one instance for the same job and slot, through SKIP LOCKED or the idempotency key; the test asserts the instance count is one."
+      - "7. Failure behaviour (INV-8): a job naming a definition that does not exist, is not published or is retired, and a job whose creating user is deactivated or whose role binding was removed or changed to TASK_WORKER after create (so :InstancesStart is no longer held), each ends its run with a code from the closed list (ok, definition_not_found, definition_not_active, definition_needs_reactivation, actor_not_allowed, start_failed, raised) stored in last_outcome, increments consecutive_failures, advances next_run_at, writes an audit event and does not raise out of the sweep. A job that raises inside the start is rescued the same way, and the next job in the same tenant and the next tenant still run (a test makes the first job raise and asserts the second ran). On the 5th consecutive failure the job is set disabled in the same transaction with an audit event naming the automatic disable; one success resets the counter to zero. No error text, stack or inspect output reaches last_outcome, the API or logs."
+      - "8. Authorization (INV-2, INV-5): create, update, enable, disable, read and list need one new tenant-classified core permission registered in lib/letflow/api/authorization.ex and granted to TENANT_ADMIN only; the authorization golden and docs/roles.md are updated, and a test asserts the exact set of tenant roles holding it. PLATFORM_ADMIN holds it only through the unconditional clause of core_role_allows?/2. A TENANT_ADMIN whose :InstancesStart grant is scoped to a node that does not contain the job's scope node id (the rule of authorize_start_scope/2 in lib/letflow/routers/instances.ex) is refused at create and enable, and nothing is stored. A caller without the permission, and a caller asking for a job id that is absent or belongs to another tenant, get the identical not-found response (same status and body)."
+      - "9. Cross-tenant negative test (INV-10): a test authenticates as TENANT_ADMIN of tenant B and calls read, update, enable and disable on a job id that exists in tenant A, and also passes tenant A's identifier in path, query and body wherever the router accepts one; every call returns the same response as for an id that exists nowhere, and tenant A's row is unchanged afterwards. The router derives the tenant from the authentication context only."
+      - "10. Feature flag: a new application config key, default false in config/config.exs, with the reason stated in the module doc. With the flag false the sweep starts no instance even for a due enabled job and every management route returns the same not-found as an unregistered route; with it true criteria 3 to 9 hold. The route-inventory and scope-enforcement count pins in test/ are updated (grep __authz_routes__ and length(snapshot) in test/ and quote the hits)."
+      - "11. Audit: create, update, enable, disable, automatic disable and each run (success or failure) write one audit event in the transaction that changed the row, with the job key, the actor (the creating user for a run) and the slot time, and with no variable values in the event."
+      - "12. Distinctness is documented: the moduledoc of the new sweep module (no runbook is added) states in three sentences how a tenant job differs from a platform timer (belongs to an instance, wakes it) and from the record transition sweep (operator config, changes record status only); the diff does not edit lib/letflow/scheduler/record_deadline_sweep.ex or the timer code paths of lib/letflow/scheduler.ex."
+      - "13. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data table, routes and permission) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the new module's tests pass, real output quoted."
+    open_questions:
+      - "For the process owner: may PROCESS_DESIGNER also create jobs; should a job run as a dedicated service principal instead of its creating user; are the 5-minute minimum interval and the 5-failure automatic disable acceptable. A scheduled job that runs a tenant script needs a new hook kind and a decision record under 0053 D0 and is a later slice."
+    depends_on: []
