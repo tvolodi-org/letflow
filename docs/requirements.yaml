@@ -39400,9 +39400,13 @@ requirements:
       BOUNDARY. This requirement owns versioning and overrides at pack and process-definition level. It does
       NOT own the field- and validation-level x_ layer on module entity types, which belongs to REQ-550
       (slice 0 of the tenant extension layer, decision record) and whatever implementation requirements
-      follow it. Where an override concerns a field, a validation or a list, form or print-template of a
-      module entity type, REQ-550 owns it; the record of this requirement cites REQ-550's record for that
-      rule and must not contradict it, so this requirement runs after REQ-550. Also excluded: client scripts
+      follow it. Where an override concerns a field or a validation of a module entity type, REQ-550 owns
+      it; list, form and print-template overrides of a module entity type are split between REQ-550 and the
+      separate roadmap item "per-tenant form, list and print-template overrides"
+      (docs/migration/core-roadmap-20261014.md, section "Customization beyond scripts") by REQ-550's
+      record, D1; this requirement owns neither, and its record cites REQ-550's record for that rule and
+      must not contradict it, so this requirement runs after REQ-550. Also excluded: the per-tenant form,
+      list and print-template overrides roadmap item, client scripts
       (0039 D7 and 0053), tenant-owned entity types, module uninstall, and the generic list, pivot and graph
       views.
       Not in this change: any code, migration, seed, route, UI and test; a change to decision 0039 other than
@@ -39412,7 +39416,7 @@ requirements:
       - "2. The record's first section describes what main already has, each item cited by a file path the author opened in this change: the pack name and version with @default_pack_version in lib/letflow/definitions/solution_pack.ex, the table solution_pack_installs (lib/letflow/definitions/solution_pack_install.ex), solution_pack_artefact_bases, pack_update_resolutions, Letflow.Definitions.compute_pack_update_plan/5 in lib/letflow/definitions.ex and apply_pack_update/6 in lib/letflow/definitions/solution_pack.ex, and the two routes in lib/letflow/routers/solution_packs.ex."
       - "3. The record states in one paragraph what solution versioning means beyond the pack version and the module semver of 0055 D1, and states for each of D2 to D4 what it adds to the existing machinery and what it leaves unchanged."
       - "4. Sections D1 to D8 above each exist as a numbered section; each states its decision, reasons and the sources opened with file paths. A point that no source settles is written as \"not settled by the source\" and listed in an open-points section with the options and a recommendation, not decided silently."
-      - "5. Boundary section: the record states that it owns versioning and overrides at pack and process-definition level, names the field- and validation-level x_ layer on module entity types as excluded and owned by REQ-550 and its record, and cites that record by its number; the two records state no contradictory rule about which side owns an override of a module entity type's field, validation, list, form or print template."
+      - "5. Boundary section: the record states that it owns versioning and overrides at pack and process-definition level, names the field- and validation-level x_ layer on module entity types as excluded and owned by REQ-550 and its record, names the list, form and print-template overrides of module entity types as excluded and split between REQ-550 (by its record, D1) and the separate roadmap item "per-tenant form, list and print-template overrides", and cites REQ-550's record by its number; the two records state no contradictory rule about which side owns an override of a module entity type's field, validation, list, form or print template."
       - "6. D6 states that every route of the code slices takes the tenant from the auth context, that override storage is in the tenant schema under :prefix with tenant_id in each row (INV-1), and that the first code slice requires a cross-tenant negative test (INV-10: a user of tenant B cannot read, create or change tenant A's override and gets the same not-found as for an absent id, INV-5)."
       - "7. D7 states what happens to an install made before the change, with no data deleted and the existing update-review and update-apply routes answering as before until the tenant opts in."
       - "8. D8 lists the code slices expected, each sized to one change with its depends_on (at least this requirement and the record's accepted state), names SECURITY-REVIEWER as a mandatory gate for each slice that adds a route or table, and states that none of them is filed or built by this slice. The record contains no implementation code."
