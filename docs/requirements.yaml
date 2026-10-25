@@ -40263,7 +40263,7 @@ requirements:
     open_questions:
       - "Whether the feature flag is later replaced by the per-tenant script policy once F-3 is built is not decided here; F-3 states it. The flag is removed or kept by the requirement that makes the hook run."
     depends_on: [REQ-559]
-  - id: REQ-572
+  - id: REQ-574
     title: "Extension points in module processes slice X1: manifest declaration of points, point checks in Catalog.validate/1 and activation check for sites (decision 0071 D9 X1, no route, no table, no run-time dispatch)"
     owner: ELIXIR-DEV
     status: pending
@@ -40312,21 +40312,29 @@ requirements:
       key in this slice: whether the declaration belongs in the manifest hash (and so in the owner stamp that
       the upgrade logic compares) is not settled by 0071; it is for X4 to decide and is listed under
       open_questions. No feature flag is added: a declaration with no attachment has no run-time effect.
-      Existing modules. No registered manifest declares `:extension_points`, so every existing module validates
-      and activates exactly as today; the new activation check does nothing for a definition whose owner module
-      declares no points.
+      Also not checked in X1: (a) 0071 D1/D5 say `returns` is a subset of the variables the module already
+      declares; rule 13 cannot see the per-tenant variable schemas, so X1 only checks the SHAPE of `returns`
+      (a map of binary to binary) and the subset check belongs to the slice that binds an attachment (X2/X3);
+      (b) a point whose `site.definition` names no process definition of the module is not refused, because
+      `Catalog.validate/2` cannot see the pack and the activation check ignores points aimed at other
+      definitions.
+      Existing modules. No manifest in the production config (config/config.exs) declares `:extension_points`,
+      so every production module validates and activates exactly as today; the new activation check does
+      nothing for a definition whose owner module declares no points. The only registered manifest that
+      declares points is the test fixture of criterion 6.
     open_questions:
       - "OP-6 of decision 0071 (owner question): manifest shape, point-name prefix, point checks and the site activation check. Options in 0071: checks in Catalog.validate/1 plus graph.ex activation, or checks in the manifest callback only. This requirement is written at 0071's recommendation (Catalog.validate/1 for names and kinds, graph.ex activation for unknown sites). If the owner decides otherwise, this requirement is revised before it is built. Whether point names carry a module prefix is also under OP-6; this entry does not require one, names are unique within one module version only."
       - "OP-2 of decision 0071: before or after the site. This entry allows the single position value `after` at 0071's recommendation; a second value is a later change to the closed set."
       - "Whether the manifest hash covers the declaration is not settled by 0071 (see description); X4 decides."
+      - "The returns-subset rule of 0071 D1/D5 and the check that `site.definition` names a real definition of the module are not done in X1 (see description); X2/X3 decide where they are enforced."
       - "The 0071 sign-off by SECURITY-REVIEWER and REVIEWER is recorded as pending in the record; this slice touches no tenant-data path, but the owner may want 0071 accepted first."
     acceptance_criteria:
       - "In test/letflow/modules/catalog_test.exs, a manifest with `:extension_points` containing two points with the same `name` is refused by `Catalog.validate/1` with exactly `{:error, {:duplicate_extension_point, name}}`, naming the repeated name."
       - "A point whose `kind` is not `\"script_step\"` is refused with `{:error, {:unknown_extension_point_kind, kind}}`; a point with a `name` outside `^[a-z][a-z0-9_]{0,63}$`, with a `site.position` other than `\"after\"`, with a missing site key, or an `:extension_points` value that is not a list is refused with `{:error, {:invalid_extension_points, value}}`. Each case has its own test."
       - "A manifest with a valid `:extension_points` list (two distinct names, kind `script_step`, position `after`) is accepted by `Catalog.validate/1`, and rule 13 runs after rule 12: a manifest that fails rule 12 and also has a duplicate point name returns the rule 12 error."
-      - "A module without the key behaves exactly as today: `Catalog.validate/1` returns `:ok` for every manifest in `Catalog.all_manifests/0` (test), `[]` and an absent key give the same result, and `Letflow.Modules.ManifestHash.compute/1` returns the same digest for a manifest with and without a valid `:extension_points` list."
+      - "A module without the key behaves exactly as today: `Catalog.validate/1` returns `:ok` for every manifest of the production module list in config/config.exs (test), `[]` and an absent key give the same result, and `Letflow.Modules.ManifestHash.compute/1` returns the same digest for a manifest with and without a valid `:extension_points` list."
       - "In test/letflow/definitions/graph_test.exs, `Graph.check_extension_sites/2` called with a graph and a point whose `site.definition` equals the definition's name and whose `site.node_id` is not a node of the graph returns one `Violation` with code `:extension_site_unknown_node`; with a node id that is in the graph it returns `[]`; a point whose `site.definition` names another definition is ignored (returns `[]`)."
-      - "A definition test in test/letflow/definitions_test.exs (or the file that holds the activate/2 tests): `Definitions.activate/2` of a draft whose `owner_module` and `owner_module_version` match a registered test manifest with a point on a node id that the graph lacks returns `{:error, {:semantic_validation_failed, violations}}` with an `:extension_site_unknown_node` violation, and the definition stays `draft`. The same draft with the point's node id corrected activates (`{:ok, %{already_active: false}}`)."
+      - "In test/letflow/definitions_test.exs, using a new test-only module under test/support/modules/fixture_points/ that declares one point and is added to the `config :letflow, :modules` list in config/test.exs (the catalog's module list is fixed at compile time, as for the other fixtures under test/support/modules/): `Definitions.activate/2` of a draft whose `owner_module` and `owner_module_version` match that fixture manifest, with a point on a node id that the graph lacks returns `{:error, {:semantic_validation_failed, violations}}` with an `:extension_site_unknown_node` violation, and the definition stays `draft`. The same draft with the point's node id corrected activates (`{:ok, %{already_active: false}}`)."
       - "A draft with `owner_module` nil, or whose owner module declares no points, or whose `owner_module_version` differs from every registered manifest version, activates exactly as before (test per case); no `:extension_site_unknown_node` violation is produced."
       - "The change adds no route (the route-inventory and `__authz_routes__` pins in test/ are unchanged), no migration file in priv/repo/migrations/, no change to lib/letflow/engine.ex and no change to priv/permission_matrix/effective.golden; the implementer lists the greps over test/ that show this."
       - "`mix format`, `mix compile --warnings-as-errors` and `mix letflow.check.static` pass; the moduledoc and `@doc` of `Catalog.validate/2` and the manifest type in module.ex describe rule 13 and the new key."
