@@ -40,6 +40,7 @@ GET /script-rules ScriptRulesList
 GET /script-rules/:key/versions/:version ScriptRulesRead
 GET /script-rules/:key/versions/:version/audit ScriptRulesAuditRead
 GET /services ServicesRead
+GET /tenant/config-bundle TenantSettingsManage
 GET /tenants TenantsManage
 GET /tenants/:slug TenantsManage
 GET /tenants/:slug/script-policy TenantsManage
@@ -97,6 +98,7 @@ POST /solution-packs/:pack_id/update-apply DefinitionsCreate
 POST /solution-packs/:pack_id/update-review DefinitionsRead
 POST /solution-packs/export DefinitionsRead
 POST /solution-packs/install DefinitionsCreate
+POST /tenant/config-bundle/import TenantSettingsManage
 POST /tenant/modules ModulesManage
 POST /tenant/solutions ModulesManage
 POST /tenants TenantsManage
