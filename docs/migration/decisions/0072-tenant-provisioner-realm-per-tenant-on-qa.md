@@ -61,7 +61,7 @@ The request holds:
 
 | Item | Content |
 |---|---|
-| Realm name | `t-` plus the first 20 hex characters of `tenant_id` (the provisioner's rule). **Callers bind the realm and the issuer the service returns and never recompute them.** Letflow checks only the bind step's own rules (1 to 64 letters, digits, `_`, `-`, starts with a letter or digit, not `master`, exists on the configured Keycloak, runbook R3). |
+| Realm name | `t-` plus the first 20 hex characters of `tenant_id` (the provisioner's rule). **Callers bind the realm and the issuer the service returns and never recompute them.** Letflow checks the bind step's own rules (1 to 64 letters, digits, `_`, `-`, starts with a letter or digit, not `master`, exists on the configured Keycloak, runbook R3) **and a namespace guard** (D3, P13): the `/admin/v1` create refuses with 400 `invalid_request`, writing nothing, any `idp_realm_id` that does not match `^t-[0-9a-f]{20}$` **and** equal `t-` plus the first 20 hex digits of the canonical `tenant_id`. This checks the value the provisioner returned; it does not compute what gets bound. |
 | Realm settings | `verifyEmail` true; `duplicateEmailsAllowed` false; `registrationAllowed` false; no `identityProviders` entry (so no Trust Email); `bruteForceProtected` true; a non-empty `passwordPolicy`; users cannot edit their own e-mail (declarative user profile: the `email` attribute read-only for the user; the account API then answers 400 `error-user-attribute-read-only`); SMTP settings are an argument of the call (the shared QA relay), never part of the template and never in git. |
 | Realm roles | `TENANT_ADMIN`, `PROCESS_DESIGNER`, `PROCESS_OPERATOR`, `TASK_WORKER`, `AGENT_RUNNER`, `CANDIDATE`, `TENANT_AUDITOR`. **No `PLATFORM_ADMIN`.** `TENANT_ADMIN` is a plain realm role: not a composite, not in `default-roles-<realm>`, in no default group, in no client-scope role mapping (0046 D4; runbook realm checklist). |
 | Client `letflow-web` | Public client; the client id is the same global value in every realm; **this tenant's own** redirect URIs and web origins derived from the validated `hostname` (never `*`); `directAccessGrantsEnabled` false. |
@@ -93,6 +93,12 @@ gains the field `idp_realm_id` in the create request; the portfolio owns that co
 **Realm ownership.** The provisioner's record counts as "Realm ownership confirmed by" in the runbook checklist (D-019 item 6): the realm is made
 only by that service. The runbook names the provisioner as the confirming party, no person is needed. This replaces the checklist's named-person step for
 provisioned realms only.
+
+**Namespace guard (security ruling, binding).** Letflow cannot ask the provisioner whether it made a realm, so it does not rely on the caller's word alone. The `/admin/v1` create
+accepts an `idp_realm_id` only if it matches `^t-[0-9a-f]{20}$` and equals `t-` plus the first 20 hex digits of the canonical (cast) `tenant_id`; otherwise 400 `invalid_request`, no write, the value not echoed.
+Without this, a leaked or misused credential could bind a new demo tenant to any unbound realm on the configured Keycloak (for example a dev or seed realm such as `bpm-default`, whose users carry
+`TENANT_ADMIN` in `realm_access.roles`), which is weaker than the bind of 0048 (a PLATFORM_ADMIN plus a person confirming ownership). The guard confines this credential to the `t-` namespace that only the provisioner fills.
+It is a check of the value, not a recompute: the realm and issuer the service returns are still what callers bind.
 
 **Permanence.** The binding is permanent (0006 R5, narrowed by 0048 section 2; the partial unique index `tenants_idp_realm_id_partial_index` also keeps one realm to
 one tenant). A repeat call never changes it: with the tenant already bound, a different `idp_realm_id` in the body is ignored like every other body field (D5); a repeat that
@@ -138,7 +144,7 @@ Facts. `Tenant.create_changeset/3` (`lib/letflow/identity/tenant.ex`) casts only
 the id cannot be supplied. `Letflow.Routers.Onboarding` documents that it deliberately does not read `Idempotency-Key`; a repeated slug or hostname answers 409 and "is NOT a replay of the original 201".
 The contract (rule 3) requires "idempotent by `tenant_id`, a repeated call returns the same result and changes nothing".
 
-**Decided: the front door's `tenant_id` becomes `tenants.id`**, set by a provisioning-only changeset (no existing changeset starts casting `:id`; `PATCH /tenants/:slug` and `POST /tenants` keep
+**Decided: the front door's `tenant_id` becomes `tenants.id`**, after being cast as an `Ecto.UUID` (anything else is refused with 400 `invalid_request` before any write; the schema prefix, the slug and the realm-name check all come from the canonical cast value, never from the raw string), set by a provisioning-only changeset (no existing changeset starts casting `:id`; `PATCH /tenants/:slug` and `POST /tenants` keep
 refusing it). The slug is derived deterministically: `t-` plus the 32 lowercase hex digits of the id (its first 20 hex digits are the provisioner's realm name, so the two derivations agree by
 construction and the front door can trace one from the other). **No new unique external-id column is needed**: the primary key is the unique key, which gives the replay path for free and a race-free
 guarantee from the database (two concurrent POSTs with one `tenant_id`: one insert wins, the other reads the row and answers 200). This is simpler than the alternative named in the task
@@ -152,7 +158,7 @@ Corrections owed to REQ-572 (a BA amendment, not made in this documents-only tas
 only when no `idp_realm_id` is sent.
 
 Amendment of 0048 section 1 item 3, recorded here as REQ-572 open question 8 requires: a pending grant may also be created by a second path, `create_provisioned/2`, with `created_via = 'provisioning'`
-(the CHECK of `20261008000001_create_pending_tenant_admin_grants.exs` widened to `('onboarding','provisioning')`, additive), a nil actor in both audit chains, details `created_via: 'provisioner'`, and the creator
+(the CHECK of `20261008000001_create_pending_tenant_admin_grants.exs` widened to `('onboarding','provisioning')`, additive), a nil actor in both audit chains, details `created_via: 'provisioning'` (the same value as the column, so audit queries and the CHECK agree), and the creator
 class of the bind and revoke entries taken from the grant row. `create/3` is unchanged and stays the only onboarding path. The grant still names `TENANT_ADMIN` only and still binds only on a verified matching
 e-mail (0046 D4 and D5 and 0048 section 3 unchanged). What 0048 section 3 argued for the operator holds for the provisioner: it confers nothing on itself, has no add or replace route, and the person must
 sign in through the tenant's own realm.
@@ -203,27 +209,32 @@ the constant-time compare) and rotation limited to one hash (REQ-572 open questi
 | P5 | The credential cannot create, list or revoke a credential or API token, cannot list tenants, cannot mint or grant any role other than the one `TENANT_ADMIN` pending grant of the first administrator | route inventory test: no such route exists under `/admin/v1` |
 | P6 | Only tenants with a `tenant_lifecycles` row are visible, suspended, expired or purged; the platform tenant, a production tenant not provisioned this way and a tenant made by `POST /tenants` answer 404 (INV-5) and are untouched by the sweep | counted before and after, byte-identical 404 bodies |
 | P7 | No `PLATFORM_ADMIN` is created in a customer tenant by any provisioning step, and none exists in the template realm (0046 D4) | scan of the realm request builder's output and of the template |
-| P8 | The only writes under a tenant prefix are the schema provisioning and the one pending-grant insert, under a prefix derived from the new tenant's id, never from a request value (INV-1, INV-6, INV-7) | source and behaviour test of the prefix derivation |
+| P8 | The only writes under a tenant prefix are the schema provisioning and the one pending-grant insert, under a prefix derived from the canonical `Ecto.UUID`-cast `tenant_id` (the new tenant's id), never from the raw request string (INV-1, INV-6, INV-7) | source and behaviour test of the prefix derivation, including a non-UUID and an injection-shaped `tenant_id` (`x'; drop schema ...`, upper-case or braced forms): 400, nothing written |
 | P9 | `hostname` is validated before any write; only a configured suffix is accepted (INV-9: the value later feeds redirect URIs and host-based resolution) | tests in D5(b): bad format, unallowed suffix, suffix unset, duplicate |
-| P10 | Rate limit per credential (60 requests per 60 s default), 429 with `Retry-After`; a request with a bad credential does not consume the budget | injected clock |
+| P10 | Rate limit per credential (60 requests per 60 s default), 429 with `Retry-After`; a request with a bad credential does not consume the budget. Because failed guesses are not limited, brute force is kept out of the threat model by **credential strength**: the value is at least 256 bits from a CSPRNG (the rotation runbook gives the generation command and refuses shorter values) | injected clock; Letflow holds only the hash and cannot check the length, so the rotation runbook step is the control and the PR cites it |
+| P13 | `idp_realm_id` must match `^t-[0-9a-f]{20}$` and equal `t-` plus the first 20 hex digits of the cast `tenant_id` (D3 namespace guard); the credential cannot bind a tenant to a dev, seed or foreign realm (INV-10) | create with `bpm-default`; with a non-`t-` realm; with a `t-` realm whose hex does not match `tenant_id`; with an upper-case or over-long `t-` value: each 400, no tenant row, no grant, no audit entry |
+| P14 | `tier: production` is refused (see below) | create with `tier: production`: 400 `invalid_request`, nothing written |
 | P11 | No secret in logs, responses, errors, audit or git: only the hash is configured; the request builder output and the template carry no password, key or SMTP secret (INV-4) | scan tests |
 | P12 | A failed step answers 500 `internal_error` with no stack, SQL or e-mail (INV-8); an audit write failure is rescued and answers 500 | injected failure |
 
-A tier `production` request creates `tenant_type = production`; REQ-469 lets only a PLATFORM_ADMIN set it. This record **does not settle** that (REQ-572 open question 6): the first build may refuse `tier: production`
-on `/admin/v1` (400 `invalid_request`) until the SECURITY-REVIEWER rules, because QA only needs demos. If production is allowed later, demo to production remains the audited platform-operator `PATCH` of D4.
+**Settled (security ruling on REQ-572 open question 6).** `/admin/v1` refuses `tier: production` with 400 `invalid_request` (P14). REQ-469 keeps setting `tenant_type = production` for a PLATFORM_ADMIN only, through the
+audited `PATCH /tenants/:slug`; demo to production stays that platform-operator step of D4. The provisioner credential never creates or promotes a production tenant.
 
 ## 8. D7. Settings (not rules), starting values
 
 All are configuration read in `config/runtime.exs` from the environment, with these defaults, changeable without a code change (D-019 items 4 and 5; REQ-572 criterion 19 requires a test that changes each):
 
-| Setting | Starting value | Meaning |
+| Setting (env var) | Starting value | Meaning |
 |---|---|---|
-| demo cap | 30 | `tenant_lifecycles` rows with tier demo and lifecycle not deleted; a create beyond it answers 409 `conflict` (`demo_cap_reached`) |
-| alarm threshold | 25 | a warning-level log line with the count and the cap, no tenant data |
-| demo lifetime | 14 days | after creation; sets `expires_at` when the request gives none; the sweep expires the demo |
-| retention | 30 more days | counted from expiry or from the deletion request, then purge (and the reaper deletes the realm) |
-| sweep interval | a setting | how often the scheduled sweep runs (expire, then purge) |
-| allowed hostname suffixes | none (empty refuses all) | D5(b) |
+| `LETFLOW_PROVISIONER_DEMO_CAP` | 30 | `tenant_lifecycles` rows with tier demo and lifecycle not deleted; a create beyond it answers 409 `conflict` (`demo_cap_reached`) |
+| `LETFLOW_PROVISIONER_DEMO_ALARM` | 25 | a warning-level log line with the count and the cap, no tenant data |
+| `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | 14 | after creation; sets `expires_at` when the request gives none; the sweep expires the demo |
+| `LETFLOW_PROVISIONER_RETENTION_DAYS` | 30 | counted from expiry or from the deletion request, then purge (and the reaper deletes the realm) |
+| `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | 60 | how often the scheduled sweep runs (expire, then purge) |
+| `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | none (empty refuses all) | D5(b) |
+| `LETFLOW_PROVISIONER_CREDENTIAL_SHA256` | unset (routes answer 404) | D6 |
+
+The implementer lists each variable with its default and reason in the PR (a new env var needs a stated reason); the sweep interval default is a starting value like the others.
 
 The numbers are the owner's blast-radius choice and are explicitly **starting values**: nothing in code or tests may assume 30, 25, 14 or 30 except as the defaults. The provisioner has its own demo cap and capacity errors
 (`demo_cap_reached`, `total_cap_reached`); the two caps are independent and the lower one wins.
@@ -249,4 +260,4 @@ is a design decision, not a verification: no code was run for it.
 
 ## Sign-off
 
-REVIEWER: pending (design gate). SECURITY-REVIEWER: pending.
+REVIEWER: pending (design gate). SECURITY-REVIEWER: attempt 1 returned FAIL (2026-10-25); its findings are applied in this revision (namespace guard D3/P13, `tier: production` refused P14, `Ecto.UUID` cast P8, credential strength P10, one `created_via` value, setting names D7); open question 6 is settled by the SECURITY-REVIEWER ruling in D6. Re-review pending.
