@@ -9,6 +9,9 @@
  *  the provider are tested with react-query mocked wholesale or without an
  *  auth context.
  *
+ *  A `<` is ICU-quoted (`'<'`) so a tag-form override is never parsed as a tag
+ *  (parsing it throws in some react-intl error modes) and shows literally.
+ *
  *  Values stay message strings rendered by `formatMessage` without values, so
  *  they come out as React text nodes. Limit: a future overridable id that has
  *  `{name}` placeholders and is formatted with values is ICU-parsed, and an
@@ -41,7 +44,7 @@ export function useMergedEntitiesMessages(): Record<string, string> {
             id.startsWith(OVERRIDABLE_PREFIX) &&
             Object.prototype.hasOwnProperty.call(base, id)
           ) {
-            accepted[id] = text
+            accepted[id] = text.replace(/</g, "'<'")
           }
         }
         setOverrides(accepted)
