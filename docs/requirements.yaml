@@ -38508,7 +38508,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- blocked-by: REQ-545 -- no code dependency; ordering only, the engine files the issue when this entry is registered
+    gh: 3182
     description: >
       Core roadmap, Customization beyond scripts (data import). Record import exists on main:
       REQ-314 (design, lib/letflow/design/req314-entity-record-bulk-export-import.md), REQ-318
