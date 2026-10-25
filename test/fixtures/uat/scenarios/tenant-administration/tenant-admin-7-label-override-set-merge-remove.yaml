@@ -41,7 +41,7 @@ steps:
     actor: tenant_admin
     action: >
       The administrator sets the company's languages to English and Russian with Russian as the default language, and notes the previous language
-      settings so they can be restored.
+      settings so they can be restored (if SwiftRoute had no language list before, it cannot be put back to absent: the report notes the value left).
     via: api
   - step: 2
     actor: worker
@@ -93,7 +93,8 @@ steps:
   - step: 8
     actor: tenant_admin
     action: >
-      The administrator removes the replacement for the tag-save message in Russian, and then reads the wording list as the worker did in step 2.
+      The administrator removes the replacement for the tag-save message in Russian, then reads the wording list as the worker did in step 2,
+      and then removes the same replacement a second time and notes the answer.
     via: api
   - step: 9
     actor: tenant_admin
@@ -136,7 +137,7 @@ expected_outcomes:
     description: Removing the replacement brings the platform wording back for that message; a repeat removal gives the same plain not-found answer as removing a replacement that never existed.
     verification:
       method: api_response
-      detail: The list of step 8 equals the list of step 2 in every message; the administrator then removes the replacement a second time and the answer is the fixed not-found reply.
+      detail: The list of step 8 equals the list of step 2 in every message; the second removal performed at the end of step 8 gets the fixed not-found reply.
       evidence: The list of step 8 compared with step 2, and the answer of the second removal.
     on_fail:
       severity: MAJOR
@@ -155,4 +156,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: Remove any replacement left for the tag-save message and restore the SwiftRoute language settings noted in step 1.
+  description: Remove any replacement left for the tag-save message and restore the SwiftRoute language settings noted in step 1; if there was none before step 1, it cannot be removed, and the report notes the value left.

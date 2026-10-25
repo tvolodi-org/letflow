@@ -6,10 +6,16 @@
 # be produced by a person using the product: it needs a failing server, so the web unit tests of the requirement are its check. Criterion 5
 # (gates) is checked by CI. The "no request to the wording route on the sign-in page" half of criterion 4 is not visible to a person; only
 # the visible half (the sign-in wording is unchanged) is checked here.
-# Sources: docs/requirements.yaml REQ-553; web/src/i18n/entitiesMessages.ts (entity screens), loginMessages.ts (sign-in page);
-# priv/labels/entities_defaults.json. UAT assumption, to be confirmed by the process owner: the message "entities.tag.form.submitError" is shown
-# on the tag form when saving fails, and the tester can make the save fail (for example by saving a tag whose name already exists); if the screen
-# message cannot be produced, report BLOCKED for steps 3 and 5, not FAIL.
+# Why Bilimbaga: the merged wording is applied only on the question-bank administration screens (web/src/modules/exam/BilimBagaAdminPage.tsx
+# and web/src/pages/entities/EntityCrudPage.tsx, reached through the exam module routes "admin/bilimbaga" and "admin/bilimbaga/:entityType",
+# which need the record-write permission). Bilimbaga is the only company on the roster with the exam module, and its administrator is the only
+# roster actor who reaches these screens. SwiftRoute workers never see them.
+# Sources: docs/requirements.yaml REQ-553; web/src/i18n/entitiesMessages.ts (entity screens; the screen language comes from the browser
+# language), loginMessages.ts (sign-in page); priv/labels/entities_defaults.json ("entities.admin.landing.title" ru "Банк вопросов и экзамены",
+# "entities.crud.list.createAction" ru "Новая запись"); test/fixtures/uat/actors.yaml (actor-bilimbaga-admin: TENANT_ADMIN, token mapping not yet
+# approved). UAT assumption, to be confirmed by the process owner: the page title of the question-bank landing page is the message
+# "entities.admin.landing.title" and the button of the tag list is "entities.crud.list.createAction", as read from the screen code; if the
+# screens show other texts, report BLOCKED for steps 3 and 5, not FAIL.
 ---
 id: tenant-administration-10-label-override-shown-after-sign-in
 scope: tenant-administration
@@ -18,42 +24,43 @@ version: "1.0"
 tags: [tenant-admin, label-overrides, i18n, gui, escaping]
 
 description: >
-  The administrator of SwiftRoute replaces the Russian wording of the tag-save-failed message. A SwiftRoute worker who signs in afterwards and
-  provokes that message sees the company's text; another message of the same screens still shows the platform text. The administrator then
-  replaces the message with a text made of markup characters; the worker sees the characters literally, with no bold text, no image and no
+  The administrator of Bilimbaga replaces the Russian wording of the question-bank page title. After signing in again with the browser in
+  Russian, the administrator sees the company's title; the "new record" button on the tag list still shows the platform text. The administrator
+  then replaces the title with a text made of markup characters; the page shows the characters literally, with no bold text, no image and no
   pop-up. The public sign-in page keeps its platform wording throughout.
 
 actors:
-  tenant_admin: actor-swiftroute-alice
-  worker: actor-swiftroute-lena
+  tenant_admin: actor-bilimbaga-admin
 
 preconditions:
-  - description: SwiftRoute lists Russian as a company language, the worker can open the tag form, and no replacement exists for the tag-save and record-save messages
+  - description: Bilimbaga lists Russian as a company language, the exam module is enabled for Bilimbaga, the browser language is Russian, and no replacement exists for the question-bank page title or the new-record button
     check: custom
-    detail: If Russian is not listed, the administrator lists it first (scenario 7, step 1). If the worker cannot open the tag form, report BLOCKED.
+    detail: If Russian is not listed, the administrator lists it first. If the Bilimbaga administrator cannot sign in (no approved test token mapping, see the roster note), or the exam module is not enabled, report BLOCKED for the whole scenario, not FAIL.
 
 steps:
   - step: 1
-    actor: worker
+    actor: tenant_admin
     action: >
-      Opens the public sign-in page in Russian and notes its wording, signs in, opens the tag form in Russian, provokes the "tag could not be
-      saved" message and notes it, and provokes the "record could not be saved" message on a generic record form and notes it.
+      Opens the public sign-in page with the browser in Russian and notes its wording, signs in, opens the question-bank page and notes its
+      title, opens the tag list and notes the text of the new-record button.
     via: gui
     produces:
-      before_screens: the sign-in page and the two messages before any replacement
+      before_screens: the sign-in page, the question-bank page title and the new-record button before any replacement
   - step: 2
     actor: tenant_admin
     action: >
-      Replaces the Russian text of the tag-save-failed message with "Тег не сохранён, обратитесь в поддержку SwiftRoute".
+      Replaces the Russian text of the question-bank page title with "Банк вопросов Bilimbaga, обратитесь в поддержку".
     via: api
+    input:
+      text: "Банк вопросов Bilimbaga, обратитесь в поддержку"
   - step: 3
-    actor: worker
+    actor: tenant_admin
     action: >
-      Signs out, opens the public sign-in page in Russian, signs in again, opens the tag form in Russian, provokes the tag-save-failed message,
-      and then provokes the record-save-failed message on the generic record form. Notes the wording of the sign-in page and of both messages.
+      Signs out, opens the public sign-in page in Russian, signs in again, opens the question-bank page and notes its title, then opens the tag
+      list and notes the text of the new-record button. Notes the wording of the sign-in page as well.
     via: gui
     produces:
-      after_screens: the sign-in page and the two messages after the replacement
+      after_screens: the sign-in page, the page title and the button after the replacement
   - step: 4
     actor: tenant_admin
     action: >
@@ -62,21 +69,21 @@ steps:
     input:
       text: "<img src=x onerror=alert(1)> <b>bold</b>"
   - step: 5
-    actor: worker
+    actor: tenant_admin
     action: >
-      Signs out and in again, opens the tag form in Russian, provokes the tag-save-failed message, and looks at what is drawn: whether the
-      characters appear as written, whether any bold text, picture or pop-up appears.
+      Signs out and in again, opens the question-bank page and looks at what is drawn in the title: whether the characters appear as written,
+      whether any bold text, picture or pop-up appears.
     via: gui
     produces:
-      markup_screen: the message with the markup text
+      markup_screen: the page title with the markup text
 
 expected_outcomes:
   - id: EO-001
-    description: Before any replacement the screens show the platform wording; after the replacement, and after signing in again, the tag-save message shows the company's text and the other message still shows the platform text.
+    description: Before any replacement the screens show the platform wording; after the replacement, and after signing in again, the page title shows the company's text and the other message still shows the platform text.
     verification:
       method: gui_screen
-      detail: In step 3 the tag-save-failed message reads "Тег не сохранён, обратитесь в поддержку SwiftRoute"; the record-save-failed message reads the same platform text as in step 1.
-      evidence: Screenshots of the messages in steps 1 and 3.
+      detail: In step 3 the question-bank page title reads "Банк вопросов Bilimbaga, обратитесь в поддержку"; the new-record button reads the same platform text as in step 1.
+      evidence: Screenshots of the page title and the button in steps 1 and 3.
     on_fail:
       severity: MAJOR
       business_impact: The company's own wording never reaches its staff, or a replacement of one message changes others.
@@ -96,7 +103,7 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: Step 5 shows "<img src=x onerror=alert(1)> <b>bold</b>" as visible characters, with no picture, no bold text and no pop-up.
-      evidence: Screenshot of the message in step 5.
+      evidence: Screenshot of the page title in step 5.
     on_fail:
       severity: BLOCKER
       business_impact: A company administrator could make code run in the browsers of all the company's staff.
@@ -104,4 +111,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: Remove the replacement for the tag-save message in Russian.
+  description: Remove the replacement for the question-bank page title in Russian.

@@ -5,6 +5,8 @@
 # (the allowed message ids; no platform text on main contains a {name} placeholder, checked by grep of the file, so the placeholder rule
 # is tested by "any placeholder is refused", and "a text without a placeholder where the platform text has one is accepted" cannot be
 # exercised on the current wording file: the reason it is left out).
+# Not covered: criterion 6(c), a company with no configured languages. Such a company exists only in test setup, because the tenant settings
+# route refuses an empty language list and cannot remove the key (it merges into the existing settings).
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
 ---
 id: tenant-administration-8-label-override-refusals
@@ -18,7 +20,7 @@ description: >
   platform does not have, for Kazakh (not a company language) and for German (not a platform language) are refused and change nothing. Texts
   that are empty, longer than 500 characters, contain a line break, use a placeholder or a plural form are refused. A task worker and the
   read-only auditor can read the wording list but cannot write or remove a replacement; their refusal is identical whether or not a
-  replacement exists. A company whose only language is German, or that lists no language, is served the English platform wording.
+  replacement exists. A company whose only language is German is served the English platform wording.
 
 actors:
   tenant_admin: actor-swiftroute-alice
@@ -34,7 +36,8 @@ steps:
   - step: 1
     actor: tenant_admin
     action: >
-      The administrator sets the company's languages to English and Russian, default Russian, noting the previous settings. The administrator
+      The administrator sets the company's languages to English and Russian, default Russian, noting the previous settings (if SwiftRoute had
+      no language list before, it cannot be put back to absent: the report notes the value left). The administrator
       then stores one Russian replacement for the tag-save message, "Тег не сохранён", so that a replacement exists, and notes the wording list.
     via: api
   - step: 2
@@ -83,8 +86,7 @@ steps:
     actor: tenant_admin
     action: >
       The administrator sets the company's languages to German only with German as default, then reads the wording list asking for
-      German, and the administrator clears the language list altogether and reads the list asking for Russian. Finally the
-      administrator restores the language settings noted in step 1.
+      German. Finally the administrator restores the language settings noted in step 1.
     via: api
   - step: 9
     actor: tenant_admin
@@ -145,10 +147,10 @@ expected_outcomes:
       business_impact: The administrator cannot tell whether a removal took effect.
       suggested_action: route_to_wf03
   - id: EO-006
-    description: The language served follows one rule. A company whose only language is German, or that lists none, is served English; a language the company does not list is replaced by the company's default language.
+    description: The language served follows one rule. A company whose only language is German is served English; a language the company does not list is replaced by the company's default language.
     verification:
       method: api_response
-      detail: The answer in step 8 for German names en and carries the English platform text; after the list is cleared, the answer asked for Russian names en, as Russian is then not a listed language (English is the one language when none is listed). In step 9 the answer for Kazakh names ru.
+      detail: The answer in step 8 for German names en and carries the English platform text. In step 9 the answer for Kazakh names ru.
       evidence: The answers of steps 8 and 9.
     on_fail:
       severity: MAJOR
@@ -157,4 +159,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: Remove any replacement for the tag-save message and restore the SwiftRoute language settings noted in step 1.
+  description: Remove any replacement for the tag-save message and restore the SwiftRoute language settings noted in step 1; if there were none before step 1, they cannot be removed, and the report notes the value left.

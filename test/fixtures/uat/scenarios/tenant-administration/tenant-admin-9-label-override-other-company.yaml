@@ -28,7 +28,7 @@ actors:
 preconditions:
   - description: SwiftRoute, Meridian and Bilimbaga are set up; SwiftRoute and Bilimbaga both list Russian as a company language; no replacement for the tag-save message exists in any of them
     check: system_seeded
-    detail: If the Bilimbaga administrator cannot sign in (no approved test token), report BLOCKED for steps 4 and 6 and run the others. If Meridian does not list Russian, its list is served in its default language and the comparison is made on that language's platform text.
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token), report BLOCKED for steps 3, 4, 6 and 8 and run the others. EO-002, EO-003 and EO-004 are then BLOCKED, and EO-001 is judged on step 2 (the Meridian user) alone. If Meridian does not list Russian, its list is served in its default language and the comparison is made on that language's platform text.
 
 steps:
   - step: 1
