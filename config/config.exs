@@ -131,6 +131,11 @@ config :letflow, :script_task_dispatcher,
 # (mix letflow.check_boundaries Rule 6).
 config :letflow, :entity_port, Letflow.Entities.EntityPortImpl
 
+# REQ-561 / GH #3194: tenant-defined scheduled jobs. Default off: a job starts work unattended with
+# a user's authority, so a platform operator opts in (see Letflow.ScheduledJobs). Read fresh on
+# every Poller tick.
+config :letflow, :scheduled_jobs, enabled: false
+
 # GH 2534 PR 7c-1 SECURITY note: the build environment, read by Letflow.Application.start/2's
 # boot guard (Letflow.Scripts.Runtime.boot_check/2 refuses :scripts_test_hooks in :prod).
 config :letflow, :config_env, config_env()

@@ -1,0 +1,125 @@
+# T-0539 (BA): TENANT ADMIN group, scenario 9: wording replacements belong to one company; another company never reads them.
+# Covers REQ-551 criteria 3 (two companies, same message and language, each reads its own text), 10 (cross-company, tenant named in the
+# request is ignored) and 11 (removal by the other company is the same as removing nothing).
+# Sources: docs/requirements.yaml REQ-551 criteria 3, 10; test/fixtures/uat/actors.yaml (alice, lena: SwiftRoute; ben: Meridian;
+# actor-bilimbaga-admin: Bilimbaga TENANT_ADMIN, roster note says minting its token needs a qa-login mapping that is not yet approved).
+# Company A is SwiftRoute, company B is Bilimbaga for the administrator steps and Meridian for the plain reader. The routes take the tenant
+# from the sign-in only, so no step names a company in the request except the deliberate step 4.
+---
+id: tenant-administration-9-label-override-other-company
+scope: tenant-administration
+title: A company's wording replacements are never visible to, or removable by, another company
+version: "1.0"
+tags: [tenant-admin, label-overrides, cross-tenant, refusal, isolation]
+
+description: >
+  The administrator of SwiftRoute replaces the Russian wording of the tag-save message. A user of Meridian and the administrator of
+  Bilimbaga read their own wording lists and find the platform text, with nothing of SwiftRoute's. The Bilimbaga administrator tries to
+  remove "the same" replacement and gets the answer of removing something that exists nowhere, and SwiftRoute's replacement stays. A request
+  that names SwiftRoute as the company is ignored: the answer belongs to the company of the sign-in. Finally both administrators replace the
+  same message and language with different texts, and each company reads only its own.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+  reader_b: actor-meridian-ben
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute, Meridian and Bilimbaga are set up; SwiftRoute and Bilimbaga both list Russian as a company language; no replacement for the tag-save message exists in any of them
+    check: system_seeded
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token), report BLOCKED for steps 3, 4, 6 and 8 and run the others. EO-002, EO-003 and EO-004 are then BLOCKED, and EO-001 is judged on step 2 (the Meridian user) alone. If Meridian does not list Russian, its list is served in its default language and the comparison is made on that language's platform text.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute replaces the Russian text of the tag-save message with "Тег не сохранён (SwiftRoute)".
+    via: api
+  - step: 2
+    actor: reader_b
+    action: >
+      A Meridian user asks for the Russian wording list and searches the whole answer for "SwiftRoute". The user notes the language served and the
+      tag-save text.
+    via: api
+  - step: 3
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for the Russian wording list, searches it for "SwiftRoute", and compares the tag-save text with the
+      platform wording file.
+    via: api
+  - step: 4
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator removes the Russian replacement of the tag-save message, which exists only in SwiftRoute, and notes the answer.
+      The administrator then removes a replacement for the other message ("entities.crud.form.submitError", Russian), which exists nowhere, and
+      notes that answer too.
+    via: api
+  - step: 5
+    actor: worker_a
+    action: >
+      A SwiftRoute task worker asks for the Russian wording list and reads the tag-save text.
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for the Russian wording list again, adding to the request the SwiftRoute company as the company wanted,
+      in the address and in the body of a replacement. The administrator reads whose wording is returned, then replaces the tag-save message in
+      Russian with "Тег не сохранён (Bilimbaga)" while also naming SwiftRoute as the company in the body.
+    via: api
+    input:
+      company_named_in_request: SwiftRoute
+  - step: 7
+    actor: tenant_admin_a
+    action: The SwiftRoute administrator asks for the Russian wording list and reads the tag-save text.
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: The Bilimbaga administrator asks for the Russian wording list and reads the tag-save text.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Another company reads the platform text, not SwiftRoute's replacement.
+    verification:
+      method: api_response
+      detail: The answers of steps 2 and 3 contain no part of "Тег не сохранён (SwiftRoute)" or of the word "SwiftRoute", and the tag-save text equals the platform text of the served language.
+      evidence: The answers of steps 2 and 3 searched for the SwiftRoute text.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer's own wording, which may name its products or contacts, shows on another customer's screens.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Removing "the same" replacement from another company changes nothing in SwiftRoute and answers exactly as removing a replacement that exists nowhere.
+    verification:
+      method: http_status
+      detail: Both removals of step 4 give the same status and body; the SwiftRoute worker's list in step 5 still carries "Тег не сохранён (SwiftRoute)".
+      evidence: The two answers of step 4 and the list of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer could delete another customer's wording, or learn which messages the other has changed.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A company named in the request is ignored; the answer and the change belong to the company of the sign-in.
+    verification:
+      method: api_response
+      detail: The list of step 6 is Bilimbaga's own wording (the platform text); the replacement made in step 6 is stored for Bilimbaga and SwiftRoute's text in step 7 is unchanged.
+      evidence: The answers of steps 6 and 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be pointed at another customer's data by naming it.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Two companies that replace the same message in the same language each read only their own text.
+    verification:
+      method: api_response
+      detail: Step 7 carries "Тег не сохранён (SwiftRoute)" and not the Bilimbaga text; step 8 carries "Тег не сохранён (Bilimbaga)" and not the SwiftRoute text.
+      evidence: The answers of steps 7 and 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Companies overwrite each other's wording or read each other's.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the replacement for the tag-save message in Russian in SwiftRoute and in Bilimbaga.
