@@ -40311,14 +40311,17 @@ requirements:
       the new value): the permission golden priv/permission_matrix/effective.golden (regenerated with
       mix letflow.permission_matrix --write, never hand-merged); the refused core set of the tenant
       auditor in test/letflow/api/authorization_tenant_auditor_test.exs (@auditor_refused_core and the
-      literal count in the test named "the refused core set is the literal 33"), because the auditor is
+      literal count in the test named "the refused core set is the literal 33", which asserts 34 today), because the auditor is
       not granted the new permission; the number-word tables in test/letflow/api/authorization_test.exs;
       the named-routes pins in test/letflow/routers/tenant_auditor_routes_test.exs (@named_routes and
-      length(named) == 33 move to 34, and the new router's two routes are listed); the route-inventory
+      length(named) == 33 move to 34, with one row for the new router, the POST route, in the form
+      {Letflow.Routers.NumberSequences, "/number-sequences", :post, "/", :route}); the route-inventory
       pins (length(snapshot) == 123 in route_scope_resolver_test.exs, route_scope_self_service_test.exs
       and tasks_route_classes_test.exs, and test/fixtures/route_scope/tenant_wide_default_routes.txt),
       which stay unchanged only because both routes declare scope: :tenant_wide and so are not
-      default-sourced; and the platform-scope list in test/letflow/api/platform_scope_authorization_test.exs.
+      default-sourced; and the tenant-scope list @tenant_scope_core in
+      test/letflow/api/platform_scope_authorization_test.exs (the new atom is added next to :LabelsManage
+      and :IntegrationMappingsManage, not to the platform list).
     acceptance_criteria:
       - "1. Create: a TENANT_ADMIN POST /api/v1/number-sequences with key, entity_type of an existing ordinary record type of the tenant, prefix ORD, padding 6, period year answers 201 with a body holding id, key, entity_type, prefix, padding, period and inserted_at, and no tenant_id and no counter field; a following GET lists it. A test then creates a record of that type through the existing record-create route and the stored number is ORD-<current year>-000001 (the REQ-541 hook; this is the end-to-end proof that the definition is bound)."
       - "2. List: GET /api/v1/number-sequences answers 200 with the definitions of the caller's tenant ordered by key; a tenant with none gets an empty list, not 404. A test with two definitions checks the order and the field set."
