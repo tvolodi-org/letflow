@@ -38848,6 +38848,88 @@ requirements:
       - "Whether a module's settings schema can mark a field as a secret reference is not established by this entry; criterion 2 holds either way (the reference string is carried as is and nothing is resolved)."
     depends_on: [REQ-034, REQ-082, REQ-303, REQ-304, REQ-305, REQ-306, REQ-035, REQ-036, REQ-037, REQ-038, REQ-040, REQ-077, REQ-280, REQ-414]
 
+  - id: REQ-549
+    title: "Module uninstall (core roadmap Wave 3), slice 0: decision record that amends 0039 D5 'No uninstall' and settles what uninstall removes and keeps (soft uninstall, reactivate, orphaned-data reads, data retention)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3172
+    # Source: docs/migration/core-roadmap-20261014.md Wave 3 row "Module uninstall" (DR column "yes (new): follow-up record to 0055, after managed_by (#2530)"; "0039 D5 'No uninstall' stands until that record is ratified"); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D11 (constraints), open points 6, 9 and 15; docs/migration/decisions/0039-platform-module-solution-layering.md D5 ("No uninstall in S11") and R4; lib/letflow/modules/installs.ex and lib/letflow/modules/tenant_module.ex (tenant_modules has no status column). managed_by is built: REQ-496 (GH #2530) is status done on main (merge 4a911d40e). Written by the business analyst (T-0460) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap Wave 3 "Module uninstall"; decision 0055 D11; decision 0039 D5. The roadmap says
+      this item needs a NEW decision record, and 0055 D11 names it as the follow-up record "module uninstall",
+      gated on managed_by being built (0050 D7). That gate is met (REQ-496 done, merged 4a911d40e). This
+      requirement is SLICE 0: its whole deliverable is that decision record, a document under
+      docs/migration/decisions/ with the next free number at the time of the change (the highest on main on
+      2026-10-25 is 0063). It builds no code. The implementation is written as separate requirements only
+      after the record is accepted; each depends_on this one.
+      RELATION TO 0039 D5. Today 0039 D5 says "No uninstall in S11" and stays in force until a record is
+      ratified (core roadmap row; 0055 header: "0039 D5 stands until that record is ratified"). The new record
+      must say in its header that it AMENDS 0039 D5 (the "no uninstall" sentence is replaced by the rule the
+      record sets; the other parts of D5, the per-tenant install, the 404 for a not-installed module and
+      :ModulesManage, stay), and must name the exact sentence it replaces. If the owner rules that uninstall
+      stays out, the record says so and D5 stands.
+      WHAT IT MUST DECIDE (each as a numbered D- section with reasons and sources):
+      D1 What uninstall REMOVES and what it KEEPS, as a table with one row per item: the module's router and
+      screens (removed from reach, 404 as for a never-installed module); the tenant_modules row or a status
+      column (0055 open point 15 says the design must either add a state column or delete the row, and keep the
+      run-time recheck of a module write handler's owning module correct, so a disabled module must not pass
+      it); the module's process, form and entity definitions installed from its pack; its entity records and
+      their event history; process instances and tasks of the module's definitions; module settings; the
+      managed_by stamp on the module's entity types (kept, so generic writes stay refused with the uniform 403
+      after uninstall; the record says what happens to the stamp only on a hard purge); permissions and role
+      grants the module added; secrets the module references; the installed version. The default direction
+      0039 R4 proposed ("keep data and definitions; remove the row only") is the recommendation to test; the
+      record decides, per row.
+      D2 Soft uninstall and reactivate: whether uninstall is reversible, what reactivate restores, and whether
+      the installed version is kept so a reactivate cannot skip an upgrade (0055). Hard purge is decided here
+      as in or out; if in, it is its own later slice and needs the owner's retention answer.
+      D3 Orphaned-data reads (0055 D11, bullet 2): who may read the module's records once the module router and
+      its ownership filters are gone; either keep exactly the pre-uninstall TypeAccess, entity_field_restrictions
+      and ownership filters, or restrict to named permissions; the exam answer keys (lib/letflow/modules/exam/exam.ex)
+      must be shown preserved (INV-2).
+      D4 Running work: block starting NEW instances of the module's process definitions (0055 D11, bullet 1);
+      what happens to instances and tasks already open (finish, cancel, or block uninstall while any exist),
+      and how a process step that writes a module-managed type behaves after uninstall.
+      D5 Visibility and dependency: GET /me and list_installed hide an uninstalled module (0055 D11, bullet 3);
+      whether an uninstalled module still satisfies another module's depends_on at install (module_installed? in
+      lib/letflow/modules/installs.ex is shared); uninstall is refused while an installed module depends on it.
+      D6 Authority and audit: who may uninstall (the :ModulesManage rule of 0039 D5, PLATFORM_ADMIN only, per
+      INV-10 bound to the platform tenant), the single approver with mandatory reason and audit that 0055 open
+      point 6 fixed for now, and the record's ruling on a second approver for a module with live data; the
+      hash-chain audit entry written in the same transaction as the state change.
+      D7 Journal and migration: the kind values uninstall and reactivate in tenant_module_upgrades (0055 D1) and
+      the status column on tenant_modules belong to the implementation migration; the record names them and
+      requires registration in the tenant provisioning list (INV-1) and says how existing tenant_modules rows are
+      treated (all become active).
+      D8 Slice plan for the implementation requirements, each sized to one change, with the tests each carries,
+      including a cross-tenant negative test (uninstalling a module in tenant A changes nothing in tenant B).
+      DATA-RETENTION QUESTION FOR THE OWNER. How long a tenant's records and definitions of an uninstalled
+      module are kept before any purge is a legal and business rule the BA cannot derive from the sources read
+      (0039, 0055; 0063 covers versioned documents only). The record states it as an open owner question with
+      options (keep until a platform admin purges; keep for a fixed period set by the owner; purge on
+      uninstall) and a recommendation (keep, soft uninstall only, no purge in the first implementation slice).
+      Until the owner answers, no code slice that deletes tenant data is written.
+      NOT IN THIS ENTRY: any lib/, web/ or apps/ change, any migration, the module upgrade runner (0055), the
+      tenant x_ extension layer, and any change to REQ-496 behaviour. Open owner questions are written into the
+      record as open and not settled silently.
+    open_questions:
+      - "Data retention (D1, D2): how long a tenant's records and definitions of an uninstalled module are kept, and whether a hard purge exists at all. Options: keep until a platform admin purges; fixed period; purge on uninstall. Recommendation: keep, soft uninstall only. The owner decides; until then no slice that deletes tenant data."
+      - "Second approver for uninstall of a module with live data (0055 open point 6): single approver with reason and audit until the owner rules otherwise."
+    acceptance_criteria:
+      - "1. A new file docs/migration/decisions/NNNN-*.md exists, numbered with the next free number found by listing origin/main at the time of the change, with a status line and a Sources section listing the files opened (the roadmap row, 0039, 0055, 0050 D7, lib/letflow/modules/installs.ex, lib/letflow/modules/tenant_module.ex); the diff touches no file under lib/, web/, apps/, priv/ or test/."
+      - "2. The record has sections D1 to D8 as described in this entry, each stating its decision, its reasons and its source; a reader can find each by its heading (checked by grep of the headings)."
+      - "3. The record header states that it amends 0039 D5, quotes the sentence 'No uninstall in S11' as the one replaced (or states that D5 stands if the owner rules uninstall out), and lists what of D5 stays. The same change adds a pointer to the new record in 0039 D5 and in the Wave 3 row of docs/migration/core-roadmap-20261014.md, and changes no other sentence of either file."
+      - "4. D1 is a table with one row for each of the ten items listed in this entry (router and screens, tenant_modules row or status, definitions, entity records and events, instances and tasks, settings, managed_by stamp, permissions and grants, secrets, installed version), each row saying removed or kept and for how long; no row is left blank or 'to be decided' except the retention period, which points to the open owner question."
+      - "5. D1 or D7 decides between a status column and deleting the tenant_modules row, and states that the run-time recheck of a module write handler's owning module (0055 open point 15, lib/letflow/entities/handler_writes.ex) rejects an uninstalled module; it names the test a later slice must add (a write handler of an uninstalled module is refused)."
+      - "6. D3 states, for orphaned module data, the read rule chosen and the property a later test must prove for the exam answer keys (INV-2), and states that an outsider gets not-found indistinguishable from forbidden (INV-5)."
+      - "7. D4 states what happens to each of: a request to start a new instance of the module's definition, an open instance, an open task, and a process step that writes a module-managed type; each with the resulting state and the reason shown to the caller."
+      - "8. D5 and D6 answer the four constraints of 0055 D11 (new instances blocked, orphaned reads, GET /me and list_installed hidden, depends_on satisfaction) and the authority and audit rule; D6 states that the uninstall route takes the tenant from the auth context, and that a cross-tenant negative test (INV-10) is required in the first implementation slice."
+      - "9. The data-retention question appears in the record as an open owner question with the three options and the recommendation of this entry; the record contains no placeholder and does not settle retention silently."
+      - "10. D8 lists the implementation slices, each sized to one change, each with its depends_on (at least this requirement and REQ-496) and its tests, and names SECURITY-REVIEWER as a mandatory gate for every slice; the slice that adds the journal kind values depends on the 0055 upgrade-journal requirement once it exists."
+      - "11. mix letflow.check_requirements_registration passes with the REQ-549 entry present, and any test that scans docs/migration/decisions for headings or numbering is run, real output quoted."
+    depends_on: [REQ-496]
+
   - id: REQ-551
     title: "Tenant label overrides, backend: tenant-scoped storage, :LabelsManage and a merged-catalog read with platform-default fallback"
     owner: ELIXIR-DEV
@@ -38964,6 +39046,7 @@ requirements:
     open_questions:
       - "None for the owner. Whether the fetch lives in a hook or in the provider is the implementer's choice."
     depends_on: [REQ-551]
+
   - id: REQ-546
     title: "GET /definitions/:id and GET /definitions/active/:name become :self_service reads (IMPL-525-B of REQ-525; SEC-525-R02 and SEC-525-R03)"
     owner: ELIXIR-DEV
