@@ -1,0 +1,205 @@
+# REQ-541 (BA-PLATFORM): UAT scenario for record numbering. Authored new; not a port.
+# Criteria of the requirement covered here: 3 (format, read-only number), 4 (year), 8 (no reuse after delete),
+# 11 (every create path), 12 (replay allocates nothing). Criteria 1, 2, 5-7, 9, 10, 13 are in
+# number-sequence-guarantees.yaml; the refusals are in number-sequence-refusals.yaml.
+# Visibility note: the platform does not show the number yet, neither in the web screens nor in any HTTP answer (it is
+# stored per record in the tenant number table). Every outcome that reads a number is therefore checked by a system
+# read of that table per record reference (verification method system_state); where the run cannot read the
+# table, those outcomes are BLOCKED, not PASS. A later requirement that shows the number lets the outcomes move to the screen.
+# Environment note: the requirement adds no screen and no route to define a numbering rule. Preconditions 2 and 3
+# need the numbered type to be set up by the platform team in the test tenant; if that is not possible the
+# scenario is BLOCKED, not PASS.
+---
+id: platform-number-sequence-numbering
+scope: platform
+title: Every new record of a numbered type gets the next number in its format, and a replay or a deletion never changes the counting
+version: "1.0"
+tags: [numbering, records, regression]
+
+description: >
+  A customer wants its orders numbered like ORD-2026-000001 so that every order can be quoted on paper.
+  The number is given by the platform when the order is created, in the same step that saves the order,
+  and nobody can type one in. This scenario has the customer's administrator create orders in the three
+  ways orders come into being (typed in, imported with an outside reference, and created by a process step),
+  repeat a request, delete an order, and cross the turn of the year.
+
+actors:
+  customer_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its own users and workspace
+    check: system_seeded
+  - description: >
+      A numbering rule exists in SwiftRoute for one record type "order" (prefix ORD, six digits, numbered per
+      year), and the type is not managed by the platform itself and keeps its history editable
+    check: custom
+    detail: >
+      The platform team sets the rule up in the test tenant before the run; the customer has no screen for it.
+      Confirm that no order exists yet, so the counting starts at 1.
+  - description: The run can read the tenant number table of SwiftRoute (the stored number and its text, per record reference)
+    check: custom
+    detail: The number is not shown to users or in API answers; without this read the outcomes that name a number are BLOCKED.
+  - description: A process of SwiftRoute exists with a step that creates an order
+    check: custom
+    detail: Confirm the step is available; otherwise step 4 is BLOCKED.
+  - description: The test environment clock can be set to the last day of a year and to the first day of the next
+    check: custom
+    detail: If the clock cannot be set, step 8 is BLOCKED.
+
+steps:
+  - step: 1
+    actor: customer_admin
+    action: Creates the first order by typing it in, and notes the record reference of the saved order.
+    via: gui
+    produces:
+      first_number: the record reference of the order
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: customer_admin
+    action: Creates a second order by typing it in, and notes its record reference.
+    via: gui
+    produces:
+      second_number: the record reference of the order
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: customer_admin
+    action: >
+      Imports one order through the record import in upsert mode, with an outside reference that is new to the platform, and
+      notes the record reference.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: customer_admin
+    action: Runs the process whose step creates an order, and notes the record reference of the order it created.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: customer_admin
+    action: >
+      Imports the same outside order again through the record import in upsert mode, once with unchanged data and once with a changed description, and
+      notes the record reference each time.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: customer_admin
+    action: >
+      Sends the creation of one order a second time with the same request key, as a network retry would, and
+      notes what comes back.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 7
+    actor: customer_admin
+    action: Deletes the second order, then creates a new order and notes its record reference.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+  - step: 8
+    actor: customer_admin
+    action: >
+      With the platform clock on 31 December, creates an order; moves the clock to 1 January of the next year,
+      creates another order, and notes both record references.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+  - step: 9
+    actor: customer_admin
+    action: Creates a record in a type with no numbering rule, as before numbering existed, and notes its record reference.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The first order is stored with ORD-<year>-000001 and the second with ORD-<year>-000002: prefix, year, then the count
+      padded with zeros to six digits, rising by one per order.
+    verification:
+      method: system_state
+      detail: The numbers stored for the records of steps 1 and 2 (read per record reference from the tenant number table) are exactly ORD-<current year>-000001 and -000002.
+      evidence: The two rows read from the tenant number table, with the record references.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Orders cannot be quoted on invoices and letters in the format the customer agreed.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      The imported order (step 3), the order created by the process step (step 4) and the typed orders share
+      one count: the numbers seen across steps 1 to 4 are 000001, 000002, 000003, 000004 in the order made.
+    verification:
+      method: system_state
+      detail: The three ways of creating an order draw from one list of numbers, with no repeat and no jump.
+      evidence: The four rows read from the tenant number table.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Two orders could carry the same number, or the numbering could differ by how an order arrived.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      Importing the same outside order again gives it no new number: the order keeps its original number
+      whether the data was unchanged or changed, and the next new order still receives the next number.
+    verification:
+      method: system_state
+      detail: Step 5 leaves the stored original number unchanged after both imports; the order made in step 7 continues the count without a skipped number.
+      evidence: The number table row of the order after each import, and the row of the order made in step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: Re-importing a spreadsheet would renumber orders or use up numbers, so printed documents would disagree with the system.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      A repeated request with the same request key returns the order made the first time (the same record
+      reference), and no number is used up: the original's stored number is unchanged and no new number row appears.
+    verification:
+      method: system_state
+      detail: The answer at step 6 carries the same record reference as the original answer; the number stored for that reference in the tenant number table is unchanged; no new row was added to that table at step 6; the next order made carries the next unused number.
+      evidence: The two answers' record reference values, and the number table rows before and after step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A network retry would create a second order with a new number, or burn a number.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      The number of a deleted order is never given again: the order created after the deletion in step 7
+      receives the next number after the highest one issued, not the deleted one.
+    verification:
+      method: system_state
+      detail: The deleted second order's number does not appear on any order afterwards.
+      evidence: The number table rows after step 7 (the deleted order's row is still present).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A number quoted on a paper document could later point to a different order.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: >
+      The order made on 31 December carries that year in its number; the order made on 1 January carries the
+      new year and the count 000001, and the old year's count is unchanged.
+    verification:
+      method: system_state
+      detail: The two numbers at step 8 show two different years; the second ends in 000001.
+      evidence: >
+        Rows read from the tenant number table. The year is taken from the platform clock; which time zone sets the turn
+        of the year is not settled by the source, so a one-day difference near midnight is reported, not failed.
+    on_fail:
+      severity: MAJOR
+      business_impact: Yearly order series would not restart, or an order would carry the wrong year.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: A record in a type without a numbering rule is created as before, with no generated number.
+    verification:
+      method: system_state
+      detail: The record at step 9 is saved and the tenant number table holds no row for it.
+      evidence: The saved record and the absence of any number table row for it.
+    on_fail:
+      severity: MAJOR
+      business_impact: Introducing numbering for one type would disturb every other type.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Delete the orders and records created in the scenario and set the platform clock back. The used numbers are deliberately not given back.
