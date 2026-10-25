@@ -40189,3 +40189,86 @@ requirements:
       - "Whether an attachment may run before a module step (and so block it), or only after. The source does not settle it; the record gives options and a recommendation."
       - "The numbers of the records of REQ-550 and REQ-562 are filled in by the author from main when they exist."
     depends_on: [REQ-550, REQ-562]
+
+  - id: REQ-569
+    title: "Record T slice T-1: bind a published tenant script to a record type and event as an after-commit trigger (new hook kind, binding table, bind, unbind and list routes, bind-time refusals)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-560 -- the decision record of REQ-560 (0067) is merged but REQ-560 is still pending in this register
+    # Source: docs/migration/decisions/0067-after-commit-trigger-outbox.md D4 (declaration, pin kind, bind takes the type's sequence row, managed types), D5 (output is a closed set of declared write lines, 0062 R5 at bind), D9 slice T-1 and the SECURITY-REVIEWER marker, D2 "Lock position" (item 5 / 5b); docs/migration/decisions/0053-tenant-scripted-rules.md D1 (hook_kind entity_event reserved), D3, D7 and the "7c rulings" (script runtime of GH #2534, PRs 7c-1 and 7c-2, merged: commits ec8b9deea and 0f1a7fa12); docs/migration/decisions/0062-restriction-carrying-variables.md R5; docs/migration/decisions/0061 (lock order, item 5); REQ-567 (Record E slice E-1, the same shape for hook 2). Written by the business analyst (T-0547) 2026-10-25.
+    description: >
+      Decision 0067 D9 slice T-1 only ("trigger declaration and pin"). Today a tenant script is published
+      only for the hook kind service_task: lib/letflow/scripts.ex lists @hook_kinds ["service_task"] and
+      lib/letflow/scripts/runtime.ex fixes @hook_kind "service_task". This slice lets a tenant
+      administrator bind ONE published script version to ONE record type and ONE event (created, updated
+      or deleted) as an after-commit trigger, and nothing more: the trigger does not run and nothing is
+      queued. Nothing in lib/letflow/entities/records.ex changes, no record write inserts an outbox row
+      and no worker exists. The flag :record_triggers_enabled (0067 D9) is introduced here with default
+      false in config/config.exs and config/test.exs; with it false the three routes answer as an
+      unknown route would for every caller, and with it true they work. Nothing else reads the flag in
+      this slice.
+      What it builds. (a) The hook kind entity_event (reserved in 0053 D1, accepted by 0067 D4) is accepted
+      where hook kinds are validated in lib/letflow/scripts.ex, so a script version can be created and
+      published with it; the Scripts.Runtime checks keep refusing an entity_event script for a SERVICE_TASK
+      binding (activation fails with the existing script_not_published) and a script of another hook kind
+      for a trigger binding. (b) A tenant-schema table record_trigger_bindings (name fixed by 0067 D4):
+      id, entity_type, event (created | updated | deleted), script_key, script_version, script_sha256,
+      status (active | disabled), bound_by, timestamps; unique on (entity_type, event); in a new migration
+      under priv/repo/migrations/ that is registered in the manifest of lib/letflow/tenant_provisioning.ex
+      (new tenants) and reaches existing tenants through the same tenant-migration path, as
+      priv/repo/migrations/20261025200001_create_number_sequences.exs did. Storage follows decision
+      0006 D2 and the convention of the neighbouring tenant tables (read 0006 D2 and the latest tenant
+      migration before writing the columns; do not copy a column list from another requirement). A new
+      tenant table moves the pin @expected_tenant_tables in test/support/tenant_fixture.ex and the count
+      in test/letflow/support/tenant_fixture_test.exs (assert length(TenantFixture.expected_tenant_tables())
+      == 68 on main today; the implementation takes the value from origin/main at merge time, since
+      REQ-567 adds a table too, and the summary states the old and the new value and the position of the
+      new name in the alphabetical list). (c) A new router (working name
+      lib/letflow/routers/record_trigger_bindings.ex) forwarded from lib/letflow/plugs/api_pipeline.ex:
+      GET / lists bindings, PUT /:entity_type/:event binds or rebinds to a new version, DELETE
+      /:entity_type/:event unbinds. Bind, rebind and unbind are ScriptsPublish actions (TENANT_ADMIN), OIDC
+      credential only (api_token_not_allowed for an API token), each audited with Audit.append_multi/4 in the
+      same Multi as the row change (0067 D4); list needs the same permission as the script-rules list
+      (ScriptsWrite). The routes get policy keys in lib/letflow/api/authorization.ex mapped to those
+      existing permissions; no new permission is created. (d) Bind-time checks, each a stable refusal that
+      changes nothing: the version is published and not revoked and has hook kind entity_event; its sha256 is
+      stored; the entity type exists in the tenant's definitions; the type is not managed (entity_type_managed;
+      authority from Letflow.Entities.ManagedTypes, never from request data); the (type, event) pair has no
+      binding yet unless the call is a rebind; every write line the manifest declares (the "writes" of 0067 D5:
+      target type, mode, declared fields) names an existing, non-managed target type and no scope-bearing,
+      managed_by or system field; and the 0062 R5 "fewer restrictions" predicate holds for every declared
+      write field against the restrictions of the field (read R5 in 0062 for the exact predicate; the run-time
+      half belongs to T-4). (e) The bind takes the type's sequence row FOR UPDATE inside the bind transaction and
+      no other lock (item 5 of 0061, 0067 D4), so that the in-transaction match of the later insert step is
+      ordered against it. Unbinding or rebinding is a row change in this table only.
+      Split for the feature round: this requirement is sized to be built in two parts, as REQ-567 (E-1) was
+      split in T-0534 and T-0535. Part 1: hook kind, flag, migration with the table-list pin, the context module
+      with bind, rebind, unbind and list and every bind-time refusal and the sequence-row lock (criteria 1-6,
+      11, 12). Part 2: router, policy keys, route-inventory pins and the INV-10 HTTP test (criteria 7-10, 12).
+      The feature round states the split in its design; part 1 says "Refs" and names part 2 as the remainder.
+      Out of scope, each its own later requirement (0067 D9), to be written as separate entries: T-2 outbox
+      table and same-transaction insert (record_trigger_outbox, the :trigger_lineage opt, backlog cap), T-3
+      claim worker with lease, T-4 script run and result application, T-5 failure handling, dead letter and
+      tenant visibility, and T-6 dry-run and UAT scenarios. T-2 to T-5 are not yet in this register. No UI.
+      The HTTP status numbers of the new refusals are listed under "Not decided here" in 0067; the
+      implementation names one status per code in the design and the summary and does not use 0067 as a
+      source for them. SECURITY-REVIEWER is mandatory (new tenant-data table, new routes that take an entity
+      type, migration, a lock on the sequence row).
+    acceptance_criteria:
+      - "1. Hook kind: a script version with hook_kind entity_event can be created and published through the existing script-rules routes with a valid manifest; an unknown hook kind is still refused with the existing invalid_hook_kind error; a test shows that an entity_event script cannot be bound to a SERVICE_TASK node (activation of a definition whose SERVICE_TASK node binds an entity_event version is refused with the existing script_not_published error of Scripts.Runtime) and that a service_task script cannot be bound as a trigger; the existing tests of lib/letflow/scripts.ex and lib/letflow/scripts/runtime.ex pass unchanged (real output quoted)."
+      - "2. Flag: :record_triggers_enabled exists, is false by default in config/config.exs and in config/test.exs; a test with it false shows the three routes behave as an unknown route for a TENANT_ADMIN, and with it true they answer as the criteria below state. The summary states where each of the two values is set and that no other code reads the flag."
+      - "3. Migration and table-list pin: one new migration creates record_trigger_bindings in the tenant schema with a unique index on (entity_type, event), no foreign key to another tenant's data, guarded by `if prefix() do`; it is registered in the manifest of lib/letflow/tenant_provisioning.ex; a test provisions a new tenant and asserts the table exists, and a test runs the migration over an already provisioned tenant and asserts the table exists there and holds no rows. The summary names the migration file and says how existing tenants get it. The tenant table-list pin @expected_tenant_tables in test/support/tenant_fixture.ex gains the new name and the count assertion in test/letflow/support/tenant_fixture_test.exs moves by one from the value on origin/main at merge time; the summary states the old and the new number (68 on main when this entry was written; found with `grep -rn \"expected_tenant_tables\" test/`)."
+      - "4. Bind: a TENANT_ADMIN with an OIDC credential binds a published, non-revoked entity_event version (key, version, sha256) to an existing, non-managed entity type and one of the events created, updated, deleted; the result lists the binding with entity type, event, key, version, sha256 and status active; one audit record is appended in the same transaction as the row (a test makes the audit append fail and asserts no binding row is left); the bind transaction locks the type's sequence row FOR UPDATE and no other row class (a test or the SQL of the transaction quoted shows the lock and its mode)."
+      - "5. Bind refusals, one test per case, each returning a stable error code (the design and the summary list each code with its HTTP status) and leaving the table and the audit trail unchanged: version in draft, retired or revoked; version of another hook kind; sha256 in the request that does not match the stored one; unknown script key or version; entity type not in the tenant's definitions; managed type (entity_type_managed); a second bind of an already bound (type, event) pair through the bind call without the rebind form; a declared write line whose target type does not exist or is managed; a declared write field that is scope-bearing, managed_by or a system field; a declared write field for which the 0062 R5 predicate refuses (the field would end with fewer restrictions than the script's taint)."
+      - "6. Rebind and unbind: rebind replaces the row for the same (type, event) with another published entity_event version and records an audit entry; unbind deletes the row and records an audit entry; unbind of an unbound pair returns the same not-found answer as an unknown entity type; a type may carry several bindings for different events at once; retiring a script version referenced by a binding is refused with version_in_use (the error Scripts.retire/5 returns for a version an active definition binds; test), retiring an unreferenced one still works, and revoke is never blocked by a binding (0053 D3)."
+      - "7. Credentials and permission: an API-token caller on bind, rebind and unbind gets api_token_not_allowed; a caller with PROCESS_DESIGNER (ScriptsWrite without ScriptsPublish) can list but gets a refusal on bind, rebind and unbind; a caller without ScriptsWrite cannot list; one test per route. No role except TENANT_ADMIN (and PLATFORM_ADMIN, whose unconditional clause in Authorization is unchanged) may bind."
+      - "8. List: GET returns only the calling tenant's bindings, ordered by entity type then event, with key, version, sha256, status, bound-at and bound-by; no source code or manifest content is returned."
+      - "9. INV-10 cross-tenant negative test: tenant A has a type with a binding; a caller of tenant B with B's token naming A's type on bind, rebind and unbind gets an answer byte-identical (status and body) to the answer for a type that exists nowhere; the list called by tenant B does not contain tenant A's binding; no row changes in either tenant. Another test shows tenant B can bind its own type of the same name and event independently and the two bindings never see each other (INV-1)."
+      - "10. Route inventory pins: the new routes are in the authz route list of the new router (`__authz_routes__`); the summary states the new values of every pin changed, found with `grep -rn \"__authz_routes__\\|length(snapshot)\\|length(named)\\|@named_routes\" test/` and updates test/fixtures/route_scope/tenant_wide_default_routes.txt (and its length pins) and the forward count pins as the grep shows; the scope-enforcement and route-inventory tests pass with real output quoted."
+      - "11. Nothing runs and nothing is queued: a test or grep quoted in the summary shows no change to lib/letflow/entities/records.ex, lib/letflow/entities/step_writes.ex or lib/letflow/entities/handler_writes.ex, no table named record_trigger_outbox, and that no code path outside the new router and its context reads the binding table; the existing records tests pass unchanged."
+      - "12. SECURITY-REVIEWER verdict is recorded (mandatory: new tenant-data table, new routes that take an entity type, migration, sequence-row lock); REVIEWER verdict recorded. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the scoped mix test over the new test files, test/letflow/scripts/, the tenant fixture test and the route-inventory tests pass, real output quoted."
+    open_questions:
+      - "HTTP status numbers of entity_type_managed and the other new refusals are listed under 'Not decided here' in 0067 (its status numbers) and are not settled by the source."
+      - "0067 D4 says a binding row carries status active | disabled but names no route to disable one; this slice stores status active on bind and adds no disable route. Whether T-5 (kill switch) or a later entry adds one is not settled by the source."
+    depends_on: [REQ-560]
