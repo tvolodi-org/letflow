@@ -1,8 +1,8 @@
 defmodule Letflow.Documents do
   @moduledoc """
   The versioned-documents service, part 1 (REQ-542, GH #3164, decision 0056 D1, D3, D8, D9):
-  type registration, drafts and a new draft from the current issued version. Issuing, numbering,
-  supersede and cancel are REQ-543.
+  type registration, drafts and a new draft from the current issued version, plus `issue/2` (REQ-543
+  part 2a: gap-free numbering, supersede, hash). Cancel and `verify_binding` stay REQ-543 part 2b.
 
   Every function takes the tenant schema name as `prefix` first (INV-1): the tenant comes from
   the prefix, never from a caller-supplied id, and every `Repo` call carries `prefix:`. A document
@@ -25,9 +25,11 @@ defmodule Letflow.Documents do
 
   import Ecto.Query
 
+  alias Ecto.Adapters.SQL
   alias Letflow.Audit
   alias Letflow.Documents.Canonical
   alias Letflow.Documents.Document
+  alias Letflow.Documents.DocumentSequence
   alias Letflow.Documents.DocumentType
   alias Letflow.Documents.DocumentVersion
   alias Letflow.Documents.OrgResolver
@@ -479,6 +481,245 @@ defmodule Letflow.Documents do
   defp current_issued!(_prefix, _document), do: Repo.rollback(:no_issued_version)
 
   # ---------------------------------------------------------------------------------------
+  # issue/2
+  # ---------------------------------------------------------------------------------------
+
+  @doc """
+  Issues the open draft of a document: `%{document_id:, actor_id:}` (REQ-543 part 2a, GH #3163,
+  decision 0056 D2, D3, D4, D8). One transaction, lock order document row, sequence row, audit
+  chain:
+
+    * the restricted-field check, the org unit check (`unit_exists?`) and the fail-closed legal
+      entity check run first, so a refusal allocates no number;
+    * the first version takes the next gap-free number of its scope (type, legal entity or the
+      sentinel of `Letflow.Documents.Canonical.legal_entity_sentinel/0`, period) under a `FOR
+      UPDATE` lock of the `document_sequences` row, which is inserted first if absent; a later
+      version keeps the number and period of the document;
+    * the previously issued version is superseded, the draft is issued with `issued_at` from the
+      server clock and a content hash that has the number as an input, and `current_version`
+      moves to it; `document.superseded` and `document.issued` are audited without field values.
+
+  The period year is the calendar year at UTC+5 (decision 0056 open point 11, Asia/Almaty).
+  No caller supplies a number, a period, a time or a hash. Nothing here renders or stores bytes.
+  A lock or statement timeout gives `{:error, :busy}` and rolls everything back.
+  """
+  @spec issue(String.t(), map()) ::
+          {:ok, %{document: %Document{}, version: %DocumentVersion{}}} | error()
+  def issue(prefix, %{} = args) when is_binary(prefix) do
+    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         :ok <- no_hash(args),
+         {:ok, document_id} <- document_id(Map.get(args, :document_id)),
+         {:ok, actor_id} <- actor(Map.get(args, :actor_id)),
+         {:ok, resolver} <- Catalog.document_org_resolver() do
+      transact(fn ->
+        # constant SQL, no table: the timeouts of decision 0056 D2 / T11, scoped to this transaction
+        SQL.query!(Repo, "SET LOCAL lock_timeout = '2s'")
+        SQL.query!(Repo, "SET LOCAL statement_timeout = '15s'")
+
+        document = lock_document!(prefix, document_id)
+        draft = draft_of!(prefix, document_id)
+        type = type_of!(prefix, document)
+
+        check_issuable!(prefix, resolver, document, type, draft)
+
+        {number, period} = number_of!(prefix, document, type)
+        issued_at = now()
+        old = superseded_version(prefix, document)
+        if old, do: supersede!(prefix, old, draft)
+
+        hash = hash_of!(document, draft, number)
+
+        from(v in DocumentVersion, where: v.id == ^draft.id)
+        |> Repo.update_all(
+          [set: [status: :issued, issued_at: issued_at, issued_by: actor_id, content_hash: hash]],
+          prefix: prefix
+        )
+
+        from(d in Document, where: d.id == ^document_id)
+        |> Repo.update_all(
+          [set: [number: number, period: period, current_version: draft.id]],
+          prefix: prefix
+        )
+
+        if old do
+          audit!(prefix, actor_id, "document.superseded", "document", document_id, nil, %{
+            "type_key" => type.key,
+            "version_no" => old.version_no,
+            "superseded_by_version_no" => draft.version_no
+          })
+        end
+
+        audit!(prefix, actor_id, "document.issued", "document", document_id, nil, %{
+          "type_key" => type.key,
+          "version_no" => draft.version_no,
+          "number" => number,
+          "period" => period,
+          "number_label" => number_label(type, number, period),
+          "content_hash" => hash
+        })
+
+        %{
+          document: Repo.get!(Document, document_id, prefix: prefix),
+          version: Repo.get!(DocumentVersion, draft.id, prefix: prefix)
+        }
+      end)
+    end
+  end
+
+  defp type_of!(prefix, document) do
+    case Repo.get(DocumentType, document.type_key, prefix: prefix) do
+      nil -> Repo.rollback(:type_not_found)
+      type -> type
+    end
+  end
+
+  # All refusals come before any write to `document_sequences` (decision 0056 D2).
+  defp check_issuable!(prefix, resolver, document, type, draft) do
+    with :ok <- check_restricted(prefix, declared_input(type.declared_fields), free_marks(type)),
+         :ok <- unit_active(resolver, prefix, document.issuing_org_unit_id),
+         :ok <- issue_entity(resolver, prefix, document, type),
+         {:ok, _bytes} <- canonical(draft.content) do
+      :ok
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  # Stored form of "_free" is %{name => mark}; check_restricted/3 wants the names and the marks.
+  defp declared_input(fields) do
+    case Map.fetch(fields, @free) do
+      {:ok, marks} -> Map.put(fields, @free, Map.keys(marks))
+      :error -> fields
+    end
+  end
+
+  defp free_marks(type), do: Map.get(type.declared_fields, @free, %{})
+
+  defp canonical(content) do
+    case Canonical.canonicalize(content) do
+      {:ok, bytes} -> {:ok, bytes}
+      {:error, reason} -> {:error, {:unprocessable, reason}}
+    end
+  end
+
+  defp issue_entity(_resolver, _prefix, _document, %{legal_entity_required: false}), do: :ok
+
+  defp issue_entity(OrgResolver.Default, _prefix, _document, %{legal_entity_required: true}),
+    do: {:error, :legal_entity_resolver_unavailable}
+
+  defp issue_entity(resolver, prefix, document, %{legal_entity_required: true}) do
+    with {:ok, entity} <-
+           legal_entity(
+             resolver,
+             %{legal_entity_required: true},
+             prefix,
+             document.issuing_org_unit_id
+           ) do
+      if entity == document.legal_entity_id, do: :ok, else: {:error, :no_legal_entity}
+    end
+  end
+
+  # Version 1 allocates the next number of its scope; a later version keeps the document's own.
+  defp number_of!(_prefix, %{number: number, period: period}, _type) when is_integer(number),
+    do: {number, period}
+
+  defp number_of!(prefix, document, type) do
+    period = period_of(type.numbering_scope)
+    key = document.legal_entity_id || Canonical.legal_entity_sentinel()
+    {allocate_number!(prefix, document.tenant_id, type.key, key, period), period}
+  end
+
+  # Insert-if-absent, lock the row FOR UPDATE, then read and increment (decision 0056 D2).
+  defp allocate_number!(prefix, tenant_id, type_key, key, period) do
+    Repo.insert_all(
+      DocumentSequence,
+      [
+        %{
+          tenant_id: tenant_id,
+          type_key: type_key,
+          legal_entity_key: key,
+          period: period,
+          counter: 0
+        }
+      ],
+      prefix: prefix,
+      on_conflict: :nothing,
+      conflict_target: [:type_key, :legal_entity_key, :period]
+    )
+
+    row =
+      Repo.one!(
+        from(s in DocumentSequence,
+          where: s.type_key == ^type_key and s.legal_entity_key == ^key and s.period == ^period,
+          lock: "FOR UPDATE"
+        ),
+        prefix: prefix
+      )
+
+    number = row.counter + 1
+
+    from(s in DocumentSequence,
+      where: s.type_key == ^type_key and s.legal_entity_key == ^key and s.period == ^period
+    )
+    |> Repo.update_all([set: [counter: number]], prefix: prefix)
+
+    number
+  end
+
+  defp period_of(:none), do: "none"
+
+  defp period_of(:year),
+    do: now() |> DateTime.add(5 * 3600, :second) |> Map.fetch!(:year) |> Integer.to_string()
+
+  defp superseded_version(_prefix, %{current_version: nil}), do: nil
+
+  defp superseded_version(prefix, %{current_version: id}) do
+    case Repo.get(DocumentVersion, id, prefix: prefix) do
+      %{status: :issued} = version -> version
+      _other -> nil
+    end
+  end
+
+  # Before the new issue: the one-issued-version index allows a single issued row per document.
+  defp supersede!(prefix, old, draft) do
+    from(v in DocumentVersion, where: v.id == ^old.id)
+    |> Repo.update_all([set: [status: :superseded, superseded_by_version: draft.id]],
+      prefix: prefix
+    )
+  end
+
+  defp hash_of!(document, draft, number) do
+    {:ok, bytes} = canonical(draft.content) |> ok_or_rollback()
+
+    inputs = %{
+      tenant_uuid: document.tenant_id,
+      document_id: document.id,
+      type_key: document.type_key,
+      legal_entity_id: document.legal_entity_id,
+      number: number,
+      version_no: draft.version_no,
+      canonical_content: bytes
+    }
+
+    case Canonical.content_hash(inputs) do
+      {:ok, hash} -> hash
+      {:error, reason} -> Repo.rollback({:unprocessable, reason})
+    end
+  end
+
+  defp ok_or_rollback({:ok, _} = ok), do: ok
+  defp ok_or_rollback({:error, reason}), do: Repo.rollback(reason)
+
+  defp number_label(type, number, period) do
+    padded = number |> Integer.to_string() |> String.pad_leading(type.number_pad, "0")
+
+    case type.numbering_scope do
+      :none -> type.number_prefix <> "-" <> padded
+      _year -> type.number_prefix <> "-" <> period <> "-" <> padded
+    end
+  end
+
+  # ---------------------------------------------------------------------------------------
   # helpers
   # ---------------------------------------------------------------------------------------
 
@@ -493,6 +734,8 @@ defmodule Letflow.Documents do
           case error.postgres do
             %{code: :restrict_violation} -> Repo.rollback(:document_type_frozen)
             %{code: :unique_violation} -> Repo.rollback(:version_conflict)
+            %{code: :lock_not_available} -> Repo.rollback(:busy)
+            %{code: :query_canceled} -> Repo.rollback(:busy)
             _other -> reraise error, __STACKTRACE__
           end
       end
