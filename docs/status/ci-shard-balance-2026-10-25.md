@@ -11,6 +11,8 @@ manifest rebuild lands). The rebuild is commit d40917a5b (PR #3171, merged 2026-
 - **Per-shard data:** `gh api repos/tvolodi-org/letflow/actions/runs/<id>/jobs` for each `Backend shard N/4`
   job (`completed_at` minus `started_at` = shard wall) and the job log line
   `test_parallel: phase elapsed=<s>s` (the test phase inside the shard; 132 job logs read, one per cell).
+- **Population:** main push runs, as the task asked. The 2026-10-24 note stated the criterion on `pull_request`
+  runs and excluded push runs, so the two notes do not measure the same population.
 - **Statistic:** as in the 2026-10-24 note. Slowest shard wall against the median shard wall of the same run
   (mean of the two middle walls of 4). The criterion "slowest shard within 10 % of the median" passes for a
   run when that ratio is at most +10 %.
@@ -75,8 +77,10 @@ Shard cells are wall / phase. Verdict is on the wall figure; the last column is 
 | Pooled: median of per-run slowest wall vs median of per-run median wall | 937 s vs 806.5 s = +16.2 % |
 | Runs above +20 % | 13 of 33 |
 
-(For comparison, the 2026-10-24 note measured 2 of 5 runs within 10 % and +16.7 % pooled for the
-pre-rebuild M=4 manifest. The rebuild moved the pooled figure by about half a point and the pass rate from 40 % to 27 %.)
+(For comparison, the manifest that #3171 replaced was last measured in the T-0447 section of the 2026-10-24
+note: 4 of 7 runs within 10 %, worst +27.9 %; the #3108 rebalance before it measured 4 of 5. Those sets are
+`pull_request` runs and this note uses main push runs, so the comparison is indicative only: 9 of 33 (27 %) here
+against 4 of 7 (57 %) there. This note does not claim the rebuild changed the pass rate.)
 
 ## Verdict
 
