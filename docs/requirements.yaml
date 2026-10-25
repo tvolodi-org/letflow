@@ -39335,7 +39335,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-550 -- the boundary with the x_ layer must be settled first
+    gh: 3197
     # Source: docs/migration/core-roadmap-20261014.md section "Wave 3: breadth of configuration", row "Solution versioning and per-tenant overrides" (decision record needed: yes, amends 0039 D7); docs/migration/decisions/0039-platform-module-solution-layering.md D7 ("Tenant configuration is additive only": the 3-way pack-update machinery "remains the fallback, not the normal path"); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D1 (the unit of upgrade is the module version; per-artefact versions stay); code read: lib/letflow/definitions/solution_pack.ex (@default_pack_version "1.0.0", pack_version/1, export/4, install/3, apply_pack_update/6), lib/letflow/definitions.ex (compute_pack_update_plan/5), lib/letflow/definitions/solution_pack_install.ex (table solution_pack_installs: pack_id, installed_version, status), lib/letflow/definitions/solution_pack_artefact_base.ex (table solution_pack_artefact_bases), lib/letflow/definitions/pack_update_resolution.ex (table pack_update_resolutions), lib/letflow/routers/solution_packs.ex (POST /:pack_id/update-review, POST /:pack_id/update-apply). Written by the business analyst (T-0465) 2026-10-25. Not yet validated.
     description: >
       Source: core roadmap Wave 3, row "Solution versioning and per-tenant overrides"; decision 0039 D7.
