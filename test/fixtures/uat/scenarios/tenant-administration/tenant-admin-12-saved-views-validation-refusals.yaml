@@ -19,7 +19,9 @@ description: >
   longer than 120 characters, a list of columns that is empty or names a column twice, a record type that does not exist, and a body that
   carries an extra key (a company identifier among them). A second view with the name of an existing view over the same type is refused as a
   duplicate. A change that tries to move a view to another record type is refused. After all the attempts the list holds only the one valid
-  view of step 1, unchanged.
+  view of step 1, unchanged. In every attempt of steps 2 to 7, apart from the one broken item named in the step, the attempted view is the
+  view of step 1: over "UAT view ticket", with the name "UAT valid view" unless the step gives another name, and the column title. This way
+  each refusal can only come from the item the step names.
 
 actors:
   tenant_admin: actor-swiftroute-alice
@@ -51,21 +53,25 @@ steps:
     actor: tenant_admin
     action: >
       The administrator tries to save the view "UAT bad operator" with the filter "status resembles open" (an operator that does not exist),
-      then the view "UAT bad direction" with the sort "title sideways" (a direction that does not exist), then the view "UAT bad arity"
-      with the filter "priority between 1" (a range given one value). Each answer is noted.
+      then the view "UAT bad direction" with the sort "title sideways" (a direction that does not exist), then the view "UAT value too many"
+      with the filter "status is empty" given the value "open" (that operator takes no value), then the view "UAT value missing" with the
+      filter "status equals" given no value (that operator takes exactly one). Each attempted view keeps the column title. Each answer is
+      noted.
     expect_refusal: true
     via: api
   - step: 4
     actor: tenant_admin
     action: >
       The administrator tries to save the view "UAT bad column" with the columns title and colour (the type has no field colour). Then
-      tries a view with an empty list of columns, then a view with the columns title and title. Each answer is noted.
+      tries the view "UAT no columns" with an empty list of columns, then the view "UAT repeated column" with the columns title and title.
+      Each attempted view has no filter and no sort. Each answer is noted.
     expect_refusal: true
     via: api
   - step: 5
     actor: tenant_admin
     action: >
-      The administrator tries to save a view with an empty name, then a view whose name is 121 characters long. Each answer is noted.
+      The administrator tries to save a view with an empty name, then a view whose name is 121 characters long. Each attempted view is
+      over "UAT view ticket" with the column title and no filter and no sort. Each answer is noted.
     expect_refusal: true
     via: api
   - step: 6
@@ -87,7 +93,9 @@ steps:
     actor: tenant_admin
     action: >
       The administrator tries to save a second view named "UAT valid view" over the same record type, and notes the answer. The
-      administrator then tries to change the view of step 1 so that its record type is another one of the company, and notes the answer.
+      administrator then tries to change the view of step 1 so that it keeps the name "UAT valid view" and the column title and changes only
+      its record type, to another record type of the company that has the field title, and notes the answer. If the company has no such
+      other record type, the administrator creates one for the test and notes it.
     expect_refusal: true
     via: api
   - step: 9
@@ -102,8 +110,8 @@ expected_outcomes:
     description: A filter or sort on a field the record type does not have, an unknown operator, an unknown direction and a wrong number of values are each refused with a named reason and store nothing.
     verification:
       method: http_status
-      detail: Every answer of steps 2 and 3 is 422 with a fixed reason code that differs between the field, operator, direction and value-count cases and does not repeat the submitted text.
-      evidence: The six answers of steps 2 and 3 and the list of step 9.
+      detail: Every answer of steps 2 and 3 is 422 with a fixed reason code that differs between the field, operator, direction and value-count cases (the two value-count attempts share one code) and does not repeat the submitted text.
+      evidence: The six answers of steps 2 and 3 (two in step 2, four in step 3) and the list of step 9.
     on_fail:
       severity: MAJOR
       business_impact: A broken saved list is stored and every user who picks it gets an error or a wrong list.
@@ -122,8 +130,8 @@ expected_outcomes:
     description: A record type that does not exist is answered as not found, the same as a view that does not exist, and a malformed identifier gets that same answer.
     verification:
       method: http_status
-      detail: The answer of step 6 for the missing record type and the two readings are 404 with the same body and the same headers.
-      evidence: The three answers of step 6, compared byte for byte.
+      detail: The answer of step 6 for the missing record type and the two readings are 404 with the same status, the same body byte for byte, and the same headers apart from per-request ones (date, request id).
+      evidence: The three answers of step 6, compared.
     on_fail:
       severity: MAJOR
       business_impact: A caller can learn which record types or views exist in the company, or sees a server fault for a typing mistake.
