@@ -40423,6 +40423,81 @@ requirements:
       - "11. The pull request carries a SECURITY-REVIEWER verdict (mandatory) and names slices B, C and D of 0070 D6 as later requirements that this change does not build."
     depends_on: [REQ-566, "owner confirmation of decision 0070 Q2 (write model) and Q3 (permission for write grants): the feature task must not start before it"]
 
+  - id: REQ-575
+    title: "Number sequences slice 2: HTTP routes to create and list sequence definitions bound to a record type, and the :NumberSequencesManage permission"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3263
+    # Source: docs/migration/core-roadmap-20261014.md, section "Customization beyond scripts" ("number sequences"); REQ-541 in docs/requirements.yaml (its description lists the HTTP routes and the management permission as a separate later requirement); lib/letflow/number_sequences.ex (create_definition/2 and its error shapes), lib/letflow/number_sequences/definition.ex; docs/migration/decisions/0056-versioned-documents.md D2; lib/letflow/routers/labels.ex and test/letflow/api/labels_route_classes_test.exs (the nearest route-plus-permission precedent). Written by the business analyst (T-0553) 2026-10-25. Not yet validated.
+    description: >
+      REQ-541 built the allocator Letflow.NumberSequences, the tenant tables and the record-create hook,
+      and deliberately added no route and no permission. Today a definition can only be created by code
+      that calls Letflow.NumberSequences.create_definition(attrs, schema_prefix)
+      (lib/letflow/number_sequences.ex), so no tenant administrator can switch numbering on for a record
+      type. This requirement is the first of the follow-ups REQ-541 named: two routes to create and list
+      the definitions of the caller's tenant, and one new permission, :NumberSequencesManage, that guards
+      both. A definition is key, entity type (the record type it is bound to), prefix, padding width and
+      period (year or none); validation, the refusal of managed and append-only types and the uniqueness
+      of key and of entity type are those of create_definition/2 and are not restated or changed.
+      Routes, in a new router Letflow.Routers.NumberSequences mounted by
+      forward("/number-sequences", ...) in lib/letflow/plugs/api_pipeline.ex, using
+      Letflow.Api.AuthorizedRouter like lib/letflow/routers/labels.ex, both with scope: :tenant_wide:
+      POST /api/v1/number-sequences with body key, entity_type, prefix, padding, period creates one
+      definition and answers 201 with the stored definition (id, key, entity_type, prefix, padding,
+      period, inserted_at; no counter value, and no tenant_id because the caller already knows its tenant);
+      GET /api/v1/number-sequences answers 200 with the definitions of the caller's tenant ordered by
+      key. Both need :NumberSequencesManage, granted to TENANT_ADMIN only (it is therefore not granted to
+      any role except TENANT_ADMIN and PLATFORM_ADMIN, which holds every permission by the unconditional
+      clause of Authorization; never PLATFORM_ADMIN to a tenant user, docs/roles.md). The list route also
+      needs the management permission and not a read permission because the slice has one permission;
+      a separate read permission is a later question. The tenant comes only from the DB-resolved
+      auth_context and conn.assigns.scoped_opts (INV-1); neither route takes a tenant identifier and a
+      tenant_id in query or body is ignored (INV-10). The audit entry of a create is written in the same
+      transaction as the insert through Letflow.Audit.append_multi/4 (lib/letflow/audit.ex), in a new
+      function Letflow.NumberSequences.create_definition_audited/3 (attrs, actor, schema_prefix) that
+      wraps the insert of create_definition/2 in an Ecto.Multi; create_definition/2 itself is unchanged.
+      Error mapping, one rule: a changeset error (invalid prefix, padding outside 1..12, bad period,
+      duplicate key, a second definition on the same entity type), {:error, :entity_type_managed},
+      {:error, {:entity_append_only, _}} and {:error, {:entity_type_not_found, _}} all answer 422 with the
+      uniform error body of the neighbouring routers and store nothing.
+      Out of scope, each a separate later requirement that depends on this one: changing an existing
+      sequence (set-next, prefix or period change) with the decision 0056 D2 second-admin rule;
+      numbering of process instances (lib/letflow/instances.ex); back-filling numbers onto existing
+      records; any UI (admin screen in web/); a read-only permission for the list; deleting a definition;
+      showing counter values.
+      Pins this change moves (the implementer finds each with the grep named in the criterion and states
+      the new value): the permission golden priv/permission_matrix/effective.golden (regenerated with
+      mix letflow.permission_matrix --write, never hand-merged); the refused core set of the tenant
+      auditor in test/letflow/api/authorization_tenant_auditor_test.exs (@auditor_refused_core and the
+      literal count in the test named "the refused core set is the literal N" and its length(@auditor_refused_core) == N assertion, both moving up by one from their value on origin/main at implement time, 35 at 76da83798), because the auditor is
+      not granted the new permission; the number-word tables in test/letflow/api/authorization_test.exs;
+      the named-routes pins in test/letflow/routers/tenant_auditor_routes_test.exs (@named_routes and
+      length(named) move up by one from its value on origin/main at implement time (34 to 35 at 76da83798), with one row for the new router, the POST route, in the form
+      {Letflow.Routers.NumberSequences, "/number-sequences", :post, "/", :route}); the route-inventory
+      pins (length(snapshot) == 123 in route_scope_resolver_test.exs, route_scope_self_service_test.exs
+      and tasks_route_classes_test.exs, and test/fixtures/route_scope/tenant_wide_default_routes.txt),
+      which stay unchanged only because both routes declare scope: :tenant_wide and so are not
+      default-sourced; and the tenant-scope list @tenant_scope_core in
+      test/letflow/api/platform_scope_authorization_test.exs (the new atom is added next to :LabelsManage
+      and :IntegrationMappingsManage, not to the platform list).
+    acceptance_criteria:
+      - "1. Create: a TENANT_ADMIN POST /api/v1/number-sequences with key, entity_type of an existing ordinary record type of the tenant, prefix ORD, padding 6, period year answers 201 with a body holding id, key, entity_type, prefix, padding, period and inserted_at, and no tenant_id and no counter field; a following GET lists it. A test then creates a record of that type through the existing record-create route and the stored number is ORD-<current year>-000001 (the REQ-541 hook; this is the end-to-end proof that the definition is bound)."
+      - "2. List: GET /api/v1/number-sequences answers 200 with the definitions of the caller's tenant ordered by key; a tenant with none gets an empty list, not 404. A test with two definitions checks the order and the field set."
+      - "3. Refusals, one test per case, each answers 422 with the uniform error body and a following GET shows nothing was stored: unknown entity_type; managed entity type; append-only entity type; duplicate key; a second definition on an entity type that already has one; prefix longer than 8 characters or with a non-alphanumeric character; padding 0 and padding 13 (padding 1 and 12 are accepted); period other than year or none; a missing required field. A tenant_id in the body is ignored and the definition belongs to the token's tenant."
+      - "4. Permission: :NumberSequencesManage is added to Letflow.Api.Authorization (lib/letflow/api/authorization.ex), mapped by endpoint_policy_key for both routes, and granted to TENANT_ADMIN only. TENANT_ADMIN gets 201 and 200. PROCESS_DESIGNER, TASK_WORKER and TENANT_AUDITOR get 403 on both routes, with identical status, body and content-type header for a POST that would be valid and for one that would be refused with 422 (the permission is checked before the body, INV-5). No test or fixture grants PLATFORM_ADMIN to a tenant user."
+      - "5. Pins: priv/permission_matrix/effective.golden is regenerated with mix letflow.permission_matrix --write and the diff shows the new permission only for TENANT_ADMIN; the tenant-auditor refused core set literal and its count, the number-word tables in authorization_test.exs, the @named_routes list and length(named) pin in tenant_auditor_routes_test.exs (each up by one from origin/main at implement time; 34 to 35 at 76da83798) are updated; the length(snapshot) pins and tenant_wide_default_routes.txt are shown unchanged by a test that both routes are declared :tenant_wide and not default-sourced (in the manner of test/letflow/api/labels_route_classes_test.exs), or, if a pin does move, updated and the new value is quoted in the summary. The summary quotes the grep that finds every pin: grep -rn \"__authz_routes__\\|length(snapshot)\\|NumberSequencesManage\\|LabelsManage\" test/ priv/ (the neighbouring permission LabelsManage shows where each pin lives)."
+      - "6. Cross-tenant negative test (INV-10): two tenants A and B; a definition is created in A only; a TENANT_ADMIN of B gets an empty list from GET and none of A's key, entity type or prefix appears in any body or error text B receives; B may create a definition with the same key and the same entity type name and it succeeds independently of A's; a POST by B carrying tenant_id of A in the body or in the query string creates the definition in B and nothing in A. The routes accept no tenant identifier in the path."
+      - "7. Platform operator on the own-tenant route: a PLATFORM_ADMIN of the platform tenant calling GET gets 200 with the platform tenant's own definitions (empty unless it created some) and never a tenant's definitions; this is a no-data-leak check and not a refusal."
+      - "8. Audit: a successful create writes one audit entry in the same transaction as the insert, carrying the definition id, key, entity_type and the acting principal, through Letflow.Audit.append_multi/4; a test makes the audit step fail (for example by running the function against a schema without audit_entries, or by an invalid audit attribute) and sees the definition not stored. A refused create (422) and a refused caller (403) write no audit entry. create_definition/2 keeps its present signature and behaviour and its existing tests pass unchanged."
+      - "9. Tenant scoping (INV-1, INV-6): every Repo call added by the router and by create_definition_audited/3 passes the tenant :prefix taken from the auth context; the summary quotes the grep that lists the Repo calls of the new code and shows each passes the prefix. No SQL string interpolation (INV-7)."
+      - "10. Scope guard: the diff adds no change to the allocator, the counter tables, the record-create hook, document numbering or the migrations; no process-instance numbering; no set-next, prefix or period change; no back-fill; no delete route; no web/ or apps/mobile/ change. The summary lists set-next/prefix/period change with the 0056 D2 second-admin rule, process-instance numbering, back-fill and the admin UI as separate later requirements."
+      - "11. docs/roles.md names :NumberSequencesManage under TENANT_ADMIN and says the other tenant roles are refused; the moduledoc of the new router has the route table in the form of lib/letflow/routers/labels.ex."
+      - "12. Gates: SECURITY-REVIEWER verdict recorded (INV-1, INV-2, INV-5, INV-6, INV-10; new routes, new permission, tenant-data write) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static, the new test files and every pin file named in criterion 5 pass, real output quoted."
+    open_questions:
+      - "UAT assumption, to be confirmed by the process owner: the list route uses the same management permission and a TENANT_ADMIN-only grant; whether PROCESS_DESIGNER or TENANT_AUDITOR may read definitions is not settled by REQ-541 or decision 0056 and is left to a later requirement."
+    depends_on: [REQ-541]
+
   - id: REQ-573
     title: "Solution pack version rules, slice S1: strict semver at pack export, version_not_newer and version_downgrade refusals in update review and apply (decision 0069 D1, D8 S1)"
     owner: ELIXIR-DEV
