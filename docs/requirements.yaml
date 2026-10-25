@@ -40263,3 +40263,74 @@ requirements:
     open_questions:
       - "Whether the feature flag is later replaced by the per-tenant script policy once F-3 is built is not decided here; F-3 states it. The flag is removed or kept by the requirement that makes the hook run."
     depends_on: [REQ-559]
+
+  - id: REQ-571
+    title: "Solution pack version rules, slice S1: strict semver at pack export, version_not_newer and version_downgrade refusals in update review and apply (decision 0069 D1, D8 S1)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-562 -- decision 0069 is PROPOSED until REQ-562 closes with both sign-offs; the engine files the GitHub issue after the gate
+    # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D1 (pack version format, incoming version not greater than installed), D7 (existing tenants), D8 slice S1, Open points Q1; docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D1 (strict semver is required of the module manifest only); code read: lib/letflow/definitions/solution_pack.ex (@default_pack_version, pack_version/1, export/4, apply_pack_update/6, run_apply_update), lib/letflow/definitions/solution_pack_install.ex (installed_version, status), lib/letflow/definitions.ex (compute_pack_update_plan/5), lib/letflow/routers/solution_packs.ex (export_with_ids/3, compute_and_render_review/5, render_update_apply/2). Written by the business analyst (T-0561) 2026-10-25. Not yet validated.
+    description: >
+      Source: decision 0069 D1 and D8 slice S1 (core roadmap Wave 3, "Solution versioning and per-tenant
+      overrides"). Decision 0069 is PROPOSED and needs the SECURITY-REVIEWER and REVIEWER sign-off recorded in
+      REQ-562; this slice is implemented only once that record is accepted.
+      What main does today. export/4 in lib/letflow/definitions/solution_pack.ex writes version:
+      pack_version(version); pack_version/1 returns a non-empty string unchanged and otherwise the
+      @default_pack_version "1.0.0", so any text is a pack version and nothing compares two versions.
+      The router (export_with_ids/3 in lib/letflow/routers/solution_packs.ex) answers {:error, _} other than
+      the two named ones with a 500. A tenant's active install row (table solution_pack_installs,
+      lib/letflow/definitions/solution_pack_install.ex) records installed_version, one active row per
+      (tenant_id, pack_id). The update path (POST /:pack_id/update-review through compute_and_render_review/5 and
+      Letflow.Definitions.compute_pack_update_plan/5 in lib/letflow/definitions.ex; POST /:pack_id/update-apply
+      through apply_pack_update/6 in solution_pack.ex) takes target_version as free text and never reads
+      installed_version.
+      What this slice changes. (1) Format. A pack version is strict semver for every pack exported after this
+      change; the parser is the Elixir standard library Version.parse/1 (a version it does not accept is not
+      semver; no other parser is added and no dependency is added). An absent version still falls back to
+      "1.0.0", which is semver. Build metadata is ignored in ordering, as Version.compare/2 does. (2) Order, in
+      one new private function of solution_pack.ex that reads the tenant's ACTIVE install row of the pack_id
+      under the caller's tenant_id (no active row: no check, exactly today's behaviour) and compares
+      target_version with installed_version using Version.compare/2: apply_pack_update/6 returns, before it
+      writes anything, {:error, :version_not_newer} when the two are equal, {:error, :version_downgrade} when
+      target is lower, and {:error, :version_not_comparable} when either string is not semver (the safe default
+      of 0069 D1: the owner has not picked an ordering for non-semver strings, Q1). The update-review path
+      answers the plan exactly as today when the versions are equal or not comparable, and refuses
+      {:error, :version_downgrade} when target is lower. The router renders each of the three refusals as a
+      422 whose detail text is the code name (no pack content, no version string beyond the caller's own
+      target_version is echoed); the catch-all that answers 500 is not reached by them.
+      Existing data (0069 D7). An installed_version that is not semver (a pack exported before this change)
+      is read as an opaque string and never rewritten, normalised, backfilled or deleted; no row of
+      solution_pack_installs, solution_pack_artefact_bases or pack_update_resolutions is touched. install/3 is
+      unchanged: a non-semver pack that was already exported can still be installed.
+      No table, no migration, no route and no permission change: the two update routes keep their paths,
+      permissions (:DefinitionsRead, :DefinitionsCreate) and replies, except the new refusal replies above and
+      the export refusal below. So no route-scope, permission-matrix or tenant-table pin moves; the implementer
+      states the grep over test/ that shows it.
+      Open owner question Q1 (0069 Open points 1, "Pack version format"; the source does not settle it).
+      Options: (a) strict semver for packs exported after this slice, installed values read as opaque; (b)
+      semver only for packs wrapped by a module; (c) unchanged. This requirement takes the record's
+      recommended default (a). If the owner picks (b) or (c) before implementation, this requirement is
+      revised, not worked around.
+      Choices made by the business analyst that 0069 D1 does not name and REVIEWER confirms: the code
+      version_not_comparable for the non-semver apply refusal (D1 says only that apply "refuses"); the code
+      invalid_pack_version for the export refusal; that update-review refuses a downgrade (D1 says "an incoming
+      lower version is refused" and names no route) while an equal version is a plan, as D1 states.
+      Out of scope: overrides, pack rollback (Q2), any change to the 3-way classification, to
+      solution_pack_artefact_bases, to the module manifest (0055 D1), to web/ or apps/.
+    acceptance_criteria:
+      - "1. S1-semver, export refused: SolutionPack.export/4 given version \"1.0\", \"v1.0.0\", \"2024-10-25\" or \"1.0.0.1\" returns {:error, :invalid_pack_version} and builds no document; POST /solution-packs/export with such a version answers 422 with detail \"invalid_pack_version\" and not 500. One test per value."
+      - "2. S1-semver, export accepted: versions \"1.0.0\", \"2.3.4-rc.1\" and \"1.0.0+build5\" are exported unchanged in the document's version field; an absent version is exported as \"1.0.0\", as today."
+      - "3. S1-downgrade: with an active install of pack P at installed_version \"2.0.0\", apply_pack_update/6 with target_version \"1.9.0\" returns {:error, :version_downgrade} and the route answers 422 with detail \"version_downgrade\"; update-review with target_version \"1.9.0\" is refused the same way. Afterwards pack_update_resolutions, solution_pack_artefact_bases and solution_pack_installs hold exactly the rows they held before the call (count and content compared)."
+      - "4. version_not_newer: with installed_version \"2.0.0\", apply_pack_update/6 with target_version \"2.0.0\" returns {:error, :version_not_newer}, the route answers 422 with detail \"version_not_newer\", and no row is written, including when the request carries resolutions; update-review with target_version \"2.0.0\" answers 200 with the plan, equal to the reply for the same input before this change."
+      - "5. Newer version unchanged: with installed_version \"2.0.0\", apply_pack_update/6 and update-review with target_version \"2.0.1\" and with \"10.0.0\" behave as before this change (the existing tests of test/letflow/definitions/solution_pack_test.exs and test/letflow/routers/solution_packs_test.exs for update-review and update-apply pass unchanged); \"10.0.0\" is newer than \"2.0.0\" (numeric, not text, comparison)."
+      - "6. S1-nonsemver-installed-unchanged: with an active install row whose installed_version is \"legacy-2024\" (inserted directly in the test), update-review with target_version \"2.0.0\" answers 200 with the plan; apply_pack_update/6 with target_version \"2.0.0\" returns {:error, :version_not_comparable} and the route answers 422 with detail \"version_not_comparable\"; the same holds for installed_version \"2.0.0\" and target_version \"next\". After each call the installed_version column of every solution_pack_installs row is byte-identical to before, and the row count of the three tables is unchanged."
+      - "7. No active install: for a pack_id with no active install row of the caller's tenant (never installed, or status uninstalled), apply_pack_update/6 and update-review ignore versions and behave as before this change, including for a non-semver target_version."
+      - "8. INV-1 and INV-10 cross-tenant negative test: tenant A has an active install of pack P at \"5.0.0\"; tenant B has none (or one at \"1.0.0\"). A caller of tenant B posting update-apply for P with target_version \"2.0.0\" gets the answer that follows from tenant B's own rows only (no version refusal when B has no install; version_not_newer or the plan according to B's own installed_version), never a refusal caused by tenant A's \"5.0.0\"; the active-install lookup filters on the tenant_id resolved from the caller's token, and no request value selects it."
+      - "9. install/3 is unchanged: installing a document whose version is \"legacy-2024\" still succeeds and records installed_version \"legacy-2024\" (existing install tests pass unchanged)."
+      - "10. Scope: the diff touches only lib/letflow/definitions/solution_pack.ex, lib/letflow/routers/solution_packs.ex, their tests under test/, and the docs that become wrong (the @doc and @type apply_error of the functions named above, and the REQ-380 pack update API documentation if it lists the refusals); it adds no migration, table, route, permission or dependency. The implementer quotes the grep over test/ for __authz_routes__, length(snapshot) and tenant_wide_default_routes.txt showing that no pin moves, and mix letflow.check_requirements_registration output."
+      - "11. SECURITY-REVIEWER is not mandatory for this slice by 0069 D8 (no route, no table), but the active-install lookup is a read of solution_pack_installs, a global table keyed by tenant_id: the PR records the REVIEWER verdict in its Gates block and states that criterion 8 passes."
+    open_questions:
+      - "Q1 (0069 Open points 1): pack version format. Taken at the recommended default (a), strict semver for packs exported after this slice with installed values read as opaque; the owner may still pick (b) semver only for module-wrapped packs, or (c) unchanged. The ordering of non-semver strings stays not settled by the source: this slice refuses apply with version_not_comparable until the owner picks."
+      - "Whether update-review should also refuse (rather than answer the plan) when either version is not semver is not decided by 0069 D1; this slice answers the plan, as D1 says."
+    depends_on: [REQ-562]
