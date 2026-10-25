@@ -38788,7 +38788,7 @@ requirements:
       - "None for the owner: SEC-525-R01 and SEC-525-R04 are recorded in the REQ-525 design under SEC-525-Q1 = Option A and SEC-525-Q2 = accept. The design says INV-10's cross-tenant test does not strictly apply because no route takes a tenant identifier; criterion 7 asks for it anyway as a cheap guard, and the implementer may report it as redundant if an existing router test already covers it."
     depends_on: [REQ-525, REQ-537]
 
-  - id: REQ-554
+  - id: REQ-559
     title: "Decision record for Record F (decision 0053 hook 3): form-validation script hook that runs in the locked complete_task transaction (slice 0, decision only)"
     owner: CODE-DESIGNER
     status: pending
@@ -38841,7 +38841,7 @@ requirements:
       - "The precise millisecond budget inside the locked transaction is an owner figure; the record lists it under 'Not decided here' if 0053 D7 does not settle it."
     depends_on: [REQ-539]
 
-  - id: REQ-555
+  - id: REQ-560
     title: "Decision record for Record T (decision 0053 hook 4): after-commit record-event script triggers and the outbox that delivers them, with the atomicity rule (slice 0, decision only)"
     owner: CODE-DESIGNER
     status: pending
