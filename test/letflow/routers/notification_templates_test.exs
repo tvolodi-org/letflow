@@ -330,7 +330,29 @@ defmodule Letflow.Routers.NotificationTemplatesTest do
       assert [%{subject: "s"}] = rows(t)
     end
 
-    test "X1..X3 tenant B cannot read or change A's templates; tenant_id input is ignored" do
+    test "A2b 403 body is the uniform insufficient-permissions problem" do
+      t = tenant!()
+
+      for role <- ["TASK_WORKER", "PROCESS_DESIGNER"] do
+        conn = call(:get, "/", t, roles: [role])
+        assert conn.status == 403
+        assert Jason.decode!(conn.resp_body)["detail"] == "insufficient permissions", role
+      end
+    end
+
+    test "A2c no token gets 401 on all four routes through the full pipeline" do
+      for {method, path} <- [
+            {:get, "/api/v1/notification-templates"},
+            {:put, "/api/v1/notification-templates/task_assigned"},
+            {:delete, "/api/v1/notification-templates/task_assigned?locale=ru"},
+            {:post, "/api/v1/notification-templates/task_assigned/preview"}
+          ] do
+        conn = Letflow.Router.call(conn(method, path), Letflow.Router.init([]))
+        assert conn.status == 401, "#{method} #{path}"
+      end
+    end
+
+    test "X1..X3tenant B cannot read or change A's templates; tenant_id input is ignored" do
       a = tenant!()
       b = tenant!()
       put(a, @key, "ru", "A wording", "A body")
