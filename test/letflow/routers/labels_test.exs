@@ -32,7 +32,7 @@ defmodule Letflow.Routers.LabelsTest do
     t
   end
 
-  defp call(method, path, t, opts \\ []) do
+  defp call(method, path, t, opts) do
     conn(method, path)
     |> Map.put(:body_params, Keyword.get(opts, :body, %{}))
     |> put_req_header("content-type", "application/json")
