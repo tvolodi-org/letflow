@@ -27,8 +27,15 @@ defmodule Letflow.IntegrationMappings do
 
   Per-tenant table `integration_mappings`; every `Repo` call passes `prefix:` (INV-1, INV-6) and
   the row `tenant_id` comes from the schema prefix, never from a request. Create, update and
-  delete write their audit entry in the same transaction. Slice 2 (not here) links a webhook
-  subscription to a mapping and applies it on delivery.
+  delete write their audit entry in the same transaction.
+
+  ## Slice 2: webhook link
+
+  A webhook subscription may link one `"outbound"` mapping (`webhook_subscriptions.outbound_mapping_id`,
+  set by `PATCH /webhooks/subscriptions/:id`); `Letflow.Webhooks.deliver/3` then applies it to the
+  redacted payload before encoding and signing. `delete/3` refuses (`:in_use`) while a subscription
+  references the mapping. Rules edited later apply from the next delivery; a linked mapping turned
+  `"inbound"` by `update/4` is treated as not found at delivery (fail closed).
   """
 
   import Ecto.Query, only: [from: 2]
@@ -289,15 +296,74 @@ defmodule Letflow.IntegrationMappings do
     end
   end
 
+  @doc """
+  Deletes a mapping unless a webhook subscription of the tenant still links it (`{:error, :in_use}`).
+  The row is re-selected `FOR UPDATE` inside the transaction and the reference check runs after
+  that lock is held; `Letflow.Webhooks.update/3` links under `FOR SHARE` on the same row, so a
+  concurrent link either commits before the check (409) or finds the row gone (422).
+  """
   @spec delete(String.t(), String.t() | nil, String.t()) ::
-          {:ok, Mapping.t()} | {:error, :not_found | :internal}
+          {:ok, Mapping.t()} | {:error, :not_found | :in_use | :internal}
   def delete(id, actor_id, prefix) do
     with {:ok, row} <- get(id, prefix) do
       run(fn ->
-        deleted = write(Repo.delete(row, prefix: prefix))
-        audit!(prefix, actor_id, "delete", deleted.id, state(row), nil)
+        locked = lock_for_delete(row.id, prefix)
+        if referenced?(locked.id, prefix), do: Repo.rollback(:in_use)
+        deleted = write(Repo.delete(locked, prefix: prefix))
+        audit!(prefix, actor_id, "delete", deleted.id, state(locked), nil)
         deleted
       end)
+    end
+  end
+
+  # A concurrent delete between get/2 and the lock leaves no row: not found, never a stale delete.
+  defp lock_for_delete(id, prefix) do
+    query = from(m in Mapping, where: m.id == ^id, lock: "FOR UPDATE")
+
+    case Repo.one(query, prefix: prefix) do
+      %Mapping{} = locked -> locked
+      nil -> Repo.rollback(:not_found)
+    end
+  end
+
+  # Schemaless source on purpose: this module does not depend on Letflow.Webhooks.
+  defp referenced?(id, prefix) do
+    query =
+      from(s in "webhook_subscriptions", where: s.outbound_mapping_id == type(^id, :binary_id))
+
+    Repo.exists?(query, prefix: prefix)
+  end
+
+  @doc """
+  The outbound mapping `id` of the tenant behind `prefix`, for `Letflow.Webhooks.deliver/3`. An
+  unknown, malformed or non-outbound (for example inbound) mapping is `{:error, :not_found}`.
+  """
+  @spec fetch_outbound(term(), String.t()) :: {:ok, Mapping.t()} | {:error, :not_found}
+  def fetch_outbound(id, prefix) do
+    with {:ok, uuid} <- cast_id(id),
+         %Mapping{direction: "outbound"} = m <- Repo.get(Mapping, uuid, prefix: prefix) do
+      {:ok, m}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Like `fetch_outbound/2`, but takes `FOR SHARE` on the row. Call it only inside the transaction
+  that writes the link, so a concurrent `delete/3` waits for that transaction.
+  """
+  @spec lock_outbound_for_link(term(), String.t()) :: {:ok, Mapping.t()} | {:error, :not_found}
+  def lock_outbound_for_link(id, prefix) do
+    with {:ok, uuid} <- cast_id(id),
+         query =
+           from(m in Mapping,
+             where: m.id == ^uuid and m.direction == "outbound",
+             lock: "FOR SHARE"
+           ),
+         %Mapping{} = m <- Repo.one(query, prefix: prefix) do
+      {:ok, m}
+    else
+      _ -> {:error, :not_found}
     end
   end
 
@@ -305,6 +371,8 @@ defmodule Letflow.IntegrationMappings do
     case Repo.transaction(fun) do
       {:ok, row} -> {:ok, row}
       {:error, {:invalid, _} = reason} -> {:error, reason}
+      {:error, :in_use} -> {:error, :in_use}
+      {:error, :not_found} -> {:error, :not_found}
       {:error, _other} -> {:error, :internal}
     end
   end
