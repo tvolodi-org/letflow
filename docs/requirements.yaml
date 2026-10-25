@@ -39426,7 +39426,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- no pending dependency; the engine files the issue
+    gh: 3201
     # Source: docs/migration/core-roadmap-20261014.md, "Customization beyond scripts" ("integration mappings", line 106); lib/letflow/webhooks.ex (deliver/3, redact_payload_for_delivery, attempt_loop); lib/letflow/webhooks/subscription.ex; lib/letflow/webhooks/url_validator.ex; lib/letflow/routers/webhooks.ex; lib/letflow/secrets.ex; docs/agents/instructions/security-invariants.md (INV-1 to INV-5, INV-8 to INV-10); REQ-551 (same roadmap group). Written by the business analyst (T-0490) 2026-10-25. Not yet validated.
     description: >
       A tenant cannot today change the shape of the payload that Letflow sends to a partner system.
