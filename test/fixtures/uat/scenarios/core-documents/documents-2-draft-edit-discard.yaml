@@ -1,0 +1,118 @@
+---
+id: core-documents-2-draft-edit-discard
+scope: core-documents
+title: A draft document is created, edited in place and discarded, with the issuing unit checked
+version: "1.0"
+tags: [documents, drafts, refusal]
+
+description: >
+  A document starts life as a draft: version 1, no number, no period and no fingerprint yet. This
+  scenario checks that a draft records the organisational unit that will issue it, that an unknown or
+  retired unit and a caller who names no unit are refused, that a draft can be edited in place, that
+  discarding is a recorded status change (a draft can never be deleted), and that the audit trail carries
+  no field values.
+  The service is internal (no screen, no public interface): the scenario runs only where the environment
+  lets the tester call the document service for a named tenant; otherwise the result is BLOCKED.
+
+actors:
+  module: actor-system-documents-service
+
+preconditions:
+  - description: The tester can call the document service for test tenant "tenant A"
+    check: custom
+    detail: A service-level harness exists; without it every step is BLOCKED.
+  - description: Tenant A has a registered document type without a legal entity requirement, one active organisational unit and one retired organisational unit
+    check: custom
+    detail: The units are tenant A's own; the retired one was retired before the scenario starts.
+
+steps:
+  - step: 1
+    actor: module
+    action: Creates a draft document of the registered type, naming the active organisational unit and giving some content.
+    via: system
+    produces:
+      document_id: the new document
+  - step: 2
+    actor: module
+    action: Tries to create a draft naming an organisational unit that does not exist.
+    via: system
+    expect_refusal: true
+  - step: 3
+    actor: module
+    action: Tries to create a draft naming the retired organisational unit.
+    via: system
+    expect_refusal: true
+  - step: 4
+    actor: module
+    action: Tries to create a draft on behalf of a caller whose authority covers the whole tenant and who names no organisational unit.
+    via: system
+    expect_refusal: true
+  - step: 5
+    actor: module
+    action: Edits the content of the draft from step 1.
+    via: system
+  - step: 6
+    actor: module
+    action: Discards the draft from step 1.
+    via: system
+  - step: 7
+    actor: module
+    action: Tries to delete the discarded draft outright.
+    via: system
+    expect_refusal: true
+
+expected_outcomes:
+  - id: EO-001
+    description: The draft is stored as version 1 in status draft, with the issuing unit set and no number, no period and no stored fingerprint; one "draft created" audit event exists.
+    verification:
+      method: system_state
+      detail: Version 1 has status draft; number, period and content hash are empty; the unit equals the one named.
+      evidence: The stored document and version rows.
+    on_fail:
+      severity: MAJOR
+      business_impact: Documents would start in a state the numbering and approval rules do not expect.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The unknown unit, the retired unit and the missing unit are each refused, and no document is stored for them.
+    verification:
+      method: system_state
+      detail: Each attempt returns an error result; the document count in tenant A is unchanged after steps 2, 3 and 4.
+      evidence: Error results and document counts after each step.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Documents could be attributed to a unit that does not exist or is closed, and later carry the wrong legal entity.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The edit changes the draft's content in place; no second version appears.
+    verification:
+      method: system_state
+      detail: The draft still is version 1 and holds the edited content.
+      evidence: The version rows before and after step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Edits would create untracked versions or be lost.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Discarding changes the status to discarded and writes a "draft discarded" audit event; the discarded draft has no number; the attempt to delete it is refused by the database and the draft remains.
+    verification:
+      method: audit_event
+      detail: The version shows status discarded, no number; the delete returns an error and the row remains.
+      evidence: The version row and the audit event.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Draft history could be erased, so nobody could show what was prepared and dropped.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: No audit event written in this scenario contains a content value, and the audit chain verifies after the last event.
+    verification:
+      method: audit_event
+      detail: The payloads of "draft created" and "draft discarded" hold identifiers only; chain verification passes.
+      evidence: The two payloads and the chain verification result.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Document content, possibly sensitive, would leak into a log that many people can read.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the test documents created in tenant A.
