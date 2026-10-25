@@ -939,3 +939,5 @@
 10 test/letflow/routers/entities_import_csv_test.exs 5542.85
 15 test/letflow/entities/csv_import_test.exs 5542.85
 8 test/letflow/documents/print_layout_test.exs 5542.85
+5 test/letflow/documents/print_layout/font_test.exs 5542.85
+7 test/letflow/documents/print_layout/render_test.exs 5542.85
