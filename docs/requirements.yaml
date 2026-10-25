@@ -38930,6 +38930,88 @@ requirements:
       - "11. mix letflow.check_requirements_registration passes with the REQ-549 entry present, and any test that scans docs/migration/decisions for headings or numbering is run, real output quoted."
     depends_on: [REQ-496]
 
+  - id: REQ-550
+    title: "Tenant extension layer over module-owned data types (core roadmap, Customization beyond scripts), slice 0: decision record for the field- and validation-level x_ layer that module upgrades never overwrite"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3174
+    # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (bullet "tenant extensions to module entities": an x_ tenant layer that module upgrades never overwrite; "its own follow-up record (0055 D4 keeps only the constraints an upgrade imposes)"); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D4 (DIRECTION only) and open point 9; docs/migration/decisions/0053-tenant-scripted-rules.md "Requirement candidates", candidate (b). Written by the business analyst (T-0464) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap "Customization beyond scripts"; decision 0055 D4; decision 0053 candidate (b).
+      The roadmap says the x_ tenant layer needs its own record and that 0055 D4 "keeps only the
+      constraints an upgrade imposes". Decision 0055 itself says, in its section "Scope: binding vs
+      direction", that D4 is reduced to the constraints an upgrade must honour and that "storage, merge
+      point and merge rules are NOT decided here"; D4 says the layer is not designed there and that 0053
+      requires its own record.
+      This requirement is SLICE 0: its whole deliverable is that decision record, a document under
+      docs/migration/decisions/ with the next free number at the time of the change. It builds no code,
+      no migration, no seed and no test. The implementation is written as separate requirements only
+      after the record is accepted; each depends_on this one.
+      THE RULE THE RECORD MUST STATE, in its first section: a module upgrade never overwrites, reorders or
+      deletes anything in the tenant layer. This is the promise of 0055 D4 turned into the rule of the
+      layer, and the record repeats the four constraints of D4 as binding on itself: tenant additions live
+      outside the module's entity_definitions row; x_ applies to field and validation keys, not to
+      entity-type names; modules may not use x_-prefixed field or validation keys; an upgrade whose new
+      module version defines a key equal to an extension key fails the plan with the named conflict
+      {:error, {:extension_conflict, entity_type, name}}, while new module constraints that an existing
+      extension contradicts, and retired module fields that an extension references, are warnings. The
+      record also says that the tripwire of 0055 D3 aborts any batch that writes to the layer.
+      WHAT IT MUST DECIDE (each as a numbered D- section with reasons and sources; where the source does
+      not settle a point the record says "not settled by the source" and puts it to the owner as an open
+      point with options, it does not pick silently):
+      D1 Scope of the layer: which module entity types accept tenant extensions (all, or only those a
+      module marks extensible), and what a tenant may add: extra fields (key, type, required, default),
+      extra validations, and the list, form and print-template overrides of that entity type that
+      candidate (b) names (including KZ print forms). The record states which of these override kinds
+      this layer carries and which belong to the separate roadmap item "per-tenant form, list and
+      print-template overrides", so that the two requirements do not overlap.
+      D2 Storage and merge point: where the layer lives (candidate (b) says "stored apart from the module
+      definition and merged over it at read and validation time"; the record decides the table or
+      document, its tenant schema and :prefix, and the tenant_id carried in each row, INV-1), and at
+      which call sites the merge happens (record read, record validation on write, form and list
+      generation). Records keep fields in the field_values JSONB blob with column promotion (0053
+      candidate (b), "Storage is not the gap"); the record states whether an x_ field can be promoted.
+      D3 Merge rules: precedence between module and tenant layer, how an x_ validation combines with
+      module validations (a tenant validation may add a constraint, never relax a module constraint;
+      the record confirms or rules otherwise), ordering of extension rows, and what happens to existing
+      records when an extension field is removed or its type changed.
+      D4 Enforcement that tenant additions are x_: the write path of the layer refuses a key without the
+      x_ prefix and a key that equals a module key (0055 D4 last bullet, "belongs to candidate (b)"),
+      with the error shape and the INV-5 uniform answer where it applies.
+      D5 Authority: which permission manages the layer (a new permission or an existing one), which role
+      holds it, and how it relates to field authorisation (INV-2: an x_ field is subject to the same
+      field restrictions and per-type access as module fields) and to the 0051 scope declarations of the
+      entity type.
+      D6 Interaction with module upgrade and with the tenant scripted rules: what the upgrade plan
+      reports about the layer (the warnings of 0055 D4), that the record migration events of 0055 D3 do
+      not fire the hooks of 0053, and whether an x_ field is visible to a 0053 pre-write script.
+      BOUNDARY. This layer owns the FIELD- and VALIDATION-level x_ layer on MODULE ENTITY TYPES (plus the
+      override kinds D1 assigns to it). It does NOT own process-definition or pack-level versioning and
+      overrides: those belong to the requirement for solution versioning and per-tenant overrides at pack
+      and process-definition level (core roadmap Wave 3, row "Solution versioning and per-tenant
+      overrides"). That requirement's REQ id is not registered at the time of writing (a parallel task
+      writes it); the record cites it by that id once it exists and, until then, by that title. Also
+      excluded: tenant-owned entity types (own roadmap bullet, depends on 0050 and 0051 stage 2), saved
+      list views (generic views requirement), number sequences, and module uninstall.
+      Not in this change: any code, migration, seed, route, UI and test; a change to decision 0055 (D4
+      stays as written; the new record says it settles the "NOT decided here" part of D4 only).
+    acceptance_criteria:
+      - "1. One new record exists under docs/migration/decisions/ with the next free four-digit number on main at the time of the change; its header names this requirement, says it builds on decision 0055 D4 and is candidate (b) of decision 0053, and says which statement about D4 it settles: the sentence \"storage, merge point and merge rules are NOT decided here\" in the section \"Scope: binding vs direction\" of decision 0055 (D4 itself says the layer needs its own record, citing 0053). The diff of this change is that file plus a one-line pointer where the decision records are indexed, if an index exists; it contains no file under lib/, test/, priv/, web/ or apps/."
+      - "2. Its first section states in one sentence that a module upgrade never overwrites, reorders or deletes anything in the tenant layer, and states that the upgrade runner has no write path to the layer and that the tripwire of 0055 D3 aborts a batch that writes to it."
+      - "3. The record repeats the four constraints of 0055 D4 as binding and gives, for the conflict case, the exact error {:error, {:extension_conflict, entity_type, name}} and the rule that the two other cases (a new module constraint that an extension contradicts; a retired module field that an extension references) are warnings, not failures."
+      - "4. Sections D1 to D6 above each exist as a numbered section; each states its decision, reasons and the sources opened with file paths. A point that no source settles is written as \"not settled by the source\" and listed in an open-points section with the options and a recommendation, not decided silently."
+      - "5. D2 names the storage location in the tenant schema under the Ecto :prefix with tenant_id in each row (INV-1) and lists every call site where the merge happens, each cited by a real module path in lib/letflow/ that the author opened (no path taken from this requirement text)."
+      - "6. D3 states that a tenant validation can only add a constraint and never relax a module constraint, or records a different ruling with its reason; it also states what happens to stored values when an extension field is removed or retyped."
+      - "7. D4 states that the layer's write path refuses a key without the x_ prefix and a key equal to a module-owned key, with the error shape; D5 names the permission and the role that manages the layer and states that INV-2 field authorisation applies to x_ fields."
+      - "8. Boundary section: the record states that it owns the field- and validation-level x_ layer on module entity types, names process-definition and pack-level versioning and overrides as excluded and as owned by the solution-versioning requirement (cited by its REQ id, or by its title while no id is registered), and names the separate roadmap item of per-tenant form, list and print-template overrides with the rule that splits D1's override kinds between the two."
+      - "9. The record lists the implementation requirements it expects (each small enough for one change, each depending on this one) and states that none of them is filed or built by this slice; it contains no implementation code."
+      - "10. The change does not modify docs/requirements.yaml; mix letflow.check.static passes with real output quoted; the record's Sign-off section (as in decision 0055) carries a REVIEWER verdict and a SECURITY-REVIEWER verdict, because the record sets tenant-data authorisation and storage rules."
+    open_questions:
+      - "Boundary to the separate roadmap item \"per-tenant form, list and print-template overrides\": candidate (b) of 0053 puts list, form and print-template overrides into the x_ layer, the roadmap lists them as their own item. Criterion 8 asks the record to split them; which side owns KZ print forms is for the owner if the record cannot derive it from the sources."
+      - "The REQ id of the solution-versioning requirement is not yet registered; the record or the reviewer fills it in once the engine has registered it."
+    depends_on: ["decision 0055 (D4)", "decision 0053 (candidate (b))"]
+
   - id: REQ-551
     title: "Tenant label overrides, backend: tenant-scoped storage, :LabelsManage and a merged-catalog read with platform-default fallback"
     owner: ELIXIR-DEV
