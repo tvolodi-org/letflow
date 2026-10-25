@@ -218,7 +218,7 @@ defmodule Letflow.Labels do
 
     cond do
       trimmed == "" -> {:error, {:invalid_text, :empty}}
-      String.length(trimmed) > @max_length -> {:error, {:invalid_text, :too_long}}
+      length(String.codepoints(trimmed)) > @max_length -> {:error, {:invalid_text, :too_long}}
       Regex.match?(~r/[\p{Cc}]/u, trimmed) -> {:error, {:invalid_text, :control_character}}
       true -> check_braces(defaults, id, locale, trimmed)
     end
