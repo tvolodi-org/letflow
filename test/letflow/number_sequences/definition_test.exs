@@ -6,6 +6,7 @@ defmodule Letflow.NumberSequences.DefinitionTest do
 
   use Letflow.DataCase, async: false
 
+  alias Letflow.Audit
   alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.NumberSequences
   alias Letflow.NumberSequences.Counter
@@ -123,6 +124,115 @@ defmodule Letflow.NumberSequences.DefinitionTest do
     assert {:ok, d} = NumberSequences.create_definition(attrs(%{tenant_id: other}), base.schema)
     assert d.tenant_id == base.tenant.tenant_id
     assert Repo.all(Counter, prefix: base.schema) == []
+  end
+
+  describe "create_definition_audited/3 (REQ-575 criteria 8, 9)" do
+    defp actor, do: %{user_id: Ecto.UUID.generate(), credential: :session}
+    defp audits(schema), do: Repo.all(Audit.Entry, prefix: schema)
+
+    test "A1 stores the definition and one audit entry", %{base: base} do
+      actor = actor()
+
+      assert {:ok, %Definition{} = d} =
+               NumberSequences.create_definition_audited(attrs(), actor, base.schema)
+
+      assert {d.key, d.entity_type, d.prefix, d.padding, d.period} ==
+               {"order_no", "ns_order", "ORD", 6, "year"}
+
+      assert d.tenant_id == base.tenant.tenant_id
+      assert [%Definition{id: id}] = definitions(base.schema)
+      assert id == d.id
+
+      assert [entry] = Enum.filter(audits(base.schema), &(&1.resource_id == d.id))
+      assert entry.action == "number_sequence_definition.create"
+      assert entry.resource_type == "number_sequence_definition"
+      assert entry.actor_id == actor.user_id
+      after_state = entry.after_state
+      assert after_state["id"] == d.id
+      assert after_state["key"] == "order_no"
+      assert after_state["entity_type"] == "ns_order"
+    end
+
+    test "A2 an audit failure stores no definition and does not raise", %{base: base} do
+      Repo.query!(~s(DROP TABLE "#{base.schema}".audit_entries))
+
+      assert {:error, {:transaction_failed, %Postgrex.Error{}}} =
+               NumberSequences.create_definition_audited(attrs(), actor(), base.schema)
+
+      assert definitions(base.schema) == []
+    end
+
+    test "A3 refusals write no audit entry and match create_definition/2", %{base: base} do
+      :ok = Fx.install_managed_fixture!(base.schema)
+      Fx.define_type!(base.schema, "ns_log", %{})
+      Fx.define_type!(base.schema, "ns_other", %{append_only: false})
+      before_count = length(audits(base.schema))
+
+      cases = [
+        attrs(%{padding: 0}),
+        attrs(%{entity_type: "fxm_ledger"}),
+        attrs(%{entity_type: "ns_log"}),
+        attrs(%{entity_type: "ns_nope"})
+      ]
+
+      for a <- cases do
+        expected = NumberSequences.create_definition(a, base.schema)
+        assert {:error, _} = expected
+        got = NumberSequences.create_definition_audited(a, actor(), base.schema)
+
+        case expected do
+          {:error, %Ecto.Changeset{} = cs} ->
+            assert {:error, %Ecto.Changeset{errors: errors}} = got
+            assert errors == cs.errors
+
+          other ->
+            assert got == other
+        end
+      end
+
+      assert {:ok, _} = NumberSequences.create_definition_audited(attrs(), actor(), base.schema)
+      after_first = length(audits(base.schema))
+      assert after_first == before_count + 1
+
+      assert {:error, %Ecto.Changeset{}} =
+               NumberSequences.create_definition_audited(
+                 attrs(%{entity_type: "ns_other"}),
+                 actor(),
+                 base.schema
+               )
+
+      assert {:error, %Ecto.Changeset{}} =
+               NumberSequences.create_definition_audited(
+                 attrs(%{key: "other"}),
+                 actor(),
+                 base.schema
+               )
+
+      assert length(audits(base.schema)) == after_first
+      assert length(definitions(base.schema)) == 1
+    end
+
+    test "A4 a tenant_id in attrs is ignored", %{base: base} do
+      other = Ecto.UUID.generate()
+
+      assert {:ok, d} =
+               NumberSequences.create_definition_audited(
+                 attrs(%{tenant_id: other}),
+                 actor(),
+                 base.schema
+               )
+
+      assert d.tenant_id == base.tenant.tenant_id
+    end
+
+    test "A6 every transaction and Multi insert carries the tenant prefix" do
+      source = File.read!("lib/letflow/number_sequences.ex")
+
+      for call <- ["Multi.insert(:definition", "Repo.transaction(multi"] do
+        [_, rest] = String.split(source, call, parts: 2)
+        assert rest |> String.slice(0, 120) =~ "prefix: schema_prefix"
+      end
+    end
   end
 
   test "D11 a definition row is never updated or deleted", %{base: base} do
