@@ -12,6 +12,8 @@ defmodule Letflow.Routers.Entities.RecordImport do
   alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.ScopeGate
+  alias Letflow.Entities.CsvImport
+  alias Letflow.Entities.Definitions
   alias Letflow.Entities.ImportAccess
   alias Letflow.Entities.ImportUpsert
   alias Letflow.Entities.Record.Latest
@@ -46,6 +48,17 @@ defmodule Letflow.Routers.Entities.RecordImport do
   # Only after checks 1-3 pass does the body reach an entry. Check 4 only selects
   # the mode: absent -> `create_record/2` per entry, "external_ref" -> the upsert.
   @record_export_schema_version "entities/record-export/v1"
+  @import_record_cap 200
+
+  @csv_refusal_details %{
+    csv_invalid_utf8: "csv file is not valid UTF-8",
+    csv_header_missing: "csv file has no header row",
+    csv_malformed: "csv file is malformed",
+    csv_duplicate_header: "csv header has a duplicate column",
+    csv_unknown_header: "csv header has a column that is not a field of the entity type",
+    csv_external_ref_pair: "external_ref_system and external_ref_id must be given together"
+  }
+  @csv_refusals Map.keys(@csv_refusal_details)
 
   @doc false
   def handle_import_records(conn, entity_type) do
@@ -61,7 +74,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
     prefix = prefix!(conn)
     actor_id = conn.assigns.auth_context.user_id
 
-    with {:ok, body} <- object_body(conn),
+    with {:ok, body, csv_rows} <- import_body(conn, entity_type, access, prefix),
          {:ok, records} <- records_within_cap(body),
          :ok <- check_record_export_schema_version(body),
          :ok <- check_import_entity_type_match(body, entity_type),
@@ -79,7 +92,8 @@ defmodule Letflow.Routers.Entities.RecordImport do
              ImportAccess.new(access, scope)
            ) do
         {:ok, results} ->
-          Response.ok(conn, %{"results" => Enum.map(results, &import_entry_result_json/1)})
+          json_results = Enum.map(results, &import_entry_result_json/1)
+          Response.ok(conn, %{"results" => merge_csv_rows(csv_rows, json_results)})
 
         # §6/INV-5, AC: a definition_not_found from the FIRST entry -- the
         # only entry this handler ever inspects for this outcome, since
@@ -130,7 +144,114 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
       {:error, :invalid_upsert_by} ->
         Response.unprocessable(conn, "upsert_by must be \"external_ref\" when present")
+
+      # GH #3182: a CSV body for a type the caller cannot see (absent, denied, or another
+      # tenant's) is answered before the text is read, exactly like a nonexistent type.
+      {:error, :csv_type_hidden} ->
+        Response.not_found(conn)
+
+      {:error, reason} when reason in @csv_refusals ->
+        Response.unprocessable(conn, Map.fetch!(@csv_refusal_details, reason))
     end
+  end
+
+  # ── CSV body (GH #3182, REQ-557) ──────────────────────────────────────
+  #
+  # A `text/csv` request is turned into the usual export document by
+  # `Letflow.Entities.CsvImport` and then runs the unchanged chain above. NOTE the deliberate
+  # difference from JSON: a type the caller cannot see answers 404 BEFORE the 200-row cap and
+  # the format checks (INV-5: a format error must not reveal that a type exists). The mode comes
+  # from the query string (`?upsert_by=external_ref`) and is validated before the text is read.
+
+  defp import_body(conn, entity_type, access, prefix) do
+    if csv_request?(conn) do
+      csv_body(conn, entity_type, access, prefix)
+    else
+      with {:ok, body} <- object_body(conn), do: {:ok, body, nil}
+    end
+  end
+
+  defp csv_request?(conn) do
+    case Plug.Conn.get_req_header(conn, "content-type") do
+      [value | _] ->
+        value |> String.split(";") |> hd() |> String.trim() |> String.downcase() == "text/csv"
+
+      [] ->
+        false
+    end
+  end
+
+  defp csv_body(conn, entity_type, access, prefix) do
+    upsert_by = conn.query_params["upsert_by"]
+
+    with {:open, _restricted} <- access,
+         {:ok, %{definition_json: %{"fields" => fields}}} <-
+           Definitions.get_active_definition_by_name(entity_type, prefix),
+         {:ok, text} <- csv_text(conn),
+         :ok <- csv_upsert_param(upsert_by),
+         {:ok, rows} <-
+           CsvImport.convert(text, fields,
+             upsert: upsert_by == "external_ref",
+             max_rows: @import_record_cap
+           ) do
+      entries = for %{result: {:ok, entry}} <- rows, do: entry
+
+      body =
+        %{
+          "record_export_schema_version" => @record_export_schema_version,
+          "entity_type" => entity_type,
+          "records" => entries
+        }
+        |> put_upsert_by(upsert_by)
+
+      {:ok, body, rows}
+    else
+      :hidden ->
+        {:error, :csv_type_hidden}
+
+      {:error, reason} = error when reason in @csv_refusals or reason == :invalid_upsert_by ->
+        error
+
+      {:error, :too_many_records, _count} = error ->
+        error
+
+      _definition_unavailable ->
+        {:error, :csv_type_hidden}
+    end
+  end
+
+  defp csv_text(%{body_params: %{"_csv" => text}}) when is_binary(text), do: {:ok, text}
+  defp csv_text(_conn), do: {:error, :csv_header_missing}
+
+  defp csv_upsert_param(value) when value in [nil, "external_ref"], do: :ok
+  defp csv_upsert_param(_other), do: {:error, :invalid_upsert_by}
+
+  defp put_upsert_by(body, nil), do: body
+  defp put_upsert_by(body, value), do: Map.put(body, "upsert_by", value)
+
+  # An ok row takes the next result of the import (file order) and gains its physical line; a
+  # row the converter refused becomes an error result with the constant reason and the header.
+  defp merge_csv_rows(nil, json_results), do: json_results
+
+  defp merge_csv_rows(rows, json_results), do: merge_rows(rows, json_results, [])
+
+  defp merge_rows([], _results, acc), do: Enum.reverse(acc)
+
+  defp merge_rows([%{line: line, result: {:ok, _entry}} | rows], [result | results], acc),
+    do: merge_rows(rows, results, [Map.put(result, "line", line) | acc])
+
+  defp merge_rows([%{line: line, result: {:error, reason, header}} | rows], results, acc) do
+    detail = %{"type" => Atom.to_string(reason)}
+    detail = if header, do: Map.put(detail, "header", header), else: detail
+
+    error = %{
+      "status" => "error",
+      "line" => line,
+      "source_record_id" => nil,
+      "reason" => detail
+    }
+
+    merge_rows(rows, results, [error | acc])
   end
 
   # REQ-518 (2c-ii, AC 9), AFTER the structural checks (they concern the document, not a
@@ -156,7 +277,6 @@ defmodule Letflow.Routers.Entities.RecordImport do
   # §7: rejects the WHOLE request past the 200-record cap, before entity-
   # type/definition resolution or any per-entry validation -- never a
   # silent truncation to the first 200.
-  @import_record_cap 200
 
   defp records_within_cap(body) do
     case Map.get(body, "records") do

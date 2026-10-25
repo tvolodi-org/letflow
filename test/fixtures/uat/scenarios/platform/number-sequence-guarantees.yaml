@@ -1,0 +1,181 @@
+# REQ-541 (BA-PLATFORM): UAT scenario for the guarantees of the numbering that no user screen shows. Authored new.
+# Criteria covered: 1, 2, 5, 6, 7, 9, 10, 13 (criterion 8's "failed create gives the number back" is in 6).
+# Every step is performed by the platform itself (a system actor), because the requirement adds no screen and
+# no route; the checks are the automated tests the requirement names. Precondition 2 says what to do if the
+# environment cannot run them: the scenario is BLOCKED, not PASS.
+---
+id: platform-number-sequence-guarantees
+scope: platform
+title: The numbering rules are checked when set up, never skip or repeat a number under load, and the count can only go up
+version: "1.0"
+tags: [numbering, concurrency, integrity, regression]
+
+description: >
+  A customer relies on its order numbers having no gap and no duplicate, even when many orders are created at
+  the same moment or a creation fails half way. This scenario checks the rules for setting up a numbering
+  rule, the behaviour under simultaneous creation, the protection against lowering the count, and that
+  numbering of customer records is kept apart from the numbering of controlled documents.
+
+actors:
+  platform_system: actor-system-numbering
+
+preconditions:
+  - description: A test tenant with one record type "order" and one with a protected history exists
+    check: system_seeded
+  - description: The environment can run the requirement's automated tests and read the platform's source and database
+    check: custom
+    detail: If it cannot, the whole scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: platform_system
+    action: >
+      Tries to set up numbering rules that are not allowed, one after the other: for a record type that does
+      not exist, with a name already in use, a second rule for a type that has one, a prefix longer than eight
+      characters or with a symbol, a width of 0 and of 13, a type managed by the platform itself, and a type
+      with a protected history. Then sets up one valid rule.
+    via: system
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: platform_system
+    action: Creates twenty orders at the same moment and lists the numbers they received.
+    via: system
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: platform_system
+    action: Makes an order creation fail after its number was taken, then creates the next order and notes its number.
+    via: system
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: platform_system
+    action: >
+      Tries to lower the count directly in the database, and tries to store a number that already exists in the
+      same year.
+    via: system
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: platform_system
+    action: >
+      Creates orders in two customer workspaces that use the same rule name and the same record type name, and
+      notes each workspace's numbers.
+    via: system
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: platform_system
+    action: >
+      Races a process-step order creation against a typed-in creation of the same type while a third connection
+      holds a lock, and reports waits, deadlocks and the numbers issued.
+    via: system
+    sla_context:
+      expected_within_hours: null
+  - step: 7
+    actor: platform_system
+    action: >
+      Reads the change as delivered: whether controlled-document numbering was touched, whether the lock order
+      is written into the decision record, and how workspaces that existed before get the new tables.
+    via: system
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Every disallowed rule in step 1 is turned down and leaves nothing behind; the valid rule is stored with its
+      name, prefix, width and period and is bound to exactly one record type of the workspace.
+    verification:
+      method: test_result
+      detail: One automated test per refused case passes, and the stored rule matches what was asked.
+      evidence: Test run output.
+    on_fail:
+      severity: MAJOR
+      business_impact: A wrong rule could number records in a format the customer never agreed to, or number a controlled type.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The twenty simultaneous orders receive exactly the numbers 1 to 20, each once, with no gap.
+    verification:
+      method: test_result
+      detail: The sorted list of numbers is 1..20.
+      evidence: Test output listing the numbers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Duplicate or missing order numbers break audits of the order series.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The number taken by the failed creation is given to the next order created; the series has no gap.
+    verification:
+      method: test_result
+      detail: The order created at step 3 after the failure has the number the failed one would have had.
+      evidence: Test output.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A failed order would leave a hole in the numbering that an auditor must explain.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Lowering the count and storing a repeated number are both refused by the database, and the count is unchanged.
+    verification:
+      method: test_result
+      detail: Both attempts at step 4 raise a refusal and the count read afterwards is unchanged.
+      evidence: Test output with the refusal messages.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A number could be reused, so two documents would carry the same number.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      Two workspaces with the same rule name and record type name each count independently from 1, and no
+      function of the numbering takes a workspace identifier other than the one it is working in.
+    verification:
+      method: test_result
+      detail: Both workspaces' first orders end in 000001; the list of database calls of the module shows each one scoped to the workspace.
+      evidence: Test output and the quoted list of calls.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer's orders would move another customer's count, disclosing that they exist.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: >
+      The race at step 6 shows no deadlock, no duplicate and no gap, and the order of locks (record type, then
+      the counter, then the audit trail) is written into the decision record on lock order.
+    verification:
+      method: test_result
+      detail: The forced-overlap test passes; the decision record names the counter's position.
+      evidence: Test output and the decision record's text.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A deadlock under load would stop order entry for a customer.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: >
+      Controlled-document numbering is untouched: the change writes nothing to the document counters, edits
+      nothing under the documents module, and the existing document tests pass unchanged.
+    verification:
+      method: test_result
+      detail: A search of the change shows no write to the document counter table; the document tests pass.
+      evidence: Search output and test output.
+    on_fail:
+      severity: MAJOR
+      business_impact: Controlled documents could be renumbered by a change meant for orders.
+      suggested_action: route_to_wf03
+  - id: EO-008
+    description: >
+      One migration adds the tables to the workspace template and to existing workspaces, alters no existing
+      row, and leaves every existing record type unnumbered; the review verdicts and the static checks are
+      recorded as passed.
+    verification:
+      method: test_result
+      detail: The migration file is named, an existing workspace has the tables after migrating, and its record types are still unbound.
+      evidence: Migration name, a query on an existing workspace, and the static check output.
+    on_fail:
+      severity: MAJOR
+      business_impact: Existing customers could be broken or silently numbered by the upgrade.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Remove the test workspaces and the records created. Counters are not changed by hand.

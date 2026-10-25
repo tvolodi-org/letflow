@@ -30,7 +30,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
   ]
 
   describe "M1 permissions" do
-    test "both are core permissions of tenant scope, appended after ScriptsPublish" do
+    test "both are core permissions of tenant scope, appended after ScriptsPublish (REQ-551 then appended LabelsManage, REQ-565 IntegrationMappingsManage)" do
       core = Authorization.core_permissions()
 
       for p <- @permissions do
@@ -39,7 +39,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
         assert Authorization.required_permission(p) == p
       end
 
-      assert Enum.take(core, -2) == @permissions
+      assert core |> Enum.take(-4) |> Enum.take(2) == @permissions
     end
 
     test "TENANT_ADMIN holds both; every other role holds neither" do

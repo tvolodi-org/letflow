@@ -113,8 +113,12 @@ defmodule Letflow.Plugs.ApiPipeline do
   # before it is fully buffered — not a replacement for that check). Both
   # numbers must change together; flagged for REVIEWER (design
   # lib/letflow/design/req212-instance-attachments-routes.md §2.1/§7).
+  #
+  # GH #3182 (REQ-557) added `Letflow.Plugs.CsvBodyParser`: it claims `text/csv` for ONE route
+  # (POST /entities/records/:entity_type/import) and passes every other request on, so the 415
+  # for `text/csv` anywhere else is unchanged. It keeps the root 2 MB `length:`.
   plug(Plug.Parsers,
-    parsers: [:json, {:multipart, length: 26_214_400}],
+    parsers: [:json, {:multipart, length: 26_214_400}, Letflow.Plugs.CsvBodyParser],
     json_decoder: Jason,
     length: 2_097_152
   )
@@ -143,6 +147,7 @@ defmodule Letflow.Plugs.ApiPipeline do
   forward("/identity", to: Letflow.Routers.Identity)
   forward("/tenants", to: Letflow.Routers.Tenants)
   forward("/tenant/settings", to: Letflow.Routers.TenantSettings)
+  forward("/labels", to: Letflow.Routers.Labels)
 
   # REQ-552 (GH #3177) -- export/import of the caller's own tenant configuration bundle.
   forward("/tenant/config-bundle", to: Letflow.Routers.TenantConfigBundle)
