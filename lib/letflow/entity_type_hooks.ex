@@ -4,8 +4,8 @@ defmodule Letflow.EntityTypeHooks do
   `entity_write` script version to one entity type: its pre-write hook.
 
   **Nothing runs.** This module stores, replaces, removes and lists pins and refuses a bad pin at
-  bind time. No record write, step write or handler write reads the table yet (later slices), and
-  there is no route (part 2).
+  bind time. No record write, step write or handler write reads the table yet (later slices),
+  and the routes are `Letflow.Routers.EntityTypeHooks` (part 2).
 
   `bind/4`, `rebind/4` and `unbind/3` each run one `Ecto.Multi` whose last step is
   `Letflow.Audit.append_multi/4`, so the audit entry and the row change commit or roll back together.
@@ -13,10 +13,12 @@ defmodule Letflow.EntityTypeHooks do
   raises), so `run_multi/2` rescues it and returns `{:error, {:transaction_failed, exception}}`
   (the shape `Letflow.Definitions` uses); the transaction has rolled back, so no row remains (INV-8).
 
-  Check order (type existence first, so a type absent in this tenant answers `:not_found` whatever
-  else the request holds, INV-5/INV-10): credential, input shape, type exists, type not managed
-  (authority is `Letflow.Entities.ManagedTypes`, never request data), the binding row, the script
-  version (found, published, `entity_write`, sha256), bound-state, `entity_type_hooked`.
+  Check order: credential, input shape, type exists, type not managed (authority is
+  `Letflow.Entities.ManagedTypes`, never request data), the binding row, the script version (found,
+  published, `entity_write`, sha256), bound-state, `entity_type_hooked`. Credential and input shape
+  come first and say nothing about existence, so an invalid body answers `:invalid_input` for an
+  existing and an absent type alike; a valid body on a type absent in this tenant answers `:not_found`
+  whatever else the request holds (INV-5/INV-10).
 
   `entity_type_hooked`: an ACTIVE definition with an `entity_writes` or `module_writes` (handler) line
   on the type refuses the bind (a step write and a pre-write hook on one type is the ambiguity 0065

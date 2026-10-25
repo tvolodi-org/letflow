@@ -188,6 +188,10 @@ defmodule Letflow.Plugs.ApiPipeline do
   # revoke, dry-run). Tenant scope; :ScriptsWrite / :ScriptsPublish.
   forward("/script-rules", to: Letflow.Routers.ScriptRules)
 
+  # REQ-567 part 2 (GH #3217, decision 0065 D4, D7): entity pre-write hook bindings (list,
+  # bind or rebind, unbind). Tenant scope; :ScriptsWrite / :ScriptsPublish.
+  forward("/entity-type-hooks", to: Letflow.Routers.EntityTypeHooks)
+
   # GH 2534 PR 7b-2a (decision 0053 D5, D7): the tenant's script policy (kill switch tenant
   # latch, readable masters). Tenant scope; :ScriptPolicyRead / :ScriptPolicyManage.
   forward("/script-policy", to: Letflow.Routers.ScriptPolicy)
