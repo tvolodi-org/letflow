@@ -247,7 +247,7 @@ defmodule Letflow.Routers.TenantConfig do
   defp resolve_realm(slug, host) when is_binary(slug) do
     case Identity.safe_get_tenant_by_slug(slug, "tenant-config") do
       {:ok, %Tenant{idp_realm_id: realm_id} = tenant}
-      when is_binary(realm_id) and realm_id != "" ->
+      when is_binary(realm_id) and realm_id != "" and tenant.status != :inactive ->
         {realm_id, tenant, tenant_type_value(tenant)}
 
       _miss_or_nil_realm_or_error ->

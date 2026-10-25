@@ -857,6 +857,10 @@ defmodule Letflow.TenantProvisioning do
     # for existing tenants; no row altered.
     {20_261_025_500_001, Letflow.Repo.Migrations.CreateEntityViews,
      "20261025500001_create_entity_views.exs"},
+    # REQ-567 / GH #3217: entity-type hook bindings (empty for existing tenants, no row altered; also
+    # widens the script_rules hook_kind CHECK to allow entity_write).
+    {20_261_025_500_002, Letflow.Repo.Migrations.CreateEntityTypeHookBindings,
+     "20261025500002_create_entity_type_hook_bindings.exs"},
     # REQ-565 / GH #3201 slice 2: nullable webhook_subscriptions.outbound_mapping_id. Catalog-only
     # for existing tenants; every existing row reads NULL (unmapped delivery, unchanged).
     {20_261_025_600_001, Letflow.Repo.Migrations.AddOutboundMappingToWebhookSubscriptions,

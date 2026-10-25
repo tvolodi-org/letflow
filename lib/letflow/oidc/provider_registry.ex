@@ -57,8 +57,30 @@ defmodule Letflow.Oidc.ProviderRegistry do
       {:error, :not_found} ->
         {:error, :unknown_realm}
 
+      {:ok, %{status: :inactive}} ->
+        {:error, :unknown_realm}
+
       {:ok, _tenant} ->
         do_ensure_worker(realm)
+    end
+  end
+
+  @doc """
+  Stops the provider worker for `realm`, if one is running. Idempotent: `:ok`
+  when none runs. Called when a tenant is deactivated so its realm stops being
+  trusted for already-cached keys (the oidcc worker keeps its last JWKS and, on
+  a 404 refresh, only retries with random 1-30 s backoff forever, never stopping).
+  Reactivation needs no call: `ensure_started/1` restarts the worker lazily.
+  """
+  @spec stop(realm()) :: :ok
+  def stop(realm) when is_binary(realm) do
+    case Registry.lookup(Letflow.Registry, {:oidc_provider, realm}) do
+      [{pid, _value}] ->
+        _ = DynamicSupervisor.terminate_child(__MODULE__, pid)
+        :ok
+
+      [] ->
+        :ok
     end
   end
 
