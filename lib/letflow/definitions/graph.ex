@@ -280,6 +280,7 @@ defmodule Letflow.Definitions.Graph do
             | :distinct_from_not_human_task
             | :distinct_from_downstream_only
             | :expression_references_reserved_variable
+            | :extension_site_unknown_node
 
     @type t :: %__MODULE__{
             code: code(),
@@ -475,6 +476,7 @@ defmodule Letflow.Definitions.Graph do
         &check_human_task_role/1,
         &check_service_task_endpoint/1,
         &check_service_task_script_reference/1,
+        &check_human_task_validation_reference/1,
         &check_service_task_timeout/1,
         &check_timer_duration/1,
         &check_sub_process_interface/1,
@@ -521,6 +523,42 @@ defmodule Letflow.Definitions.Graph do
 
     %{valid: violations == [], violations: violations}
   end
+
+  @doc """
+  Extension site check (REQ-574, decision 0071 D9 slice X1). `{definition_name, points}` is the
+  name of the definition `graph` belongs to and the owner module's declared extension points.
+  Returns one `:extension_site_unknown_node` violation per point aimed at this definition
+  (`site["definition"] == definition_name`) whose `site["node_id"]` is not a node of `graph`, in
+  list order. Points aimed at another definition, and malformed entries (rule 13 of
+  `Letflow.Modules.Catalog.validate/2` already refuses those for registered manifests), are
+  skipped. Pure and total. Not part of `validate_graph/1` or `validate_flow/1`; called from
+  `Letflow.Definitions` at activation only.
+  """
+  @spec check_extension_sites(t(), {String.t(), [map()]}) :: [Violation.t()]
+  def check_extension_sites(%__MODULE__{nodes: nodes}, {definition_name, points})
+      when is_list(points) do
+    node_ids = MapSet.new(nodes, & &1.id)
+
+    Enum.flat_map(points, fn
+      %{"site" => %{"definition" => ^definition_name, "node_id" => node_id}} = point ->
+        if MapSet.member?(node_ids, node_id) do
+          []
+        else
+          [
+            %Violation{
+              code: :extension_site_unknown_node,
+              message:
+                "Extension point '#{point["name"]}' names node '#{node_id}' which is not in the definition graph"
+            }
+          ]
+        end
+
+      _other ->
+        []
+    end)
+  end
+
+  def check_extension_sites(%__MODULE__{}, _other), do: []
 
   @doc """
   Runs the 3 flow checks (CHK-22..CHK-24, REQ-455) against `graph` and returns
@@ -1066,6 +1104,38 @@ defmodule Letflow.Definitions.Graph do
         end
 
       reference ++ conflict
+    end)
+  end
+
+  # REQ-569 / GH #3246 (decision 0067 D9, slice F-1): a HUMAN_TASK node may name a form-validation
+  # script with "validation_script_key" + "validation_script_version". Both or neither: the key must
+  # match Letflow.Scripts.Validation.key?/1 and the version be an integer >= 1. The message names the
+  # node id only (never the attribute values). Pure: it does not read the hook flag; activation does.
+  @spec check_human_task_validation_reference(t()) :: [Violation.t()]
+  defp check_human_task_validation_reference(%__MODULE__{nodes: nodes}) do
+    nodes
+    |> Enum.filter(&(&1.node_type == :HUMAN_TASK))
+    |> Enum.filter(fn node ->
+      attribute_value(node.attributes, "validation_script_key") != nil or
+        attribute_value(node.attributes, "validation_script_version") != nil
+    end)
+    |> Enum.flat_map(fn node ->
+      key = attribute_value(node.attributes, "validation_script_key")
+      version = attribute_value(node.attributes, "validation_script_version")
+
+      if Letflow.Scripts.Validation.key?(key) and is_integer(version) and version >= 1 do
+        []
+      else
+        [
+          %Violation{
+            code: :invalid_script_reference,
+            message:
+              "Node '#{node.id}' (HUMAN_TASK) has an invalid 'validation_script_key'/" <>
+                "'validation_script_version' pair (key ^[a-z][a-z0-9_]{0,63}$, version an " <>
+                "integer >= 1, both present)"
+          }
+        ]
+      end
     end)
   end
 

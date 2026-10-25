@@ -282,6 +282,7 @@ defmodule Letflow.Definitions.SolutionPack do
           | {:error, :entity_definition_not_found}
           | {:error, :missing_subject}
           | {:error, :empty_definition_ids}
+          | {:error, :invalid_pack_version}
           | Definitions.common_error()
 
   @type install_error ::
@@ -360,6 +361,12 @@ defmodule Letflow.Definitions.SolutionPack do
   `DateTime.utc_now/0` in ISO 8601. `bpm_export_schema_version` reuses
   `Letflow.Definitions.ExportImport`'s `bpm/definition/v1` constant —
   one version constant in the codebase, not two.
+
+  A non-empty `version` must be strict semver (`Version.parse/1`); anything
+  else is `{:error, :invalid_pack_version}` before any read, and no document is
+  built. A valid version is exported unchanged; an absent one is `"1.0.0"`.
+  `install/3` does not apply this rule, so older packs with free-form versions
+  still install.
   """
   @spec export(
           definition_ids :: [String.t()],
@@ -398,13 +405,14 @@ defmodule Letflow.Definitions.SolutionPack do
 
   def export(definition_ids, entity_definition_names, version, opts)
       when is_list(definition_ids) and is_list(entity_definition_names) and is_list(opts) do
-    with {:ok, packed} <- pack_each_definition(definition_ids, opts),
+    with {:ok, pack_version} <- validate_pack_version(version),
+         {:ok, packed} <- pack_each_definition(definition_ids, opts),
          {:ok, entity_definitions} <-
            pack_each_entity_definition(entity_definition_names, opts) do
       {:ok,
        %{
          pack_id: Ecto.UUID.generate(),
-         version: pack_version(version),
+         version: pack_version,
          bpm_export_schema_version: ExportImport.export_schema_version(),
          exported_at: DateTime.to_iso8601(DateTime.utc_now()),
          definitions:
@@ -874,8 +882,14 @@ defmodule Letflow.Definitions.SolutionPack do
 
   defp prefix(opts), do: Keyword.get(opts, :prefix)
 
-  defp pack_version(version) when is_binary(version) and byte_size(version) > 0, do: version
-  defp pack_version(_absent), do: @default_pack_version
+  defp validate_pack_version(version) when is_binary(version) and byte_size(version) > 0 do
+    case Version.parse(version) do
+      {:ok, _parsed} -> {:ok, version}
+      :error -> {:error, :invalid_pack_version}
+    end
+  end
+
+  defp validate_pack_version(_absent), do: {:ok, @default_pack_version}
 
   # Reads in the order the caller listed the ids, so a not-found error names
   # the first offending id deterministically.

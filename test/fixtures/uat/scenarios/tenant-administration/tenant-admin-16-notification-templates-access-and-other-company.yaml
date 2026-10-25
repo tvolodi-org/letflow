@@ -1,0 +1,204 @@
+# T-0598 (BA): TENANT ADMIN group, scenario 16: who may manage message wordings, and that one company never sees or removes another's.
+# Covers REQ-563 criteria 6 (only the tenant administrator holds the permission; the sign-in-less caller is refused), 11 (the same refusal
+# for a wording that exists and one that does not), 10 (another company's administrator gets nothing of company A, preview gives the
+# platform wording, delete answers as for a wording that exists nowhere, a named company is ignored) and 1 (a wording of company A is absent
+# from company B).
+# Sources: docs/requirements.yaml REQ-563 criteria 1, 6, 10, 11; docs/roles.md (NotificationTemplatesManage: TENANT_ADMIN and PLATFORM_ADMIN
+# only; so TASK_WORKER and TENANT_AUDITOR are refused); test/fixtures/uat/actors.yaml (alice: SwiftRoute TENANT_ADMIN; lena: SwiftRoute task
+# worker; auditor: SwiftRoute TENANT_AUDITOR; ben: Meridian task worker; actor-bilimbaga-admin: Bilimbaga TENANT_ADMIN, whose token needs a
+# qa-login mapping that is not yet approved).
+# Criterion 6 names a PROCESS_DESIGNER of the same tenant; the actor roster has no such actor, so that actor is not exercised here. The task
+# worker and the auditor stand for the roles without the permission, and the role table itself is checked by the unit test. Reported as a gap.
+# A platform operator on this tenant-from-token route would get its own tenant's wording, not a refusal, so it is not used here.
+# Approve, pay or release, and see-sensitive-data are not in this flow; "change users" is not either.
+---
+id: tenant-administration-16-notification-templates-access-and-other-company
+scope: tenant-administration
+title: Only the administrator may manage message wordings, with one refusal for an existing or missing wording, and another company never sees or removes them
+version: "1.0"
+tags: [tenant-admin, notification-templates, access, cross-tenant, refusal, isolation]
+
+description: >
+  The administrator of SwiftRoute stores a Russian wording of the "task assigned" message. A task worker and the read-only auditor of
+  SwiftRoute are refused when they list, store, preview or remove wordings; their refusal is the same for the language that has a wording
+  and for one that has none. A request with no sign-in is refused. The administrator of Bilimbaga sees no wording of SwiftRoute: the list
+  is empty, the preview gives the platform wording, and removing the same message and language answers as for a wording that exists
+  nowhere, leaving SwiftRoute's wording unchanged. A company named in the request is ignored. Each company then stores its own Russian
+  wording and sees only its own.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+  auditor_a: actor-swiftroute-auditor
+  worker_b: actor-meridian-ben
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute, Meridian and Bilimbaga are set up, and no wording is stored for "task assigned" in any of them
+    check: system_seeded
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token), report BLOCKED for steps 6, 7, 8, 9 and 11 and run the others; EO-002, EO-003, EO-004 and EO-005 are then BLOCKED, and the no-leak part is judged on step 4 (the Meridian user) alone.
+  - description: The tenant administrator of SwiftRoute holds the wording permission and no other SwiftRoute actor of this scenario does
+    check: system_seeded
+    detail: Per the role matrix, only the tenant administrator (and the platform operator) holds it.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute stores for "task assigned", language ru, the subject "SwiftRoute subject {task_name}" and the body
+      "SwiftRoute body", and notes the answer. The administrator then reads the company's audit record and notes it as the baseline.
+    via: api
+    input:
+      template_key: task_assigned
+      locale: ru
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker tries to list the wordings, to store a wording for ru, to preview for ru, to remove the wording for ru, and to
+      remove the wording for the language kk (none is stored), each in its own request. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor_a
+    action: >
+      The read-only auditor tries to list the wordings, to store a wording for ru, to preview for ru, to remove the wording for ru, and to
+      remove the wording for kk, each in its own request. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: worker_b
+    action: >
+      A Meridian task worker, who holds no wording permission, tries to list the wordings and to preview "task assigned" for ru. The
+      answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: worker_a
+    action: >
+      The request to list the wordings of the company is sent with no sign-in at all (no token is attached). The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator lists the wordings and searches the answer for "SwiftRoute", and previews "task assigned" for ru. This is a
+      check that nothing of SwiftRoute is shown; both requests are answered normally. The answers are noted.
+    via: api
+  - step: 7
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to remove the wording of "task assigned" for ru, then the wording for kk, a language that no
+      company has stored, each in its own request. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator repeats the list, with tenant_id set to SwiftRoute's company identifier in the address, and the preview
+      of "task assigned" for ru, with tenant_id set to SwiftRoute's company identifier in the body. Both requests are answered normally;
+      the answers are noted and it is noted whose wording they are about.
+    via: api
+    input:
+      tenant_id: SwiftRoute's company identifier
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to remove the wording for ru with tenant_id set to SwiftRoute's company identifier in the address.
+      The answer is noted.
+    expect_refusal: true
+    via: api
+    input:
+      tenant_id: SwiftRoute's company identifier
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute lists the wordings and previews "task assigned" for ru, compares them with step 1, and reads the
+      company's audit record again and compares it with the record noted in step 1.
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator stores for "task assigned", language ru, the subject "Bilimbaga subject" and the body "Bilimbaga body",
+      then lists the wordings. The administrator of SwiftRoute then lists the wordings too.
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute removes the wording for ru, and the Bilimbaga administrator removes the wording for ru, noting both answers.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker and the read-only auditor are refused every wording action, with one refusal for a language that has a wording and one that has none.
+    verification:
+      method: http_status
+      detail: Every request of steps 2 and 3 answers 403; for each caller the 403 for the removal of ru (stored) and for kk (not stored) have the same status, the same body byte for byte, the same content type, and the same headers apart from per-request ones (date, request id). The Meridian worker's requests in step 4 answer 403. The list request of step 5, sent with no sign-in, answers 401.
+      evidence: The ten refusals of steps 2 and 3, the two of step 4, and the unauthenticated request of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee, or an outside auditor, could rewrite the wording of messages sent to the whole company, or learn which wordings exist.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Another company sees no wording of SwiftRoute, in the list or in a preview.
+    verification:
+      method: api_response
+      detail: The lists of step 6 and step 8 answer 200 and are empty and contain no part of the SwiftRoute text or the word "SwiftRoute"; the preview of step 6 answers 200 and returns the platform wording (source "default"), not "SwiftRoute subject".
+      evidence: The lists and the preview of steps 6 and 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer's message wording shows in another customer's system.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Another company's administrator cannot remove SwiftRoute's wording, and the answer equals the answer for a wording that exists nowhere.
+    verification:
+      method: http_status
+      detail: In step 7 the removal for ru and the removal for kk both answer 404 with the same body byte for byte and the same headers apart from per-request ones (date, request id); in step 10 SwiftRoute's wording for ru has its original subject and body.
+      evidence: The two removals of step 7 compared byte for byte and the list of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer could delete another customer's message wording, or find out which wordings exist.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A company named in the request is ignored; the company of the sign-in is used.
+    verification:
+      method: api_response
+      detail: With tenant_id set to SwiftRoute's company identifier, the list of step 8 is still empty, the preview of step 8 returns the platform wording, and the removal of step 9 still answers 404; nothing of SwiftRoute is returned or changed (step 10 shows it unchanged).
+      evidence: The answers of steps 8 and 9 and the list of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be pointed at another customer's data by naming the customer.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Two companies that store a wording for the same message and language each see only their own.
+    verification:
+      method: api_response
+      detail: In step 11 the Bilimbaga list holds one wording with the subject "Bilimbaga subject" and the SwiftRoute list holds one wording with the subject "SwiftRoute subject {task_name}"; neither list holds the other's text.
+      evidence: The two lists of step 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Companies overwrite or read each other's message wording.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: Each administrator removes their own wording and it succeeds.
+    verification:
+      method: http_status
+      detail: Both removals of step 12 answer 204.
+      evidence: The two answers of step 12.
+    on_fail:
+      severity: MINOR
+      business_impact: Test data is left behind, or an administrator cannot remove their own wording.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: Refused requests of the task worker, the auditor and the other company write no audit record.
+    verification:
+      method: audit_event
+      detail: The audit record read in step 10 holds, for the message "task_assigned", only the record of the administrator's own store in step 1 (the baseline of step 1); no record from the task worker, the auditor or the Bilimbaga administrator appears, so the refused store and removal requests of steps 2, 3, 7 and 9 left none.
+      evidence: The audit records noted in step 1 and read in step 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: Refused attempts clutter the audit trail, or a refused change is recorded as if it happened.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the wording for ru in SwiftRoute and in Bilimbaga if step 9 did not; removal is possible through the same route, so no value is left.

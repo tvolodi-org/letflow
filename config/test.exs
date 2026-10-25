@@ -327,7 +327,9 @@ config :letflow, :modules, [
   Letflow.Modules.FixtureScoped,
   # GH #2540: on_install/3 raises a real Postgrex.Error from DDL after activating a pack
   # (test/support/modules/fixture_ddl_failing/).
-  Letflow.Modules.FixtureDdlFailing
+  Letflow.Modules.FixtureDdlFailing,
+  # REQ-574 / GH #3256: one declared extension point (test/support/modules/fixture_points/).
+  Letflow.Modules.FixturePoints
 ]
 
 # REQ-518 (SEC ruling R-3): the ONLY place this key may be set. Catalog rule 11 and
