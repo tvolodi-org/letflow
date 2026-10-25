@@ -332,3 +332,57 @@ No REVIEWER sign-off is required for this addendum on its own — it changes no
 `mix.exs`, `mix.lock`, route, migration, or code; it documents an investigation and
 accepts an existing, already-reviewed behavior. ISS-0679 itself is closed against this
 addendum (see `docs/issues/ISS-0679.yaml`'s `resolution_note`).
+
+## Amendment (2026-10-25, REQ-571 / GH #3250) — Unicode font path for print layouts re-opens the ISS-0679 addendum
+
+**Why now.** The ISS-0679 addendum above names its own "Trigger for revisiting": a real need for
+`kk`/`ru` text that the `"?"` fallback cannot serve. Decision 0068 D2 supplies it: per-tenant print
+layouts must print Russian and Kazakh text, and 0068 D8 S1 says "the first slice spikes the font path
+through an amendment of 0033". This amendment re-opens the ISS-0679 addendum for that renderer only.
+
+**What is recorded.**
+- A hand-built CID-font path in `Letflow.Documents.PrintLayout` and its helpers `Font`, `Flow` and
+  `Pdf` (`lib/letflow/documents/print_layout/`): Type0 font, CIDFontType2 descendant, `Identity-H`,
+  a `CIDToGIDMap` stream, a `W` array and a `ToUnicode` CMap. The PDF objects are written by hand.
+  No new dependency, no `mix.exs` or `mix.lock` change.
+- The font file `priv/fonts/DejaVuSans.ttf`: DejaVu Sans Regular 2.37, 757,076 bytes, SHA-256
+  `7da195a74c55bef988d0d48f9508bd5d849425c1770dba5d7bfc6ce9ed848954`, taken from the upstream
+  `dejavu-fonts-ttf-2.37` release. The whole font is embedded as a Flate stream (no subsetting).
+  Its cmap maps every Russian letter and `Ә Ғ Қ Ң Ө Ұ Ү Һ І` in both cases (tested).
+- The licence `priv/fonts/DejaVuSans.LICENSE` (the upstream `LICENSE`, Bitstream Vera licence plus the
+  DejaVu changes, SHA-256 `7a083b136e64d064794c3419751e5c7dd10d2f64c108fe5ba161eae5e5958a93`), which
+  allows embedding and redistribution. It ships next to the font.
+- The limits of the layout schema and renderer: 200 blocks, 500 characters per literal, 12 columns,
+  1000 rows per table.
+
+**What does not change.** `lib/letflow/modules/exam/certificate_document.ex` keeps the `pdf` library and
+its Latin-1 path; §2 of this record stands, and the `"?"` fallback of ISS-0679 remains for that
+renderer. That file, and `lib/letflow/modules/exam/`, are unchanged. A character the new renderer
+cannot draw is an error (`:unsupported_glyph`), never a `"?"`.
+
+### REVIEWER sign-off
+**Basis of the trigger, and the ecosystem re-check.** The trigger is met by the plan in decision 0068
+D8 S1 (a stated product need), not by a production report; decision 0068 is still a proposal, and this
+amendment takes effect only for the print renderer that slice builds. PDF-library
+ecosystem: this slice did not search it again; it takes the addendum's finding (no pure-Elixir library with real CID/Unicode support) and the hand-built path it costed
+as the chosen one, which a later library would not make wrong. Embedding the whole font (no subsetting) makes each PDF carry about
+757 KB before compression; that is accepted for S1 and subsetting is a later optimisation.
+`font.ex` declares `@external_resource` for the font file, so a changed font recompiles the module.
+
+### REVIEWER sign-off
+
+Date: 2026-10-25. Agent: REVIEWER. Verdict: **PASS** (verbatim reasons from the review run):
+
+1. Consistency with 0033: the amendment invokes the ISS-0679 "Trigger for revisiting" and re-opens only
+   that addendum, as the addendum itself instructs. It satisfies 0068 D8 S1 ("spike through an
+   amendment of 0033") and D2's prerequisite. §2 (`pdf` for `certificate_document.ex`) stays untouched;
+   `certificate_document.ex` is not in the diff. It builds the hand-made CID path the addendum had
+   costed and adds no `mix.exs` or `mix.lock` change.
+2. Font file: the SHA-256 of both files in `priv/fonts/` matches the amendment; the `.ttf` is 757,076
+   bytes. The licence is Bitstream Vera plus public-domain DejaVu changes, which allows embedding and
+   redistribution; it ships next to the font, so this is a data asset, not a dependency.
+3. Limits: 200 blocks, 500 characters per literal, 12 columns and 1000 rows per table are module
+   attributes enforced by the validator and the renderer. They are sane bounds for a pure renderer that
+   caps resource use.
+4. Non-blocking points (the trigger basis, the ecosystem re-check, the whole-font size trade-off and
+   `@external_resource`) are addressed in the paragraph above this block.
