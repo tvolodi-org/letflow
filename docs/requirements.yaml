@@ -40195,7 +40195,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-560 -- the decision record of REQ-560 (0067) is merged but REQ-560 is still pending in this register
+    gh: 3248
     # Source: docs/migration/decisions/0067-after-commit-trigger-outbox.md D4 (declaration, pin kind, bind takes the type's sequence row, managed types), D5 (output is a closed set of declared write lines, 0062 R5 at bind), D9 slice T-1 and the SECURITY-REVIEWER marker, D2 "Lock position" (item 5 / 5b); docs/migration/decisions/0053-tenant-scripted-rules.md D1 (hook_kind entity_event reserved), D3, D7 and the "7c rulings" (script runtime of GH #2534, PRs 7c-1 and 7c-2, merged: commits ec8b9deea and 0f1a7fa12); docs/migration/decisions/0062-restriction-carrying-variables.md R5; docs/migration/decisions/0061 (lock order, item 5); REQ-567 (Record E slice E-1, the same shape for hook 2). Written by the business analyst (T-0547) 2026-10-25.
     description: >
       Decision 0067 D9 slice T-1 only ("trigger declaration and pin"). Today a tenant script is published
