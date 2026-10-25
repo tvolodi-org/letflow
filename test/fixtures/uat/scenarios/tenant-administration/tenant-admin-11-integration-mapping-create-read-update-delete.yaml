@@ -1,0 +1,165 @@
+# T-0566 (BA): TENANT ADMIN group, scenario 11: the administrator keeps the company's integration mappings (create, list, read, replace, remove).
+# Covers REQ-565 slice 1: criteria 2 (accepted boundaries 100 rules and 8 segments; inert text in a const), 3 (text that looks like code is stored as
+# plain text), 4 (the company's own mappings only, a name is unique within the company), 9 (a mapping answer carries no company identifier and
+# no credential), 10 (the administrator holds the permission: 201, 200, 204), 14 (audit entry per create, update and delete, without the rule values).
+# Sources: docs/requirements.yaml REQ-565 criteria 2, 3, 4, 9, 10, 14; lib/letflow/routers/integration_mappings.ex (moduledoc: 201 / 200 with items
+# ordered by name / 204; the answer fields id, name, direction, rules, updated_by, inserted_at, updated_at); lib/letflow/integration_mappings.ex
+# (limits, a const is a string, number, boolean or null); docs/roles.md (IntegrationMappingsManage: tenant administrator, platform administrator).
+# Not covered here: criterion 1 (the pure apply function has no route; it is checked by the unit test of the requirement, so no UAT step can show it);
+# criteria 5 to 8 and 12 (linking a mapping to a webhook subscription and mapped deliveries are slice 2 and are not part of this task); criterion 4's
+# table creation for existing companies (migration, test setup).
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow. Refusals are in scenarios 12 and 13.
+---
+id: tenant-administration-11-integration-mapping-crud
+scope: tenant-administration
+title: The administrator creates, lists, reads, replaces and removes integration mappings, and every change is in the audit log
+version: "1.1"
+tags: [tenant-admin, integration-mappings, audit]
+
+description: >
+  The administrator of SwiftRoute stores an outbound mapping that renames two fields and sets one fixed value, and an inbound mapping. The
+  mapping answer shows the rules as stored, the administrator's identity as the last editor, and no company identifier and no credential. The
+  list is ordered by name. The administrator replaces the outbound mapping (name, direction and rules are all replaced) and removes the inbound
+  one. Texts that look like code ("#{1+1}", "{{x}}", "$(x)") are kept as plain text in a fixed value. The largest accepted sizes (100 rules,
+  a path of 8 parts) are accepted. The audit log shows one entry for each create, replace and removal, naming the mapping, its name, its
+  direction and the administrator, and containing none of the rule values.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator; SwiftRoute has no integration mapping named "partner-orders-out", "partner-orders-out-v2", "partner-orders-in", "inert-text" or "largest" (other mappings in the company do not matter, because this scenario judges only the mappings it names)
+    check: system_seeded
+    detail: If one exists, the administrator removes it first (a mapping that a webhook subscription still uses cannot be removed; then report BLOCKED for the steps that name it) and notes that in the report.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator stores a mapping named "partner-orders-out", direction outbound, with three rules: copy the value at "order.number" to
+      "orderNumber"; copy the value at "order.lines.0.sku" to "firstSku"; write the fixed text "letflow" to "source". The administrator notes the
+      mapping number and the full answer.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator stores a mapping named "partner-orders-in", direction inbound, with one rule: copy the value at "ref" to "reference". The
+      administrator notes the mapping number.
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator asks for the list of mappings, then asks for each of the two mappings by its number, and compares each with the answer to
+      its creation.
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator replaces "partner-orders-out" with the name "partner-orders-out-v2", direction outbound, and two rules: copy "order.number"
+      to "orderNumber", and write the fixed number 7 to "version". The administrator then reads that mapping by its number.
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator stores a mapping named "inert-text", direction outbound, with three rules that each write a fixed text: "#{1+1}" to
+      "a", "{{x}}" to "b" and "$(x)" to "c". The administrator reads the mapping back.
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator stores a mapping named "largest", direction outbound, with exactly 100 rules; rule number n copies the value at
+      "src.f1.f2.f3.f4.f5.f6.f7" (eight parts) to the path "out.k" followed by n (for example "out.k1", "out.k2", up to "out.k100"). The
+      administrator notes the answer and the number of rules in the reading of the mapping.
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator removes the inbound mapping "partner-orders-in", then asks for it by its number, then asks for the list.
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator reads the audit log filtered to the kind "integration_mapping" and searches the entries for the mapping numbers of
+      steps 1, 2, 5 and 6, for the texts "letflow", "#{1+1}" and "src.f1", and for the word "rules".
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      Clean-up: the administrator removes, by the numbers noted, only "partner-orders-out-v2", "inert-text" and "largest", and asks for the list.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Creating a mapping works for an outbound and an inbound mapping and the answer shows what was stored, without a company identifier and without a credential.
+    verification:
+      method: api_response
+      detail: Steps 1 and 2 answer 201. The answer of step 1 shows the name, the direction "outbound", the three rules in the order given, the administrator's user as last editor and the times of creation and change; it has no company identifier field and no field with a key, password or secret.
+      evidence: The two creation answers.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot store the shape a partner expects, or the answer exposes data that is not the mapping's own.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The list and the single reading show the company's own mappings as stored, ordered by name.
+    verification:
+      method: api_response
+      detail: In step 3 the list answers 200 and, among the mappings this scenario names, has exactly "partner-orders-in" then "partner-orders-out" in that order (other mappings of the company are ignored), and each reading (200) equals the answer to its creation in name, direction and rules.
+      evidence: The list and the two readings.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot see which mappings exist or what they do.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Replacing a mapping replaces name, direction and all rules, and the old name and rules are gone.
+    verification:
+      method: api_response
+      detail: Step 4 answers 200 and the reading shows the name "partner-orders-out-v2" with exactly two rules (the fixed number 7 is a number, not a text) and no rule from step 1; the list of step 7 has no "partner-orders-out".
+      evidence: The answers of steps 4 and 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A changed mapping keeps old rules and sends fields the company removed.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Text that looks like code is stored and returned as plain text and is not evaluated.
+    verification:
+      method: api_response
+      detail: In step 5 the three fixed texts come back character for character as "#{1+1}", "{{x}}" and "$(x)" (not "2", not empty, not an error).
+      evidence: The creation answer and the reading of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A mapping could run code supplied by a company, which the product promises never to do.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: The largest accepted sizes are accepted.
+    verification:
+      method: api_response
+      detail: Step 6 answers 201 for a mapping of exactly 100 rules whose source paths have eight parts, and the reading shows 100 rules.
+      evidence: The answer of step 6 and the count in the reading.
+    on_fail:
+      severity: MINOR
+      business_impact: A mapping within the stated limits is refused, so a partner with a wide body cannot be served.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: A removed mapping is gone, and removing answers with no content.
+    verification:
+      method: http_status
+      detail: In step 7 the removal answers 204, asking for the removed mapping answers 404, and the list no longer has "partner-orders-in". The clean-up in step 9 answers 204 three times and the final list has none of the mappings this scenario stored (other mappings are ignored).
+      evidence: The answers of steps 7 and 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: A mapping the company removed remains in use, or cannot be removed.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: Each create, replace and removal is in the audit log with the mapping's number, name, direction and the acting administrator, and the log holds no rule values.
+    verification:
+      method: api_response
+      detail: In step 8 the log has a create entry for the mappings of steps 1, 2, 5 and 6, an update entry for the mapping of step 1 (before "partner-orders-out", after "partner-orders-out-v2") and a delete entry for the mapping of step 2, each with the administrator as actor and the direction. Searching the entries for "letflow", "#{1+1}" and "src.f1" finds nothing, and no entry carries the rules.
+      evidence: The filtered audit answer of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: Changes to what the company sends to partners cannot be traced, or rule values are copied into a log that more people can read.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove any mapping named "partner-orders-out", "partner-orders-out-v2", "partner-orders-in", "inert-text" or "largest" that is left.
