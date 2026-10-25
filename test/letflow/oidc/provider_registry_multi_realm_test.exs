@@ -334,6 +334,40 @@ defmodule Letflow.Oidc.ProviderRegistryMultiRealmTest do
       assert {:error, :unknown_realm} = ProviderRegistry.ensure_started(realm)
       assert Registry.lookup(Letflow.Registry, {:oidc_provider, realm}) == []
     end
+
+    # GH #3252 / REQ-572
+    test "an inactive tenant's realm is refused and starts no process; an active one starts" do
+      realm = unique_realm("registry-inactive")
+      %{base_url: base_url} = MockOidcProvider.start([realm])
+      point_at_real_verifier(base_url)
+      tenant = insert_tenant!(realm)
+
+      assert {:ok, _via} = ProviderRegistry.ensure_started(realm)
+      assert :ok = ProviderRegistry.stop(realm)
+
+      tenant |> Ecto.Changeset.change(status: :inactive) |> Repo.update!()
+
+      assert {:error, :unknown_realm} = ProviderRegistry.ensure_started(realm)
+      assert Registry.lookup(Letflow.Registry, {:oidc_provider, realm}) == []
+    end
+
+    test "stop/1 terminates a running worker, is idempotent, and ensure_started restarts it" do
+      realm = unique_realm("registry-stop")
+      %{base_url: base_url} = MockOidcProvider.start([realm])
+      point_at_real_verifier(base_url)
+      insert_tenant!(realm)
+
+      assert {:ok, _via} = ProviderRegistry.ensure_started(realm)
+      assert [{pid, _}] = Registry.lookup(Letflow.Registry, {:oidc_provider, realm})
+      ref = Process.monitor(pid)
+
+      assert :ok = ProviderRegistry.stop(realm)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+      assert :ok = ProviderRegistry.stop(realm)
+      assert :ok = ProviderRegistry.stop(unique_realm("registry-stop-none"))
+
+      assert {:ok, _via} = ProviderRegistry.ensure_started(realm)
+    end
   end
 
   # ---------------------------------------------------------------------------------

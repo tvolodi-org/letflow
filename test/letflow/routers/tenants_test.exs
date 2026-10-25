@@ -274,6 +274,42 @@ defmodule Letflow.Routers.TenantsTest do
       assert Repo.get!(Tenant, tenant.tenant_id).status == :active
     end
 
+    # GH #3252 / REQ-572: deactivation stops the tenant's realm key provider.
+    test "deactivate stops the tenant's running realm provider" do
+      realm = "t3252-" <> Integer.to_string(System.unique_integer([:positive]))
+      %{base_url: base_url} = Letflow.Support.MockOidcProvider.start([realm])
+      original = Application.fetch_env!(:letflow, :oidc)
+
+      Application.put_env(
+        :letflow,
+        :oidc,
+        Keyword.merge(original, keycloak_base_url: base_url)
+      )
+
+      on_exit(fn -> Application.put_env(:letflow, :oidc, original) end)
+
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh3252-stop")
+      operator = TenantFixture.provisioned_tenant!(slug_prefix: "gh3252-stop-op")
+
+      Repo.update_all(from(t in Tenant, where: t.id == ^tenant.tenant_id),
+        set: [idp_realm_id: realm]
+      )
+
+      assert {:ok, _via} = Letflow.Oidc.ProviderRegistry.ensure_started(realm)
+      assert [{pid, _}] = Registry.lookup(Letflow.Registry, {:oidc_provider, realm})
+      ref = Process.monitor(pid)
+
+      resp =
+        build_conn(:post, "/#{tenant.tenant.slug}/deactivate", operator,
+          roles: ["PLATFORM_ADMIN"]
+        )
+        |> dispatch()
+
+      assert resp.status == 200
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+      assert Registry.lookup(Letflow.Registry, {:oidc_provider, realm}) == []
+    end
+
     test "an empty display_name is rejected 422" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req075-patch-empty")
 
