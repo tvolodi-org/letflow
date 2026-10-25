@@ -77,6 +77,55 @@ defmodule Letflow.Modules.CatalogDocumentOrgResolverTest do
     refute Enum.any?(paths, &(&1 =~ "resolver"))
   end
 
+  test "K5b: a tenant setting key document_org_resolver is rejected" do
+    # API: the closed-vocabulary Ecto type behind PUT tenant settings (TenantSettings.cast/1).
+    assert {:error, opts} =
+             Letflow.Identity.TenantSettings.cast(%{
+               "document_org_resolver" => "Elixir.Letflow.Documents.TestResolvers.Entity"
+             })
+
+    assert opts[:validation] == :unrecognized_key
+    refute "document_org_resolver" in Letflow.Identity.TenantSettings.allowed_keys()
+    assert {:ok, Default} = Catalog.document_org_resolver()
+  end
+
+  test "K5c: a pack section document_org_resolver sets nothing" do
+    # API: SolutionPack.install/3. A wrong schema version stops it before any query,
+    # and the pack parser has no reader for the key, so the resolver stays the default.
+    doc = %{
+      "pack_id" => "p",
+      "version" => "1",
+      "bpm_export_schema_version" => "no-such-version",
+      "definitions" => [],
+      "document_org_resolver" => "Elixir.Letflow.Documents.TestResolvers.Entity"
+    }
+
+    assert {:error, {:unknown_schema_version, "no-such-version"}} =
+             Letflow.Definitions.SolutionPack.install(doc, Ecto.UUID.generate(), prefix: "none")
+
+    refute File.read!("lib/letflow/definitions/solution_pack.ex") =~ "document_org_resolver"
+    assert {:ok, Default} = Catalog.document_org_resolver()
+  end
+
+  test "K5d: a definition field document_org_resolver is not cast" do
+    # API: ProcessDefinition.create_changeset/2, used by Definitions.create/2.
+    cs =
+      Letflow.Definitions.ProcessDefinition.create_changeset(
+        %Letflow.Definitions.ProcessDefinition{},
+        %{
+          name: "n",
+          version: "1",
+          graph: %{},
+          created_by: Ecto.UUID.generate(),
+          document_org_resolver: "Elixir.Letflow.Documents.TestResolvers.Entity"
+        }
+      )
+
+    refute Map.has_key?(cs.changes, :document_org_resolver)
+    refute :document_org_resolver in Letflow.Definitions.ProcessDefinition.__schema__(:fields)
+    assert {:ok, Default} = Catalog.document_org_resolver()
+  end
+
   test "K6: only config/test.exs sets the test seam" do
     for file <- ~w(config/config.exs config/dev.exs config/prod.exs config/runtime.exs) do
       refute File.read!(file) =~ "document_resolver_test_seam", file

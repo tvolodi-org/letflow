@@ -14,6 +14,7 @@
 1 test/letflow/definitions/owner_module_stamp_test.exs 19109.94
 1 test/letflow/definitions/role_binding_test.exs 0.04
 1 test/letflow/definitions/search_test.exs 5082.01
+1 test/letflow/documents/org_resolver_test.exs 5542.85
 1 test/letflow/engine/lua/script_runtime_test.exs 9363.99
 1 test/letflow/engine/plugin_interface_test.exs 15.54
 1 test/letflow/engine/put_sys_callers_test.exs 306.48
@@ -152,6 +153,7 @@
 3 test/letflow/entities/query_request_guard_test.exs 16854.45
 3 test/letflow/identity/sync_scope_guard_test.exs 33466.67
 3 test/letflow/identity/tenant_admin_guard_test.exs 31065.98
+3 test/letflow/modules/catalog_document_org_resolver_test.exs 5542.85
 3 test/letflow/modules/catalog_items/entity_definitions_test.exs 20.56
 3 test/letflow/modules/exam/certificate_public_projection_test.exs 2.56
 3 test/letflow/modules/exam/exam_sessions_test.exs 128272.02
@@ -188,6 +190,7 @@
 4 test/letflow/definitions/q1063_l1_cro_condition_equality_test.exs 36.61
 4 test/letflow/definitions/required_outputs_surfaces_test.exs 14411.70
 4 test/letflow/definitions/script_bindings_activation_test.exs 31066.24
+4 test/letflow/documents/canonical_test.exs 5542.85
 4 test/letflow/engine/complete_task_entity_writes_test.exs 50561.95
 4 test/letflow/engine/instance_scope_node_test.exs 18894.81
 4 test/letflow/engine/lua_script_audit_retired_test.exs 2375.69
@@ -296,6 +299,7 @@
 6 test/letflow/definitions/activated_by_signature_test.exs 20315.61
 6 test/letflow/definitions/promotion_review_test.exs 18.74
 6 test/letflow/definitions/reminder_validation_test.exs 2.19
+6 test/letflow/documents/documents_register_test.exs 5542.85
 6 test/letflow/engine/contention_test.exs 0.04
 6 test/letflow/engine/expr_corpus_drift_guard_test.exs 0.37
 6 test/letflow/engine/migrations_test.exs 9409.68
@@ -583,6 +587,7 @@
 11 test/letflow/ci_backend_path_filter_test.exs 32448.43
 11 test/letflow/definitions/promotion_review_migration_test.exs 8445.67
 11 test/letflow/definitions/vortex_production_order_release_fixture_test.exs 143.53
+11 test/letflow/documents/documents_draft_test.exs 5542.85
 11 test/letflow/engine/expr_conformance_corpus_test.exs 1.25
 11 test/letflow/engine/expr_test.exs 12.90
 11 test/letflow/engine/lua/sandbox_test.exs 229.81
@@ -880,6 +885,7 @@
 16 test/letflow/definitions/rollback_test.exs 11781.50
 16 test/letflow/definitions/semantic_validation_data_flow_test.exs 1.84
 16 test/letflow/definitions/sub_process_interface_test.exs 3.64
+16 test/letflow/documents/documents_tenancy_audit_test.exs 5542.85
 16 test/letflow/documents/hold_lock_order_test.exs 2798.96
 16 test/letflow/engine/lua/executor_test.exs 9988.68
 16 test/letflow/engine/lua_host_no_handler_access_test.exs 1420.34

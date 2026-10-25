@@ -43,11 +43,12 @@ defmodule Letflow.Documents.TestResolvers do
   end
 
   defmodule RetiredWrong do
-    @moduledoc "Breaches the contract: a retired unit answers `:unit_not_found`."
+    @moduledoc "Breaches the contract only here: a retired unit answers `:unit_not_found`."
     @behaviour Letflow.Documents.OrgResolver
 
     @impl true
-    def unit_exists?(_prefix, _unit), do: false
+    def unit_exists?(prefix, unit),
+      do: Letflow.Documents.OrgResolver.Default.unit_exists?(prefix, unit)
 
     @impl true
     def legal_entity_of(_prefix, _unit), do: {:error, :unit_not_found}

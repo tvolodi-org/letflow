@@ -268,6 +268,7 @@ defmodule Letflow.Documents.DocumentsDraftTest do
       assert [[nil, nil, _, ^v1]] = [document_row(ctx.schema, doc)]
       assert [[_, after_state]] = audit(ctx.schema, "document.draft_created")
       assert after_state =~ ~s("version_no": 2)
+      assert {:ok, :valid} = Audit.verify_chain(ctx.schema)
     end
 
     test "D8: refusals", ctx do

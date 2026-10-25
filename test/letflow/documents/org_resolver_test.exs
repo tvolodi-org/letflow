@@ -36,9 +36,12 @@ defmodule Letflow.Documents.OrgResolverTest do
   end
 
   test "O2: the contract fails a resolver that hides a retired unit's entity", ctx do
-    assert_raise ExUnit.AssertionError, fn ->
-      OrgResolverContract.run(TestResolvers.RetiredWrong, ctx.units)
-    end
+    error =
+      assert_raise ExUnit.AssertionError, fn ->
+        OrgResolverContract.run(TestResolvers.RetiredWrong, ctx.units)
+      end
+
+    assert error.message =~ "a retired unit must still resolve its legal entity"
   end
 
   test "O3: an issued document keeps its unit and entity when the unit is retired", ctx do
