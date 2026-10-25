@@ -77,6 +77,14 @@ defmodule Letflow.Api.RouteScopeSelfServiceEntryTest do
   test "a route outside /me and /help is rejected" do
     rejects(route: "GET /mentor/modules")
     rejects(route: "GET /entities/records/:entity_type")
+    rejects(route: "GET /definitionsx/list")
+  end
+
+  test "a route under /definitions is accepted, a path-segment match" do
+    for path <- ["/definitions", "/definitions/search"] do
+      accepted = entry(route: "GET " <> path, key: :DefinitionsRead, ruling: "SEC-525-R01")
+      assert SelfServiceEntry.validate!(accepted) == accepted
+    end
   end
 
   test "a key that is not an atom is rejected" do
