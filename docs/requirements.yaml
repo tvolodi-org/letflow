@@ -40913,3 +40913,117 @@ requirements:
       - "The change adds no route (the route-inventory and `__authz_routes__` pins in test/ are unchanged), no migration file in priv/repo/migrations/, no change to lib/letflow/engine.ex and no change to priv/permission_matrix/effective.golden; the implementer lists the greps over test/ that show this."
       - "`mix format`, `mix compile --warnings-as-errors` and `mix letflow.check.static` pass; the moduledoc and `@doc` of `Catalog.validate/2` and the manifest type in module.ex describe rule 13 and the new key."
     depends_on: [REQ-568, REQ-550, REQ-562]
+  - id: REQ-579
+    title: "Per-tenant print-template overrides (decision 0068 D8) slice S2: tenant-schema storage with immutability trigger, management routes, DocumentPrintTemplatesManage and audit events"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3289
+    # Source: docs/migration/decisions/0068-per-tenant-print-template-overrides.md (D3 storage and the C3-manage test text, D5 field restrictions, D7 authority and audit, D8 "S2 Storage, management API and audit", Open owner questions Q1, Q3, Q4, "Tests the implementation slices must add", Threats for SECURITY-REVIEWER); docs/migration/decisions/0056-versioned-documents.md D4 (column-aware immutability trigger, priv/repo/migrations/20261022100002_create_document_immutability_triggers.exs) and D9 (audit shape); docs/requirements.yaml REQ-571 (Letflow.Documents.PrintLayout in lib/letflow/documents/print_layout.ex, validate/3 and the violation shape); lib/letflow/routers/documents.ex (the /documents router and its authz_put/authz_post form); lib/letflow/documents/hold.ex (an audit-in-transaction writer, action names such as "document.hold_set"); lib/letflow/documents.ex (check_restricted reads entity_field_restrictions); lib/letflow/api/authorization.ex (core permission list, last entry :NotificationTemplatesManage of REQ-563); docs/roles.md; test/support/tenant_fixture.ex (@expected_tenant_tables). Written by the business analyst (T-0638) 2026-10-26. Not yet validated.
+    description: >
+      Slice S2 of decision 0068 (docs/migration/decisions/0068-per-tenant-print-template-overrides.md, D8).
+      It stores a tenant's print-template override layouts, lets the tenant's top administrator manage them
+      through routes, and writes the audit trail. It does NOT resolve an override at document issue, does
+      not add pinned columns to document_versions and does not render anything at issue (slice S3); it has
+      no web screen (S4) and no Kazakhstan form wording (S5). The pure layout validator is REQ-571
+      (Letflow.Documents.PrintLayout.validate/3, lib/letflow/documents/print_layout.ex); this slice calls
+      it and does not change it.
+      STORAGE. New tenant-schema table document_print_overrides (the name chosen here; decision 0068 D3
+      leaves it to the implementing requirement) created by a new migration in priv/repo/migrations/
+      (next free version at implement time, after the latest on origin/main; the shape of
+      20261026200001_create_notification_templates.exs is the model for a tenant table). Columns: id,
+      tenant_id (kept inside the row as in every tenant schema, decision 0006 D2; it is never a request
+      field), type_key, locale (one of ru, kk, default), version_no (monotone per type_key and locale,
+      assigned by the server), status (draft, active or retired), layout (map), layout_hash (sha256 hex
+      over the canonical bytes of the layout, computed with the canonical encoder of
+      lib/letflow/documents/canonical.ex), layout_schema_version, created_by, activated_by, reason_code
+      (short code, not free text), timestamps. A partial unique index allows at most one active row per
+      (type_key, locale). The migration adds a trigger modelled on the one in
+      20261022100002_create_document_immutability_triggers.exs: once a row has left draft, no column
+      changes except the move from active to retired (status, plus the retirement timestamp and
+      reason_code); and a DELETE is refused for every status. Every access goes through the tenant
+      :prefix (INV-1); the table appears in the tenant table list and the tenant fixture.
+      ROUTES. Five routes in Letflow.Routers.Documents (lib/letflow/routers/documents.ex, mounted at
+      /documents by Letflow.Plugs.ApiPipeline, so no new forward and no new mounted router): GET
+      /documents/print-overrides (list; metadata only, with query filters type_key and locale), GET
+      /documents/print-overrides/:id (one override, including its layout), POST /documents/print-overrides
+      (save a new draft: body type_key, locale, layout; the server sets version_no, status draft,
+      created_by and layout_hash), POST /documents/print-overrides/:id/activate (body reason_code),
+      POST /documents/print-overrides/:id/retire (body reason_code). There is no PATCH and no PUT: a
+      change of a layout is a new draft with the next version_no. Each route is declared with
+      scope: :tenant_wide, and gated by the new permission below. STATUS RULES: activate accepts only a
+      draft row and retire accepts only an active row; any other status answers 409 with the fixed reason
+      "override is not in a status that allows this action" (a draft is never retired; a new draft
+      supersedes an unwanted one and a draft that is not wanted stays unused). Activating a draft retires the previous
+      active row of the same (type_key, locale) in the same transaction. The tenant comes only from
+      conn.assigns.scoped_opts (INV-1); no tenant identifier in the path, query or body (INV-10). Every
+      not-found case (absent id, malformed id, other tenant's id) returns the one Response.not_found/1
+      body, byte for byte (INV-5). Responses are allowlists.
+      PERMISSION. One new core permission, tenant scope, proposed atom :DocumentPrintTemplatesManage
+      (decision 0068 D7 proposes it; this entry adopts it), appended after the last entry of the core
+      permission list in lib/letflow/api/authorization.ex, classified in the same places as
+      :NotificationTemplatesManage (the type list, the scope table, required_permission/1,
+      endpoint_policy_key/2). Granted to TENANT_ADMIN and PLATFORM_ADMIN (its unconditional clause in
+      Letflow.Api.Authorization) and to no other role; no new role. The
+      document issue permission grants nothing over overrides and the reverse (0068 D7). docs/roles.md
+      gets the row and its prose, and priv/permission_matrix/effective.golden is regenerated with
+      mix letflow.permission_matrix --write, never merged by hand.
+      VALIDATION AND FIELD RESTRICTIONS (0068 D5, INV-2). Saving a draft and activating it both call
+      Letflow.Documents.PrintLayout.validate/3 with the declared_fields of the document type named by
+      type_key (lib/letflow/documents/document_type.ex) and with the restricted pairs of the tenant
+      (rows of entity_field_restrictions, as lib/letflow/documents.ex check_restricted reads them). An
+      unknown type_key gives 422. A layout that names a field outside the projection or a restricted
+      field is refused with 422 at both moments, so a restriction added after a draft was saved stops
+      its activation. A 422 body carries the rule atom and the layout path of each violation and never
+      a field value or a literal text of the layout. The layout is not rendered by this slice.
+      AUDIT. Three events written in the same transaction as the change, in the shape of
+      lib/letflow/documents/hold.ex: document.print_override_saved, document.print_override_activated,
+      document.print_override_retired. Payload keys: override id, type_key, locale, version_no,
+      layout_hash, actor id, reason_code. No payload carries layout text or any wording. Refusals (403,
+      404, 409, 422) write no audit row (decision 0056 D9 refusal rule).
+      OPEN OWNER QUESTIONS AS ASSUMPTIONS. UAT assumption, to be confirmed by the process owner: Q3 of
+      decision 0068 is answered as its recommended option (1), two-principal activation: a CHECK
+      activated_by <> created_by on the table, and the activate route answers 409 with a fixed reason
+      when the caller created the draft. Retiring needs no second person. CONFLICT STATED (decision 0068
+      D7): a tenant with a single administrator cannot activate any override it saved itself, so the
+      mechanism is unusable there until the tenant has a second TENANT_ADMIN; option (2), a mandatory
+      reason only, would remove the conflict and is not built. Q1 (who owns the official RU and KK
+      Kazakhstan wording) and Q4 (reprint of an issued version in a new layout) stay open and are not
+      decided here: this slice has no re-render route and no official wording, and the test fixtures use
+      neutral text marked "test sample". Q2 and Q5 are the assumptions already recorded in REQ-571.
+      SECURITY-REVIEWER IS A MANDATORY GATE (decision 0068 D8, Common to all slices): tenant data, the
+      cross-tenant route, restricted fields in layouts, template content in audit payloads. REVIEWER
+      also checks consistency with decisions 0056 and 0068.
+      ROUTE-INVENTORY PINS (the implement step states the real numbers; values here are the effect of
+      this design, "+N from the value on origin/main at implement time"). The 5 routes declare
+      scope: :tenant_wide explicitly, as the existing PUT /documents/types/:key/retention does, so they
+      do not enter the default-class snapshot: test/fixtures/route_scope/tenant_wide_default_routes.txt
+      gains no line, and the three length(snapshot) pins (route_scope_resolver_test.exs,
+      route_scope_self_service_test.exs, tasks_route_classes_test.exs, now 126) stay unchanged (+0).
+      Letflow.Routers.Documents.__authz_routes__/0 grows by 5 (and the documents router moduledoc table
+      gains 5 rows); tests that count or walk it (authorization_enforcement_test.exs, documents_route_classes_test.exs)
+      are updated. The tenant table list in test/support/tenant_fixture.ex gains document_print_overrides
+      and the count pin in test/letflow/support/tenant_fixture_test.exs (now 71) moves +1. The permission
+      pins move by one name: the list in authorization_test.exs, the tenant-auditor refused-set literal
+      in authorization_tenant_auditor_test.exs, the number-word tables, and priv/permission_matrix/effective.golden.
+      No forward(...) is added, so the named-router pin does not move.
+      NOT IN THIS ENTRY: resolution of an override at issue, pinned columns on document_versions, the
+      document.issued payload and the pre-check before numbering (S3); a web editor (S4); Kazakhstan form
+      types and wording (S5, Q1); any edit of Letflow.Documents.PrintLayout; a re-render or reprint route
+      (Q4); form and list overrides (REQ-550).
+    open_questions:
+      - "Q3 of decision 0068 (activation separation) is recorded as the assumption two-principal activation; it conflicts with a tenant that has a single administrator (decision 0068 D7). Does the owner accept that, or pick option (2), a mandatory reason only?"
+      - "Q1 (owner and wording of the Kazakhstan RU and KK print forms) and Q4 (labelled non-authoritative reprint in a new layout) stay open; the owner answers them before S5 and before any reprint route."
+      - "Whether a platform operator needs a read-only view of a tenant's overrides for support is not settled by the source; this slice gives none (the routes take the tenant from the token)."
+    acceptance_criteria:
+      - "1. Migration and table: a new migration in priv/repo/migrations/ creates document_print_overrides in the tenant schema with the columns of the description, a partial unique index allowing one active row per (type_key, locale), and a CHECK on locale (ru, kk, default) and on status (draft, active, retired); document_print_overrides is added to @expected_tenant_tables in test/support/tenant_fixture.ex and the count pin in test/letflow/support/tenant_fixture_test.exs moves +1 from the value on origin/main at implement time (now 71). Test S1-store: a tenant created after the migration has the table with tenant_id in each row, and a second tenant cannot see its rows through the :prefix."
+      - "2. Test S2-immutable (trigger): by direct SQL on a tenant schema, (a) updating layout, layout_hash, type_key, locale, version_no or created_by of an active row fails, (b) updating any column of a retired row fails, (c) status active to retired succeeds, (d) a draft row may be updated, (e) DELETE of a draft, active and retired row each fails, and (f) inserting a second active row for the same (type_key, locale) fails on the unique index."
+      - "3. Test S2-save: POST /documents/print-overrides with a valid layout (using each block type) by a TENANT_ADMIN returns 201, status draft, version_no 1 for a new (type_key, locale) and 2 for the next, created_by equal to the caller, layout_hash equal to the sha256 of the canonical bytes; a body that carries tenant_id or version_no or status is ignored for those fields (the stored values are the server's); an unknown type_key, a locale outside ru, kk, default and a layout rejected by PrintLayout.validate/3 each return 422, and nothing is stored."
+      - "4. Test D5-redact at activation: for a draft saved before a restriction existed, after an entity_field_restrictions row is added for a field the layout names, POST .../activate returns 422 with a body that holds the rule atom and the layout path and contains none of the field's value, none of the layout's literal text (a sentinel string checked against the body, the captured Logger output and the audit rows); the row stays draft. Saving a layout that names a field outside the type's declared_fields, or a restricted field, returns 422 in the same way."
+      - "5. Test C3-manage (cross-tenant negative, INV-10, INV-5): with override rows in tenant B's schema and a TENANT_ADMIN credential of tenant A, GET, activate and retire on tenant B's override id each return a response identical in status, headers and body to the response for a random id that exists nowhere; the list route of A shows no row of B; none of the five routes has a tenant parameter in path, query or body (checked on the compiled route paths); a PLATFORM_ADMIN token on these routes gets only its own tenant's data and is not a route to another tenant's overrides."
+      - "6. Test S2-sod (Q3 assumption): activating a draft whose created_by is the caller returns 409 with the fixed reason text \"activation needs a second administrator\" and the row stays draft; the same draft activated by a second TENANT_ADMIN of the tenant returns 200, activated_by is that user, status active, and the previous active row of the same (type_key, locale) is retired in the same transaction; a direct SQL update setting activated_by equal to created_by is refused by the CHECK. Retiring an override by its creator returns 200. Status rules: activate on an active or a retired row, and retire on a draft or an already retired row, each return 409 with the fixed reason text \"override is not in a status that allows this action\" and change nothing."
+      - "7. Test S2-audit: save, activate and retire each write exactly one audit row, in the same transaction as the change (a forced failure of the audit write leaves no change), with action document.print_override_saved, document.print_override_activated, document.print_override_retired; the payload keys are exactly override id, type_key, locale, version_no, layout_hash, actor id and reason_code; a sentinel string placed in the layout literal is absent from every audit payload; a refused request (403, 404, 409, 422) writes no audit row."
+      - "8. Permission: :DocumentPrintTemplatesManage is a core permission of tenant scope, appended after the last entry of the list in lib/letflow/api/authorization.ex, granted to TENANT_ADMIN and PLATFORM_ADMIN and to no other role, including the document issue permission holders and the tenant auditor (who gets 403 on all five routes, the same 403 body as for a role without the permission, INV-5); docs/roles.md carries the matrix row (yes for TENANT_ADMIN and PLATFORM_ADMIN) and the prose; priv/permission_matrix/effective.golden is regenerated by mix letflow.permission_matrix --write; the tenant-auditor refused-set literal and the permission list pins in test/letflow/api/authorization_test.exs, authorization_tenant_auditor_test.exs and the core-list tail pin (Enum.take(-6)) in test/letflow/api/documents_route_classes_test.exs move by exactly this name, and that file's declared-rows pin (length(rows) == 3) moves with the five routes."
+      - "9. Route-inventory pins listed and moved: the five routes are declared with scope: :tenant_wide in lib/letflow/routers/documents.ex; Letflow.Routers.Documents.__authz_routes__/0 lists them (+5 from the value on origin/main at implement time); test/fixtures/route_scope/tenant_wide_default_routes.txt gains no line and the three length(snapshot) pins stay at their value on origin/main (now 126); the PR summary lists, from grep -rn \"__authz_routes__\\|length(snapshot)\\|tenant_wide_default_routes\" test/, every test file checked and the new value of each pin; the moduledoc table of the documents router gains the five rows."
+      - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-10, template content in audit payloads, trigger completeness) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests (S1-store, S2-immutable, S2-save, D5-redact, C3-manage, S2-sod, S2-audit and the permission tests) pass with real output quoted."
+    depends_on: [REQ-564, REQ-550, REQ-542, REQ-571]
