@@ -38292,6 +38292,80 @@ requirements:
       - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permissions) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over test/letflow/documents/ and the authorization and route pin tests pass, real output quoted."
     depends_on: [REQ-508]
 
+  - id: REQ-538
+    title: "Org-relative task assignment (core roadmap Wave 2), slice 0: decision record for resolving a task's assignee relative to the requester's org position (for example the requester's department head) through a resolver registered via the module Catalog, not in Letflow.Engine"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3153
+    # Source: docs/migration/core-roadmap-20261014.md Wave 2 row "Org-relative task assignment (resolver via the module Catalog, not in the engine)", DR column "yes (new)"; docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md "Q3. Task candidates" (a true resolver hook, manager-of and delegation, "comes later through the module Catalog (Letflow.Modules.Catalog), not in the engine") and Follow-ups F3 "resolver hook"; docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md D1 (org has org_unit and org_unit_membership only; position is "NOT built in slice 0"). Written by the business analyst (T-0441) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap Wave 2; decision 0051 Q3 and F3; decision 0050 D1, D8. The roadmap says this item
+      needs a NEW decision record. This requirement is SLICE 0: its whole deliverable is that decision record
+      (a document under docs/migration/decisions/, next free number at the time of the change; the highest on
+      main on 2026-10-25 is 0063). It builds no code. The implementation is slice 1 and later, written as
+      separate requirements only after the record is accepted, each depends_on this one.
+      WHY A RECORD FIRST. Decision 0051 Q3 fixes only the interim rule (a task carries a scope_node and
+      candidates are filtered by it) and defers the resolver. The org module as decided in 0050 D1 has org_unit
+      (tree by parent id) and org_unit_membership (user to org unit) but NO head, manager or position concept
+      ("position" is listed in 0050 D1 as not built). So "the requester's department head" has no data source
+      today. Which source it will be is a decision with tenant-data and access consequences, and the record
+      must make it before any code is written.
+      THE RECORD MUST DECIDE (each as a numbered D- section with reasons and sources):
+      D1 Resolver contract: how a module registers an assignee resolver through Letflow.Modules.Catalog
+      (lib/letflow/modules/catalog.ex: manifest, validate/1; the existing write_handler registration is the
+      pattern to read), its name, inputs (the tenant prefix, the instance's scope_node_id from REQ-531/REQ-532,
+      the requester user id, the relation name such as department_head) and outputs (a list of user ids, or a
+      refusal).
+      D2 Engine boundary: resolution is called from the task-creation path through a single indirection and
+      Letflow.Engine contains no org logic (no org_unit, no membership, no hierarchy walk, no module name);
+      this is the REQ-045 decision (plain transactional context) and 0051 Q3 restated, and the record says
+      where the call sits and how a source scan proves it.
+      D3 Data source of "head": which org data names a unit's head (a new field on org_unit, a role of the
+      membership row, or the later position type of 0050 D1). If it needs a change to the org module's
+      entity types, the record says so and that change is its own requirement.
+      D4 Fail-closed rule: when no resolver is registered for the relation, the resolver returns no user, the
+      requester has no org unit or no membership, the unit has no head, or the walk reaches the root without
+      one, the task is NOT assigned to a default person, NOT left open to everyone and NOT silently routed to
+      a tenant-wide worker; it is created unresolvable and visible only to the principals the existing
+      fail-closed task rule allows (tenant-wide principals, 0051 F1 and T13), with a recorded reason. The
+      record fixes the exact state name and where the reason is audited.
+      D5 Security: INV-1 (the resolver reads only the calling tenant's schema through the :prefix, never
+      another tenant's org data, and a module cannot pass a prefix of its choosing), INV-5 (a caller who may
+      not see the unit or the user gets an answer indistinguishable from not found, and the unresolvable
+      reason does not leak whether a unit or a head exists), INV-3 and INV-8 (a resolver that raises, times
+      out or returns a malformed value is a fail-closed outcome, never a crash of the engine transaction), and
+      INV-10 where a route takes a tenant identifier. The record names the SECURITY-REVIEWER gate as
+      mandatory for every implementation slice and lists the threat cases for it (a resolver returning a user
+      outside the tenant, a cycle in the org tree, a requester moved between units while the task is open).
+      D6 Timing and stability: whether the assignee is resolved once at task creation or re-resolved, and what
+      happens to an open task when the head changes (decide; 0051 T13 says instance scope is set at start and
+      never re-derived, the record states whether the assignee follows the same rule).
+      D7 Relation to scope: how the resolved assignee interacts with the 0051 F1 candidate rule (the user must
+      still hold a TASK_WORKER grant whose subtree covers the task's scope node) so that resolution can never
+      widen access beyond F1.
+      D8 Slice plan for the implementation requirements, each sized to one change, with the tests each must
+      carry; the record fixes that the first implementation slice includes a cross-tenant negative test (tenant
+      B cannot cause a resolution against tenant A's org data, and a resolver registered by a module installed
+      only in tenant A does not run for tenant B).
+      NOT IN THIS ENTRY: any lib/ or web/ change, any migration, a delegation or substitute-on-leave feature, a
+      business-day escalation default (0051 F3 names the resolver hook only), and any change to REQ-531 and
+      REQ-532. Open owner questions are written into the record as open and not settled silently.
+    open_questions:
+      - "Which data names the head of a unit (D3): 0050 D1 has no head or position. The record proposes and the owner confirms; until then no code slice is written."
+      - "Whether the assignee is fixed at task creation or re-resolved when the head changes (D6)."
+    acceptance_criteria:
+      - "1. A new file docs/migration/decisions/NNNN-*.md exists, numbered with the next free number found by listing origin/main at the time of the change, with a status line and a Sources section listing the files opened (the roadmap row, 0050, 0051, lib/letflow/modules/catalog.ex); the diff touches no file under lib/, web/, apps/, priv/ or test/."
+      - "2. The record has sections D1 to D8 as described in this entry, each stating its decision, its reasons and its source; a reader can find each by its heading (checked by grep of the headings)."
+      - "3. The record states that resolution goes through a resolver registered via Letflow.Modules.Catalog and that Letflow.Engine stays free of org logic; it names the single call site and a source-scan test that a later slice must add, which fails if lib/letflow/engine.ex or lib/letflow/engine/ names org_unit, org_unit_membership or an org module id (the record states the test's pass and seeded-violation fail)."
+      - "4. The record states the fail-closed rule of D4 for each of these cases separately: no resolver registered, resolver returns no user, requester without membership, unit without head, root reached without head, resolver raises or returns a malformed value; for each it names the resulting task state, who can see the task, and the audited reason; it states that no case falls back to an unrestricted or default assignee."
+      - "5. The record names INV-1 and INV-5 and states for each the concrete property a later test must prove; it requires a cross-tenant negative test (tenant B's org data or resolver never reached from tenant A's task and the reverse, with an identical answer for an absent and a foreign id) in the first implementation slice."
+      - "6. The record names SECURITY-REVIEWER as a mandatory gate for every implementation slice and lists at least the three threat cases of D5."
+      - "7. The record answers D3, D6 and D7 or lists the unanswered ones as open owner questions with the options and a recommendation; it does not leave a placeholder."
+      - "8. The depends_on of the follow-on implementation requirements is stated in D8: each follow-on depends_on REQ-532 (the task scope writer, W3b) and cites decisions 0050 and 0051 in its description."
+      - "9. mix letflow.check_requirements_registration passes with the REQ-538 entry present, and any test that scans docs/migration/decisions for headings or numbering is run, real output quoted."
+    depends_on: [REQ-532]
+
   - id: REQ-537
     title: "Entry guard of the :self_service list admits /definitions, and the :self_service class text no longer says role-independent (prerequisite IMPL-525-0 of REQ-525; SEC-525-Q3 = Q3-a, SEC-525-Q1 = Option A)"
     owner: ELIXIR-DEV
