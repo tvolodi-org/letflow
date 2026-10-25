@@ -1,0 +1,129 @@
+# T-0514 (BA): TENANT ADMIN group, scenario 5 of 6: import of a settings bundle into a SECOND company (REQ-552 slice 1, criteria 3, 4, 6, 8).
+# Sources: docs/requirements.yaml REQ-552 (acceptance criteria 3, 4, 6, 8); lib/letflow/routers/tenant_config_bundle.ex (moduledoc: the
+# company comes only from the sign-in; the import answers with counts of changed settings, changed modules and unchanged modules).
+# Aliases (actor-any): tenant_admin = administrator of company A (scenario 4); tenant_admin_b = administrator of company B, a second
+# test customer created by the platform operator in the foundation group.
+# Criteria 9 and 10 are about the code change and are checked by review and CI (see scenario 4).
+# UAT assumptions, to be confirmed by the process owner: company B has the same three modules installed as company A (the import refuses a
+# module that is not installed, which scenario 6 covers) and starts with different branding and different module values so a change is visible.
+---
+id: tenant-administration-5-config-import-second-tenant
+scope: tenant-administration
+title: The administrator of a second company imports the first company's bundle, only the second company changes, and importing it again changes nothing
+version: "1.0"
+tags: [tenant-admin, config-bundle, import, cross-tenant, idempotent, audit]
+
+description: >
+  The administrator of company B imports the bundle that company A exported in scenario 4. Company B's branding and module settings become
+  those of the bundle; the answer counts what changed. Company A's settings are read before and after and are identical.
+  A bundle that names company A inside it still changes company B only, because the company is the one the administrator is signed in to.
+  Importing the same bundle again changes nothing and leaves no new audit entry. The audit trail has one entry for the first import, naming
+  who imported, the format version, which settings and which modules changed, and no value.
+
+actors:
+  tenant_admin: actor-any
+  tenant_admin_b: actor-any
+
+preconditions:
+  - description: tenant-administration-4 passed in this run, so the saved bundle bundle_a exists and company A holds known settings
+    check: custom
+    detail: If scenario 4 did not pass, report BLOCKED, not PASS.
+  - description: Company B exists, is active, has an administrator tenant_admin_b, and has the same three modules installed as company A; its branding and module values differ from company A's
+    check: custom
+    detail: If company B or its administrator does not exist, report BLOCKED. Company B's settings are set by tenant_admin_b before step 1 if they are not different.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: The administrator of company A reads company A's branding and module settings and notes them as the "before" record.
+    via: api
+  - step: 2
+    actor: tenant_admin_b
+    action: The administrator of company B reads company B's branding and module settings and notes them as the "before" record of company B.
+    via: api
+  - step: 3
+    actor: tenant_admin_b
+    action: The administrator of company B imports bundle_a, the document exported in scenario 4, unchanged. The administrator notes the answer.
+    via: api
+  - step: 4
+    actor: tenant_admin_b
+    action: The administrator of company B reads company B's branding and module settings again and compares them with the bundle.
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: The administrator of company A reads company A's branding and module settings again and compares them with the "before" record of step 1.
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The administrator of company B imports a copy of bundle_a in which the administrator has added the entries "tenant_id" and
+      "source_tenant_id" (both naming company A) and changed the application name to "Company B Portal". The administrator notes the answer.
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: The administrator of company A reads company A's application name and compares it with the "before" record; it must not be "Company B Portal".
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: The administrator of company B imports the same copy from step 6 a second time and notes the answer.
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: The administrator of company B opens the audit trail and lists the entries for the settings imports.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: After the first import company B's branding and module settings equal the bundle's, and the answer counts the branding settings changed, the modules changed and the modules unchanged.
+    verification:
+      method: system_state
+      detail: Step 4 values equal the bundle for all five branding settings and for every module present in it; the step 3 answer counts at least one branding setting changed and states the number of modules changed and unchanged, which add up to the three modules of the bundle.
+      evidence: Company B's settings from step 4 and the answer of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Settings tested in one company cannot be moved to another, so a production company is configured by hand and differently from the tested one.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Company A is not changed by company B's imports.
+    verification:
+      method: system_state
+      detail: Branding and module settings of company A read in steps 5 and 7 are identical to the "before" record of step 1; the name "Company B Portal" is not company A's application name.
+      evidence: Company A's settings in steps 1, 5 and 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer's administrator can change another customer's configuration.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A document that names company A inside it still changes company B only, and the names inside it are ignored.
+    verification:
+      method: system_state
+      detail: After step 6 company B's application name is "Company B Portal" and company A's name is unchanged (step 7); step 6 is not refused for the extra entries.
+      evidence: The answer of step 6 and company A's application name in step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A bundle can aim an import at a company other than the one the administrator is signed in to.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Importing the same document again is accepted and changes nothing.
+    verification:
+      method: system_state
+      detail: The answer of step 8 counts zero branding settings changed and zero modules changed, with every module in the document counted unchanged; company B's settings after step 8 equal those after step 6.
+      evidence: The answer of step 8 and company B's settings before and after step 8.
+    on_fail:
+      severity: MINOR
+      business_impact: Repeating an import after an interrupted release gives surprising results or noise in the audit trail.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Each import that changed something has exactly one audit entry; the repeated import has none; the entries name the administrator, the format version and the names of what changed, and carry no setting value.
+    verification:
+      method: system_state
+      detail: The audit trail of company B shows one entry for step 3 and one for step 6 and none for step 8; each entry names tenant_admin_b, "bpm/config-bundle/v1", the changed branding setting names and the changed module names; no branding address, colour, name or module value appears in any entry.
+      evidence: The audit list of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: Configuration changes cannot be traced to a person, or the record itself leaks a value such as a branding address or a secret pointer.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Company B keeps the imported settings; scenario 6 uses company B as the target of refused imports.
