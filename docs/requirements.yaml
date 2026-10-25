@@ -38502,3 +38502,91 @@ requirements:
     open_questions:
       - "None for the owner: SEC-525-R01 and SEC-525-R04 are recorded in the REQ-525 design under SEC-525-Q1 = Option A and SEC-525-Q2 = accept. The design says INV-10's cross-tenant test does not strictly apply because no route takes a tenant identifier; criterion 7 asks for it anyway as a cheap guard, and the implementer may report it as redundant if an existing router test already covers it."
     depends_on: [REQ-525, REQ-537]
+
+  - id: REQ-551
+    title: "Tenant label overrides: tenant-scoped storage, a merged-catalog read, and SPA merge over the existing i18n catalogs"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED
+    # Source: docs/migration/core-roadmap-20261014.md, "Customization beyond scripts" ("label overrides", line 106); docs/migration/decisions/0020-frontend-architecture.md, section "i18n is now on the critical path"; web/src/i18n/entitiesMessages.ts, loginMessages.ts, sessionLocale.ts; lib/letflow/identity/tenant.ex (settings keys locales and default_locale). Written by the business analyst (T-0469) 2026-10-25. The REQ id is chosen above the ids that open team branches already carry (REQ-546 to REQ-550). Not yet validated.
+    description: >
+      A tenant cannot today change the words the SPA shows. The message catalogs are fixed in the
+      bundle: web/src/i18n/entitiesMessages.ts (entitiesMessages, locales en, ru, kk, ids such as
+      "entities.tag.form.submitError") and web/src/i18n/loginMessages.ts (loginMessages, ids "login.*",
+      public email-first login page, decision 0021). The locale of a tenant exists as configuration
+      only: Letflow.Identity.Tenant validates settings "locales" and "default_locale"
+      (lib/letflow/identity/tenant.ex), but sessionLocale.ts records as a KNOWN GAP that no production
+      call site wires the tenant's default_locale into the SPA, and entitiesMessages.ts resolves the UI
+      locale from the browser (resolveUiLocale). Decision 0020 ("i18n is now on the critical path")
+      says that a per-tenant default_locale nothing reads is not a feature. No requirement and no code
+      on main stores tenant-specific label overrides (checked: grep for label override in lib/, web/src/
+      and docs/requirements.yaml finds none). This requirement adds the smallest slice: a tenant admin
+      can replace the text of an overridable message id for one locale, and the SPA shows the
+      tenant's text instead of the platform default.
+      Overridable and fixed ids. Overridable: the ids of entitiesMessages whose id starts with
+      "entities." (the generic admin-CRUD screens). Not overridable, refused on write and ignored on
+      read: every id of loginMessages ("login." prefix; the login page is public and its wording rule,
+      "no message may say or imply whether an address is registered", must not be changeable by a
+      tenant) and any id starting "security." or "auth.". The allowlist is one named list in the
+      backend (a module attribute) that a test compares with the keys of entitiesMessages.en, so a new
+      entities id is overridable only by a deliberate edit, and an id missing from the platform catalog
+      cannot be overridden.
+      Storage. One tenant-schema table (Ecto :prefix, tenant_id kept in the row, INV-1): message_id,
+      locale (one of the tenant's configured "locales", or "en" when the tenant has none),
+      text, updated_by, timestamps; unique on (message_id, locale). Override values are not secrets:
+      they are public UI wording, are shown to every user of the tenant, are not routed through
+      Letflow.Secrets and may appear in logs and audit events. Length limit: 1..500 characters after
+      trimming, no control characters (newlines are refused).
+      Value syntax. Plain text only. The only markup is the ICU placeholder form that react-intl
+      already uses, {name}, where name matches [a-zA-Z0-9_]+ and is one of the placeholders that the
+      platform default message of that id contains; plural, select and tag forms are refused; a text
+      containing a placeholder the default does not have is refused. HTML is never interpreted:
+      the SPA renders the merged strings through react-intl's formatMessage / FormattedMessage without
+      rich-text tag values, as React text nodes, so React's normal escaping applies and a value such as
+      "<script>x</script>" or "<b>x</b>" is shown literally; no dangerouslySetInnerHTML is added and
+      the existing web guards (web/tests/guards/) stay green.
+      Routes (tenant comes from the auth context only, no route takes a tenant identifier):
+      GET /api/v1/labels?locale=<tag> returns the merged catalog for the caller's tenant and that
+      locale: {locale, messages: {id: text}} where each overridable id has the tenant's override when
+      one exists and the platform default text otherwise; the platform default is served by the backend
+      from a catalog file generated from, and checked against, the web catalogs (see criterion 9),
+      or, if the implementer finds that unworkable, the route returns the overrides only and the SPA
+      merges them over its bundled default (the summary states which; both satisfy criteria 4 and 8).
+      Any authenticated tenant user may read (the labels are shown to everyone). PUT
+      /api/v1/labels/:message_id (body locale, text) and DELETE /api/v1/labels/:message_id?locale=
+      create, replace and remove one override, and need the new permission atom :LabelsManage, granted
+      to TENANT_ADMIN (not PLATFORM_ADMIN to a tenant user, docs/roles.md). Each write is audited
+      through the existing audit path with message_id, locale and the actor, never the full text of
+      other tenants.
+      SPA. A small fetch-and-merge in web/src/i18n: after sign-in the SPA requests the merged catalog
+      for the resolved locale and passes it as the messages of EntitiesIntlProvider over
+      entitiesMessages[locale]; if the request fails or is slow, the bundled catalog is used and no
+      error screen is shown. Which locale is asked: the tenant default_locale is still not wired
+      (sessionLocale.ts gap) and wiring it is not part of this change; the SPA asks for the locale that
+      resolveUiLocale returns, and the server answers for that locale if the tenant configures it, else
+      for the tenant's default_locale, else "en", and says which in the reply.
+      Not in this change, each a later requirement candidate that may depend on this one: an admin
+      screen for editing overrides (this change ships routes and the merge only); wiring
+      tenant default_locale into the SPA (tier 1 of sessionLocale.ts); tenant notification templates
+      (the only mail code on main is the REQ-441 login-discovery notifier; its fixed message stays
+      outside templating and outside this feature); scheduled jobs; integration mappings; overrides for
+      mobile (apps/mobile) strings; overrides of the login page; translation of tenant-defined content
+      (definition and entity names).
+    acceptance_criteria:
+      - "1. Overridable set: the backend allowlist of overridable message ids is exactly the set of keys of entitiesMessages.en in web/src/i18n/entitiesMessages.ts that start with \"entities.\"; a test reads that file (or a generated list checked into the repo) and fails when the two differ. No id starting \"login.\", \"security.\" or \"auth.\" is in the list; a PUT for such an id, and a PUT for an id that is in no catalog, answers 422 with a uniform error body and stores nothing."
+      - "2. Storage (INV-1, INV-6): overrides live in one table of the tenant schema created through the repository's usual tenant-migration path (existing tenants get it, no existing row is altered), with tenant_id in the row and a unique index on (message_id, locale); every Repo call of the new context passes the tenant :prefix; the summary quotes the grep that lists the Repo calls of the module and shows each passes the prefix. A test with two tenants that override the same id and locale shows each reads only its own text."
+      - "3. Permission: :LabelsManage is added to the permission list and granted to TENANT_ADMIN only; docs/roles.md and the route-scope inventory are updated in step. A TENANT_ADMIN gets 200 or 204 on PUT and DELETE; a user holding a tenant role without :LabelsManage (for example TASK_WORKER) and TENANT_AUDITOR get 403 on PUT and DELETE and 200 on GET. No test or fixture grants PLATFORM_ADMIN to a tenant user."
+      - "4. Merged read with fallback: after a tenant stores an override for id X in locale ru, GET /api/v1/labels?locale=ru returns that text for X and the platform default text for every other overridable id; for a locale with no override, or after DELETE of the override, X comes back as the platform default. The reply lists only overridable ids (no login.* id) and carries the locale actually served; a request for a locale the tenant does not configure is served for the tenant's default_locale, else \"en\", and the reply names it."
+      - "5. Value rules: PUT refuses with 422 and stores nothing: an empty or whitespace-only text, a text over 500 characters (a text of exactly 500 is accepted), a text with a newline or other control character, a text with a placeholder name the platform default of that id does not contain, and a text with an ICU plural, select or tag form. A text with no placeholder where the default has one is accepted. A test covers each case and the boundary 500/501."
+      - "6. Not secrets: the module doc and docs/roles.md or the labels runbook state that override values are public UI wording, are not stored via Letflow.Secrets, and may be logged and audited; no code path masks them. The audit event of a PUT or DELETE carries message_id, locale and the acting principal; a test reads the event and finds no other tenant's data."
+      - "7. No HTML or script execution (SPA): a web unit test renders an entities screen string whose override is the literal text <img src=x onerror=alert(1)> and the text <b>bold</b> and asserts the DOM contains those characters as text and contains no img or b element created from them; web/src/i18n code uses no dangerouslySetInnerHTML and passes no rich-text tag values to formatMessage for overridable ids; npm run check (including the web/tests/guards/ guards) passes with real output quoted. The summary states that the escaping that applies is React's default text-node escaping."
+      - "8. SPA merge and offline fallback: with a stubbed merged catalog, EntitiesIntlProvider renders the tenant text for an overridden id and the bundled text for others; when the request fails or answers an error, the bundled catalog is used and no error is shown; the login page (LoginIntlProvider) never uses the merged catalog, asserted by a test."
+      - "9. Default text source: the summary states whether the backend serves platform defaults from a catalog file checked against web/src/i18n/entitiesMessages.ts (a test fails if they drift) or returns overrides only and the SPA merges; whichever is chosen, criterion 4 and criterion 8 hold and the choice is written in the module doc."
+      - "10. Cross-tenant negative test (INV-10): the routes take no tenant identifier (tenant comes from the auth context and the schema prefix); a test with an override stored only in tenant A shows a TENANT_ADMIN and a reader of tenant B get no text of tenant A from GET, and that a DELETE of the same message_id and locale by tenant B answers the same as a delete of an override that exists nowhere and leaves tenant A's override unchanged. If a request carries a tenant_id in query or body, it is ignored and a test shows the tenant of the token is used."
+      - "11. Not-found versus forbidden (INV-5): DELETE of an id and locale with no override answers one fixed not-found reply for an admin of the tenant, and a caller without :LabelsManage gets the uniform 403 insufficient permissions on PUT and DELETE for ids that have an override and for ids that do not, with byte-identical status, headers and body; a test compares them within one run."
+      - "12. Later candidates are recorded, not built: the requirement summary or PR body lists tenant notification templates (the REQ-441 login-discovery message stays fixed and outside templating), scheduled jobs and integration mappings as later requirement candidates; the diff contains no template, job or mapping code, no change to REQ-441's notifier, no admin screen, and no change to sessionLocale.ts tier handling."
+      - "13. Gates: SECURITY-REVIEWER verdict (INV-1, INV-2, INV-5, INV-6, INV-10; new tenant table, new permission, new routes) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static, the new backend test files, the route-count and authz pins found by grep over test/ for __authz_routes__ and length(snapshot), and cd web && npm run check pass, real output quoted."
+    open_questions:
+      - "UAT assumption, to be confirmed by the process owner: only entitiesMessages ids are overridable in this slice and the cap is 500 characters; both are chosen by the BA from the source above, not set by a decision record. Whether the permission should be a new :LabelsManage or the existing :TenantSettingsManage (lib/letflow/api/authorization.ex) is a design choice for the implementer to settle with SECURITY-REVIEWER; the criteria hold for either name if docs and tests use it consistently."
+    depends_on: []
