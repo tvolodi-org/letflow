@@ -40365,7 +40365,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-549 -- decision 0066 is a PROPOSED record whose requirement REQ-549 is still pending; ratification gates this slice
+    gh: 3267
     # Source: docs/migration/decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md (D1 rows 2, 6, 10 and "Run-time recheck" and "Test a later slice must add", D2, D5 items 1-3, D6, D7, D8 slice 1 with tests U1..U10, "Open owner questions" OQ-1 and OQ-2, "Not decided here", "Threat cases"); docs/migration/core-roadmap-20261014.md Wave 3 row "Module uninstall"; code read: lib/letflow/modules/installs.ex (list_installed/1, installed?/2, put_settings/3, installed_manifest_hash/2, private module_installed?/2, fetch_rationale/1), lib/letflow/modules/tenant_module.ex, lib/letflow/modules/catalog.ex (manifest_hash/1), lib/letflow/entities/handler_writes.ex (private owner_recheck/3), lib/letflow/routers/tenant_modules.ex, lib/letflow/audit.ex (append_multi/4), lib/letflow/tenant_provisioning.ex (migration list). Written by the business analyst (T-0565) 2026-10-25. Not yet validated.
     description: >
       Slice 1 of decision 0066 (docs/migration/decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md,
