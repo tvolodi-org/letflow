@@ -1,6 +1,7 @@
 DELETE /admin/services/:service_id AdminServicesManage
 DELETE /definitions/:id DefinitionsDelete
 DELETE /instances/:id/attachments/:attachment_id AttachmentsManage
+DELETE /integration-mappings/:id IntegrationMappingsManage
 DELETE /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
 DELETE /script-rules/:key/versions/:version ScriptsWrite
@@ -21,6 +22,8 @@ GET /instances/:id/history InstancesRead
 GET /instances/:id/pins InstancesRead
 GET /instances/:id/timeline InstancesRead
 GET /instances/storage-usage AttachmentsRead
+GET /integration-mappings IntegrationMappingsManage
+GET /integration-mappings/:id IntegrationMappingsManage
 GET /modules/exam/exam-sessions/:id ExamSessionRead
 GET /modules/exam/exam-sessions/:id/certificate/download ExamCertificateIssue
 GET /modules/exam/exam-sessions/available ExamSessionStart
@@ -71,6 +74,7 @@ POST /instances/:id/attachments AttachmentsManage
 POST /instances/:id/cancel InstancesCancel
 POST /instances/:id/rebind-pins InstancesCancel
 POST /instances/:id/reconstruct InstancesCancel
+POST /integration-mappings IntegrationMappingsManage
 POST /modules/exam/authoring/:entity_type ExamAuthoringWrite
 POST /modules/exam/exam-sessions ExamSessionStart
 POST /modules/exam/exam-sessions/:id/certificate ExamCertificateIssue
@@ -107,6 +111,7 @@ POST /tenants/:slug/reactivate TenantsManage
 POST /tenants/:test_tenant_id/promote/:process_key PromotionsManage
 POST /webhooks/subscriptions WebhookSubscriptionsManage
 PUT /definitions/:id DefinitionsUpdate
+PUT /integration-mappings/:id IntegrationMappingsManage
 PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
 PUT /script-policy/kill-switch ScriptPolicyManage

@@ -353,6 +353,7 @@ defmodule Letflow.Api.Authorization do
           | :DocumentHold
           | :DocumentsRetentionManage
           | :LabelsManage
+          | :IntegrationMappingsManage
           | :EntitiesViewsManage
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
@@ -426,6 +427,7 @@ defmodule Letflow.Api.Authorization do
           | :DocumentHold
           | :DocumentsRetentionManage
           | :LabelsManage
+          | :IntegrationMappingsManage
           | :EntitiesViewsManage
           | :ScriptRulesList
           | :ScriptRulesRead
@@ -503,6 +505,8 @@ defmodule Letflow.Api.Authorization do
     :DocumentsRetentionManage,
     # REQ-551 (GH #3180): tenant label overrides write. Tenant scope; TENANT_ADMIN through the derived rule.
     :LabelsManage,
+    # REQ-565 (GH #3201): tenant integration mappings. Tenant scope.
+    :IntegrationMappingsManage,
     # REQ-555 (decision 0066 D4): create, update and delete of saved list views. Tenant scope.
     :EntitiesViewsManage
   ]
@@ -527,7 +531,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All forty-eight core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All forty-nine core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -552,8 +556,9 @@ defmodule Letflow.Api.Authorization do
   `:ScriptsWrite` (PROCESS_DESIGNER, TENANT_ADMIN) and `:ScriptsPublish` (TENANT_ADMIN), the
   tenant-script registry permissions of decision 0053 D6, plus REQ-536's `:DocumentHold` and
   `:DocumentsRetentionManage` (decision 0063 S7, S8; TENANT_ADMIN through the derived rule), plus
-  REQ-551's `:LabelsManage` (tenant label overrides; TENANT_ADMIN through the derived rule),
-  and REQ-555's `:EntitiesViewsManage` (decision 0066 D4; TENANT_ADMIN through the derived rule).
+  REQ-551's `:LabelsManage` (tenant label overrides), REQ-565's `:IntegrationMappingsManage` (the tenant
+  integration-mapping routes) and REQ-555's `:EntitiesViewsManage` (decision 0066 D4; saved list views),
+  each TENANT_ADMIN through the derived rule.
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1203,6 +1208,12 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/documents/:document_id/hold"), do: :DocumentHold
   def endpoint_policy_key("POST", "/documents/:document_id/hold/release"), do: :DocumentHold
 
+  # REQ-565 (GH #3201): tenant integration mappings; one permission for all five routes.
+  def endpoint_policy_key("POST", "/integration-mappings"), do: :IntegrationMappingsManage
+  def endpoint_policy_key("GET", "/integration-mappings"), do: :IntegrationMappingsManage
+  def endpoint_policy_key("GET", "/integration-mappings/:id"), do: :IntegrationMappingsManage
+  def endpoint_policy_key("PUT", "/integration-mappings/:id"), do: :IntegrationMappingsManage
+  def endpoint_policy_key("DELETE", "/integration-mappings/:id"), do: :IntegrationMappingsManage
   # REQ-551 (GH #3180): tenant label overrides. The read reuses the role-agnostic :MyAccessRead.
   def endpoint_policy_key("GET", "/labels"), do: :MyAccessRead
   def endpoint_policy_key("PUT", "/labels/:message_id"), do: :LabelsManage
@@ -1483,6 +1494,7 @@ defmodule Letflow.Api.Authorization do
   # REQ-536: identity clauses for the document routes.
   def required_permission(:DocumentHold), do: :DocumentHold
   def required_permission(:DocumentsRetentionManage), do: :DocumentsRetentionManage
+  def required_permission(:IntegrationMappingsManage), do: :IntegrationMappingsManage
   def required_permission(:LabelsManage), do: :LabelsManage
   # REQ-555: identity clause for the saved-view write routes.
   def required_permission(:EntitiesViewsManage), do: :EntitiesViewsManage

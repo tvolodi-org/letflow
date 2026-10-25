@@ -845,15 +845,18 @@ defmodule Letflow.TenantProvisioning do
     # and the counter-only-grows trigger). Empty tables for existing tenants; no row altered.
     {20_261_025_200_001, Letflow.Repo.Migrations.CreateNumberSequences,
      "20261025200001_create_number_sequences.exs"},
-
     # REQ-551 / GH #3180: tenant label overrides (message id x locale -> replacement text). Empty table
     # for existing tenants; no row altered.
     {20_261_025_300_001, Letflow.Repo.Migrations.CreateLabelOverrides,
      "20261025300001_create_label_overrides.exs"},
+    # REQ-565 / GH #3201: tenant integration mappings (one table, no credential column). Empty for
+    # existing tenants; no row altered.
+    {20_261_025_400_001, Letflow.Repo.Migrations.CreateIntegrationMappings,
+     "20261025400001_create_integration_mappings.exs"},
     # REQ-555 / GH #3157 (decision 0066): saved list view definitions (`entity_views`). Empty table
     # for existing tenants; no row altered.
-    {20_261_025_400_001, Letflow.Repo.Migrations.CreateEntityViews,
-     "20261025400001_create_entity_views.exs"}
+    {20_261_025_500_001, Letflow.Repo.Migrations.CreateEntityViews,
+     "20261025500001_create_entity_views.exs"}
   ]
 
   @doc """

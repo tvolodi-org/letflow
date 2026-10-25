@@ -6,7 +6,7 @@
 #
 # DEPENDENCIES (not resolved by this scenario):
 #  - The Driver Incident Report definition (test/fixtures/qa/swiftroute_incident_process_definition.json,
-#    v1.1) is deployed by scripts/seed_swiftroute_incident_definition.sh, which has run on QA
+#    v1.2) is deployed by scripts/seed_swiftroute_incident_definition.sh, which has run on QA
 #    (process audit T-0295). The earlier "no seed script yet" note was stale.
 #  - Step 1 needs a dispatcher who may start an instance: Lena holds the Process Operator
 #    responsibility per BA decision T-0321. A refusal at step 1 means BLOCKED, never PASS.

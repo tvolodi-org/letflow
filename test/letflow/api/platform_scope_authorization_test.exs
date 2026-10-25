@@ -74,6 +74,7 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :DocumentHold,
     :DocumentsRetentionManage,
     :LabelsManage,
+    :IntegrationMappingsManage,
     :EntitiesViewsManage
   ]
 
