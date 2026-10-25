@@ -40558,3 +40558,79 @@ requirements:
       - "9. SECURITY-REVIEWER verdict is recorded (mandatory: INV-2 projection boundary, template injection and active content, error and log content) and REVIEWER verdict is recorded; a source-scanning test or lint that reads files by name, if the developer adds one, appears in the PR summary together with the grep for existing tests that scan lib/letflow/documents/."
       - "10. mix letflow.check_requirements_registration and the static checks (mix letflow.check.static) pass with real output quoted, and the added tests (S1-schema, S1-text-only, S1-glyph, D5-redact and those of criteria 6 and 7) pass with real output quoted."
     depends_on: [REQ-564, REQ-550, REQ-542]
+  - id: REQ-574
+    title: "Extension points in module processes slice X1: manifest declaration of points, point checks in Catalog.validate/1 and activation check for sites (decision 0071 D9 X1, no route, no table, no run-time dispatch)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3256
+    # Source: docs/migration/decisions/0071-extension-points-in-module-processes.md (D1 "Not settled by the source", D3 table rows for module.ex, catalog.ex and graph.ex, D4 refusals, D8, D9 slice X1, OP-6); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D4 (precedent for rejecting keys); docs/migration/decisions/0053-tenant-scripted-rules.md D1 (key format); docs/agents/instructions/security-invariants.md (INV-1, INV-8); code read: lib/letflow/modules/module.ex (manifest type), lib/letflow/modules/catalog.ex (validate/2, rules 7 to 12), lib/letflow/modules/manifest_hash.ex (surface/1), lib/letflow/definitions.ex (run_semantic_validation/2, activate/2, interpret_activate_result/1), lib/letflow/definitions/graph.ex (Violation, validate_flow/1), lib/letflow/definitions/process_definition.ex (name, owner_module, owner_module_version). Written by the business analyst (T-0562) 2026-10-25. Not yet validated.
+    description: >
+      Source: decision 0071 D1 and D9 slice X1; core roadmap "Customization beyond scripts", bullet
+      "extension points in module processes".
+      The problem. Decision 0071 D1 says an extension point is a named site that a module VERSION declares in
+      its manifest against one of its own process definitions; a tenant never creates one. On main nothing of
+      this exists (`grep -rni extension_point lib` prints nothing, 0071 "What main already has"). Slice X1 is the
+      declaration and its checks only: later slices add the attachment table and routes (X2), run-time dispatch
+      (X3), upgrade handling (X4), pinning (X5) and the entity-write kind (X6). X1 is the first slice because
+      every later one needs a validated declaration to attach to.
+      What this slice builds.
+      (1) A new OPTIONAL manifest key `:extension_points` in the manifest type of lib/letflow/modules/module.ex.
+      Each point is a map with `name` (binary matching `^[a-z][a-z0-9_]{0,63}$`, the script-key format of 0053 D1;
+      unique within the module version), `kind` (closed set, one value: `"script_step"`), `site` (a map with
+      `definition`, the name of one of the module's own process definitions, `node_id`, a node id of that
+      definition's graph, and `position`, closed set, one value: `"after"`), `input` (a list of variable names
+      handed to the attachment) and `returns` (a map of variable name to type name that the attachment may
+      return). Absent or `[]` is valid.
+      (2) A new rule 13 in `Letflow.Modules.Catalog.validate/2` (lib/letflow/modules/catalog.ex), run after rule
+      12. It checks the SHAPE of the declaration only and returns, first one found:
+      `{:invalid_extension_points, value}` (the key is not a list, or an element is not a map with exactly the
+      five keys above, or `name`, `kind`, `site.position` or the types of `input` and `returns` are outside the
+      shapes above), `{:duplicate_extension_point, name}` (two points of one manifest share a name),
+      `{:unknown_extension_point_kind, kind}` (a `kind` not in the closed set).
+      (3) The site activation check in lib/letflow/definitions/graph.ex: a new public function
+      `Graph.check_extension_sites/2` taking a graph and the list of points of the module version that owns the
+      definition, returning a list of `Graph.Violation` (new code `:extension_site_unknown_node`, added to the
+      `Violation.code` type) with one violation per point whose `site.definition` equals this definition's name
+      and whose `site.node_id` is not a node id of the graph. `Letflow.Definitions.run_semantic_validation/2`
+      (lib/letflow/definitions.ex) appends its result to the violations it already collects, only when the
+      definition row has `owner_module` set and a registered manifest has that id and a `version` equal to the
+      row's `owner_module_version`; otherwise it appends nothing. The refusal therefore reaches the caller
+      through the existing `{:error, {:semantic_validation_failed, violations}}` of `Definitions.activate/2`,
+      which `interpret_activate_result/1` and the activation router already pass through; no new error shape,
+      route or response function is added.
+      What this slice does NOT build. No route and no change to any router or to the route inventory. No table
+      and no migration (the attachment table is X2). No run-time dispatch and no change to lib/letflow/engine.ex,
+      the engine's dispatcher or pin modules. No attach or detach, no permission and no change to
+      priv/permission_matrix/effective.golden. No upgrade-plan handling (X4). No change to the module's
+      process-definition row or pack document. `Letflow.Modules.ManifestHash.surface/1` does not cover the new
+      key in this slice: whether the declaration belongs in the manifest hash (and so in the owner stamp that
+      the upgrade logic compares) is not settled by 0071; it is for X4 to decide and is listed under
+      open_questions. No feature flag is added: a declaration with no attachment has no run-time effect.
+      Also not checked in X1: (a) 0071 D1/D5 say `returns` is a subset of the variables the module already
+      declares; rule 13 cannot see the per-tenant variable schemas, so X1 only checks the SHAPE of `returns`
+      (a map of binary to binary) and the subset check belongs to the slice that binds an attachment (X2/X3);
+      (b) a point whose `site.definition` names no process definition of the module is not refused, because
+      `Catalog.validate/2` cannot see the pack and the activation check ignores points aimed at other
+      definitions.
+      Existing modules. No manifest in the production config (config/config.exs) declares `:extension_points`,
+      so every production module validates and activates exactly as today; the new activation check does
+      nothing for a definition whose owner module declares no points. The only registered manifest that
+      declares points is the test fixture of criterion 6.
+    open_questions:
+      - "OP-6 of decision 0071 (owner question): manifest shape, point-name prefix, point checks and the site activation check. Options in 0071: checks in Catalog.validate/1 plus graph.ex activation, or checks in the manifest callback only. This requirement is written at 0071's recommendation (Catalog.validate/1 for names and kinds, graph.ex activation for unknown sites). If the owner decides otherwise, this requirement is revised before it is built. Whether point names carry a module prefix is also under OP-6; this entry does not require one, names are unique within one module version only."
+      - "OP-2 of decision 0071: before or after the site. This entry allows the single position value `after` at 0071's recommendation; a second value is a later change to the closed set."
+      - "Whether the manifest hash covers the declaration is not settled by 0071 (see description); X4 decides."
+      - "The returns-subset rule of 0071 D1/D5 and the check that `site.definition` names a real definition of the module are not done in X1 (see description); X2/X3 decide where they are enforced."
+      - "The 0071 sign-off by SECURITY-REVIEWER and REVIEWER is recorded as pending in the record; this slice touches no tenant-data path, but the owner may want 0071 accepted first."
+    acceptance_criteria:
+      - "In test/letflow/modules/catalog_test.exs, a manifest with `:extension_points` containing two points with the same `name` is refused by `Catalog.validate/1` with exactly `{:error, {:duplicate_extension_point, name}}`, naming the repeated name."
+      - "A point whose `kind` is not `\"script_step\"` is refused with `{:error, {:unknown_extension_point_kind, kind}}`; a point with a `name` outside `^[a-z][a-z0-9_]{0,63}$`, with a `site.position` other than `\"after\"`, with a missing site key, or an `:extension_points` value that is not a list is refused with `{:error, {:invalid_extension_points, value}}`. Each case has its own test."
+      - "A manifest with a valid `:extension_points` list (two distinct names, kind `script_step`, position `after`) is accepted by `Catalog.validate/1`, and rule 13 runs after rule 12: a manifest that fails rule 12 and also has a duplicate point name returns the rule 12 error."
+      - "A module without the key behaves exactly as today: `Catalog.validate/1` returns `:ok` for every manifest of the production module list in config/config.exs (test), `[]` and an absent key give the same result, and `Letflow.Modules.ManifestHash.compute/1` returns the same digest for a manifest with and without a valid `:extension_points` list."
+      - "In test/letflow/definitions/graph_test.exs, `Graph.check_extension_sites/2` called with a graph and a point whose `site.definition` equals the definition's name and whose `site.node_id` is not a node of the graph returns one `Violation` with code `:extension_site_unknown_node`; with a node id that is in the graph it returns `[]`; a point whose `site.definition` names another definition is ignored (returns `[]`)."
+      - "In test/letflow/definitions_test.exs, using a new test-only module under test/support/modules/fixture_points/ that declares one point and is added to the `config :letflow, :modules` list in config/test.exs (the catalog's module list is fixed at compile time, as for the other fixtures under test/support/modules/): `Definitions.activate/2` of a draft whose `owner_module` and `owner_module_version` match that fixture manifest, with a point on a node id that the graph lacks returns `{:error, {:semantic_validation_failed, violations}}` with an `:extension_site_unknown_node` violation, and the definition stays `draft`. The same draft with the point's node id corrected activates (`{:ok, %{already_active: false}}`)."
+      - "A draft with `owner_module` nil, or whose owner module declares no points, or whose `owner_module_version` differs from every registered manifest version, activates exactly as before (test per case); no `:extension_site_unknown_node` violation is produced."
+      - "The change adds no route (the route-inventory and `__authz_routes__` pins in test/ are unchanged), no migration file in priv/repo/migrations/, no change to lib/letflow/engine.ex and no change to priv/permission_matrix/effective.golden; the implementer lists the greps over test/ that show this."
+      - "`mix format`, `mix compile --warnings-as-errors` and `mix letflow.check.static` pass; the moduledoc and `@doc` of `Catalog.validate/2` and the manifest type in module.ex describe rule 13 and the new key."
+    depends_on: [REQ-568, REQ-550, REQ-562]
