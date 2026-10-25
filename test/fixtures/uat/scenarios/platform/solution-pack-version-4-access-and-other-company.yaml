@@ -8,7 +8,7 @@
 # administrator; the roster has none for a company other than SwiftRoute with a verified installation, so the review route,
 # which shares the same version check, carries the check here. The apply-path case stays covered by the backend test of criterion 9.
 ---
-id: tenant-administration-solution-pack-version-access-and-other-company
+id: platform-solution-pack-version-access-and-other-company
 scope: platform
 title: The read-only auditor cannot apply a pack update, and another company's installed version never blocks an update
 version: "1.0"
@@ -82,4 +82,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: true
-  description: Uninstall the pack installed for the scenario from SwiftRoute.
+  description: The platform team removes or deactivates the installation, base and conflict-decision records created for the scenario, directly (no route uninstalls a pack); otherwise the records stay and later runs use fresh pack ids.

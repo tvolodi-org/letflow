@@ -1,10 +1,10 @@
 # REQ-573 slice S1 (BA-TENANT-ADMINISTRATION): packs installed before the rule, packs without an installation, and the install-time limit.
-# Criteria covered: 6 (a version that is not three-part, on either side, is not checked and nothing is rewritten),
-# 7 (no active installation: versions are ignored), 8 (known limit: comparison is with the install-time version),
+# Criteria covered: 6 (a version that is not three-part, on either side, is not checked and nothing is rewritten; review and apply),
+# 7 (no active installation, never installed or marked uninstalled, review and apply: versions are ignored), 8 (known limit: comparison is with the install-time version),
 # 10 (installing a pack whose version is not three-part still works).
 # Harness note: the installation of a pack at the text version legacy-2024 cannot be made through the product after this change
 # (export refuses such a version); the platform team prepares it by writing the installation record directly, and the run reads records.
-# If the test company cannot be prepared that way, steps 1, 2, 5 and EO-001 are BLOCKED, not passed.
+# If the test company cannot be prepared that way, steps 1, 2, 5, 10, 11 and EO-001, EO-009 are BLOCKED, not passed.
 # Visibility: the stored installed version is not shown on any screen or in the update answers; outcomes that name it are system_state.
 # Every step here is an ACCEPTED case; there is no refusal step because the rule under test is that no refusal happens.
 # Sensitive actions: none occurs; see scenarios 2 and 4 for refusals.
@@ -31,10 +31,10 @@ preconditions:
     check: system_seeded
   - description: >
       SwiftRoute has an active installation of pack LEGACY whose recorded version is the text legacy-2024, an active
-      installation of pack CURRENT at 2.0.0, and no installation of pack NEVER; for each of LEGACY, CURRENT and NEVER the run holds
+      installation of pack CURRENT at 2.0.0, and no installation of pack NEVER, and an installation of pack GONE whose status is uninstalled at recorded version 5.0.0; for each of LEGACY, CURRENT, NEVER and GONE the run holds
       the two artefact lists an update request needs
     check: custom
-    detail: Prepared by the platform team as described at the top of this file; the installed version of LEGACY is written directly. BLOCKED if it cannot be.
+    detail: Prepared by the platform team as described at the top of this file; the installed version of LEGACY, and the uninstalled installation of GONE, are written directly (no route uninstalls a pack). BLOCKED if it cannot be.
   - description: "A pack document whose version line is exactly \"version\": \"legacy-2024\" is available for step 5"
     check: custom
     detail: Made by taking an exported pack and changing its version line to that text by hand. It contains one new process definition not yet in SwiftRoute.
@@ -116,6 +116,47 @@ steps:
     sla_context:
       expected_within_hours: null
 
+  - step: 8
+    actor: swiftroute_admin
+    action: Applies the version text "next" to pack CURRENT (installed at 2.0.0), deciding every conflict.
+    via: api
+    input:
+      target_version: "next"
+    produces:
+      update_result: the update is applied as before this change; the version text is not judged
+    sla_context:
+      expected_within_hours: null
+  - step: 9
+    actor: swiftroute_admin
+    action: Applies the version text "whatever" to pack NEVER, which SwiftRoute has not installed, deciding every conflict.
+    via: api
+    input:
+      target_version: "whatever"
+    produces:
+      update_result: the answer as before this change; the version text is not judged
+    sla_context:
+      expected_within_hours: null
+  - step: 10
+    actor: swiftroute_admin
+    action: Asks for a review of version 1.0.0 of pack GONE, whose installation was marked uninstalled at version 5.0.0.
+    via: api
+    input:
+      target_version: "1.0.0"
+    produces:
+      update_review: the answer as before this change; an uninstalled pack has no active installation to compare with
+    sla_context:
+      expected_within_hours: null
+  - step: 11
+    actor: swiftroute_admin
+    action: Applies version 1.0.0 of pack GONE, deciding every conflict.
+    via: api
+    input:
+      target_version: "1.0.0"
+    produces:
+      update_result: the answer as before this change; the older number is not refused
+    sla_context:
+      expected_within_hours: null
+
 expected_outcomes:
   - id: EO-001
     description: >
@@ -182,6 +223,37 @@ expected_outcomes:
       business_impact: A version rule touched data outside the pack being worked on.
       suggested_action: route_to_wf03
 
+  - id: EO-007
+    description: Step 8 is applied as before this change, and the recorded version of pack CURRENT still reads 2.0.0 afterwards.
+    verification:
+      method: system_state
+      detail: Step 8 is a success with no version_downgrade and no version_not_newer; the recorded versions of all SwiftRoute installations read before step 3 and after step 8 are byte-for-byte equal.
+      evidence: The two readings and the answer of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Updates offered under a free-text version would be refused, or stored versions rewritten, for existing companies.
+      suggested_action: route_to_wf03
+  - id: EO-008
+    description: Step 9 answers as before this change, whatever the version text, because pack NEVER has no installation to compare with.
+    verification:
+      method: api_response
+      detail: The answer carries neither version_downgrade nor version_not_newer.
+      evidence: The answer.
+    on_fail:
+      severity: MAJOR
+      business_impact: Updates of packs not yet installed would be refused for a reason that has no meaning there.
+      suggested_action: route_to_wf03
+  - id: EO-009
+    description: Steps 10 and 11 carry neither version_downgrade nor version_not_newer, although 1.0.0 is lower than the 5.0.0 recorded on the uninstalled installation.
+    verification:
+      method: api_response
+      detail: Neither answer carries version_downgrade or version_not_newer; both answer as before this change.
+      evidence: The two answers.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company that removed a pack and wants an older version back would be blocked by a stale record.
+      suggested_action: route_to_wf03
+
 cleanup:
   cancel_open_instances: true
-  description: Uninstall the packs installed or prepared for the scenario from SwiftRoute.
+  description: The platform team removes or deactivates the installation, base and conflict-decision records written or created for the scenario, directly (no route uninstalls a pack); otherwise the records stay and later runs use fresh pack ids.

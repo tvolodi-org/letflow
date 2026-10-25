@@ -1,7 +1,7 @@
 # REQ-573 slice S1 (BA-TENANT-ADMINISTRATION): refusals of an older or equal pack version in update review and update apply.
 # Criteria covered: 3 (downgrade refused in review and apply, nothing changes), 4 (equal version: apply refused, review answers the plan,
 # no write even with resolutions), 5 (newer versions behave as before, 10.0.0 is newer than 2.0.0 by number).
-# Sensitive actions: change process definitions is the apply (steps 2, 3 refused); who may apply is in solution-pack-version-4-access-and-other-company.
+# Sensitive actions: change process definitions is the apply (steps 2, 3 refused); who may apply is in platform/solution-pack-version-4-access-and-other-company.
 # approve, pay or release, see sensitive data, change users: not part of this flow.
 # Steps 1-3 are expected to be REFUSED (one request each). Steps 4-8 are accepted cases in their own steps.
 # Refusal answers: status 422, detail text version_downgrade or version_not_newer, nothing else echoed.
@@ -182,4 +182,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: true
-  description: Uninstall the pack installed for the scenario from SwiftRoute.
+  description: The platform team removes or deactivates the installation, base and conflict-decision records created for the scenario, directly (no route uninstalls a pack); otherwise the records stay and later runs use fresh pack ids.

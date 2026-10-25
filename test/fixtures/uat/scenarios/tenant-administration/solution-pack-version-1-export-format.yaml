@@ -1,7 +1,7 @@
 # REQ-573 slice S1 (BA-TENANT-ADMINISTRATION): pack version format at export. Authored new; not a port.
 # Criteria covered: 1 (export refused for a non-semver version, 422 not 500), 2 (semver values accepted unchanged, absent version = 1.0.0).
 # Sensitive actions: approve, pay or release and change users do not occur in exporting a pack; seeing another company's data is
-# covered by solution-pack-version-4-access-and-other-company. Steps 1-4 are one request each: every request in the step is refused.
+# covered by platform/solution-pack-version-4-access-and-other-company. Steps 1-4 are one request each: every request in the step is refused.
 # Steps 5-8 are the accepted cases, each in its own step.
 ---
 id: tenant-administration-solution-pack-version-export-format
