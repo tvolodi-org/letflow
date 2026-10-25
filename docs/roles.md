@@ -64,6 +64,12 @@ scenario file. A tenant-side actor holds TENANT_ADMIN or a tenant role, never PL
 
 Record history consequence (REQ-516 S2, decision 0059 D2): the history route masks `field_values` with the caller's CURRENT restriction rows and grants, at read time. Restrictions are not stored per event. So if a restriction is removed later, the history written while it applied shows those values to an auditor who holds no grant. Restricted values in history follow the caller's current restrictions and grants, not the restrictions in force when each event was written. The history route reads the live events table only; archived or retention-removed events are not shown.
 
+## The provisioner is a credential, not a role
+The tenant provisioner (REQ-572, decision 0072 D6, QA only) is NOT one of the eight roles and adds no role, permission or `auth_context`. It is a hash-configured credential class
+(`LETFLOW_PROVISIONER_CREDENTIAL_SHA256`, and a read-only class `LETFLOW_PROVISIONER_READONLY_CREDENTIAL_SHA256`) accepted only by the `/admin/v1` routes, outside `/api/v1`: create, get, suspend,
+resume and expire a tenant. It cannot call any other route, read tenant data, act as an administrator or create a credential. The role count and the names above are unchanged. A PLATFORM_ADMIN outside the
+platform tenant stays refused (0046 D1). Operating the credential: `docs/runbooks/tenant-provisioner-credential.md`.
+
 ## Known limitation: scoped approvers (stage 2)
 
 Each task carries the scope node of the instance it was created for: `tasks.scope_node_id` is copied from `instance_projections.scope_node_id` when the task is created, and existing tasks were backfilled from their own instance (REQ-532 / GH #3091). A task of an instance with no scope node keeps NULL, which is fail-closed: a scoped caller never sees it, and a tenant-wide holder sees it as before. Scoped approvers therefore see the tasks of their scope, and the flip to `on` is no longer refused for scoped approvers.

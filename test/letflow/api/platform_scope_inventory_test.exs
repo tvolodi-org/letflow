@@ -185,7 +185,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   # G1 -- source scan (takes source text)
   # --------------------------------------------------------------------------
 
-  describe "G1: every route declaration is authz_*, a catch-all or on the public allowlist" do
+  describe "G1: every route declaration is authz_*, a catch-all, public or credential-authenticated" do
     # [{line_number, verb, path_or_pattern}] for route declarations that are not authz_*,
     # `match _` or `forward`. Heredoc (doc) blocks and comment lines are skipped.
     def plain_route_declarations(source) do
@@ -234,6 +234,18 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       {"lib/letflow/routers/mobile_tenant_config.ex", "GET", "/"},
       {"lib/letflow/routers/public_read.ex", "GET", "/:kind/:handle"},
       {"lib/letflow/routers/tenant_config.ex", "GET", "/"}
+    ]
+
+    # REQ-572 / decision 0072 D6 (test CS1): the five routes of the provisioner mount. They are plain
+    # Plug.Router routes on purpose: they are authenticated by a credential class, not a role, behind
+    # `Letflow.Plugs.ProvisionerAuth`, outside ApiPipeline. They are not public: the test below pins that
+    # the plug is declared before the first route and that the router is mounted by `Letflow.Router`.
+    @credential_allowlist [
+      {"lib/letflow/routers/admin_v1.ex", "GET", "/tenants/:id"},
+      {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants"},
+      {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/suspend"},
+      {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/resume"},
+      {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/expire"}
     ]
 
     defp scanned_files do
@@ -299,7 +311,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       assert "lib/letflow/modules/exam/router.ex" in files
     end
 
-    test "every plain route declaration under the router files is on the public allowlist, and the allowlist has no stale entry" do
+    test "every plain route declaration under the router files is on the public or credential allowlist, and neither has a stale entry" do
       found =
         for file <- scanned_files(),
             {line, verb, path} <- plain_route_declarations(File.read!(file)),
@@ -308,6 +320,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       offenders =
         for {file, line, verb, path} <- found,
             {file, verb, path} not in @public_allowlist,
+            {file, verb, path} not in @credential_allowlist,
             do: "#{file}:#{line}  #{verb} #{inspect(path)}"
 
       assert offenders == [],
@@ -316,11 +329,23 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
 
       seen = for {file, _line, verb, path} <- found, do: {file, verb, path}
 
-      for entry <- @public_allowlist do
+      for entry <- @public_allowlist ++ @credential_allowlist do
         assert entry in seen, "stale public allowlist entry #{inspect(entry)}"
       end
 
       assert length(@public_allowlist) == 6
+      assert length(@credential_allowlist) == 5
+    end
+
+    test "CS1 the credential routes sit behind ProvisionerAuth and the mount is in Letflow.Router" do
+      source = File.read!("lib/letflow/routers/admin_v1.ex")
+      {plug_at, _} = :binary.match(source, "Letflow.Plugs.ProvisionerAuth)")
+      {first_route, _} = ~r/^  (get|post) "/m |> Regex.run(source, return: :index) |> hd()
+      assert plug_at < first_route, "ProvisionerAuth must be plugged before the first route"
+
+      router = File.read!("lib/letflow/router.ex")
+      assert router =~ ~r/forward\(?\s*"\/admin\/v1"/
+      refute File.read!("lib/letflow/plugs/api_pipeline.ex") =~ "AdminV1"
     end
   end
 
