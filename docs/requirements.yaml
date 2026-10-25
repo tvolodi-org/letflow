@@ -39004,3 +39004,71 @@ requirements:
     open_questions:
       - "None for the owner: SEC-525-R02 and SEC-525-R03 are recorded in the REQ-525 design. If IMPL-525-A has not merged when this one is implemented, the count in criterion 9 is computed from the fixture as written there."
     depends_on: [REQ-525, REQ-537]
+
+  - id: REQ-558
+    title: "WMS procurement slice 2: procurement task assignment record with responsible officer, supplier and purchase-order references as separate events, and request line status without receipts (PR-04, PR-05 part)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3188
+    # Source: docs/WMS/WMS_Procurement_Requirements_Draft.md section 1 ("Process boundaries", "Implementation boundary"), section 2 (role "Procurement officer"; paragraph "BPM and module contract"), section 3 (PR-04, PR-05, "Request states"), CS-03 (separation-of-duties rules are configured in BPM); docs/requirements.yaml REQ-474 description point 5 (Counterparty is NOT built); docs/migration/decisions/0057-wms-customer-draft-reconciliation.md D1 (the module owns suppliers and purchase orders; masters carry a nullable external_ref) and D6 (the handler checks the outcome contract, never the route); docs/migration/decisions/0056-versioned-documents.md D9 (refusals are counted, not audited per attempt); docs/guides/adding-an-application-module.md; docs/requirements.yaml entry REQ-544 (the slice-1 module this one extends). Written by the business analyst (T-0462) 2026-10-25. Not yet validated.
+    description: >
+      Second procurement slice of the WMS module family (draft section 3). It extends the purchase request module
+      of REQ-544 and uses the same module layout, permissions registration and idempotent-operation pattern that
+      REQ-544 criteria 5, 7 and 10 set; it changes no file of the engine, the document service or the
+      authorization core, so no core change is needed. If the implementer finds one is needed, that is a finding
+      and the slice is split, not widened.
+
+      Scope. (1) PR-04: after a request is approved (REQ-544), Letflow, not the module, creates and assigns the
+      procurement task to a user (draft section 1, "BPM controls ... which role or user receives a task"; draft
+      section 2, "BPM and module contract": the module "shall not embed a fixed approval sequence or supervisor
+      privilege"). The module offers operations
+      that BPM or the assigned officer call to record, against a request line, three facts as three separate
+      events: the responsible officer (the user Letflow assigned), the selected supplier or contractor, and the
+      purchase-order or contract reference. A line shows its assignee, selected supplier and linked procurement
+      document when they are present. The supplier is stored as a reference with a display name taken from its
+      designated source. Decision 0057 D1 settles that the module owns suppliers and purchase orders (so purchase-order
+      ownership is not an open question); but no supplier or purchase-order master is built on main (REQ-474
+      description point 5, "Counterparty is NOT built"; 0057 verification note on D1: no external_ref field exists
+      in lib/). This slice defers the D1 master to a later slice without contradicting D1. So in this slice the supplier reference and the
+      purchase-order or contract reference are each a source system name plus an identifier, as text, not validated against a
+      master; no master table is created. (2) PR-05, only the part that needs no warehouse receipt: the status of
+      each request line and of the request, derived from the line quantity, a fulfilled quantity and a cancelled
+      mark. From the draft (PR-05): Partial receipts or acceptances yield Partial fulfilment, and Closed
+      requires every line fulfilled or formally cancelled. The rest is a UAT assumption, to be confirmed by the
+      process owner: the line statuses Open, Fulfilled and Cancelled and their definitions, the request status
+      Cancelled when every line is Cancelled, and Fulfilled at a quantity at or above the line quantity
+      (over-fulfilment included); and that a closed or cancelled request refuses a new supplier, reference or
+      officer record (criterion 8; the draft forbids only physical fulfilment of a closed or cancelled version).
+      How the fulfilled quantity gets recorded (the
+      link to an accepted warehouse receipt for material lines, to acceptance evidence for work and service lines,
+      to a payment request) is left to later slices.
+
+      Later slices, named so they are not lost and not part of this one: receipt-linked fulfilment (a material line
+      links to an actual accepted warehouse receipt, WM-01 and WM-02), service and work acceptance evidence, the link
+      to a payment request after acceptance, a supplier and purchase-order master and its source mapping (IN-01),
+      PR-02 attachments, PR-07 stock and duplicate-demand view, and the audit-history half of PR-06.
+
+      Open questions for the process owner, not settled here: who owns contracts and legal documents, where a
+      contract is created, and when the module's purchase-order record of 0057 D1 is built (draft section 1;
+      IN-01 interface catalog); whether one request line may be split among several suppliers
+      (this slice allows one selected supplier per line and treats a second selection as a replacement that keeps
+      the earlier event); and whether a line cancelled after partial fulfilment keeps its fulfilled quantity (this
+      slice keeps it and calls the line Cancelled only when nothing is fulfilled, see criterion 6). The draft marks
+      PR-04 and PR-05 as S/C/P and S/P, so these need customer validation before contract baseline.
+    acceptance_criteria:
+      - "1. Assignment record (PR-04): an operation records, for an approved purchase request line, the responsible officer as a Letflow user id, together with the performer, the time from the server clock and an idempotency key. Repeating the call with the same idempotency key returns the first result and stores one event. The module contains no rule that chooses the officer, no queue, no escalation and no delegation logic; a test calls the operation with two different users in turn and both succeed with no module change."
+      - "2. Separate events (PR-04): supplier selection and purchase-order or contract reference are two different operations producing two different stored events, each with its own performer, time, idempotency key and audit event written in the same transaction. A test records the supplier first, asserts the line shows the supplier and no purchase-order reference, then records the reference and asserts both are shown. Recording the reference before any supplier is selected is accepted and is shown; the module does not force an order."
+      - "3. Reference shape (PR-04): a supplier is stored as a source system name, an identifier and a display name, and a purchase-order or contract reference as a source system name, an identifier and a kind (purchase order or contract); all are non-empty text with a bounded length that the implementer states in the module runbook. Missing parts are a validation error naming each missing field and nothing is stored. No supplier or purchase-order table is created and no value is checked against a master."
+      - "4. Line view (PR-04): the read operation for a request line returns the responsible officer, the selected supplier and the linked procurement document when present, and returns each as absent (not an empty string) when not yet recorded. Each of the three keeps its history: a later supplier selection replaces the shown value and the earlier event stays readable by the same read operation, with who and when. A test selects supplier A, then supplier B, and asserts B is shown and both events are listed in order."
+      - "5. Preconditions and permissions (PR-04, CS-03): the three operations are accepted only for a line of a request whose latest issued version has an approve decision recorded by REQ-544 (the lookup 'is version M approved' of REQ-544 criterion 8); otherwise they are refused with a typed error and nothing is stored. Only a caller holding a new procurement permission registered in the module manifest may record them; holding the Letflow task alone does not grant it, and the requester of the request holding that permission is not refused for being the requester (the module adds no fixed requester-versus-officer rule of its own; CS-03: separation-of-duties rules are configured in BPM and enforced at the action boundary). The permissions golden and docs/roles.md are updated as the module guide requires. The module manifest's role_grants does not list PLATFORM_ADMIN for the new permission; the golden row for PLATFORM_ADMIN is true only through the unconditional platform clause core_role_allows?(:PLATFORM_ADMIN, _) of lib/letflow/api/authorization.ex. The implementer names in the manifest the tenant role(s) that receive the permission (a tenant role such as TENANT_ADMIN, see docs/roles.md) and a test asserts that exactly those tenant roles hold it."
+      - "6. Line status rules (PR-05; Partial is from the draft, the other line statuses are a UAT assumption, to be confirmed by the process owner): the status of a request line is derived, never set by a caller, from its quantity, its fulfilled quantity (zero until a later slice records any) and a cancelled mark. Open: fulfilled quantity is zero and the line is not cancelled. Partial: fulfilled quantity is above zero and below the line quantity. Fulfilled: fulfilled quantity is at least the line quantity. Cancelled: the mark is set and the fulfilled quantity is zero. A cancelled line with a fulfilled quantity above zero keeps the status of its fulfilled quantity (Partial or Fulfilled) and shows the cancelled mark. Quantities are exact decimals, not floating point. A table-driven test over quantity 10 with fulfilled 0, 0.001, 9.999, 10, 10.5, and each with and without the cancelled mark asserts the status."
+      - "7. Request status (PR-05; Closed and Partial are from the draft, request Cancelled is a UAT assumption, to be confirmed by the process owner): the request status is derived from its lines. Closed: every line is Fulfilled or carries the cancelled mark. Cancelled: every line is Cancelled. Partial: at least one line has a fulfilled quantity above zero and the request is not Closed. Otherwise the status is the one REQ-544 gives (approved or earlier). A request with no approved version has no fulfilment status. A test asserts a request of three lines for each of: nothing fulfilled, one line Partial, one Fulfilled and two cancelled with nothing fulfilled (Closed), and all three cancelled with nothing fulfilled (Cancelled)."
+      - "8. Cancelling a line (PR-05): an operation with an idempotency key marks one line cancelled with a reason text, performer and server time, and writes an audit event in the same transaction; cancelling an already cancelled line returns the first result. A cancelled version or a request that is not approved refuses the operation. A closed or cancelled request cannot receive a new supplier, reference or officer record: the operation is refused with the same error shape. This rule is a UAT assumption, to be confirmed by the process owner (the draft, section 3 'Request states', forbids only physical fulfilment of a closed or cancelled version)."
+      - "9. Refusals and tenancy: refusals (validation, state, no permission) write no per-attempt audit event; they are counted in telemetry following decision 0056 D9, as REQ-544 criterion 7 does. A request or line of another tenant, outside the caller's scope or absent returns the same not-found answer (INV-5). A cross-tenant negative test (INV-10 style) shows tenant B can neither read nor record on tenant A's line by id."
+      - "10. Receipt-linked fulfilment is out of this slice: the diff adds no operation that records a fulfilled quantity from a receipt, an acceptance or a payment request, and no read of the stock ledger. The module runbook section for this slice names those operations as later slices. The derivation of criterion 6 and 7 takes the fulfilled quantity from a stored per-line field that this slice only reads and initializes to zero."
+      - "11. No core change: the diff touches no file under lib/letflow/engine/, lib/letflow/documents/ or the core permission lists of lib/letflow/api/authorization.ex except the module's own registered permission entries that the module guide prescribes; the implementer states this check in the summary."
+      - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data operations and a permission) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the new module's tests pass, real output quoted."
+    open_questions:
+      - "For the process owner: who owns contracts and legal documents and where they are created, and when the purchase-order record that 0057 D1 gives the module is built (draft section 1, IN-01); whether a line may have several suppliers; the rule for a line cancelled after partial fulfilment; whether recording a supplier, reference or officer on a closed or cancelled request is refused (the draft forbids only physical fulfilment). The UAT assumptions in the description stand until confirmed."
+    depends_on: [REQ-544]
