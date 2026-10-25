@@ -66,8 +66,9 @@ defmodule Letflow.Routers.Definitions do
   same precedent, not a shared/imported module).
 
   `GET /` and `GET /search` are `:self_service` under the scope-enforcement
-  `on` mode (REQ-545, rulings SEC-525-R01 and SEC-525-R04): a scoped
-  `DefinitionsRead` holder keeps both collection reads. The other routes here
+  `on` mode (REQ-545, rulings SEC-525-R01 and SEC-525-R04), and so are
+  `GET /:id` and `GET /active/:name` (REQ-546, rulings SEC-525-R02 and
+  SEC-525-R03): a scoped `DefinitionsRead` holder keeps all four reads. The other routes here
   stay `:tenant_wide`.
 
   ### Route ordering
@@ -294,7 +295,7 @@ defmodule Letflow.Routers.Definitions do
 
   # REQ-081 read routes. MUST precede `get "/:id"` below -- see this
   # module's moduledoc "Route ordering".
-  authz_get "/active/:name", :DefinitionsRead do
+  authz_get "/active/:name", :DefinitionsRead, scope: :self_service do
     handle_get_active_by_name(conn, conn.params["name"])
   end
 
@@ -314,7 +315,7 @@ defmodule Letflow.Routers.Definitions do
     handle_export(conn, conn.params["id"])
   end
 
-  authz_get "/:id", :DefinitionsRead do
+  authz_get "/:id", :DefinitionsRead, scope: :self_service do
     handle_get_by_id(conn, conn.params["id"])
   end
 
