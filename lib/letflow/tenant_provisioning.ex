@@ -860,7 +860,10 @@ defmodule Letflow.TenantProvisioning do
     # REQ-563 / GH #3199: tenant notification templates (template key x locale -> subject, body). Empty
     # table for existing tenants; no row altered.
     {20_261_025_600_001, Letflow.Repo.Migrations.CreateNotificationTemplates,
-     "20261025600001_create_notification_templates.exs"}
+     "20261025600001_create_notification_templates.exs"},
+    # REQ-561 / GH #3194: tenant-defined scheduled jobs (one empty table per tenant schema).
+    {20_261_026_100_001, Letflow.Repo.Migrations.CreateScheduledJobs,
+     "20261026100001_create_scheduled_jobs.exs"}
   ]
 
   @doc """
