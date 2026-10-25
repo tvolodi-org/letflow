@@ -39078,7 +39078,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- no pending dependency; the core roadmap item has no scheduled stage yet, so check_deferral_staleness S1 may flag it if the stage is active
+    gh: 3194
     # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (the candidate "integration mappings, scheduled jobs, notification templates and label overrides"); docs/migration/decisions/0053-tenant-scripted-rules.md D1 (hook_kind list: only service_task now, other kinds reserved) and its non-binding note "Customization beyond scripts" (scheduled jobs need their own record or requirement); lib/letflow/scheduler/poller.ex (moduledoc, REQ-331 addition: sweeps run on the one supervised ticker with with_admission/3 and run_sweep/4); lib/letflow/scheduler/record_deadline_sweep.ex (moduledoc: rules are deploy-time config and no tenant can declare one); lib/letflow/engine.ex (create/2); docs/agents/instructions/security-invariants.md INV-1, INV-2, INV-5, INV-8, INV-10. Written by the business analyst (T-0489) 2026-10-25. Not yet validated.
     description: >
       Tenants cannot today make anything happen on a schedule. Two mechanisms exist and neither is this one.
