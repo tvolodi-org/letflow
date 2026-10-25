@@ -5,6 +5,11 @@
 #   - reading without signing in: steps 7 to 10
 #   - changing users, approving, paying or releasing: not part of reading process designs;
 #     covered by refusal-customer-user-boundaries.yaml and the tenant-administration matrix.
+# Not covered here: the part of the refusal rule that says the refusal for a person without the right is
+# identical whether their company holds designs or none. The roster has no actor without the right in a
+# company that has no designs, so a UAT run cannot check it; the Bilimbaga candidate's company is the
+# only comparison available. Scoped (limited-access) foreign callers are covered in
+# definition-reads-scoped-staff.yaml steps 9 to 11.
 # Every refusal step below is expected to be REFUSED or to return nothing. A step the product lets
 # through is a finding, not a reason to rewrite the step.
 ---
@@ -25,7 +30,7 @@ description: >
 
 actors:
   foreign_staff: actor-vortex-karl
-  tenant_admin:  actor-swiftroute-alice
+  company_wide_staff: actor-swiftroute-tobias
   candidate:     actor-bilimbaga-candidate
   visitor:       actor-any
 
@@ -44,9 +49,9 @@ preconditions:
 
 steps:
   - step: 1
-    actor: tenant_admin
+    actor: company_wide_staff
     action: >
-      The SwiftRoute administrator notes the exact name and the identifier of the
+      A SwiftRoute colleague with company-wide access notes the exact name and the identifier of the
       SwiftRoute-only design, and a name that exists in no company at all.
     via: gui
     sla_context:
@@ -83,7 +88,7 @@ steps:
     expect_refusal: true
     via: api
     input:
-      company: SwiftRoute
+      lookups: the SwiftRoute-only design identifier and name noted in step 1; an identifier and a name that exist nowhere
     sla_context:
       expected_within_hours: null
 
