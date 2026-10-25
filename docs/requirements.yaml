@@ -40919,7 +40919,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-569 -- F-1 is merged (PR #3281) but its register status is still pending; the engine files the issue after the gate
+    gh: 3298
     # Source: docs/migration/decisions/0067-form-hook-script-validation.md (D2 "The pure-function contract", D4 "Principal and restrictions", D5 "Failure mapping", D6 "Lock and time budget", D7 "INV-3 and INV-1" with its INV-10 test, D9 slice F-2, "Not decided here"); docs/migration/decisions/0053-tenant-scripted-rules.md (D5, D7); docs/migration/decisions/0062-restriction-carrying-variables.md (R4, R6); docs/agents/instructions/security-invariants.md (INV-1, INV-3, INV-8, INV-10); REQ-569 in docs/requirements.yaml (slice F-1, GH #3246); code read: lib/letflow/engine/lua/script_runner.ex (run/3, limits/0, @default_timeout_ms, @max_timeout_ms), lib/letflow/engine/script_input.ex (build/4), lib/letflow/scripts/validation.ex (@manifest_keys, manifest/1, codes/2), lib/letflow/scripts/runtime.ex (check_output/2, closed_output_schema?/1, the private load_version/2 of the SERVICE_TASK path), lib/letflow/scripts.ex (@hook_kinds, form_validation_enabled?/0, the Validation.manifest/1 call in the version-create path), lib/letflow/engine/script_task_dispatcher.ex (run_script/6, the executor-outcome case). Written by the business analyst (T-0640) 2026-10-26. Not yet validated.
     description: >
       Slice F-2 of decision 0067 (docs/migration/decisions/0067-form-hook-script-validation.md, D9),
