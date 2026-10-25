@@ -84,6 +84,7 @@ defmodule Letflow.Api.AuthorizationTest do
       # REQ-536 (decision 0063 S8)
       :DocumentHold,
       :DocumentsRetentionManage,
+      :LabelsManage,
       # REQ-555 (decision 0066 D4)
       :EntitiesViewsManage
     ]
@@ -473,7 +474,8 @@ defmodule Letflow.Api.AuthorizationTest do
           44 => "forty-four",
           45 => "forty-five",
           46 => "forty-six",
-          47 => "forty-seven"
+          47 => "forty-seven",
+          48 => "forty-eight"
         }
         |> Map.get(actual_count)
 
@@ -1064,7 +1066,8 @@ defmodule Letflow.Api.AuthorizationTest do
           44 => "forty-four",
           45 => "forty-five",
           46 => "forty-six",
-          47 => "forty-seven"
+          47 => "forty-seven",
+          48 => "forty-eight"
         }
         |> Map.get(actual_count)
 
@@ -1561,7 +1564,8 @@ defmodule Letflow.Api.AuthorizationTest do
           44 => "forty-four",
           45 => "forty-five",
           46 => "forty-six",
-          47 => "forty-seven"
+          47 => "forty-seven",
+          48 => "forty-eight"
         }
         |> Map.get(actual_count)
 
@@ -2416,6 +2420,7 @@ defmodule Letflow.Api.AuthorizationTest do
                    # REQ-536 (decision 0063 S8)
                    :DocumentHold,
                    :DocumentsRetentionManage,
+                   :LabelsManage,
                    # REQ-555 (decision 0066 D4)
                    :EntitiesViewsManage
                  ]

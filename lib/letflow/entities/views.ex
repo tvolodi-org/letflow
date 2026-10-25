@@ -91,8 +91,11 @@ defmodule Letflow.Entities.Views do
          {:ok, shaped} <- Clauses.parse_body(body, :update),
          :ok <- same_type(shaped, view),
          :ok <- Clauses.check(prefix, view.entity_type, shaped) do
+      # updated_at is forced so a PUT that changes nothing still moves it and updated_by, matching its audit entry.
       changes =
-        shaped |> Map.take([:name, :columns, :filter, :sort]) |> Map.put(:updated_by, user_id)
+        shaped
+        |> Map.take([:name, :columns, :filter, :sort])
+        |> Map.merge(%{updated_by: user_id, updated_at: DateTime.utc_now()})
 
       Multi.new()
       |> Multi.update(:view, view |> Ecto.Changeset.change(changes) |> unique_name(),

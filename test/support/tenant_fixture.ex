@@ -169,6 +169,7 @@ defmodule Letflow.TenantFixture do
     "instance_projections",
     "instance_sequence",
     "instance_state_snapshots",
+    "label_overrides",
     "lua_script_execution_audit",
     "number_sequence_counters",
     "number_sequence_definitions",

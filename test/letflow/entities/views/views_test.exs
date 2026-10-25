@@ -62,6 +62,16 @@ defmodule Letflow.Entities.ViewsTest do
       assert audit_count(a, "entity_view.update") == 1
     end
 
+    test "A2b an update that changes nothing still moves updated_at", %{a: a} do
+      view = create!(a)
+
+      {:ok, updated} =
+        Views.update(a.schema_name, a.user_id, view.id, valid_view())
+
+      assert DateTime.compare(updated.updated_at, view.updated_at) == :gt
+      assert audit_count(a, "entity_view.update") == 1
+    end
+
     test "A3 delete writes one audit entry", %{a: a} do
       view = create!(a)
       {:ok, _} = Views.delete(a.schema_name, a.user_id, view.id)
