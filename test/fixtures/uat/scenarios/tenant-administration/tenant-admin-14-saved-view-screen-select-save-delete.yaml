@@ -1,0 +1,172 @@
+# T-0599 (BA): TENANT ADMIN group, scenario 14: the record list screen, choosing, saving and deleting a saved view (screen part of saved list views).
+# Covers REQ-556 criterion 1 (choosing a view sets columns, filter and sort controls to the stored values), 2 (the list is read with the stored filter and
+# sort, and the page-size control keeps its value) and 3 (the administrator, who holds the view permission, sees both the save and the delete control).
+# The refusal states of the screen: empty name, last column, duplicate name, delete with no view chosen. The empty state: a company with no view.
+# Sources: docs/requirements.yaml REQ-556 (criteria 1 to 6) and REQ-555; web/src/components/entities/EntityViewBar.tsx (save disabled for an empty name,
+# the last shown column cannot be unticked, delete disabled while no view is chosen, delete asks for confirmation) and
+# web/src/pages/entities/EntityListBrowserPage.tsx (the page is routed at entities/<type>; the conflict message for a name already in use; the page size
+# is not part of a view); web/src/i18n (English texts "View", "(no view)", "Save as view", "Delete view", "A view with this name already exists.");
+# docs/roles.md (EntitiesViewsManage: tenant administrator and platform administrator only); test/fixtures/uat/actors.yaml (alice: SwiftRoute TENANT_ADMIN).
+# Not covered here, with the reason: REQ-556 criterion 4 (a hidden value is not shown) and the sight of a non-manager are in scenario 15. Criterion 5 (texts
+# go through the translation mechanism, checked by the repository's own grep test) and criterion 6 (the web gate and the reviewer verdict) are checks of
+# the code and the build, not of the screen, and the screen has no language switch to show; they stay with the unit tests and the gate.
+# A failed delete (the server answers with an error) cannot be provoked on a healthy QA system and is not part of this scenario.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; refusals of access are in scenario 15.
+---
+id: tenant-administration-14-saved-view-screen-select-save-delete
+scope: tenant-administration
+title: On the record list screen the administrator chooses, saves and deletes a saved view, and the screen refuses an empty name, the last column and a name already in use
+version: "1.0"
+tags: [tenant-admin, saved-views, gui, record-list, refusal]
+
+description: >
+  The record type "UAT view ticket" of SwiftRoute has three records: "T1" (status open), "T2" (status closed) and "T3" (status open), each with the fields
+  title, status and priority. Company has no saved view of this type. The administrator of SwiftRoute opens the list screen of this type and finds only the
+  entry "(no view)" in the view chooser, all three columns and all three records. The administrator hides the column priority, filters on status open,
+  orders by title ascending and saves the view "UAT open tickets". The screen refuses an empty name, hiding the last remaining column, and a second
+  save under the same name. After choosing "(no view)" the screen is back to all columns and all records. The administrator sets the page size to 10 and
+  chooses the view again: columns, filter and order come from the view, only the open tickets T1 and T3 are listed, and the page size is still 10. The
+  administrator starts a deletion, cancels it (the view stays), deletes it for real (the view is gone and the three records are untouched). With no view
+  chosen, the delete control is not usable.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator; the record type "UAT view ticket" exists with the fields title, status and priority, and holds exactly the three records "T1" (status open, priority high), "T2" (status closed, priority low) and "T3" (status open, priority low); the type carries no access restriction
+    check: system_seeded
+    detail: The records are saved by the test setup (scenario 11 of this group creates the type; if it is absent the setup creates it). If any other record exists in the type, the report names it and the lists below are judged only on T1, T2 and T3.
+  - description: SwiftRoute has no saved view of the record type "UAT view ticket"
+    check: system_seeded
+    detail: If one exists (from an earlier run), the administrator deletes it on the screen first and the report says so; step 1 is then judged on the state after that.
+  - description: The administrator of SwiftRoute holds the view permission and can sign in to the web screen
+    check: system_seeded
+    detail: Per the role matrix, the tenant administrator holds it. If the sign-in is not possible, the scenario is BLOCKED, not PASS.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator opens the list screen of the record type "UAT view ticket" and notes what the view chooser offers, which columns are shown, which
+      records are listed, the page size, and which of the controls "Save as view" and "Delete view" are shown and usable.
+    via: gui
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator unticks the column priority, sets the filter to "status equals open", sets the order to title ascending, applies the filter, types
+      the view name "UAT open tickets" and presses "Save as view". The administrator notes the chooser, the shown view, the name box and the list.
+    via: gui
+    input:
+      view_name: UAT open tickets
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator tries three things in turn and notes each result: to save with the name box empty (or only spaces); to untick the columns one
+      by one until only one is left, and then to untick that last one; to type the name "UAT open tickets" again and press "Save as view".
+    expect_refusal: true
+    via: gui
+    input:
+      empty_name: ""
+      duplicate_name: UAT open tickets
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator chooses "(no view)" in the view chooser and notes the columns, the filter and order controls, and the list.
+    via: gui
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator sets the page size to 10, then chooses the view "UAT open tickets" and notes the columns, the filter and order controls, the
+      records listed in their order, and the page size.
+    via: gui
+    input:
+      page_size: "10"
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator presses "Delete view", reads the question, cancels, and notes whether the view is still in the chooser and still chosen. The
+      administrator presses "Delete view" again and confirms with "Delete". The administrator notes the chooser, the columns, the list, and then opens
+      the list screen again from the start to see that the view does not come back.
+    via: gui
+  - step: 7
+    actor: tenant_admin
+    action: >
+      With "(no view)" chosen, the administrator tries to press "Delete view" and notes the result.
+    expect_refusal: true
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: With no saved view the screen offers only "(no view)", shows every column and every record, and shows the save control as usable and the delete control as not usable, to the administrator.
+    verification:
+      method: gui_screen
+      detail: In step 1 the chooser holds the single entry "(no view)"; the columns title, status and priority are shown; the records T1, T2 and T3 are listed; the page size is 25; "Save as view" and "Delete view" are both shown, and "Delete view" cannot be pressed.
+      evidence: Screen after step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot see that no view exists yet, or cannot manage views.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Saving stores the shown columns, filter and order under the typed name, and the new view is chosen afterwards with the name box cleared.
+    verification:
+      method: gui_screen
+      detail: After step 2 the chooser holds "(no view)" and "UAT open tickets", with "UAT open tickets" chosen; the name box is empty; the columns title and status are shown and priority is not; the list shows T1 and T3 in title order and not T2.
+      evidence: Screen after step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A saved view does not hold what the administrator arranged, so colleagues get a wrong list.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The screen refuses an empty name, hiding the last column, and a second save under a name already in use; nothing is stored for them.
+    verification:
+      method: gui_screen
+      detail: In step 3 the save control cannot be pressed for an empty name or one of spaces; the last remaining column's tick box cannot be unticked; the second save under "UAT open tickets" shows the message "A view with this name already exists." and the chooser still holds exactly one view of that name.
+      evidence: Screens of the three attempts in step 3, and the chooser after them.
+    on_fail:
+      severity: MAJOR
+      business_impact: Views without a name or without a column, or two views with one name, could be stored and confuse the company's users.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Choosing "(no view)" returns the screen to every column, no filter, no order and every record.
+    verification:
+      method: gui_screen
+      detail: After step 4 the columns title, status and priority are shown; the filter and order controls are empty; T1, T2 and T3 are listed.
+      evidence: Screen after step 4.
+    on_fail:
+      severity: MINOR
+      business_impact: A leftover view setting makes the list look filtered when no view is chosen.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Choosing a view sets the columns, filter and order controls to the stored values, lists only the matching records in the stored order, and keeps the page-size value as it was.
+    verification:
+      method: gui_screen
+      detail: After step 5 the columns title and status are shown; the filter control reads "status equals open"; the order control reads title ascending; T1 then T3 are listed and T2 is not; the page size still reads 10.
+      evidence: Screen after step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A chosen view does not give the list it stands for, or silently changes how many records a page holds.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: Deleting asks for confirmation; cancelling keeps the view, confirming removes it, and the records are not affected.
+    verification:
+      method: gui_screen
+      detail: In step 6 after cancel the chooser still holds "UAT open tickets" and it is still chosen; after the confirmed deletion the chooser holds "(no view)" only, the screen shows every column and the list shows T1, T2 and T3; after opening the screen again the view does not return.
+      evidence: Screens after the cancel, after the confirmed deletion and after the second opening of the screen.
+    on_fail:
+      severity: MAJOR
+      business_impact: A view is deleted without a question, is not deleted, or records are lost with it.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: With no view chosen, deleting is refused.
+    verification:
+      method: gui_screen
+      detail: In step 7 the control "Delete view" cannot be pressed and no question appears.
+      evidence: Screen after step 7.
+    on_fail:
+      severity: MINOR
+      business_impact: The administrator could try to delete something that is not chosen.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The view is deleted in step 6. The record type "UAT view ticket" and its three records stay for scenarios 11 to 15 of this group.
