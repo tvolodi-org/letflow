@@ -83,7 +83,8 @@ defmodule Letflow.Api.AuthorizationTest do
       :ScriptsPublish,
       # REQ-536 (decision 0063 S8)
       :DocumentHold,
-      :DocumentsRetentionManage
+      :DocumentsRetentionManage,
+      :IntegrationMappingsManage
     ]
 
     test "core_permissions/0 returns the closed core list through ISS-0935's :EntitiesRestrictionsManage, no Catalog atoms" do
@@ -470,7 +471,8 @@ defmodule Letflow.Api.AuthorizationTest do
           43 => "forty-three",
           44 => "forty-four",
           45 => "forty-five",
-          46 => "forty-six"
+          46 => "forty-six",
+          47 => "forty-seven"
         }
         |> Map.get(actual_count)
 
@@ -1060,7 +1062,8 @@ defmodule Letflow.Api.AuthorizationTest do
           43 => "forty-three",
           44 => "forty-four",
           45 => "forty-five",
-          46 => "forty-six"
+          46 => "forty-six",
+          47 => "forty-seven"
         }
         |> Map.get(actual_count)
 
@@ -1556,7 +1559,8 @@ defmodule Letflow.Api.AuthorizationTest do
           43 => "forty-three",
           44 => "forty-four",
           45 => "forty-five",
-          46 => "forty-six"
+          46 => "forty-six",
+          47 => "forty-seven"
         }
         |> Map.get(actual_count)
 
@@ -2191,6 +2195,11 @@ defmodule Letflow.Api.AuthorizationTest do
         {"PATCH", "/tenant/settings", :TenantSettingsManage},
         {"GET", "/tenant/config-bundle", :TenantSettingsManage},
         {"POST", "/tenant/config-bundle/import", :TenantSettingsManage},
+        {"POST", "/integration-mappings", :IntegrationMappingsManage},
+        {"GET", "/integration-mappings", :IntegrationMappingsManage},
+        {"GET", "/integration-mappings/:id", :IntegrationMappingsManage},
+        {"PUT", "/integration-mappings/:id", :IntegrationMappingsManage},
+        {"DELETE", "/integration-mappings/:id", :IntegrationMappingsManage},
         {"POST", "/onboarding", :TenantsManage},
         {"GET", "/onboarding/:id", :TenantsManage},
         {"POST", "/onboarding/:id/bind-realm", :TenantsManage},
@@ -2410,7 +2419,8 @@ defmodule Letflow.Api.AuthorizationTest do
                    :ScriptsPublish,
                    # REQ-536 (decision 0063 S8)
                    :DocumentHold,
-                   :DocumentsRetentionManage
+                   :DocumentsRetentionManage,
+                   :IntegrationMappingsManage
                  ]
 
       pair_count = length(Authorization.roles()) * length(@pre_req401_permissions)

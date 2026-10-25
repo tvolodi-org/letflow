@@ -844,7 +844,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-541 / GH #3160: number sequences bound to a record type (definitions, counters, allocation log
     # and the counter-only-grows trigger). Empty tables for existing tenants; no row altered.
     {20_261_025_200_001, Letflow.Repo.Migrations.CreateNumberSequences,
-     "20261025200001_create_number_sequences.exs"}
+     "20261025200001_create_number_sequences.exs"},
+    # REQ-565 / GH #3201: tenant integration mappings (one table, no credential column). Empty for
+    # existing tenants; no row altered.
+    {20_261_025_300_001, Letflow.Repo.Migrations.CreateIntegrationMappings,
+     "20261025300001_create_integration_mappings.exs"}
   ]
 
   @doc """

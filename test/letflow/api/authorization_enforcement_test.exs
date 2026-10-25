@@ -94,6 +94,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     # handoffs/WF02-REQ382-20260922/step-02c-security-reviewer.json.
     Letflow.Routers.TenantSettings,
     Letflow.Routers.TenantConfigBundle,
+    Letflow.Routers.IntegrationMappings,
     # REQ-404 -- Letflow.Modules.Fixture.Router's one route
     # (authz_get "/items/:id", :FixtureRead, added by REQ-404 §0.1) declares
     # :FixtureRead, backed by the REQ-401 endpoint_policy_key/2 fallback
@@ -145,6 +146,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Routers.Me => "/me",
     Letflow.Routers.TenantSettings => "/tenant/settings",
     Letflow.Routers.TenantConfigBundle => "/tenant/config-bundle",
+    Letflow.Routers.IntegrationMappings => "/integration-mappings",
     Letflow.Modules.Fixture.Router => "/modules/fixture",
     Letflow.Routers.ScriptPolicy => "/script-policy",
     Letflow.Routers.TenantRoleScopeGrants => "/tenant/role-scope-grants"

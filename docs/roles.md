@@ -152,7 +152,7 @@ without the colon; then one column per role in `roles/0` order (eight columns); 
 final column `scope` (`platform` or `tenant`); whitespace-separated, first line is the header.
 PLATFORM_ADMIN `yes` means as evaluated in the platform tenant. The rows cover every core permission of
 `Authorization.core_permissions/0` (REQ-446 names, `TenantSettingsManage` split, `PlatformServicesManage`,
-REQ-448's `AttachmentLinksIssue`, which gates `POST /instances/:id/attachments/:attachment_id/link`, and REQ-536's `DocumentHold` and `DocumentsRetentionManage`, which gate the document hold and retention-policy routes).
+REQ-448's `AttachmentLinksIssue`, which gates `POST /instances/:id/attachments/:attachment_id/link`, and REQ-536's `DocumentHold` and `DocumentsRetentionManage`, which gate the document hold and retention-policy routes, and REQ-565's `IntegrationMappingsManage`, which gates the tenant integration-mapping routes).
 REQ-446 classified `GET /promotions/platform-events` as tenant scope under `PromotionsRead`
 (see the correction note appended to decision 0046); no platform promotion permission exists.
 Module (Catalog) permissions are all tenant scope and are not listed.
@@ -209,4 +209,5 @@ ScriptsWrite                    yes            yes              no              
 ScriptsPublish                  yes            no               no               no          no           no        yes          no             tenant
 DocumentHold                    yes            no               no               no          no           no        yes          no             tenant
 DocumentsRetentionManage        yes            no               no               no          no           no        yes          no             tenant
+IntegrationMappingsManage       yes            no               no               no          no           no        yes          no             tenant
 ```

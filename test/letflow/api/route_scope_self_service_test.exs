@@ -480,7 +480,8 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
     test "the snapshot lost exactly the six 2c-i-b lines and the fifteen 2c-ii lines: 122 remain, none of the six is present",
          %{snapshot: snapshot} do
       # 122 after 2c-ii; PR 2d removed the seven task lines (the two list lines are in @filter_lines); GH #2548 added one line (116); REQ-510 slice 1 added three exam authoring lines (119), REQ-515 added the reactivate line (120); REQ-545 removed GET /definitions and GET /definitions/search (118), REQ-546 removed GET /definitions/:id and GET /definitions/active/:name (116), REQ-552 added GET /tenant/config-bundle and POST /tenant/config-bundle/import (118)
-      assert length(snapshot) == 118
+      # REQ-565 (GH #3201) added the five integration-mappings lines (123).
+      assert length(snapshot) == 123
 
       for l <- @removed_lines, do: refute(l in snapshot, l)
     end
