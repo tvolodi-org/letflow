@@ -40088,3 +40088,104 @@ requirements:
       - "Where the activation-time half of entity_type_hooked (refusing to activate a definition that has an entity_writes or handler line on an already bound type, 0065 D1) is built is not assigned by the slice list of 0065 D8. This slice checks only the bind side; the owner or the reviewer of REQ-539 decides whether it belongs to E-1 or to E-3, and no later slice may rely on it before it is assigned."
       - "HTTP status numbers of entity_type_hooked and the other new refusals are listed under 'Not decided here' in 0065 and are not settled by the source."
     depends_on: [REQ-539]
+
+  - id: REQ-568
+    title: "Extension points in module processes (core roadmap, Customization beyond scripts), slice 0: decision record for how a tenant attaches steps or hooks to an installed module's process without editing it"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3232
+    # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (bullet "extension points in module processes"); docs/migration/decisions/0039-platform-module-solution-layering.md D7 (the paragraph "Client scripts are not in scope ... Extension points are a later decision once that registry exists"); docs/migration/decisions/0053-tenant-scripted-rules.md D0 (that paragraph is superseded for client scripts, the registry being script_rules), D1, D2, D3; docs/migration/decisions/0054-process-step-writes-entity.md D1, D6, D12; docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D4, D6, D8; docs/migration/decisions/0065-entity-pre-write-script-hook.md (hook kinds); docs/agents/instructions/security-invariants.md (INV-1, INV-3, INV-5, INV-10); REQ-550 and REQ-562 (same roadmap group). Written by the business analyst (T-0470) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap "Customization beyond scripts", bullet "extension points in module processes";
+      decision 0039 D7; decisions 0053, 0054, 0055.
+      The problem. A module ships process definitions. Decision 0039 D7 lets a tenant configure a module only
+      by values the module declared and never by editing the module's definitions in place; where a tenant did
+      change an installed definition, the 3-way pack update is "the fallback, not the normal path". D7 also
+      says that "Declared extension points where a tenant attaches its own Lua ... Extension points are a
+      later decision once that registry exists." Decision 0053 D0 records that this paragraph is superseded
+      for client scripts, the registry being script_rules (0053 D1). So the registry now exists and the
+      decision the paragraph deferred is open: how does a tenant add a step or a hook to a step of an
+      installed module's process, with nothing in the module's definition changed.
+      This is SLICE 0: its whole deliverable is one decision record under docs/migration/decisions/ with the
+      next free number at the time of the change (several records already share a number on main, so the
+      author lists the directory and takes the next one not used). It builds no code, no migration, no seed
+      and no test. The code slices are written as separate requirements only after the record is accepted;
+      each depends_on this one.
+      WHAT THE RECORD MUST DECIDE (each as a numbered D- section with reasons and the sources opened; where the
+      sources do not settle a point the record writes "not settled by the source" and puts it to the owner as
+      an open point with options and a recommendation, it does not pick silently):
+      D1 What an extension point is: a named site that a module VERSION declares in its manifest on one of its
+      process definitions (for example "after step X" or "before step X completes"), with a stable name, a
+      kind, and the data the attached step receives and may return. The module author, not the tenant,
+      decides where points exist. A tenant never invents a site.
+      D2 What a tenant attaches, and which kinds exist in the first code slice. The record chooses from what
+      the engine already allows and nothing else: a script step of hook kind service_task (0053 D2, route_kind
+      :script, a script key and version published in the tenant); an entity-write step (0054 D1); and the
+      tenant's own task or notification step, if any source allows it. For each kind it states how the
+      attachment runs (before or after the declared site, same transaction or not) and what happens when the
+      attached step fails (the module's step is not rolled back by a tenant step unless the record says so
+      and cites the source).
+      D3 Where the attachment lives. It is stored in the tenant schema, apart from the module's process
+      definition, keyed by the point's name; it is never a change of the module-owned definition row or of
+      any pack document. The record states how the engine sees it at run time without a new engine mechanism
+      beyond what 0053 and 0054 already allow, and names, for every engine file it expects a code slice to
+      touch, the decision paragraph that permits it. Anything those records do not permit is written as an
+      open point, not decided.
+      D4 Survival of module upgrade. An upgrade that keeps the extension point's name and kind keeps every
+      attachment, untouched (0055 D4 and D8 item 2: an upgrade never writes, reorders or deletes tenant-layer
+      rows and never touches tenant scripts). An upgrade that removes, renames or changes the kind of a point
+      that has attachments is a warning in the plan, and the attachment is kept inactive and listed, not
+      deleted. The record states which of these is a refusal and which a warning, in the vocabulary of 0055
+      (plan, tripwire, warnings). It states what a running instance does (0055 D6: an instance keeps the
+      definition version it started on).
+      The record states that 0055 D4 and D8 item 2 name the x_ layer, process definitions and scripts, and
+      that it extends the same never-write, never-reorder, never-delete rule to attachment rows.
+      D5 BOUNDARY against REQ-562 (per-tenant override at pack and process-definition level). The record states
+      in its own words what a declared extension point adds that an override does not: an override changes or
+      replaces content of a definition the module installed (a stored layer merged over it or an edited
+      definition), so it is bound to one pack version and has to be re-checked on every update; an extension
+      point is a vendor-declared contract of the module version, the tenant adds a step at a named site and
+      the module's definition stays byte-for-byte as shipped, so the attachment is addressed by the point's
+      name and not by the definition's content. The record also says what an extension point cannot do that an
+      override can (change or remove a module step, change the graph, change a threshold). It cites REQ-562's
+      record by number and states no rule that contradicts it. It likewise cites REQ-550's record (field-
+      and validation-level x_ layer) and states that extension points do not add fields or validations.
+      D6 Authority and audit: which permission and role attach, publish and detach (existing permission, or
+      a new one with the golden file effect named); that a tenant script attached through a point is published
+      by a person (0053 D1 publisher, D6 ScriptsPublish and scripts.sod) and is never activated by a module; how attach, detach, and the skip of an
+      inactive attachment are audited.
+      D7 Tenant isolation and sandbox. INV-1: attachment rows live in the tenant schema under the Ecto
+      :prefix, no tenant_id column (0006 D2, as script_rules in 0053 D1) and no caller-supplied tenant id
+      (INV-1(c), 0055 D8 item 7), every route takes the tenant from the auth context and never from
+      the request, and the module's declaration (global) is read-only to every tenant. INV-3: a script attached
+      at a point runs only in the existing sandbox with the limits of 0053 D7 and D11, with no wider host
+      surface than 0053 D4 gives a service_task script. INV-5 and INV-10: a user of tenant B cannot read,
+      attach to, change or detach tenant A's attachment and receives the same not-found as for an absent id.
+      D8 Existing tenants and modules: modules installed before the change declare no points; nothing changes
+      for them and for their tenants until a module version declares a point.
+      D9 The code slices expected, each sized to one change with its depends_on and its tests, with
+      SECURITY-REVIEWER named as a mandatory gate for each slice that adds a route, a table or a run-time
+      path, and the statement that none is filed or built by this slice.
+      EXCLUDED: client-side scripts in the SPA, scripts on entity pre-write (0065), form-hook scripts and
+      after-commit triggers (0053 hooks 3 and 4), the field- and validation-level x_ layer (REQ-550), pack
+      and process-definition overrides (REQ-562), print-template, form and list overrides, module uninstall.
+      Not in this change: any code, migration, seed, route, UI and test; a change to decisions 0039, 0053,
+      0054 or 0055 other than a statement in the new record of how it relates to each.
+    acceptance_criteria:
+      - "1. One new record exists under docs/migration/decisions/ with a four-digit number not used by any other file in that directory on main at the time of the change; its header names REQ-568, quotes the 0039 D7 sentence 'Extension points are a later decision once that registry exists', states that 0053 D0 supersedes the client-scripts paragraph of D7 and that this record is the deferred decision, and cites 0055 for upgrade survival. The diff is that file plus a one-line pointer where the decision records are indexed, if an index exists; it contains no file under lib/, test/, priv/, web/ or apps/."
+      - "2. The record's first section describes the present state, each item cited by a file path the author opened in this change: the superseded paragraph in docs/migration/decisions/0039-platform-module-solution-layering.md D7, script_rules and route_kind :script in 0053 D1 and D2, the entity-write step in 0054 D1, and the upgrade constraints in 0055 D4, D6 and D8."
+      - "3. Sections D1 to D9 above each exist as a numbered section; each states its decision, reasons and the sources opened with file paths. A point that no source settles is written as \"not settled by the source\" and listed in an open-points section with the options and a recommendation, not decided silently."
+      - "4. D1 and D3 define how a tenant attaches a step or a hook to an installed module's process without editing it: the extension point is declared by the module version, the attachment is stored in the tenant schema keyed by the point name, and the record states in one sentence that the module's process definition row and pack document are not changed by an attachment."
+      - "5. D4 states that an attachment survives a module upgrade that keeps the point's name and kind, names which upgrade changes are refusals and which are warnings, states that an attachment on a removed or renamed point is kept inactive and listed and never deleted, and cites 0055 D4, D6 and D8 for each rule."
+      - "6. D3 lists every engine file or module a code slice is expected to touch and, for each, the paragraph of 0053 or 0054 that allows it; a needed engine change that neither record allows appears as an open point and not as a decision. The record states that the REQ-045 decision (no supervised process per workflow instance) is unchanged."
+      - "7. D5 is a boundary section: it states in its own words what a declared extension point adds that a per-tenant process-definition override does not, and what an override can do that an extension point cannot; it cites the record of REQ-562 by its number, or, if that record does not yet exist on main, names REQ-562 and leaves a marked slot for the number that the implementing author fills from main; it cites the record of REQ-550 and states that extension points add no fields or validations; the records state no contradictory rule about which side owns a given customisation."
+      - "8. D7 names INV-1 and INV-3 by id and states, for each, the rule that binds the code slices (tenant schema with Ecto :prefix, no tenant_id column per 0006 D2 as script_rules in 0053 D1, no caller-supplied tenant id per INV-1(c) and 0055 D8 item 7, tenant from the auth context only; sandboxed execution with the 0053 limits). It requires every code slice that adds a route to carry a cross-tenant negative test (INV-10): a user of tenant B cannot read, attach to, change or detach tenant A's attachment and gets the same not-found as for an absent id (INV-5)."
+      - "9. D9 lists the code slices expected, each sized to one change with its depends_on (at least this requirement, REQ-550 and REQ-562 and their accepted records), names SECURITY-REVIEWER as a mandatory gate for each slice that adds a route, a table or a run-time path, and states that none of them is filed or built by this slice. The record contains no implementation code."
+      - "10. The record's Sign-off section (as in decision 0055) carries a REVIEWER verdict and a SECURITY-REVIEWER verdict, because the record sets tenant-data storage, authorisation and sandbox rules."
+      - "11. The change does not modify docs/requirements.yaml; mix letflow.check.static passes and any test that scans docs/migration/decisions for headings or numbering is run, real output quoted."
+    open_questions:
+      - "Which attachment kinds the first code slice offers: script step only, script step plus entity-write step, or also a tenant task step. Options and a recommendation are for the record; the owner decides if the sources do not."
+      - "Whether an attachment may run before a module step (and so block it), or only after. The source does not settle it; the record gives options and a recommendation."
+      - "The numbers of the records of REQ-550 and REQ-562 are filled in by the author from main when they exist."
+    depends_on: [REQ-550, REQ-562]
