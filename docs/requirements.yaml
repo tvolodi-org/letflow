@@ -39526,3 +39526,128 @@ requirements:
     open_questions:
       - "For the process owner: may PROCESS_DESIGNER also create jobs; should a job run as a dedicated service principal instead of its creating user; are the 5-minute minimum interval and the 5-failure automatic disable acceptable. A scheduled job that runs a tenant script needs a new hook kind and a decision record under 0053 D0 and is a later slice."
     depends_on: []
+
+  - id: REQ-565
+    title: "Tenant integration mappings: declarative payload mapping stored per tenant and applied to outbound webhook deliveries"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3201
+    # Source: docs/migration/core-roadmap-20261014.md, "Customization beyond scripts" ("integration mappings", line 106); lib/letflow/webhooks.ex (deliver/3, redact_payload_for_delivery, attempt_loop); lib/letflow/webhooks/subscription.ex; lib/letflow/webhooks/url_validator.ex; lib/letflow/routers/webhooks.ex; lib/letflow/secrets.ex; docs/agents/instructions/security-invariants.md (INV-1 to INV-5, INV-8 to INV-10); REQ-551 (same roadmap group). Written by the business analyst (T-0490) 2026-10-25. Not yet validated.
+    description: >
+      A tenant cannot today change the shape of the payload that Letflow sends to a partner system.
+      Letflow.Webhooks.deliver/3 (lib/letflow/webhooks.ex) signs and posts the event payload as it is,
+      after redact_payload_for_delivery masks restricted field values. A partner that expects other
+      field names or a flatter body needs custom code on the partner side. The roadmap lists
+      "integration mappings" among the customization candidates that need no script (line 106). This
+      requirement is the smallest slice: a tenant admin stores a declarative mapping, links it to a
+      webhook subscription, and every outbound delivery of that subscription sends the mapped body.
+      No connector, no new transport and no new outbound URL path is added.
+
+      Mapping definition. One tenant-schema table (Ecto :prefix, tenant_id kept in the row, INV-1):
+      name (unique per tenant, 1..100 characters), direction ("outbound" or "inbound"), rules, and
+      the usual timestamps and updated_by. rules is a list of at most 100 rules. A rule is either
+      {to, from} (copy the value at path from of the source payload to path to of the result) or
+      {to, const} (a literal JSON value, string, number, boolean or null). Paths are dot-separated
+      object keys and non-negative array indexes ("order.lines.0.sku"), each at most 200 characters,
+      depth at most 8; the result is built only from the rules, so a source field that no rule names
+      is not sent. A missing source path gives the rule result "absent": the key is left out of the
+      result. A rule may add "required": true, in which case a missing source path is a mapping
+      failure. There is no expression language, no function call, no template and no script: the
+      mapping is data, evaluated by one pure function of the new context module
+      (Letflow.IntegrationMappings, lib/letflow/integration_mappings.ex), so the untrusted-runtime
+      rule INV-3 does not apply to it (nothing tenant-supplied is executed). The apply function takes
+      the mapping and a payload map and returns {:ok, mapped_map} or {:error, reason}; it has no
+      side effect, no network access and no database access.
+
+      Directions. "outbound" is applied by this change to webhook deliveries. "inbound" is stored and
+      validated by the same rules and is applied by the same apply function, but no inbound webhook
+      receiver exists on main (grep for an inbound route in lib/letflow/routers/ finds none; decision
+      0051 only mentions inbound webhooks as a future reader of records), so wiring an inbound
+      mapping to a receiver, a record write or a process variable is a later requirement candidate
+      that depends on the receiver. This change therefore stores inbound mappings but nothing calls
+      them yet; the apply function's output is a plain map that a later receiver passes on.
+
+      Outbound application. The Webhooks subscription gets a nullable reference to one outbound
+      mapping of the same tenant. When set, deliver/3 applies the mapping to the payload after
+      redact_payload_for_delivery and before the body is encoded and signed, so a mapping can never
+      put back a field value that the redaction masked, and the HMAC signature is that of the mapped
+      body. Delivery rows hold no body; the only stored copy of a payload is the DLQ entry's
+      source_payload written by land_in_dlq after the last attempt fails, and that copy is the mapped
+      body. When unset, behaviour and the signed bytes are
+      unchanged (backward compatible). The mapping touches the body only: the target URL stays the
+      subscription's target_url, which keeps passing Letflow.Webhooks.UrlValidator.validate/2 on
+      every attempt (INV-9); no rule can set a URL, a header or a host.
+
+      Secrets (INV-4). A mapping holds no credentials. Rule constants are public configuration: they
+      are stored as plain JSON, are shown to every holder of the permission, are not routed through
+      Letflow.Secrets, and may be logged and audited. The signing key of a delivery stays resolved by
+      reference (subscription.secret_ref, Letflow.Secrets.resolve/2) as today. The module doc states
+      that a secret must never be written as a const; the stored mapping is not scanned for secrets.
+
+      Failure path (INV-8). If the apply function returns an error (a required path is missing, or
+      the mapped body is not encodable, or its encoded size is over 256 KB), deliver/3 returns
+      {:error, {:mapping_failed, reason}} where reason is a short atom or tuple naming the rule
+      index and the failed check and never contains payload values; no HTTP request is made, no
+      delivery attempt is counted toward the auto-pause threshold, and, like a redaction failure
+      ({:redaction_failed, _}), the error is returned before any attempt loop starts (fail closed, no
+      delivery row). If the linked mapping row is missing at delivery time (deleted in
+      between), the delivery fails closed the same way with reason :mapping_not_found and the
+      original payload is not sent.
+
+      Management routes (tenant comes from the auth context only; no route takes a tenant
+      identifier): POST /api/v1/integration-mappings, GET /api/v1/integration-mappings,
+      GET /api/v1/integration-mappings/:id, PUT /api/v1/integration-mappings/:id,
+      DELETE /api/v1/integration-mappings/:id. All five need the new permission atom
+      :IntegrationMappingsManage, a new tenant-scope permission (so TENANT_ADMIN holds it through the
+      tenant-scope rule and PLATFORM_ADMIN through its unconditional clause in
+      lib/letflow/api/authorization.ex; no other role). Reusing :WebhooksManage is not an option,
+      because PROCESS_OPERATOR holds it. Setting the mapping of a subscription uses the existing route
+      PATCH /api/v1/webhooks/subscriptions/:id (lib/letflow/routers/webhooks.ex), a new optional field
+      outbound_mapping_id; that route is guarded by the endpoint policy key
+      :WebhookSubscriptionsManage, which requires the permission :WebhooksManage
+      (required_permission/1 in lib/letflow/api/authorization.ex). Because PROCESS_OPERATOR holds
+      :WebhooksManage but not :IntegrationMappingsManage, a PATCH whose body contains
+      outbound_mapping_id (set or null) additionally needs :IntegrationMappingsManage and answers the
+      uniform 403 without it; a PATCH without that field is unchanged. The id must name an outbound mapping of the caller's tenant, else 422 with the uniform
+      validation error. DELETE of a mapping that a subscription still references answers 409 and
+      deletes nothing. Each create, update and delete is audited through lib/letflow/audit.ex with
+      mapping id, name, direction and the actor.
+
+      Relation to existing work. It extends the webhooks context (REQ-181, REQ-183, REQ-190) at one
+      point (the payload step of deliver/3) and adds one column to webhook_subscriptions; it does not
+      change dispatch, retry, signing, auto-pause or the DLQ. It does not touch the HTTP service task
+      path (Letflow.Engine.ServiceTaskDispatcher) or the service catalog; mapping the body of a
+      service task call is a later candidate. Relation to REQ-551 (tenant label overrides): both
+      belong to the roadmap group "Customization beyond scripts" and REQ-551 names integration
+      mappings as a later candidate that is not in its diff. There is no code or data dependency:
+      depends_on is empty, the two touch different tables, routes and permissions, and neither
+      reuses the other's module. They follow the same pattern (a new tenant table, a new tenant admin
+      permission, plain data and no execution) so their security reviews can use the same checklist.
+
+      Not in this change, each a later requirement candidate: an inbound webhook receiver and
+      applying an inbound mapping to a record or a process variable; mapping for service task calls;
+      transforms (formatting, concatenation, lookup tables); a mapping editor screen; per-event-type
+      mappings (this slice maps every event type of a subscription with the one mapping); a test-send
+      route; scheduled jobs; notification templates.
+    acceptance_criteria:
+      - "1. Apply function: Letflow.IntegrationMappings.apply_mapping/2 (lib/letflow/integration_mappings.ex; the name avoids Kernel.apply/2) is pure and covered by a table-driven unit test: a {to, from} rule copies a nested value, including an array element by index; a {to, const} rule writes the literal (string, number, boolean, null); a missing source path leaves the key out of the result; with \"required\": true a missing source path returns {:error, {:required_missing, rule_index}}; a source field that no rule names is absent from the result; two rules with the same to path are refused when the mapping is saved (criterion 2), so the function never sees them."
+      - "2. Definition validation: create and update answer 422 with a uniform error body and store nothing for: an empty or over-100-character name, a name already used by another mapping of the tenant, a direction other than outbound or inbound, more than 100 rules (exactly 100 is accepted), a path over 200 characters or deeper than 8 segments, a rule with neither from nor const or with both, a path segment that is empty or has a character other than letters, digits, underscore and hyphen, two rules with the same to path or where one to path is a prefix of another, and a rule key other than to, from, const and required. A test covers each case and the boundaries 100/101 rules and 8/9 segments."
+      - "3. Declarative only: the module doc and a test show that the mapping is never evaluated as code: a const or a path containing text such as \"#{1+1}\", \"{{x}}\", \"$(x)\" or a JSON-path filter expression is stored and returned as inert text, and a from path containing such text is refused by the path rule of criterion 2. The diff adds no use of Code.eval_*, no call into the script sandbox and no new dependency."
+      - "4. Storage (INV-1, INV-6): mappings live in one table of the tenant schema created through the repository's usual tenant-migration path (existing tenants get it, no existing row altered), with tenant_id in the row and a unique index on name; the nullable outbound_mapping_id column is added to the tenant's webhook_subscriptions table through the same path, null for every existing row; every Repo call of the new context passes the tenant :prefix, and the summary quotes the grep that lists the Repo calls of the module and shows each passes it. A test with two tenants that store a mapping of the same name shows each lists and reads only its own."
+      - "5. Outbound application and ordering: with a subscription linked to a mapping, a test of Letflow.Webhooks.deliver/3 using the setup of test/letflow/webhooks_delivery_test.exs asserts that the request body is the mapped map and that the X-Letflow-Signature header is the HMAC of exactly those body bytes; when all attempts fail, the DLQ entry's source_payload written by land_in_dlq is the mapped body. A test using the setup of test/letflow/webhooks_redaction_test.exs, with a payload whose restricted field value is masked by redact_payload_for_delivery, asserts that a rule copying that field sends the masked value, never the original."
+      - "6. Backward compatibility: with outbound_mapping_id null, a delivery sends the same body bytes and signature as before this change; the existing tests of test/letflow/webhooks_delivery_test.exs, test/letflow/webhooks_redaction_test.exs and test/letflow/webhooks_test.exs pass unchanged."
+      - "7. Failure path (INV-8): a delivery whose mapping fails on a required path returns {:error, {:mapping_failed, {:required_missing, rule_index}}}; a delivery whose mapped body encodes over 256 KB returns {:error, {:mapping_failed, :body_too_large}}; a delivery whose linked mapping row no longer exists returns {:error, {:mapping_failed, :mapping_not_found}}. In all three no HTTP request is made, consecutive_failures of the subscription is unchanged, no payload value appears in the returned error or in the log, and the error is returned before any attempt loop starts, as for {:redaction_failed, _}. No exception escapes deliver/3."
+      - "8. Outbound URL unchanged (INV-9): a test shows that a mapping with a rule whose to path is url, target_url or host changes only the body key of that name, and that the request still goes to the subscription's target_url and still passes through Letflow.Webhooks.UrlValidator.validate/2 (test/letflow/webhooks/url_validator_test.exs and the private-address tests of test/letflow/routers/webhooks_test.exs still pass unchanged). The diff adds no outbound call path and no new place that reads a URL from a mapping."
+      - "9. Secrets by reference (INV-4): the signing key is still resolved by Letflow.Secrets.resolve/2 from subscription.secret_ref; a test shows that the mapping table has no column that holds a credential and that the signing key does not appear in a mapping response, in the audit event or in a mapping_failed error. The module doc states that rule constants are public configuration, not secrets, and that a secret must never be written as a const."
+      - "10. Permission (INV-2): :IntegrationMappingsManage is added to @permissions (not to @platform_permissions) in lib/letflow/api/authorization.ex, so TENANT_ADMIN holds it through the tenant-scope rule and PLATFORM_ADMIN through its unconditional clause; it is not granted to any role except TENANT_ADMIN and PLATFORM_ADMIN. docs/roles.md and the route-scope inventory are updated in step. A TENANT_ADMIN gets 201, 200 and 204 on the five routes; TASK_WORKER, TENANT_AUDITOR, PROCESS_DESIGNER and PROCESS_OPERATOR get 403 on all five. No test or fixture grants PLATFORM_ADMIN to a tenant user."
+      - "11. Not-found versus forbidden (INV-5): a caller without the permission gets the uniform 403 on GET, PUT and DELETE of an id that exists and of an id that does not, with identical status, body and content-type header (a test compares them within one run). For a holder, GET, PUT and DELETE of an id that does not exist in the caller's tenant answer one fixed not-found reply, the same for an id that exists only in another tenant."
+      - "12. Link rules: PATCH /api/v1/webhooks/subscriptions/:id with outbound_mapping_id of an inbound mapping, of a mapping of another tenant, or of an unknown id answers 422 with the same uniform validation error for the three cases and changes nothing; with an outbound mapping of the tenant it stores the link; with null it clears it. DELETE of a mapping that a subscription references answers 409 and deletes nothing; after the link is cleared, DELETE answers 204. A PROCESS_OPERATOR (holds :WebhooksManage, not :IntegrationMappingsManage) gets the uniform 403 when the body contains outbound_mapping_id, set or null, and the link is unchanged; the same PROCESS_OPERATOR PATCHing another field of the subscription still succeeds as before."
+      - "13. Cross-tenant negative test (INV-10): the routes take no tenant identifier; a test with a mapping stored only in tenant A shows that a TENANT_ADMIN of tenant B gets the fixed not-found reply for GET, PUT and DELETE of its id (the same reply as for an unknown id) and sees nothing of it in the list, that tenant A's mapping is unchanged afterwards, that a subscription of tenant B cannot be linked to it (criterion 12), and that a tenant_id in the query or body is ignored and the token's tenant is used."
+      - "14. Audit: create, update and delete each write an audit event with mapping id, name, direction and the acting principal in the same transaction as the change; a test reads the event and finds no other tenant's data and no rule constants."
+      - "15. Scope guard: the diff contains no inbound route or receiver, no change to Letflow.Engine.ServiceTaskDispatcher or the service catalog, no SPA change, no change to dispatch, retry, signing or auto-pause logic, and no new dependency; the PR body lists the later candidates named in the description."
+      - "16. Gates: SECURITY-REVIEWER verdict (INV-1, INV-2, INV-4, INV-5, INV-6, INV-9, INV-10; new tenant table, permission, routes and a change on the webhook payload path) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static, mix letflow.check_requirements_registration, the new backend test files and test/letflow/webhooks_test.exs, the route-count and authz pins found by grep over test/ for __authz_routes__ and length(snapshot), and any test that pins the webhook_subscriptions column list (grep the column names across test/) pass, real output quoted."
+    open_questions:
+      - "UAT assumption, to be confirmed by the process owner: the limits (100 rules, 8 path segments, 200-character path, 256 KB body) and the rule set (copy, constant, required; no transforms) are chosen by the BA from the source above, not set by a decision record."
+      - "For the process owner: when an inbound webhook receiver is wanted and which record type or process variables it fills; this slice stores inbound mappings but nothing calls them."
+    depends_on: []
