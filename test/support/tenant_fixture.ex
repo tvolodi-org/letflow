@@ -175,6 +175,7 @@ defmodule Letflow.TenantFixture do
     "number_sequence_counters",
     "number_sequence_definitions",
     "number_sequence_numbers",
+    "notification_templates",
     "pending_tenant_admin_grants",
     "process_definitions",
     "promotion_assertion_runs",

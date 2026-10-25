@@ -29,6 +29,7 @@ export const P = {
   TenantSettingsManage: 'TenantSettingsManage',
   EntitiesDefinitionsRead: 'EntitiesDefinitionsRead',
   EntitiesRecordsWrite: 'EntitiesRecordsWrite',
+  EntitiesViewsManage: 'EntitiesViewsManage',
 } as const
 
 /** Body of GET /api/v1/me/access. */

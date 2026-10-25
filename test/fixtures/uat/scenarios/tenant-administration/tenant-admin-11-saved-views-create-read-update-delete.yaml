@@ -1,0 +1,169 @@
+# T-0556 (BA): TENANT ADMIN group, scenario 11: saved list views, the administrator creates, reads, changes and deletes a view.
+# Covers REQ-555 criteria 1 (stored view with name, record type, ordered columns, filter, sort, who and when), 3 (read needs only the query
+# permission, write needs the view permission, success side), 4 (no view answer carries a record value; the list reads records by the
+# ordinary record query), 7 (audit entry for create, update, delete).
+# Sources: docs/requirements.yaml REQ-555 (criteria 1, 3, 4, 7); docs/migration/decisions/0066-generic-saved-views-over-records.md;
+# docs/roles.md matrix row EntitiesViewsManage (tenant administrator only) and EntitiesQuery; test/fixtures/uat/actors.yaml.
+# Not covered here: criterion 4's redaction of a field the caller has no grant on when a view is replayed. It needs a record type with a
+# restricted field and a user without the grant, which is the setup of the restricted-fields scenarios; the replay itself is the ordinary
+# record query, which those scenarios already check. Criterion 8 (reviewer verdicts, build commands) is process work, not a business check.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the access refusals are in
+# scenario 13.
+---
+id: tenant-administration-11-saved-views-create-read-update-delete
+scope: tenant-administration
+title: The administrator saves, reads, changes and deletes a list view over one record type, and the view never carries record values
+version: "1.0"
+tags: [tenant-admin, saved-views, crud, audit]
+
+description: >
+  The administrator of SwiftRoute creates the record type "UAT view ticket" with the fields title (text, required), status (text) and
+  priority (whole number). The administrator saves the view "UAT open tickets" over that type with the columns title and status, the
+  filter "status equals open" and the sort "title ascending". The view is read back by list and by id, then changed: new name, the extra
+  column priority, the sort "priority descending". A task worker, who may read lists, reads the same view. The stored filter and sort are
+  then used as an ordinary record query, which is how a list screen shows records. Finally the administrator deletes the view; reading it
+  again and deleting it again give the same not-found answer. No answer about a view contains a record value or a company identifier, and
+  create, change and delete each leave an audit entry.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  worker: actor-swiftroute-lena
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator and a task worker; no record type "UAT view ticket" and no saved view named "UAT open tickets" or "UAT open tickets by priority" exist
+    check: system_seeded
+    detail: If they exist from an earlier run, delete the views first and note that in the report; the record type may stay.
+  - description: The audit trail of the company can be read by the administrator
+    check: system_seeded
+    detail: If the test environment cannot show the audit trail, report BLOCKED for the audit part of EO-006 and run the rest.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator creates the record type "UAT view ticket" with the fields title (text, required), status (text) and priority (whole
+      number), and makes it active.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator creates the view named "UAT open tickets" over the record type "UAT view ticket" with the columns title, status (in
+      this order), the filter "status equals open" and the sort "title ascending". The administrator notes the id, the name, the type, the
+      columns in order, the filter, the sort, the creating person and the time of the answer.
+    via: api
+    input:
+      name: UAT open tickets
+      entity_type: UAT view ticket
+      columns: [title, status]
+      filter: status equals open
+      sort: title ascending
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator lists all views, lists the views of the type "UAT view ticket" only, and reads the view of step 2 by its id. The
+      administrator compares the three answers with step 2.
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator changes the view of step 2: the name becomes "UAT open tickets by priority", the columns become title, status,
+      priority (in this order), the sort becomes "priority descending", and the filter stays "status equals open". The record type is not
+      part of the change. The administrator reads the view again and notes the name, columns, sort, creating person, changing person and
+      the two times.
+    via: api
+    input:
+      name: UAT open tickets by priority
+      columns: [title, status, priority]
+      filter: status equals open
+      sort: priority descending
+  - step: 5
+    actor: worker
+    action: >
+      The task worker lists the views and reads the view of step 4 by its id, and notes whether the view is shown and what the answer
+      contains.
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator asks for the records of the type "UAT view ticket" with the filter and sort stored in the view of step 4, as the
+      ordinary record query that a list screen sends. The administrator notes that the answer is a normal record answer (it may hold no
+      records) and that the view itself was not the source.
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator deletes the view of step 4, then reads it by its id, then lists the views of the type, then deletes it a second
+      time. The answers are noted.
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator reads the audit trail of the company for the entries of the view of steps 2, 4 and 7, and notes the kind of each
+      entry, the acting person and the time.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A created view is stored as given and the answer names who created it and when; the id is new and the company is not named.
+    verification:
+      method: api_response
+      detail: The answer of step 2 is a creation (201) with an id, the name "UAT open tickets", the type "UAT view ticket", the columns title then status in that order, the filter and the sort as given, the creating person alice, and times; it holds no company identifier.
+      evidence: The answer of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A saved list view does not keep what the administrator set, so every user who selects it sees a different list.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The view is found by list, by type and by id, with the same content each time.
+    verification:
+      method: api_response
+      detail: In step 3 the list of all views and the list of the type each contain the view once; the answer by id equals the answer of step 2 in every field.
+      evidence: The three answers of step 3 compared with step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Users cannot find the saved view they need, or see two versions of it.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A change replaces name, columns, filter and sort, keeps the record type and the creating person, and records who changed it and when.
+    verification:
+      method: api_response
+      detail: After step 4 the view has the new name, the three columns in the stated order and the sort "priority descending"; the type is "UAT view ticket"; the creating person is alice and the first time is unchanged; the changing person is alice and the second time is later than in step 2.
+      evidence: The reading of the view in step 4 compared with step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A change to a shared list is lost, or nobody can tell who changed it.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A user with the query permission only (the task worker) can read the view, and the answer is the same as the administrator's.
+    verification:
+      method: api_response
+      detail: In step 5 both answers are 200 and the view is shown with the content of step 4 (if the answer is empty because the worker may not read the record type, the report says so, since the type is then hidden from that worker by design).
+      evidence: The two answers of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Staff cannot use the list views their administrator has prepared.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: No answer about a view contains a record value, and the stored filter and sort work as an ordinary record query.
+    verification:
+      method: api_response
+      detail: The answers of steps 2 to 5 hold only the view fields (id, type, name, columns, filter, sort, persons, times) and no value of any record; the answer of step 6 is the ordinary record answer for the type.
+      evidence: The answers of steps 2 to 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A view could become a second way to read records that bypasses the rules which hide fields from a user.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: Deleting removes the view; a second reading or deletion gives the same not-found answer; create, change and delete each leave an audit entry naming the administrator.
+    verification:
+      method: audit_event
+      detail: In step 7 the first deletion succeeds (204), the reading, and the second deletion give the same not-found status and body, and the list of the type does not show the view. In step 8 there are three entries (create, update, delete) for the view, each with alice as the acting person, and no entry for the failed second deletion.
+      evidence: The answers of step 7 and the audit entries of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: Deleted lists keep appearing, or changes to shared lists cannot be traced to a person.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the views "UAT open tickets" and "UAT open tickets by priority" if they still exist. The record type "UAT view ticket" stays for scenarios 12 and 13 and is retired with the test customer.
