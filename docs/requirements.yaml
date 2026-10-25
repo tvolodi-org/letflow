@@ -40498,6 +40498,83 @@ requirements:
       - "UAT assumption, to be confirmed by the process owner: the list route uses the same management permission and a TENANT_ADMIN-only grant; whether PROCESS_DESIGNER or TENANT_AUDITOR may read definitions is not settled by REQ-541 or decision 0056 and is left to a later requirement."
     depends_on: [REQ-541]
 
+  - id: REQ-576
+    title: "Tenant x_ extension layer slice I1: the entity_type_extensions tenant table, its schema module and its tenant-provisioning entry (decision 0067-tenant-x), storage only, no route and no write path"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3258
+    # Source: docs/migration/decisions/0067-tenant-x-extension-layer-over-module-entity-types.md section D2 ("Storage": table name, columns, unique key, name check; "The migration and the tenant provisioning list entry are an implementation slice (I1)") and section "Expected implementation requirements" (I1: "migration, schema and tenant-provisioning entry for entity_type_extensions, with a cross-tenant negative test"); its sections "Not decided here" (no code, route or test is decided there beyond I1) and OP-3 (promoted x_ columns, filter and sort on x_ fields: not in v1) and "Threat cases for SECURITY-REVIEWER" 1 and 6; docs/migration/decisions/0006 D2 (which tables lost tenant_id); priv/repo/migrations/20261025500001_create_entity_views.exs and lib/letflow/tenant_provisioning.ex (the neighbouring tenant-table slices); test/support/tenant_fixture.ex and test/letflow/support/tenant_fixture_test.exs (the tenant table list and its count); docs/agents/instructions/security-invariants.md INV-1, INV-7, INV-10. Written by the business analyst (T-0563) 2026-10-25. Not yet validated.
+    description: >
+      Slice I1 of decision 0067-tenant-x. That record (D2) says a tenant's additions to a module's entity
+      type are stored apart from the module definition, in one new table entity_type_extensions in each tenant
+      schema, and that "the migration and the tenant provisioning list entry are an implementation slice (I1)".
+      This requirement is that slice and nothing wider: STORAGE ONLY. It adds the empty table, its Ecto schema
+      module and its place in the provisioning manifest, plus the tests below. It adds NO route, NO write path,
+      NO permission (:EntitiesExtensionsManage is slice I2), NO merge into write validation (I3), NO read surface
+      (I4), NO upgrade-plan check (I5) and NO catalog change (I6). Promoted extension columns, filter and sort on
+      x_ fields and unique constraints over x_ fields are open point OP-3 of the record and are not built: an x_
+      field lives only in the field_values JSONB blob, so this table has no column that names a record column.
+
+      THE TABLE (columns as D2 lists them; the unique key and the name check are D2's, and the kind, status, spec-type and NOT NULL checks are this requirement's own, derived from the allowed values D2 names). One migration in priv/repo/migrations/
+      creates entity_type_extensions in the tenant schema, guarded by `if prefix() do` like
+      priv/repo/migrations/20261025500001_create_entity_views.exs, with: id (uuid primary key); tenant_id (uuid
+      NOT NULL); entity_type (text NOT NULL); kind (text NOT NULL, check kind = 'field'); name (text NOT NULL,
+      check name LIKE 'x\_%'); spec (jsonb NOT NULL, the field_def shape, check jsonb_typeof(spec) = 'object');
+      position (integer NOT NULL); status (text NOT NULL, check status IN ('active','retired')); inserted_at and
+      updated_at (timestamptz NOT NULL). A unique index on (tenant_id, entity_type, name). No foreign key to
+      entity_definitions (the record says the layer is not a row of entity_definitions and must survive a module
+      upgrade that replaces that row), no foreign key to users and no foreign key to another schema. The table
+      starts empty and no existing row is altered; existing tenants receive it through the manifest entry below
+      (the summary of the change says so). Statement on tenant_id: tenant isolation is the schema :prefix (INV-1);
+      the tenant_id column is kept in the row as D2 of 0067 states and as entity_views does. Decision 0006 D2
+      removed tenant_id only from the eight legacy business tables it names (events, events_archive,
+      instance_projections, process_definitions, tokens, tasks, promotion_reviews, promotion_assertion_runs) and
+      from users and groups, so it does not forbid the column on a new table. The identifier format of entity_type
+      and name (the record cites ISS-0777) and the cap per type are checked at the write path of slice I2, not in
+      this table; the database carries only the constraints listed above.
+
+      THE SCHEMA MODULE. One Ecto schema module for the table under lib/letflow/entities/ (neighbouring file:
+      lib/letflow/entities/entity_definition.ex) with the fields above. It has no changeset function and no
+      function that calls Repo, and no other module in lib/ references it in this slice: a write path is slice I2.
+      Its moduledoc states the placement (per tenant, read and written only under the tenant :prefix), that the
+      table is storage for slice I2 onward, and points to decision 0067-tenant-x D2.
+
+      THE PROVISIONING ENTRY. The migration is added as a new row at the end of the manifest list in
+      lib/letflow/tenant_provisioning.ex (the list whose last row today is
+      {20_261_026_100_001, Letflow.Repo.Migrations.CreateScheduledJobs, ...}), with the next free version number
+      taken from origin/main at the time of the change, so that a newly provisioned tenant has the table and
+      Letflow.TenantProvisioning's replay over an already provisioned tenant creates it.
+
+      PINS THIS CHANGE MOVES (the implementer re-reads both numbers on origin/main before editing, since sibling
+      tenant-table slices move them too): (1) the tenant table list in test/support/tenant_fixture.ex
+      (@expected_tenant_tables, alphabetical): add "entity_type_extensions" between "entity_record_latest" and
+      "entity_type_instances"; (2) its length pin in test/letflow/support/tenant_fixture_test.exs
+      (`assert length(TenantFixture.expected_tenant_tables()) == 69` today, with its history comment): 69 becomes
+      70 and the comment gets the one added sentence. Tests that compare a replayed tenant's table set with
+      expected_tenant_tables/0 (for example test/letflow/migrations/instance_projections_scope_node_id_migration_test.exs
+      and test/letflow/migrations/tasks_scope_node_id_migration_test.exs) follow the list and need no edit.
+      Not moved by this change, and the implementer states the grep over test/ that shows it: no route, so no
+      route-scope or authorization-route pin; no permission, so no permission-matrix golden and no refused-set
+      literal; no Records write call site.
+
+      SECURITY-REVIEWER is a mandatory gate (a new tenant table and a migration on a tenant-data path; threat
+      cases 1 and 6 of the record apply to the table's shape). Nothing under web/ or apps/ changes. Out of scope:
+      everything under "Not decided here" in decision 0067-tenant-x and every other slice I2 to I7 of the record.
+    acceptance_criteria:
+      - "1. Table shape: after the migration runs on a tenant schema, the table entity_type_extensions exists in that schema with exactly the columns id, tenant_id, entity_type, kind, name, spec, position, status, inserted_at, updated_at, each with the type and NOT NULL setting named in the description (a test reads information_schema.columns for the tenant schema and compares the full list); it has no column other than these and no foreign key (a test reads information_schema.table_constraints for the tenant schema and finds none of type FOREIGN KEY on the table)."
+      - "2. Database checks: in a test that inserts directly under the tenant prefix, a row with name \"module_field\" (no x_ prefix) is refused by the database (Postgres check violation), a row with name \"xfoo\" is refused, and a row with name \"x_foo\", kind \"field\", status \"active\" and a spec object is accepted; a row with kind \"validation\", a row with status \"deleted\", and a row with a spec that is a JSON array are each refused; a second row with the same (tenant_id, entity_type, name) is refused by the unique index, and the same name for a different entity_type is accepted."
+      - "3. Empty on creation, existing tenants: provisioning a new tenant creates the table with zero rows; a test that runs the migration over an already provisioned tenant (a tenant schema created before the manifest row existed, replayed through Letflow.TenantProvisioning) asserts the table exists there with zero rows and that the row counts of entity_definitions and process_definitions in that schema are unchanged by the replay. The migration is guarded by `if prefix() do`: running it without a prefix creates nothing in the public schema (a test asserts the public schema has no entity_type_extensions table)."
+      - "4. Provisioning entry: lib/letflow/tenant_provisioning.ex lists the migration as a new last row of the manifest with the next free version number on origin/main and the file name of the migration; `mix letflow.check.static` passes for the change and its real output is quoted in the summary. Down migration: running the migration down on a tenant schema drops the table in that schema only (a test asserts another tenant's schema keeps its table and rows)."
+      - "5. Pins: \"entity_type_extensions\" is in the list returned by TenantFixture.expected_tenant_tables/0 in alphabetical position, and the length pin in test/letflow/support/tenant_fixture_test.exs is the previous value plus one (70 if origin/main still has 69 at the time of the change); the test files that compare a replayed tenant's table set with that list (test/letflow/migrations/instance_projections_scope_node_id_migration_test.exs, test/letflow/migrations/tasks_scope_node_id_migration_test.exs, test/letflow/support/tenant_fixture_test.exs) pass, with real output quoted."
+      - "6. INV-1 and INV-10 cross-tenant negative test: with two provisioned tenants A and B, a row inserted under tenant A's prefix with tenant A's tenant_id is not returned by a query of the table under tenant B's prefix (zero rows), is not changed or deleted by an update or delete issued under tenant B's prefix (zero rows affected), and the same extension name inserted under tenant B's prefix is accepted independently of tenant A's row (no unique conflict across tenants). The test selects the schema only through the :prefix option and no request value is involved, because this slice adds no route."
+      - "7. Schema module: the Ecto schema module for the table, read back through Repo with the tenant prefix, returns a row inserted by the test with its field values intact (spec map, position, status); the module defines no changeset function, and a source-scan test asserts that no file under lib/ other than the module itself and its own file references it (so that a write path cannot appear without the slice that owns it)."
+      - "8. No route and no write path: the diff adds no route (a test or the implementer's grep shows `grep -rn \"entity_type_extensions\" lib/` returns only the schema module and the provisioning manifest comment), adds no permission, and changes no file under web/ or apps/; the route-scope snapshot, authorization route-count pins and permission-matrix golden are unchanged, and the implementer states the grep over test/ (`grep -rn \"__authz_routes__\\|length(snapshot)\" test/`) that shows they did not move."
+      - "9. Mandatory SECURITY-REVIEWER gate: the PR for this requirement records a SECURITY-REVIEWER verdict in its Gates block before merge, covering the tenant schema placement, the guard on prefix(), the absence of any cross-schema foreign key and the constraint set. mix letflow.check_requirements_registration and test/letflow/ci_backend_path_filter_test.exs pass for the change, with real output quoted."
+    open_questions:
+      - "Whether a database cap on the number of extension rows per entity type is added later is not decided here: the record names a cap (for example 50) in its threat cases, and slice I2 states it at the write path."
+    depends_on: [REQ-550]
+
   - id: REQ-573
     title: "Solution pack version rules, slice S1: strict semver at pack export, version_not_newer and version_downgrade refusals in update review and apply (decision 0069 D1, D8 S1)"
     owner: ELIXIR-DEV

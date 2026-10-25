@@ -1,0 +1,200 @@
+# T-0633 (BA): TENANT ADMIN group, scenario 18: attaching a check script to a record type is refused when the script or the type is not fit, and nothing changes.
+# Covers REQ-567 slice E-1 criterion 4 (the seven refusal cases, one step each), criterion 5 (type used by an active process definition; a draft definition does not block).
+# Sources: docs/requirements.yaml REQ-567 criteria 4, 5; lib/letflow/routers/entity_type_hooks.ex (moduledoc "Refusal statuses": 403 entity_type_managed; 404 not found;
+# 422 invalid_input, script_not_found, hook_kind_mismatch; 409 script_not_published, sha_mismatch, already_bound, entity_type_hooked); lib/letflow/entity_type_hooks.ex
+# (check order; draft, deprecated and archived definitions never match entity_type_hooked; managed authority is Letflow.Entities.ManagedTypes);
+# test/fixtures/uat/scenarios/bilimbaga/exam-authoring-refusal-general-record-route-on-managed-types.yaml (the exam module manages Bilimbaga's exam record types).
+# The status numbers are the router's own choice: decision 0065 leaves them open, so a status other than the one named here is a finding to report, not a business failure; the
+# reason texts and the fact of refusal are the checks.
+# Each refusal step holds exactly one request. The accepted cases (steps 1, 14 and 15) are their own steps.
+# The check script never runs in this release (criterion 11); no step saves a record.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
+---
+id: tenant-administration-18-entity-type-hook-bind-refusals
+scope: tenant-administration
+title: A check script that is not fit, or a record type that is not fit, cannot be attached, and a refusal changes nothing
+version: "1.0"
+tags: [tenant-admin, entity-type-hooks, bind, refusal]
+
+description: >
+  The administrator of SwiftRoute tries to attach check scripts to record types in every way the product must refuse: a draft, a retired and a revoked script
+  version; a script of the wrong kind (a service step script); a fingerprint that does not match; a script key or version that does not exist; a record type that
+  does not exist; a record type that already has an attachment (when the request does not say it is a replacement); a request with the fingerprint missing; and a
+  record type that an active process writes to. The administrator of Bilimbaga tries to attach a script to a record type that the exam module manages. Every try is
+  refused with its own reason and the list of attachments is the same afterwards. A record type that only a draft process writes to is accepted.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has record types of its own named "hook_plain", "hook_taken", "hook_active" and "hook_draftline". "hook_active" is written by a step line of an ACTIVE process definition; "hook_draftline" is written only by a step line of a process definition that is still a draft. "hook_plain" and "hook_taken" are written by no process. None of the four has an attachment.
+    check: system_seeded
+    detail: Setup-prepared. If "hook_active" cannot be arranged, report BLOCKED for step 13 and the step-13 half of EO-005, and run the other steps (step 15 and its half of EO-005 still run).
+  - description: SwiftRoute has these check scripts, each version noted with its fingerprint - order_check version 1 (published, kind "entity write", FP-O1); draft_check version 1 (draft, kind "entity write"); old_check version 1 (retired, kind "entity write"); bad_check version 1 (revoked, kind "entity write"); svc_check version 1 (published, kind "service step"). The key "no_such_key" and the version 99 of order_check do not exist.
+    check: system_seeded
+    detail: Setup-prepared. A fingerprint of a draft, retired or revoked version is read by the administrator from the script registry.
+  - description: Bilimbaga has the exam module installed, one record type managed by the exam module (noted as MT, for example the question type), and a published check script of kind "entity write" - bilim_check version 1 with fingerprint FP-B1.
+    check: system_seeded
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note of actor-bilimbaga-admin), report BLOCKED for step 9 and EO-004; the other steps run.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator attaches order_check version 1 (fingerprint FP-O1) to "hook_taken". Then asks for the list of attachments and notes it as list L0.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach draft_check version 1 (with its fingerprint) to "hook_plain".
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach old_check version 1, a retired version (with its fingerprint), to "hook_plain".
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach bad_check version 1, a revoked version (with its fingerprint), to "hook_plain".
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach svc_check version 1, a published script of kind "service step" (with its fingerprint), to "hook_plain".
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach order_check version 1 to "hook_plain" with a fingerprint of 64 hexadecimal zeros that is not the fingerprint of that version.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach the key "no_such_key", version 1 (with 64 hexadecimal zeros as fingerprint) to "hook_plain".
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach order_check version 99 (with 64 hexadecimal zeros as fingerprint) to "hook_plain".
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to attach bilim_check version 1 (fingerprint FP-B1) to the record type MT that the exam module manages.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach order_check version 1 (fingerprint FP-O1) to "hook_nowhere", a record type that SwiftRoute has not defined.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach order_check version 1 (fingerprint FP-O1) to "hook_taken", which already has an attachment, as a first-time attaching (the
+      request does not say that it is a replacement).
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach order_check version 1 to "hook_plain" with the fingerprint left out of the request.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach order_check version 1 (fingerprint FP-O1) to "hook_active", the record type that an active process writes to.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of attachments and compares it with list L0.
+    via: api
+  - step: 15
+    actor: tenant_admin_a
+    action: >
+      The administrator attaches order_check version 1 (fingerprint FP-O1) to "hook_draftline", the record type that only a draft process writes to, then asks for the list.
+    via: api
+  - step: 16
+    actor: tenant_admin_a
+    action: >
+      Clean-up: the administrator removes the attachments of "hook_taken" and "hook_draftline" and asks for the list.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A draft, a retired and a revoked script version are each refused as "not published".
+    verification:
+      method: http_status
+      detail: Steps 2, 3 and 4 each answer 409 with the reason "script_not_published".
+      evidence: The answers of steps 2 to 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A script that nobody reviewed, or that was withdrawn, could be chosen as the check of a record type.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A script of the wrong kind, a wrong fingerprint and an unknown key or version are each refused with their own reason.
+    verification:
+      method: http_status
+      detail: Step 5 answers 422 with the reason "hook_kind_mismatch". Step 6 answers 409 with "sha_mismatch". Steps 7 and 8 each answer 422 with "script_not_found". Step 12 answers 422 with "invalid_input".
+      evidence: The answers of steps 5 to 8 and 12.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A script that is not the one the administrator reviewed could be attached, or the administrator is given a wrong reason and cannot correct the request.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A record type that does not exist, and a record type that already has an attachment, are refused.
+    verification:
+      method: http_status
+      detail: Step 10 answers 404. Step 11 answers 409 with the reason "already_bound" and the entry of "hook_taken" in step 14 is still version 1 of order_check.
+      evidence: The answers of steps 10 and 11 and the list of step 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: An existing attachment could be replaced by mistake without saying so, or an attachment is stored for a type that is not there.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A record type managed by a module is refused.
+    verification:
+      method: http_status
+      detail: Step 9 answers 403 with the code "entity_type_managed". The list of Bilimbaga has no entry for MT.
+      evidence: The answer of step 9 and a list of attachments of Bilimbaga read afterwards.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could attach its own script to a record type the module owns and so change the module's behaviour.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A record type written by an active process is refused, while one written only by a draft process is accepted.
+    verification:
+      method: http_status
+      detail: Step 13 answers 409 with the reason "entity_type_hooked". Step 15 answers 201 and its list shows "hook_draftline" with order_check version 1.
+      evidence: The answers of steps 13 and 15.
+    on_fail:
+      severity: MAJOR
+      business_impact: A record type could have both a process step and a check script that write to it, which is the conflict the design rules out; or a draft process blocks the administrator needlessly.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: Refused tries change nothing.
+    verification:
+      method: system_state
+      detail: In step 14 the list is identical to list L0 (only "hook_taken" with order_check version 1). The audit trail of SwiftRoute has an entry for step 1 and for step 15 only, none for steps 2 to 8 and 10 to 13, and the audit trail of Bilimbaga has none for step 9. The audit trail is read from the database.
+      evidence: The list of step 14 and the audit entries between step 1 and step 15.
+    on_fail:
+      severity: MAJOR
+      business_impact: A refused request left a half-made attachment or a false record in the audit trail.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the attachments of "hook_taken", "hook_draftline" and "hook_plain" in SwiftRoute if left. Nothing was changed in Bilimbaga.

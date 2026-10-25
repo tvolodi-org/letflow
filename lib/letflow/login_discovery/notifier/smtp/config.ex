@@ -242,6 +242,15 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.Config do
     end
   end
 
+  @doc """
+  The base-URL rule of `LETFLOW_PUBLIC_BASE_URL`, reachable for other readers of that variable
+  (REQ-572's provisioner `server_url`). `{:ok, url_without_trailing_slash}` or `:error`.
+  """
+  @spec validate_base_url(String.t(), atom()) :: {:ok, String.t()} | :error
+  def validate_base_url(url, config_env) when is_binary(url) do
+    if valid_base_url?(url, config_env), do: {:ok, String.trim_trailing(url, "/")}, else: :error
+  end
+
   defp valid_base_url?(url, config_env) do
     allowed_schemes = if config_env == :prod, do: ["https"], else: ["https", "http"]
 

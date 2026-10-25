@@ -1,0 +1,178 @@
+# T-0633 (BA): TENANT ADMIN group, scenario 19: who may list and change the attachments of check scripts to record types, and that one company never sees another's.
+# Covers REQ-567 slice E-1 criterion 7 (staff without the right; an API token on attach, replace and remove) and criterion 9 (another company's record type
+# gets the same not-found as a type that exists nowhere; the other company's list; the same type name in two companies).
+# Sources: docs/requirements.yaml REQ-567 criteria 7 and 9; lib/letflow/routers/entity_type_hooks.ex (moduledoc: list needs ScriptsWrite, attach/replace/remove need
+# ScriptsPublish, writes need an interactive sign-in and give 403 api_token_not_allowed to an API token, an absent type, another company's type and an unbound type answer
+# the same plain 404, the company comes only from the sign-in); docs/roles.md matrix (ScriptsWrite: platform administrator, process designer, tenant administrator;
+# ScriptsPublish: platform administrator and tenant administrator; the task worker and the auditor hold neither); lib/letflow/entity_type_hooks.ex (a valid body is
+# checked before existence is answered, so every cross-company request carries a complete, valid body of the caller's OWN script - otherwise it would be answered 422 and
+# prove nothing).
+# NOT COVERED - missing actor: criterion 7 also says a process designer can list but cannot attach, replace or remove. test/fixtures/uat/actors.yaml has no
+# PROCESS_DESIGNER account in any company, and an actor must not be invented. That part is BLOCKED until the roster has such an actor; the BA reports it.
+# A platform operator on this route would get its own company's data, not a refusal (the company comes from the sign-in), so no platform step is written here.
+# The check script never runs in this release (criterion 11); no step saves a record.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the access refusals of the flow.
+---
+id: tenant-administration-19-entity-type-hook-access-and-other-company
+scope: tenant-administration
+title: Only the administrator may change which check script belongs to a record type, an API token may not, and one company never sees or changes another's attachment
+version: "1.0"
+tags: [tenant-admin, entity-type-hooks, refusal, access, cross-tenant, isolation, api-token]
+
+description: >
+  SwiftRoute's administrator attaches a check script to the record type "hook_order_a". A task worker and the read-only auditor try to list, attach, replace and
+  remove and are refused. The administrator using an API token instead of a signed-in session is refused for attach, replace and remove, and the attachment stays.
+  The Bilimbaga administrator, with their own complete and valid request, tries to attach to, replace and remove the attachment of "hook_order_a" and gets the same
+  not-found answer as for "hook_nowhere", a type that exists in no company; SwiftRoute's attachment is unchanged and does not appear in Bilimbaga's list. Both
+  companies have a record type named "hook_shared"; each attaches its own script to it, and each sees only its own.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+  auditor_a: actor-swiftroute-auditor
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has record types of its own "hook_order_a", "hook_note_a" and "hook_shared", all unmanaged and written by no active process, with no attachment, and a published check script of kind "entity write", order_check version 1 (fingerprint FP-O1).
+    check: system_seeded
+    detail: Setup-prepared. If an attachment exists, remove it first and note that in the report.
+  - description: Bilimbaga has a record type of its own "hook_shared" (unmanaged, written by no active process, no attachment), no record type named "hook_order_a" or "hook_nowhere", and a published check script of kind "entity write", bilim_check version 1 (fingerprint FP-B1).
+    check: system_seeded
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note of actor-bilimbaga-admin), report BLOCKED for steps 6 to 9 and 11 and for EO-003 to EO-005; steps 1 to 5, 10, 12 and 13 run.
+  - description: An API token issued to the SwiftRoute administrator exists (the administrator's role, not a signed-in session).
+    check: system_seeded
+    detail: If the environment cannot issue an API token for the administrator, report BLOCKED for step 4 and EO-002; the other steps run.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator attaches order_check version 1 (fingerprint FP-O1) to "hook_order_a" and asks for the list of attachments.
+    via: api
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker tries to list the attachments, tries to attach order_check version 1 (fingerprint FP-O1) to "hook_note_a", tries to replace the attachment of
+      "hook_order_a" with order_check version 1 (fingerprint FP-O1) stating that it is a replacement, and tries to remove the attachment of "hook_order_a". Each answer
+      (status, body and content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor_a
+    action: >
+      The read-only auditor tries the same four requests as the task worker in step 2. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      Using an API token, not a signed-in session, the administrator tries to attach order_check version 1 (fingerprint FP-O1) to "hook_note_a", tries to replace the
+      attachment of "hook_order_a" with order_check version 1 (fingerprint FP-O1) stating that it is a replacement, and tries to remove the attachment of "hook_order_a".
+      Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator, signed in, asks for the list of attachments and notes it as list LA.
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to attach bilim_check version 1 (fingerprint FP-B1) to "hook_order_a", the record type of SwiftRoute. Then tries the same for
+      "hook_nowhere", a type that exists in no company. The two answers (status, body and content type) are noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to replace the attachment of "hook_order_a" with bilim_check version 1 (fingerprint FP-B1) stating that it is a replacement, and tries
+      the same for "hook_nowhere". Then tries to remove the attachment of "hook_order_a" and the attachment of "hook_nowhere". The four answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for the list of attachments, with the query parameter tenant=swiftroute added to the request, and notes it as list LB.
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator attaches bilim_check version 1 (fingerprint FP-B1) to their own "hook_shared" and asks for the list.
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator attaches order_check version 1 (fingerprint FP-O1) to their own "hook_shared" and asks for the list, then compares with list LA.
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for the list again and then removes the attachment of their "hook_shared".
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator asks for the list and notes whether "hook_shared" and "hook_order_a" are still attached.
+    via: api
+  - step: 13
+    actor: tenant_admin_a
+    action: >
+      Clean-up: the SwiftRoute administrator removes the attachments of "hook_order_a" and "hook_shared" and asks for the list.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker and the read-only auditor are refused on all four requests, and nothing changes.
+    verification:
+      method: http_status
+      detail: Each of the four requests in steps 2 and 3 answers 403. List LA (step 5) is the list of step 1 unchanged.
+      evidence: The eight answers of steps 2 and 3 and list LA.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Staff without the right could change which script checks a record type, or read which script is attached.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: An API token cannot attach, replace or remove.
+    verification:
+      method: http_status
+      detail: Each of the three requests in step 4 answers 403 with the reason "api_token_not_allowed". List LA shows "hook_order_a" still attached to version 1 and no entry for "hook_note_a".
+      evidence: The three answers of step 4 and list LA.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A stolen or automated token could change the checks that guard a company's records.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: For the administrator of another company, SwiftRoute's record type gets the same not-found answer as a type that exists nowhere, for attach, replace and remove.
+    verification:
+      method: http_status
+      detail: In steps 6 and 7 every answer is 404, and the answer for "hook_order_a" equals the answer for "hook_nowhere" in status, body and content-type header, for attach, replace and remove (three pairs).
+      evidence: The answers of steps 6 and 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company can find out which record types another company has, or change the other company's attachment.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: The other company's attachment is unchanged and invisible.
+    verification:
+      method: api_response
+      detail: List LB (step 8) answers 200 and has no entry for "hook_order_a"; the query parameter tenant=swiftroute is ignored. The list of SwiftRoute in step 10 starts with list LA's entries, and "hook_order_a" is still attached to order_check version 1.
+      evidence: List LB and the list of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could read, or change by its own tries, another company's attachments.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Two companies may each have a record type of the same name with an attachment, and neither sees the other's.
+    verification:
+      method: api_response
+      detail: Step 9 answers 201 and Bilimbaga's list holds only "hook_shared" with bilim_check. Step 10 answers 201 and SwiftRoute's list holds "hook_order_a" and "hook_shared" with order_check, none with bilim_check. Step 11 shows Bilimbaga's own entry and its removal answers 204. Step 12 shows SwiftRoute's "hook_shared" and "hook_order_a" still attached.
+      evidence: The lists of steps 9 to 12.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A type name used by one company blocks or exposes another company's attachment.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the attachments of "hook_order_a", "hook_note_a" and "hook_shared" in SwiftRoute, and of "hook_shared" in Bilimbaga, if they are left.

@@ -217,6 +217,23 @@ defmodule Letflow.Identity.PendingAdminGrantsTest do
              ~r/authz_(post|put|patch|delete)\s+"\/pending-admin-grants/
   end
 
+  # PG1 (REQ-572, decision 0072 D5(a)): the second creation path has exactly one caller too.
+  test "create_provisioned has exactly one caller: the tenant provisioner" do
+    callers =
+      for path <- Path.wildcard("lib/**/*.ex"),
+          File.read!(path) =~ ~r/PendingAdminGrants\.create_provisioned\(/,
+          do: path
+
+    assert callers == ["lib/letflow/tenant_provisioner.ex"]
+
+    provisioner = File.read!("lib/letflow/tenant_provisioner.ex")
+    assert length(Regex.scan(~r/PendingAdminGrants\.create_provisioned\(/, provisioner)) == 1
+
+    for path <- Path.wildcard("lib/letflow/routers/**/*.ex") do
+      refute File.read!(path) =~ "create_provisioned(", "#{path} calls the provisioned grant path"
+    end
+  end
+
   test "an operator-side platform write refuses with 500 and writes nothing when the configured platform prefix differs from the caller's tenant prefix or no platform tenant is configured",
        %{w: w} do
     # The handler (`Letflow.Routers.Onboarding`) computes the platform prefix itself and compares

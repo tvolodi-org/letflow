@@ -875,7 +875,10 @@ defmodule Letflow.TenantProvisioning do
     # REQ-569 / GH #3246: widens the script_rules hook_kind CHECK to allow form_validation. No row
     # altered: existing rows are service_task or entity_write and satisfy the wider CHECK.
     {20_261_026_300_001, Letflow.Repo.Migrations.WidenScriptRulesHookKindFormValidation,
-     "20261026300001_widen_script_rules_hook_kind_form_validation.exs"}
+     "20261026300001_widen_script_rules_hook_kind_form_validation.exs"},
+    # REQ-572 / GH #3252: the pending-grant created_via CHECK also allows 'provisioning'. No row altered.
+    {20_261_027_000_002, Letflow.Repo.Migrations.WidenGrantsCreatedViaChk,
+     "20261027000002_widen_grants_created_via_chk.exs"}
   ]
 
   @doc """
