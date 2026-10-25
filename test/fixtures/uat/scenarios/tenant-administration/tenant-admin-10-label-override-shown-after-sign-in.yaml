@@ -1,0 +1,114 @@
+# T-0539 (BA): TENANT ADMIN group, scenario 10: the company's own wording appears on the screens after sign-in, as plain text, and never on the
+# public sign-in page.
+# Covers REQ-553 criteria 1 (markup is shown as characters), 2 (company text where replaced, bundled text elsewhere) and 4 (the sign-in page
+# never uses the company wording); REQ-551 criterion 5 seen from the screen.
+# Not covered, with the reason: REQ-553 criterion 3 (the bundled wording is used when the wording request fails, times out or answers 500) cannot
+# be produced by a person using the product: it needs a failing server, so the web unit tests of the requirement are its check. Criterion 5
+# (gates) is checked by CI. The "no request to the wording route on the sign-in page" half of criterion 4 is not visible to a person; only
+# the visible half (the sign-in wording is unchanged) is checked here.
+# Why Bilimbaga: the merged wording is applied only on the question-bank administration screens (web/src/modules/exam/BilimBagaAdminPage.tsx
+# and web/src/pages/entities/EntityCrudPage.tsx, reached through the exam module routes "admin/bilimbaga" and "admin/bilimbaga/:entityType",
+# which need the record-write permission). Bilimbaga is the only company on the roster with the exam module, and its administrator is the only
+# roster actor who reaches these screens. SwiftRoute workers never see them.
+# Sources: docs/requirements.yaml REQ-553; web/src/i18n/entitiesMessages.ts (entity screens; the screen language comes from the browser
+# language), loginMessages.ts (sign-in page); priv/labels/entities_defaults.json ("entities.admin.landing.title" ru "Банк вопросов и экзамены",
+# "entities.crud.list.createAction" ru "Новая запись"); test/fixtures/uat/actors.yaml (actor-bilimbaga-admin: TENANT_ADMIN, token mapping not yet
+# approved). UAT assumption, to be confirmed by the process owner: the page title of the question-bank landing page is the message
+# "entities.admin.landing.title" and the button of the tag list is "entities.crud.list.createAction", as read from the screen code; if the
+# screens show other texts, report BLOCKED for steps 3 and 5, not FAIL.
+---
+id: tenant-administration-10-label-override-shown-after-sign-in
+scope: tenant-administration
+title: After sign-in the screens show the company's own wording as plain text, other messages keep the platform wording, and the sign-in page is unchanged
+version: "1.0"
+tags: [tenant-admin, label-overrides, i18n, gui, escaping]
+
+description: >
+  The administrator of Bilimbaga replaces the Russian wording of the question-bank page title. After signing in again with the browser in
+  Russian, the administrator sees the company's title; the "new record" button on the tag list still shows the platform text. The administrator
+  then replaces the title with a text made of markup characters; the page shows the characters literally, with no bold text, no image and no
+  pop-up. The public sign-in page keeps its platform wording throughout.
+
+actors:
+  tenant_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Bilimbaga lists Russian as a company language, the exam module is enabled for Bilimbaga, the browser language is Russian, and no replacement exists for the question-bank page title or the new-record button
+    check: custom
+    detail: If Russian is not listed, the administrator lists it first. If the Bilimbaga administrator cannot sign in (no approved test token mapping, see the roster note), or the exam module is not enabled, report BLOCKED for the whole scenario, not FAIL.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      Opens the public sign-in page with the browser in Russian and notes its wording, signs in, opens the question-bank page and notes its
+      title, opens the tag list and notes the text of the new-record button.
+    via: gui
+    produces:
+      before_screens: the sign-in page, the question-bank page title and the new-record button before any replacement
+  - step: 2
+    actor: tenant_admin
+    action: >
+      Replaces the Russian text of the question-bank page title with "Банк вопросов Bilimbaga, обратитесь в поддержку".
+    via: api
+    input:
+      text: "Банк вопросов Bilimbaga, обратитесь в поддержку"
+  - step: 3
+    actor: tenant_admin
+    action: >
+      Signs out, opens the public sign-in page in Russian, signs in again, opens the question-bank page and notes its title, then opens the tag
+      list and notes the text of the new-record button. Notes the wording of the sign-in page as well.
+    via: gui
+    produces:
+      after_screens: the sign-in page, the page title and the button after the replacement
+  - step: 4
+    actor: tenant_admin
+    action: >
+      Replaces the same message with the text "<img src=x onerror=alert(1)> <b>bold</b>".
+    via: api
+    input:
+      text: "<img src=x onerror=alert(1)> <b>bold</b>"
+  - step: 5
+    actor: tenant_admin
+    action: >
+      Signs out and in again, opens the question-bank page and looks at what is drawn in the title: whether the characters appear as written,
+      whether any bold text, picture or pop-up appears.
+    via: gui
+    produces:
+      markup_screen: the page title with the markup text
+
+expected_outcomes:
+  - id: EO-001
+    description: Before any replacement the screens show the platform wording; after the replacement, and after signing in again, the page title shows the company's text and the other message still shows the platform text.
+    verification:
+      method: gui_screen
+      detail: In step 3 the question-bank page title reads "Банк вопросов Bilimbaga, обратитесь в поддержку"; the new-record button reads the same platform text as in step 1.
+      evidence: Screenshots of the page title and the button in steps 1 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The company's own wording never reaches its staff, or a replacement of one message changes others.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The public sign-in page has the same wording before and after the replacement.
+    verification:
+      method: gui_screen
+      detail: The sign-in page noted in step 3 is word for word the page noted in step 1.
+      evidence: Screenshots of the sign-in page in steps 1 and 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The sign-in page's wording rule, that no message says or implies whether an address is registered, could be changed by a company.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A text made of markup is shown as the characters written; nothing is drawn from it and nothing runs.
+    verification:
+      method: gui_screen
+      detail: Step 5 shows "<img src=x onerror=alert(1)> <b>bold</b>" as visible characters, with no picture, no bold text and no pop-up.
+      evidence: Screenshot of the page title in step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company administrator could make code run in the browsers of all the company's staff.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the replacement for the question-bank page title in Russian.

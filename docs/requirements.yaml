@@ -40273,3 +40273,77 @@ requirements:
       - "Whether a binding blocks retiring its pinned script version is not settled by the source: 0053 D3 blocks retire only for a script referenced by an active definition, and 0067 D4 is silent. This slice adds no such block."
       - "0067 D4 says a binding row carries status active | disabled but names no route to disable one; this slice stores status active on bind and adds no disable route. Whether T-5 (kill switch) or a later entry adds one is not settled by the source."
     depends_on: [REQ-560]
+
+  - id: REQ-569
+    title: "Form-validation script hook (Record F) slice F-1: accept the form_validation hook kind, HUMAN_TASK validation_script attributes, activation checks and script pin collection for HUMAN_TASK nodes"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3246
+    # Source: docs/migration/decisions/0067-form-hook-script-validation.md (D3 "Pinning", D7 "INV-3 and INV-1" with its INV-10 test, D9 slice F-1, "Not decided here"); docs/migration/decisions/0053-tenant-scripted-rules.md (D1 hook_kind column, 7c rulings); docs/migration/decisions/0065-entity-pre-write-script-hook.md D4 (closed pin-kind set); docs/agents/instructions/security-invariants.md (INV-1, INV-10); code read: lib/letflow/scripts.ex (@hook_kinds, content/1), lib/letflow/scripts/runtime.ex (pin_lookup/1, check_bindings/2, check_binding_row), lib/letflow/engine/pin_resolver.ex (collect_script_bindings/1, resolve/4), lib/letflow/definitions/graph.ex (check_service_task_script_reference/1). Written by the business analyst (T-0546) 2026-10-25. Not yet validated.
+    description: >
+      Slice F-1 of decision 0067 (docs/migration/decisions/0067-form-hook-script-validation.md, D9),
+      the first code slice after the decision record REQ-559 (GH #3184). It follows the merged
+      decision 0053 slice 7c (GH #2534, PRs #2605 and #2607), which put the tenant script runtime and
+      the SERVICE_TASK binding in place; no requirement id exists for 7c, so it is cited here and not
+      listed in depends_on. F-1 only makes a form-validation script nameable and pinnable. It
+      does not run it: no engine integration, no runner, no completion change. Later slices are
+      separate requirements, to be written after this one: F-2 (runtime and input builder), F-3
+      (completion integration), F-4 (failure mapping and audit), F-5 (dry-run and UAT scenarios),
+      as listed in decision 0067 D9. Four changes, all on the definition-and-pin side. (1) Hook kind:
+      lib/letflow/scripts.ex lists only "service_task" in @hook_kinds, so a script of any other kind
+      is refused with :invalid_hook_kind (content/1); the kind "form_validation", reserved in 0053 D1,
+      becomes accepted there, and the hook_kind guards of Letflow.Scripts.Runtime in
+      lib/letflow/scripts/runtime.ex (pin_lookup/1 and check_binding_row) accept it for the binding
+      described in (3). The kind of a SERVICE_TASK binding stays "service_task". (2) HUMAN_TASK
+      attributes: a HUMAN_TASK node may carry validation_script_key and validation_script_version,
+      parallel to script_key and script_version of a SERVICE_TASK node; the definition validation in
+      lib/letflow/definitions/graph.ex checks their shape the way check_service_task_script_reference/1
+      does for the SERVICE_TASK pair (key accepted by Letflow.Scripts.Validation.key?/1, version an
+      integer >= 1, both present or both absent, messages naming the node id only). (3) Activation
+      checks: Letflow.Scripts.Runtime.check_bindings/2, which today reads SERVICE_TASK nodes only, also
+      reads HUMAN_TASK nodes' validation pair; a HUMAN_TASK binding must resolve to a published
+      version of hook_kind "form_validation" in the tenant's own script_rules under the tenant :prefix,
+      and anything else (absent, draft, retired, discarded, revoked, or a script of another kind) is
+      {:script_binding_invalid, node_id, :script_not_published}, the same reason and the same
+      response body the SERVICE_TASK check already returns (traced: check_binding_row returns
+      :script_not_published for every row that is not published and of the expected kind;
+      the private interpret_activate_result/1 in lib/letflow/definitions.ex and script_binding_invalid/3 in lib/letflow/api/response.ex
+      return it as 422). A key bound with two different versions anywhere in one definition, across
+      both attribute pairs, is :script_version_conflict. The closed-output-schema and reserved-input
+      checks of check_binding_row apply to a form_validation manifest unchanged. The restriction-flow
+      checks of check_bindings/2 (decision 0062 R5a, R12) stay SERVICE_TASK only, because hook 3
+      writes nothing (0067 D4). The manifest keys refusal_codes and fields are not validated here
+      (F-2). (4) Pin collection: collect_script_bindings/1 in lib/letflow/engine/pin_resolver.ex today
+      filters node_type :SERVICE_TASK; it also collects the validation pair of HUMAN_TASK nodes, so
+      Letflow.Engine.PinResolver.resolve/4 freezes the existing pin of kind :script (with sha256) for
+      them at INSTANCE_STARTED and keeps the :script_version_conflict rule across both pairs. The
+      closed pin-kind set (:catalog_entry | :variable_schema | :module | :script) is not extended and no
+      binding table is added (0067 D3, amending 0065 D4). Instances started before this change carry no
+      attribute and no pin and are unchanged. Feature flag: the whole of F-1 is behind a flag
+      form_validation_hook_enabled, default off, so that nothing is accepted while the later slices
+      are missing. The flag is the application env key :form_validation_hook_enabled of :letflow, set
+      to false in config/config.exs, read by one function Letflow.Scripts.form_validation_enabled?/0
+      (reason: F-1 alone would let a tenant publish and bind a script that no slice runs; the kill
+      switch of 0053 D7 is a different control and is not reused as a feature flag). With the flag off,
+      a script of kind "form_validation" is refused with :invalid_hook_kind, and a HUMAN_TASK binding
+      at activation is :script_not_published. SECURITY-REVIEWER is mandatory (tenant-data path: script
+      resolution under the tenant :prefix, pinning, activation). Nothing under web/ or apps/ changes.
+      Out of scope: any run of the hook, any change to Letflow.Engine.complete_task/3, the manifest
+      refusal_codes and fields, the HTTP status of a refusal, the dry-run route, and everything under
+      "Not decided here" in 0067.
+    acceptance_criteria:
+      - "1. Hook kind accepted (flag on): with form_validation_hook_enabled true, creating a script version with hook_kind \"form_validation\" and a valid source, manifest and test cases through Letflow.Scripts succeeds and the stored row has hook_kind \"form_validation\"; publishing it succeeds; a hook_kind of any value other than \"service_task\" and \"form_validation\" (for example \"entity_write\") is still {:error, :invalid_hook_kind}. The existing missing-field row {\"hook_kind\", \"invalid_hook_kind\"} of test/letflow/routers/script_rules_test.exs (a version body without hook_kind answers 422 invalid_hook_kind) still passes."
+      - "2. Flag defaults off: config/config.exs sets the :form_validation_hook_enabled key of :letflow to false (a test reads Application.get_env(:letflow, :form_validation_hook_enabled) in a fresh config and expects false), and Letflow.Scripts.form_validation_enabled?/0 returns false then. With the flag off, creating a script with hook_kind \"form_validation\" is {:error, :invalid_hook_kind}, and activating a definition whose HUMAN_TASK node carries a validation pair that names an existing published form_validation version (created while the flag was on) returns {:script_binding_invalid, node_id, :script_not_published}. A SERVICE_TASK script binding behaves identically with the flag on and off."
+      - "3. HUMAN_TASK attribute shape (flag on): a definition with a HUMAN_TASK node carrying validation_script_key \"check_amount\" and validation_script_version 1 passes definition validation. A node with a key that fails Letflow.Scripts.Validation.key?/1, a version that is not an integer >= 1 (0, \"1\", 1.5, absent), or only one of the two attributes yields a violation of code :invalid_script_reference whose message names the node id and contains neither attribute value. A node of any other type carrying validation_script_key is not read as a binding."
+      - "4. Activation, success: Letflow.Scripts.Runtime.check_bindings/2 returns :ok for a definition whose HUMAN_TASK validation pair names a published form_validation version in the caller's tenant schema, and the same activation through the definitions activate path succeeds."
+      - "5. Activation refusals: for a HUMAN_TASK validation pair naming (a) a key with no row, (b) a draft version, (c) a retired version, (d) a revoked version, (e) a published version of hook_kind \"service_task\", check_bindings/2 returns {:error, {:script_binding_invalid, node_id, :script_not_published}} with the id of the HUMAN_TASK node, and the activate route returns the 422 body of script_binding_invalid/3 of lib/letflow/api/response.ex. A published form_validation version named by a SERVICE_TASK script_key is :script_not_published as well (kind must match the node type). One test per case (a) to (e) and per the reverse case."
+      - "6. Version conflict: a definition that binds one key at version 1 on a SERVICE_TASK script_version and at version 2 on a HUMAN_TASK validation_script_version, or at two different versions on two HUMAN_TASK nodes, is {:script_binding_invalid, node_id, :script_version_conflict} at activation and {:error, {:script_version_conflict, key}} from Letflow.Engine.PinResolver.resolve/4; the same version on both is accepted. The first failing node in graph node order is the one reported."
+      - "7. Pin collection: with a published form_validation version bound by a HUMAN_TASK validation pair, Letflow.Engine.PinResolver.resolve/4 returns a pin of kind :script with ref equal to the key, the resolved id and version of the published row and its sha256, and no pin of any other kind is added for it; a validation pair that names a key the script_lookup cannot resolve returns {:error, {:unresolved_script_ref, key}}; resolve/4 for a definition with SERVICE_TASK script bindings only returns the same pins as before this change (existing test/letflow/engine/pin_resolver_script_test.exs unchanged and green). The pin-kind set in lib/letflow/engine/pin_resolver.ex still has exactly the four kinds named in the description, and no migration is added."
+      - "8. Started instance: starting an instance of an activated definition with a HUMAN_TASK validation pair stores the :script pin with its sha256 in the instance's pins at INSTANCE_STARTED; an instance of a definition without the attributes starts with the pins it had before this change; Letflow.Engine.complete_task/3 behaves exactly as before for both (no hook is run, no new error code is returned): the existing engine completion tests pass unchanged."
+      - "9. INV-1 and INV-10 cross-tenant negative test: with a published form_validation version \"check_amount\" present only in tenant A's script_rules, a caller of tenant B activating a definition whose HUMAN_TASK validation pair names \"check_amount\" at that version gets {:script_binding_invalid, node_id, :script_not_published}, and the response body is byte-identical to the body for a key present in no tenant; the pin lookup of Letflow.Scripts.Runtime.pin_lookup/1 given tenant B's prefix returns {:error, :not_found} for tenant A's key. A caller of tenant B completing tenant A's task, where tenant A's definition carries the validation pair, gets a response byte-identical to the one for an unknown task id (the existing answer of the task routes, unchanged by this slice). The tenant :prefix comes from the caller's token and no request value selects a schema."
+      - "10. Mandatory SECURITY-REVIEWER gate: the PR for this requirement records a SECURITY-REVIEWER verdict in its Gates block before merge, covering script resolution under the tenant prefix, the kind match at activation and pinning, and the flag default. mix letflow.check_requirements_registration and test/letflow/ci_backend_path_filter_test.exs pass for the change, with real output quoted."
+      - "11. Scope: the diff touches only lib/letflow/scripts.ex, lib/letflow/scripts/runtime.ex, lib/letflow/engine/pin_resolver.ex, lib/letflow/definitions/graph.ex, config/config.exs, their tests under test/ and the docs that become wrong (the moduledocs and @doc of the functions named above, which say SERVICE_TASK only); it adds no route, no permission, no migration and no tenant table, so no route-scope, permission-matrix or tenant-table pin moves; the implementer states the grep over test/ that shows this."
+    open_questions:
+      - "Whether the feature flag is later replaced by the per-tenant script policy once F-3 is built is not decided here; F-3 states it. The flag is removed or kept by the requirement that makes the hook run."
+    depends_on: [REQ-559]
