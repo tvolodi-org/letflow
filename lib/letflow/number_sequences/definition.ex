@@ -4,7 +4,7 @@ defmodule Letflow.NumberSequences.Definition do
 
   One definition is bound to exactly one entity type (unique index on `entity_type`). It is
   insert-only: the migration refuses an UPDATE or DELETE. The writer is
-  `Letflow.NumberSequences.create_definition/2`.
+  `Letflow.NumberSequences.create_definition/2` (audited: `create_definition_audited/3`).
   """
 
   use Ecto.Schema
