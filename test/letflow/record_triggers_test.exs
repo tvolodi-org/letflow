@@ -218,16 +218,35 @@ defmodule Letflow.RecordTriggersTest do
       )
     end
 
-    test "R11 undeclared, system and scope-bearing write fields", %{schema: s, type: t} do
-      for field <- ["nope", "version", "id", "managed_by"] do
+    test "R11a an undeclared write field", %{schema: s, type: t} do
+      refused(
+        s,
+        t,
+        pin(published!(s, writes_manifest([line(t, ["nope"])]))),
+        :write_field_forbidden
+      )
+    end
+
+    test "R11b a declared field named like a system field or managed_by", %{schema: s, type: t} do
+      EW.define_type!(s, "r570_sys", %{
+        fields: [
+          %{name: "label", type: :string, required: true},
+          %{name: "version", type: :string},
+          %{name: "managed_by", type: :string}
+        ]
+      })
+
+      for field <- ["version", "managed_by"] do
         refused(
           s,
           t,
-          pin(published!(s, writes_manifest([line(t, [field])]))),
+          pin(published!(s, writes_manifest([line("r570_sys", [field])]))),
           :write_field_forbidden
         )
       end
+    end
 
+    test "R11c a scope-bearing write field", %{schema: s, type: t} do
       Application.put_env(:letflow, :entity_writes_scope_keys, ["note"])
       on_exit(fn -> Application.delete_env(:letflow, :entity_writes_scope_keys) end)
 
