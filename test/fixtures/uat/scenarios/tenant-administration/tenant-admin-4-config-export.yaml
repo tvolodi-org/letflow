@@ -22,8 +22,8 @@ description: >
   exports the bundle. The bundle names its format version, carries all five branding settings and the settings
   of each installed module with the module's version. A module installed without settings is listed with empty
   settings, not with a missing value. A module setting that points to a stored secret is exported as that
-  pointer, never as the secret itself. A task worker, and the platform operator acting for company A, cannot
-  export.
+  pointer, never as the secret itself. A task worker cannot export. The platform operator, signed in to the platform
+  tenant, cannot reach company A's settings: the export always belongs to the tenant of the sign-in.
 
 actors:
   tenant_admin: actor-any
@@ -75,13 +75,15 @@ steps:
     via: api
   - step: 6
     actor: worker_a
-    action: The task worker asks for the settings bundle of company A.
+    action: The task worker of company A asks for the settings bundle.
     expect_refusal: true
     via: api
   - step: 7
     actor: platform_admin
-    action: The platform operator, signed in to the platform and not to company A, asks for the settings bundle of company A.
-    expect_refusal: true
+    action: >
+      The platform operator, signed in to the platform tenant, calls the settings-bundle export. The call has no way to name company A:
+      the bundle always belongs to the tenant of the sign-in. The operator reads the answer and searches it for the values noted in
+      steps 1 to 3 and for the module settings of company A.
     via: api
 
 expected_outcomes:
@@ -116,14 +118,24 @@ expected_outcomes:
       business_impact: A secret would leave the company in a file that is passed around.
       suggested_action: route_to_security_review
   - id: EO-004
-    description: Only the administrator can export; a task worker and the platform operator are refused and receive no settings.
+    description: A task worker is refused the export and receives no settings.
     verification:
       method: system_state
-      detail: Steps 6 and 7 are refused with the same refusal as for a route that does not exist for that caller, and carry no part of the settings.
-      evidence: The two refusals.
+      detail: Step 6 is refused with the same refusal as for a route that does not exist for that caller, and carries no part of the settings.
+      evidence: The refusal of step 6.
     on_fail:
       severity: BLOCKER
       business_impact: Company settings, including branding and module configuration, can be read by people who are not entitled to them.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: The platform operator cannot reach company A's settings through the export.
+    verification:
+      method: system_state
+      detail: The answer of step 7 carries none of the values noted in steps 1 to 3 and none of company A's module settings. It is either refused or holds only the platform tenant's own settings.
+      evidence: The answer of step 7 searched for the noted values.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company's settings would be readable from another tenant's sign-in.
       suggested_action: route_to_security_review
 
 cleanup:

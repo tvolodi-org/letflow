@@ -55,7 +55,7 @@ steps:
     actor: tenant_admin_b
     action: >
       The administrator imports a bundle that has one good change (application name "Name Should Not Stick") and also an unknown branding entry
-      "slogan" and a brand colour that is not a valid colour code.
+      "slogan", an unknown entry among the brand colours (a colour name the product does not define), and a brand colour that is not a valid colour code.
     expect_refusal: true
     via: api
   - step: 5
@@ -103,7 +103,7 @@ expected_outcomes:
     description: Each faulty bundle is refused with a message naming the fault (format version, unknown entry, invalid colour, module not installed, setting not accepted, wrong document) and no setting value, and the document that is not an object is refused in a controlled way, not with a server failure.
     verification:
       method: system_state
-      detail: Steps 3 to 7 are refused as unprocessable (not as a server failure); the message of step 3 says the format version is unknown; the message of step 4 names both the unknown entry and the colour; steps 5 and 6 name the module; none of the messages contains a branding address or module value.
+      detail: Steps 3 to 7 are refused as unprocessable (not as a server failure); the message of step 3 says the format version is unknown; the message of step 4 names the unknown entry, the unknown brand-colour entry and the invalid colour (an unknown entry is refused here, whereas the ordinary settings update silently drops it); steps 5 and 6 name the module; none of the messages contains a branding address or module value.
       evidence: The refusal messages of steps 3 to 7.
     on_fail:
       severity: MAJOR
