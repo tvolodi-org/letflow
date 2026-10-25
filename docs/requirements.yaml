@@ -38519,12 +38519,14 @@ requirements:
       caller turning it into the JSON document first.
 
       CSV IS A FRONT END TO REQ-320 ROUTE AND SEMANTICS, NOT A SECOND IMPORT. Everything the
-      route already decides (the request size and record limits, the schema-version and
+      route already decides (the 200-record cap, the schema-version and
       entity_type checks, the permission atom and its gate, per-entry partial success, the
       upsert mode and its error reasons, the 404 folding) applies to a CSV upload exactly as to
       the JSON document and is not restated here; read REQ-314, REQ-318, REQ-320 and REQ-505.
-      The one thing that is not automatic is the body-size limit, which today is enforced by the
-      JSON body parser and so must be enforced explicitly for a text/csv body (criterion 10).
+      The record cap belongs to REQ-320. The request body-size limit is not REQ-320's: it is the
+      API pipeline's (lib/letflow/plugs/api_pipeline.ex, shared by every route) and is enforced
+      today by the JSON body parser, so it must be enforced explicitly for a text/csv body
+      (criterion 10).
       This requirement defines only what is new: the CSV format, the column-to-field mapping, the
       type coercion into the JSON entry shape, and the mapping of errors back to CSV lines.
 
@@ -38585,7 +38587,7 @@ requirements:
       - "7. Upsert test: with the upsert mode requested, a CSV carrying external_ref_system and external_ref_id columns, posted twice, leaves one record per external reference (the second post reports unchanged), matching test/letflow/routers/entities_import_upsert_test.exs for JSON; a CSV without those columns in upsert mode reports the existing external_ref_invalid reason per row."
       - "8. No new write path: a test or grep, quoted in the PR, shows the converter module has no alias of Repo, Ecto or any Records function and that the only record write calls of the route are the ones it already had; git diff --name-only shows no new route (route-count pins in test/ unchanged) and no change to lib/letflow/entities/records.ex or lib/letflow/entities/import_upsert.ex."
       - "9. Carried over, not re-specified: the cross-tenant negative test of REQ-320 is run for a CSV body against the same route (a caller of tenant A importing a CSV for an entity type that exists only in tenant B gets the same response as for a type that does not exist, and tenant B has no new record); and the same permission refusal as for JSON is asserted for a CSV request from a caller without the import permission, with nothing written. Both cite the REQ-320 test they mirror."
-      - "10. Limits carried over, not re-specified: a text/csv body larger than the size limit REQ-320 applies to the JSON body is refused with the same 413 as the JSON case, before any conversion and with nothing written, and a CSV with more data rows than REQ-320's record cap gets the same 413 as the JSON case with nothing written. Each test cites the REQ-320 test it mirrors and asserts the status and reason equal that test's."
+      - "10. Limits carried over, not re-specified: a text/csv body over the API pipeline's body limit (lib/letflow/plugs/api_pipeline.ex) gets the same 413 status and reason as the oversized JSON body in test/letflow/plugs/safe_json_parser_test.exs (describe 'oversized body'), before any conversion and with nothing written; and a CSV with more data rows than REQ-320's record cap gets the same 413 status and reason as test/letflow/routers/entities_test.exs describe 'REQ-320 AC -- the 200-record cap ...', with nothing written. Each test cites the test it mirrors by describe/test name."
       - "11. JSON is unchanged: the existing import tests (the files under test/ that post to the import path, including entities_import_upsert_test.exs) pass unmodified, real output quoted; the table row of the route in the moduledoc of lib/letflow/routers/entities.ex names the text/csv content type and cites the converter by module name, not by line number."
       - "12. Out of scope and left to later requirement candidates, named in the PR summary and not built here: a web import screen in web/src (none exists today), a column-mapping step where header names differ from field names, other delimiters or encodings, and Excel (xlsx) input."
     open_questions:
