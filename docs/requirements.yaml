@@ -40678,6 +40678,90 @@ requirements:
       - "9. SECURITY-REVIEWER verdict is recorded (mandatory: INV-2 projection boundary, template injection and active content, error and log content) and REVIEWER verdict is recorded; a source-scanning test or lint that reads files by name, if the developer adds one, appears in the PR summary together with the grep for existing tests that scan lib/letflow/documents/."
       - "10. mix letflow.check_requirements_registration and the static checks (mix letflow.check.static) pass with real output quoted, and the added tests (S1-schema, S1-text-only, S1-glyph, D5-redact and those of criteria 6 and 7) pass with real output quoted."
     depends_on: [REQ-564, REQ-550, REQ-542]
+  - id: REQ-578
+    title: "Module uninstall slice 1: tenant_modules status column, uninstall and reactivate with audit and upgrade_required, routes behind modules_uninstall_enabled"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3267
+    # Source: docs/migration/decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md (D1 rows 2, 6, 10 and "Run-time recheck" and "Test a later slice must add", D2, D5 items 1-3, D6, D7, D8 slice 1 with tests U1..U10, "Open owner questions" OQ-1 and OQ-2, "Not decided here", "Threat cases"); docs/migration/core-roadmap-20261014.md Wave 3 row "Module uninstall"; code read: lib/letflow/modules/installs.ex (list_installed/1, installed?/2, put_settings/3, installed_manifest_hash/2, private module_installed?/2, fetch_rationale/1), lib/letflow/modules/tenant_module.ex, lib/letflow/modules/catalog.ex (manifest_hash/1), lib/letflow/entities/handler_writes.ex (private owner_recheck/3), lib/letflow/routers/tenant_modules.ex, lib/letflow/audit.ex (append_multi/4), lib/letflow/tenant_provisioning.ex (migration list). Written by the business analyst (T-0565) 2026-10-25. Not yet validated.
+    description: >
+      Slice 1 of decision 0066 (docs/migration/decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md,
+      D8), the first code slice after the decision record REQ-549 (GH #3172). It depends on REQ-549 (the
+      record, once ratified) and REQ-496 (managed_by, delivered). SECURITY-REVIEWER is a mandatory gate
+      (tenant-data path: a migration of a tenant table, two tenant-scope write routes, the run-time recheck
+      of module writes). Defaults taken from the record's Open owner questions: OQ-1, soft uninstall only;
+      this slice deletes no tenant data and builds no purge act (a purge is a new record and slice, after
+      the owner's answer); OQ-2, one approver with a mandatory non-blank rationale.
+      (1) Migration. A new file in priv/repo/migrations/ (next free version taken from origin/main at
+      the time of the change) adds tenant_modules.status, NOT NULL, default "active", values "active" and
+      "uninstalled" (Ecto.Enum on Letflow.Modules.TenantModule in lib/letflow/modules/tenant_module.ex,
+      default :active). Every existing row reads active through the column default; no data is rewritten.
+      The migration file name is added to the tenant provisioning migration list in
+      lib/letflow/tenant_provisioning.ex so new tenants get the column (INV-1). The migration is live on
+      QA by auto-CD on merge; the default makes that a no-op for tenants.
+      (2) Installs semantics in lib/letflow/modules/installs.ex. A row whose status is uninstalled counts as
+      not installed for: list_installed/1 (not returned), installed?/2 (false), the private
+      module_installed?/2 that install/3 uses for its depends_on check (an uninstalled module does not
+      satisfy depends_on), installed_manifest_hash/2 (returns {:error, :not_installed}, exactly as for a
+      missing row), and put_settings/3 (returns {:error, {:module_not_installed, module_id}}). Callers of installed?/2 beyond Letflow.Routers.Modules (lib/letflow/entities/managed_types.ex,
+      lib/letflow/modules/exam/snapshot/rollout.ex, lib/letflow/modules/solutions.ex) see the new meaning and are
+      checked by the implementer and the security reviewer. The module write refusal: Letflow.Definitions.ModuleWrites
+      (private stamp_codes/3 in lib/letflow/definitions/module_writes.ex) reads installed_manifest_hash/2 and maps
+      {:error, :not_installed} to module_write_module_not_installed, which lib/letflow/entities/handler_writes.ex maps to the reason module_not_installed; so a module
+      write handler of an uninstalled module is refused with module_not_installed and no record is written. The
+      run-time recheck owner_recheck/3 (private, lib/letflow/entities/handler_writes.ex) reads the same function and
+      refuses with :hash_mismatch. handler_writes.ex needs no other change except its comment (before owner_recheck/3)
+      that says uninstall must delete the row or add a status this function then checks, which becomes stale and is
+      updated. install/3 of a module whose
+      row exists with status uninstalled stays {:error, :already_installed}: it is reactivated, not
+      reinstalled. GET /me/modules (lib/letflow/routers/me.ex, handle_list_modules) lists installed modules through list_installed/1, so
+      an uninstalled module disappears from it with no further change; the criteria prove that.
+      (3) Installs.uninstall/3 and Installs.reactivate/3, both (module_id, actor_id, opts) with opts[:prefix]
+      and opts[:rationale] (Installs.fetch_rationale/1: missing, non-string or blank gives
+      {:error, :rationale_required}). Each runs in one transaction that sets status and appends one
+      hash-chain audit entry with Audit.append_multi/4 (module id, from and to status, actor, rationale
+      verbatim, no record content); a failed audit write rolls back the status change. uninstall/3
+      refuses with {:error, {:dependents_installed, [module_id]}} while another active module lists it in
+      depends_on, and with {:error, :not_installed} when the row is missing or already uninstalled.
+      reactivate/3 refuses with {:error, :not_installed} when the row is missing or already active, with
+      {:error, {:dependency_not_installed, dep_id}} when a depends_on module is not active, and with
+      {:error, :upgrade_required} when the row's manifest_hash is nil or differs from
+      Letflow.Modules.Catalog.manifest_hash/1 of the module (the comparison owner_recheck/3 makes); the row
+      is then left uninstalled. Version, manifest_hash and settings of the row are not changed by either
+      call. The open-work check (open_work_exists), the block on starting new instances and the start versus
+      uninstall row lock are slice 2 (D8) and are NOT in this slice; because of that the flag stays off in
+      every environment until slice 2 has merged.
+      (4) Routes in lib/letflow/routers/tenant_modules.ex, next to install: POST /tenant/modules/:module_id/uninstall
+      and POST /tenant/modules/:module_id/reactivate, each gated by :ModulesManage (TENANT_ADMIN and the
+      platform tenant's PLATFORM_ADMIN, docs/roles.md; no new permission), body {"rationale": "..."}. The
+      prefix and actor come only from conn.assigns.scoped_opts and auth_context, as install does; a
+      tenant_id, tenant or prefix key in the body, path or headers is read by nothing. Responses: 200 with
+      the module id and the new status; 404 for :not_installed and for an unknown module; 409
+      "dependents_installed" with the dependent module ids, 409 "upgrade_required"; 422 for a missing or
+      blank rationale and for a missing dependency. Flag: modules_uninstall_enabled is the application env
+      key :modules_uninstall_enabled of :letflow, set to false in config/config.exs, read by one function
+      Letflow.Modules.Installs.uninstall_enabled?/0; with it off both routes answer 404 exactly as an unknown
+      route in that router does, and Installs.uninstall/3 and reactivate/3 are not reached (reason: nothing
+      may be uninstallable before slice 2 adds the open-work guard). Pin counts and route-scope snapshots that
+      the two new authz routes move are updated in the same change (grep test/ for __authz_routes__ and
+      length(snapshot)).
+      Out of scope: the open-work precondition and the new-instance block (slice 2), the orphaned-read proof
+      tests (slice 3), journal kinds in tenant_module_upgrades (slice 4), the SPA screen (slice 5), a hard
+      purge, a second approver, a platform-operator route that names another tenant, and everything under
+      "Not decided here" in 0066. Nothing under web/ or apps/ changes.
+    acceptance_criteria:
+      - "1. Migration and provisioning (U10): after the migration, tenant_modules has a status column, NOT NULL, default \"active\"; a test in test/letflow/modules/installs_test.exs inserts a tenant_modules row with the column omitted from the insert (raw SQL naming only the pre-existing columns) and reads it back through Letflow.Modules.TenantModule with status :active; the Ecto.Enum on Letflow.Modules.TenantModule refuses any status other than active or uninstalled (a changeset test; no database CHECK constraint is added). The migration file name is in the migration list of lib/letflow/tenant_provisioning.ex, and a test in test/letflow/tenant_provisioning_test.exs asserts that a freshly provisioned tenant schema has the tenant_modules status column."
+      - "2. Installs semantics: with a row set to status :uninstalled (the row still exists), Installs.list_installed/1 does not return it, Installs.installed?/2 is false, Installs.installed_manifest_hash/2 returns {:error, :not_installed}, Installs.put_settings/3 returns {:error, {:module_not_installed, module_id}} and leaves settings unchanged; with the row :active all five behave as before this change (the existing installs tests pass unchanged)."
+      - "3. Depends_on (U6, part): installing a module whose depends_on names a module whose row is :uninstalled returns {:error, {:dependency_not_installed, dep_id}} and installs nothing; install/3 of a module whose own row exists with status :uninstalled returns {:error, :already_installed}."
+      - "4. Write handler refused (U3): in test/letflow/engine/module_write_runtime_stamp_test.exs, next to \"a module that is no longer installed is refused: module_not_installed\", a test named \"a write handler of an uninstalled module is refused\" sets status: :uninstalled on the row (the row is not deleted), runs a module write line and asserts the refusal module_not_installed (step reason module_write_module_not_installed) and that no entity record and no event was written."
+      - "5. Uninstall and reachability (U1, U2): after Installs.uninstall/3 succeeds, the row exists with status :uninstalled, version, manifest_hash and settings unchanged, and no other tenant_modules, definition, entity record, entity_field_restrictions or secret row is deleted or changed (test compares row counts of those tables before and after). A request to the module's router under /api/v1/modules/<id>/ answers 404 with a body byte-identical to the same request for a module that was never installed; GET /me/modules no longer lists the module."
+      - "6. Reactivate (U4, U5): Installs.reactivate/3 on an uninstalled module whose row manifest_hash equals Catalog.manifest_hash/1 sets status :active, and the module router and GET /me/modules work again as before the uninstall; with a row manifest_hash that differs, and again with manifest_hash nil, it returns {:error, :upgrade_required}, the row stays :uninstalled and the module router still answers 404; reactivate with a depends_on module not active returns {:error, {:dependency_not_installed, dep_id}}; reactivate of an active or missing row returns {:error, :not_installed}."
+      - "7. Dependents (U6): uninstall of a module that an :active module lists in depends_on returns {:error, {:dependents_installed, ids}} (route: 409 with code dependents_installed and the dependent ids), the status stays :active; once the dependent is uninstalled first, uninstall of the dependency succeeds."
+      - "8. Authority and rationale (U7): the two routes answer 403 for a caller without :ModulesManage, answer 200 for TENANT_ADMIN, and answer 422 \"rationale is required\" for a missing, non-string or blank rationale with the status unchanged; the same table is asserted for both uninstall and reactivate. No role other than those holding :ModulesManage in docs/roles.md gains the right."
+      - "9. Audit (U8): each successful uninstall and reactivate writes exactly one audit entry in the same transaction, holding module id, from and to status, actor id and the rationale verbatim and no record content. Failure outcome: Installs.uninstall/3 and Installs.reactivate/3 do not rescue an audit write failure (Audit.append_multi/4 in lib/letflow/audit.ex raises on a database failure); the route answers 500. A test makes the audit write fail with DROP TABLE audit_entries inside the test's own sandbox transaction (the pattern of test/letflow/audit_dispositions_test.exs), asserts the call raises, and asserts that the row's status is unchanged afterwards and no audit entry was written."
+      - "10. Flag and cross-tenant (U9, INV-1, INV-10): config/config.exs sets :modules_uninstall_enabled of :letflow to false and Installs.uninstall_enabled?/0 is false by default; with it off both routes answer 404 identical to an unknown route of that router and the row is unchanged; with it on (set in test setup, restored in on_exit), a TENANT_ADMIN of tenant A uninstalling a module changes nothing in tenant B (B's tenant_modules row and status, GET /me/modules, module routes, data), and a tenant_id, tenant or prefix in the body or a header naming B is ignored (the change lands in A). A caller of tenant A naming a module only tenant B has installed gets the same 404 as for a never-installed module. The change adds no delete of tenant data and no purge function: a test in test/letflow/modules/installs_test.exs reads lib/letflow/modules/installs.ex and asserts it contains no Repo.delete, Repo.delete_all or delete_all call."
+    depends_on: [REQ-549, REQ-496]
   - id: REQ-574
     title: "Extension points in module processes slice X1: manifest declaration of points, point checks in Catalog.validate/1 and activation check for sites (decision 0071 D9 X1, no route, no table, no run-time dispatch)"
     owner: ELIXIR-DEV
