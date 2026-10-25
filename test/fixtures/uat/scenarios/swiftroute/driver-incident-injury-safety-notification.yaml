@@ -1,6 +1,6 @@
 # Authored by BA-SWIFTROUTE for T-0322 (process audit T-0295, finding 3: no scenario covers an
 # incident with injury). Definition: test/fixtures/qa/swiftroute_incident_process_definition.json
-# v1.1, injury-check gateway: injury_involved == true goes through safety-notification before the
+# v1.2, injury-check gateway: injury_involved == true goes through safety-notification before the
 # two parallel tasks. Deployed by scripts/seed_swiftroute_incident_definition.sh.
 # Sensitive action covered: approving/costing (step 2 is a refusal).
 #
@@ -66,10 +66,15 @@ steps:
     actor: ops_manager
     action: Completes the operations assessment of the incident.
     via: api
+    input:
+      assessment_notes: "Collision at a junction; the driver was lightly injured, vehicle towed, no cargo loss."
 
   - step: 4
     actor: accountant
     action: Completes the finance estimate of the incident.
+    via: api
+    input:
+      estimated_cost_eur: 1800
     via: api
 
 expected_outcomes:
