@@ -67,6 +67,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.Labels, "/labels", :put, "/:message_id", :route},
     {Letflow.Routers.NotificationTemplates, "/notification-templates", :put, "/:template_key",
      :route},
+    {Letflow.Routers.NumberSequences, "/number-sequences", :post, "/", :route},
     {Letflow.Routers.TenantConfigBundle, "/tenant/config-bundle", :post, "/import", :route},
     {Letflow.Routers.IntegrationMappings, "/integration-mappings", :post, "/", :route},
     {Letflow.Routers.TenantModules, "/tenant/modules", :post, "/", :route},
@@ -707,15 +708,15 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # --- AC2: 403 block --------------------------------------------------------------------------
 
   describe "AC2 completeness guards" do
-    test "the routers mounted in ApiPipeline are exactly the 35 named in the table: a new router fails here" do
+    test "the routers mounted in ApiPipeline are exactly the 36 named in the table: a new router fails here" do
       mounted = mounted_routers()
       named = Enum.map(@named_routes, &elem(&1, 0))
 
       assert length(mounted) == length(Enum.uniq(mounted))
       assert Enum.sort(mounted) == Enum.sort(named)
       # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
-      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews; REQ-563: 34 with Letflow.Routers.NotificationTemplates; REQ-567: 35 with Letflow.Routers.EntityTypeHooks.
-      assert length(named) == 35
+      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews; REQ-563: 34 with Letflow.Routers.NotificationTemplates; REQ-567: 35 with Letflow.Routers.EntityTypeHooks.  REQ-575: 36 with Letflow.Routers.NumberSequences.
+      assert length(named) == 36
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do

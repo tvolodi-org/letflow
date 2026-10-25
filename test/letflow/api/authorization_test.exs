@@ -88,7 +88,8 @@ defmodule Letflow.Api.AuthorizationTest do
       :IntegrationMappingsManage,
       # REQ-555 (decision 0066 D4)
       :EntitiesViewsManage,
-      :NotificationTemplatesManage
+      :NotificationTemplatesManage,
+      :NumberSequencesManage
     ]
 
     test "core_permissions/0 returns the closed core list through ISS-0935's :EntitiesRestrictionsManage, no Catalog atoms" do
@@ -479,7 +480,8 @@ defmodule Letflow.Api.AuthorizationTest do
           47 => "forty-seven",
           48 => "forty-eight",
           49 => "forty-nine",
-          50 => "fifty"
+          50 => "fifty",
+          51 => "fifty-one"
         }
         |> Map.get(actual_count)
 
@@ -1077,7 +1079,8 @@ defmodule Letflow.Api.AuthorizationTest do
           47 => "forty-seven",
           48 => "forty-eight",
           49 => "forty-nine",
-          50 => "fifty"
+          50 => "fifty",
+          51 => "fifty-one"
         }
         |> Map.get(actual_count)
 
@@ -1577,7 +1580,8 @@ defmodule Letflow.Api.AuthorizationTest do
           47 => "forty-seven",
           48 => "forty-eight",
           49 => "forty-nine",
-          50 => "fifty"
+          50 => "fifty",
+          51 => "fifty-one"
         }
         |> Map.get(actual_count)
 
@@ -2441,7 +2445,9 @@ defmodule Letflow.Api.AuthorizationTest do
                    :IntegrationMappingsManage,
                    # REQ-555 (decision 0066 D4)
                    :EntitiesViewsManage,
-                   :NotificationTemplatesManage
+                   :NotificationTemplatesManage,
+                   # REQ-575 (GH #3263)
+                   :NumberSequencesManage
                  ]
 
       pair_count = length(Authorization.roles()) * length(@pre_req401_permissions)
