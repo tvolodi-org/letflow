@@ -1,0 +1,19 @@
+scenario_id: tenant-administration-16-integration-mapping-mapped-outbound-delivery
+applies_to_environments: [qa]
+disposition: skipped
+classification: UNBUILT_FEATURE
+reason: |
+  Nothing in the product starts a webhook delivery by itself: lib/letflow has no caller of Letflow.Webhooks.deliver/3 outside
+  lib/letflow/webhooks.ex, and the delivery routes only list stored attempts. A UAT actor therefore cannot make Letflow send an event,
+  and there is no test partner endpoint that records the received request. The scenario is written for the day a delivery trigger exists.
+  Until then each expected outcome is verified in CI by the backend tests below (outcome id | test file | test name).
+  EO-001 | test/letflow/webhooks_mapping_test.exs | D1 the body is the mapped map and the signature covers exactly its bytes
+  EO-002 | test/letflow/webhooks_mapping_test.exs | D2 the DLQ source_payload is the mapped body
+  EO-003 | test/letflow/webhooks_mapping_test.exs | D3 a rule copying a masked field sends the masked value, never the original
+  EO-004 | test/letflow/webhooks_mapping_test.exs | D4 body and signature are the unmapped payload's bytes
+  EO-005 | test/letflow/webhooks_mapping_test.exs | D5 a missing required source; D6 a mapped body over 256 KB; D7 a linked mapping that no longer exists
+  EO-006 | test/letflow/webhooks_mapping_test.exs | D9 rules writing to url, target_url and host only change body keys
+  EO-007 | test/letflow/webhooks_mapping_test.exs | D9 with SSRF validation on, a private target_url is still refused by UrlValidator
+recorded_by: BUSINESS-ANALYST
+recorded_at: "2026-10-25"
+issue_ref: "GH #3201"
