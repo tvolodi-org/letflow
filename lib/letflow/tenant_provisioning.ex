@@ -853,10 +853,14 @@ defmodule Letflow.TenantProvisioning do
     # existing tenants; no row altered.
     {20_261_025_400_001, Letflow.Repo.Migrations.CreateIntegrationMappings,
      "20261025400001_create_integration_mappings.exs"},
+    # REQ-555 / GH #3157 (decision 0066): saved list view definitions (`entity_views`). Empty table
+    # for existing tenants; no row altered.
+    {20_261_025_500_001, Letflow.Repo.Migrations.CreateEntityViews,
+     "20261025500001_create_entity_views.exs"},
     # REQ-565 / GH #3201 slice 2: nullable webhook_subscriptions.outbound_mapping_id. Catalog-only
     # for existing tenants; every existing row reads NULL (unmapped delivery, unchanged).
-    {20_261_025_500_001, Letflow.Repo.Migrations.AddOutboundMappingToWebhookSubscriptions,
-     "20261025500001_add_outbound_mapping_to_webhook_subscriptions.exs"}
+    {20_261_025_600_001, Letflow.Repo.Migrations.AddOutboundMappingToWebhookSubscriptions,
+     "20261025600001_add_outbound_mapping_to_webhook_subscriptions.exs"}
   ]
 
   @doc """

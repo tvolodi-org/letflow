@@ -154,7 +154,7 @@ defmodule Letflow.WebhooksMappingTest do
 
       assert Enum.any?(
                TenantProvisioning.tenant_scoped_migrations(),
-               &match?({20_261_025_500_001, _module}, &1)
+               &match?({20_261_025_600_001, _module}, &1)
              )
     end
   end

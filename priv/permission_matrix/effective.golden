@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: exam@0.1.0,org@0.1.0,catalog_items@0.1.0
+# modules: catalog_items@0.1.0,exam@0.1.0,org@0.1.0
 # roles: 8
-# permissions: 55
-# rows: 440
+# permissions: 56
+# rows: 448
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -27,6 +27,7 @@ AGENT_RUNNER EntitiesRecordsExportUnredacted false core -
 AGENT_RUNNER EntitiesRecordsImport false core -
 AGENT_RUNNER EntitiesRecordsWrite false core -
 AGENT_RUNNER EntitiesRestrictionsManage false core -
+AGENT_RUNNER EntitiesViewsManage false core -
 AGENT_RUNNER ExamAuthoringWrite false module:exam -
 AGENT_RUNNER ExamCertificateIssue false module:exam -
 AGENT_RUNNER ExamSessionRead false module:exam -
@@ -82,6 +83,7 @@ CANDIDATE EntitiesRecordsExportUnredacted false core -
 CANDIDATE EntitiesRecordsImport false core -
 CANDIDATE EntitiesRecordsWrite false core -
 CANDIDATE EntitiesRestrictionsManage false core -
+CANDIDATE EntitiesViewsManage false core -
 CANDIDATE ExamAuthoringWrite false module:exam -
 CANDIDATE ExamCertificateIssue true module:exam grant
 CANDIDATE ExamSessionRead true module:exam grant
@@ -137,6 +139,7 @@ PLATFORM_ADMIN EntitiesRecordsExportUnredacted true core core
 PLATFORM_ADMIN EntitiesRecordsImport true core core
 PLATFORM_ADMIN EntitiesRecordsWrite true core core
 PLATFORM_ADMIN EntitiesRestrictionsManage true core core
+PLATFORM_ADMIN EntitiesViewsManage true core core
 PLATFORM_ADMIN ExamAuthoringWrite true module:exam core
 PLATFORM_ADMIN ExamCertificateIssue true module:exam core
 PLATFORM_ADMIN ExamSessionRead true module:exam core
@@ -192,6 +195,7 @@ PROCESS_DESIGNER EntitiesRecordsExportUnredacted false core -
 PROCESS_DESIGNER EntitiesRecordsImport false core -
 PROCESS_DESIGNER EntitiesRecordsWrite false core -
 PROCESS_DESIGNER EntitiesRestrictionsManage false core -
+PROCESS_DESIGNER EntitiesViewsManage false core -
 PROCESS_DESIGNER ExamAuthoringWrite false module:exam -
 PROCESS_DESIGNER ExamCertificateIssue false module:exam -
 PROCESS_DESIGNER ExamSessionRead false module:exam -
@@ -247,6 +251,7 @@ PROCESS_OPERATOR EntitiesRecordsExportUnredacted false core -
 PROCESS_OPERATOR EntitiesRecordsImport false core -
 PROCESS_OPERATOR EntitiesRecordsWrite true core core
 PROCESS_OPERATOR EntitiesRestrictionsManage false core -
+PROCESS_OPERATOR EntitiesViewsManage false core -
 PROCESS_OPERATOR ExamAuthoringWrite false module:exam -
 PROCESS_OPERATOR ExamCertificateIssue false module:exam -
 PROCESS_OPERATOR ExamSessionRead false module:exam -
@@ -302,6 +307,7 @@ TASK_WORKER EntitiesRecordsExportUnredacted false core -
 TASK_WORKER EntitiesRecordsImport false core -
 TASK_WORKER EntitiesRecordsWrite false core -
 TASK_WORKER EntitiesRestrictionsManage false core -
+TASK_WORKER EntitiesViewsManage false core -
 TASK_WORKER ExamAuthoringWrite false module:exam -
 TASK_WORKER ExamCertificateIssue false module:exam -
 TASK_WORKER ExamSessionRead false module:exam -
@@ -357,6 +363,7 @@ TENANT_ADMIN EntitiesRecordsExportUnredacted true core core
 TENANT_ADMIN EntitiesRecordsImport true core core
 TENANT_ADMIN EntitiesRecordsWrite true core core
 TENANT_ADMIN EntitiesRestrictionsManage true core core
+TENANT_ADMIN EntitiesViewsManage true core core
 TENANT_ADMIN ExamAuthoringWrite true module:exam core
 TENANT_ADMIN ExamCertificateIssue true module:exam core
 TENANT_ADMIN ExamSessionRead true module:exam core
@@ -412,6 +419,7 @@ TENANT_AUDITOR EntitiesRecordsExportUnredacted false core -
 TENANT_AUDITOR EntitiesRecordsImport false core -
 TENANT_AUDITOR EntitiesRecordsWrite false core -
 TENANT_AUDITOR EntitiesRestrictionsManage false core -
+TENANT_AUDITOR EntitiesViewsManage false core -
 TENANT_AUDITOR ExamAuthoringWrite false module:exam -
 TENANT_AUDITOR ExamCertificateIssue false module:exam -
 TENANT_AUDITOR ExamSessionRead false module:exam -

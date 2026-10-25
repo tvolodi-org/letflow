@@ -16,7 +16,7 @@ defmodule Letflow.Entities.ScopeAllScanTest do
     * a literal `:all` argument outside `lib/letflow/routers/entities.ex` needs a comment
       `# scope-all: <rule or ruling id>` on the call line, the line above it, or the line of the
       literal or the line above that;
-    * the non-router literal sites are PINNED to the nine-site ledger (a new one fails until it
+    * the non-router literal sites are PINNED to the ledger (a new one fails until it
       is added here with its rule): script reads, the mix task, and the three exam helpers under
       ruling `SEC-518-R1`;
     * the three router sites may carry a literal only while their three routes are still
@@ -308,7 +308,7 @@ defmodule Letflow.Entities.ScopeAllScanTest do
       assert offenders == []
     end
 
-    test "the ledger of non-router literal sites is exactly the five reviewed ones, each with its rule" do
+    test "the ledger of non-router literal sites is exactly the six reviewed ones, each with its rule" do
       ledger =
         real_sites()
         |> Enum.reject(&(&1.file == @router_file))
@@ -318,6 +318,8 @@ defmodule Letflow.Entities.ScopeAllScanTest do
       assert ledger == [
                {"lib/letflow/entities/script_reads.ex", :compile,
                 "scope-all: script principal is tenant-wide, 0051 D1/F6"},
+               {"lib/letflow/entities/views/clauses.ex", :compile,
+                "scope-all: write-time validation only, no rows are read (the compiled query is discarded)"},
                {"lib/letflow/modules/exam/anti_cheat.ex", :compile, "scope-all: SEC-518-R1"},
                {"lib/letflow/modules/exam/session.ex", :compile, "scope-all: SEC-518-R1"},
                {"lib/letflow/modules/exam/snapshot.ex", :compile, "scope-all: SEC-518-R1"},
@@ -359,11 +361,11 @@ defmodule Letflow.Entities.ScopeAllScanTest do
       found
     end
 
-    test "the scan sees the sites at all: the five ledger sites exist; the router derives its set (no literal since 2c-i-b)" do
+    test "the scan sees the sites at all: the six ledger sites exist; the router derives its set (no literal since 2c-i-b)" do
       sites = real_sites()
 
       assert Enum.count(sites, &(&1.file == @router_file)) == 0
-      assert length(sites) == 5
+      assert length(sites) == 6
     end
   end
 
