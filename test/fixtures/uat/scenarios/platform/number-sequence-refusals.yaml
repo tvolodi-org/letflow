@@ -1,0 +1,142 @@
+# REQ-541 (BA-PLATFORM): refusal scenario for record numbering. Authored new; not a port.
+# Sensitive actions and where covered:
+#   - changing a number (the field is system-given): steps 1, 2
+#   - creating numbered records without the right: steps 3, 4 (a caller without the permission)
+#   - seeing another customer's numbered records: step 5 (cross-tenant); counts kept apart: step 6
+#   - approving, paying or releasing: numbering has none of its own.
+# The requirement adds no permission and no route to manage numbering rules (it names them as later work),
+# so "may not manage a rule" cannot be tested yet; the permission refusal is the existing right to create records.
+# Visibility note: the number is not shown to users or in HTTP answers; outcomes that read a number are checked by a system
+# read of the tenant number table (system_state) and are BLOCKED where that read is not possible. Step 5 uses the record history
+# read (the only by-reference read a Vortex task worker has).
+# Steps 1-5 are expected to be REFUSED. A step the product lets through is a finding.
+---
+id: platform-number-sequence-refusals
+scope: platform
+title: Nobody can type or change a record number, create numbered records without the right, or reach another customer's numbers
+version: "1.0"
+tags: [numbering, isolation, access, refusal, regression]
+
+description: >
+  A number on an order is only worth something if nobody can choose it and only the right people can create
+  orders. SwiftRoute's administrator tries to hand-write and to change a number; a SwiftRoute dispatcher and
+  the read-only auditor try to create numbered orders; a Vortex quality manager tries to open a SwiftRoute
+  order by its reference. Finally each customer's own count is checked to be independent of the other's.
+
+actors:
+  swiftroute_admin: actor-swiftroute-alice
+  swiftroute_dispatcher: actor-swiftroute-lena
+  swiftroute_auditor: actor-swiftroute-auditor
+  vortex_user: actor-vortex-karl
+
+preconditions:
+  - description: SwiftRoute and Vortex are set up with their own users and workspaces
+    check: system_seeded
+  - description: >
+      SwiftRoute has a numbered record type "order" with at least one order (number ORD-<year>-000001), and
+      Vortex has a numbered type of the same name "order" with its own rule
+    check: custom
+    detail: Set up by the platform team; the SwiftRoute "order" type declares no field named "record_number" (the number is not a field of the record, so a written value is refused only for that reason). If the test tenants cannot be given the rules, or the type declares such a field, the scenario is BLOCKED.
+
+  - description: The run can read the tenant number tables of SwiftRoute and Vortex
+    check: custom
+    detail: Needed for the outcomes that name a number; otherwise those are BLOCKED.
+
+steps:
+  - step: 1
+    actor: swiftroute_admin
+    action: Creates a new order and, in the same request, writes his own number ORD-2026-009999 into the order's field "record_number".
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: swiftroute_admin
+    action: Opens an existing order and tries to change its number to another one by writing the field "record_number".
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: swiftroute_dispatcher
+    action: Tries to create a new order; her role lets her work on tasks, not create records.
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: swiftroute_auditor
+    action: Tries to create a new order; the auditor may read but not write.
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: vortex_user
+    action: >
+      Using the reference of a SwiftRoute order that he has been given, tries to read the history of that order in Vortex.
+      Then tries the same with a reference that was never issued, and compares the two answers.
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: swiftroute_admin
+    action: Creates one more order and notes its record reference.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      A number written by the caller at creation or edit is turned down with the ordinary validation answer,
+      and the stored number of the order is unchanged (a new order, if one was saved, has the next system number).
+    verification:
+      method: api_response
+      detail: Steps 1 and 2 are refused with a validation error naming the field; the stored number of the order, read from the tenant number table, is the original one.
+      evidence: Both answers and the order read back.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone could choose or alter an order number, defeating the audit value of the numbering.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      Steps 3 and 4 are refused as lack of right; no order is created and the counter does not move (the stored number of the next
+      permitted order, read from the tenant number table, is the next number with no gap).
+    verification:
+      method: api_response
+      detail: Both attempts are refused and the order list shows no new order.
+      evidence: The two refusals and the order list before and after.
+    on_fail:
+      severity: BLOCKER
+      business_impact: People without the right to create orders could use up numbers or create orders.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      The answer for SwiftRoute's order in step 5 is exactly the answer for a reference that never existed: same
+      wording, nothing about the order or its number.
+    verification:
+      method: api_response
+      detail: The two history reads in step 5 give the same not-found answer.
+      evidence: Both answers compared directly.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A competitor could learn which orders another customer has.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      The two customers count independently: the order SwiftRoute creates in step 6 receives the next
+      SwiftRoute number, whatever Vortex has used, and no SwiftRoute number is visible in Vortex.
+    verification:
+      method: system_state
+      detail: The number stored for the new order continues SwiftRoute's own count; the Vortex number table holds no row of a SwiftRoute record.
+      evidence: The two number tables read.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A customer could infer another customer's volume from the jumps in its own numbers.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Delete the orders created for the scenario in both workspaces.
