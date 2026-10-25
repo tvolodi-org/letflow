@@ -40269,7 +40269,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-562 -- decision 0069 is PROPOSED until REQ-562 closes with both sign-offs; the engine files the GitHub issue after the gate
+    gh: 3254
     # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D1 (pack version format, incoming version not greater than installed), D7 (existing tenants), D8 slice S1, Open points Q1; docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D1 (strict semver is required of the module manifest only); code read: lib/letflow/definitions/solution_pack.ex (@default_pack_version, pack_version/1, export/4, apply_pack_update/6, run_apply_update, install, @type apply_error), lib/letflow/definitions/solution_pack_install.ex (installed_version, status), lib/letflow/definitions.ex (compute_pack_update_plan/5), lib/letflow/routers/solution_packs.ex (export_with_ids/3, compute_and_render_review/5, render_update_apply/2). Written by the business analyst (T-0561) 2026-10-25. Not yet validated.
     description: >
       Source: decision 0069 D1 and D8 slice S1 (core roadmap Wave 3, "Solution versioning and per-tenant
