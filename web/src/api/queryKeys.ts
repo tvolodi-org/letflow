@@ -199,6 +199,9 @@ export const queryKeys = {
       entityType: string,
       params?: { filters?: unknown; sort?: unknown; pageSize?: number; cursor?: string },
     ) => [...queryKeys.entities.all(tenantId), 'browser', entityType, params ?? {}] as const,
+    /** REQ-556 saved list views of one entity type. */
+    views: (tenantId: string, entityType: string) =>
+      [...queryKeys.entities.all(tenantId), 'views', entityType] as const,
   },
 
   modules: {

@@ -40190,6 +40190,90 @@ requirements:
       - "The numbers of the records of REQ-550 and REQ-562 are filled in by the author from main when they exist."
     depends_on: [REQ-550, REQ-562]
 
+  - id: REQ-570
+    title: "Record T slice T-1: bind a published tenant script to a record type and event as an after-commit trigger (new hook kind, binding table, bind, unbind and list routes, bind-time refusals)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3248
+    # Source: docs/migration/decisions/0067-after-commit-trigger-outbox.md D4 (declaration, pin kind, bind takes the type's sequence row, managed types), D5 (output is a closed set of declared write lines, 0062 R5 at bind), D9 slice T-1 and the SECURITY-REVIEWER marker, D2 "Lock position" (item 5 / 5b); docs/migration/decisions/0053-tenant-scripted-rules.md D1 (hook_kind entity_event reserved), D3, D7 and the "7c rulings" (script runtime of GH #2534, PRs 7c-1 and 7c-2, merged: commits ec8b9deea and 0f1a7fa12); docs/migration/decisions/0062-restriction-carrying-variables.md R5; docs/migration/decisions/0061 (lock order, item 5); REQ-567 (Record E slice E-1, the same shape for hook 2). Written by the business analyst (T-0547) 2026-10-25.
+    description: >
+      Decision 0067 D9 slice T-1 only ("trigger declaration and pin"). Today a tenant script is published
+      only for the hook kind service_task: lib/letflow/scripts.ex lists @hook_kinds ["service_task"] and
+      lib/letflow/scripts/runtime.ex fixes @hook_kind "service_task". This slice lets a tenant
+      administrator bind ONE published script version to ONE record type and ONE event (created, updated
+      or deleted) as an after-commit trigger, and nothing more: the trigger does not run and nothing is
+      queued. Nothing in lib/letflow/entities/records.ex changes, no record write inserts an outbox row
+      and no worker exists. The flag :record_triggers_enabled (0067 D9) is introduced here with default
+      false in config/config.exs and config/test.exs; with it false the three routes answer as an
+      unknown route would for every caller, and with it true they work. Nothing else reads the flag in
+      this slice.
+      What it builds. (a) The hook kind entity_event (reserved in 0053 D1, accepted by 0067 D4) is accepted
+      where hook kinds are validated in lib/letflow/scripts.ex, so a script version can be created and
+      published with it; the Scripts.Runtime checks keep refusing an entity_event script for a SERVICE_TASK
+      binding (activation fails with the existing script_not_published) and a script of another hook kind
+      for a trigger binding. (b) A tenant-schema table record_trigger_bindings (name fixed by 0067 D4):
+      id, entity_type, event (created | updated | deleted), script_key, script_version, script_sha256,
+      status (active | disabled), bound_by, timestamps; unique on (entity_type, event); in a new migration
+      under priv/repo/migrations/ that is registered in the manifest of lib/letflow/tenant_provisioning.ex
+      (new tenants) and reaches existing tenants through the same tenant-migration path, as
+      priv/repo/migrations/20261025200001_create_number_sequences.exs did. Storage follows decision
+      0006 D2 and the convention of the neighbouring tenant tables (read 0006 D2 and the latest tenant
+      migration before writing the columns; do not copy a column list from another requirement). A new
+      tenant table moves the pin @expected_tenant_tables in test/support/tenant_fixture.ex and the count
+      in test/letflow/support/tenant_fixture_test.exs (assert length(TenantFixture.expected_tenant_tables())
+      == 69 on main today; the implementation takes the value from origin/main at merge time, since
+      REQ-567 adds a table too, and the summary states the old and the new value and the position of the
+      new name in the alphabetical list). (c) A new router (working name
+      lib/letflow/routers/record_trigger_bindings.ex) forwarded from lib/letflow/plugs/api_pipeline.ex:
+      GET / lists bindings, PUT /:entity_type/:event binds or rebinds to a new version, DELETE
+      /:entity_type/:event unbinds. Bind, rebind and unbind are ScriptsPublish actions (TENANT_ADMIN), OIDC
+      credential only (api_token_not_allowed for an API token), each audited with Audit.append_multi/4 in the
+      same Multi as the row change (0067 D4); list needs the same permission as the script-rules list
+      (ScriptsWrite). The routes get policy keys in lib/letflow/api/authorization.ex mapped to those
+      existing permissions; no new permission is created. (d) Bind-time checks, each a stable refusal that
+      changes nothing: the version is published and not revoked and has hook kind entity_event; its sha256 is
+      stored; the entity type exists in the tenant's definitions; the type is not managed (entity_type_managed;
+      authority from Letflow.Entities.ManagedTypes, never from request data); the (type, event) pair has no
+      binding yet unless the call is a rebind; every write line the manifest declares (the "writes" of 0067 D5:
+      target type, mode, declared fields) names an existing, non-managed target type and no scope-bearing,
+      managed_by or system field; and the 0062 R5 "fewer restrictions" predicate holds for every declared
+      write field against the restrictions of the field (read R5 in 0062 for the exact predicate; the run-time
+      half belongs to T-4). (e) The bind takes the type's sequence row FOR UPDATE inside the bind transaction and
+      no other lock (item 5 of 0061, 0067 D4), so that the in-transaction match of the later insert step is
+      ordered against it. Unbinding or rebinding is a row change in this table only.
+      Split for the feature round: this requirement is sized to be built in two parts, as REQ-567 (E-1) was
+      split in T-0534 and T-0535. Part 1: hook kind, flag, migration with the table-list pin, the context module
+      with bind, rebind, unbind and list and every bind-time refusal and the sequence-row lock (criteria 1-6,
+      11, 12). Part 2: router, policy keys, route-inventory pins and the INV-10 HTTP test (criteria 7-10, 12).
+      The feature round states the split in its design; part 1 says "Refs" and names part 2 as the remainder.
+      Out of scope, each its own later requirement (0067 D9), to be written as separate entries: T-2 outbox
+      table and same-transaction insert (record_trigger_outbox, the :trigger_lineage opt, backlog cap), T-3
+      claim worker with lease, T-4 script run and result application, T-5 failure handling, dead letter and
+      tenant visibility, and T-6 dry-run and UAT scenarios. T-2 to T-5 are not yet in this register. No UI.
+      entity_type_managed reuses the existing Letflow.Api.Error.entity_type_managed/0 (status 403). Decision 0067
+      does not settle the HTTP status of the NEW refusal codes of this slice (sha mismatch, hook-kind mismatch, already bound, invalid write line, R5 refusal); the implementation names one status per code in the design and the summary.
+      SECURITY-REVIEWER is mandatory (new tenant-data table, new routes that take an entity
+      type, migration, a lock on the sequence row).
+    acceptance_criteria:
+      - "1. Hook kind: a script version with hook_kind entity_event can be created and published through the existing script-rules routes with a valid manifest; an unknown hook kind is still refused with the existing invalid_hook_kind error; a test shows that an entity_event script cannot be bound to a SERVICE_TASK node (activation of a definition whose SERVICE_TASK node binds an entity_event version is refused with the existing script_not_published error of Scripts.Runtime) and that a service_task script cannot be bound as a trigger; the existing tests of lib/letflow/scripts.ex and lib/letflow/scripts/runtime.ex pass unchanged (real output quoted)."
+      - "2. Flag: :record_triggers_enabled exists, is false by default in config/config.exs and in config/test.exs; a test with it false shows the three routes behave as an unknown route for a TENANT_ADMIN, and with it true they answer as the criteria below state. The summary states where each of the two values is set and that no other code reads the flag."
+      - "3. Migration and table-list pin: one new migration creates record_trigger_bindings in the tenant schema with a unique index on (entity_type, event), no foreign key to another tenant's data, guarded by `if prefix() do`; it is registered in the manifest of lib/letflow/tenant_provisioning.ex; a test provisions a new tenant and asserts the table exists, and a test runs the migration over an already provisioned tenant and asserts the table exists there and holds no rows. The summary names the migration file and says how existing tenants get it. The tenant table-list pin @expected_tenant_tables in test/support/tenant_fixture.ex gains the new name and the count assertion in test/letflow/support/tenant_fixture_test.exs moves by one from the value on origin/main at merge time; the summary states the old and the new number (69 on main when this entry was written; found with `grep -rn \"expected_tenant_tables\" test/`)."
+      - "4. Bind: a TENANT_ADMIN with an OIDC credential binds a published, non-revoked entity_event version (key, version, sha256) to an existing, non-managed entity type and one of the events created, updated, deleted; the result lists the binding with entity type, event, key, version, sha256 and status active; one audit record is appended in the same transaction as the row (a test makes the audit append fail and asserts no binding row is left); the bind transaction locks the type's sequence row FOR UPDATE and no other row class (a test or the SQL of the transaction quoted shows the lock and its mode)."
+      - "5. Bind refusals, one test per case, each returning a stable error code (the design and the summary list each code with its HTTP status) and leaving the table and the audit trail unchanged: version in draft, retired or revoked; version of another hook kind; sha256 in the request that does not match the stored one; unknown script key or version; entity type not in the tenant's definitions; managed type (entity_type_managed); a second bind of an already bound (type, event) pair through the bind call without the rebind form; a declared write line whose target type does not exist or is managed; a declared write field that is scope-bearing, managed_by or a system field; a declared write field for which the 0062 R5 predicate refuses (the field would end with fewer restrictions than the script's taint)."
+      - "6. Rebind and unbind: rebind replaces the row for the same (type, event) with another published entity_event version and records an audit entry; unbind deletes the row and records an audit entry; unbind of an unbound pair returns the same not-found answer as an unknown entity type; a type may carry several bindings for different events at once; retiring an unreferenced script version still works, and revoke is never blocked by a binding (0053 D3)."
+      - "7. Credentials and permission: an API-token caller on bind, rebind and unbind gets api_token_not_allowed; a caller with PROCESS_DESIGNER (ScriptsWrite without ScriptsPublish) can list but gets a refusal on bind, rebind and unbind; a caller without ScriptsWrite cannot list; one test per route. No role except TENANT_ADMIN (and PLATFORM_ADMIN, whose unconditional clause in Authorization is unchanged) may bind."
+      - "8. List: GET returns only the calling tenant's bindings, ordered by entity type then event, with key, version, sha256, status, bound-at and bound-by; no source code or manifest content is returned."
+      - "9. INV-10 cross-tenant negative test: tenant A has a type with a binding; a caller of tenant B with B's token naming A's type on bind, rebind and unbind gets an answer identical in status and in decoded body after removing the per-request trace_id member, to the answer for a type that exists nowhere; the list called by tenant B does not contain tenant A's binding; no row changes in either tenant. Another test shows tenant B can bind its own type of the same name and event independently and the two bindings never see each other (INV-1)."
+      - "10. Route inventory pins: the new routes are in the authz route list of the new router (`__authz_routes__`); the summary states the new values of every pin changed, found with `grep -rn \"__authz_routes__\\|length(snapshot)\\|length(named)\\|@named_routes\" test/` and updates test/fixtures/route_scope/tenant_wide_default_routes.txt (and its length pins) and the forward count pins as the grep shows; the scope-enforcement and route-inventory tests pass with real output quoted."
+      - "11. Nothing runs and nothing is queued: a test or grep quoted in the summary shows no change to lib/letflow/entities/records.ex, lib/letflow/entities/step_writes.ex or lib/letflow/entities/handler_writes.ex, no table named record_trigger_outbox, and that only the new router and its context read the binding table; the existing records tests pass unchanged."
+      - "12. SECURITY-REVIEWER verdict is recorded (mandatory: new tenant-data table, new routes that take an entity type, migration, sequence-row lock); REVIEWER verdict recorded. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the scoped mix test over the new test files, test/letflow/scripts/, the tenant fixture test and the route-inventory tests pass, real output quoted."
+    open_questions:
+      - "0067 does not settle the HTTP status numbers of the new T-1 refusal codes (sha mismatch, hook-kind mismatch, already bound, invalid write line, R5 refusal); entity_type_managed reuses Letflow.Api.Error.entity_type_managed/0 (403). The design picks one status per code."
+      - "Whether a binding blocks retiring its pinned script version is not settled by the source: 0053 D3 blocks retire only for a script referenced by an active definition, and 0067 D4 is silent. This slice adds no such block."
+      - "0067 D4 says a binding row carries status active | disabled but names no route to disable one; this slice stores status active on bind and adds no disable route. Whether T-5 (kill switch) or a later entry adds one is not settled by the source."
+    depends_on: [REQ-560]
+
   - id: REQ-569
     title: "Form-validation script hook (Record F) slice F-1: accept the form_validation hook kind, HUMAN_TASK validation_script attributes, activation checks and script pin collection for HUMAN_TASK nodes"
     owner: ELIXIR-DEV
@@ -40361,6 +40445,120 @@ requirements:
       - "2. For the owner and the REVIEWER: 0069 D1(3) says that for a non-semver pair \"the review route answers the plan but apply refuses until the owner picks (Q1), the safe default\"; 0069 D7 says \"the refusals of D1 apply only to pack versions that are both semver\" because of \"no tenant-visible change without opt-in\". This requirement follows D7 (no check for a non-semver pair, both routes as today). If the owner prefers D1(3), apply refuses a non-semver pair with a new code that this record does not name, and existing tenants with a non-semver install cannot apply updates until Q1 is answered."
       - "3. Where the pack version a tenant last applied is recorded is not decided by 0069: installed_version is written only at install, so the refusals compare with the install-time version (criterion 8). Options: advance installed_version on a successful apply between semver versions (rewrites rows, needs a reconciliation with D7), or record it in a new place. The owner decides; a later requirement implements it."
     depends_on: [REQ-562]
+  - id: REQ-572
+    title: "Tenant provisioner credential and the server-to-server provisioning routes under /admin/v1 (portfolio contract v0.1): create, read, suspend, resume, expire, and a delete that is refused until the owner decides"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3252
+    # Source: ai-dala-portfolio/contracts/provisioning.md draft v0.1 (rules 1-6, the six calls, "What Letflow must build"; decisions D-011, D-012, D-013 there); docs/migration/decisions/0048-pending-tenant-admin-grant.md (sections 1-3), 0044-hybrid-identity-model.md, 0046-admin-scopes-and-role-charter.md (D4, D5), 0006-identity-tables-schema-per-tenant.md (D2, R5); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-4, INV-5, INV-8, INV-10); docs/runbooks/onboarding-new-tenant-realm.md; the team note state/tasks/T-0222/foundation-notes.md (what deactivate and delete can do today); code read: lib/letflow/routers/tenants.ex (create/deactivate/reactivate, :TenantsManage), lib/letflow/identity.ex (create_tenant/1, deactivate_tenant/1, reactivate_tenant/1, set_tenant_status), lib/letflow/identity/tenant.ex (create_changeset/3, status enum), lib/letflow/routers/onboarding.ex (admin_email check, pending grant), lib/letflow/identity/pending_admin_grants.ex, lib/letflow/tenant_onboarding.ex (provision_and_migrate/1), lib/letflow/plugs/api_pipeline.ex, lib/letflow/api/response.ex (429, Retry-After). Amends 0048 section 1 item 3 (second grant creation path); code read also: priv/repo/migrations/20261008000001_create_pending_tenant_admin_grants.exs. Written by the business analyst (T-0560) 2026-10-25. Not yet validated.
+    description: >
+      The portfolio's front door (the landing-page project) must ask Letflow, server to server, to create,
+      read, suspend, resume, expire and delete a tenant (contract: ai-dala-portfolio/contracts/provisioning.md).
+      Today only a PLATFORM_ADMIN token of the platform tenant can create a tenant (POST /tenants, :TenantsManage
+      in lib/letflow/routers/tenants.ex, or POST /onboarding with admin_email in lib/letflow/routers/onboarding.ex),
+      which is far too strong for a front door. This requirement adds a narrow provisioner credential and six
+      routes. It is realm-agnostic: it does not decide how a tenant gets a Keycloak realm (open question 1).
+      What the product can do today, stated plainly. (a) Create: exists, as Identity.create_tenant/1 followed by
+      Letflow.TenantOnboarding.provision_and_migrate/1; new here is that the caller supplies the tenant id and the
+      credential is not a PLATFORM_ADMIN token. (b) Suspend and resume map to Identity.deactivate_tenant/1 and
+      Identity.reactivate_tenant/1 (status :inactive / :active; the platform tenant is protected, answered
+      :platform_tenant_protected). (c) Expire maps to the same deactivation plus a recorded state "expired";
+      the tenant's schema, rows, slug and realm binding all stay. (d) Delete has NO capability today: no code
+      removes a tenant, drops its schema or frees its realm, and the tenant-to-realm binding is permanent
+      (decision 0048 section 2; docs/runbooks/onboarding-new-tenant-realm.md; T-0222 foundation note). So in
+      this requirement DELETE is a route that is refused (criterion 9) and the status "deleted" is never
+      produced; whether and how a delete is built is an owner decision (open question 2). (e) Resume of an
+      expired tenant is refused (criterion 8): the contract allows resume only from suspended.
+      Design choices fixed here so that one implementation is possible. (1) Routes are mounted at /admin/v1 in
+      lib/letflow/router.ex, OUTSIDE the /api/v1 ApiPipeline and its OIDC authentication, behind one new plug
+      that accepts only the provisioner credential. A provisioner request never builds an auth_context and holds no
+      role and no Authorization.evaluate_access/2 permission. The routes read and write the global tenants table and
+      the new provisioning table below; no tenant row (instance, task, user, record, file) is ever read or returned.
+      The only writes under a tenant :prefix are two, both on a schema the request just created: the schema
+      provisioning and migration done by Letflow.TenantOnboarding.provision_and_migrate/1, and the one pending-grant
+      insert of item (6). The prefix is derived server-side by Letflow.TenantProvisioning.schema_name_for_tenant/1
+      from the tenant id of the row just created; no request value selects a schema (INV-1, INV-6). (2) The credential is one opaque bearer value per
+      deployment (one front door), configured by the environment variable LETFLOW_PROVISIONER_CREDENTIAL_SHA256
+      holding the lowercase hex SHA-256 of the value (reason: the product then never holds the usable secret, INV-4;
+      the secret itself lives in the front door's server secrets). It is read at boot in config/runtime.exs. When
+      the variable is unset or blank, every /admin/v1 path answers 404 with an empty-structure body identical to
+      an unmatched path (contract rule 6). Comparison is constant time. Rotation is open question 4. (3) New
+      global table tenant_lifecycles (unrelated to the schema registrations of Letflow.TenantProvisioning, which live in tenant_schemas; migration under priv/repo/migrations/), one row per provisioned tenant,
+      columns tenant_id (primary key, references tenants.id), lifecycle (active | suspended | expired), tier
+      (demo | production), language (ru | kk | en), expires_at (nullable utc datetime, demo only), owner_grant_stored (boolean, default false), inserted_at,
+      updated_at. It holds NO e-mail address (decision 0048 section 1 items 2 and 8). It is a global registry in the
+      public schema like tenants, not tenant data, so decision 0006 D2 (tenant data lives in the tenant's schema) does
+      not apply to it; it is read and written only by the provisioning routes. (4) The caller's tenant_id becomes tenants.id (create_changeset/3
+      does not cast :id today; a provisioning-only changeset sets it). The slug is derived deterministically as "t-"
+      followed by the 32 lowercase hex digits of the id; display_name is the request name; tier demo sets
+      tenant_type "test" and tier production sets tenant_type "production" (REQ-469 text allows production to be
+      set only by a PLATFORM_ADMIN, so this is flagged for the SECURITY-REVIEWER, open question 6); language is stored in
+      tenant_lifecycles only and is not written to tenant settings. (5) Idempotence: a repeated POST with an existing
+      tenant_id answers 200 with the same body and changes nothing, whatever the other body fields say, except that
+      while tenant_lifecycles.owner_grant_stored is false (the column of item (3), set true in the transaction of
+      the grant insert) the repeat stores the grant for its own owner_email and then answers 200.
+      (6) First administrator, and an AMENDMENT of decision 0048. Decision 0048 section 1 item 3 says a pending grant
+      is created ONLY by the onboarding call (POST /onboarding with admin_email), and
+      priv/repo/migrations/20261008000001_create_pending_tenant_admin_grants.exs pins that with the CHECK
+      created_via = 'onboarding'; Letflow.Identity.PendingAdminGrants.create/3 documents exactly one caller and
+      requires a creator %{user_id: uuid}, whose id decision 0048 section 1 item 8 writes to the platform audit chain.
+      The provisioner has no user. This requirement therefore adds a second creation path: (i) a migration widens the
+      CHECK to created_via IN ('onboarding', 'provisioning'); (ii) a new function
+      Letflow.Identity.PendingAdminGrants.create_provisioned/2 (email_key, opts with :prefix and :platform_prefix)
+      stores the grant with created_via 'provisioning', in one transaction with the TENANT-chain entry
+      tenant.admin_grant.created (nil actor, as in create/3, details created_via 'provisioner') and the PLATFORM-chain
+      entry platform.tenant_admin_grant.created with a nil actor and details grant_id, tenant_id and created_via
+      'provisioner' (the credential is the only identity there is: no credential value, hash or e-mail is recorded);
+      create/3 is unchanged and stays the only onboarding path. The bind and revoke paths of that module (bind_on_login/5, revoke/3, which write the fixed @created_via_class "platform_operator_onboarding" into their tenant-chain entries) take the creator class from the grant row instead: "platform_operator_onboarding" for 'onboarding', "provisioner" for 'provisioning'. (iii) The person with the normalised owner_email
+      becomes TENANT_ADMIN at their first sign-in through the tenant's own realm with email_verified true, by the
+      existing binding. No realm role, no user row and no token is created for the owner. The amendment needs a
+      recorded decision (an amendment section in 0048 or a new record) and REVIEWER and SECURITY-REVIEWER sign-off
+      before implementation (open question 8). Where this departs from POST /onboarding: onboarding keeps the tenant
+      and answers 201 with administrator.state not_stored when the grant insert fails; the front door has no such
+      field, so here a failed grant after the tenant commit answers 500 internal_error, the tenant, its schema and its
+      provisioning row stay (provisioning a schema is a step separate from the tenants row and is not undone), and a
+      repeated POST with the same tenant_id completes the grant (criterion 6). (7) The tenant is
+      created with no idp_realm_id, as POST /onboarding does when it is absent; the realm is bound later by the
+      existing operator route, and until then nobody can sign in. login_url is built from the deployment's public
+      base URL (LETFLOW_PUBLIC_BASE_URL, config/runtime.exs) and the tenant slug; how a person reaches a
+      per-tenant login page is part of open question 1 and the criterion pins only the field's presence and shape.
+      (8) Rate limit: a fixed window per credential of 60 requests per 60 seconds, in a counter local to the node
+      (ETS); the 61st request in the window answers 429 with the Retry-After header in whole seconds. The numbers
+      are a default, to be tuned (open question 5).
+      Out of scope: realm creation or binding, the welcome e-mail (open question 7), any delete or data purge,
+      retention, rotation of the credential, a console or web screen, mobile, and the front door itself.
+      SECURITY-REVIEWER is mandatory (a new credential, a tenant creation path outside the OIDC pipeline, decision
+      0046 D4). Tests that will move: the route and scope pins listed in the letflow-domain skill (a new forward in
+      lib/letflow/router.ex outside ApiPipeline may not move the api route pins, which the implementer must state with
+      the grep over test/ for __authz_routes__, tenant_wide_default_routes.txt and the length pins), the tenant-table
+      pins are NOT moved because tenant_lifecycles is global.
+    acceptance_criteria:
+      - "1. Off when unconfigured: with LETFLOW_PROVISIONER_CREDENTIAL_SHA256 unset or blank, each of POST /admin/v1/tenants, GET /admin/v1/tenants/:id, POST /admin/v1/tenants/:id/suspend, /resume, /expire and DELETE /admin/v1/tenants/:id answers 404 with a body byte-identical to the body of a request to an unmatched path, with or without an Authorization header; no row is written."
+      - "2. Credential check: with the variable set to the SHA-256 of a value V, a request with header Authorization: Bearer V is accepted; a request with no header, a malformed header, a wrong value, or a valid PLATFORM_ADMIN OIDC token in the header answers 401 with body {\"error\": \"unauthorized\", \"message\": <text>} and writes nothing. The 401 body does not differ between the missing and the wrong value. The comparison uses a constant-time function (the test names it)."
+      - "3. Narrowness (negative tests): the credential V sent to any path outside /admin/v1 (GET /api/v1/tenants, GET /api/v1/identity/users, POST /api/v1/tenants, GET /api/v1/instances, and one route from every router mounted in lib/letflow/plugs/api_pipeline.ex that the test enumerates) answers 401 or the route's normal unauthenticated answer and never 200; no /admin/v1 route returns any row of a tenant schema (instances, tasks, users, records, files), any user, any token or any e-mail address; there is no /admin/v1 route that creates, lists or revokes a credential or an API token, or lists tenants; a PLATFORM_ADMIN OIDC token sent to /admin/v1 is refused (criterion 2)."
+      - "4. Create: POST /admin/v1/tenants with a body {tenant_id: <uuid>, name: \"Acme\", language: \"en\", tier: \"demo\", owner_email: \"a@b.example\"} and the credential answers 201 with exactly the keys tenant_id, status (\"active\"), server_url (the deployment public base URL, LETFLOW_PUBLIC_BASE_URL) and handover, where handover is {login_url}; this is the body of the portfolio contract v0.1 (the task brief's shorter {tenant_id, status, login_url} differs, open question 9); afterwards the tenants table holds a row with id equal to tenant_id, slug \"t-\" followed by the 32 hex digits, display_name \"Acme\", tenant_type \"test\", idp_realm_id NULL; tenant_lifecycles holds lifecycle \"active\", tier \"demo\", language \"en\"; the tenant's schema is provisioned and migrated (Letflow.TenantOnboarding.provision_and_migrate/1 returned {:ok, _}) and tenant_lifecycles.owner_grant_stored is true. Tier \"production\" gives tenant_type \"production\". Database state is checked by a test, not only the response."
+      - "5. Validation: each of the following answers 400 {\"error\": \"invalid_request\", \"message\": <text naming the field, not echoing the value>} and writes nothing: tenant_id not a uuid; name blank or longer than 200 characters; language not ru, kk or en; tier not demo or production; owner_email not ASCII, longer than 254 characters or failing the pending-grant address check used by POST /onboarding; expires_at present with tier production; expires_at not an ISO 8601 UTC time or not in the future; an unknown key in the body; a body that is not a JSON object. A tenant_id in a path that is not a uuid answers 404 not_found."
+      - "6. Idempotence and conflict: when tenant_lifecycles.owner_grant_stored is true, a second POST with the same tenant_id answers 200 with the same body as the 201 and changes no row (updated_at of both rows unchanged, no second pending grant, no second audit entry), including when name, tier, language or owner_email differ from the first call; when owner_grant_stored is false the repeat is governed by criterion 7 instead; two concurrent POSTs with one tenant_id yield exactly one 201 and one 200 and one tenant row. A POST whose derived slug is already used by a tenant with a different id answers 409 {\"error\": \"conflict\", ...}. A repeated suspend on a suspended tenant, resume on an active tenant, and expire on an expired tenant answer 200 with the current status and change nothing."
+      - "7. First administrator by pending grant: after a create with owner_email \"Owner@Example.com\", the tenant holds exactly one open pending TENANT_ADMIN grant keyed by the normalised address (trim and lower-case, decision 0048 section 1 item 2), and no user, group membership or role row was written for it; when a user then signs in with the tenant's realm and a verified e-mail equal to the address, the existing binding makes that user TENANT_ADMIN (the test may use the existing grant-binding test helpers); a user with the same address but email_verified false is not bound. The grant row carries created_via \"provisioning\" (the migration widening the CHECK to onboarding and provisioning is applied and a test inserts both values and refuses a third), the platform-chain entry platform.tenant_admin_grant.created has a nil actor and created_via \"provisioner\", the tenant-chain entry has a nil actor, and PendingAdminGrants.create/3 is unchanged (its test still passes). The grant insert and the owner_grant_stored update are one transaction. If the grant cannot be stored (the test makes create_provisioned/2 return an error through an injection the implementer names, for example an application-env test hook read by the provisioning router; dropping the table inside the request is not possible because the same request creates the schema), the create answers 500 {\"error\": \"internal_error\", \"message\": <text>}, the tenant row, its schema and its tenant_lifecycles row (owner_grant_stored false) remain, and no e-mail address is logged; a repeated POST with the same tenant_id once the failure is gone answers 200 and the tenant then holds exactly one grant, while a repeat whose own grant insert fails again answers 500 internal_error in the same shape and leaves owner_grant_stored false. The tenant-chain entries of bind and revoke (tenant.admin_grant.bound, tenant.admin_grant.revoked) take created_via from the grant row: \"platform_operator_onboarding\" for a row with created_via 'onboarding' and \"provisioner\" for 'provisioning'; the bind entry of a provisioned grant carries created_via \"provisioner\", and the existing onboarding pins (test/letflow/identity/pending_admin_binding_test.exs, pending_admin_grants_test.exs) stay unchanged and green. The grant is written in the new tenant's own schema and in no other: with tenants A and B provisioned, A's create leaves B's grants table unchanged. No log line, audit entry or response body of any /admin/v1 route contains the owner_email (checked by a log-capture test)."
+      - "8. Suspend, resume, expire map to deactivate and reactivate: suspend on an active tenant answers 200 {status: \"suspended\"}, the tenants row has status :inactive, lifecycle \"suspended\", and the tenant's own users are then refused by the existing tenant-status gate (a request with a tenant token answers 403 tenant_inactive); resume on a suspended tenant answers 200 {status: \"active\"} and the gate admits them again; expire on an active or suspended tenant answers 200 {status: \"expired\"}, the row has status :inactive and lifecycle \"expired\", and every row of its schema is still present (a count before and after); resume on an expired tenant answers 409 conflict and changes nothing; suspend on an expired tenant answers 409 conflict. The platform tenant (slug bpm-default) answers 409 conflict on suspend and expire (Identity.deactivate_tenant/1 returns :platform_tenant_protected) and the response does not say that it is the platform tenant. An unknown or non-provisioned tenant id (a tenant created through POST /tenants has no tenant_lifecycles row) answers 404 not_found on every route, and the body is byte-identical for both cases (INV-5)."
+      - "9. Delete is refused: DELETE /admin/v1/tenants/:id for a provisioned tenant answers 409 {\"error\": \"conflict\", \"message\": <text saying delete is not supported>} and changes nothing (the tenants row, tenant_lifecycles row, schema and realm binding are all unchanged, counted by a test); for an unknown id it answers 404 not_found. No response and no stored value of any route ever carries status \"deleted\". A comment in the router's moduledoc cites open question 2 as the reason."
+      - "10. Read: GET /admin/v1/tenants/:id answers 200 with exactly the keys tenant_id, status (active | suspended | expired), tier, created_at, expires_at (null when none), where status is the lifecycle column; two reads of the same tenant answer the same body; the body carries no slug, no realm, no e-mail, no counts, no settings."
+      - "11. Rate limit: with the default window, the 61st request within 60 seconds with the credential answers 429 {\"error\": \"rate_limited\", \"message\": <text>} with a Retry-After header holding a whole number of seconds between 1 and 60, and writes nothing; the next window admits again (the test injects the clock). A request without a valid credential does not consume the credential's budget and is not counted against it (the unauthorized flood cannot lock the front door out)."
+      - "12. Error shape: every non-2xx answer of the six routes is a JSON object with exactly the keys error and message, and error is one of invalid_request, unauthorized, rate_limited, not_found, conflict ; an unexpected failure (for example the database is down, or the failed grant of criterion 7) answers 500 {\"error\": \"internal_error\", \"message\": <text>}, the one code outside the contract list, named in the moduledoc, and no stack, SQL or e-mail address appears (INV-8)."
+      - "13. Security record: the moduledoc of the new router lists the invariants kept (INV-1 and INV-6 no tenant row is read or returned, and the only tenant-prefix writes are the schema provisioning and the one grant insert, under a prefix derived from the new tenant id (criterion 7); INV-2 the response keys are an allowlist; INV-4 only a hash is configured; INV-5 criterion 8; INV-8 criterion 12; INV-10 the credential is bound to no tenant and cannot reach a tenant route) and decision 0046 D4 (no PLATFORM_ADMIN in a customer tenant: the provisioner is not a role and creates none). A cross-tenant negative test: with two provisioned tenants A and B, suspend and expire of A leave B's lifecycle, status and data unchanged, and no /admin/v1 response for A contains any value stored for B."
+      - "14. Process: the PR records a SECURITY-REVIEWER verdict in its Gates block before merge; the migrations are additive (a new table; the grants CHECK widened to also allow provisioning, no row changed) and the implementer states how a database that already holds tenants is handled (no backfill; tenants without a provisioning row are invisible to /admin/v1); mix letflow.check_requirements_registration and test/letflow/ci_backend_path_filter_test.exs pass with real output quoted; docs/runbooks gets one short section on the credential variable (name, hash form, off when unset) without any secret value."
+    open_questions:
+      - "1. Realm for a provisioned tenant (owner): (a) limited Keycloak admin client, (b) one shared demo realm for many tenants (the permanent 1:1 tenant-to-realm binding of decision 0006 R5 and 0048 section 2 would have to change), (c) a pool of pre-made realms the front door claims; production tenants may differ from demo ones. Until decided, a provisioned tenant has no realm and nobody can sign in; this requirement does not settle it."
+      - "2. Delete (owner, operators): may a tenant be deleted at all, or only deactivated? A person's data may have to be erased on request. Today there is no capability (no schema drop, no realm release); criterion 9 refuses DELETE until this is decided."
+      - "3. Retention after expiry (owner): how long an expired tenant's data is kept before a delete is allowed."
+      - "4. Where the front door keeps the credential and how it is rotated (infra; security, so the owner). This requirement supports one hash value in the environment and no rotation."
+      - "5. Abuse limits (next-team and product operators): the 60 per 60 seconds per credential is a default; the per-visitor limit belongs to the front door."
+      - "6. May a provisioner create a tier production tenant (tenant_type production), given REQ-469 lets only a PLATFORM_ADMIN of the platform tenant set it? SECURITY-REVIEWER and owner."
+      - "7. Who sends the welcome e-mail: the contract proposes the front door; this requirement sends none."
+      - "8. Amendment of decision 0048 section 1 item 3 (REVIEWER, SECURITY-REVIEWER, owner): a pending grant may then be created by a second path, the provisioner, with created_via 'provisioning' and a nil actor in both audit chains. A decision record or an amendment section in 0048 must be recorded before implementation; the alternative is to keep one path and have the front door's tenant created by a platform operator, which defeats the narrow credential."
+      - "9. The 201 body: the portfolio contract v0.1 gives {tenant_id, status, server_url, handover: {login_url}} (followed here); the task brief gave {tenant_id, status, login_url}. The contract owner confirms the contract shape."
+    depends_on: [REQ-075, REQ-447]
   - id: REQ-571
     title: "Per-tenant print-template overrides (decision 0068 D8) slice S1: closed layout schema, validator and pure PDF renderer with an embedded Unicode font; no table, no route"
     owner: ELIXIR-DEV
