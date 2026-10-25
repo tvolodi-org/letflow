@@ -1,0 +1,139 @@
+---
+id: core-documents-1-register-type
+scope: core-documents
+title: A business module registers a document type; unsafe or unresolvable types are refused
+version: "1.0"
+tags: [documents, registration, refusal]
+
+description: >
+  Versioned documents (purchase orders, contracts and the like) start with a document type that an
+  installed business module declares. This scenario checks that a valid type is stored and audited, that
+  a type declaring a restricted field is refused, that a type tied to a legal entity is refused while the
+  platform has no way to name legal entities, that the way legal entities are looked up cannot be
+  replaced from a tenant's own settings, and that a type's retention settings stay adjustable while its
+  identity settings do not once documents exist.
+  This first part of the document service is internal: it adds no screen and no public interface. The
+  scenario therefore runs only in an environment that lets the tester call the document service for a
+  named tenant directly (a service-level harness). Where the environment cannot do that, the result is
+  BLOCKED, not PASS.
+
+actors:
+  module: actor-system-documents-service
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: The tester can call the document service for a named test tenant ("tenant A")
+    check: custom
+    detail: >
+      A service-level harness exists in the test environment. Without it every step below is BLOCKED.
+  - description: Tenant A has at least one field marked restricted, and no installed module supplies its own legal-entity lookup
+    check: custom
+    detail: >
+      The restricted field is named in the tenant's own restricted-field settings; the default lookup
+      (which knows no legal entities) is the one in use.
+  - description: The swiftroute test tenant has a signed-in tenant administrator
+    check: custom
+    detail: The seeded administrator of the swiftroute tenant (actor-swiftroute-alice) can sign in.
+
+steps:
+  - step: 1
+    actor: module
+    action: >
+      Registers a document type "purchase order" for tenant A, declaring ordinary fields only and no legal
+      entity requirement.
+    via: system
+    produces:
+      type_row: the stored document type with its key, owner module and declared fields
+
+  - step: 2
+    actor: module
+    action: >
+      Tries to change the numbering scope of that type after a document of the type exists.
+    via: system
+    expect_refusal: true
+
+  - step: 3
+    actor: module
+    action: >
+      Changes the retention period, retention start and retention action of that same type after a
+      document of the type exists.
+    via: system
+
+  - step: 4
+    actor: module
+    action: >
+      Tries to register a type whose declared fields include one of tenant A's restricted fields.
+    via: system
+    expect_refusal: true
+
+  - step: 5
+    actor: module
+    action: >
+      Tries to register a type that must be tied to a legal entity, while the default lookup (which knows
+      no legal entities) is in use.
+    via: system
+    expect_refusal: true
+
+  - step: 6
+    actor: tenant_admin
+    action: >
+      Looks in the tenant's settings and in the process designer for any place to choose or replace the
+      way the platform looks up legal entities for documents, and tries to use it if one is offered.
+    via: gui
+    expect_refusal: true
+
+expected_outcomes:
+  - id: EO-001
+    description: The valid type is stored with its key, owner module and declared fields, and one "document type registered" audit event exists for it.
+    verification:
+      method: audit_event
+      detail: The stored type matches what was declared; exactly one registration event is in tenant A's audit trail, written together with the type.
+      evidence: The type row and the audit event, quoted from the harness output.
+    on_fail:
+      severity: MAJOR
+      business_impact: Document types would exist with no record of who introduced them.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The numbering-scope change is refused as an ordinary error result (not a crash), and the stored type is unchanged. The three retention settings do change.
+    verification:
+      method: system_state
+      detail: Numbering scope is the same before and after; retention period, start and action carry the new values.
+      evidence: The type row before and after step 2 and after step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A type's identity could be altered after documents were numbered under it, breaking the numbering history; or retention could not be adjusted when the law changes.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The type with a restricted field is refused and nothing is stored for it.
+    verification:
+      method: system_state
+      detail: An error result is returned and no type row and no audit event exist for the refused type.
+      evidence: The error result and a count of type rows before and after.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Restricted data could be carried into documents that are later exported or shared.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The legal-entity type is refused with the reason that no legal-entity lookup is available, and no row is written.
+    verification:
+      method: system_state
+      detail: The error result names the missing lookup; no type row exists afterwards.
+      evidence: The error result and a count of type rows before and after.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Documents could be issued under a legal entity nobody can verify.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The tenant administrator finds no setting, designer option or definition field that replaces the legal-entity lookup, and nothing changes.
+    verification:
+      method: gui_screen
+      detail: No such option is offered; the platform's lookup is unchanged afterwards.
+      evidence: Screens of the tenant settings and the designer, and the harness view of the active lookup.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A tenant could substitute its own lookup and mislabel which legal entity a document belongs to.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the test types and documents created in tenant A.

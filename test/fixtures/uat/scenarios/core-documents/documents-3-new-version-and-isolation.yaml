@@ -1,0 +1,99 @@
+---
+id: core-documents-3-new-version-and-isolation
+scope: core-documents
+title: A new version is prepared from the current issued version, and another tenant cannot reach it
+version: "1.0"
+tags: [documents, versions, isolation, refusal]
+
+description: >
+  When a document already issued must change, the next version starts as a draft copy of the current
+  issued version. This scenario checks that the copy carries the same content, has no number and no
+  fingerprint, leaves the issued version untouched, is refused for a document that was never issued, and
+  that another tenant asking for the same document is treated exactly as if the document did not exist.
+  Issuing itself belongs to the next part of the service; the issued version is prepared by the test
+  environment directly in the database. The service is internal (no screen, no public interface): where
+  the environment cannot call it for a named tenant, or cannot prepare an issued version, the result is
+  BLOCKED.
+
+actors:
+  module: actor-system-documents-service
+
+preconditions:
+  - description: The tester can call the document service for two test tenants, "tenant A" and "tenant B"
+    check: custom
+    detail: A service-level harness exists; without it every step is BLOCKED.
+  - description: Tenant A holds one document whose version 1 is issued, and one document that has only a draft
+    check: custom
+    detail: The issued version is placed by the test setup, since issuing is not part of this slice.
+  - description: Tenant B holds at least one document of its own
+    check: custom
+    detail: Used to show tenant B's documents are unaffected.
+
+steps:
+  - step: 1
+    actor: module
+    action: For tenant A, prepares the next version of the issued document.
+    via: system
+    produces:
+      draft_version: version 2 as a draft
+  - step: 2
+    actor: module
+    action: For tenant A, tries to prepare the next version of the document that has only a draft.
+    via: system
+    expect_refusal: true
+  - step: 3
+    actor: module
+    action: As tenant B, tries to prepare the next version of tenant A's issued document, naming its identifier.
+    via: system
+    expect_refusal: true
+  - step: 4
+    actor: module
+    action: As tenant B, tries to prepare the next version of an identifier that exists nowhere.
+    via: system
+    expect_refusal: true
+
+expected_outcomes:
+  - id: EO-001
+    description: Version 2 is a draft whose content equals version 1's content, with no number and no fingerprint; version 1 is unchanged (status issued, same number, same fingerprint, same content).
+    verification:
+      method: system_state
+      detail: Compare both versions' stored rows before and after step 1.
+      evidence: The version rows of the document before and after.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An issued, possibly approved document could be altered, or the next version could start from the wrong content.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The document with no issued version is refused with an error result and gains no version.
+    verification:
+      method: system_state
+      detail: An error result is returned; the version count of that document is unchanged.
+      evidence: Error result and version counts.
+    on_fail:
+      severity: MAJOR
+      business_impact: A version 2 could exist with nothing issued before it.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Tenant B's attempt on tenant A's document gets the same error result as the attempt on a nonexistent identifier, and tenant A gains no version from it.
+    verification:
+      method: system_state
+      detail: The two error results are identical; tenant A's version count is unchanged after steps 3 and 4; tenant B's own documents are unchanged.
+      evidence: Both error results side by side and the version counts.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could discover or alter another company's documents.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The audit trail of every tenant still verifies after these steps and holds no content value.
+    verification:
+      method: audit_event
+      detail: Chain verification passes for tenants A and B; no payload contains document content.
+      evidence: Chain verification results.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The tamper-evidence of the audit trail would be lost.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the test documents in tenants A and B.

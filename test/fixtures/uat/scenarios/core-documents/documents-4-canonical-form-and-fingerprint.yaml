@@ -1,0 +1,118 @@
+---
+id: core-documents-4-canonical-form-and-fingerprint
+scope: core-documents
+title: Document content has one canonical form, and the fingerprint depends on every input
+version: "1.0"
+tags: [documents, hash, canonical]
+
+description: >
+  An approval will later bind to a document's fingerprint, so equal content must always produce the same
+  bytes and any difference in identity must produce a different fingerprint. This scenario checks that
+  content containing a decimal-fraction number, a non-finite number or a repeated key is refused, that
+  two spellings of the same text give the same bytes, that changing any one of the eight inputs changes
+  the fingerprint (so identical content in two tenants or two documents differs), that a known input gives
+  a known fingerprint, and that a fingerprint supplied by a caller is never accepted. A draft has no
+  number, so the fingerprint is computed from a given number only; storing it belongs to the next part.
+  The function is internal; the scenario runs only where the environment can call it directly, otherwise
+  BLOCKED.
+
+actors:
+  module: actor-system-documents-service
+
+preconditions:
+  - description: The tester can call the document service's content and fingerprint functions
+    check: custom
+    detail: A service-level harness exists; without it every step is BLOCKED.
+  - description: The reference input and its expected lowercase hexadecimal fingerprint are those pinned in the product's own test for this function
+    check: custom
+    detail: The tester reads the pinned value from the product's test; it is not invented for the run.
+
+steps:
+  - step: 1
+    actor: module
+    action: Submits content containing a number with a decimal fraction.
+    via: system
+    expect_refusal: true
+  - step: 2
+    actor: module
+    action: Submits content containing a non-finite number (infinity or not-a-number).
+    via: system
+    expect_refusal: true
+  - step: 3
+    actor: module
+    action: Submits content in which one key appears twice in the same object.
+    via: system
+    expect_refusal: true
+  - step: 4
+    actor: module
+    action: Submits two texts that are the composed and decomposed spellings of the same accented word and compares the resulting bytes.
+    via: system
+  - step: 5
+    actor: module
+    action: Computes the fingerprint for the reference input, which includes a number.
+    via: system
+  - step: 6
+    actor: module
+    action: Repeats step 5 once for each of the eight inputs (tenant, document, type, legal entity, number, version number, content, and the fixed label of the fingerprint rule), changing exactly that one input, and compares each result with the reference.
+    via: system
+  - step: 7
+    actor: module
+    action: Tries to create or edit a document while supplying its own fingerprint.
+    via: system
+    expect_refusal: true
+
+expected_outcomes:
+  - id: EO-001
+    description: Each of the three refused contents returns an error result and nothing is stored.
+    verification:
+      method: system_state
+      detail: Three error results; no new document or version rows.
+      evidence: Error results and row counts.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Two systems could compute different fingerprints for the same document, so approvals could not be verified.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The composed and decomposed spellings give identical bytes.
+    verification:
+      method: system_state
+      detail: Byte-for-byte equality of the two canonical forms.
+      evidence: Both byte strings.
+    on_fail:
+      severity: MAJOR
+      business_impact: The same visible text would produce different fingerprints depending on how it was typed.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The reference fingerprint equals the pinned lowercase hexadecimal value.
+    verification:
+      method: system_state
+      detail: Exact string equality with the value in the product's test.
+      evidence: The computed and the pinned value.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A silent change to the fingerprint rule would invalidate every approval bound to an older fingerprint.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Every one-input change gives a result different from the reference, so identical content in two tenants or two documents does not share a fingerprint.
+    verification:
+      method: system_state
+      detail: All results of step 6 differ from the reference.
+      evidence: The reference and each changed result.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An approval for one company's or one document's content could be replayed for another's.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A caller-supplied fingerprint is refused or ignored; the stored document never holds a fingerprint taken from the caller.
+    verification:
+      method: system_state
+      detail: After step 7 no stored version carries the supplied value; the attempt returns an error result.
+      evidence: The result and the stored version row.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A caller could forge the proof that a document was approved unchanged.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove any test documents created.
