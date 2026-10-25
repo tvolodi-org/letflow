@@ -146,6 +146,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Engine.EntityPort
   alias Letflow.Engine.VariableSchema
   alias Letflow.Entities.ManagedTypes
+  alias Letflow.Modules.Catalog
   alias Letflow.Repo
   alias Letflow.SandboxPool
   alias Letflow.SandboxPool.FixtureLoader
@@ -2982,7 +2983,8 @@ defmodule Letflow.Definitions do
             # they existed cannot be activated with a dead end or missing default.
             violations =
               Graph.validate_flow(graph).violations ++
-                SemanticValidation.validate(graph, declared_fields).violations
+                SemanticValidation.validate(graph, declared_fields).violations ++
+                extension_site_violations(definition, graph)
 
             case violations do
               [] -> :ok
@@ -2997,6 +2999,25 @@ defmodule Letflow.Definitions do
         {:error, :graph_structure_invalid}
     end
   end
+
+  # REQ-574 (decision 0071 D9 X1) -- the extension points the owner module version declares are
+  # checked against this definition's graph only when that exact module id and version is
+  # registered; a nil owner, an unregistered version or a module without points checks nothing.
+  defp extension_site_violations(
+         %ProcessDefinition{owner_module: id, owner_module_version: version, name: name},
+         graph
+       )
+       when is_binary(id) and is_binary(version) do
+    case Enum.find(Catalog.all_manifests(), &(&1.id == id and &1.version == version)) do
+      nil ->
+        []
+
+      manifest ->
+        Graph.check_extension_sites(graph, {name, Map.get(manifest, :extension_points, [])})
+    end
+  end
+
+  defp extension_site_violations(_definition, _graph), do: []
 
   # REQ-125 §5.3 -- both writes below (the deprecate-prior-active update AND
   # the activate-this-one update) are "the definition set changed", so both

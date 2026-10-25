@@ -1560,4 +1560,42 @@ defmodule Letflow.Definitions.GraphTest do
       assert codes(result) == [:missing_endpoint, :invalid_timeout]
     end
   end
+
+  describe "check_extension_sites/2 (REQ-574)" do
+    defp point(name, definition, node_id) do
+      %{
+        "name" => name,
+        "kind" => "script_step",
+        "site" => %{"definition" => definition, "node_id" => node_id, "position" => "after"},
+        "input" => [],
+        "returns" => %{}
+      }
+    end
+
+    defp site_graph, do: graph([node("review", :USER_TASK)], [])
+
+    test "G1: a point on this definition naming a node not in the graph gives one violation" do
+      assert [%Graph.Violation{code: :extension_site_unknown_node, message: msg}] =
+               Graph.check_extension_sites(site_graph(), {"d1", [point("p1", "d1", "missing")]})
+
+      assert msg =~ "'p1'" and msg =~ "'missing'"
+    end
+
+    test "G2: a node id that is in the graph gives no violation" do
+      assert Graph.check_extension_sites(site_graph(), {"d1", [point("p1", "d1", "review")]}) ==
+               []
+    end
+
+    test "G3: a point whose site.definition names another definition is ignored" do
+      assert Graph.check_extension_sites(site_graph(), {"d1", [point("p1", "d2", "missing")]}) ==
+               []
+    end
+
+    test "G4: malformed entries are skipped without a crash" do
+      assert Graph.check_extension_sites(site_graph(), {"d1", [nil, "x", %{"site" => 1}, %{}]}) ==
+               []
+
+      assert Graph.check_extension_sites(site_graph(), {"d1", nil}) == []
+    end
+  end
 end

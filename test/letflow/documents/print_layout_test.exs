@@ -257,6 +257,9 @@ defmodule Letflow.Documents.PrintLayoutTest do
         | Path.wildcard("lib/letflow/documents/print_layout/**/*.ex")
       ]
 
+      assert files |> Enum.map(&Path.basename/1) |> Enum.sort() ==
+               ["flow.ex", "font.ex", "pdf.ex", "print_layout.ex"]
+
       for f <- files do
         refute File.read!(f) =~ ~r/\bRepo\b|DateTime|System\.|:httpc/, "#{f} is not pure"
       end
