@@ -595,6 +595,8 @@ defmodule Letflow.Routers.Tenants do
         :ok = Admission.forget_tenant(schema)
         # GH 2534 / 0053 D8: the tenant-script admission server keeps its own fair share.
         :ok = Admission.forget_tenant(schema, Letflow.Engine.Lua.ScriptAdmission)
+        # GH 3252 / REQ-572: stop the tenant's realm key provider so cached JWKS stop verifying.
+        :ok = stop_realm_provider(tenant.id)
         Response.ok(conn, tenant_map(tenant))
 
       {:error, :not_found} ->
@@ -608,6 +610,16 @@ defmodule Letflow.Routers.Tenants do
 
       {:error, %Ecto.Changeset{}} ->
         Response.unprocessable(conn, "validation failed")
+    end
+  end
+
+  defp stop_realm_provider(tenant_id) do
+    case Identity.resolve_realm_by_tenant(tenant_id) do
+      {:ok, realm} when is_binary(realm) and realm != "" ->
+        Letflow.Oidc.ProviderRegistry.stop(realm)
+
+      _no_realm ->
+        :ok
     end
   end
 
