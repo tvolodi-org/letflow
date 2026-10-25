@@ -24,6 +24,7 @@ values belong in this file or in any evidence field.
   power inside a customer tenant; `TENANT_ADMIN` is the tenant's owner role).
 - `lib/letflow/design/req447-infra-realm-mapping.md`, sections 1 and 3b (every new realm must
   issue `TENANT_ADMIN`).
+- The tenant realm template, version 1: `priv/keycloak/provisioner/v1/tenant-realm.json` (README beside it; drift test `test/letflow/keycloak_tenant_realm_template_test.exs`). It is for the provisioner; step R1 below still describes the manual clone.
 
 ## Ordered steps
 
