@@ -67,6 +67,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     # absent from either is simply never walked and the suite stays green
     # while the surface goes unverified.
     Letflow.Routers.Entities,
+    Letflow.Routers.EntityTypeHooks,
     # REQ-335/REQ-410 -- the exam-session HTTP surface moved from a direct
     # core-mount (REQ-335/REQ-408) to the D4/D5 gate at
     # /modules/exam/exam-sessions (REQ-410). Letflow.Modules.Exam.Router's
@@ -143,6 +144,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Routers.Services => "/services",
     Letflow.Routers.AdminServices => "/admin/services",
     Letflow.Routers.Entities => "/entities",
+    Letflow.Routers.EntityTypeHooks => "/entity-type-hooks",
     Letflow.Modules.Exam.Router => "/modules/exam",
     Letflow.Routers.Help => "/help",
     Letflow.Routers.Me => "/me",
