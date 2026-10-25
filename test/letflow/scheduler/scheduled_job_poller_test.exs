@@ -16,7 +16,7 @@ defmodule Letflow.Scheduler.ScheduledJobPollerTest do
   alias Letflow.TestSupport.ScheduledJobFixture, as: Fx
 
   # Read before any test of this module changes it: the compiled default from config/config.exs.
-  @compiled_default Application.get_env(:letflow, :scheduled_jobs)
+  @compiled_default Application.compile_env(:letflow, :scheduled_jobs)
 
   setup do
     original = Application.get_env(:letflow, :scheduled_jobs)

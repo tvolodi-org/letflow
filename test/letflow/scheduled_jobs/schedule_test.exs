@@ -35,13 +35,11 @@ defmodule Letflow.ScheduledJobs.ScheduleTest do
 
   test "due_plan: next_run_at 3.5 steps before now gives skipped 3" do
     now = at(100 * @step + div(@step, 2))
-    stored = at(96 * @step + div(@step, 2) - div(@step, 2))
     # slots strictly: stored 97 steps, now 100.5 steps -> slot 100, skipped 3
     assert {:ok, plan} = Schedule.due_plan(job(97 * @step), now)
     assert plan.slot == at(100 * @step)
     assert plan.skipped == 3
     assert plan.next == at(101 * @step)
-    refute stored == nil
   end
 
   test "due_plan: exact boundary runs that slot with nothing skipped" do
