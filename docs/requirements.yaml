@@ -40348,6 +40348,81 @@ requirements:
       - "Whether the feature flag is later replaced by the per-tenant script policy once F-3 is built is not decided here; F-3 states it. The flag is removed or kept by the requirement that makes the hook run."
     depends_on: [REQ-559]
 
+  - id: REQ-577
+    title: "Tenant-owned record types slice A: per-type write permission (second write-restriction and write-grant table pair, write gate, import lists), decision 0070 D2 and D6 slice A"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3261
+    # Source: docs/migration/decisions/0070-tenant-owned-record-types.md (D1, D2, D6 slice A, "Open owner questions" Q2 and Q3, "Tests the implementation slices must add", "Threats for SECURITY-REVIEWER"); docs/migration/core-roadmap-20261014.md "Customization beyond scripts"; code read: lib/letflow/entities/record_access.ex (write/3, attachment/3, attachment_write/3), lib/letflow/entities/type_access.ex, lib/letflow/entities/restrictions.ex (import_restrictions/2), lib/letflow/entities/step_writes.ex (check_type_access/2), lib/letflow/entities/handler_writes.ex, lib/letflow/routers/entities/record_attachments.ex, priv/permission_matrix/effective.golden, test/support/tenant_fixture.ex (@expected_tenant_tables), test/letflow/api/authorization_tenant_auditor_test.exs; docs/roles.md (EntitiesRestrictionsManage: TENANT_ADMIN only). Written by the business analyst (T-0548) 2026-10-25. Not yet validated.
+    description: >
+      Slice A of decision 0070 (D6 "Slice A, write permission (D2)"); the decision record is the product of
+      REQ-566. Today a type with a restriction row denies a user without a grant for every access, read and
+      write alike: Letflow.Entities.TypeAccess has no read/write distinction. This slice lets a tenant
+      administrator restrict WRITING to a tenant-owned record type to named users, while read access stays
+      governed by TypeAccess exactly as today. It is opt-in: with no write-restriction row for a type,
+      behaviour is exactly today's. Slices B (scope declaration, 0070 D3), C (module references, D4) and D
+      (web lookups and generated forms, D5) are LATER entries, each with its own requirement, each depending
+      on REQ-566; none is built or filed here.
+      OPEN OWNER QUESTIONS (0070 "Open owner questions"; they are NOT decided by this entry or by the BA).
+      Q2, write model (0070 D2): option 1 a second pair of tables mirroring TypeAccess (recommended),
+      option 2 a mode column on the existing grant and restriction tables, option 3 a permission list in
+      the definition JSON. Q3, permission for write grants (0070 D2): reuse EntitiesRestrictionsManage
+      (recommended) or a new permission. THIS ENTRY ASSUMES Q2 option 1 and Q3 reuse of
+      EntitiesRestrictionsManage (assumption, to be confirmed by the owner). Q1 (scope
+      declaration) and Q4 (reference registration) concern slices B and C and are not needed here.
+      OUTCOMES OF THE OWNER'S ANSWERS.
+      Q3 reuse (assumed): no new permission; priv/permission_matrix/effective.golden and the tenant-auditor
+      refused set (test/letflow/api/authorization_tenant_auditor_test.exs) stay unchanged, and the slice
+      verifies that by running mix letflow.permission_matrix and the auditor test. Q3 new permission: both
+      move; the golden is regenerated with mix letflow.permission_matrix --write (never merged by hand), the
+      refused set literal and the role-matrix rows in docs/roles.md are updated, and the criteria below are
+      amended by the owner's answer before the feature task starts.
+      Q2 option 1 (assumed): the slice has a migration that creates two tenant tables (write restrictions and
+      write grants, created under the migration prefix like entity_type_restrictions and user_entity_type_grants, with no tenant_id column, decision 0006 D2; INV-1) and so moves the tenant table-list pin
+      (@expected_tenant_tables in test/support/tenant_fixture.ex, read through TenantFixture.expected_tenant_tables/0) and its count in
+      test/letflow/support/tenant_fixture_test.exs; the previous migration's table names are grepped across test/.
+      Q2 option 2 or 3: the slice text below is REWRITTEN after the owner's answer (no second table pair, a
+      different migration and a different import shape); the feature task does not start on the old text.
+      WHAT THE SLICE BUILDS (assuming the answers above).
+      (1) Migration: two tenant tables, write restrictions and write grants, mirroring the existing
+      restriction and grant tables; they start empty, so no backfill and no existing row changes.
+      (2) The gate: Letflow.Entities.RecordAccess.write/3 and attachment_write/3 consult the new tables after
+      the managed_by lock and TypeAccess and before FieldGrants; Letflow.Entities.StepWrites.check_type_access/2
+      (subject: the completer on the human path, the activator on a service origin) and
+      Letflow.Entities.HandlerWrites apply the same rule. Records itself stays ungated; definition create and
+      activate stay under TypeAccess only (0070 D2 "Left out").
+      (3) The import lists: POST /restrictions/import (permission EntitiesRestrictionsManage) accepts new
+      write_restrictions and write_grants lists, validated like the existing lists; a name for a
+      module-managed type is refused with the managed 403 and never stored; the response reports the users
+      who stop writing because of a new write restriction.
+      (4) Route pins: the slice adds no route, only list keys on an existing one; it re-derives and states
+      every route-inventory and scope-enforcement pin it touches (grep __authz_routes__ and length(snapshot)
+      across test/) instead of assuming they are unchanged.
+      (5) SECURITY-REVIEWER is mandatory (tenant-data path, INV-1, INV-2, INV-5, INV-6, INV-10). Its threats
+      are those of 0070 "Threats for SECURITY-REVIEWER" for D2: a write grant leaking across tenants, a
+      restricted type writable without a grant on any path, existing writers losing access silently.
+      WRITE PATHS COVERED: POST, PUT and DELETE on the record routes of an entity type; the record import
+      route; the record-attachment write routes (lib/letflow/routers/entities/record_attachments.ex); the
+      process-step entity writes and the handler writes.
+      NOT IN THIS ENTRY: slices B, C and D; the scope declaration of a tenant type; any change to a module
+      type's managed_by lock; any change to FieldGrants.
+      FEATURE-TASK GATE: the feature task for this entry must NOT start before the owner has confirmed Q2 and
+      Q3 in writing (recorded on the tracker issue or in 0070's open-question section) and REQ-566 has merged.
+    acceptance_criteria:
+      - "1. The entry text names 0070 Q2 (write model) and Q3 (permission for write grants) as open owner questions, states that it assumes Q2 option 1 (second table pair) and Q3 reuse of EntitiesRestrictionsManage, and states that the business analyst does not decide them."
+      - "2. A user who can read a write-restricted tenant-owned type but holds no write grant for it is refused on each covered path: create, update and delete on the record routes, the record import, the record-attachment write routes, a process-step entity write and a handler entity write. The refusal on the record routes is the route-level constant 403; a user who fails TypeAccess for the type gets the same answer as for an absent type (INV-5). One test per path (0070 test D2-write-denied)."
+      - "3. A user holding a write grant but failing TypeAccess read for the type is refused with the answer for an absent type; a user holding TypeAccess read but no write grant never gains write; a write grant never implies read (0070 D2)."
+      - "4. With no write-restriction row for a type, write behaviour is identical to the behaviour before the change for every user on every covered path, including a type that has TypeAccess restriction rows (0070 test D2-default). No existing row is changed or backfilled."
+      - "5. Posting a write restriction or write grant that names a module-managed type to the restrictions import is refused with the managed 403 and no row is stored (0070 test D2-managed); the managed_by lock stays absolute, and FieldGrants behaviour is unchanged."
+      - "6. Two-tenant proof (INV-1, INV-6; 0070 test D2-xtenant): with the same type name in tenants A and B, a write restriction and a write grant stored in tenant A change nothing for tenant B on any covered path; the new tables exist only in the tenant schema (created under the migration prefix, like entity_type_restrictions and user_entity_type_grants), with no tenant_id column (decision 0006 D2)."
+      - "7. The restrictions import response reports the users who held write ability before and lose it because of a newly added write restriction; the import is permission EntitiesRestrictionsManage and is refused with 403 for a role that lacks it, including PROCESS_DESIGNER."
+      - "8. Q3 reuse outcome: priv/permission_matrix/effective.golden and the tenant-auditor refused set in test/letflow/api/authorization_tenant_auditor_test.exs are byte-for-byte unchanged and MIX_ENV=dev mix letflow.permission_matrix --check reports no difference. If the owner chooses a new permission instead, both change, the golden is regenerated with mix letflow.permission_matrix --write, and this criterion is replaced by the owner's answer before the feature task starts."
+      - "9. Q2 option 1 outcome: one migration creates the two tenant tables; the tenant table-list pin (@expected_tenant_tables in test/support/tenant_fixture.ex) (via TenantFixture.expected_tenant_tables/0) and its count in test/letflow/support/tenant_fixture_test.exs are updated to include them, with the new count stated in the design. If the owner chooses option 2 or 3, this entry's text is rewritten after the answer and no feature task starts on the old text."
+      - "10. The route-inventory pins touched by the change (grep __authz_routes__ and length(snapshot) across test/) are re-derived and the new values stated in the pull request; no new route is added by this slice."
+      - "11. The pull request carries a SECURITY-REVIEWER verdict (mandatory) and names slices B, C and D of 0070 D6 as later requirements that this change does not build."
+    depends_on: [REQ-566, "owner confirmation of decision 0070 Q2 (write model) and Q3 (permission for write grants): the feature task must not start before it"]
+
   - id: REQ-575
     title: "Number sequences slice 2: HTTP routes to create and list sequence definitions bound to a record type, and the :NumberSequencesManage permission"
     owner: ELIXIR-DEV
