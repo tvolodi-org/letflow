@@ -38508,7 +38508,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3172
     # Source: docs/migration/core-roadmap-20261014.md Wave 3 row "Module uninstall" (DR column "yes (new): follow-up record to 0055, after managed_by (#2530)"; "0039 D5 'No uninstall' stands until that record is ratified"); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D11 (constraints), open points 6, 9 and 15; docs/migration/decisions/0039-platform-module-solution-layering.md D5 ("No uninstall in S11") and R4; lib/letflow/modules/installs.ex and lib/letflow/modules/tenant_module.ex (tenant_modules has no status column). managed_by is built: REQ-496 (GH #2530) is status done on main (merge 4a911d40e). Written by the business analyst (T-0460) 2026-10-25. Not yet validated.
     description: >
       Source: core roadmap Wave 3 "Module uninstall"; decision 0055 D11; decision 0039 D5. The roadmap says
