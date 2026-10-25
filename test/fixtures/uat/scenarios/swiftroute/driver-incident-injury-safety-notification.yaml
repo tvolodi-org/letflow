@@ -75,7 +75,6 @@ steps:
     via: api
     input:
       estimated_cost_eur: 1800
-    via: api
 
 expected_outcomes:
   - id: EO-001
