@@ -324,10 +324,11 @@ defmodule Letflow.Support.TenantFixtureTest do
       # script_task_dispatches, bumping it to 56 -- REQ-517 PR 2b (GH #2535) added
       # scope_shadow_counters, bumping it to 57 -- REQ-500 / GH #2588 (PR A) added
       # documents, document_types, document_versions, document_sequences and
-      # document_external_registrations, bumping it to 62.
+      # document_external_registrations, bumping it to 62 -- REQ-541 / GH #3160 added number_sequence_definitions,
+      # number_sequence_counters and number_sequence_numbers, bumping it to 65.
       # test/support/tenant_fixture.ex's own @expected_tenant_tables
-      # list already carries all 62.)
-      assert length(TenantFixture.expected_tenant_tables()) == 62
+      # list already carries all 65.)
+      assert length(TenantFixture.expected_tenant_tables()) == 65
       assert length(state.manifest_versions) > 0
     end
 

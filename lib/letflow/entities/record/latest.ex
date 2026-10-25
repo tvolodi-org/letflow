@@ -36,6 +36,9 @@ defmodule Letflow.Entities.Record.Latest do
     # (both-or-neither CHECK in the database). Set only on insert, immutable afterwards.
     field(:external_system, :string)
     field(:external_id, :string)
+    # REQ-541 / GH #3160: the number of a bound type, set on create and duplicate-replay results
+    # only. Not a column: it lives in `number_sequence_numbers`, so no payload can reach it.
+    field(:record_number, :string, virtual: true)
 
     timestamps(type: :utc_datetime_usec)
   end
