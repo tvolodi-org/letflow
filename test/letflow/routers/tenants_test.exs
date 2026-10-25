@@ -307,7 +307,16 @@ defmodule Letflow.Routers.TenantsTest do
 
       assert resp.status == 200
       assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
-      assert Registry.lookup(Letflow.Registry, {:oidc_provider, realm}) == []
+
+      # The Registry drops the key in its own process after the :DOWN, so poll (bounded).
+      key = {:oidc_provider, realm}
+
+      gone? =
+        Enum.any?(1..100, fn _ ->
+          Registry.lookup(Letflow.Registry, key) == [] or (Process.sleep(20) && false)
+        end)
+
+      assert gone?
     end
 
     test "an empty display_name is rejected 422" do
