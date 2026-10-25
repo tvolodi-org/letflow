@@ -39329,3 +39329,97 @@ requirements:
     open_questions:
       - "For the process owner: who owns contracts and legal documents and where they are created, and when the purchase-order record that 0057 D1 gives the module is built (draft section 1, IN-01); whether a line may have several suppliers; the rule for a line cancelled after partial fulfilment; whether recording a supplier, reference or officer on a closed or cancelled request is refused (the draft forbids only physical fulfilment). The UAT assumptions in the description stand until confirmed."
     depends_on: [REQ-544]
+
+  - id: REQ-562
+    title: "Solution versioning and per-tenant overrides at pack and process-definition level (core roadmap Wave 3), slice 0: decision record that amends 0039 D7"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-550 -- the boundary with the x_ layer must be settled first
+    # Source: docs/migration/core-roadmap-20261014.md section "Wave 3: breadth of configuration", row "Solution versioning and per-tenant overrides" (decision record needed: yes, amends 0039 D7); docs/migration/decisions/0039-platform-module-solution-layering.md D7 ("Tenant configuration is additive only": the 3-way pack-update machinery "remains the fallback, not the normal path"); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D1 (the unit of upgrade is the module version; per-artefact versions stay); code read: lib/letflow/definitions/solution_pack.ex (@default_pack_version "1.0.0", pack_version/1, export/4, install/3, apply_pack_update/6), lib/letflow/definitions.ex (compute_pack_update_plan/5), lib/letflow/definitions/solution_pack_install.ex (table solution_pack_installs: pack_id, installed_version, status), lib/letflow/definitions/solution_pack_artefact_base.ex (table solution_pack_artefact_bases), lib/letflow/definitions/pack_update_resolution.ex (table pack_update_resolutions), lib/letflow/routers/solution_packs.ex (POST /:pack_id/update-review, POST /:pack_id/update-apply). Written by the business analyst (T-0465) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap Wave 3, row "Solution versioning and per-tenant overrides"; decision 0039 D7.
+      What main already has. A pack document carries a pack name and a version; the version is free text and
+      falls back to @default_pack_version "1.0.0" when absent (pack_version/1 in
+      lib/letflow/definitions/solution_pack.ex). A tenant has at most one active install row per pack,
+      recording installed_version (lib/letflow/definitions/solution_pack_install.ex). For each installed
+      artefact the table solution_pack_artefact_bases keeps the content the tenant last took from the pack
+      (the "base"). An update is a 3-way comparison, Letflow.Definitions.compute_pack_update_plan/5 in
+      lib/letflow/definitions.ex, of base, the tenant's current ("theirs") content and the incoming content,
+      which classifies each artefact as unchanged, local_only, clean_update or conflict; a conflict is
+      settled by a recorded resolution (take_incoming, keep_local, merged) in pack_update_resolutions and
+      applied by apply_pack_update/6, behind POST /:pack_id/update-review and POST /:pack_id/update-apply in
+      lib/letflow/routers/solution_packs.ex. Decision 0039 D7 says a tenant configures a solution only by
+      values a module declared, and that this 3-way machinery is "the fallback, not the normal path" where a
+      tenant has changed an installed definition. Decision 0055 D1 makes the module version (semver) the unit
+      of upgrade and leaves per-artefact versions (process definition version, entity definition
+      logical_shape_version) as the unit of activation and pinning.
+      What "solution versioning" means beyond those. In this requirement a tenant's solution is the set of
+      installed packs and modules, each at a version, together with the tenant's own deviations from them. A
+      pack version and a module semver each name what the vendor shipped. Neither names the tenant's
+      deviation, so today a deviation exists only as an edited definition that the next 3-way comparison
+      discovers as local_only or conflict. This requirement is about making the deviation a named, listable
+      thing with its own versioning rules, and about what is stored, shown and reversible for it.
+      This is SLICE 0: its whole deliverable is one decision record under docs/migration/decisions/ with the
+      next free number at the time of the change (0066 on main when written). It builds no code, no migration,
+      no seed and no test. The code slices are written as separate requirements only after the record is
+      accepted; each depends_on this one. The record is an amendment of 0039 D7 and must say which sentence
+      of D7 it amends.
+      WHAT THE RECORD MUST DECIDE (each as a numbered D- section with reasons and the sources opened; where
+      the sources do not settle a point the record writes "not settled by the source" and puts it to the owner
+      as an open point with options and a recommendation, it does not pick silently):
+      D1 What a pack version is: whether it must be a strict semver string (as 0055 D1 requires of the module
+      version) or may stay free text with the "1.0.0" default; how a pack version relates to the semver of a
+      module that wraps the pack (0039: a module wraps a pack); what an incoming version lower than or equal
+      to installed_version does.
+      D2 What a per-tenant override is at pack level and at process-definition level: a stored layer kept
+      apart from the installed definition and merged over it, or the present model of an edited definition
+      plus base and resolution rows; what a tenant may override in a process definition (for example step
+      assignments, thresholds, labels) and what it may not (graph structure that other artefacts reference).
+      The record names the artefact types of the pack section set it covers and states that the section set
+      stays closed (0039 relationship to 0026/0027/0029).
+      D3 Versioning of the override: whether an override carries its own version, how it is pinned to the pack
+      version it was made against, and what happens to it when the pack is updated (kept, re-checked by the
+      3-way comparison, reported as a warning); how this relates to the process definition version, which
+      stays the unit of activation (0055 D1), including what happens to running instances.
+      D4 Update and rollback: whether the existing compute_pack_update_plan/5 and apply_pack_update/6 remain
+      the single update path and what they gain (report of overrides, refusal rules), and whether a rollback
+      of a pack to a previous version is in scope or excluded with the reason.
+      D5 Authority and audit: which permission and role manage overrides (a new permission or an existing one;
+      the present routes use DefinitionsRead and DefinitionsCreate), how every override change is audited,
+      and how INV-2 field authorisation applies to overridden content.
+      D6 Tenant isolation: where override rows live (the tenant schema under the Ecto :prefix, tenant_id in
+      each row, INV-1), that every route takes the tenant from the auth context and never from the request,
+      and that the first code slice carries a cross-tenant negative test (INV-10) and a SECURITY-REVIEWER
+      verdict.
+      D7 Existing tenants: how installs made before the change are treated (rows in solution_pack_installs,
+      solution_pack_artefact_bases and pack_update_resolutions), with no data loss and no tenant-visible
+      change until the tenant opts in.
+      D8 The code slices, each sized to one change, each with its depends_on and its tests, and
+      SECURITY-REVIEWER named as a mandatory gate for every slice that touches a route or a table.
+      BOUNDARY. This requirement owns versioning and overrides at pack and process-definition level. It does
+      NOT own the field- and validation-level x_ layer on module entity types, which belongs to REQ-550
+      (slice 0 of the tenant extension layer, decision record) and whatever implementation requirements
+      follow it. Where an override concerns a field, a validation or a list, form or print-template of a
+      module entity type, REQ-550 owns it; the record of this requirement cites REQ-550's record for that
+      rule and must not contradict it, so this requirement runs after REQ-550. Also excluded: client scripts
+      (0039 D7 and 0053), tenant-owned entity types, module uninstall, and the generic list, pivot and graph
+      views.
+      Not in this change: any code, migration, seed, route, UI and test; a change to decision 0039 other than
+      the amendment of D7, or to decision 0055.
+    acceptance_criteria:
+      - "1. One new record exists under docs/migration/decisions/ with the next free four-digit number on main at the time of the change; its header names REQ-562, says it amends decision 0039 D7, quotes the sentence of D7 that it amends (the sentence saying the 3-way pack-update machinery remains the fallback), and says it builds on decision 0055 D1. The diff is that file plus a one-line pointer where the decision records are indexed, if an index exists; it contains no file under lib/, test/, priv/, web/ or apps/."
+      - "2. The record's first section describes what main already has, each item cited by a file path the author opened in this change: the pack name and version with @default_pack_version in lib/letflow/definitions/solution_pack.ex, the table solution_pack_installs (lib/letflow/definitions/solution_pack_install.ex), solution_pack_artefact_bases, pack_update_resolutions, Letflow.Definitions.compute_pack_update_plan/5 in lib/letflow/definitions.ex and apply_pack_update/6 in lib/letflow/definitions/solution_pack.ex, and the two routes in lib/letflow/routers/solution_packs.ex."
+      - "3. The record states in one paragraph what solution versioning means beyond the pack version and the module semver of 0055 D1, and states for each of D2 to D4 what it adds to the existing machinery and what it leaves unchanged."
+      - "4. Sections D1 to D8 above each exist as a numbered section; each states its decision, reasons and the sources opened with file paths. A point that no source settles is written as \"not settled by the source\" and listed in an open-points section with the options and a recommendation, not decided silently."
+      - "5. Boundary section: the record states that it owns versioning and overrides at pack and process-definition level, names the field- and validation-level x_ layer on module entity types as excluded and owned by REQ-550 and its record, and cites that record by its number; the two records state no contradictory rule about which side owns an override of a module entity type's field, validation, list, form or print template."
+      - "6. D6 states that every route of the code slices takes the tenant from the auth context, that override storage is in the tenant schema under :prefix with tenant_id in each row (INV-1), and that the first code slice requires a cross-tenant negative test (INV-10: a user of tenant B cannot read, create or change tenant A's override and gets the same not-found as for an absent id, INV-5)."
+      - "7. D7 states what happens to an install made before the change, with no data deleted and the existing update-review and update-apply routes answering as before until the tenant opts in."
+      - "8. D8 lists the code slices expected, each sized to one change with its depends_on (at least this requirement and the record's accepted state), names SECURITY-REVIEWER as a mandatory gate for each slice that adds a route or table, and states that none of them is filed or built by this slice. The record contains no implementation code."
+      - "9. The record's Sign-off section (as in decision 0055) carries a REVIEWER verdict and a SECURITY-REVIEWER verdict, because the record sets tenant-data authorisation and storage rules."
+      - "10. The change does not modify docs/requirements.yaml; mix letflow.check.static passes and any test that scans docs/migration/decisions for headings or numbering is run, real output quoted."
+    open_questions:
+      - "Pack version format: strict semver for packs (as 0055 D1 requires for modules) or the present free text with the default 1.0.0. Options: strict semver with a migration of existing install rows; semver only for new exports; unchanged. The source does not settle it."
+      - "Rollback of a pack to an earlier version: in scope of the first code slice, a later slice, or excluded. Options and recommendation are for the record; the owner decides if the record cannot derive it from 0055 D9."
+      - "The REQ id of the x_ layer decision record is REQ-550; the number of its record is filled in by the author of this record from main when it exists."
+    depends_on: [REQ-550]
