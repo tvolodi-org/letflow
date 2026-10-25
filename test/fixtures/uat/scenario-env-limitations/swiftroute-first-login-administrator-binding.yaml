@@ -1,0 +1,19 @@
+scenario_id: swiftroute-first-login-administrator-binding
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: >
+  The scenario needs a company whose administrator grant is still open and an administrator
+  account whose e-mail address is not yet verified. The seeded swiftroute company has neither:
+  actor-swiftroute-alice already holds TENANT_ADMIN with a verified address, and the company
+  cannot be registered again (a registered company can only be deactivated). The condition can
+  never become true in swiftroute. A dedicated account would be a new roster actor, which the
+  business analyst does not invent. Both sides of the scenario are covered where a freshly
+  registered company exists: platform/foundation-3-administrator-first-sign-in.yaml (verified
+  address binds, once), platform/foundation-4b-refusal-unconfirmed-email-does-not-bind.yaml
+  (unverified address does not bind) and platform/first-login-admin-binding.yaml.
+recorded_by: BA
+recorded_at: "2026-10-25"
+issue_ref: GH #3223
+review: >
+  Revisit only if the roster gains a dedicated not-yet-bound account in a freshly registered
+  company, decided by the process owner.
