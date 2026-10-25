@@ -40195,7 +40195,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-559 -- decision 0067 is merged (PR #3214, which says Refs #3184) but REQ-559 stays pending in the register until its issue closes
+    gh: 3246
     # Source: docs/migration/decisions/0067-form-hook-script-validation.md (D3 "Pinning", D7 "INV-3 and INV-1" with its INV-10 test, D9 slice F-1, "Not decided here"); docs/migration/decisions/0053-tenant-scripted-rules.md (D1 hook_kind column, 7c rulings); docs/migration/decisions/0065-entity-pre-write-script-hook.md D4 (closed pin-kind set); docs/agents/instructions/security-invariants.md (INV-1, INV-10); code read: lib/letflow/scripts.ex (@hook_kinds, content/1), lib/letflow/scripts/runtime.ex (pin_lookup/1, check_bindings/2, check_binding_row), lib/letflow/engine/pin_resolver.ex (collect_script_bindings/1, resolve/4), lib/letflow/definitions/graph.ex (check_service_task_script_reference/1). Written by the business analyst (T-0546) 2026-10-25. Not yet validated.
     description: >
       Slice F-1 of decision 0067 (docs/migration/decisions/0067-form-hook-script-validation.md, D9),
