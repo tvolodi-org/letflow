@@ -66,24 +66,34 @@ steps:
   - step: 5
     actor: tenant_admin
     action: >
-      The administrator clears the link of the subscription. The event of step 2 is delivered once more to the working partner and the received body and
-      signature are noted.
+      The administrator clears the link of the subscription.
     via: api
   - step: 6
     actor: system
     action: >
-      The administrator links the subscription to a mapping with a rule that requires "order.number", and an event without that field is delivered. The
-      result of the delivery, the partner's request log and the subscription's failure count are noted. The same is done with a mapping whose rules produce a
-      body over 256 KB, and with a mapping that was removed after the link was set (by the test setup, since the product refuses that removal).
-    expect_refusal: true
+      The event of step 2 is delivered once more to the working partner and the received body and signature are noted.
     via: system
   - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator stores three more subscriptions to the working partner address and links each to its own outbound mapping: the first to a mapping with
+      a rule that requires "order.number"; the second to a mapping whose rules produce a body over 256 KB; the third to a plain mapping. The test setup then
+      removes the third mapping while its link stays (the product refuses that removal, so the setup does it).
+    via: api
+  - step: 8
     actor: system
     action: >
-      A mapping with rules writing the fixed text "https://example.com/other" to "url", "target_url" and "host" is linked, and an event is delivered. The
-      address the request went to is noted.
+      An event without the field "order.number" is delivered to the first subscription; any event is delivered to the second and to the third. For each, the
+      result of the delivery, the partner's request log and the subscription's failure count are noted.
+    expect_refusal: true
     via: system
-  - step: 8
+  - step: 9
+    actor: system
+    action: >
+      A mapping with rules writing the fixed text "https://example.com/other" to "url", "target_url" and "host" is linked to the subscription of step 1 (by
+      the administrator), and an event is delivered. The address the request went to is noted.
+    via: system
+  - step: 10
     actor: system
     action: >
       The subscription's address is a private one (for example a host-local address), set by the test setup since the product refuses it at storing, and an
@@ -126,8 +136,8 @@ expected_outcomes:
     description: Without a link the body and signature are those of the original event.
     verification:
       method: system_state
-      detail: In step 5 the body is the full original event (with "internalNote") and the signature matches it.
-      evidence: The received request of step 5.
+      detail: In step 6 the body is the full original event (with "internalNote") and the signature matches it.
+      evidence: The received request of step 6.
     on_fail:
       severity: MAJOR
       business_impact: Subscriptions without a mapping changed behaviour for existing partners.
@@ -136,8 +146,8 @@ expected_outcomes:
     description: A delivery whose mapping fails sends nothing and counts no failure, and the error names no value.
     verification:
       method: system_state
-      detail: For each of the three cases of step 6 the delivery result is a mapping failure that names the missing rule, "body too large" or "mapping not found" and no field value; the partner's request log has no request; the failure count of the subscription is unchanged; the original event is not sent.
-      evidence: The delivery results, the request log and the failure count of step 6.
+      detail: For each of the three cases of step 8 the delivery result is a mapping failure that names the missing rule, "body too large" or "mapping not found" and no field value; the partner's request log has no request; the failure count of the subscription is unchanged; the original event is not sent.
+      evidence: The delivery results, the request log and the failure count of step 8.
     on_fail:
       severity: BLOCKER
       business_impact: A broken mapping could send the unmapped event, pause the subscription or leak values into logs.
@@ -146,8 +156,8 @@ expected_outcomes:
     description: A mapping that writes an address into the body does not change where the delivery goes.
     verification:
       method: system_state
-      detail: In step 7 the body holds the fixed text under "url", "target_url" and "host", and the request went to the subscription's own address.
-      evidence: The received request and its address in step 7.
+      detail: In step 9 the body holds the fixed text under "url", "target_url" and "host", and the request went to the subscription's own address.
+      evidence: The received request and its address in step 9.
     on_fail:
       severity: BLOCKER
       business_impact: A mapping could redirect a company's deliveries.
@@ -156,8 +166,8 @@ expected_outcomes:
     description: A private address is still refused at sending, with or without a mapping.
     verification:
       method: system_state
-      detail: In step 8 no request reaches the partner log and the delivery is refused by the address check.
-      evidence: The request log and the delivery result of step 8.
+      detail: In step 10 no request reaches the partner log and the delivery is refused by the address check.
+      evidence: The request log and the delivery result of step 10.
     on_fail:
       severity: BLOCKER
       business_impact: A company could make Letflow call an internal address (server-side request forgery).

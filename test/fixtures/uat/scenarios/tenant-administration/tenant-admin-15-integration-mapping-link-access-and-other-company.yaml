@@ -11,7 +11,7 @@
 # SwiftRoute for the cross-company part: the answer is the same uniform refusal because the permission is checked before any lookup.
 # A caller who holds neither right (task worker, auditor) is covered for the five mapping routes in scenario 13; here the interesting caller is the
 # one who holds the subscription right only.
-# Refused steps contain only requests that are refused; accepted requests are steps of their own (steps 3, 5, 7, 8, 10).
+# Refused steps contain only requests that are refused; accepted requests are steps of their own (steps 3, 5, 8, 9, 11).
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
 ---
 id: tenant-administration-15-integration-mapping-link-access-and-other-company
@@ -35,7 +35,7 @@ actors:
 preconditions:
   - description: SwiftRoute, Meridian and Bilimbaga are set up; none has an integration mapping named "swift-out" or "bili-out"
     check: system_seeded
-    detail: If one exists, remove it first (clear the link of a subscription that uses it) and note that in the report. If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note), report BLOCKED for steps 6 to 10 and run the others; EO-003 and EO-004 are then BLOCKED.
+    detail: If one exists, remove it first (clear the link of a subscription that uses it) and note that in the report. If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note), report BLOCKED for steps 6 to 11 and run the others; EO-003 and EO-004 are then BLOCKED.
   - description: The addresses https://example.com/meridian-link-test and https://example.com/bilimbaga-link-test are accepted by the product as outbound addresses
     check: system_seeded
     detail: If the product refuses them because the test environment cannot resolve the name, report BLOCKED for the steps that store a subscription (2 and 6) and the steps that depend on them.
@@ -86,9 +86,14 @@ steps:
   - step: 8
     actor: tenant_admin_b
     action: >
-      The Bilimbaga administrator links SB to B (Bilimbaga's own mapping), then asks for the list of subscriptions and finds SB.
+      The Bilimbaga administrator asks for the list of subscriptions and finds SB, noting its link (none expected), status and target address.
     via: api
   - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator links SB to B (Bilimbaga's own mapping), then asks for the list of subscriptions and finds SB.
+    via: api
+  - step: 10
     actor: tenant_admin_a
     action: >
       The SwiftRoute administrator tries to link SB (Bilimbaga's subscription) to X, tries to pause SB, tries to read the delivery attempts of SB,
@@ -96,17 +101,17 @@ steps:
       content type) is noted.
     expect_refusal: true
     via: api
-  - step: 10
+  - step: 11
     actor: tenant_admin_b
     action: >
       The Bilimbaga administrator asks for the list of subscriptions and finds SB (still linked to B and active), then clears the link of SB.
     via: api
-  - step: 11
+  - step: 12
     actor: tenant_admin_a
     action: >
       The SwiftRoute administrator removes X and notes the answer (no subscription of SwiftRoute uses it).
     via: api
-  - step: 12
+  - step: 13
     actor: tenant_admin_b
     action: >
       Clean-up: the Bilimbaga administrator removes SB and B. The Meridian operator removes SM.
@@ -137,8 +142,8 @@ expected_outcomes:
     description: A subscription of one company cannot be linked to a mapping of another company, and the answer is the one for a number that never existed.
     verification:
       method: http_status
-      detail: In step 7 both requests answer 422 with equal body and content-type header; the list in step 10 first shows SB linked to B only, never to X.
-      evidence: The answers of step 7 and the list entry of step 10.
+      detail: In step 7 both requests answer 422 with equal body and content-type header; the list in step 8 shows SB with no link.
+      evidence: The answers of step 7 and the list entry of step 8.
     on_fail:
       severity: BLOCKER
       business_impact: A company could attach another company's mapping to its own webhook, or find out that the mapping exists.
@@ -147,8 +152,8 @@ expected_outcomes:
     description: The mapping administrator links a subscription to the company's own outbound mapping.
     verification:
       method: api_response
-      detail: Step 8 answers 200 and the list entry of SB shows the link B.
-      evidence: The answer and the list entry of step 8.
+      detail: Step 9 answers 200 and the list entry of SB shows the link B.
+      evidence: The answer and the list entry of step 9.
     on_fail:
       severity: MAJOR
       business_impact: The link works for no one, or only for the first company.
@@ -157,8 +162,8 @@ expected_outcomes:
     description: The administrator of one company cannot link, change, read the deliveries of or remove another company's subscription, and gets the answer for a subscription that never existed.
     verification:
       method: http_status
-      detail: In step 9 the four requests on SB answer 404 and are equal to the four requests on V in status, body and content-type header; in step 10 SB is still active, still linked to B, and still listed.
-      evidence: The eight answers of step 9 and the list entry of step 10.
+      detail: In step 10 the four requests on SB answer 404 and are equal to the four requests on V in status, body and content-type header; in step 11 SB is still active, still linked to B, and still listed.
+      evidence: The eight answers of step 10 and the list entry of step 11.
     on_fail:
       severity: BLOCKER
       business_impact: One company could change or remove another company's webhook, or detect that it exists.
@@ -167,8 +172,8 @@ expected_outcomes:
     description: Removing a mapping of SwiftRoute is not blocked by another company's subscription.
     verification:
       method: http_status
-      detail: Step 11 answers 204 for X.
-      evidence: The answer of step 11.
+      detail: Step 12 answers 204 for X.
+      evidence: The answer of step 12.
     on_fail:
       severity: MINOR
       business_impact: One company's subscription could keep another company's mapping alive, or the product mixes the two companies' links.

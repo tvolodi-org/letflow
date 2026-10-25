@@ -82,7 +82,7 @@ steps:
   - step: 8
     actor: tenant_admin
     action: >
-      The administrator tries to remove O while S uses it, then reads O.
+      The administrator tries to remove O while S uses it.
     expect_refusal: true
     via: api
   - step: 9
