@@ -103,6 +103,8 @@ defmodule Letflow.Api.RouteScopeWalkTest do
              |> Enum.sort() ==
                [
                  "GET /definitions",
+                 "GET /definitions/:id",
+                 "GET /definitions/active/:name",
                  "GET /definitions/search",
                  "GET /help/resolved",
                  "GET /me/access",
@@ -313,6 +315,9 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  # REQ-545: the definitions collection reads (router-local paths "/" and "/search")
                  {"GET", "/", :self_service},
                  {"GET", "/search", :self_service},
+                 # REQ-546: the two single-object definition reads
+                 {"GET", "/active/:name", :self_service},
+                 {"GET", "/:id", :self_service},
                  {"POST", "/:id/attachments/:attachment_id/link", :tenant_wide},
                  {"POST", "/query", :filter},
                  {"POST", "/query/aggregate", :filter},

@@ -277,6 +277,18 @@ defmodule Letflow.Api.RouteScope do
       key: :DefinitionsRead,
       class: :self_service,
       ruling: "SEC-525-R04"
+    },
+    %{
+      route: "GET /definitions/:id",
+      key: :DefinitionsRead,
+      class: :self_service,
+      ruling: "SEC-525-R02"
+    },
+    %{
+      route: "GET /definitions/active/:name",
+      key: :DefinitionsRead,
+      class: :self_service,
+      ruling: "SEC-525-R03"
     }
   ]
 

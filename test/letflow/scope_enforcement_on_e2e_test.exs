@@ -156,10 +156,16 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
         Enum.filter(
           routes,
           &(String.starts_with?(&1.path, "/me") or String.starts_with?(&1.path, "/help") or
-              (&1.method == "GET" and &1.path in ["/definitions", "/definitions/search"]))
+              (&1.method == "GET" and
+                 &1.path in [
+                   "/definitions",
+                   "/definitions/search",
+                   "/definitions/:id",
+                   "/definitions/active/:name"
+                 ]))
         )
 
-      assert length(self_service) == 6
+      assert length(self_service) == 8
       assert Enum.all?(self_service, &(&1.class == :self_service and &1.source == :declared))
       assert Enum.all?(RouteScope.self_service_routes(), &is_binary(&1.ruling))
     end
@@ -241,7 +247,8 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
                request(fx, "r545-worker", :post, "/api/v1/definitions/#{id}/validate", %{})
              )
 
-      assert forbidden?(get(fx, "r545-worker", "/api/v1/definitions/#{id}"))
+      # REQ-546: the single-object read is no longer refused; an absent id is a 404
+      assert get(fx, "r545-worker", "/api/v1/definitions/#{id}").status == 404
     end
 
     test "a principal without DefinitionsRead gets the 403 of the unchanged export route on both routes, in a tenant with and without definitions" do
@@ -311,6 +318,118 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
       before = requests.()
 
       for path <- @collection_routes, do: assert(get(fx, "r545-sh-worker", path).status == 200)
+
+      assert requests.() - before == 2
+      refute_received {:would_deny, ^ref, _, _}
+    end
+  end
+
+  # --- REQ-546 (GH #2535, IMPL-525-B): GET /definitions/:id and /definitions/active/:name -------
+
+  @single_keys ~w(activation_state archived_at created_at created_by description graph id name needs_reactivation_at needs_reactivation_reason owner_module owner_module_version stage status updated_at version)
+
+  defp single_routes(def_),
+    do: ["/api/v1/definitions/#{def_.id}", "/api/v1/definitions/active/#{def_.name}"]
+
+  describe "REQ-546 the single-object definition reads are :self_service" do
+    test "under on a scoped holder gets 200 on both routes with the tenant-wide holder's shape; export and validate still refuse" do
+      fx = oidc_tenant!("req546-on")
+      _ = admin!(fx, "r546-admin")
+      _ = scoped_worker!(fx, "r546-worker")
+      definition = definition!(fx.schema_name, "req546-alpha")
+      {:ok, _} = Letflow.Definitions.activate(definition.id, prefix: fx.schema_name)
+      :ok = ScopeEnforcementFixture.set_stored_mode!(fx.tenant_id, :on)
+
+      for path <- single_routes(definition) do
+        scoped = get(fx, "r546-worker", path)
+        wide = get(fx, "r546-admin", path)
+        assert scoped.status == 200, scoped.resp_body
+        assert wide.status == 200, wide.resp_body
+        assert shape(json(scoped)) == shape(json(wide)), path
+        assert Map.keys(json(scoped)) |> Enum.sort() == @single_keys, path
+      end
+
+      assert forbidden?(get(fx, "r546-worker", "/api/v1/definitions/#{definition.id}/export"))
+
+      assert forbidden?(
+               request(
+                 fx,
+                 "r546-worker",
+                 :post,
+                 "/api/v1/definitions/#{definition.id}/validate",
+                 %{}
+               )
+             )
+    end
+
+    test "a principal without DefinitionsRead gets the 403 of the unchanged export route on both routes" do
+      fx = oidc_tenant!("req546-403")
+      definition = definition!(fx.schema_name, "req546-beta")
+
+      for role <- ["AGENT_RUNNER", "CANDIDATE"] do
+        sub = "r546-" <> String.downcase(role)
+        _ = role_user!(fx, sub, [role])
+        :ok = ScopeEnforcementFixture.set_stored_mode!(fx.tenant_id, :on)
+
+        reference = get(fx, sub, "/api/v1/definitions/#{definition.id}/export")
+        assert forbidden?(reference)
+
+        for path <- single_routes(definition) do
+          assert wire(get(fx, sub, path)) == wire(reference), "#{role} #{path}"
+        end
+      end
+    end
+
+    test "absent and cross-tenant ids and names answer one 404 for scoped and tenant-wide holders in tenant B (INV-5, INV-10)" do
+      a = oidc_tenant!("req546-xa")
+      b = oidc_tenant!("req546-xb")
+      only_a = definition!(a.schema_name, "req546-only-in-a")
+      {:ok, _} = Letflow.Definitions.activate(only_a.id, prefix: a.schema_name)
+      before_a = Repo.all(Letflow.Definitions.ProcessDefinition, prefix: a.schema_name)
+
+      _ = admin!(b, "r546-b-admin")
+      _ = scoped_worker!(b, "r546-b-worker")
+      :ok = ScopeEnforcementFixture.set_stored_mode!(b.tenant_id, :on)
+
+      for sub <- ["r546-b-admin", "r546-b-worker"] do
+        absent_id = get(b, sub, "/api/v1/definitions/#{Ecto.UUID.generate()}")
+        cross_id = get(b, sub, "/api/v1/definitions/#{only_a.id}")
+        absent_name = get(b, sub, "/api/v1/definitions/active/req546-nowhere")
+        cross_name = get(b, sub, "/api/v1/definitions/active/#{only_a.name}")
+
+        assert absent_id.status == 404
+        assert wire(cross_id) == wire(absent_id), sub
+        assert absent_name.status == 404
+        assert wire(cross_name) == wire(absent_name), sub
+        refute cross_id.resp_body =~ "req546-only-in-a"
+        refute cross_name.resp_body =~ "req546-only-in-a"
+      end
+
+      assert Repo.all(Letflow.Definitions.ProcessDefinition, prefix: a.schema_name) == before_a
+    end
+
+    test "under shadow both routes are counted as requests and produce no would-deny for a scoped holder" do
+      fx = oidc_tenant!("req546-sh")
+      _ = scoped_worker!(fx, "r546-sh-worker")
+      definition = definition!(fx.schema_name, "req546-gamma")
+      {:ok, _} = Letflow.Definitions.activate(definition.id, prefix: fx.schema_name)
+      :ok = ScopeEnforcementFixture.set_stored_mode!(fx.tenant_id, :shadow)
+
+      ref = make_ref()
+      :telemetry.attach({__MODULE__, ref}, @event, &__MODULE__.handle_event/4, {self(), ref})
+      on_exit(fn -> :telemetry.detach({__MODULE__, ref}) end)
+
+      requests = fn ->
+        Letflow.Api.Scope.ShadowEvidence.flush()
+        today = Date.utc_today()
+        Letflow.Api.Scope.ShadowEvidence.counts_between(fx.schema_name, today, today).requests
+      end
+
+      _ = get(fx, "r546-sh-worker", "/api/v1/me/memberships")
+      before = requests.()
+
+      for path <- single_routes(definition),
+          do: assert(get(fx, "r546-sh-worker", path).status == 200)
 
       assert requests.() - before == 2
       refute_received {:would_deny, ^ref, _, _}
