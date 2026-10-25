@@ -153,12 +153,12 @@ expected_outcomes:
       suggested_action: route_to_wf03
   - id: EO-004
     description: >
-      A repeated request with the same request key returns the order made the first time with its original
-      number, marked as a repeat, and no number is used up.
+      A repeated request with the same request key returns the order made the first time (the same record
+      reference), and no number is used up: the original's stored number is unchanged and no new number row appears.
     verification:
       method: system_state
-      detail: The answer at step 6 names the same order and number as the original and says it is a duplicate; the next order made carries the next unused number.
-      evidence: The two answers side by side and the number of the next order.
+      detail: The answer at step 6 carries the same record reference as the original answer; the number stored for that reference in the tenant number table is unchanged; no new row was added to that table at step 6; the next order made carries the next unused number.
+      evidence: The two answers' record reference values, and the number table rows before and after step 6.
     on_fail:
       severity: MAJOR
       business_impact: A network retry would create a second order with a new number, or burn a number.

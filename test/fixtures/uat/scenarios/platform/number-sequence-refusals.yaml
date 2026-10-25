@@ -36,7 +36,7 @@ preconditions:
       SwiftRoute has a numbered record type "order" with at least one order (number ORD-<year>-000001), and
       Vortex has a numbered type of the same name "order" with its own rule
     check: custom
-    detail: Set up by the platform team; if the test tenants cannot be given the rules, the scenario is BLOCKED.
+    detail: Set up by the platform team; the SwiftRoute "order" type declares no field named "record_number" (the number is not a field of the record, so a written value is refused only for that reason). If the test tenants cannot be given the rules, or the type declares such a field, the scenario is BLOCKED.
 
   - description: The run can read the tenant number tables of SwiftRoute and Vortex
     check: custom
@@ -45,14 +45,14 @@ preconditions:
 steps:
   - step: 1
     actor: swiftroute_admin
-    action: Creates a new order and, in the same request, writes his own number ORD-2026-009999 into the order.
+    action: Creates a new order and, in the same request, writes his own number ORD-2026-009999 into the order's field "record_number".
     via: api
     expect_refusal: true
     sla_context:
       expected_within_hours: null
   - step: 2
     actor: swiftroute_admin
-    action: Opens an existing order and tries to change its number to another one.
+    action: Opens an existing order and tries to change its number to another one by writing the field "record_number".
     via: api
     expect_refusal: true
     sla_context:
