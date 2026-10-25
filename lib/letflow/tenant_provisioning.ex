@@ -871,7 +871,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-563 / GH #3199: tenant notification templates (template key x locale -> subject, body). Empty
     # table for existing tenants; no row altered.
     {20_261_026_200_001, Letflow.Repo.Migrations.CreateNotificationTemplates,
-     "20261026200001_create_notification_templates.exs"}
+     "20261026200001_create_notification_templates.exs"},
+    # REQ-569 / GH #3246: widens the script_rules hook_kind CHECK to allow form_validation. No row
+    # altered: existing rows are service_task or entity_write and satisfy the wider CHECK.
+    {20_261_026_300_001, Letflow.Repo.Migrations.WidenScriptRulesHookKindFormValidation,
+     "20261026300001_widen_script_rules_hook_kind_form_validation.exs"}
   ]
 
   @doc """

@@ -38,7 +38,7 @@ defmodule Letflow.Scripts do
   alias Letflow.Scripts.ScriptRule
   alias Letflow.Scripts.Validation
 
-  @hook_kinds ["service_task", "entity_write"]
+  @hook_kinds ["service_task", "entity_write", "form_validation"]
   @test_budget_ms 30_000
   @max_version 2_147_483_647
   @zero_instance "00000000-0000-0000-0000-000000000000"
@@ -74,6 +74,17 @@ defmodule Letflow.Scripts do
           | :audit_failed
           | :version_in_use
           | {:audit_failed, term()}
+
+  # ── form_validation hook flag (REQ-569, decision 0067 D9) ──────────────────
+
+  @doc """
+  Whether the `form_validation` hook kind is usable: the `:form_validation_hook_enabled` flag of
+  `:letflow`, default false. Off: creating a `form_validation` version is `:invalid_hook_kind`, and
+  activation and pin lookup treat a stored one as not published.
+  """
+  @spec form_validation_enabled?() :: boolean()
+  def form_validation_enabled?,
+    do: Application.get_env(:letflow, :form_validation_hook_enabled, false) == true
 
   # ── reads ──────────────────────────────────────────────────────────────────
 
@@ -779,7 +790,8 @@ defmodule Letflow.Scripts do
          "test_cases" => cases
        }) do
     cond do
-      hook_kind not in @hook_kinds ->
+      hook_kind not in @hook_kinds or
+          (hook_kind == "form_validation" and not form_validation_enabled?()) ->
         {:error, :invalid_hook_kind}
 
       not is_binary(source) or byte_size(source) > 65_536 or not String.valid?(source) ->
