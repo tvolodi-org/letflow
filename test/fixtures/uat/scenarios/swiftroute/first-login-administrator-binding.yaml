@@ -50,7 +50,7 @@ description: >
   on condition 2, because Alice already holds TENANT_ADMIN and her e-mail is already verified. Its
   proper home is the foundation group (a freshly registered tenant) of T-0222, where an unused
   administrator grant and an unverified address can exist. Nothing is changed to make it pass here, and it is
-  listed to run in the swiftroute run scope.
+  not listed to run in the swiftroute run scope (the preflight reports it as a GAP and uat-scope.md lists it under Excluded).
 
 actors:
   platform_admin: actor-platform-admin
