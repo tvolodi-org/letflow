@@ -40094,7 +40094,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-562 -- its record must exist first so that this record can state the boundary against it by number
+    gh: 3232
     # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (bullet "extension points in module processes"); docs/migration/decisions/0039-platform-module-solution-layering.md D7 (the paragraph "Client scripts are not in scope ... Extension points are a later decision once that registry exists"); docs/migration/decisions/0053-tenant-scripted-rules.md D0 (that paragraph is superseded for client scripts, the registry being script_rules), D1, D2, D3; docs/migration/decisions/0054-process-step-writes-entity.md D1, D6, D12; docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D4, D6, D8; docs/migration/decisions/0065-entity-pre-write-script-hook.md (hook kinds); docs/agents/instructions/security-invariants.md (INV-1, INV-3, INV-5, INV-10); REQ-550 and REQ-562 (same roadmap group). Written by the business analyst (T-0470) 2026-10-25. Not yet validated.
     description: >
       Source: core roadmap "Customization beyond scripts", bullet "extension points in module processes";
