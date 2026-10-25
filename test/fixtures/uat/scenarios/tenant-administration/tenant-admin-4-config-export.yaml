@@ -1,0 +1,131 @@
+# T-0514 (BA): TENANT ADMIN group, scenario 4 of 6: export of the company's settings bundle (REQ-552 slice 1, criteria 1, 2, 7 and 8's
+# "no value in the record" half is in scenario 5).
+# Sources: docs/requirements.yaml REQ-552 (acceptance criteria 1, 2, 7); docs/roles.md (the settings permission is held by the
+# tenant administrator only among the tenant roles); lib/letflow/routers/tenant_config_bundle.ex (moduledoc: one export route, the tenant
+# comes from the sign-in only).
+# Aliases (all actor-any, as in tenant-admin-1: the roster has no entry for people created by the administrator):
+#   tenant_admin = the administrator of the test customer (company A); worker_a = a task worker of company A.
+# Not covered here, by the requirement's own wording: criterion 9 (the change touches no promotion or solution-pack file, no migration)
+# and criterion 10 (runbook paragraph, compile and format gates) are about the code change and are checked by review and CI, not by a
+# person using the product.
+# UAT assumption, to be confirmed by the process owner: the settings of the test customer are set up by this scenario's steps 1 and 2
+# (branding values and two installed modules with settings); the module names are whichever two modules the test customer has installed.
+---
+id: tenant-administration-4-config-export
+scope: tenant-administration
+title: The administrator exports the company's settings as one bundle, the bundle holds every setting as stored and no secret value, and nobody else can export it
+version: "1.0"
+tags: [tenant-admin, config-bundle, export, settings, secrets, refusal]
+
+description: >
+  The administrator of company A sets the company's branding and the settings of two installed modules, then
+  exports the bundle. The bundle names its format version, carries all five branding settings and the settings
+  of each installed module with the module's version. A module installed without settings is listed with empty
+  settings, not with a missing value. A module setting that points to a stored secret is exported as that
+  pointer, never as the secret itself. A task worker, and the platform operator acting for company A, cannot
+  export.
+
+actors:
+  tenant_admin: actor-any
+  worker_a: actor-any
+  platform_admin: actor-platform-admin
+
+preconditions:
+  - description: tenant-administration-1 passed in this run, so tenant_admin is administrator of company A and worker_a is an active task worker there
+    check: custom
+    detail: If the administrator or worker_a does not exist, report BLOCKED, not PASS.
+  - description: Company A has at least three modules installed, and two of them declare settings that the administrator may change; the third has no settings set
+    check: custom
+    detail: If fewer than three modules are installed, or none declares settings, report BLOCKED, not FAIL.
+  - description: One of the two settings-bearing modules accepts a pointer to a stored secret as the value of a setting
+    check: custom
+    detail: If no installed module allows it, report BLOCKED for steps 3 and 5 (the remaining steps still run); the rule is not settled by the sources for that module.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator sets the company's branding: application name "Company A Portal", a logo address, two brand
+      colours, the language list English and German, and English as default language. The administrator notes the five values.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator sets the settings of the two modules (a visible, non-secret value in each). The administrator notes
+      the module names, their versions and the values.
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      In one of the two modules the administrator sets one setting to the pointer of a stored secret (the pointer text, not the
+      secret). The administrator notes the pointer text.
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: The administrator exports the settings bundle of the company and saves the document.
+    via: api
+    produces:
+      bundle_a: the exported document
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator reads the saved document: the format version, the export time, the five branding values, and the settings
+      of each of the three modules with module name and version. The administrator searches the whole document for the stored secret's
+      real value.
+    via: api
+  - step: 6
+    actor: worker_a
+    action: The task worker asks for the settings bundle of company A.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: platform_admin
+    action: The platform operator, signed in to the platform and not to company A, asks for the settings bundle of company A.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The bundle names the format version "bpm/config-bundle/v1", has an export time, and carries nothing at top level except the branding settings and the module settings.
+    verification:
+      method: system_state
+      detail: The document's top-level entries are the format version, the export time, the branding settings and the module settings, and no other.
+      evidence: The saved document from step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A bundle cannot be recognised or read by a later import, so a test-to-production move of settings fails.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Every value noted in steps 1 to 3 appears in the bundle exactly as set, and the module installed without settings is listed with empty settings.
+    verification:
+      method: system_state
+      detail: Branding values equal the five noted values; each settings-bearing module appears with its noted version and values; the third module appears with an empty settings list, not with a missing or null entry.
+      evidence: The saved document compared with the values noted in steps 1 to 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Settings are lost or altered when moved, so the target company would run with different branding or module behaviour.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The secret pointer is exported as the pointer text and the real secret value appears nowhere in the bundle.
+    verification:
+      method: system_state
+      detail: The pointer text from step 3 is in the document unchanged; a search of the document for the secret's real value finds nothing.
+      evidence: The saved document and the search result of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A secret would leave the company in a file that is passed around.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Only the administrator can export; a task worker and the platform operator are refused and receive no settings.
+    verification:
+      method: system_state
+      detail: Steps 6 and 7 are refused with the same refusal as for a route that does not exist for that caller, and carry no part of the settings.
+      evidence: The two refusals.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Company settings, including branding and module configuration, can be read by people who are not entitled to them.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: The settings set in steps 1 to 3 stay; scenarios 5 and 6 of this group use bundle_a.
