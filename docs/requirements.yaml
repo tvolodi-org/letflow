@@ -39420,7 +39420,7 @@ requirements:
     open_questions:
       - "For the process owner: may PROCESS_DESIGNER also create jobs; should a job run as a dedicated service principal instead of its creating user; are the 5-minute minimum interval and the 5-failure automatic disable acceptable. A scheduled job that runs a tenant script needs a new hook kind and a decision record under 0053 D0 and is a later slice."
     depends_on: []
-  - id: REQ-564
+  - id: REQ-566
     title: "Tenant-owned record types (core roadmap, Customization beyond scripts), slice 0: decision record for per-type write permission, 0051 scope declaration, module references by id, and generated lists, forms and lookups"
     owner: CODE-DESIGNER
     status: pending
