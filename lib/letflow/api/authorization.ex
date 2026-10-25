@@ -886,6 +886,10 @@ defmodule Letflow.Api.Authorization do
   # now the PLATFORM-scope registry permission).
   def endpoint_policy_key("PATCH", "/tenant/settings"), do: :TenantSettingsManage
 
+  # REQ-552 -- tenant configuration bundle (Letflow.Routers.TenantConfigBundle), own tenant only.
+  def endpoint_policy_key("GET", "/tenant/config-bundle"), do: :TenantSettingsManage
+  def endpoint_policy_key("POST", "/tenant/config-bundle/import"), do: :TenantSettingsManage
+
   # REQ-076 -- onboarding (Letflow.Routers.Onboarding), a top-level sibling
   # router mounted at /onboarding (not under Letflow.Routers.Identity's own
   # /identity mount). Reuses the existing :TenantsManage permission -- same

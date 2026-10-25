@@ -145,6 +145,9 @@ defmodule Letflow.Plugs.ApiPipeline do
   forward("/tenant/settings", to: Letflow.Routers.TenantSettings)
   forward("/labels", to: Letflow.Routers.Labels)
 
+  # REQ-552 (GH #3177) -- export/import of the caller's own tenant configuration bundle.
+  forward("/tenant/config-bundle", to: Letflow.Routers.TenantConfigBundle)
+
   # REQ-403 (design lib/letflow/design/req403-module-install-route.md §4) --
   # the HTTP install path onto 0039 D5. Mounted at /tenant/modules,
   # deliberately NOT under /api/v1/modules/ (REQ-404's future per-module
