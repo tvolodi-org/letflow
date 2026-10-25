@@ -30,7 +30,7 @@ actors:
 preconditions:
   - description: SwiftRoute has record types of its own named "hook_plain", "hook_taken", "hook_active" and "hook_draftline". "hook_active" is written by a step line of an ACTIVE process definition; "hook_draftline" is written only by a step line of a process definition that is still a draft. "hook_plain" and "hook_taken" are written by no process. None of the four has an attachment.
     check: system_seeded
-    detail: Setup-prepared. If "hook_active" cannot be arranged, report BLOCKED for step 11 and EO-005, and run the other steps.
+    detail: Setup-prepared. If "hook_active" cannot be arranged, report BLOCKED for step 13 and the step-13 half of EO-005, and run the other steps (step 15 and its half of EO-005 still run).
   - description: SwiftRoute has these check scripts, each version noted with its fingerprint - order_check version 1 (published, kind "entity write", FP-O1); draft_check version 1 (draft, kind "entity write"); old_check version 1 (retired, kind "entity write"); bad_check version 1 (revoked, kind "entity write"); svc_check version 1 (published, kind "service step"). The key "no_such_key" and the version 99 of order_check do not exist.
     check: system_seeded
     detail: Setup-prepared. A fingerprint of a draft, retired or revoked version is read by the administrator from the script registry.

@@ -38,7 +38,7 @@ preconditions:
     detail: Setup-prepared. If an attachment exists, remove it first and note that in the report.
   - description: Bilimbaga has a record type of its own "hook_shared" (unmanaged, written by no active process, no attachment), no record type named "hook_order_a" or "hook_nowhere", and a published check script of kind "entity write", bilim_check version 1 (fingerprint FP-B1).
     check: system_seeded
-    detail: If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note of actor-bilimbaga-admin), report BLOCKED for steps 6 to 8 and EO-003 to EO-005; steps 1 to 5 run.
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note of actor-bilimbaga-admin), report BLOCKED for steps 6 to 9 and 11 and for EO-003 to EO-005; steps 1 to 5, 10, 12 and 13 run.
   - description: An API token issued to the SwiftRoute administrator exists (the administrator's role, not a signed-in session).
     check: system_seeded
     detail: If the environment cannot issue an API token for the administrator, report BLOCKED for step 4 and EO-002; the other steps run.
