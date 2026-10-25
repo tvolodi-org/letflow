@@ -208,7 +208,7 @@ defmodule Letflow.Routers.ScheduledJobs do
       "key" => job.key,
       "title" => job.title,
       "definition_name" => job.definition_name,
-      "variables" => job.variables,
+      "variables" => Response.public_variables(job.variables, %{}, MapSet.new()),
       "scope_node_id" => job.scope_node_id,
       "interval_minutes" => job.interval_minutes,
       "anchor_at" => job.anchor_at,
