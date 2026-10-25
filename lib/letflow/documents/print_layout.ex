@@ -19,10 +19,36 @@ defmodule Letflow.Documents.PrintLayout do
   A violation is `%{rule: atom, path: [String.t() | non_neg_integer]}` and never carries a
   value, literal text or field name. The only layout text in a path is the name of an unknown
   key (at most 64 bytes). Row limits belong to the renderer, not to this module.
+
+  ## Renderer (part 2)
+
+  `render/4` is a pure function of `(layout, projection, declared_fields, opts)`: it runs
+  `validate/3` first and returns `{:error, violations}` unchanged on failure, else
+  `{:ok, pdf_binary}`. It reads no database, clock, environment or network, and reads from the
+  projection only the declared, unrestricted pairs the layout names. A table has at most 1000
+  rows (`:too_many_rows`). A character the font has no glyph for gives `:unsupported_glyph`; it
+  is never replaced by `?` or drawn as an empty box. A violation carries a rule and a path,
+  never a value.
+
+  This module is the first renderer with a Unicode font path. The PDF is written by hand
+  (`Font`, `Flow`, `Pdf` under `print_layout/`): Type0, CIDFontType2, Identity-H, a CIDToGIDMap
+  stream, a W array and a ToUnicode CMap, with the whole of `priv/fonts/DejaVuSans.ttf`
+  embedded (licence: `priv/fonts/DejaVuSans.LICENSE`). Decision 0068 D2 (closed schema, text and
+  vector shapes only) and 0068 D5 (no restricted or undeclared field in the output) bound it;
+  0068 Q2 (how much flexibility the tenant gets) and Q5 (core-locked blocks) are the owner's
+  open questions and are not decided here. Decision 0033, whose ISS-0679 addendum was
+  re-opened by an amendment for this font path, keeps `certificate_document.ex` on the `pdf`
+  library and its Latin-1 path; that file is unchanged.
+
+  The output has no `/Info`, no date, no producer and no action, annotation, form or embedded
+  file object. Equal inputs give equal bytes (compressed bytes are stable per OTP/zlib build).
   """
+
+  alias Letflow.Documents.PrintLayout.{Flow, Pdf}
 
   @type violation :: %{rule: atom, path: [String.t() | non_neg_integer]}
 
+  @max_rows 1000
   @max_blocks 200
   @max_literal 500
   @max_columns 12
@@ -69,6 +95,34 @@ defmodule Letflow.Documents.PrintLayout do
   end
 
   def validate(_layout, _declared_fields, _opts), do: {:error, [v(:invalid_layout, [])]}
+
+  @doc """
+  Renders `layout` over `projection` (`%{entity_type => %{field => value}}` for field blocks,
+  `%{entity_type => [row]}` for tables) into PDF bytes. Validates first (same violations, same
+  order); a projection that is not a map is `:invalid_projection` at `[]`; more than 1000 rows
+  in a table is `:too_many_rows` at the table block. Never raises on runtime input.
+  """
+  @spec render(term, term, term, keyword | map) :: {:ok, binary} | {:error, [violation]}
+  def render(layout, projection, declared_fields, opts \\ []) do
+    with :ok <- validate(layout, declared_fields, opts),
+         :ok <- check_projection(layout, projection),
+         {:ok, doc} <- Flow.run(layout, projection) do
+      {:ok, Pdf.build(doc)}
+    end
+  end
+
+  defp check_projection(_layout, projection) when not is_map(projection),
+    do: {:error, [v(:invalid_projection, [])]}
+
+  defp check_projection(%{"blocks" => blocks}, projection) do
+    vs =
+      for {%{"type" => "table", "entity_type" => et}, i} <- Enum.with_index(blocks),
+          is_list(projection[et]),
+          length(projection[et]) > @max_rows,
+          do: v(:too_many_rows, ["blocks", i])
+
+    if vs == [], do: :ok, else: {:error, vs}
+  end
 
   # -- layout level ----------------------------------------------------------------------------
 
