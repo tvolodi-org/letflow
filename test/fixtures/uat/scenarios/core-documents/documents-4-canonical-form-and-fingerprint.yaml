@@ -103,7 +103,7 @@ expected_outcomes:
       business_impact: An approval for one company's or one document's content could be replayed for another's.
       suggested_action: route_to_wf03
   - id: EO-005
-    description: A caller-supplied fingerprint is refused or ignored; the stored document never holds a fingerprint taken from the caller.
+    description: A caller-supplied fingerprint is refused with an error result, and nothing is stored; the stored document never holds a fingerprint taken from the caller.
     verification:
       method: system_state
       detail: After step 7 no stored version carries the supplied value; the attempt returns an error result.

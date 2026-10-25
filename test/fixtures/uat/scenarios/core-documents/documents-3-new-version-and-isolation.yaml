@@ -13,7 +13,8 @@ description: >
   Issuing itself belongs to the next part of the service; the issued version is prepared by the test
   environment directly in the database. The service is internal (no screen, no public interface): where
   the environment cannot call it for a named tenant, or cannot prepare an issued version, the result is
-  BLOCKED.
+  BLOCKED. Retired-unit resolution of the legal entity and the lookup contract test case are product-test
+  checks, not UAT-checkable (the default lookup knows no legal entities).
 
 actors:
   module: actor-system-documents-service
@@ -25,6 +26,9 @@ preconditions:
   - description: Tenant A holds one document whose version 1 is issued, and one document that has only a draft
     check: custom
     detail: The issued version is placed by the test setup, since issuing is not part of this slice.
+  - description: The issued version of tenant A's first document names organisational unit U, which is active at the start
+    check: custom
+    detail: Set by the test setup together with the issued version.
   - description: Tenant B holds at least one document of its own
     check: custom
     detail: Used to show tenant B's documents are unaffected.
@@ -49,6 +53,17 @@ steps:
   - step: 4
     actor: module
     action: As tenant B, tries to prepare the next version of an identifier that exists nowhere.
+    via: system
+    expect_refusal: true
+  - step: 5
+    actor: module
+    action: >
+      Retires organisational unit U, the unit named on the issued version 1 of tenant A's document, then
+      reads version 1 again.
+    via: system
+  - step: 6
+    actor: module
+    action: For tenant A, tries to create a new draft naming the retired unit U.
     via: system
     expect_refusal: true
 
@@ -92,6 +107,26 @@ expected_outcomes:
     on_fail:
       severity: BLOCKER
       business_impact: The tamper-evidence of the audit trail would be lost.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: After unit U is retired, the issued version 1 still shows unit U and the same legal entity (the "no legal entity" marker under the default lookup); nothing was cleared or rewritten.
+    verification:
+      method: system_state
+      detail: Version 1's issuing unit and legal entity are identical before and after step 5.
+      evidence: The version row before and after retiring unit U.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The record of which unit issued a document would change after the fact.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: The new draft naming the retired unit U is refused with an error result and no draft is stored.
+    verification:
+      method: system_state
+      detail: An error result is returned; the document count of tenant A is unchanged.
+      evidence: Error result and counts.
+    on_fail:
+      severity: MAJOR
+      business_impact: New documents could be issued by a unit that no longer exists.
       suggested_action: route_to_wf03
 
 cleanup:

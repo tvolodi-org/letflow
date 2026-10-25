@@ -12,6 +12,10 @@ description: >
   platform has no way to name legal entities, that the way legal entities are looked up cannot be
   replaced from a tenant's own settings, and that a type's retention settings stay adjustable while its
   identity settings do not once documents exist.
+  Not UAT-checkable, by design: the legal-entity lookup of an organisational unit under the default
+  lookup, the lookup contract test case, the forcibly written legal-entity row and the lookup argument
+  of module installation exist only in product tests (the requirement places them in test setup, and
+  adds no route or screen).
   This first part of the document service is internal: it adds no screen and no public interface. The
   scenario therefore runs only in an environment that lets the tester call the document service for a
   named tenant directly (a service-level harness). Where the environment cannot do that, the result is
@@ -31,9 +35,17 @@ preconditions:
     detail: >
       The restricted field is named in the tenant's own restricted-field settings; the default lookup
       (which knows no legal entities) is the one in use.
+  - description: Tenant A is the swiftroute test tenant, and it has one active organisational unit
+    check: custom
+    detail: >
+      The harness steps and the tenant administrator of steps 7 and 8 act on the same tenant. The unit
+      is used by the draft of step 2.
   - description: The swiftroute test tenant has a signed-in tenant administrator
     check: custom
     detail: The seeded administrator of the swiftroute tenant (actor-swiftroute-alice) can sign in.
+  - description: Step 9 needs a second test module that declares a legal-entity lookup; if the environment cannot provide one, step 9 is BLOCKED (the other steps still run)
+    check: custom
+    detail: Not providing the module does not make step 9 pass.
 
 steps:
   - step: 1
@@ -48,25 +60,34 @@ steps:
   - step: 2
     actor: module
     action: >
-      Tries to change the numbering scope of that type after a document of the type exists.
+      Creates a draft of the "purchase order" type for tenant A, naming tenant A's active organisational
+      unit, so that a document of the type exists.
+    via: system
+    produces:
+      document_id: the new draft document
+
+  - step: 3
+    actor: module
+    action: >
+      Tries to change the numbering scope of that type after the purchase order draft of step 2 exists.
     via: system
     expect_refusal: true
 
-  - step: 3
+  - step: 4
     actor: module
     action: >
       Changes the retention period, retention start and retention action of that same type after a
       document of the type exists.
     via: system
 
-  - step: 4
+  - step: 5
     actor: module
     action: >
       Tries to register a type whose declared fields include one of tenant A's restricted fields.
     via: system
     expect_refusal: true
 
-  - step: 5
+  - step: 6
     actor: module
     action: >
       Tries to register a type that must be tied to a legal entity, while the default lookup (which knows
@@ -74,7 +95,7 @@ steps:
     via: system
     expect_refusal: true
 
-  - step: 6
+  - step: 7
     actor: tenant_admin
     action: >
       Looks in the tenant's settings and in the process designer for any place to choose or replace the
@@ -82,9 +103,24 @@ steps:
     via: gui
     expect_refusal: true
 
+  - step: 8
+    actor: tenant_admin
+    action: >
+      Tries to import a solution pack whose content names a legal-entity lookup for documents.
+    via: gui
+    expect_refusal: true
+
+  - step: 9
+    actor: module
+    action: >
+      Tries to install a second business module that declares its own legal-entity lookup while one
+      lookup is already in use.
+    via: system
+    expect_refusal: true
+
 expected_outcomes:
   - id: EO-001
-    description: The valid type is stored with its key, owner module and declared fields, and one "document type registered" audit event exists for it.
+    description: The valid type is stored with its key, owner module and declared fields, and one "document type registered" audit event exists for it. The audit chain of tenant A verifies after the registration event, and the event payload holds no field values.
     verification:
       method: audit_event
       detail: The stored type matches what was declared; exactly one registration event is in tenant A's audit trail, written together with the type.
@@ -94,11 +130,11 @@ expected_outcomes:
       business_impact: Document types would exist with no record of who introduced them.
       suggested_action: route_to_wf03
   - id: EO-002
-    description: The numbering-scope change is refused as an ordinary error result (not a crash), and the stored type is unchanged. The three retention settings do change.
+    description: The numbering-scope change (step 3) is refused as an ordinary error result (not a crash), and the stored type is unchanged. The three retention settings do change.
     verification:
       method: system_state
       detail: Numbering scope is the same before and after; retention period, start and action carry the new values.
-      evidence: The type row before and after step 2 and after step 3.
+      evidence: The type row before and after step 3 and after step 4.
     on_fail:
       severity: BLOCKER
       business_impact: A type's identity could be altered after documents were numbered under it, breaking the numbering history; or retention could not be adjusted when the law changes.
@@ -124,7 +160,7 @@ expected_outcomes:
       business_impact: Documents could be issued under a legal entity nobody can verify.
       suggested_action: route_to_wf03
   - id: EO-005
-    description: The tenant administrator finds no setting, designer option or definition field that replaces the legal-entity lookup, and nothing changes.
+    description: The tenant administrator (step 7) finds no setting, designer option or definition field that replaces the legal-entity lookup, the solution pack import naming a lookup (step 8) is refused, and the second module declaring its own lookup (step 9) is refused with the active lookup unchanged. The platform lookup of tenant A (the swiftroute tenant) is the same before and after.
     verification:
       method: gui_screen
       detail: No such option is offered; the platform's lookup is unchanged afterwards.
