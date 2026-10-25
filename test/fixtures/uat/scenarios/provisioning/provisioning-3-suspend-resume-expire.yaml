@@ -1,0 +1,223 @@
+# T-0626 (BA): demo-tenant journey, scenario 3 of 5 (order: see provisioning-1-create-and-replay.yaml).
+# QA ONLY (portfolio decision D-019). Sources: REQ-572 and its amendment (criteria 6, 8, 18, 20), decision 0072 D4 (suspend
+# and expire both switch the customer off; resume only from suspended; a switched-off customer leaves login discovery
+# and its realm provider is stopped), lib/letflow/routers/tenant_config.ex (a switched-off customer gets the default
+# sign-in bootstrap), docs/roles.md (a tenant administrator must not bypass the switched-off gate).
+# Runs on customers A and B (B is the control: it must be unaffected). Customer A ends EXPIRED here; scenario 4 retires it.
+# The demo expiring by itself at its expiry date (the scheduled sweep) is in scenario 4, which needs a short-lived demo.
+---
+id: provisioning-3-suspend-resume-expire
+scope: platform
+title: The front door suspends, resumes and expires a demo customer, and the customer is unusable and hidden while it is off
+version: "1.0"
+tags: [provisioning, demo, lifecycle, suspend, resume, expire, refusal, qa-only]
+
+description: >
+  The front door suspends demo customer A. Its administrator is turned away, the demo address no longer leads to
+  the customer's own sign-in, and the other demo customer (B) works as before. Repeating the suspension changes
+  nothing. The front door resumes A and the administrator can work again. The front door then expires A (the
+  demo has ended). The administrator is turned away again, the demo address is hidden, and a customer that has
+  expired cannot be resumed or suspended. The platform's own workspace and customers that were not made by the
+  front door cannot be touched through the front door credential.
+
+actors:
+  front_door: actor-system-front-door
+  owner_a: actor-any
+  owner_b: actor-any
+  visitor: actor-any
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: A hand-made customer (set up by the platform operator, not through the front door) exists for step 22, for example the foundation group's test customer
+    check: custom
+    detail: If none exists, step 22 is BLOCKED, not PASS.
+  - description: Scenarios 1 and 2 passed in this run; A and B are active and both owners have signed in once
+    check: custom
+    detail: If either owner never became administrator, report BLOCKED, not PASS.
+
+steps:
+  - step: 1
+    actor: owner_a
+    action: The owner of customer A opens the list of people of customer A. This works (control).
+    via: api
+  - step: 2
+    actor: front_door
+    action: The front door suspends customer A.
+    via: api
+  - step: 3
+    actor: front_door
+    action: The front door suspends customer A again.
+    via: api
+  - step: 4
+    actor: owner_a
+    action: The owner of customer A tries to open the list of people of customer A while it is suspended.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: owner_a
+    action: The owner of customer A tries to switch their own customer back on.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: visitor
+    action: Someone opens the sign-in bootstrap of customer A's demo address while A is suspended.
+    via: api
+  - step: 7
+    actor: owner_b
+    action: The owner of customer B opens the list of people of customer B. This works (customer B is not affected).
+    via: api
+  - step: 8
+    actor: front_door
+    action: The front door reads customer A's record and customer B's record.
+    via: api
+  - step: 9
+    actor: front_door
+    action: The front door resumes customer A.
+    via: api
+  - step: 10
+    actor: front_door
+    action: The front door resumes customer A again.
+    via: api
+  - step: 11
+    actor: owner_a
+    action: The owner of customer A opens the list of people of customer A again.
+    via: api
+  - step: 12
+    actor: visitor
+    action: Someone opens the sign-in bootstrap of customer A's demo address again.
+    via: api
+  - step: 13
+    actor: front_door
+    action: The front door expires customer A.
+    via: api
+  - step: 14
+    actor: front_door
+    action: The front door expires customer A again.
+    via: api
+  - step: 15
+    actor: owner_a
+    action: The owner of customer A tries to open the list of people of customer A after the expiry.
+    expect_refusal: true
+    via: api
+  - step: 16
+    actor: visitor
+    action: Someone opens the sign-in bootstrap of customer A's demo address after the expiry.
+    via: api
+  - step: 17
+    actor: front_door
+    action: The front door tries to resume customer A after it has expired.
+    expect_refusal: true
+    via: api
+  - step: 18
+    actor: front_door
+    action: The front door tries to suspend customer A after it has expired.
+    expect_refusal: true
+    via: api
+  - step: 19
+    actor: front_door
+    action: The front door reads customer A's record and customer B's record.
+    via: api
+  - step: 20
+    actor: owner_b
+    action: The owner of customer B opens the list of people of customer B once more. This works.
+    via: api
+  - step: 21
+    actor: front_door
+    action: The front door tries to suspend the platform's own workspace (using the identifier of the platform tenant).
+    expect_refusal: true
+    via: api
+  - step: 22
+    actor: front_door
+    action: >
+      The front door tries to suspend a customer that the platform operator set up by hand (not through the front
+      door), using its identifier.
+    expect_refusal: true
+    via: api
+  - step: 23
+    actor: front_door
+    action: The front door tries to suspend a customer identifier that does not exist.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Suspension switches the customer off for its own administrator, who cannot switch it back on.
+    verification:
+      method: system_state
+      detail: >
+        Step 2 answers 200 with state "suspended"; step 3 answers 200 with state "suspended" and nothing else
+        changes; steps 4 and 5 are refused (customer switched off); the record read in step 8 shows "suspended" for A and
+        "active" for B.
+      evidence: The answers of steps 2 to 5 and 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A customer the front door has suspended (for non-payment or abuse) keeps working, or can undo its own suspension.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A switched-off customer is hidden from sign-in discovery.
+    verification:
+      method: api_response
+      detail: >
+        Steps 6 and 16 answer with the platform's default sign-in bootstrap, the same as for an address that no
+        customer owns, and not with the realm of customer A. Step 12 answers with the realm of A again.
+      evidence: The sign-in authority of steps 6, 12 and 16.
+    on_fail:
+      severity: MAJOR
+      business_impact: People are sent to the sign-in of a customer that is off, or the realm of an off customer keeps being used.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The other demo customer is not affected by anything done to A.
+    verification:
+      method: system_state
+      detail: >
+        Steps 7 and 20 work for the owner of B; step 8 and step 19 read B as "active" with its own identifier
+        and nothing that belongs to A.
+      evidence: Steps 7, 8, 19 and 20.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An action for one demo customer switches off another.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Resume restores the administrator's access, and a repeat changes nothing.
+    verification:
+      method: system_state
+      detail: >
+        Step 9 answers 200 "active"; step 10 answers 200 "active"; step 11 returns the same people list as step 1.
+      evidence: The answers of steps 9 to 11 and the people count at steps 1 and 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A paused demo cannot be restored, or its data was lost in the pause.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Expiry ends the demo; an expired customer cannot be resumed or suspended, and a repeat expiry changes nothing.
+    verification:
+      method: system_state
+      detail: >
+        Step 13 answers 200 "expired"; step 14 answers 200 "expired"; step 15 is refused (customer switched off);
+        steps 17 and 18 are refused as a conflict (409); step 19 reads A as "expired", still with its creation time and expiry date.
+      evidence: The answers of steps 13 to 19.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An expired demo can be revived or keeps working, which undoes the demo limit.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: The front door credential reaches only customers made through it; the platform's own workspace and unknown identifiers look the same.
+    verification:
+      method: http_status
+      detail: >
+        Step 21 is refused (the register says conflict, the decision record says not found; either is accepted, see the run notes) and the platform's workspace is still active, without the answer
+        saying that it is the platform's workspace. Steps 22 and 23 are refused as "not found" with identical
+        bodies, so the front door cannot tell a hand-made customer from a missing one.
+      evidence: The three refusals (status and body) and the state of the platform workspace.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A leaked front-door credential could switch off the platform or a production customer, or reveal which customers exist.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Customer A is left expired and B active; scenario 4 retires both. The platform's own workspace and the
+    hand-made customer used in step 22 are left active (step 22 uses a customer the run already has: the test customer of
+    the foundation group, or another hand-made customer named in the run notes; if none exists, report that step
+    BLOCKED).

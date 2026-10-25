@@ -1,0 +1,178 @@
+# T-0626 (BA): demo-tenant journey, scenario 2 of 5 (order: see provisioning-1-create-and-replay.yaml).
+# QA ONLY (portfolio decision D-019). Sources: REQ-572 and its amendment (criteria 7, 15, 16, 20), decision 0072 (D1, D2,
+# D3), decision 0048 (pending grant binds only a verified e-mail), decision 0046 D4 (no PLATFORM_ADMIN in a customer
+# tenant), lib/letflow/routers/tenant_config.ex (public sign-in bootstrap: which realm a host signs in with).
+# Runs on customers A and B created by scenario 1. The first administrators are people created inside each customer's
+# own realm by infra's realm provisioner (scenario 1 step 1); the product has no admin client and creates no login.
+# The "first password once" is handed to the person outside this scenario; the scenario names no password.
+---
+id: provisioning-2-first-administrator-and-demo-address
+scope: platform
+title: The demo customer's first administrator signs in through the customer's own realm and the demo address leads to the right customer
+version: "1.0"
+tags: [provisioning, demo, first-login, administrator, hostname, refusal, qa-only]
+
+description: >
+  The owner of demo customer A signs in with the address that was named when the customer was created and a
+  confirmed e-mail, through the customer's own sign-in realm. The platform makes them administrator of customer A
+  and of nothing else; they hold no rights in the identity provider and no platform right. The demo address of
+  each customer leads to that customer's own sign-in, not to another customer's. The administrator of customer A
+  cannot see or change anything of customer B, cannot act as platform operator, and cannot switch their own
+  customer off or on.
+
+actors:
+  owner_a: actor-any
+  owner_b: actor-any
+  visitor: actor-any
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: Scenario 1 passed in this run; customers A and B are active and each has one pending invitation for its owner
+    check: custom
+    detail: If scenario 1 did not pass, report BLOCKED, not PASS.
+  - description: >
+      The owners' sign-in accounts exist in their customers' realms with the e-mail address confirmed (the realm
+      provisioner makes them confirmed)
+    check: custom
+    detail: >
+      If the account of owner A shows the e-mail as not confirmed, the first sign-in will not bind; report BLOCKED
+      for that precondition. Do not confirm the address by hand in the identity provider to make a step pass.
+
+steps:
+  - step: 1
+    actor: visitor
+    action: >
+      Someone opens the sign-in bootstrap of the demo address of customer A (the address given at creation, under
+      letflow.qa.bizdala.com) before signing in.
+    via: api
+  - step: 2
+    actor: visitor
+    action: Someone does the same for the demo address of customer B.
+    via: api
+  - step: 3
+    actor: owner_a
+    action: >
+      The owner of customer A opens the demo address of customer A, is sent to the customer's own realm, signs in with
+      the account made for them, and lands in the application.
+    via: gui
+  - step: 4
+    actor: owner_a
+    action: The owner of customer A asks who they are (their roles in this customer).
+    via: api
+  - step: 5
+    actor: owner_a
+    action: The owner of customer A opens the list of people of customer A.
+    via: gui
+  - step: 6
+    actor: platform_operator
+    action: >
+      The platform operator reads customer A's setup record and its pending invitation (state, binding time, login
+      status).
+    via: api
+  - step: 7
+    actor: owner_b
+    action: The owner of customer B signs in in the same way through customer B's realm and asks who they are.
+    via: api
+  - step: 8
+    actor: owner_a
+    action: >
+      The owner of customer A tries to open the list of people through customer B's demo address, presenting
+      their own customer A sign-in.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: owner_a
+    action: The owner of customer A tries to open the platform's list of customers.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: owner_a
+    action: The owner of customer A tries to set up a new customer.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: owner_a
+    action: The owner of customer A tries to switch their own customer off.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: owner_a
+    action: >
+      The owner of customer A tries to give themselves the platform administrator role (add it to their own
+      account in customer A).
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The demo address of each customer leads to that customer's own sign-in realm, and to no one else's.
+    verification:
+      method: api_response
+      detail: >
+        Steps 1 and 2 answer with a sign-in authority that names the realm "t-" plus the first 20 hex digits of the
+        customer's own identifier (A for step 1, B for step 2). The two answers differ, and neither is the
+        platform's default sign-in.
+      evidence: The sign-in authority of steps 1 and 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A visitor of one demo would be sent to another customer's sign-in.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The first administrator is made administrator of customer A by signing in with the confirmed e-mail, and holds no other role.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 lists TENANT_ADMIN as the owner's role in customer A, with no PLATFORM_ADMIN, and no role that
+        belongs to the identity provider's own administration. Step 5 shows the user list of customer A with the
+        owner's own entry.
+      evidence: The role names answered in step 4 and a screenshot of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A new demo customer cannot start, or its first administrator has more rights than agreed.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The operator's record shows the invitation used and the customer's login bound.
+    verification:
+      method: system_state
+      detail: >
+        Step 6: the invitation state is bound, a binding time is set, no e-mail address is shown, and the login
+        status is realm bound.
+      evidence: The answer from step 6 (state, binding time, login status).
+    on_fail:
+      severity: MAJOR
+      business_impact: The operator cannot audit how the demo customer's first administrator was granted access.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The owner of customer B is administrator of customer B only.
+    verification:
+      method: api_response
+      detail: Step 7 lists TENANT_ADMIN, no PLATFORM_ADMIN, for the owner of B.
+      evidence: The role names answered in step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A demo customer's administrator holds the wrong rights, or the second customer cannot start.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The owner of one demo customer cannot reach another customer's people.
+    verification:
+      method: http_status
+      detail: Step 8 is refused (unauthorised or not found) and returns no entry of customer B.
+      evidence: The refusal answer of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Demo customers can see each other's people.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: The first administrator cannot act as platform operator or make themselves one.
+    verification:
+      method: http_status
+      detail: Steps 9 to 12 are refused (forbidden) and customer A is still active and the owner still holds only TENANT_ADMIN afterwards.
+      evidence: The four refusals and a repeat of step 4 showing the same roles.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A visitor on a demo account could take over platform administration.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Customers A and B stay for scenarios 3 to 5; the accounts made in the realms are removed with the realms by the realm reaper after scenario 4.

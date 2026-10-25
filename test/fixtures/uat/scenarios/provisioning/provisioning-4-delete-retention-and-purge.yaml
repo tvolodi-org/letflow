@@ -1,0 +1,245 @@
+# T-0626 (BA): demo-tenant journey, scenario 4 of 5 (order: see provisioning-1-create-and-replay.yaml).
+# QA ONLY (portfolio decision D-019). Production is not approved: no production customer is deleted or purged.
+# Sources: REQ-572 amendment criteria 18 to 21 (one outcome of "delete" per starting state; retention counted from the
+# expiry date or from the deletion request; the scheduled sweep expires a demo at its expiry date and purges only
+# switched-off customers past retention; only customers made through the front door are touched), decision 0072 D4
+# (fixed order: 1 switch the customer off in Letflow, 2 purge its data, 3 only then the realm is deleted, by infra's reaper,
+# not by Letflow) and D7 (the starting values are settings), contract contracts/provisioning.md ("Order of deletion",
+# "Who confirms that a tenant may lose its realm").
+#
+# UAT ASSUMPTION, to be confirmed by the process owner (QA environment only, not a rule): the starting values are
+# 14 days of demo life and 30 days of retention, which no run can wait for. For this scenario the QA settings for the
+# demo life, the retention and the sweep interval are set by infra to minutes (for example retention 10 minutes, sweep
+# every 2 minutes), then set back to the starting values after the run. If they are not set short, the steps that wait
+# for the sweep are BLOCKED, not PASS; steps 1 to 3 (before any waiting for the sweep) can still be reported.
+# TEST-TOOLING STEPS (outside the product): the realm of customer C is made by the realm provisioner; the realm reaper
+# (infra) is run on request and deletes a realm only when Letflow's read call shows the customer switched off and purged.
+# The reaper has no product part: the scenario asserts only what it did and what it left.
+---
+id: provisioning-4-delete-retention-and-purge
+scope: platform
+title: A demo expires by itself, delete first switches off, the data is purged only after the retention, and the realm goes last
+version: "1.0"
+tags: [provisioning, demo, delete, retention, purge, expiry, refusal, qa-only]
+
+description: >
+  A short-lived demo customer (C) is created with an expiry date a few minutes ahead. When the date passes, the
+  platform expires it by itself, without a call from the front door. The front door asks to delete the
+  active customer B: B is switched off at once and nothing is purged; asking to delete the expired customer A
+  inside the retention changes nothing but the record of the request. While nothing is purged the realm reaper must
+  leave all three realms alone. After the retention has passed, the platform purges the data of A, B and C and
+  their state becomes "deleted"; only then does the reaper delete their realms. A purged customer cannot be revived.
+ 
+
+actors:
+  front_door: actor-system-front-door
+  realm_provisioner: actor-system-realm-provisioner
+  realm_reaper: actor-system-realm-reaper
+  platform_scheduler: actor-system-scheduler
+  owner_a: actor-any
+  owner_c: actor-any
+  visitor: actor-any
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: Scenarios 1 to 3 passed in this run; A is expired and B is active
+    check: custom
+    detail: If either state is different, report BLOCKED, not PASS.
+  - description: >
+      UAT assumption, to be confirmed by the process owner: the QA settings for the demo life, the retention and the
+      sweep interval are set to minutes for this run
+    check: custom
+    detail: >
+      Without it, steps 4 to 19 cannot finish inside the run and are BLOCKED, not PASS. No customer may be given a
+      shorter retention by a request: the values are settings, not request fields.
+
+steps:
+  - step: 1
+    actor: realm_provisioner
+    action: >
+      TEST-TOOLING STEP (outside the product): the realm provisioner makes the realm of a new customer C (fresh
+      identifier, realm "t-" plus the first 20 hex digits) with its first administrator.
+    via: api
+  - step: 2
+    actor: front_door
+    action: >
+      The front door creates customer C: tier demo, an owner e-mail, its own address under the QA domain and an
+      expiry date a few minutes ahead (later than the creation time by less than the sweep interval plus one minute).
+    via: api
+  - step: 3
+    actor: owner_c
+    action: The owner of customer C signs in through C's realm and opens the list of people of C. This works.
+    via: api
+  - step: 4
+    actor: platform_scheduler
+    action: >
+      The expiry date of C passes and the platform's scheduled sweep runs. Nobody calls the platform.
+    via: system
+  - step: 5
+    actor: front_door
+    action: The front door reads customer C's record.
+    via: api
+  - step: 6
+    actor: owner_c
+    action: The owner of customer C tries to open the list of people of C after the sweep.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: front_door
+    action: The front door asks to delete customer B, which is active.
+    via: api
+  - step: 8
+    actor: front_door
+    action: The front door asks to delete customer A, which is expired and inside its retention.
+    via: api
+  - step: 9
+    actor: front_door
+    action: The front door reads the records of A, B and C.
+    via: api
+  - step: 10
+    actor: realm_reaper
+    action: >
+      TEST-TOOLING STEP: the realm reaper is run on request while A, B and C are not yet purged. It reads each
+      customer's record from Letflow and deletes any realm whose customer is switched off and purged.
+    via: system
+  - step: 11
+    actor: owner_a
+    action: The owner of customer A tries to sign in through A's realm and open the list of people while A is not purged.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: platform_scheduler
+    action: >
+      The retention passes (counted from the expiry date for A and C and from the deletion request for B) and the
+      scheduled sweep runs again.
+    via: system
+  - step: 13
+    actor: front_door
+    action: The front door reads the records of A, B and C.
+    via: api
+  - step: 14
+    actor: front_door
+    action: The front door asks to delete customer A again.
+    via: api
+  - step: 15
+    actor: platform_operator
+    action: >
+      The platform operator reads the setup record of customer A (state, login status, whether a pending invitation
+      remains).
+    via: api
+  - step: 16
+    actor: visitor
+    action: Someone opens the sign-in bootstrap of customer A's demo address after the purge.
+    via: api
+  - step: 17
+    actor: realm_reaper
+    action: >
+      TEST-TOOLING STEP: the realm reaper is run on request again. It reads the records of A, B and C and now
+      deletes their realms.
+    via: system
+  - step: 18
+    actor: owner_a
+    action: The owner of customer A tries to sign in through A's realm after the realm has been deleted.
+    expect_refusal: true
+    via: api
+  - step: 19
+    actor: front_door
+    action: The front door tries to resume customer A after the purge.
+    expect_refusal: true
+    via: api
+  - step: 20
+    actor: front_door
+    action: The front door tries to delete the platform's own workspace (the platform tenant's identifier).
+    expect_refusal: true
+    via: api
+  - step: 21
+    actor: front_door
+    action: The front door tries to delete a customer identifier that does not exist.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A demo that reaches its expiry date is expired by the platform itself and then cannot be used.
+    verification:
+      method: system_state
+      detail: >
+        Step 5 answers 200 with state "expired" for C although the front door never asked; step 6 is refused
+        (customer switched off); C's record still carries its expiry date and creation time.
+      evidence: The answers of steps 5 and 6 with the time of the sweep.
+    on_fail:
+      severity: MAJOR
+      business_impact: Demos stay open after their time unless the front door remembers to close them; the demo cap fills up.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Deleting an active customer switches it off at once and purges nothing; deleting an expired customer inside the retention purges nothing.
+    verification:
+      method: api_response
+      detail: >
+        Step 7 answers 202 (accepted) with exactly the customer identifier and the state "suspended"; step 8 answers
+        202 with the identifier and the state "expired". Step 9 shows B "suspended", A "expired" and C "expired",
+        none of them "deleted".
+      evidence: Steps 7 to 9 (status and keys).
+    on_fail:
+      severity: BLOCKER
+      business_impact: A single delete request from the front door could destroy customer data without the retention period.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: The realm is never deleted before the customer is switched off and purged.
+    verification:
+      method: system_state
+      detail: >
+        After step 10 the realms of A, B and C all still exist (the reaper reports it deleted none), and the
+        sign-in of A's owner in step 11 is turned away by Letflow (customer switched off), not because the realm is missing.
+        After step 17 the realms of A, B and C are gone, and step 18 fails at sign-in.
+      evidence: The reaper's report after steps 10 and 17 and the refusals of steps 11 and 18.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A customer that is still bound to a missing realm, or data that outlives its realm, breaks login for others.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: After the retention, the sweep purges A, B and C and their state becomes "deleted"; a repeat delete changes nothing.
+    verification:
+      method: api_response
+      detail: >
+        Step 13 reads "deleted" for A, B and C (200, not "not found") with creation time and tier unchanged; step 14
+        answers 200 with state "deleted". Where the run can read the database, no table of the three customers'
+        data remains; where it cannot, say "not checked" in the evidence.
+      evidence: Steps 13 and 14 and, if available, the list of tables of each customer's data space.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Demo data stays on QA after the retention, or the front door cannot see the end state.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A purged customer is not offered at sign-in and cannot be revived.
+    verification:
+      method: system_state
+      detail: >
+        Step 15 shows A's customer record still present as switched off (not removed), with its realm still named
+        and no pending invitation open; step 16 answers with the platform's default sign-in bootstrap; step 19 is
+        refused as a conflict (409).
+      evidence: The answers of steps 15, 16 and 19.
+    on_fail:
+      severity: MAJOR
+      business_impact: Sign-in is offered for a customer that has no data, or a purged customer is revived without its data.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: Delete reaches only customers made through the front door.
+    verification:
+      method: http_status
+      detail: >
+        Step 20 is refused (the register says conflict, the decision record says not found; either is accepted) and
+        the platform's workspace is still active with all its data; step 21 is refused as "not found". The
+        answer for step 20 does not say that the target is the platform's workspace.
+      evidence: The refusals of steps 20 and 21 and the state of the platform workspace.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A leaked front-door credential could delete the platform or a production customer.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Customers A, B and C are left purged ("deleted"). Their rows stay (the platform keeps the record), their realms are deleted
+    by the reaper. Infra sets the QA settings back to the starting values (demo life 14 days, retention 30
+    days, alarm 25, cap 30).
