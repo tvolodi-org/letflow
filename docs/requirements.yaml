@@ -39335,7 +39335,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-550 -- the print-override record builds on the x_ layer record (REQ-550, pending) and on decision 0056 D5, which is DIRECTION only
+    gh: 3202
     # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts", bullet "per-tenant form, list and print-template overrides, including KZ print forms"; docs/migration/decisions/0056-versioned-documents.md D5 ("Per-tenant print-template overrides are a later customization candidate ... NOT decided here. This record only reserves template_ref"), D8 (declared_fields, restricted fields), open point 6 (RU/KK wording owner) and the list "Tenant print-template overrides (D5)"; docs/migration/decisions/0053-tenant-scripted-rules.md "Requirement candidates" and candidate (b); lib/letflow/modules/exam/certificate_document.ex (the one in-tree code-built renderer); lib/letflow/documents.ex and lib/letflow/documents/document_type.ex (type registration). Written by the business analyst (T-0492) 2026-10-25. Not yet validated.
     description: >
       Source: core roadmap "Customization beyond scripts"; decision 0056 D5, D8 and open point 6;
