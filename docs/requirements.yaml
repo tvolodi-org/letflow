@@ -40268,7 +40268,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-568 -- the slice depends on the decision record of REQ-568 (0071), whose requirement entry is still pending; OP-6 is an open owner question
+    gh: 3256
     # Source: docs/migration/decisions/0071-extension-points-in-module-processes.md (D1 "Not settled by the source", D3 table rows for module.ex, catalog.ex and graph.ex, D4 refusals, D8, D9 slice X1, OP-6); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D4 (precedent for rejecting keys); docs/migration/decisions/0053-tenant-scripted-rules.md D1 (key format); docs/agents/instructions/security-invariants.md (INV-1, INV-8); code read: lib/letflow/modules/module.ex (manifest type), lib/letflow/modules/catalog.ex (validate/2, rules 7 to 12), lib/letflow/modules/manifest_hash.ex (surface/1), lib/letflow/definitions.ex (run_semantic_validation/2, activate/2, interpret_activate_result/1), lib/letflow/definitions/graph.ex (Violation, validate_flow/1), lib/letflow/definitions/process_definition.ex (name, owner_module, owner_module_version). Written by the business analyst (T-0562) 2026-10-25. Not yet validated.
     description: >
       Source: decision 0071 D1 and D9 slice X1; core roadmap "Customization beyond scripts", bullet
