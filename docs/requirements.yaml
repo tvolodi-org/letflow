@@ -40269,7 +40269,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-550 -- REQ-550 (the decision record 0067-tenant-x) is still pending in the register
+    gh: 3258
     # Source: docs/migration/decisions/0067-tenant-x-extension-layer-over-module-entity-types.md section D2 ("Storage": table name, columns, unique key, name check; "The migration and the tenant provisioning list entry are an implementation slice (I1)") and section "Expected implementation requirements" (I1: "migration, schema and tenant-provisioning entry for entity_type_extensions, with a cross-tenant negative test"); its sections "Not decided here" (no code, route or test is decided there beyond I1) and OP-3 (promoted x_ columns, filter and sort on x_ fields: not in v1) and "Threat cases for SECURITY-REVIEWER" 1 and 6; docs/migration/decisions/0006 D2 (which tables lost tenant_id); priv/repo/migrations/20261025500001_create_entity_views.exs and lib/letflow/tenant_provisioning.ex (the neighbouring tenant-table slices); test/support/tenant_fixture.ex and test/letflow/support/tenant_fixture_test.exs (the tenant table list and its count); docs/agents/instructions/security-invariants.md INV-1, INV-7, INV-10. Written by the business analyst (T-0563) 2026-10-25. Not yet validated.
     description: >
       Slice I1 of decision 0067-tenant-x. That record (D2) says a tenant's additions to a module's entity
