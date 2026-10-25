@@ -475,6 +475,7 @@ defmodule Letflow.Definitions.Graph do
         &check_human_task_role/1,
         &check_service_task_endpoint/1,
         &check_service_task_script_reference/1,
+        &check_human_task_validation_reference/1,
         &check_service_task_timeout/1,
         &check_timer_duration/1,
         &check_sub_process_interface/1,
@@ -1066,6 +1067,38 @@ defmodule Letflow.Definitions.Graph do
         end
 
       reference ++ conflict
+    end)
+  end
+
+  # REQ-569 / GH #3246 (decision 0067 D9, slice F-1): a HUMAN_TASK node may name a form-validation
+  # script with "validation_script_key" + "validation_script_version". Both or neither: the key must
+  # match Letflow.Scripts.Validation.key?/1 and the version be an integer >= 1. The message names the
+  # node id only (never the attribute values). Pure: it does not read the hook flag; activation does.
+  @spec check_human_task_validation_reference(t()) :: [Violation.t()]
+  defp check_human_task_validation_reference(%__MODULE__{nodes: nodes}) do
+    nodes
+    |> Enum.filter(&(&1.node_type == :HUMAN_TASK))
+    |> Enum.filter(fn node ->
+      attribute_value(node.attributes, "validation_script_key") != nil or
+        attribute_value(node.attributes, "validation_script_version") != nil
+    end)
+    |> Enum.flat_map(fn node ->
+      key = attribute_value(node.attributes, "validation_script_key")
+      version = attribute_value(node.attributes, "validation_script_version")
+
+      if Letflow.Scripts.Validation.key?(key) and is_integer(version) and version >= 1 do
+        []
+      else
+        [
+          %Violation{
+            code: :invalid_script_reference,
+            message:
+              "Node '#{node.id}' (HUMAN_TASK) has an invalid 'validation_script_key'/" <>
+                "'validation_script_version' pair (key ^[a-z][a-z0-9_]{0,63}$, version an " <>
+                "integer >= 1, both present)"
+          }
+        ]
+      end
     end)
   end
 
