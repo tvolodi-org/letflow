@@ -349,6 +349,105 @@ defmodule Letflow.Routers.AdminV1Test do
     end
   end
 
+  # The platform audit table is renamed for the span of `fun`: the grant and bind steps of create
+  # append audit entries there, so they fail after the tenant row is committed. The sandbox runs
+  # each query in a savepoint, so the failed statement does not poison the test transaction.
+  defp with_audit_down(ctx, fun) do
+    table = ~s("#{ctx.platform.schema_name}".audit_entries)
+    Repo.query!("ALTER TABLE #{table} RENAME TO audit_entries_off")
+
+    try do
+      fun.()
+    after
+      Repo.query!(
+        ~s(ALTER TABLE "#{ctx.platform.schema_name}".audit_entries_off RENAME TO audit_entries)
+      )
+    end
+  end
+
+  defp assert_completed(id, body) do
+    assert [grant] = grants(id)
+    assert grant.role_name == "TENANT_ADMIN"
+    assert Repo.get!(Lifecycle, id).owner_grant_stored
+    assert Repo.get!(Tenant, id).idp_realm_id == body["idp_realm_id"]
+  end
+
+  describe "C3 completion after a failure" do
+    test "a create that fails after the tenant commit answers 500; the repeat completes it",
+         ctx do
+      body = create_body()
+      id = body["tenant_id"]
+      track(id)
+
+      conn = with_audit_down(ctx, fn -> call(:post, "/admin/v1/tenants", @write_token, body) end)
+      assert conn.status == 500
+      assert Repo.get!(Tenant, id)
+      refute Repo.get!(Lifecycle, id).owner_grant_stored
+
+      conn = call(:post, "/admin/v1/tenants", @write_token, body)
+      assert conn.status == 200, conn.resp_body
+      assert json(conn)["tenant_id"] == id
+      assert_completed(id, body)
+
+      assert call(:post, "/admin/v1/tenants", @write_token, body).status == 200
+      assert length(grants(id)) == 1
+    end
+
+    test "a complete tenant whose grant flag and realm were lost is completed by a repeat" do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      schema = schema_of(id)
+      Repo.query!(~s(DELETE FROM "#{schema}".pending_tenant_admin_grants))
+
+      Repo.update_all(from(l in Lifecycle, where: l.tenant_id == ^id),
+        set: [owner_grant_stored: false]
+      )
+
+      conn = call(:post, "/admin/v1/tenants", @write_token, body)
+      assert conn.status == 200, conn.resp_body
+      assert_completed(id, body)
+    end
+  end
+
+  describe "C10 failure body" do
+    test "an audit failure answers 500 internal_error with no stack or SQL", ctx do
+      body = create_body()
+      track(body["tenant_id"])
+
+      conn = with_audit_down(ctx, fn -> call(:post, "/admin/v1/tenants", @write_token, body) end)
+      assert conn.status == 500
+      assert json(conn)["error"] == "internal_error"
+
+      for leak <- ["audit_entries", "relation", "** (", "Postgrex", "SELECT", "lib/letflow"] do
+        refute conn.resp_body =~ leak
+      end
+    end
+  end
+
+  describe "C12 replay on a suspended tenant" do
+    test "an unfinished create answers 409 and writes nothing; after resume a repeat completes",
+         ctx do
+      body = create_body()
+      id = body["tenant_id"]
+      track(id)
+
+      assert with_audit_down(ctx, fn -> call(:post, "/admin/v1/tenants", @write_token, body) end).status ==
+               500
+
+      assert call(:post, "/admin/v1/tenants/#{id}/suspend", @write_token).status == 200
+      before = counts()
+
+      conn = call(:post, "/admin/v1/tenants", @write_token, body)
+      assert conn.status == 409
+      assert counts() == before
+      assert grants(id) == []
+
+      assert call(:post, "/admin/v1/tenants/#{id}/resume", @write_token).status == 200
+      assert call(:post, "/admin/v1/tenants", @write_token, body).status == 200
+      assert_completed(id, body)
+    end
+  end
+
   describe "C5 validation" do
     test "a bad field answers 400 invalid_request and writes nothing" do
       before = counts()
@@ -594,6 +693,26 @@ defmodule Letflow.Routers.AdminV1Test do
           ] do
         conn = call(method, path, @write_token, if(method == :post, do: %{}))
         assert conn.status in [401, 403, 404], "#{path}: #{conn.status}"
+      end
+    end
+
+    test "N1b both credentials reach no router of the api pipeline, even with a tenant header",
+         ctx do
+      source = File.read!("lib/letflow/plugs/api_pipeline.ex")
+      mounts = Regex.scan(~r/^  forward\("([^"]+)"/m, source) |> Enum.map(&List.last/1)
+      assert length(mounts) > 25
+
+      slug = Repo.get!(Tenant, ctx.platform.tenant_id).slug
+
+      for token <- [@write_token, @read_token], mount <- mounts, method <- [:get, :post] do
+        conn =
+          conn(method, "/api/v1" <> mount, if(method == :post, do: "{}"))
+          |> put_req_header("content-type", "application/json")
+          |> put_req_header("x-tenant-slug", slug)
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> Letflow.Router.call(Letflow.Router.init([]))
+
+        refute conn.status in 200..299, "#{method} #{mount}: #{conn.status}"
       end
     end
 

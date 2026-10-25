@@ -65,7 +65,11 @@ defmodule Letflow.Routers.AdminV1 do
   def class_gate(conn, _opts), do: conn
 
   post "/tenants" do
-    with {:ok, body} <- read_json(conn),
+    # The conn returned by read_body is threaded to every response (Bandit tracks the
+    # body read state in it; a stale conn makes the server re-read the body after the reply).
+    {read, conn} = read_json(conn)
+
+    with {:ok, body} <- read,
          {:ok, request} <- Request.parse(body) do
       case TenantProvisioner.create(request) do
         {:ok, :created, answer} -> Response.send_json(conn, 201, answer)
@@ -118,12 +122,17 @@ defmodule Letflow.Routers.AdminV1 do
   # ── body ────────────────────────────────────────────────────────────────
 
   defp read_json(conn) do
-    with {:ok, body, _conn} <- read_bounded(conn),
-         true <- json_content_type?(conn),
-         {:ok, %{} = decoded} <- Jason.decode(body) do
-      {:ok, decoded}
-    else
-      _malformed -> {:error, "body"}
+    case read_bounded(conn) do
+      {:ok, body, conn} ->
+        with true <- json_content_type?(conn),
+             {:ok, %{} = decoded} <- Jason.decode(body) do
+          {{:ok, decoded}, conn}
+        else
+          _malformed -> {{:error, "body"}, conn}
+        end
+
+      :error ->
+        {{:error, "body"}, conn}
     end
   end
 

@@ -23,6 +23,7 @@ defmodule Letflow.TenantProvisioner.Request do
   @required ~w(tenant_id name language tier owner_email hostname idp_realm_id)
   @languages ~w(ru kk en)
   @label_regex ~r/\A[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\z/
+  @canonical_uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
   @default_lifetime_days 14
 
   @type t :: %{
@@ -114,9 +115,13 @@ defmodule Letflow.TenantProvisioner.Request do
   end
 
   defp tenant_id(raw) when is_binary(raw) do
-    case Ecto.UUID.cast(raw) do
-      {:ok, uuid} -> {:ok, uuid}
-      :error -> {:error, "tenant_id"}
+    # Decision 0072 P8: only the canonical lower-case form; Ecto.UUID.cast would accept
+    # upper-case, braced or unhyphenated forms and normalise them.
+    with true <- Regex.match?(@canonical_uuid, raw),
+         {:ok, uuid} <- Ecto.UUID.cast(raw) do
+      {:ok, uuid}
+    else
+      _other -> {:error, "tenant_id"}
     end
   end
 

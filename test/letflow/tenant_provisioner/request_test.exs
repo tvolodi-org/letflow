@@ -47,7 +47,7 @@ defmodule Letflow.TenantProvisioner.RequestTest do
   defp parse(overrides), do: Request.parse(body(overrides), now: @now)
 
   test "C5 a valid body parses; e-mail and tenant id are canonical" do
-    assert {:ok, request} = Request.parse(body(%{"tenant_id" => String.upcase(@id)}), now: @now)
+    assert {:ok, request} = Request.parse(body(%{"tenant_id" => @id}), now: @now)
     assert request.tenant_id == @id
     assert request.email_key == "owner@example.com"
     assert request.hostname == "acme.qa.example"
@@ -64,6 +64,8 @@ defmodule Letflow.TenantProvisioner.RequestTest do
           "not-a-uuid",
           "x'; drop schema public; --",
           "{#{@id}}",
+          String.upcase(@id),
+          String.replace(@id, "-", ""),
           "",
           123,
           nil,
