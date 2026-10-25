@@ -68,6 +68,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.NotificationTemplates, "/notification-templates", :put, "/:template_key",
      :route},
     {Letflow.Routers.TenantConfigBundle, "/tenant/config-bundle", :post, "/import", :route},
+    {Letflow.Routers.IntegrationMappings, "/integration-mappings", :post, "/", :route},
     {Letflow.Routers.TenantModules, "/tenant/modules", :post, "/", :route},
     {Letflow.Routers.TenantSolutions, "/tenant/solutions", :post, "/", :route},
     {Letflow.Routers.Modules, "/modules", :post, "/exam/exam-sessions", :modules},
@@ -711,8 +712,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert length(mounted) == length(Enum.uniq(mounted))
       assert Enum.sort(mounted) == Enum.sort(named)
       # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
-      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-563: 32 with Letflow.Routers.NotificationTemplates.
-      assert length(named) == 32
+      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-563: 33 with Letflow.Routers.NotificationTemplates.
+      assert length(named) == 33
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do

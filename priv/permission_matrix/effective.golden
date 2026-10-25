@@ -39,6 +39,7 @@ AGENT_RUNNER InstancesAdvanceTimer false core -
 AGENT_RUNNER InstancesCancel false core -
 AGENT_RUNNER InstancesRead false core -
 AGENT_RUNNER InstancesStart false core -
+AGENT_RUNNER IntegrationMappingsManage false core -
 AGENT_RUNNER LabelsManage false core -
 AGENT_RUNNER MembershipsRead true core core
 AGENT_RUNNER MetricsRead false core -
@@ -94,6 +95,7 @@ CANDIDATE InstancesAdvanceTimer false core -
 CANDIDATE InstancesCancel false core -
 CANDIDATE InstancesRead false core -
 CANDIDATE InstancesStart false core -
+CANDIDATE IntegrationMappingsManage false core -
 CANDIDATE LabelsManage false core -
 CANDIDATE MembershipsRead false core -
 CANDIDATE MetricsRead false core -
@@ -149,6 +151,7 @@ PLATFORM_ADMIN InstancesAdvanceTimer true core core
 PLATFORM_ADMIN InstancesCancel true core core
 PLATFORM_ADMIN InstancesRead true core core
 PLATFORM_ADMIN InstancesStart true core core
+PLATFORM_ADMIN IntegrationMappingsManage true core core
 PLATFORM_ADMIN LabelsManage true core core
 PLATFORM_ADMIN MembershipsRead true core core
 PLATFORM_ADMIN MetricsRead true core core
@@ -204,6 +207,7 @@ PROCESS_DESIGNER InstancesAdvanceTimer false core -
 PROCESS_DESIGNER InstancesCancel false core -
 PROCESS_DESIGNER InstancesRead true core core
 PROCESS_DESIGNER InstancesStart true core core
+PROCESS_DESIGNER IntegrationMappingsManage false core -
 PROCESS_DESIGNER LabelsManage false core -
 PROCESS_DESIGNER MembershipsRead true core core
 PROCESS_DESIGNER MetricsRead false core -
@@ -259,6 +263,7 @@ PROCESS_OPERATOR InstancesAdvanceTimer true core core
 PROCESS_OPERATOR InstancesCancel true core core
 PROCESS_OPERATOR InstancesRead true core core
 PROCESS_OPERATOR InstancesStart true core core
+PROCESS_OPERATOR IntegrationMappingsManage false core -
 PROCESS_OPERATOR LabelsManage false core -
 PROCESS_OPERATOR MembershipsRead true core core
 PROCESS_OPERATOR MetricsRead true core core
@@ -314,6 +319,7 @@ TASK_WORKER InstancesAdvanceTimer false core -
 TASK_WORKER InstancesCancel false core -
 TASK_WORKER InstancesRead true core core
 TASK_WORKER InstancesStart false core -
+TASK_WORKER IntegrationMappingsManage false core -
 TASK_WORKER LabelsManage false core -
 TASK_WORKER MembershipsRead true core core
 TASK_WORKER MetricsRead false core -
@@ -369,6 +375,7 @@ TENANT_ADMIN InstancesAdvanceTimer true core core
 TENANT_ADMIN InstancesCancel true core core
 TENANT_ADMIN InstancesRead true core core
 TENANT_ADMIN InstancesStart true core core
+TENANT_ADMIN IntegrationMappingsManage true core core
 TENANT_ADMIN LabelsManage true core core
 TENANT_ADMIN MembershipsRead true core core
 TENANT_ADMIN MetricsRead true core core
@@ -424,6 +431,7 @@ TENANT_AUDITOR InstancesAdvanceTimer false core -
 TENANT_AUDITOR InstancesCancel false core -
 TENANT_AUDITOR InstancesRead true core core
 TENANT_AUDITOR InstancesStart false core -
+TENANT_AUDITOR IntegrationMappingsManage false core -
 TENANT_AUDITOR LabelsManage false core -
 TENANT_AUDITOR MembershipsRead true core core
 TENANT_AUDITOR MetricsRead true core core

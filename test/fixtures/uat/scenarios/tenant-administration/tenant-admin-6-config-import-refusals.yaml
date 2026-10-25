@@ -1,0 +1,135 @@
+# T-0514 (BA): TENANT ADMIN group, scenario 6 of 6: refused and failed imports of a settings bundle (REQ-552 slice 1, criteria 3 "keys not
+# carried are left untouched", 5, 7, 8 "a refused import writes no entry").
+# Sources: docs/requirements.yaml REQ-552 (acceptance criteria 3, 5, 7, 8); lib/letflow/routers/tenant_config_bundle.ex (a violation answers 422 and
+# names keys and module ids, never values; the whole import is one transaction); docs/roles.md (settings and module permissions are held by
+# the tenant administrator only among the tenant roles).
+# Aliases (actor-any): tenant_admin_b = administrator of company B (scenario 5); worker_b = a task worker of company B.
+# Test-setup note (criterion 7, second sentence): "a caller who holds the settings permission but not the module permission is refused as a
+# whole" cannot be set up through the product, because no built-in role holds one of the two permissions without the other (roles matrix:
+# TenantSettingsManage and ModulesManage are held by the same two roles). That sentence is checked by the backend unit test of the
+# requirement, not by a person; it is deliberately not reworded into a step here.
+# Criteria 9 and 10 are about the code change and are checked by review and CI.
+---
+id: tenant-administration-6-config-import-refusals
+scope: tenant-administration
+title: A task worker cannot import a settings bundle, and a faulty bundle changes nothing at all
+version: "1.0"
+tags: [tenant-admin, config-bundle, import, refusal, all-or-nothing, audit]
+
+description: >
+  A task worker of company B tries to import a bundle and is refused. The administrator of company B then imports bundles that are wrong
+  in one way each: an unknown format version, an unknown branding entry, an invalid colour, a module that company B does not have,
+  module settings that the module does not accept, and a document that is not a settings bundle. Each is refused with a message that
+  names what is wrong and no value, company B's settings are read back unchanged after every one, and none writes an audit entry.
+  A bundle with one good branding change and one bad module entry is refused as a whole, so even the good change is not applied.
+  A bundle that carries only the application name changes only that name and leaves the other four branding settings as they were.
+
+actors:
+  tenant_admin_b: actor-any
+  worker_b: actor-any
+
+preconditions:
+  - description: tenant-administration-5 passed in this run, so company B holds the settings imported there and tenant_admin_b is its administrator
+    check: custom
+    detail: If scenario 5 did not pass, report BLOCKED, not PASS.
+  - description: worker_b is an active task worker of company B
+    check: custom
+    detail: If the person does not exist, report BLOCKED. The person may be created by the administrator as in tenant-administration-1.
+
+steps:
+  - step: 1
+    actor: tenant_admin_b
+    action: The administrator of company B reads company B's branding and module settings and the number of settings-import entries in the audit trail, and notes them as the "baseline".
+    via: api
+  - step: 2
+    actor: worker_b
+    action: The task worker of company B tries to import a correct bundle (a copy of bundle_a with another application name).
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_b
+    action: The administrator imports a bundle whose format version is "bpm/config-bundle/v0".
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_b
+    action: >
+      The administrator imports a bundle that has one good change (application name "Name Should Not Stick") and also an unknown branding entry
+      "slogan", an unknown entry among the brand colours (a colour name the product does not define), and a brand colour that is not a valid colour code.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_b
+    action: >
+      The administrator imports a bundle that has one good change (application name "Name Should Not Stick") and settings for a module
+      that company B has not installed.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The administrator imports a bundle that has one good change (application name "Name Should Not Stick") and, for an installed module,
+      a setting the module does not accept.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_b
+    action: The administrator imports a text that is not a settings bundle (a list instead of an object), and a bundle without its module list.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: The administrator reads company B's branding and module settings and the audit trail again and compares them with the "baseline" of step 1.
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The administrator imports a bundle that carries the format version, the application name "Only The Name" and an empty module list, and
+      nothing else. The administrator notes the answer, then reads company B's branding settings.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker cannot import a settings bundle.
+    verification:
+      method: system_state
+      detail: Step 2 is refused with the same refusal as a route that does not exist for that caller, and company B's application name stays as in the baseline.
+      evidence: The refusal of step 2 and the application name read in step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person without authority over company settings could change branding and module behaviour for the whole company.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Each faulty bundle is refused with a message naming the fault (format version, unknown entry, invalid colour, module not installed, setting not accepted, wrong document) and no setting value, and the document that is not an object is refused in a controlled way, not with a server failure.
+    verification:
+      method: system_state
+      detail: Steps 3 to 7 are refused as unprocessable (not as a server failure); the message of step 3 says the format version is unknown; the message of step 4 names the unknown entry, the unknown brand-colour entry and the invalid colour (an unknown entry is refused here, whereas the ordinary settings update silently drops it); steps 5 and 6 name the module; none of the messages contains a branding address or module value.
+      evidence: The refusal messages of steps 3 to 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A faulty bundle crashes the import or gives no hint what to correct, so a release stalls.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A refused bundle changes nothing, including its good parts, and writes no audit entry.
+    verification:
+      method: system_state
+      detail: After steps 2 to 7 company B's branding and module settings equal the baseline (the name "Name Should Not Stick" is nowhere) and the number of settings-import audit entries equals the baseline.
+      evidence: The settings and audit count read in step 8 against step 1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A half-applied bundle leaves a company in a configuration nobody tested.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A bundle that carries only some branding settings changes only those and leaves the others as they were.
+    verification:
+      method: system_state
+      detail: After step 9 the application name is "Only The Name" and the logo address, brand colours, language list and default language equal the baseline; the answer counts one setting changed and no module changed.
+      evidence: The answer of step 9 and company B's branding settings read after it.
+    on_fail:
+      severity: MAJOR
+      business_impact: A partial bundle wipes branding it did not mention.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The administrator of company B may restore company B's branding by importing bundle_a again.

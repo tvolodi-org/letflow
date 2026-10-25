@@ -352,7 +352,7 @@ defmodule Letflow.Routers.NotificationTemplatesTest do
       end
     end
 
-    test "X1..X3tenant B cannot read or change A's templates; tenant_id input is ignored" do
+    test "X1..X3 tenant B cannot read or change A's templates; tenant_id input is ignored" do
       a = tenant!()
       b = tenant!()
       put(a, @key, "ru", "A wording", "A body")

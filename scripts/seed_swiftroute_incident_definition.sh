@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # seed_swiftroute_incident_definition.sh
 #
-# Deploys the SwiftRoute "Driver Incident Report" v1.1 ProcessDefinition to a
+# Deploys the SwiftRoute "Driver Incident Report" v1.2 ProcessDefinition to a
 # live Letflow QA instance. Version-aware idempotency (versions compared
 # numerically by `sort -V`, see scripts/lib/seed_service_task_base.sh):
 #   none ACTIVE               -> create the fixture version and activate it
@@ -169,3 +169,4 @@ echo "--- Verification ---"
 echo "Run: curl -sf -H \"Authorization: Bearer \$QA_AUTH_TOKEN\" \"${API}/definitions/active/Driver%20Incident%20Report\" | jq ."
 echo "Then re-run: bash scripts/uat_preflight.sh (the definitions check for swiftroute-driver-incident-assess-and-estimate should be OK)."
 echo "Note: finance-estimate routes to role-accountant; no accountant actor is seeded until ISS-1011 / Q-993, so that task cannot be completed on QA before then."
+echo "Note: v1.2 requires assessment_notes to complete ops-assessment and escalate-ops-assessment-to-ceo, and estimated_cost_eur (optional finance_notes) to complete finance-estimate and escalate-finance-estimate-to-ceo; a completion without them is refused 422."

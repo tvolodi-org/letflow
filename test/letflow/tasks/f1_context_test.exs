@@ -724,7 +724,7 @@ defmodule Letflow.Tasks.F1ContextTest do
       assert {:ok, _} =
                Tasks.assign_task(assigned.id, %{user_id: caller.id}, prefix: fx.schema_name)
 
-      # reassign and claim (they write no audit entry today; if one is added it is checked below)
+      # reassign and claim (reassign writes task.reassign; claim writes none; all entries are checked below)
       assert {:ok, _} =
                Tasks.reassign_task(assigned.id, %{user_id: Ecto.UUID.generate()},
                  prefix: fx.schema_name
