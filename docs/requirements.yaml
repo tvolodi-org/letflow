@@ -38508,7 +38508,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3174
     # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (bullet "tenant extensions to module entities": an x_ tenant layer that module upgrades never overwrite; "its own follow-up record (0055 D4 keeps only the constraints an upgrade imposes)"); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D4 (DIRECTION only) and open point 9; docs/migration/decisions/0053-tenant-scripted-rules.md "Requirement candidates", candidate (b). Written by the business analyst (T-0464) 2026-10-25. Not yet validated.
     description: >
       Source: core roadmap "Customization beyond scripts"; decision 0055 D4; decision 0053 candidate (b).
