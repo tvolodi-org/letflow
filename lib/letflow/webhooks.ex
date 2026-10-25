@@ -72,12 +72,27 @@ defmodule Letflow.Webhooks do
   silently implemented, not silently forgotten. `deliver/3` is directly
   callable by any future caller; wiring its automatic trigger is left for a
   future requirement to scope deliberately (design §6).
+
+  ## Integration mapping (REQ-565 slice 2)
+
+  A subscription may link one outbound `Letflow.IntegrationMappings` mapping
+  (`outbound_mapping_id`, set through `update/3`). `deliver/3` applies it after
+  `redact_payload_for_delivery` and before encoding and signing, so the signature, the body
+  and the DLQ `source_payload` all use the mapped body, and a rule copying a masked field
+  sends the masked value. The mapping sees the JSON form of the payload (atom keys become
+  strings, structs are encoded). A null link changes nothing. A failure returns
+  `{:error, {:mapping_failed, reason}}` (`{:required_missing, index}`, `:body_too_large`,
+  `:mapping_not_found`, `:payload_not_encodable`) before the attempt loop. The request URL is
+  always `subscription.target_url`; a mapping only shapes the body.
   """
 
   import Ecto.Query
 
+  require Logger
+
   alias Ecto.Multi
   alias Letflow.Entities.FieldPolicy
+  alias Letflow.IntegrationMappings
   alias Letflow.Repo
   alias Letflow.Secrets
   alias Letflow.TenantProvisioning
@@ -105,6 +120,9 @@ defmodule Letflow.Webhooks do
   # backoff, base 2 seconds: 1s after attempt 1, 2s after attempt 2, 4s
   # after attempt 3 (no backoff needed after attempt 4).
   @max_attempts 4
+
+  # REQ-565: a mapped body above this is refused before any attempt.
+  @max_mapped_body_bytes 256 * 1024
 
   @signature_header "X-Letflow-Signature"
   @http_timeout_ms 10_000
@@ -259,7 +277,7 @@ defmodule Letflow.Webhooks do
            ) do
       case redact_payload_for_delivery(payload, prefix) do
         {:ok, redacted} ->
-          attempt_loop(subscription, event_type, redacted, delivery_id, prefix, signing_key, 1)
+          deliver_mapped(subscription, event_type, redacted, delivery_id, prefix, signing_key)
 
         {:error, _reason} = error ->
           error
@@ -267,6 +285,63 @@ defmodule Letflow.Webhooks do
     else
       {:error, :invalid_tenant_id} = error -> raise inspect(error)
       {:error, reason} -> {:error, {:key_resolution_failed, reason}}
+    end
+  end
+
+  # REQ-565 slice 2: a linked outbound mapping is applied to the redacted payload, before
+  # attempt_loop encodes, signs and (on exhaustion) stores it in the DLQ. A null link runs no
+  # new code. Every failure returns before the first attempt: no request, no delivery row, no
+  # consecutive_failures change. Errors and the log line carry atoms and a rule index only.
+  defp deliver_mapped(subscription, event_type, redacted, delivery_id, prefix, signing_key) do
+    case map_payload_for_delivery(subscription, redacted, prefix) do
+      {:ok, body_payload} ->
+        attempt_loop(subscription, event_type, body_payload, delivery_id, prefix, signing_key, 1)
+
+      {:error, reason} ->
+        Logger.warning("webhook mapping failed",
+          subscription_id: subscription.id,
+          reason: reason
+        )
+
+        {:error, {:mapping_failed, reason}}
+    end
+  end
+
+  defp map_payload_for_delivery(%Subscription{outbound_mapping_id: nil}, redacted, _prefix),
+    do: {:ok, redacted}
+
+  defp map_payload_for_delivery(%Subscription{outbound_mapping_id: mapping_id}, redacted, prefix) do
+    with {:ok, mapping} <- fetch_mapping(mapping_id, prefix),
+         {:ok, source} <- json_shape(redacted),
+         {:ok, mapped} <- IntegrationMappings.apply_mapping(mapping, source),
+         :ok <- check_mapped_body(mapped) do
+      {:ok, mapped}
+    end
+  end
+
+  defp fetch_mapping(mapping_id, prefix) do
+    case IntegrationMappings.fetch_outbound(mapping_id, prefix) do
+      {:ok, mapping} -> {:ok, mapping}
+      {:error, :not_found} -> {:error, :mapping_not_found}
+    end
+  end
+
+  # The mapping sees the JSON form of the payload (atom keys become strings), the same
+  # representation a receiver would parse.
+  defp json_shape(payload) do
+    with {:ok, json} <- Jason.encode(payload),
+         {:ok, %{} = decoded} <- Jason.decode(json) do
+      {:ok, decoded}
+    else
+      _ -> {:error, :payload_not_encodable}
+    end
+  end
+
+  defp check_mapped_body(mapped) do
+    case Jason.encode(mapped) do
+      {:ok, json} when byte_size(json) > @max_mapped_body_bytes -> {:error, :body_too_large}
+      {:ok, _json} -> :ok
+      {:error, _} -> {:error, :payload_not_encodable}
     end
   end
 
@@ -559,7 +634,8 @@ defmodule Letflow.Webhooks do
 
   @type update_attrs :: %{
           optional(:status) => String.t(),
-          optional(:is_active) => boolean()
+          optional(:is_active) => boolean(),
+          optional(:outbound_mapping_id) => String.t() | nil
         }
 
   @doc """
@@ -578,12 +654,21 @@ defmodule Letflow.Webhooks do
   `Ecto.UUID.cast/1` first (`{:error, :invalid_id}`, no DB round-trip), then
   a row-lock-and-fetch scoped to `opts[:prefix]` (`{:error, :not_found}`
   when absent).
+
+  **Outbound mapping link (REQ-565 slice 2):** the presence of the `:outbound_mapping_id` key
+  matters. A uuid string links an `"outbound"` mapping of this tenant (taken `FOR SHARE` in the
+  same transaction, see `Letflow.IntegrationMappings.delete/3`); `nil` clears the link. Any other
+  value, an unknown or malformed id, an inbound mapping or another tenant's mapping is one
+  `{:error, :invalid_mapping}` and nothing in the transaction (status included) is written. A
+  link-only update needs no `status`/`is_active`; an update with neither status nor link keeps
+  `{:error, :invalid_status}`.
   """
   @spec update(id :: String.t(), update_attrs(), opts()) ::
           {:ok, Subscription.t()}
           | {:error, :invalid_id}
           | {:error, :not_found}
           | {:error, :invalid_status}
+          | {:error, :invalid_mapping}
           | {:error, Ecto.Changeset.t()}
   def update(id, attrs, opts) when is_map(attrs) and is_list(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
@@ -594,7 +679,10 @@ defmodule Letflow.Webhooks do
       |> Multi.run(:subscription, fn repo, _changes ->
         fetch_and_lock_subscription(repo, id, prefix)
       end)
-      |> Multi.run(:apply, fn _repo, %{subscription: subscription} ->
+      |> Multi.run(:linked, fn _repo, %{subscription: subscription} ->
+        apply_mapping_link(subscription, attrs, prefix)
+      end)
+      |> Multi.run(:apply, fn _repo, %{linked: subscription} ->
         apply_status_update(subscription, target_status, prefix)
       end)
       |> Repo.transaction()
@@ -602,7 +690,36 @@ defmodule Letflow.Webhooks do
     end
   end
 
-  @spec reconcile_status(update_attrs()) :: {:ok, :ACTIVE | :PAUSED} | {:error, :invalid_status}
+  defp apply_mapping_link(subscription, attrs, prefix) do
+    case Map.fetch(attrs, :outbound_mapping_id) do
+      :error ->
+        {:ok, subscription}
+
+      {:ok, nil} ->
+        write_link(subscription, nil, prefix)
+
+      {:ok, mapping_id} when is_binary(mapping_id) ->
+        case IntegrationMappings.lock_outbound_for_link(mapping_id, prefix) do
+          {:ok, mapping} -> write_link(subscription, mapping.id, prefix)
+          {:error, :not_found} -> {:error, :invalid_mapping}
+        end
+
+      {:ok, _other} ->
+        {:error, :invalid_mapping}
+    end
+  end
+
+  defp write_link(%Subscription{outbound_mapping_id: same} = subscription, same, _prefix),
+    do: {:ok, subscription}
+
+  defp write_link(subscription, mapping_id, prefix) do
+    subscription
+    |> Subscription.link_changeset(%{outbound_mapping_id: mapping_id})
+    |> Repo.update(prefix: prefix)
+  end
+
+  @spec reconcile_status(update_attrs()) ::
+          {:ok, :ACTIVE | :PAUSED | :keep} | {:error, :invalid_status}
   defp reconcile_status(%{status: status, is_active: is_active}) do
     with {:ok, from_status} <- status_string_to_atom(status),
          {:ok, from_is_active} <- is_active_to_atom(is_active) do
@@ -622,6 +739,8 @@ defmodule Letflow.Webhooks do
     is_active_to_atom(is_active)
   end
 
+  defp reconcile_status(%{outbound_mapping_id: _link}), do: {:ok, :keep}
+
   defp reconcile_status(_attrs), do: {:error, :invalid_status}
 
   defp status_string_to_atom("ACTIVE"), do: {:ok, :ACTIVE}
@@ -631,6 +750,9 @@ defmodule Letflow.Webhooks do
   defp is_active_to_atom(true), do: {:ok, :ACTIVE}
   defp is_active_to_atom(false), do: {:ok, :PAUSED}
   defp is_active_to_atom(_other), do: {:error, :invalid_status}
+
+  defp apply_status_update(%Subscription{} = subscription, :keep, _prefix),
+    do: {:ok, subscription}
 
   defp apply_status_update(%Subscription{status: :ACTIVE} = subscription, :ACTIVE, prefix) do
     subscription
