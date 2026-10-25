@@ -39425,7 +39425,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- slice 0 is a decision record; its sources (decisions 0050, 0051, 0053) are accepted and shipped, so it has no pending blocker (check_deferral_staleness S1 may flag it while stage S7 is active)
+    gh: 3205
     # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (bullet "tenant-owned entity types"); docs/migration/decisions/0053-tenant-scripted-rules.md "Requirement candidates" (a); decisions 0050 (D3 reference contract, D6, D8) and 0051 (D1, D5, D6, D7, D11, D12); code read: lib/letflow/entities/type_access.ex (moduledoc: restriction rows govern access to a type and carry no read/write distinction; authorized?/3), lib/letflow/entities/definition_access.ex (create/3, activate/3), lib/letflow/entities/step_writes.ex (check_type_access/2), lib/letflow/entities/scope_declaration.ex (moduledoc: a declaration is owned by a module, "never read from a tenant definition"; a type no manifest names is :undeclared and returns no data to a scoped caller), lib/letflow/entities/managed_types.ex. Written by the business analyst (T-0493) 2026-10-25. Not yet validated.
     description: >
       Source: core roadmap "Customization beyond scripts", bullet "tenant-owned entity types"; decision
