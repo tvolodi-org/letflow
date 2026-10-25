@@ -57,6 +57,8 @@ defmodule Letflow.Modules.Catalog do
   alias Letflow.Modules.WriteHandlerSpec
 
   @modules Application.compile_env(:letflow, :modules, [])
+  # Compile-time only (config/test.exs): lets a test process name a resolver double. Never a runtime switch.
+  @resolver_test_seam Application.compile_env(:letflow, :document_resolver_test_seam, false)
 
   @name_format ~r/\A[a-z][a-z0-9_]{0,63}\z/
 
@@ -375,6 +377,12 @@ defmodule Letflow.Modules.Catalog do
   in the same manifest's `:manages_entity_types`, unless the module id is on the test-only
   `:scope_declaration_unmanaged_modules` allowlist), `{:duplicate_scope_declaration, name}`
   (another known manifest declares the same type). Absent is valid.
+
+  Rule 12 (REQ-542, decision 0056 D1) runs after rule 11: the optional `:document_org_resolver`
+  key, a module implementing `Letflow.Documents.OrgResolver`. Errors:
+  `{:invalid_document_org_resolver, value}` (not a loaded module exporting `unit_exists?/2` and
+  `legal_entity_of/2`), `{:duplicate_document_org_resolver, other_id}` (another known manifest
+  declares one too). Absent is valid.
   """
   @spec validate(Module.manifest(), [Module.manifest()]) :: :ok | {:error, {atom(), term()}}
   def validate(manifest, known_manifests) do
@@ -393,7 +401,8 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_widens_grants(manifest),
          :ok <- validate_permissions_not_declared_elsewhere(manifest, known_manifests),
          :ok <- validate_write_handlers(manifest, entry_module),
-         :ok <- validate_scope_declarations(manifest, known_manifests) do
+         :ok <- validate_scope_declarations(manifest, known_manifests),
+         :ok <- validate_document_org_resolver(manifest, known_manifests) do
       :ok
     end
   end
@@ -401,6 +410,36 @@ defmodule Letflow.Modules.Catalog do
   @doc "Every currently-registered module's own `manifest/0` return value."
   @spec all_manifests() :: [Module.manifest()]
   def all_manifests, do: Enum.map(entry_modules(), & &1.manifest())
+
+  @doc """
+  The org resolver of the document service (REQ-542, decision 0056 D1): the module named by the
+  one compiled manifest that declares `:document_org_resolver`, else the fail-closed
+  `Letflow.Documents.OrgResolver.Default`. Two declarations give `{:error, :ambiguous_org_resolver}`.
+  Reads compiled manifests only: no tenant setting, pack content, request or install argument
+  can change it.
+  """
+  @spec document_org_resolver() :: {:ok, module()} | {:error, :ambiguous_org_resolver}
+  if @resolver_test_seam do
+    def document_org_resolver do
+      case Process.get(:letflow_document_org_resolver) do
+        resolver when is_atom(resolver) and not is_nil(resolver) -> {:ok, resolver}
+        _none -> document_org_resolver_in(all_manifests())
+      end
+    end
+  else
+    def document_org_resolver, do: document_org_resolver_in(all_manifests())
+  end
+
+  @doc "Pure form of `document_org_resolver/0` over a manifest list."
+  @spec document_org_resolver_in([Module.manifest()]) ::
+          {:ok, module()} | {:error, :ambiguous_org_resolver}
+  def document_org_resolver_in(manifests) do
+    case Enum.flat_map(manifests, &List.wrap(Map.get(&1, :document_org_resolver))) do
+      [] -> {:ok, Letflow.Documents.OrgResolver.Default}
+      [resolver] -> {:ok, resolver}
+      _several -> {:error, :ambiguous_org_resolver}
+    end
+  end
 
   defp validate_role_grants_known(manifest) do
     roles = Authorization.roles()
@@ -589,6 +628,35 @@ defmodule Letflow.Modules.Catalog do
           nil
       end
     end)
+  end
+
+  # Rule 12 (REQ-542). The optional `:document_org_resolver` key: one loaded module with the two
+  # `Letflow.Documents.OrgResolver` callbacks, declared by one manifest of the known set only.
+  defp validate_document_org_resolver(manifest, known_manifests) do
+    case Map.fetch(manifest, :document_org_resolver) do
+      :error ->
+        :ok
+
+      {:ok, resolver} ->
+        others = Enum.reject(known_manifests, &(&1.id == manifest.id))
+
+        cond do
+          not resolver_module?(resolver) ->
+            {:error, {:invalid_document_org_resolver, resolver}}
+
+          other = Enum.find(others, &Map.get(&1, :document_org_resolver)) ->
+            {:error, {:duplicate_document_org_resolver, other.id}}
+
+          true ->
+            :ok
+        end
+    end
+  end
+
+  defp resolver_module?(resolver) do
+    is_atom(resolver) and not is_nil(resolver) and Code.ensure_loaded?(resolver) and
+      function_exported?(resolver, :unit_exists?, 2) and
+      function_exported?(resolver, :legal_entity_of, 2)
   end
 
   defp declares_scope_type?(manifest, name) do
