@@ -37,7 +37,7 @@ defmodule Letflow.Routers.IntegrationMappingsTest do
 
   defp json(conn), do: Jason.decode!(conn.resp_body)
 
-  defp body(name \\ "m1", rules \\ [%{"const" => "v", "to" => "x"}]),
+  defp body(name, rules \\ [%{"const" => "v", "to" => "x"}]),
     do: %{"name" => name, "direction" => "outbound", "rules" => rules}
 
   defp create!(tenant, name \\ "m1", rules \\ [%{"const" => "v", "to" => "x"}]) do
