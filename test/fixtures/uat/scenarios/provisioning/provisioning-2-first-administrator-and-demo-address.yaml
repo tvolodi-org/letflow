@@ -1,7 +1,17 @@
 # T-0626 (BA): demo-tenant journey, scenario 2 of 5 (order: see provisioning-1-create-and-replay.yaml).
 # QA ONLY (portfolio decision D-019). Sources: REQ-572 and its amendment (criteria 7, 15, 16, 20), decision 0072 (D1, D2,
 # D3), decision 0048 (pending grant binds only a verified e-mail), decision 0046 D4 (no PLATFORM_ADMIN in a customer
-# tenant), lib/letflow/routers/tenant_config.ex (public sign-in bootstrap: which realm a host signs in with).
+# tenant), lib/letflow/routers/tenant_config.ex (public sign-in bootstrap: `?realm=<slug>` of an active customer with a
+# bound realm answers that realm; `?host=` is accepted and today ALWAYS answers the default realm, see its moduledoc).
+# KNOWN GAP, no requirement changes it: the demo address (host) alone does not yet lead to the customer's realm on main.
+# So "the demo address reaches the right tenant" is checked in two honest parts: (a) the customer is found by its own
+# identifier-derived name ("t-" plus the 32 hex digits, the slug of decision 0072 D1), which is what the creation
+# answer's sign-in link carries; (b) a step that asks by the demo address and records what it gets (expected today: the
+# default sign-in, a gap for the portfolio manager; never another customer's realm).
+# NOT COVERED, reason: REQ-572 criterion 7 negative (a user with the same address but an unconfirmed e-mail is not
+# bound). The realm provisioner always creates the owner confirmed and the realm template forbids duplicate addresses,
+# so QA cannot present an unconfirmed twin without hand-editing the identity provider, which UAT must not do; the
+# product's own tests cover it.
 # Runs on customers A and B created by scenario 1. The first administrators are people created inside each customer's
 # own realm by infra's realm provisioner (scenario 1 step 1); the product has no admin client and creates no login.
 # The "first password once" is handed to the person outside this scenario; the scenario names no password.
@@ -25,6 +35,7 @@ actors:
   owner_b: actor-any
   visitor: actor-any
   platform_operator: actor-platform-admin
+  realm_provisioner: actor-system-realm-provisioner
 
 preconditions:
   - description: Scenario 1 passed in this run; customers A and B are active and each has one pending invitation for its owner
@@ -42,18 +53,18 @@ steps:
   - step: 1
     actor: visitor
     action: >
-      Someone opens the sign-in bootstrap of the demo address of customer A (the address given at creation, under
-      letflow.qa.bizdala.com) before signing in.
+      Someone opens the public sign-in bootstrap with the customer name of A ("t-" plus the 32 hex digits of A's
+      identifier, as the realm parameter) before signing in.
     via: api
   - step: 2
     actor: visitor
-    action: Someone does the same for the demo address of customer B.
+    action: Someone does the same with the customer name of B.
     via: api
   - step: 3
     actor: owner_a
     action: >
-      The owner of customer A opens the demo address of customer A, is sent to the customer's own realm, signs in with
-      the account made for them, and lands in the application.
+      The owner of customer A opens the sign-in link that the creation answer gave for customer A, is sent to the
+      customer's own realm, signs in with the account made for them, and lands in the application.
     via: gui
   - step: 4
     actor: owner_a
@@ -76,9 +87,9 @@ steps:
   - step: 8
     actor: owner_a
     action: >
-      The owner of customer A tries to open the list of people through customer B's demo address, presenting
-      their own customer A sign-in.
-    expect_refusal: true
+      The owner of customer A opens the list of people while presenting their own customer A sign-in, with customer B's
+      demo address as the address of the request. (The customer is taken from the sign-in, not from the address, so this
+      is a no-leak check, not a refusal.)
     via: api
   - step: 9
     actor: owner_a
@@ -102,10 +113,23 @@ steps:
       account in customer A).
     expect_refusal: true
     via: api
+  - step: 13
+    actor: realm_provisioner
+    action: >
+      TEST-TOOLING STEP (outside the product): the realm provisioner (or infra, with the identity provider's own
+      administration) lists the role mappings, group memberships and client role mappings of owner A in realm
+      "t-" plus the first 20 hex digits of A's identifier.
+    via: api
+  - step: 14
+    actor: visitor
+    action: >
+      Someone opens the public sign-in bootstrap with the demo address of customer A as the host (the address given at
+      creation, under letflow.qa.bizdala.com) and no realm parameter, as the web application does before it knows a realm.
+    via: api
 
 expected_outcomes:
   - id: EO-001
-    description: The demo address of each customer leads to that customer's own sign-in realm, and to no one else's.
+    description: Each customer's own name leads to that customer's own sign-in realm, and to no one else's.
     verification:
       method: api_response
       detail: >
@@ -117,15 +141,33 @@ expected_outcomes:
       severity: BLOCKER
       business_impact: A visitor of one demo would be sent to another customer's sign-in.
       suggested_action: route_to_wf03
+  - id: EO-007
+    description: >
+      Known gap, reported and not failed: asking by the demo address alone is not yet resolved to the customer's realm.
+    verification:
+      method: api_response
+      detail: >
+        Step 14 is recorded as it is. Expected today: the platform's default sign-in (the product ignores the host).
+        PASS means: the answer is the default sign-in or the realm of customer A; it is never the realm of customer B or
+        of any other customer. If it is the default sign-in, the run reports to the portfolio manager that the demo
+        address does not lead to the customer by itself (the creation answer's sign-in link must be used), and marks the
+        journey step "demo address reaches the right tenant" as PARTIAL, not PASS.
+      evidence: The sign-in authority answered in step 14.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A visitor of one demo would be sent to another customer's sign-in.
+      suggested_action: route_to_security_review
   - id: EO-002
     description: The first administrator is made administrator of customer A by signing in with the confirmed e-mail, and holds no other role.
     verification:
-      method: gui_screen
+      method: system_state
       detail: >
-        Step 4 lists TENANT_ADMIN as the owner's role in customer A, with no PLATFORM_ADMIN, and no role that
-        belongs to the identity provider's own administration. Step 5 shows the user list of customer A with the
-        owner's own entry.
-      evidence: The role names answered in step 4 and a screenshot of step 5.
+        Step 4 lists TENANT_ADMIN as the owner's role in customer A, with no PLATFORM_ADMIN. Step 5 shows the user
+        list of customer A with the owner's own entry. The product never reads the identity provider's own
+        administration roles, so "no Keycloak admin rights" is checked only in step 13: the identity provider lists for
+        owner A the role TENANT_ADMIN (or no realm role beyond the template's defaults), no client role of the
+        realm-management client, no realm administration role, and no group that grants one.
+      evidence: The role names answered in step 4, a screenshot of step 5 and the identity provider's listing of step 13.
     on_fail:
       severity: BLOCKER
       business_impact: A new demo customer cannot start, or its first administrator has more rights than agreed.
@@ -153,11 +195,13 @@ expected_outcomes:
       business_impact: A demo customer's administrator holds the wrong rights, or the second customer cannot start.
       suggested_action: route_to_wf03
   - id: EO-005
-    description: The owner of one demo customer cannot reach another customer's people.
+    description: The owner of one demo customer cannot see another customer's people, whatever address is used.
     verification:
-      method: http_status
-      detail: Step 8 is refused (unauthorised or not found) and returns no entry of customer B.
-      evidence: The refusal answer of step 8.
+      method: api_response
+      detail: >
+        Step 8 answers with customer A's own people only (the customer comes from the sign-in); no entry of customer B
+        appears, and none of A's entries is missing compared with step 5.
+      evidence: The people names answered in step 8 against step 5 and against owner B's own entry.
     on_fail:
       severity: BLOCKER
       business_impact: Demo customers can see each other's people.

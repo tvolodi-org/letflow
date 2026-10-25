@@ -1,9 +1,9 @@
 # T-0626 (BA): demo-tenant journey, scenario 3 of 5 (order: see provisioning-1-create-and-replay.yaml).
 # QA ONLY (portfolio decision D-019). Sources: REQ-572 and its amendment (criteria 6, 8, 18, 20), decision 0072 D4 (suspend
 # and expire both switch the customer off; resume only from suspended; a switched-off customer leaves login discovery
-# and its realm provider is stopped), lib/letflow/routers/tenant_config.ex (a switched-off customer gets the default
-# sign-in bootstrap), docs/roles.md (a tenant administrator must not bypass the switched-off gate).
-# Runs on customers A and B (B is the control: it must be unaffected). Customer A ends EXPIRED here; scenario 4 retires it.
+# and its realm provider is stopped), lib/letflow/routers/tenant_config.ex (`?realm=<slug>` of a switched-off customer gets the default
+# sign-in bootstrap; `?host=` always gets the default on main, so these checks use the customer name, not the host), docs/roles.md (a tenant administrator must not bypass the switched-off gate).
+# Runs on customers A and B (B is the control: it must be unaffected). Customer A ends EXPIRED here and stays expired through scenario 4 (see there).
 # The demo expiring by itself at its expiry date (the scheduled sweep) is in scenario 4, which needs a short-lived demo.
 ---
 id: provisioning-3-suspend-resume-expire
@@ -13,10 +13,10 @@ version: "1.0"
 tags: [provisioning, demo, lifecycle, suspend, resume, expire, refusal, qa-only]
 
 description: >
-  The front door suspends demo customer A. Its administrator is turned away, the demo address no longer leads to
+  The front door suspends demo customer A. Its administrator is turned away, the customer name no longer leads to
   the customer's own sign-in, and the other demo customer (B) works as before. Repeating the suspension changes
   nothing. The front door resumes A and the administrator can work again. The front door then expires A (the
-  demo has ended). The administrator is turned away again, the demo address is hidden, and a customer that has
+  demo has ended). The administrator is turned away again, the customer is hidden from sign-in, and a customer that has
   expired cannot be resumed or suspended. The platform's own workspace and customers that were not made by the
   front door cannot be touched through the front door credential.
 
@@ -60,7 +60,7 @@ steps:
     via: api
   - step: 6
     actor: visitor
-    action: Someone opens the sign-in bootstrap of customer A's demo address while A is suspended.
+    action: Someone opens the public sign-in bootstrap with the realm parameter set to the customer name of A ("t-" plus the 32 hex digits of its identifier) while A is suspended.
     via: api
   - step: 7
     actor: owner_b
@@ -84,7 +84,7 @@ steps:
     via: api
   - step: 12
     actor: visitor
-    action: Someone opens the sign-in bootstrap of customer A's demo address again.
+    action: Someone opens the public sign-in bootstrap with the customer name of A as the realm parameter again.
     via: api
   - step: 13
     actor: front_door
@@ -101,7 +101,7 @@ steps:
     via: api
   - step: 16
     actor: visitor
-    action: Someone opens the sign-in bootstrap of customer A's demo address after the expiry.
+    action: Someone opens the public sign-in bootstrap with the customer name of A as the realm parameter after the expiry.
     via: api
   - step: 17
     actor: front_door
@@ -158,7 +158,7 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >
-        Steps 6 and 16 answer with the platform's default sign-in bootstrap, the same as for an address that no
+        Steps 6 and 16 (realm parameter = the customer name of A) answer with the platform's default sign-in bootstrap, the same as for a name that no
         customer owns, and not with the realm of customer A. Step 12 answers with the realm of A again.
       evidence: The sign-in authority of steps 6, 12 and 16.
     on_fail:
@@ -217,7 +217,7 @@ expected_outcomes:
 cleanup:
   cancel_open_instances: false
   description: >
-    Customer A is left expired and B active; scenario 4 retires both. The platform's own workspace and the
+    Customer A is left expired and B active; scenario 4 retires B (A stays expired). The platform's own workspace and the
     hand-made customer used in step 22 are left active (step 22 uses a customer the run already has: the test customer of
     the foundation group, or another hand-made customer named in the run notes; if none exists, report that step
     BLOCKED).
