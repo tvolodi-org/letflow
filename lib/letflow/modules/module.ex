@@ -112,7 +112,19 @@ defmodule Letflow.Modules.Module do
           optional(:widens_grants) => [{atom(), atom()}],
           optional(:write_handlers) => [write_handler_spec()],
           optional(:scope_declarations) => %{String.t() => {:column, String.t()} | :tenant_wide},
-          optional(:document_org_resolver) => module()
+          optional(:document_org_resolver) => module(),
+          optional(:extension_points) => [extension_point()]
+        }
+
+  @typedoc """
+  An extension point a module version declares in its own process definitions (REQ-574, decision
+  0071 D9 slice X1). String keys throughout; `kind` is `"script_step"` and `site.position`
+  `"after"` in X1. The optional manifest key `:extension_points` holds a list of these (absent =
+  `[]`); `Letflow.Modules.Catalog.validate/2` rule 13 checks the shape, kind and name uniqueness.
+  The key is not part of the manifest hash surface in X1.
+  """
+  @type extension_point :: %{
+          String.t() => term()
         }
 
   @callback manifest() :: manifest()
@@ -179,6 +191,7 @@ defmodule Letflow.Modules.Module do
   | `:write_handlers` (optional) | `[t:write_handler_spec/0]` literal list of `Letflow.Modules.WriteHandlerSpec` structs; `function: {Mod, :fun}` with full aliases (GH #2590) |
   | `:scope_declarations` (optional) | `%{String.t() => {:column, String.t()} | :tenant_wide}` literal map (REQ-518) |
   | `:document_org_resolver` (optional) | module atom implementing `Letflow.Documents.OrgResolver` (REQ-542); at most one module may declare it |
+  | `:extension_points` (optional) | `[t:extension_point/0]` literal list of string-keyed maps (REQ-574); rule 13 of `Catalog.validate/2` |
 
   If any `role_grants` value atom is absent from `permissions`, a
   `CompileError` is raised at the call site during compilation. Non-literal

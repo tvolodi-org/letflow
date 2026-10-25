@@ -66,7 +66,9 @@ defmodule Letflow.Modules.CatalogTest do
                # REQ-518: scope declarations fixture
                Letflow.Modules.FixtureScoped,
                # GH #2540
-               Letflow.Modules.FixtureDdlFailing
+               Letflow.Modules.FixtureDdlFailing,
+               # REQ-574
+               Letflow.Modules.FixturePoints
              ]
     end
 
@@ -284,6 +286,108 @@ defmodule Letflow.Modules.CatalogTest do
         assert Map.has_key?(declarations, name)
         assert Letflow.Entities.ManagedTypes.managed_name?(name)
       end
+    end
+  end
+
+  describe "rule 13 (REQ-574): extension points" do
+    alias Letflow.Modules.ManifestHash
+
+    defp ext_point(name, overrides \\ %{}) do
+      Map.merge(
+        %{
+          "name" => name,
+          "kind" => "script_step",
+          "site" => %{"definition" => "d1", "node_id" => "n1", "position" => "after"},
+          "input" => ["amount"],
+          "returns" => %{"ok" => "boolean"}
+        },
+        overrides
+      )
+    end
+
+    defp with_points(points), do: Map.put(valid_manifest(), :extension_points, points)
+
+    test "E1: a duplicate point name is refused and named" do
+      assert Catalog.validate(with_points([ext_point("p1"), ext_point("p2"), ext_point("p1")])) ==
+               {:error, {:duplicate_extension_point, "p1"}}
+    end
+
+    test "E2: a kind other than script_step is refused" do
+      assert Catalog.validate(with_points([ext_point("p1", %{"kind" => "entity_write"})])) ==
+               {:error, {:unknown_extension_point_kind, "entity_write"}}
+    end
+
+    test "E3: a name outside the format is refused" do
+      points = [ext_point("Bad-Name")]
+
+      assert Catalog.validate(with_points(points)) ==
+               {:error, {:invalid_extension_points, points}}
+    end
+
+    test "E4: a position other than after is refused" do
+      site = %{"definition" => "d1", "node_id" => "n1", "position" => "before"}
+      points = [ext_point("p1", %{"site" => site})]
+
+      assert Catalog.validate(with_points(points)) ==
+               {:error, {:invalid_extension_points, points}}
+    end
+
+    test "E5: a missing site key, or a missing site, is refused" do
+      no_node = [ext_point("p1", %{"site" => %{"definition" => "d1", "position" => "after"}})]
+
+      assert Catalog.validate(with_points(no_node)) ==
+               {:error, {:invalid_extension_points, no_node}}
+
+      no_site = [ext_point("p1") |> Map.delete("site")]
+
+      assert Catalog.validate(with_points(no_site)) ==
+               {:error, {:invalid_extension_points, no_site}}
+    end
+
+    test "E6: a non-list value is refused" do
+      assert Catalog.validate(with_points(%{})) == {:error, {:invalid_extension_points, %{}}}
+    end
+
+    test "E7: a valid list of two distinct points is accepted" do
+      assert Catalog.validate(with_points([ext_point("p1"), ext_point("p2")])) == :ok
+    end
+
+    test "E8: rule 12 runs first and wins over a duplicate point name" do
+      manifest =
+        with_points([ext_point("p1"), ext_point("p1")])
+        |> Map.put(:document_org_resolver, NotAModule)
+
+      assert {:error, {:invalid_document_org_resolver, NotAModule}} = Catalog.validate(manifest)
+    end
+
+    test "E9: absent and [] agree, the prod modules stay valid, the hash ignores the key" do
+      assert Catalog.validate(valid_manifest()) == :ok
+      assert Catalog.validate(with_points([])) == :ok
+
+      prod = [Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems]
+
+      for module <- prod do
+        manifest = module.manifest()
+        refute Map.has_key?(manifest, :extension_points)
+        assert Catalog.validate(manifest) == :ok
+      end
+
+      base = valid_manifest()
+
+      assert ManifestHash.compute(with_points([ext_point("p1"), ext_point("p2")])) ==
+               ManifestHash.compute(base)
+    end
+
+    test "E10: a trailing-newline name and a non-binary kind are invalid shapes" do
+      newline = [ext_point("p1\n")]
+
+      assert Catalog.validate(with_points(newline)) ==
+               {:error, {:invalid_extension_points, newline}}
+
+      atom_kind = [ext_point("p1", %{"kind" => :script_step})]
+
+      assert Catalog.validate(with_points(atom_kind)) ==
+               {:error, {:invalid_extension_points, atom_kind}}
     end
   end
 end
