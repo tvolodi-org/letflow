@@ -70,7 +70,7 @@ A tenant's solution is the set of installed packs and modules, each at a version
 
 **Source.** Roadmap row; REQ-562 D2; `solution_pack.ex`; `process_definition.ex`; 0039; 0067 D1.
 
-### D3. Versioning of the override
+### D3. Versioning of the override and of the process definition
 
 **Decision.** An override carries its own monotone `override_version` per `(install, artefact)` and the `pack_version` it was made against (`made_against`). Edits create a new version; the previous stays as history, never deleted. At pack update:
 
@@ -78,6 +78,8 @@ A tenant's solution is the set of installed packs and modules, each at a version
 - Artefact **changed** by the incoming pack (`clean_update`/`conflict` in the sense of D4) and the override touches a property the change also touches: **re-checked**, reported as `override_conflict` in the plan and settled by a recorded resolution as today (`keep_local` = keep the override, `take_incoming` = retire it, `merged` = new override version). Where the change touches other properties: kept, with the warning `override_kept_pack_changed`.
 - Artefact **removed** in the incoming pack: override is not applied, reported `override_orphaned`, status `orphaned`, never deleted.
 - An override property no longer on the closed list of the incoming version: reported `override_property_gone`, same handling as orphaned.
+
+*Where an override resolution is stored.* The existing `pack_update_resolutions` table is global (D6). A resolution of an `override_conflict` is therefore stored in the new tenant-schema override table (as the new override version or retirement); a row in the global table, if one is written for the plan, carries only the outcome and the `patch_hash`, never patch values.
 
 An update **never overwrites or deletes an override**: the only transitions are keep, advance `made_against`, retire by an explicit `take_incoming` resolution, or orphan.
 
@@ -164,8 +166,9 @@ S1-semver, S1-downgrade, S1-nonsemver-installed-unchanged, C-manage, S2-closed-l
 - Override values in audit payloads or responses, restricted or secret values (D5; INV-2, INV-4).
 - An update that overwrites, drops or silently re-points an override (D3, D4).
 - Privilege: apply of an update resolving an override conflict without the new permission (D5).
+- Override patch values written to the global `pack_update_resolutions` table (D3, D6; S4 must store them only in the tenant-schema table).
 
 ## Sign-off
 
-- SECURITY-REVIEWER: pending, not yet reviewed (content of D2, D5, D6).
-- REVIEWER: pending, not yet reviewed.
+- SECURITY-REVIEWER: pending, not yet reviewed (content of D2, D5, D6). The verdict is recorded in the `## Gates` block of the PR body.
+- REVIEWER: pending, not yet reviewed. The verdict is recorded in the `## Gates` block of the PR body.
