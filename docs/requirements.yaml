@@ -40340,3 +40340,99 @@ requirements:
     open_questions:
       - "Whether a database cap on the number of extension rows per entity type is added later is not decided here: the record names a cap (for example 50) in its threat cases, and slice I2 states it at the write path."
     depends_on: [REQ-550]
+  - id: REQ-571
+    title: "Per-tenant print-template overrides (decision 0068 D8) slice S1: closed layout schema, validator and pure PDF renderer with an embedded Unicode font; no table, no route"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3250
+    # Source: docs/migration/decisions/0068-per-tenant-print-template-overrides.md (D1, D2, D5, D8 "S1 Layout schema and pure renderer", Open owner questions Q2 and Q5, "Tests the implementation slices must add", Threats for SECURITY-REVIEWER); docs/migration/decisions/0033-pdf-qr-rendering-dependencies.md (Addendum ISS-0679: the pdf library has no Unicode path); docs/migration/decisions/0056-versioned-documents.md D5 and D8 (projection onto declared_fields, PDF text only) and threat T10; lib/letflow/modules/exam/certificate_document.ex (the existing Latin-1 renderer, left untouched); lib/letflow/documents.ex moduledoc (declared_fields is %{entity_type => [field_name]}); docs/agents/instructions/security-invariants.md INV-2. Written by the business analyst (T-0555) 2026-10-25. Not yet validated.
+    description: >
+      Slice S1 of decision 0068 (docs/migration/decisions/0068-per-tenant-print-template-overrides.md, D8),
+      the first code slice after the decision record REQ-564 (GH #3202). It builds the part of a tenant
+      print-template override that is a pure function: a closed layout schema, a validator, and
+      render(layout, projection) that returns PDF bytes. It has no table, no migration, no route, no
+      permission, no audit event and no call into Letflow.Repo; storage, management API and audit are slice
+      S2, resolution at issue is slice S3, the web editor is S4, the Kazakhstan forms are S5 and are NOT in
+      this entry. Nothing in lib/letflow/modules/exam/ changes: certificate_document.ex keeps rendering
+      with the pdf library and its Latin-1 path (decision 0033). The change appends an amendment to decision 0033 (see THE FONT).
+      WHERE IT LIVES. New module Letflow.Documents.PrintLayout in lib/letflow/documents/print_layout.ex,
+      with helper modules under lib/letflow/documents/print_layout/ as the developer sees fit. Public
+      functions, fixed here so the later slices can cite them:
+      validate(layout, declared_fields, opts) returns :ok or {:error, [violation]}, where violation is
+      %{rule: atom, path: [String.t() | non_neg_integer()]}; render(layout, projection, declared_fields,
+      opts) returns {:ok, pdf_binary} or {:error, [violation]}. declared_fields has the shape of
+      Letflow.Documents (moduledoc): %{entity_type => [field_name]}. projection is
+      %{entity_type => %{field_name => value}} for a field block and
+      %{entity_type => [%{field_name => value}]} for a table block. opts carries restricted
+      ([{entity_type, field_name}], default []) and locked ([{entity_type, field_name}], default []).
+      Neither function reads the database, the clock, the environment or the network.
+      THE CLOSED LAYOUT (assumption of Q2 default (a), see below). A layout is a map with
+      layout_schema_version (the integer 1) and blocks, an ordered list. Block types, and no others:
+      page (once, first: size "A4" or "Letter", margin_mm, font), text (literal string), field
+      (entity_type, field_name, optional label string, optional show_if_nonempty true), table
+      (entity_type, columns: a list of {field_name, header string, width weight}), spacer (height_mm).
+      The block type image of decision 0068 D2 is NOT in layout_schema_version 1: the tenant byte store it
+      would read from does not exist in a pure slice, and 0068 D2 says the first slice proves it or drops
+      it; this slice drops it. Any key outside a block type's list is rejected, so a layout cannot carry a
+      url, href, link, script, expression or condition. Literal text is a plain string, printed exactly as
+      given; nothing inside it is substituted or interpreted, and a string that looks like a URL or a
+      marker such as {{x}} is printed as inert characters. The only conditional is show_if_nonempty.
+      Limits (values chosen by this entry, to be confirmed by REVIEWER): at most 200 blocks, 500
+      characters per literal string, 12 columns per table, 1000 rows per table.
+      THE FONT. The pdf library cannot draw non-Latin-1 text (decision 0033 addendum, ISS-0679), so
+      the renderer writes the PDF objects itself, in Elixir, with no new dependency in mix.exs (:zlib comes
+      with OTP): a Type0 font with a CIDFontType2 descendant, Identity-H encoding, a CIDToGIDMap, a W
+      widths array and a ToUnicode CMap, built from the TrueType tables cmap, hmtx, head, hhea and maxp of
+      one bundled font file, DejaVu Sans Regular, added at priv/fonts/DejaVuSans.ttf together with its
+      licence text at priv/fonts/DejaVuSans.LICENSE (Bitstream Vera licence, which allows embedding and
+      redistribution). The whole font program is embedded (no subsetting) as a Flate stream. The
+      font key accepted in a layout is "dejavu-sans" and nothing else. DECISION 0033: the addendum of docs/migration/decisions/0033-pdf-qr-rendering-dependencies.md (ISS-0679) decided no new font-embedding code and says to re-open it when the Latin-1 limit is revisited; decision 0068 D2 says the first slice spikes the font path through an amendment of 0033. So this change appends an amendment to 0033 that re-opens the ISS-0679 addendum, records the hand-built CID-font path in Letflow.Documents.PrintLayout, the font file priv/fonts/DejaVuSans.ttf and its licence, and the reason 0068 D2 gives, and states that certificate_document.ex keeps the pdf Latin-1 path; REVIEWER signs the amendment. The renderer choice is therefore not settled by this entry alone. If the developer finds that the
+      font file does not map every letter of the RU alphabet and of Ә Ғ Қ Ң Ө Ұ Ү Һ І (both cases),
+      the work stops and is reported in findings; no other font is substituted silently.
+      RULES OF THE OUTPUT. The output has no JavaScript, no OpenAction, no AA, no Launch, no URI or
+      GoTo* action, no annotation, no AcroForm and no embedded file; the document information
+      dictionary carries no date and no producer string; two calls with equal inputs return byte-identical
+      binaries (artefact_hash of 0056 D1 is a hash of these bytes). A character that the font has no glyph
+      for makes the call return {:error, [%{rule: :unsupported_glyph, path: ...}]}; it is never drawn as
+      "?" or as an empty box. An error never contains a field value, a literal text or a projection value,
+      only a rule atom and the layout path (decision 0068 D5).
+      FIELD RESTRICTIONS (decision 0068 D5, INV-2). A field block or table column whose
+      {entity_type, field_name} is not in declared_fields, or is in opts.restricted, is rejected by
+      validate with rule :field_not_projected or :field_restricted. render runs the same validation first
+      and then reads ONLY the declared and unrestricted pairs from the projection: a value present in the
+      projection map under a name outside declared_fields is never read, so a caller that wrongly passes
+      a wider map still produces no byte of that value. A pair listed in opts.locked (the core-locked block
+      set of Q5) must be referenced by at least one field block, or validate returns rule
+      :locked_field_missing; the module of a document type supplies that list in a later slice.
+      OPEN OWNER QUESTIONS AS ASSUMPTIONS. UAT assumption, to be confirmed by the process owner: Q2 of
+      decision 0068 is answered as its default (a), a closed declarative layout; a template language
+      (option b) would need its own record and is not built here. UAT assumption, to be confirmed by the
+      process owner: Q5 is answered as the default of the record, the module declares the core-locked set at
+      type registration, so this slice takes the set as the opts.locked input and invents no per-type list.
+      Q1 (Kazakhstan wording owner) gates only slice S5 and is not decided here; no test fixture is
+      official wording, and every sample text is neutral and marked "test sample".
+      SECURITY-REVIEWER IS A MANDATORY GATE for this slice (decision 0068 D8, Common to all slices):
+      the slice decides what a tenant-authored layout can make core print (INV-2), and the threats are
+      template injection and active content in the PDF (decision 0056 T10) and a restricted value reaching
+      the PDF or an error. REVIEWER also signs the font addition and the limits above.
+      NOT IN THIS ENTRY: any table, migration, trigger, route, permission, audit event, role change,
+      resolution order, pinned columns on document_versions, tenant byte store or image block (S2, S3);
+      a web editor (S4); any official Kazakhstan form wording (S5, Q1); any change to
+      lib/letflow/modules/exam/ or to mix.exs, and any change to decision 0033 other than the amendment named above; the tests C3-render, C3-manage,
+      D5-later-restriction, D4-pinned, S2-* and S3-*, which belong to later slices.
+    open_questions:
+      - "Q2 and Q5 of decision 0068 are recorded above as assumptions, to be confirmed by the process owner; if the owner picks a template language (Q2 b) this slice's schema is replaced by a new record."
+      - "Whether the repository may carry a 700 KB font file in priv/fonts (embedded whole in every PDF) or the owner wants subsetting later; this slice embeds the whole font and a later requirement may subset."
+    acceptance_criteria:
+      - "1. Letflow.Documents.PrintLayout.validate/3 and render/4 exist in lib/letflow/documents/print_layout.ex with the signatures and the violation shape %{rule: atom, path: list} of the description; neither calls Letflow.Repo, reads the clock, the environment or the network (checked by a test that scans the module files for Repo, DateTime, System and :httpc), and git diff shows no change under priv/repo/, lib/letflow/routers/, lib/letflow/modules/ or mix.exs; the only added non-Elixir, non-test files are the font and its licence under priv/fonts/ and the appended amendment to docs/migration/decisions/0033-pdf-qr-rendering-dependencies.md, which re-opens the ISS-0679 addendum, records the CID-font path in Letflow.Documents.PrintLayout, the font file and licence and the reason of 0068 D2, states that certificate_document.ex keeps the pdf Latin-1 path, and is signed by REVIEWER."
+      - "2. Test S1-schema: validate returns :ok for a layout using each of the five block types; and returns {:error, violations} with a distinct rule and the exact path for each of: an unknown block type, an unknown key on a block (url, href, script, expr, if), a missing or repeated page block, layout_schema_version other than 1, a literal over 500 characters, more than 200 blocks, more than 12 columns, and a font other than dejavu-sans. A literal containing the text http://example.test and the text {{x.y}} is accepted and, after render, appears unchanged in the extracted page text and no value is substituted."
+      - "3. Test S1-text-only: for a layout whose literals include /JavaScript, /JS (alert(1)), /Launch, /URI (http://example.test) and /OpenAction, the bytes of the rendered PDF, searched both raw and after inflating every Flate stream, contain none of the names /JavaScript, /JS, /Launch, /URI, /OpenAction, /AA, /GoTo, /GoToR, /SubmitForm, /AcroForm, /EmbeddedFile, /Annots; the document information dictionary has no /CreationDate, /ModDate or /Producer."
+      - "4. Test S1-glyph: render of a layout whose literal text and field values contain a RU sample (the whole upper- and lower-case Russian alphabet) and a KK sample (Ә Ғ Қ Ң Ө Ұ Ү Һ І and their lower-case letters), all marked as test samples, returns {:ok, bytes}; the text recovered from the PDF through its ToUnicode CMap equals the input text exactly and contains no question mark that the input did not contain; a field value with a character the font has no glyph for (a code point outside the font's cmap, chosen by the test from the font) returns {:error, [%{rule: :unsupported_glyph, path: path}]} and the inspected error contains no part of that value."
+      - "5. Test D5-redact at byte level: with a projection that also holds a sentinel value under a name outside declared_fields and under a name listed in opts.restricted, (a) validate and render of a layout naming either pair return {:error, violations} with rule :field_not_projected or :field_restricted and a path, and the inspect output of the error, the captured Logger output of the call and any returned binary contain the sentinel in none of its encodings (UTF-8, UTF-16BE, Latin-1, and the glyph-index encoding of the font); (b) render of a valid layout over the same wider projection returns a PDF whose raw bytes and inflated streams contain the sentinel in none of those encodings and whose recovered text lacks it."
+      - "6. Locked set and determinism: with opts.locked listing a pair that no field block references, validate returns rule :locked_field_missing with the layout path of the blocks list; with every locked pair referenced it returns :ok. Two render calls with equal arguments return byte-identical binaries, and a render with a table of 1000 rows completes and returns a binary that begins with %PDF- and ends with %%EOF."
+      - "7. The produced PDF is structurally valid: a test parses the cross-reference table and the trailer of a rendered file and checks that every offset in the table points at the start of the object it names, that the font objects are Type0, CIDFontType2 and FontFile2 with the DejaVu program embedded, and that the page size is A4 (595 by 842 points) for size A4 and Letter (612 by 792 points) for size Letter."
+      - "8. The moduledoc of Letflow.Documents.PrintLayout states that the module is a pure function of its arguments, cites decisions 0068 D2 and D5 and 0033 (addendum ISS-0679) and records that it is the first renderer in the codebase with a Unicode font path, that certificate_document.ex is unchanged, the Q2 and Q5 assumptions, and the font licence; the font licence file is present and named in the moduledoc."
+      - "9. SECURITY-REVIEWER verdict is recorded (mandatory: INV-2 projection boundary, template injection and active content, error and log content) and REVIEWER verdict is recorded; a source-scanning test or lint that reads files by name, if the developer adds one, appears in the PR summary together with the grep for existing tests that scan lib/letflow/documents/."
+      - "10. mix letflow.check_requirements_registration and the static checks (mix letflow.check.static) pass with real output quoted, and the added tests (S1-schema, S1-text-only, S1-glyph, D5-redact and those of criteria 6 and 7) pass with real output quoted."
+    depends_on: [REQ-564, REQ-550, REQ-542]
