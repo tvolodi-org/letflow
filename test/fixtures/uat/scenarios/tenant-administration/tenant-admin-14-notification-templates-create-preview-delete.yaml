@@ -1,0 +1,167 @@
+# T-0598 (BA): TENANT ADMIN group, scenario 14: the administrator stores, replaces, previews and removes the wording of the "task assigned" message.
+# Covers REQ-563 criteria 1 (new pair 201, same pair replaced 200, list holds one row per pair), 2 (the one registered message), 3 (accepted
+# texts), 5 (accepted boundaries), 7 (render and preview) and 8 (audit record of accepted writes). Refusals are scenario 15, access and
+# two companies are scenario 16.
+# Sources: docs/requirements.yaml REQ-563 criteria 1, 2, 3, 5, 7, 8 and its description (message "task_assigned"; placeholders task_name,
+# process_name, assignee_name, due_date, tenant_name; subject 1..200, body 1..5000 characters; nothing is sent in this slice);
+# docs/roles.md (NotificationTemplatesManage: tenant administrator and platform operator only); test/fixtures/uat/actors.yaml (alice, lena).
+# Not covered here, by the requirement's own wording: criteria 9 (diff scope) and 12 (gates) concern the code change, checked by review and CI;
+# the source-reading half of criterion 4 and the role-table half of criterion 6 are checked by the unit tests, not by a person using the product.
+# UAT assumption, to be confirmed by the process owner: the one message is "task_assigned" with the limits above (REQ-563 open question).
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; refusals are scenario 16.
+---
+id: tenant-administration-14-notification-templates-create-preview-delete
+scope: tenant-administration
+title: The administrator stores, replaces, previews and removes the wording of the task-assigned message, and the platform wording returns after removal
+version: "1.0"
+tags: [tenant-admin, notification-templates, preview, audit]
+
+description: >
+  The administrator of SwiftRoute lists the message wordings (none is stored) and previews the "task assigned" message in Russian: the
+  platform wording comes back. The administrator stores a Russian wording using the five allowed placeholders, then previews it with sample
+  values and sees them inserted. Storing the same message and language again replaces the text. A preview with a text in the request shows
+  that text without storing it. A missing sample value shows as empty, a sample value that looks like a placeholder is shown literally,
+  and the same preview asked twice gives the same answer. Texts of exactly the longest allowed length, a text with no placeholder, a text
+  with one placeholder repeated, and a body with line breaks are accepted. A task worker reads nothing of this (scenario 16). Removing the
+  wording brings the platform wording back, and each accepted change leaves an audit record that names the message, the language and the
+  administrator but not the text. Nothing is sent to anyone: the wording is only stored.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator, and no wording is stored for the message "task assigned" in any language
+    check: system_seeded
+    detail: If a wording for ru already exists from an earlier run, step 1 notes it, step 2 is judged as a replacement (200) and EO-001 is judged on the later steps; the report says so.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator lists the stored message wordings, then previews the message "task assigned" for the language ru with the sample
+      values task_name "Check invoice", process_name "Invoices", assignee_name "Lena", due_date "2026-11-01", tenant_name "SwiftRoute", and
+      notes the subject and body that come back.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator stores for "task assigned", language ru, the subject "Task {task_name} for {assignee_name}" and the body "Process
+      {process_name}, due {due_date}, company {tenant_name}." and notes the answer.
+    via: api
+    input:
+      template_key: task_assigned
+      locale: ru
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator previews "task assigned" for ru with the sample values of step 1, and then asks the same preview a second time.
+      Both answers are noted.
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator stores again for "task assigned", language ru, the subject "Assigned: {task_name}" and the body "Hello {assignee_name}, {assignee_name}
+      again" followed by a line break and "{task_name}". The answer is noted, then the stored wordings are listed.
+    via: api
+    input:
+      template_key: task_assigned
+      locale: ru
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator previews "task assigned" for ru with a body in the request, "Preview only {task_name}", and with no sample value
+      for the task name, then lists the stored wordings.
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator previews "task assigned" for ru with the sample value of the task name set to the text "{tenant_name}" and the
+      tenant name set to "SwiftRoute", and notes how the subject shows it. The administrator previews for the language kk, for which
+      nothing is stored, and notes the text.
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator stores for "task assigned", language kk, a subject of exactly 200 characters made of the letter a and a body of
+      exactly 5000 characters made of the letter b, then stores for language en a subject "Plain subject" and a body "Plain body with no placeholder", and lists the wordings.
+    via: api
+    input:
+      template_key: task_assigned
+      locales: [kk, en]
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator removes the wordings for kk and en, then the wording for ru, noting each answer, previews "task assigned" for ru
+      with the sample values of step 1, and lists the wordings.
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator reads the company's audit record for the changes of steps 2, 4, 7 and 8.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A new language wording is created, the same language stored again replaces it, and the list holds one wording per message and language.
+    verification:
+      method: http_status
+      detail: Step 2 answers 201; step 4 answers 200; the list after step 4 holds exactly one ru wording of "task assigned" with the text of step 4; step 1 listed none.
+      evidence: The answers of steps 2 and 4 and the lists of steps 1 and 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot tell whether a wording was created or replaced, or ends with two wordings for one language.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Before anything is stored the preview returns the platform wording, and after removal it returns it again.
+    verification:
+      method: api_response
+      detail: The preview of step 1 and the preview of step 8 use the same sample values and return the same subject and body, non-empty, and equal to each other; the list of step 8 is empty of ru, kk and en. The answer's source field is "default" in steps 1, 6 (the kk preview, nothing stored for kk yet) and 8, and "stored" in step 3. The kk preview of step 6 is not compared text for text with step 1, because its sample values differ.
+      evidence: The previews of steps 1, 3, 6 and 8 (text and source field) and the list of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A removed wording would leave users with an empty or stale message instead of the platform's.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The preview inserts the sample values into the stored wording, keeps no state, and stores nothing.
+    verification:
+      method: api_response
+      detail: Step 3 returns the subject "Task Check invoice for Lena" and the body "Process Invoices, due 2026-11-01, company SwiftRoute." twice, identical. Step 5 returns the body "Preview only " (the missing value empty) and the list afterwards still shows the stored text of step 4, not the preview text.
+      evidence: The two previews of step 3 and the preview and list of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Previewed text could replace the real message, or a preview could differ from what is later sent.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A sample value that looks like a placeholder is shown literally and is not expanded.
+    verification:
+      method: api_response
+      detail: In step 6 the rendered subject contains the characters {tenant_name} literally and does not contain SwiftRoute in their place.
+      evidence: The preview of step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A value typed by a user could pull in other data of the company through the message.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Texts at the longest allowed length, with no placeholder, with one placeholder repeated and with line breaks in the body are accepted.
+    verification:
+      method: http_status
+      detail: Step 4 (repeated placeholder, line break in the body) answers 200; step 7 answers 201 for kk (200 and 5000 characters) and 201 for en (no placeholder); the list shows kk with 200 and 5000 characters.
+      evidence: The answers of steps 4 and 7 and the list of step 7.
+    on_fail:
+      severity: MINOR
+      business_impact: Valid wordings are rejected, so the administrator cannot use the whole allowed length.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: Each accepted change leaves an audit record with the message, the language and the administrator, and no record holds the subject or body text.
+    verification:
+      method: audit_event
+      detail: There are records for step 2, step 4, the two writes of step 7 and the three removals of step 8, each with message "task_assigned", the language, and alice as the acting person; none contains the subject or body text or the words "Check invoice" or "Plain body".
+      evidence: The audit records read in step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: Who changed the wording of messages sent to staff cannot be established, or message text leaks into the audit record.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove any wording left for "task assigned" in ru, kk and en in SwiftRoute; removal is possible through the same route, so no value is left.

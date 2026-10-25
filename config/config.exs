@@ -136,6 +136,12 @@ config :letflow, :entity_port, Letflow.Entities.EntityPortImpl
 # every Poller tick and every request to the management routes (/scheduled-jobs answers 404 while off).
 config :letflow, :scheduled_jobs, enabled: false
 
+# REQ-569 / GH #3246 (decision 0067 D9, slice F-1): the `form_validation` script hook kind and the
+# HUMAN_TASK validation_script_* attributes. Default off: F-1 alone would let a tenant publish and
+# bind a script that no slice runs yet. Read by Letflow.Scripts.form_validation_enabled?/0. Turning it
+# off after activation makes the pin lookup of a bound version unresolvable (the flag is the kill switch).
+config :letflow, :form_validation_hook_enabled, false
+
 # GH 2534 PR 7c-1 SECURITY note: the build environment, read by Letflow.Application.start/2's
 # boot guard (Letflow.Scripts.Runtime.boot_check/2 refuses :scripts_test_hooks in :prod).
 config :letflow, :config_env, config_env()

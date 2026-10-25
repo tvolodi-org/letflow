@@ -283,7 +283,13 @@ defmodule Letflow.Engine.PinResolver do
     @type variable_schema_lookup_result ::
             {:ok, %{version: String.t(), json_schema: map() | nil}}
     @type script_lookup_result ::
-            {:ok, %{resolved_id: String.t(), version: String.t(), sha256: String.t()}}
+            {:ok,
+             %{
+               required(:resolved_id) => String.t(),
+               required(:version) => String.t(),
+               required(:sha256) => String.t(),
+               optional(:hook_kind) => String.t()
+             }}
             | {:error, :not_found}
 
     @type t :: %__MODULE__{
@@ -373,39 +379,64 @@ defmodule Letflow.Engine.PinResolver do
     end
   end
 
-  # GH 2534 PR 7c-1 (design 4.3): every {script_key, script_version} bound by a SERVICE_TASK
-  # node (node order, deduped); two different versions of one key are refused.
+  # GH 2534 PR 7c-1 (design 4.3), REQ-569: every {script_key, script_version, kind} bound by a
+  # SERVICE_TASK node (`script_key`/`script_version`, kind "service_task") or a HUMAN_TASK node
+  # (`validation_script_key`/`validation_script_version`, kind "form_validation"), in node order,
+  # deduped. Two different versions of one key (any node types) are refused with the first such key
+  # in node order. The same key and version under two kinds is not a conflict here: both entries are
+  # looked up and the kind check of resolve_script_bindings/2 refuses it (one row has one kind).
   defp collect_script_bindings(%Graph{nodes: nodes}) do
     bindings =
       nodes
-      |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
-      |> Enum.flat_map(fn node ->
-        case {ref_id(node.attributes, "script_key"), script_version(node.attributes)} do
-          {nil, _version} -> []
-          {key, version} -> [{key, version}]
-        end
-      end)
+      |> Enum.flat_map(&node_script_binding/1)
       |> Enum.uniq()
 
-    case bindings |> Enum.group_by(&elem(&1, 0)) |> Enum.find(fn {_k, v} -> length(v) > 1 end) do
-      nil -> {:ok, bindings}
-      {key, _versions} -> {:error, {:script_version_conflict, key}}
+    bindings
+    |> Enum.reduce_while(%{}, fn {key, version, _kind}, versions ->
+      case Map.fetch(versions, key) do
+        {:ok, other} when other != version -> {:halt, {:conflict, key}}
+        _ -> {:cont, Map.put(versions, key, version)}
+      end
+    end)
+    |> case do
+      {:conflict, key} -> {:error, {:script_version_conflict, key}}
+      _versions -> {:ok, bindings}
     end
   end
 
-  defp script_version(attributes) when is_map(attributes) do
-    case Map.get(attributes, "script_version") do
+  defp node_script_binding(%{node_type: :SERVICE_TASK, attributes: attributes}),
+    do: script_binding(attributes, "script_key", "script_version", "service_task")
+
+  defp node_script_binding(%{node_type: :HUMAN_TASK, attributes: attributes}),
+    do:
+      script_binding(
+        attributes,
+        "validation_script_key",
+        "validation_script_version",
+        "form_validation"
+      )
+
+  defp node_script_binding(_node), do: []
+
+  defp script_binding(attributes, key_attr, version_attr, kind) do
+    case ref_id(attributes, key_attr) do
+      nil -> []
+      key -> [{key, script_version(attributes, version_attr), kind}]
+    end
+  end
+
+  defp script_version(attributes, version_attr) do
+    case Map.get(attributes, version_attr) do
       version when is_integer(version) and version >= 1 -> version
       _other -> nil
     end
   end
 
-  defp script_version(_attributes), do: nil
-
   defp resolve_script_bindings(bindings, lookup_fun) do
-    Enum.reduce_while(bindings, {:ok, []}, fn {key, version}, {:ok, acc} ->
+    Enum.reduce_while(bindings, {:ok, []}, fn {key, version, kind}, {:ok, acc} ->
       case lookup_script(lookup_fun, key, version) do
-        {:ok, %{resolved_id: resolved_id, version: pinned_version, sha256: sha256}} ->
+        {:ok, %{resolved_id: resolved_id, version: pinned_version, sha256: sha256} = found}
+        when not is_map_key(found, :hook_kind) or :erlang.map_get(:hook_kind, found) == kind ->
           pin = %{
             kind: :script,
             ref: key,

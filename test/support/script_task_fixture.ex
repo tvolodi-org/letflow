@@ -73,9 +73,12 @@ defmodule Letflow.Support.ScriptTaskFixture do
   @spec doubling_source() :: String.t()
   def doubling_source, do: "return { total = ctx.input.amount * 2 }"
 
-  @doc "Inserts a draft (version = max + 1) through the legal INSERT shape and rehashes it."
-  @spec draft!(String.t(), String.t(), String.t(), map()) :: ScriptRule.t()
-  def draft!(schema, key, source, manifest) do
+  @doc """
+  Inserts a draft (version = max + 1) through the legal INSERT shape and rehashes it. `opts`:
+  `:hook_kind` (default `"service_task"`).
+  """
+  @spec draft!(String.t(), String.t(), String.t(), map(), keyword()) :: ScriptRule.t()
+  def draft!(schema, key, source, manifest, opts \\ []) do
     version =
       (Repo.one(from(r in ScriptRule, where: r.key == ^key, select: max(r.version)),
          prefix: schema
@@ -87,7 +90,7 @@ defmodule Letflow.Support.ScriptTaskFixture do
       %ScriptRule{
         key: key,
         version: version,
-        hook_kind: "service_task",
+        hook_kind: Keyword.get(opts, :hook_kind, "service_task"),
         status: :draft,
         source: source,
         manifest: manifest,
@@ -112,10 +115,10 @@ defmodule Letflow.Support.ScriptTaskFixture do
     reloaded |> Ecto.Changeset.change(sha256: sha) |> Repo.update!(prefix: schema)
   end
 
-  @doc "A published version (draft -> published, a publisher outside the contributors)."
-  @spec published!(String.t(), String.t(), String.t(), map()) :: ScriptRule.t()
-  def published!(schema, key, source, manifest) do
-    draft = draft!(schema, key, source, manifest)
+  @doc "A published version (draft -> published, a publisher outside the contributors); `opts` as `draft!/5`."
+  @spec published!(String.t(), String.t(), String.t(), map(), keyword()) :: ScriptRule.t()
+  def published!(schema, key, source, manifest, opts \\ []) do
+    draft = draft!(schema, key, source, manifest, opts)
     publisher = Ecto.UUID.generate()
 
     draft
