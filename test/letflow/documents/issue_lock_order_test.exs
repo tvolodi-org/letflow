@@ -13,8 +13,6 @@ defmodule Letflow.Documents.IssueLockOrderTest do
 
   use Letflow.DataCase, async: false
 
-  import Letflow.DocumentSqlFixture
-
   alias Letflow.Documents
   alias Letflow.Documents.Canonical
   alias Letflow.EntityWritesFixture, as: Fx
