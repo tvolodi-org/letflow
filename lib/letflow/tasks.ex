@@ -731,7 +731,7 @@ defmodule Letflow.Tasks do
           %Task{} -> {:error, :already_assigned}
         end
       end)
-      |> Multi.merge(fn changes -> record_task_assign_audit(changes, prefix) end)
+      |> Multi.merge(fn changes -> record_task_assign_audit(changes, "task.assign", prefix) end)
       |> Repo.transaction()
       |> unwrap_write_result()
     end
@@ -749,13 +749,13 @@ defmodule Letflow.Tasks do
   # actor_id: nil. Flagged here rather than silently implemented as if the
   # design's claim were correct; see this requirement's SECURITY-REVIEWER
   # handoff for the explicit callout.
-  defp record_task_assign_audit(%{task: before, apply: updated}, prefix) do
+  defp record_task_assign_audit(%{task: before, apply: updated}, action, prefix) do
     Audit.append_multi(
       Multi.new(),
       :audit,
       %{
         actor_id: nil,
-        action: "task.assign",
+        action: action,
         resource_type: "task",
         resource_id: before.id,
         before_state: Task.audit_state(before),
@@ -801,6 +801,7 @@ defmodule Letflow.Tasks do
           %Task{} -> write_assignment(task, "USER", user_id, prefix)
         end
       end)
+      |> Multi.merge(fn changes -> record_task_assign_audit(changes, "task.reassign", prefix) end)
       |> Repo.transaction()
       |> unwrap_write_result()
     end
