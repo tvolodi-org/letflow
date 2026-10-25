@@ -133,7 +133,7 @@ config :letflow, :entity_port, Letflow.Entities.EntityPortImpl
 
 # REQ-561 / GH #3194: tenant-defined scheduled jobs. Default off: a job starts work unattended with
 # a user's authority, so a platform operator opts in (see Letflow.ScheduledJobs). Read fresh on
-# every Poller tick.
+# every Poller tick and every request to the management routes (/scheduled-jobs answers 404 while off).
 config :letflow, :scheduled_jobs, enabled: false
 
 # REQ-569 / GH #3246 (decision 0067 D9, slice F-1): the `form_validation` script hook kind and the
