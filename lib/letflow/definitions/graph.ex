@@ -280,6 +280,7 @@ defmodule Letflow.Definitions.Graph do
             | :distinct_from_not_human_task
             | :distinct_from_downstream_only
             | :expression_references_reserved_variable
+            | :extension_site_unknown_node
 
     @type t :: %__MODULE__{
             code: code(),
@@ -521,6 +522,42 @@ defmodule Letflow.Definitions.Graph do
 
     %{valid: violations == [], violations: violations}
   end
+
+  @doc """
+  Extension site check (REQ-574, decision 0071 D9 slice X1). `{definition_name, points}` is the
+  name of the definition `graph` belongs to and the owner module's declared extension points.
+  Returns one `:extension_site_unknown_node` violation per point aimed at this definition
+  (`site["definition"] == definition_name`) whose `site["node_id"]` is not a node of `graph`, in
+  list order. Points aimed at another definition, and malformed entries (rule 13 of
+  `Letflow.Modules.Catalog.validate/2` already refuses those for registered manifests), are
+  skipped. Pure and total. Not part of `validate_graph/1` or `validate_flow/1`; called from
+  `Letflow.Definitions` at activation only.
+  """
+  @spec check_extension_sites(t(), {String.t(), [map()]}) :: [Violation.t()]
+  def check_extension_sites(%__MODULE__{nodes: nodes}, {definition_name, points})
+      when is_list(points) do
+    node_ids = MapSet.new(nodes, & &1.id)
+
+    Enum.flat_map(points, fn
+      %{"site" => %{"definition" => ^definition_name, "node_id" => node_id}} = point ->
+        if MapSet.member?(node_ids, node_id) do
+          []
+        else
+          [
+            %Violation{
+              code: :extension_site_unknown_node,
+              message:
+                "Extension point '#{point["name"]}' names node '#{node_id}' which is not in the definition graph"
+            }
+          ]
+        end
+
+      _other ->
+        []
+    end)
+  end
+
+  def check_extension_sites(%__MODULE__{}, _other), do: []
 
   @doc """
   Runs the 3 flow checks (CHK-22..CHK-24, REQ-455) against `graph` and returns
