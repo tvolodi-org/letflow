@@ -38848,6 +38848,112 @@ requirements:
       - "Whether a module's settings schema can mark a field as a secret reference is not established by this entry; criterion 2 holds either way (the reference string is carried as is and nothing is resolved)."
     depends_on: [REQ-034, REQ-082, REQ-303, REQ-304, REQ-305, REQ-306, REQ-035, REQ-036, REQ-037, REQ-038, REQ-040, REQ-077, REQ-280, REQ-414]
 
+  - id: REQ-559
+    title: "Decision record for Record F (decision 0053 hook 3): form-validation script hook that runs in the locked complete_task transaction (slice 0, decision only)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3184
+    # Source: docs/migration/decisions/0053-tenant-scripted-rules.md (scope list "Record F", "Row-lock answer", D5 "Hook 1 reads are PRE-FETCHED" and its last bullet on a later dynamic data API, D7 "Failure" last sentence, D8, T10 in the threat cases); docs/migration/core-roadmap-20261014.md Wave 3 row "Form-hook scripts (server-side form validation) and after-commit entity-event triggers via outbox"; lib/letflow/engine.ex (the :completion_guards Multi step and check_completion_guards, fetch_and_lock_task); REQ-539 (Record E, GH #3155), which settles the transaction and read rule of a hook that reads data. Written by the business analyst (T-0461) 2026-10-25. Not yet validated.
+    description: >
+      Decision 0053 names "Record F, form-validation script hook" (hook 3, "runs in the locked
+      complete_task transaction") as direction only, non-binding until its own record is ratified.
+      Its "Row-lock answer" says the 50 ms rule binds hook 3, because complete_task takes the task and
+      instance-projection row locks (fetch_and_lock_task, fetch_and_lock_instance_projection in
+      lib/letflow/engine.ex) and runs the completion guards (the :completion_guards Multi step,
+      check_completion_guards) inside that transaction. 0053 D5 says hook 1 reads are pre-fetched
+      and that a later hook with a dynamic data API must say which transaction it reads in; D7 says
+      any hook that runs in or beside a transaction must convert every executor outcome, including
+      exit and crash, to a typed {:error, code} without raising. REQ-539 (Record E) is the slice 0 that
+      decides the read transaction, the F13 atomicity rule and the pin kind for hook 2; Record F reuses
+      those rulings and must not decide them a second time. This requirement is slice 0 only: ONE
+      decision record in docs/migration/decisions/ (next free number on origin/main at the time of
+      writing, taken from git fetch, not from the worktree), written by CODE-DESIGNER and reviewed by
+      REVIEWER and SECURITY-REVIEWER. It writes no application code. The record decides: (1) where hook
+      3 runs inside the complete_task transaction (before or after :completion_guards, whether a
+      script refusal is a completion guard) and which transaction its reads use, with the time budget
+      against the 50 ms rule (the lock hold time of the task and projection rows is the constraint);
+      (2) the pure-function contract: input (the submitted output, the form definition version, the
+      task), output (accept, or a refusal with a manifest-declared code and field-level messages), and
+      that the script cannot change the submitted output; (3) pinning: which definition field names the
+      script key and version, the pin kind and its interaction with the closed pin-kind set (as in
+      REQ-539 item 3); (4) the script principal and field restrictions (0053 D5, INV-2, decision 0062):
+      restricted submitted fields are redacted unless declared; (5) the failure mapping of every
+      executor outcome to stable codes, and the effect on the completion (refused completion leaves the
+      task open and the instance unchanged; fail closed; retry only for script_busy, within a cap);
+      (6) the user-visible shape of a refusal (a validation error the form can show, not a 500) and
+      that a refusal is indistinguishable from the same refusal for any caller who may not complete the
+      task (INV-5); (7) the list of implementation slices, each sized to one change, with
+      dependencies. The record must not silently contradict decisions 0050, 0051, 0053, 0054, 0061 or
+      0062 or the REQ-539 record; where it amends one it says so in an "amends" line.
+    acceptance_criteria:
+      - "1. One new file docs/migration/decisions/NNNN-form-hook-script-validation.md exists (NNNN = next free number on origin/main), with status line, date, a Depends-on line naming 0050, 0051, 0053, 0054, 0061, 0062, GH #2534 and the Record E record of REQ-539, and a section per item (1) to (7) of the description. The diff touches no file under lib/, priv/, web/ or apps/; docs/migration/decisions/ and, if a reason is stated, docs/migration/README.md or the decision index are the only changed paths."
+      - "2. Dependency on REQ-539: the record cites the Record E record by file name and quotes the rulings it reuses (read transaction, pin kind, F13 rule); where Record F needs a different ruling it says so in an 'amends' line with the reason. The requirement is not started before REQ-539 has merged (depends_on)."
+      - "3. Lock and time budget: the record states, by symbol (fetch_and_lock_task, fetch_and_lock_instance_projection, the :completion_guards Multi step), which locks are held while the hook runs, the wall-clock budget of the hook against the 50 ms rule, and what happens when the budget is exceeded (completion refused with a stable code, locks released, no partial write). It states that the sandbox task never opens its own connection (0053 D5, T10). A figure above the 0053 D7 maxima is listed under 'Not decided here' as needing a new ruling, not set silently."
+      - "4. INV-3: the record states that hook 3 runs only under the existing sandbox allow-list, mandatory heap cap and ScriptAdmission with caller monitoring (0053 D7, D8), that the script has no network, file system or other-tenant access, and that the output is validated against the manifest output schema before it is acted on."
+      - "5. INV-1: the record states that every read of the hook uses the tenant :prefix of the run context only, that a script key named by a form definition resolves only inside the tenant's script_rules, and requires an INV-10 cross-tenant negative test in the implementing slice (a form of tenant A naming a script key, a completion by a caller of tenant B: byte-identical not-found)."
+      - "6. INV-8: the record maps every executor outcome (script error, instruction budget, memory limit, timeout, invalid output, admission refused, caller or worker crash, kill switch on) to a stable tenant-visible code and to the effect on the completion: the completion is refused and the task and instance are unchanged, or, for script_busy only, retried within a stated cap and then refused; completing without running the hook is never allowed. No raw Exception.format or inspect text reaches a tenant. The record requires one test per outcome in the implementing slice, including a test that a crash of the sandbox task inside the locked transaction does not leave the transaction open."
+      - "7. Refusal shape (INV-2, INV-5): the record states the response a form receives for a script refusal (stable code, field names from the manifest-declared set, no script source and no restricted field value), and that a caller who may not complete the task gets the same answer as for an unknown task."
+      - "8. Slice list: the record lists the implementation slices (at least: form pin and registry change, runtime and read path, completion integration, failure mapping and audit, dry-run and UAT), each with its dependencies and one SECURITY-REVIEWER gate marker for every slice that touches a tenant-data path. Each slice is sized to one change."
+      - "9. Consistency: a section 'Consistency with earlier records' lists, for each of 0050, 0051, 0053, 0054, 0061, 0062 and the Record E record, whether Record F amends it and quotes the sentence amended; a reader can check each quotation against the source file. Owner-only questions are listed under 'Not decided here'."
+      - "10. SECURITY-REVIEWER verdict recorded on the record (mandatory: tenant-data path, script sandbox, locked transaction) and REVIEWER verdict recorded; mix letflow.check_requirements_registration and the CI path-filter test (test/letflow/ci_backend_path_filter_test.exs) pass, real output quoted."
+    open_questions:
+      - "The precise millisecond budget inside the locked transaction is an owner figure; the record lists it under 'Not decided here' if 0053 D7 does not settle it."
+    depends_on: [REQ-539]
+
+  - id: REQ-560
+    title: "Decision record for Record T (decision 0053 hook 4): after-commit record-event script triggers and the outbox that delivers them, with the atomicity rule (slice 0, decision only)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3183
+    # Source: docs/migration/decisions/0053-tenant-scripted-rules.md (scope list "Record T, after-commit entity-event triggers and the outbox", deviation 11 "no outbox exists; direction only", D7 failure codes and "Only script_busy is retriable", D5 "Determinism" and "Retry of a non-idempotent hook is forbidden", D8, D9); docs/migration/core-roadmap-20261014.md Wave 3 row "Form-hook scripts ... and after-commit entity-event triggers via outbox"; lib/letflow/plugs/api_pipeline.ex (the only mention of an outbox in lib/ outside lib/letflow/design/: a provenance-table row for the deferred R-Co plug OutboxCap, never built), and the existing committed-row-plus-poller code lib/letflow/engine/script_task_dispatcher.ex with script_task_dispatcher/poller.ex, lib/letflow/engine/service_task_dispatcher.ex with service_task_dispatcher/poller.ex, and the dead-letter code lib/letflow/dlq.ex (to be read before the record rules on reuse); lib/letflow/webhooks/delivery.ex is only an example of an append-only attempt log, not a queue; lib/letflow/entities/records.ex (Records.command_multi/3, the write transaction); REQ-539 (Record E, GH #3155). Written by the business analyst (T-0461) 2026-10-25. Not yet validated.
+    description: >
+      Decision 0053 names "Record T, after-commit entity-event triggers and the outbox" (hook 4,
+      old D6) as direction only. Its deviation 11 says that no outbox exists for it. A trigger runs a
+      tenant script after a record write has committed, so the script may not roll the write back; the
+      risk is the gap between the commit and the trigger: a trigger lost when the node dies after the
+      commit, or a trigger run twice. This requirement is slice 0 only: ONE decision record in
+      docs/migration/decisions/ (next free number on origin/main at the time of writing, taken from git
+      fetch, not from the worktree), written by CODE-DESIGNER and reviewed by REVIEWER and
+      SECURITY-REVIEWER. It writes no application code. The record decides: (1) the atomicity rule: an
+      outbox row for each matching trigger is inserted in the SAME transaction as the record write
+      (Records.command_multi/3 and the history and event rows it already writes), so that either both the
+      write and its outbox rows commit or neither does, and the trigger never runs inside the write
+      transaction; (2) the outbox: its table and tenant scope (a tenant schema table under the :prefix),
+      row states, claim by a worker with a lease and FOR UPDATE SKIP LOCKED or an equivalent that
+      cannot double-claim, the delivery guarantee (at-least-once with an idempotency key, or
+      at-most-once, with the reason: 0053 D5 forbids retry of a non-idempotent hook, so the record must
+      say which of the two a trigger gets and what the script author must assume), retry cap, backoff
+      and a dead-letter state, and the relation to the existing poller-and-dispatch code 
+      (lib/letflow/engine/script_task_dispatcher.ex and its poller.ex, lib/letflow/engine/service_task_dispatcher.ex and its poller.ex, lib/letflow/dlq.ex; lib/letflow/webhooks/delivery.ex is only an append-only attempt log): reuse or a separate table, with the reason; (3) the trigger
+      declaration and pinning: which record types and events (create, update, delete, process-step
+      write per 0054) can trigger, the script key and version, the pin kind (reusing the REQ-539
+      ruling), and loop protection (whether a trigger's own writes raise triggers; the rule and a
+      depth cap); (4) the script principal and what a trigger may do: it has no invoking user and, being
+      pure (0053 D4), returns values that the host applies in a separate transaction with its own
+      checks (0050 managed types, 0051 scope, 0061 lock order), never in the original write's
+      transaction; (5) ordering and concurrency per record (whether triggers for one record run in
+      commit order), per-tenant fairness and backpressure through ScriptAdmission (0053 D8) and a cap
+      on outbox depth per tenant; (6) failure mapping of every executor outcome to the 0053 D7 stable
+      codes, the effect on the outbox row, and visibility to the tenant (a failed trigger is an
+      incident, the original write stays committed); (7) the list of implementation slices, each sized to
+      one change, with dependencies. The record must not silently contradict decisions 0050, 0051, 0053,
+      0054, 0061 or 0062 or the REQ-539 record; where it amends one it says so in an "amends" line.
+    acceptance_criteria:
+      - "1. One new file docs/migration/decisions/NNNN-after-commit-trigger-outbox.md exists (NNNN = next free number on origin/main), with status line, date, a Depends-on line naming 0050, 0051, 0053, 0054, 0061, 0062, GH #2534 and the Record E record of REQ-539, and a section per item (1) to (7) of the description. The diff touches no file under lib/, priv/, web/ or apps/; docs/migration/decisions/ and, if a reason is stated, docs/migration/README.md or the decision index are the only changed paths."
+      - "2. Dependency on REQ-539: the record cites the Record E record by file name, quotes the rulings it reuses (pin kind, script principal, failure mapping) and states in an 'amends' line any place where it differs. The requirement is not started before REQ-539 has merged (depends_on)."
+      - "3. Atomicity rule, one normative paragraph: the outbox row is inserted in the same database transaction as the record write; the record states what happens when the write rolls back (no outbox row remains), when the transaction commits and the node dies before any worker runs (the row is picked up after restart, by lease expiry), and that no trigger script runs before the commit. It includes a worked example with a write, a node crash and a restart. A statement that outbox rows are 'written soon after' the commit does not meet this criterion."
+      - "4. Delivery guarantee: the record states at-least-once or at-most-once for a trigger and why, names the idempotency key (built from the outbox row id), states what a script author may assume, and rules on a worker that dies after applying the trigger's result but before marking the row done (no second application of the result)."
+      - "5. Outbox facts: the record names the existing code it read (lib/letflow/engine/script_task_dispatcher.ex with its poller.ex, lib/letflow/engine/service_task_dispatcher.ex with its poller.ex, lib/letflow/dlq.ex; lib/letflow/plugs/api_pipeline.ex is the only lib/ mention of an outbox and names a plug never built), says reuse or separate for each with the reason, and gives the lock mode of the claim query, the lease length (an owner figure or a stated default), the retry cap and the dead-letter state. It states the lock position of the outbox insert and of the result transaction in the lock order of decision 0061."
+      - "6. INV-1: the record states that the outbox table is under the tenant :prefix, that a worker takes the tenant from the row's schema and never from the payload, that the payload holds ids and event type and not record values, and requires an INV-10 cross-tenant negative test in the implementing slice (an outbox row of tenant A is not claimed, listed or counted for tenant B, and an admin listing for tenant B answers byte-identically to a tenant with no rows)."
+      - "7. INV-3: the record states that a trigger runs only under the existing sandbox allow-list, mandatory heap cap and ScriptAdmission with caller monitoring (0053 D7, D8), with the input built by the host and redacted through the field restrictions of the script principal (0053 D5, 0062), and that a value above the D7 maxima is listed under 'Not decided here'."
+      - "8. INV-8: the record maps every executor outcome (script error, instruction budget, memory limit, timeout, invalid output, admission refused, worker crash, kill switch on) and each outbox failure (claim lost, lease expired, tenant schema dropped, result refused by the 0050 or 0051 checks) to a stable code and to the effect on the outbox row; the original write is never undone by a trigger failure; no raw Exception.format or inspect text reaches a tenant. The record requires one test per outcome in the implementing slice and a depth-cap test for trigger loops."
+      - "9. Slice list: the record lists the implementation slices (at least: outbox table and same-transaction insert, claim worker with lease, trigger declaration and pin, script run and result application, failure handling with dead letter and tenant visibility, dry-run and UAT), each with dependencies and a SECURITY-REVIEWER gate marker for every slice that touches a tenant-data path. Each slice is sized to one change."
+      - "10. Consistency and gates: a section 'Consistency with earlier records' lists, for each of 0050, 0051, 0053, 0054, 0061, 0062 and the Record E record, whether Record T amends it and quotes the sentence amended; owner-only questions are listed under 'Not decided here'. SECURITY-REVIEWER and REVIEWER verdicts are recorded; mix letflow.check_requirements_registration and the CI path-filter test pass, real output quoted."
+    open_questions:
+      - "At-least-once or at-most-once delivery for trigger scripts is a product decision with a recommendation from 0053 D5 (no retry of a non-idempotent hook). The record takes it with its reason; if the CODE-DESIGNER finds the choice depends on the owner's tolerance for a lost trigger, it lists it under 'Not decided here'."
+    depends_on: [REQ-539]
   - id: REQ-549
     title: "Module uninstall (core roadmap Wave 3), slice 0: decision record that amends 0039 D5 'No uninstall' and settles what uninstall removes and keeps (soft uninstall, reactivate, orphaned-data reads, data retention)"
     owner: CODE-DESIGNER
@@ -39330,6 +39436,92 @@ requirements:
       - "For the process owner: who owns contracts and legal documents and where they are created, and when the purchase-order record that 0057 D1 gives the module is built (draft section 1, IN-01); whether a line may have several suppliers; the rule for a line cancelled after partial fulfilment; whether recording a supplier, reference or officer on a closed or cancelled request is refused (the draft forbids only physical fulfilment). The UAT assumptions in the description stand until confirmed."
     depends_on: [REQ-544]
 
+  - id: REQ-564
+    title: "Per-tenant print-template overrides, including Kazakhstan print forms (core roadmap, Customization beyond scripts), slice 0: decision record for how a tenant replaces the printed layout of a document type"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3202
+    # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts", bullet "per-tenant form, list and print-template overrides, including KZ print forms"; docs/migration/decisions/0056-versioned-documents.md D5 ("Per-tenant print-template overrides are a later customization candidate ... NOT decided here. This record only reserves template_ref"), D8 (declared_fields, restricted fields), open point 6 (RU/KK wording owner) and the list "Tenant print-template overrides (D5)"; docs/migration/decisions/0053-tenant-scripted-rules.md "Requirement candidates" and candidate (b); lib/letflow/modules/exam/certificate_document.ex (the one in-tree code-built renderer); lib/letflow/documents.ex and lib/letflow/documents/document_type.ex (type registration). Written by the business analyst (T-0492) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap "Customization beyond scripts"; decision 0056 D5, D8 and open point 6;
+      decision 0053 candidate list. The roadmap item names three override kinds: form, list and print
+      template. REQ-550 (the x_ layer record) decides in its D1 which of form and list overrides its layer
+      carries; this requirement owns ONLY the print-template part, including the KZ print forms, and
+      leaves form and list overrides to REQ-550 and its follow-ups.
+      Why it is a decision record first. Decision 0056 D5 is DIRECTION only: templates are code shipped
+      with a module (lib/letflow/modules/exam/certificate_document.ex is a code-built layout, not a
+      template engine), versioned by template_version, and a tenant override is expressly "NOT decided
+      here". Letting a tenant change what is printed on a legal document touches tenant data (INV-1),
+      restricted fields (INV-2), and template injection (0056 threat T10), and the source does not settle
+      the storage, the template language or who authors it. A developer cannot build that in one sitting
+      without these rulings, so this requirement is SLICE 0: its whole deliverable is the decision
+      record, a document under docs/migration/decisions/ with the next free number at the time of the
+      change. It builds no code, no migration, no seed, no route and no test. The implementation is
+      written as separate requirements after the record is accepted; each depends_on this one.
+      WHAT THE RECORD MUST DECIDE (each as a numbered D- section with reasons and sources; where the
+      source does not settle a point the record says "not settled by the source" and puts it to the
+      owner as an open point with options, it does not pick silently):
+      D1 What an override replaces: the layout and labels of a document type's printed output (for
+      example RU and KK wording, column order, headers, logo, footer), versus what it may never touch:
+      the content snapshot, content_hash, numbering, signatures and the declared_fields projection of
+      0056 D8. The record states that an override changes presentation only.
+      D2 Template form and authoring: the options (a structured declarative layout stored as tenant
+      data and interpreted by core; a template language with placeholders; an uploaded file) with the
+      reasons for the one the record recommends, and the 0056 T10 rule (PDF text only, no active
+      content, no scripts) applied to it. The record states that a tenant script (decision 0053) does
+      not author or run a print template.
+      D3 Storage, resolution and :prefix: where an override lives (tenant schema, :prefix scoping,
+      tenant_id carried in each row, INV-1), how a document type's template_ref (0056 D4/D5) resolves
+      to tenant override first and module default second, and what happens when a tenant override is
+      invalid or missing at render time (fail closed or fall back to the module template; the record
+      picks one and gives the reason).
+      D4 Binding to document versions: whether the override version used is recorded on the issued
+      version next to template_version and in the document.issued event, and the rule that a later
+      override change never alters an issued version, whose stored artefact is authoritative and is never
+      regenerated (0056 D5 primary rule). The record states how a reprint of an issued version behaves.
+      D5 Field restrictions in the rendered output (INV-2): an override receives only the projection of
+      content onto the type's declared_fields (0056 D8); the record states that an override cannot widen
+      that projection, that an override naming a field outside it fails the render closed, and that a
+      restriction added after the override was saved makes the next issue refuse.
+      D6 Kazakhstan print forms: the record names which forms are meant, taking the list (З-1 receipt, З-2 release, З-5 movement, Р-1 act, СНТ data set, ТТН) from the Context section of 0056 and the type key kz.z1 from 0056 D1, and it names the RU and KK languages and who owns the official wording.
+      0056 open point 6 and
+      the NF-07 matrix make that a customer decision (Kazakhmys accounting/legal); the record states it
+      as an open owner question with options, and states that the first implementation slice carries
+      the override mechanism but no official KZ wording until the owner answers.
+      D7 Authority and audit: which permission manages overrides, which role holds it, a separation
+      between the person who authors an override and the person who issues documents with it, the
+      audit events written in the same transaction (override saved, activated, retired; payloads carry
+      ids and hashes, never content), and that the management route takes the tenant from the auth
+      context and never from the request (INV-10).
+      D8 Slice plan for the implementation requirements, each sized to one change, each with its
+      depends_on and its tests, and naming SECURITY-REVIEWER as a mandatory gate for every slice.
+      DEPENDENCIES. REQ-550 (x_ layer record: its D1 draws the line between its override kinds and this
+      one, so the record cites that D1 and does not repeat it) and REQ-542 (versioned documents service
+      part 1, where document types, template_ref and the declared_fields projection are registered).
+      Decision 0056 is a source, not a dependency: if the record binds print forms to document versions
+      (D4), it cites 0056 D5 and D8 and does not amend them; any change to 0056 is stated as an
+      amendment in the record header.
+      NOT IN THIS ENTRY: any lib/, web/ or apps/ change, any migration, seed, route or test; the x_
+      field and validation layer (REQ-550); form and list overrides; PDF signature, retention and legal
+      hold (0056 D6, D7); a decision on the official Kazakhstan wording, which stays an open owner point.
+    open_questions:
+      - "Official RU and KK wording of the Kazakhstan print forms (D6): who at the customer owns and signs it off, and which forms apply to which transaction (0056 open point 6, NF-07). Until the owner answers, no slice carries official KZ wording."
+      - "Template form (D2): structured declarative layout, placeholder language or uploaded file. Recommendation to be given in the record; the owner decides if the options differ on cost to the tenant."
+    acceptance_criteria:
+      - "1. One new record exists under docs/migration/decisions/ with the next free four-digit number on origin/main at the time of the change, with a status line and a Sources section listing the files opened (the roadmap row, 0056 D5 and D8, 0053, REQ-550 as registered in docs/requirements.yaml, lib/letflow/modules/exam/certificate_document.ex, lib/letflow/documents/document_type.ex); the diff contains no file under lib/, test/, priv/, web/ or apps/."
+      - "2. The record has sections D1 to D8 as described in this entry, each stating its decision, its reasons and its source, findable by its heading (checked by grep of the headings); it contains no placeholder text and no unmarked guess: a point the sources do not settle is marked 'not settled by the source' and listed as an open owner question."
+      - "3. D3 states the resolution order tenant override then module default and what a render does when the override is invalid, and names the test a later slice must add: a tenant A override is never used to render a document of tenant B, and a request to manage an override for tenant B made with a tenant A credential gets a response indistinguishable from not-found (INV-10, INV-5)."
+      - "4. D4 states whether the override version is recorded on the issued version and in the document.issued event, states that a later override change does not alter an issued version and that the stored artefact is never regenerated, and cites 0056 D5 for the rule."
+      - "5. D5 states that an override receives only the declared_fields projection and names the test a later slice must add: an override that references a restricted field, or a field outside the projection, fails the render closed and the output contains no value of that field (INV-2)."
+      - "6. D6 contains the Kazakhstan question as an open owner question with at least two options and a recommendation, names the forms from 0056 (the forms listed in the Context section of 0056 and the type key kz.z1 of 0056 D1) it refers to, and states that no official wording is shipped before the owner answers."
+      - "7. D2 states that template output is PDF text only with no active content (0056 T10), that a tenant script does not author or run a template (0053), and the chosen template form with the reasons for rejecting the other two."
+      - "8. D7 names the permission and the role that manage overrides, states the authoring-versus-issuing separation or states that it is not settled by the source, lists the audit events, and states that no audit payload carries template content."
+      - "9. D8 lists the implementation slices, each sized to one change, each with its depends_on (at least this requirement, REQ-550 and REQ-542) and its tests, including the cross-tenant negative test of criterion 3 and the redaction test of criterion 5 in the first slice that adds a route or a render path, and names SECURITY-REVIEWER as a mandatory gate for every slice."
+      - "10. The header names this requirement, states that form and list overrides are out of scope and belong to REQ-550 and its follow-ups, and states whether the record amends 0056 (it quotes the sentence replaced) or only builds on it."
+      - "11. mix letflow.check_requirements_registration passes with the REQ-564 entry present, real output quoted."
+    depends_on: [REQ-550, REQ-542]
+
   - id: REQ-561
     title: "Tenant-defined scheduled jobs: a tenant table of recurring jobs that start a published process definition, run by the existing Scheduler.Poller (core roadmap, Customization beyond scripts)"
     owner: ELIXIR-DEV
@@ -39419,6 +39611,131 @@ requirements:
       - "13. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data table, routes and permission) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the new module's tests pass, real output quoted."
     open_questions:
       - "For the process owner: may PROCESS_DESIGNER also create jobs; should a job run as a dedicated service principal instead of its creating user; are the 5-minute minimum interval and the 5-failure automatic disable acceptable. A scheduled job that runs a tenant script needs a new hook kind and a decision record under 0053 D0 and is a later slice."
+    depends_on: []
+
+  - id: REQ-565
+    title: "Tenant integration mappings: declarative payload mapping stored per tenant and applied to outbound webhook deliveries"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3201
+    # Source: docs/migration/core-roadmap-20261014.md, "Customization beyond scripts" ("integration mappings", line 106); lib/letflow/webhooks.ex (deliver/3, redact_payload_for_delivery, attempt_loop); lib/letflow/webhooks/subscription.ex; lib/letflow/webhooks/url_validator.ex; lib/letflow/routers/webhooks.ex; lib/letflow/secrets.ex; docs/agents/instructions/security-invariants.md (INV-1 to INV-5, INV-8 to INV-10); REQ-551 (same roadmap group). Written by the business analyst (T-0490) 2026-10-25. Not yet validated.
+    description: >
+      A tenant cannot today change the shape of the payload that Letflow sends to a partner system.
+      Letflow.Webhooks.deliver/3 (lib/letflow/webhooks.ex) signs and posts the event payload as it is,
+      after redact_payload_for_delivery masks restricted field values. A partner that expects other
+      field names or a flatter body needs custom code on the partner side. The roadmap lists
+      "integration mappings" among the customization candidates that need no script (line 106). This
+      requirement is the smallest slice: a tenant admin stores a declarative mapping, links it to a
+      webhook subscription, and every outbound delivery of that subscription sends the mapped body.
+      No connector, no new transport and no new outbound URL path is added.
+
+      Mapping definition. One tenant-schema table (Ecto :prefix, tenant_id kept in the row, INV-1):
+      name (unique per tenant, 1..100 characters), direction ("outbound" or "inbound"), rules, and
+      the usual timestamps and updated_by. rules is a list of at most 100 rules. A rule is either
+      {to, from} (copy the value at path from of the source payload to path to of the result) or
+      {to, const} (a literal JSON value, string, number, boolean or null). Paths are dot-separated
+      object keys and non-negative array indexes ("order.lines.0.sku"), each at most 200 characters,
+      depth at most 8; the result is built only from the rules, so a source field that no rule names
+      is not sent. A missing source path gives the rule result "absent": the key is left out of the
+      result. A rule may add "required": true, in which case a missing source path is a mapping
+      failure. There is no expression language, no function call, no template and no script: the
+      mapping is data, evaluated by one pure function of the new context module
+      (Letflow.IntegrationMappings, lib/letflow/integration_mappings.ex), so the untrusted-runtime
+      rule INV-3 does not apply to it (nothing tenant-supplied is executed). The apply function takes
+      the mapping and a payload map and returns {:ok, mapped_map} or {:error, reason}; it has no
+      side effect, no network access and no database access.
+
+      Directions. "outbound" is applied by this change to webhook deliveries. "inbound" is stored and
+      validated by the same rules and is applied by the same apply function, but no inbound webhook
+      receiver exists on main (grep for an inbound route in lib/letflow/routers/ finds none; decision
+      0051 only mentions inbound webhooks as a future reader of records), so wiring an inbound
+      mapping to a receiver, a record write or a process variable is a later requirement candidate
+      that depends on the receiver. This change therefore stores inbound mappings but nothing calls
+      them yet; the apply function's output is a plain map that a later receiver passes on.
+
+      Outbound application. The Webhooks subscription gets a nullable reference to one outbound
+      mapping of the same tenant. When set, deliver/3 applies the mapping to the payload after
+      redact_payload_for_delivery and before the body is encoded and signed, so a mapping can never
+      put back a field value that the redaction masked, and the HMAC signature is that of the mapped
+      body. Delivery rows hold no body; the only stored copy of a payload is the DLQ entry's
+      source_payload written by land_in_dlq after the last attempt fails, and that copy is the mapped
+      body. When unset, behaviour and the signed bytes are
+      unchanged (backward compatible). The mapping touches the body only: the target URL stays the
+      subscription's target_url, which keeps passing Letflow.Webhooks.UrlValidator.validate/2 on
+      every attempt (INV-9); no rule can set a URL, a header or a host.
+
+      Secrets (INV-4). A mapping holds no credentials. Rule constants are public configuration: they
+      are stored as plain JSON, are shown to every holder of the permission, are not routed through
+      Letflow.Secrets, and may be logged and audited. The signing key of a delivery stays resolved by
+      reference (subscription.secret_ref, Letflow.Secrets.resolve/2) as today. The module doc states
+      that a secret must never be written as a const; the stored mapping is not scanned for secrets.
+
+      Failure path (INV-8). If the apply function returns an error (a required path is missing, or
+      the mapped body is not encodable, or its encoded size is over 256 KB), deliver/3 returns
+      {:error, {:mapping_failed, reason}} where reason is a short atom or tuple naming the rule
+      index and the failed check and never contains payload values; no HTTP request is made, no
+      delivery attempt is counted toward the auto-pause threshold, and, like a redaction failure
+      ({:redaction_failed, _}), the error is returned before any attempt loop starts (fail closed, no
+      delivery row). If the linked mapping row is missing at delivery time (deleted in
+      between), the delivery fails closed the same way with reason :mapping_not_found and the
+      original payload is not sent.
+
+      Management routes (tenant comes from the auth context only; no route takes a tenant
+      identifier): POST /api/v1/integration-mappings, GET /api/v1/integration-mappings,
+      GET /api/v1/integration-mappings/:id, PUT /api/v1/integration-mappings/:id,
+      DELETE /api/v1/integration-mappings/:id. All five need the new permission atom
+      :IntegrationMappingsManage, a new tenant-scope permission (so TENANT_ADMIN holds it through the
+      tenant-scope rule and PLATFORM_ADMIN through its unconditional clause in
+      lib/letflow/api/authorization.ex; no other role). Reusing :WebhooksManage is not an option,
+      because PROCESS_OPERATOR holds it. Setting the mapping of a subscription uses the existing route
+      PATCH /api/v1/webhooks/subscriptions/:id (lib/letflow/routers/webhooks.ex), a new optional field
+      outbound_mapping_id; that route is guarded by the endpoint policy key
+      :WebhookSubscriptionsManage, which requires the permission :WebhooksManage
+      (required_permission/1 in lib/letflow/api/authorization.ex). Because PROCESS_OPERATOR holds
+      :WebhooksManage but not :IntegrationMappingsManage, a PATCH whose body contains
+      outbound_mapping_id (set or null) additionally needs :IntegrationMappingsManage and answers the
+      uniform 403 without it; a PATCH without that field is unchanged. The id must name an outbound mapping of the caller's tenant, else 422 with the uniform
+      validation error. DELETE of a mapping that a subscription still references answers 409 and
+      deletes nothing. Each create, update and delete is audited through lib/letflow/audit.ex with
+      mapping id, name, direction and the actor.
+
+      Relation to existing work. It extends the webhooks context (REQ-181, REQ-183, REQ-190) at one
+      point (the payload step of deliver/3) and adds one column to webhook_subscriptions; it does not
+      change dispatch, retry, signing, auto-pause or the DLQ. It does not touch the HTTP service task
+      path (Letflow.Engine.ServiceTaskDispatcher) or the service catalog; mapping the body of a
+      service task call is a later candidate. Relation to REQ-551 (tenant label overrides): both
+      belong to the roadmap group "Customization beyond scripts" and REQ-551 names integration
+      mappings as a later candidate that is not in its diff. There is no code or data dependency:
+      depends_on is empty, the two touch different tables, routes and permissions, and neither
+      reuses the other's module. They follow the same pattern (a new tenant table, a new tenant admin
+      permission, plain data and no execution) so their security reviews can use the same checklist.
+
+      Not in this change, each a later requirement candidate: an inbound webhook receiver and
+      applying an inbound mapping to a record or a process variable; mapping for service task calls;
+      transforms (formatting, concatenation, lookup tables); a mapping editor screen; per-event-type
+      mappings (this slice maps every event type of a subscription with the one mapping); a test-send
+      route; scheduled jobs; notification templates.
+    acceptance_criteria:
+      - "1. Apply function: Letflow.IntegrationMappings.apply_mapping/2 (lib/letflow/integration_mappings.ex; the name avoids Kernel.apply/2) is pure and covered by a table-driven unit test: a {to, from} rule copies a nested value, including an array element by index; a {to, const} rule writes the literal (string, number, boolean, null); a missing source path leaves the key out of the result; with \"required\": true a missing source path returns {:error, {:required_missing, rule_index}}; a source field that no rule names is absent from the result; two rules with the same to path are refused when the mapping is saved (criterion 2), so the function never sees them."
+      - "2. Definition validation: create and update answer 422 with a uniform error body and store nothing for: an empty or over-100-character name, a name already used by another mapping of the tenant, a direction other than outbound or inbound, more than 100 rules (exactly 100 is accepted), a path over 200 characters or deeper than 8 segments, a rule with neither from nor const or with both, a path segment that is empty or has a character other than letters, digits, underscore and hyphen, two rules with the same to path or where one to path is a prefix of another, and a rule key other than to, from, const and required. A test covers each case and the boundaries 100/101 rules and 8/9 segments."
+      - "3. Declarative only: the module doc and a test show that the mapping is never evaluated as code: a const or a path containing text such as \"#{1+1}\", \"{{x}}\", \"$(x)\" or a JSON-path filter expression is stored and returned as inert text, and a from path containing such text is refused by the path rule of criterion 2. The diff adds no use of Code.eval_*, no call into the script sandbox and no new dependency."
+      - "4. Storage (INV-1, INV-6): mappings live in one table of the tenant schema created through the repository's usual tenant-migration path (existing tenants get it, no existing row altered), with tenant_id in the row and a unique index on name; the nullable outbound_mapping_id column is added to the tenant's webhook_subscriptions table through the same path, null for every existing row; every Repo call of the new context passes the tenant :prefix, and the summary quotes the grep that lists the Repo calls of the module and shows each passes it. A test with two tenants that store a mapping of the same name shows each lists and reads only its own."
+      - "5. Outbound application and ordering: with a subscription linked to a mapping, a test of Letflow.Webhooks.deliver/3 using the setup of test/letflow/webhooks_delivery_test.exs asserts that the request body is the mapped map and that the X-Letflow-Signature header is the HMAC of exactly those body bytes; when all attempts fail, the DLQ entry's source_payload written by land_in_dlq is the mapped body. A test using the setup of test/letflow/webhooks_redaction_test.exs, with a payload whose restricted field value is masked by redact_payload_for_delivery, asserts that a rule copying that field sends the masked value, never the original."
+      - "6. Backward compatibility: with outbound_mapping_id null, a delivery sends the same body bytes and signature as before this change; the existing tests of test/letflow/webhooks_delivery_test.exs, test/letflow/webhooks_redaction_test.exs and test/letflow/webhooks_test.exs pass unchanged."
+      - "7. Failure path (INV-8): a delivery whose mapping fails on a required path returns {:error, {:mapping_failed, {:required_missing, rule_index}}}; a delivery whose mapped body encodes over 256 KB returns {:error, {:mapping_failed, :body_too_large}}; a delivery whose linked mapping row no longer exists returns {:error, {:mapping_failed, :mapping_not_found}}. In all three no HTTP request is made, consecutive_failures of the subscription is unchanged, no payload value appears in the returned error or in the log, and the error is returned before any attempt loop starts, as for {:redaction_failed, _}. No exception escapes deliver/3."
+      - "8. Outbound URL unchanged (INV-9): a test shows that a mapping with a rule whose to path is url, target_url or host changes only the body key of that name, and that the request still goes to the subscription's target_url and still passes through Letflow.Webhooks.UrlValidator.validate/2 (test/letflow/webhooks/url_validator_test.exs and the private-address tests of test/letflow/routers/webhooks_test.exs still pass unchanged). The diff adds no outbound call path and no new place that reads a URL from a mapping."
+      - "9. Secrets by reference (INV-4): the signing key is still resolved by Letflow.Secrets.resolve/2 from subscription.secret_ref; a test shows that the mapping table has no column that holds a credential and that the signing key does not appear in a mapping response, in the audit event or in a mapping_failed error. The module doc states that rule constants are public configuration, not secrets, and that a secret must never be written as a const."
+      - "10. Permission (INV-2): :IntegrationMappingsManage is added to @permissions (not to @platform_permissions) in lib/letflow/api/authorization.ex, so TENANT_ADMIN holds it through the tenant-scope rule and PLATFORM_ADMIN through its unconditional clause; it is not granted to any role except TENANT_ADMIN and PLATFORM_ADMIN. docs/roles.md and the route-scope inventory are updated in step. A TENANT_ADMIN gets 201, 200 and 204 on the five routes; TASK_WORKER, TENANT_AUDITOR, PROCESS_DESIGNER and PROCESS_OPERATOR get 403 on all five. No test or fixture grants PLATFORM_ADMIN to a tenant user."
+      - "11. Not-found versus forbidden (INV-5): a caller without the permission gets the uniform 403 on GET, PUT and DELETE of an id that exists and of an id that does not, with identical status, body and content-type header (a test compares them within one run). For a holder, GET, PUT and DELETE of an id that does not exist in the caller's tenant answer one fixed not-found reply, the same for an id that exists only in another tenant."
+      - "12. Link rules: PATCH /api/v1/webhooks/subscriptions/:id with outbound_mapping_id of an inbound mapping, of a mapping of another tenant, or of an unknown id answers 422 with the same uniform validation error for the three cases and changes nothing; with an outbound mapping of the tenant it stores the link; with null it clears it. DELETE of a mapping that a subscription references answers 409 and deletes nothing; after the link is cleared, DELETE answers 204. A PROCESS_OPERATOR (holds :WebhooksManage, not :IntegrationMappingsManage) gets the uniform 403 when the body contains outbound_mapping_id, set or null, and the link is unchanged; the same PROCESS_OPERATOR PATCHing another field of the subscription still succeeds as before."
+      - "13. Cross-tenant negative test (INV-10): the routes take no tenant identifier; a test with a mapping stored only in tenant A shows that a TENANT_ADMIN of tenant B gets the fixed not-found reply for GET, PUT and DELETE of its id (the same reply as for an unknown id) and sees nothing of it in the list, that tenant A's mapping is unchanged afterwards, that a subscription of tenant B cannot be linked to it (criterion 12), and that a tenant_id in the query or body is ignored and the token's tenant is used."
+      - "14. Audit: create, update and delete each write an audit event with mapping id, name, direction and the acting principal in the same transaction as the change; a test reads the event and finds no other tenant's data and no rule constants."
+      - "15. Scope guard: the diff contains no inbound route or receiver, no change to Letflow.Engine.ServiceTaskDispatcher or the service catalog, no SPA change, no change to dispatch, retry, signing or auto-pause logic, and no new dependency; the PR body lists the later candidates named in the description."
+      - "16. Gates: SECURITY-REVIEWER verdict (INV-1, INV-2, INV-4, INV-5, INV-6, INV-9, INV-10; new tenant table, permission, routes and a change on the webhook payload path) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static, mix letflow.check_requirements_registration, the new backend test files and test/letflow/webhooks_test.exs, the route-count and authz pins found by grep over test/ for __authz_routes__ and length(snapshot), and any test that pins the webhook_subscriptions column list (grep the column names across test/) pass, real output quoted."
+    open_questions:
+      - "UAT assumption, to be confirmed by the process owner: the limits (100 rules, 8 path segments, 200-character path, 256 KB body) and the rule set (copy, constant, required; no transforms) are chosen by the BA from the source above, not set by a decision record."
+      - "For the process owner: when an inbound webhook receiver is wanted and which record type or process variables it fills; this slice stores inbound mappings but nothing calls them."
     depends_on: []
   - id: REQ-566
     title: "Tenant-owned record types (core roadmap, Customization beyond scripts), slice 0: decision record for per-type write permission, 0051 scope declaration, module references by id, and generated lists, forms and lookups"
