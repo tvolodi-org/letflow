@@ -7,12 +7,10 @@ DELETE /script-rules/:key/versions/:version ScriptsWrite
 DELETE /webhooks/subscriptions/:id WebhookSubscriptionsManage
 GET /admin/services AdminServicesRead
 GET /audit AuditRead
-GET /definitions DefinitionsRead
 GET /definitions/:id DefinitionsRead
 GET /definitions/:id/export DefinitionsRead
 GET /definitions/active/:name DefinitionsRead
 GET /definitions/delta DefinitionsRead
-GET /definitions/search DefinitionsRead
 GET /dlq DlqReadRetryDiscard
 GET /dlq/:id DlqReadRetryDiscard
 GET /event-retention/retirements/:id TenantsManage

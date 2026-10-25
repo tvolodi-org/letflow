@@ -31,7 +31,9 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     "GET /me/memberships" => "0051-A7",
     "GET /me/modules" => "SEC-518-R2-modules",
     "GET /me/access" => "SEC-REQ-449-access",
-    "GET /help/resolved" => "SEC-518-R2-help"
+    "GET /help/resolved" => "SEC-518-R2-help",
+    "GET /definitions" => "SEC-525-R01",
+    "GET /definitions/search" => "SEC-525-R04"
   }
 
   setup_all do
@@ -62,7 +64,10 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
       assert length(mine) >= 3
 
       assert mine |> Enum.map(&"#{&1.method} #{&1.path}") |> Enum.sort() ==
-               Enum.sort(Map.keys(@expected_rulings))
+               @expected_rulings
+               |> Map.keys()
+               |> Enum.filter(&String.contains?(&1, ["/me/", "/help/"]))
+               |> Enum.sort()
 
       assert default_sourced_self_service(routes) == []
     end
@@ -100,7 +105,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     test "the committed list has no :pending_sec_ruling entry and no blank ruling" do
       list = RouteScope.self_service_routes()
 
-      assert length(list) == 4
+      assert length(list) == 6
       assert pending(list) == []
       assert unruled(list) == []
       assert Enum.all?(list, &is_binary(&1.ruling))
@@ -128,7 +133,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     end
   end
 
-  describe "T-RW3 the four routes and their rulings" do
+  describe "T-RW3 the six routes and their rulings" do
     test "each is :self_service with exactly its ruling id", %{routes: routes} do
       list = RouteScope.self_service_routes()
 
@@ -138,6 +143,12 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
       for route <- routes, self_service_path?(route.path) do
         assert route.class == :self_service, "#{route.method} #{route.path}"
         assert route.source == :declared, "#{route.method} #{route.path}"
+      end
+
+      for path <- ["/definitions", "/definitions/search"] do
+        route = Enum.find(routes, &(&1.method == "GET" and &1.path == path))
+        assert route.class == :self_service, path
+        assert route.source == :declared, path
       end
     end
   end

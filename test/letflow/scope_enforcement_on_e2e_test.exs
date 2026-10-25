@@ -54,7 +54,7 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
   alias Letflow.TenantFixture
 
   @flag_path "/api/v1/tenant/scope-enforcement"
-  @tenant_wide_route "/api/v1/definitions"
+  @tenant_wide_route "/api/v1/services"
   @self_service_route "/api/v1/me/memberships"
   @admin_plane_route "/api/v1/identity/tokens"
   @platform_route "/api/v1/tenants"
@@ -147,7 +147,7 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
   # --- T-Z0 ---------------------------------------------------------------------------------------
 
   describe "T-Z0 the route walk is green first (AC 22)" do
-    test "audit_routes/3 is [] and no /me or /help route is default-sourced or pending" do
+    test "audit_routes/3 is [] and no /me, /help or ruled /definitions route is default-sourced or pending" do
       routes = RouteInventory.routes()
 
       assert RouteScope.audit_routes(routes, RouteInventory.read_snapshot()) == []
@@ -155,12 +155,165 @@ defmodule Letflow.ScopeEnforcementOnE2eTest do
       self_service =
         Enum.filter(
           routes,
-          &(String.starts_with?(&1.path, "/me") or String.starts_with?(&1.path, "/help"))
+          &(String.starts_with?(&1.path, "/me") or String.starts_with?(&1.path, "/help") or
+              (&1.method == "GET" and &1.path in ["/definitions", "/definitions/search"]))
         )
 
-      assert length(self_service) == 4
+      assert length(self_service) == 6
       assert Enum.all?(self_service, &(&1.class == :self_service and &1.source == :declared))
       assert Enum.all?(RouteScope.self_service_routes(), &is_binary(&1.ruling))
+    end
+  end
+
+  # --- REQ-545 (GH #2535, IMPL-525-A): GET /definitions and /definitions/search -----------------
+
+  @collection_routes ["/api/v1/definitions", "/api/v1/definitions/search?q=req545"]
+  @event [:letflow, :scope, :shadow, :would_deny]
+
+  @doc false
+  def handle_event(_event, measurements, metadata, {pid, ref}) do
+    if self() == pid, do: send(pid, {:would_deny, ref, measurements, metadata})
+    :ok
+  end
+
+  defp definition!(schema, name) do
+    graph = %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [%{"id" => "e1", "source" => "start", "target" => "end"}]
+    }
+
+    {:ok, definition} =
+      Letflow.Definitions.create_with_variable_schemas(
+        %{name: name, version: "1.0.0", graph: graph, created_by: Ecto.UUID.generate()},
+        [],
+        prefix: schema
+      )
+
+    definition
+  end
+
+  defp role_user!(fx, sub, roles) do
+    user = user_of!(fx, sub)
+    _ = TokenMintFixture.grant_roles!(fx.schema_name, user.id, roles)
+    user
+  end
+
+  # The comparable form of a response: status, headers and body. The per-request trace id (header
+  # `x-trace-id`, problem body `trace_id`) is the only part allowed to differ.
+  defp wire(conn) do
+    body = conn.resp_body |> Jason.decode!() |> Map.delete("trace_id")
+    {conn.status, List.keydelete(conn.resp_headers, "x-trace-id", 0), body}
+  end
+
+  defp shape(%{} = map), do: Map.new(map, fn {k, v} -> {k, shape(v)} end)
+  defp shape([first | _]), do: [shape(first)]
+  defp shape([]), do: []
+  defp shape(v) when is_binary(v), do: :string
+  defp shape(v) when is_number(v), do: :number
+  defp shape(nil), do: nil
+  defp shape(v) when is_boolean(v), do: :boolean
+
+  describe "REQ-545 the definition collection reads are :self_service" do
+    test "under on a scoped DefinitionsRead holder gets 200 on both routes, with the tenant-wide holder's shape; the other definition reads still refuse" do
+      fx = oidc_tenant!("req545-on")
+      _admin = admin!(fx, "r545-admin")
+      _worker = scoped_worker!(fx, "r545-worker")
+      _ = definition!(fx.schema_name, "req545-alpha")
+      :ok = ScopeEnforcementFixture.set_stored_mode!(fx.tenant_id, :on)
+
+      for path <- @collection_routes do
+        scoped = get(fx, "r545-worker", path)
+        wide = get(fx, "r545-admin", path)
+        assert scoped.status == 200, scoped.resp_body
+        assert wide.status == 200
+        assert [_ | _] = json(scoped)["items"]
+        assert shape(json(scoped)) == shape(json(wide)), path
+        assert Map.keys(json(scoped)) |> Enum.sort() == ["items", "next_cursor"]
+      end
+
+      id = Ecto.UUID.generate()
+      assert forbidden?(get(fx, "r545-worker", "/api/v1/definitions/#{id}/export"))
+
+      assert forbidden?(
+               request(fx, "r545-worker", :post, "/api/v1/definitions/#{id}/validate", %{})
+             )
+
+      assert forbidden?(get(fx, "r545-worker", "/api/v1/definitions/#{id}"))
+    end
+
+    test "a principal without DefinitionsRead gets the 403 of the unchanged export route on both routes, in a tenant with and without definitions" do
+      full = oidc_tenant!("req545-403a")
+      empty = oidc_tenant!("req545-403b")
+      _ = definition!(full.schema_name, "req545-beta")
+
+      for fx <- [full, empty], role <- ["AGENT_RUNNER", "CANDIDATE"] do
+        sub = "r545-" <> String.downcase(role)
+        _ = role_user!(fx, sub, [role])
+        :ok = ScopeEnforcementFixture.set_stored_mode!(fx.tenant_id, :on)
+
+        reference = get(fx, sub, "/api/v1/definitions/#{Ecto.UUID.generate()}/export")
+        assert forbidden?(reference)
+
+        for path <- @collection_routes do
+          got = get(fx, sub, path)
+          assert wire(got) == wire(reference), "#{role} #{path}"
+        end
+      end
+    end
+
+    test "a tenant B holder, scoped or tenant-wide, sees nothing of tenant A; a name known only to A answers as a name known nowhere" do
+      a = oidc_tenant!("req545-xa")
+      b = oidc_tenant!("req545-xb")
+      _ = definition!(a.schema_name, "req545-only-in-a")
+      _ = definition!(b.schema_name, "req545-in-b")
+      before_a = Repo.all(Letflow.Definitions.ProcessDefinition, prefix: a.schema_name)
+
+      _ = admin!(b, "r545-b-admin")
+      _ = scoped_worker!(b, "r545-b-worker")
+      :ok = ScopeEnforcementFixture.set_stored_mode!(b.tenant_id, :on)
+
+      for sub <- ["r545-b-admin", "r545-b-worker"] do
+        list = get(b, sub, "/api/v1/definitions")
+        assert list.status == 200
+        refute list.resp_body =~ "req545-only-in-a"
+
+        known_to_a = get(b, sub, "/api/v1/definitions/search?q=req545-only-in-a")
+        nowhere = get(b, sub, "/api/v1/definitions/search?q=zzz-nowhere-at-all")
+        assert known_to_a.status == 200
+        assert json(known_to_a)["items"] == []
+        assert wire(known_to_a) == wire(nowhere)
+      end
+
+      assert Repo.all(Letflow.Definitions.ProcessDefinition, prefix: a.schema_name) == before_a
+    end
+
+    test "under shadow both routes are counted as requests and produce no would-deny for a scoped holder" do
+      fx = oidc_tenant!("req545-sh")
+      _ = scoped_worker!(fx, "r545-sh-worker")
+      :ok = ScopeEnforcementFixture.set_stored_mode!(fx.tenant_id, :shadow)
+
+      ref = make_ref()
+      :telemetry.attach({__MODULE__, ref}, @event, &__MODULE__.handle_event/4, {self(), ref})
+      on_exit(fn -> :telemetry.detach({__MODULE__, ref}) end)
+
+      requests = fn ->
+        Letflow.Api.Scope.ShadowEvidence.flush()
+        today = Date.utc_today()
+
+        Letflow.Api.Scope.ShadowEvidence.counts_between(fx.schema_name, today, today).requests
+      end
+
+      # warm-up: the first request provisions the user
+      _ = get(fx, "r545-sh-worker", "/api/v1/me/memberships")
+      before = requests.()
+
+      for path <- @collection_routes, do: assert(get(fx, "r545-sh-worker", path).status == 200)
+
+      assert requests.() - before == 2
+      refute_received {:would_deny, ^ref, _, _}
     end
   end
 
