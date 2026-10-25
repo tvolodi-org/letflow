@@ -92,7 +92,7 @@ A stock ledger writable through the generic route would bypass every module chec
 |---|---|---|
 | Generic list, pivot and graph views and a report builder over entities | yes (new) | Odoo's main breadth lever. |
 | Solution versioning and per-tenant overrides | yes (amends 0039 D7) | |
-| Module uninstall | yes (new): follow-up record to 0055, after `managed_by` (#2530) | Split out of 0055 (D11). 0039 D5 "No uninstall" stands until that record is ratified. |
+| Module uninstall | yes (new): follow-up record to 0055, after `managed_by` (#2530) | Split out of 0055 (D11). 0039 D5 "No uninstall" stands until that record is ratified. Record: [0066](decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md) (proposed). |
 | Form-hook scripts (server-side form validation) and after-commit entity-event triggers via outbox | 0053 | Invocation points 3 and 4. |
 
 ## Customization beyond scripts
