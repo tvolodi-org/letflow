@@ -115,6 +115,18 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       end
     end
 
+    test "a /definitions route is not reported as :self_service_not_listed (walk prefixes stay /me and /help)" do
+      for path <- ["/definitions", "/definitions/search"] do
+        route = declared_row(:tenant_wide, %{path: path, router: Letflow.Routers.Instances})
+
+        refute Enum.any?(
+                 RouteScope.audit_routes([route], [], []),
+                 &match?({:self_service_not_listed, _}, &1)
+               ),
+               path
+      end
+    end
+
     test "an unlisted route is reported once per route, with the row itself" do
       first = declared_row(:tenant_wide, %{path: "/me/a"})
       second = declared_row(:tenant_wide, %{path: "/help/b", router: Letflow.Routers.Help})

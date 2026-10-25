@@ -10,7 +10,8 @@ defmodule Letflow.Api.RouteScope do
     * `{:resolver, {module, function}}` -- the scope comes from the loaded resource
       (`module.function/1`, REQ-518 defines the resolvers). Passes through `Authorize`.
     * `:filter` -- a list endpoint whose handler applies the scope (REQ-518). Passes through.
-    * `:self_service` -- tenant-level, non-sensitive, role-independent reads (defined and
+    * `:self_service` -- tenant-level, non-sensitive reads that do not depend on the caller's
+      scope rows; the coarse permission of the policy key still applies (defined and
       assigned by REQ-518 AC 21; the ruled list is `@self_service_routes`, below). Passes
       through after the coarse allow. DEFINITION: the response is either the caller's own
       principal data or tenant-level metadata with no per-resource data (no entity record, task,
@@ -142,14 +143,19 @@ defmodule Letflow.Api.RouteScope do
   # change what `self_service_routes/0` returns. Rules the walk applies to the list (a pending
   # ruling must not stand on a route that is not `:tenant_wide`, the REQ-519 AC 9 blocker) are
   # still the walk's job; this module refuses only what the walk cannot state as a shape.
+  # The guard checks the path shape only: a route must sit under /me, /help or /definitions
+  # (path-segment match); it does not rule on whether a route is safe as :self_service.
   defmodule SelfServiceEntry do
     @moduledoc false
 
     @fields [:class, :key, :route, :ruling]
     @methods ~w(GET POST PUT PATCH DELETE)
-    @prefixes ["/me", "/help"]
+    @prefixes ["/me", "/help", "/definitions"]
 
-    @typedoc "One ruled `/me` or `/help` route: `route` is `\"METHOD FULL_PATH\"`."
+    @typedoc """
+    One ruled `/me`, `/help` or `/definitions` route: `route` is `"METHOD FULL_PATH"`. The guard
+    checks the path shape only.
+    """
     @type t :: %{
             route: String.t(),
             key: atom(),
@@ -196,7 +202,7 @@ defmodule Letflow.Api.RouteScope do
               {:error, "unknown method in route #{inspect(route)}"}
 
             not Enum.any?(@prefixes, &(path == &1 or String.starts_with?(path, &1 <> "/"))) ->
-              {:error, "route #{inspect(route)} is not under /me or /help"}
+              {:error, "route #{inspect(route)} is not under /me, /help or /definitions"}
 
             true ->
               :ok
