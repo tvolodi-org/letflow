@@ -437,6 +437,8 @@ defmodule Letflow.Api.Authorization do
           | :ScriptPolicyRead
           | :ScriptPolicyManage
           | :ScriptRulesConfirm
+          | :EntityTypeHooksList
+          | :EntityTypeHooksManage
           | :UnmatchedPlatformPath
           | :UnmatchedRoute
           | :Unknown
@@ -1183,6 +1185,15 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/script-rules/:key/versions/:version/confirm"),
     do: :ScriptRulesConfirm
 
+  # REQ-567 part 2 (GH #3217, decision 0065 D4, D7): entity pre-write hook bindings
+  # (Letflow.Routers.EntityTypeHooks). List needs :ScriptsWrite; bind, rebind and unbind
+  # need :ScriptsPublish.
+  def endpoint_policy_key("GET", "/entity-type-hooks"), do: :EntityTypeHooksList
+
+  def endpoint_policy_key(method, "/entity-type-hooks/:entity_type")
+      when method in ["PUT", "DELETE"],
+      do: :EntityTypeHooksManage
+
   # GH 2534 PR 7b-2a (decision 0053 D5, D7): the tenant's script policy
   # (Letflow.Routers.ScriptPolicy, mounted at /script-policy). Distinct route keys over
   # existing permissions (design P3): reads -> :ScriptsWrite, writes -> :ScriptsPublish. 0051
@@ -1521,6 +1532,9 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:ScriptPolicyManage), do: :ScriptsPublish
   # GH 2534 PR 7b-2b (decision 0053 D6): confirm a self-published version.
   def required_permission(:ScriptRulesConfirm), do: :ScriptsPublish
+  # REQ-567 part 2: entity pre-write hook binding routes over the script permissions.
+  def required_permission(:EntityTypeHooksList), do: :ScriptsWrite
+  def required_permission(:EntityTypeHooksManage), do: :ScriptsPublish
   def required_permission(:MyModulesRead), do: :MyModulesRead
   def required_permission(:MyAccessRead), do: :MyAccessRead
 
