@@ -40139,6 +40139,8 @@ requirements:
       deleted. The record states which of these is a refusal and which a warning, in the vocabulary of 0055
       (plan, tripwire, warnings). It states what a running instance does (0055 D6: an instance keeps the
       definition version it started on).
+      The record states that 0055 D4 and D8 item 2 name the x_ layer, process definitions and scripts, and
+      that it extends the same never-write, never-reorder, never-delete rule to attachment rows.
       D5 BOUNDARY against REQ-562 (per-tenant override at pack and process-definition level). The record states
       in its own words what a declared extension point adds that an override does not: an override changes or
       replaces content of a definition the module installed (a stored layer merged over it or an edited
@@ -40151,10 +40153,11 @@ requirements:
       and validation-level x_ layer) and states that extension points do not add fields or validations.
       D6 Authority and audit: which permission and role attach, publish and detach (existing permission, or
       a new one with the golden file effect named); that a tenant script attached through a point is published
-      by a person (0053 D1, D7) and is never activated by a module; how attach, detach, and the skip of an
+      by a person (0053 D1 publisher, D6 ScriptsPublish and scripts.sod) and is never activated by a module; how attach, detach, and the skip of an
       inactive attachment are audited.
       D7 Tenant isolation and sandbox. INV-1: attachment rows live in the tenant schema under the Ecto
-      :prefix, tenant_id kept in each row, every route takes the tenant from the auth context and never from
+      :prefix, no tenant_id column (0006 D2, as script_rules in 0053 D1) and no caller-supplied tenant id
+      (INV-1(c), 0055 D8 item 7), every route takes the tenant from the auth context and never from
       the request, and the module's declaration (global) is read-only to every tenant. INV-3: a script attached
       at a point runs only in the existing sandbox with the limits of 0053 D7 and D11, with no wider host
       surface than 0053 D4 gives a service_task script. INV-5 and INV-10: a user of tenant B cannot read,
@@ -40177,7 +40180,7 @@ requirements:
       - "5. D4 states that an attachment survives a module upgrade that keeps the point's name and kind, names which upgrade changes are refusals and which are warnings, states that an attachment on a removed or renamed point is kept inactive and listed and never deleted, and cites 0055 D4, D6 and D8 for each rule."
       - "6. D3 lists every engine file or module a code slice is expected to touch and, for each, the paragraph of 0053 or 0054 that allows it; a needed engine change that neither record allows appears as an open point and not as a decision. The record states that the REQ-045 decision (no supervised process per workflow instance) is unchanged."
       - "7. D5 is a boundary section: it states in its own words what a declared extension point adds that a per-tenant process-definition override does not, and what an override can do that an extension point cannot; it cites the record of REQ-562 by its number, or, if that record does not yet exist on main, names REQ-562 and leaves a marked slot for the number that the implementing author fills from main; it cites the record of REQ-550 and states that extension points add no fields or validations; the records state no contradictory rule about which side owns a given customisation."
-      - "8. D7 names INV-1 and INV-3 by id and states, for each, the rule that binds the code slices (tenant schema with Ecto :prefix and tenant_id in each row, tenant from the auth context only; sandboxed execution with the 0053 limits). It requires every code slice that adds a route to carry a cross-tenant negative test (INV-10): a user of tenant B cannot read, attach to, change or detach tenant A's attachment and gets the same not-found as for an absent id (INV-5)."
+      - "8. D7 names INV-1 and INV-3 by id and states, for each, the rule that binds the code slices (tenant schema with Ecto :prefix, no tenant_id column per 0006 D2 as script_rules in 0053 D1, no caller-supplied tenant id per INV-1(c) and 0055 D8 item 7, tenant from the auth context only; sandboxed execution with the 0053 limits). It requires every code slice that adds a route to carry a cross-tenant negative test (INV-10): a user of tenant B cannot read, attach to, change or detach tenant A's attachment and gets the same not-found as for an absent id (INV-5)."
       - "9. D9 lists the code slices expected, each sized to one change with its depends_on (at least this requirement, REQ-550 and REQ-562 and their accepted records), names SECURITY-REVIEWER as a mandatory gate for each slice that adds a route, a table or a run-time path, and states that none of them is filed or built by this slice. The record contains no implementation code."
       - "10. The record's Sign-off section (as in decision 0055) carries a REVIEWER verdict and a SECURITY-REVIEWER verdict, because the record sets tenant-data storage, authorisation and sandbox rules."
       - "11. The change does not modify docs/requirements.yaml; mix letflow.check.static passes and any test that scans docs/migration/decisions for headings or numbering is run, real output quoted."
