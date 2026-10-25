@@ -132,7 +132,13 @@ defmodule Letflow.Api.RouteScope do
   # AC 19: every route of these routers is CLASSIFIED (declared or admin key table); a default-
   # sourced one fails `:data_route_default`, so a route added without a class breaks the build.
   # REQ-518 PR 2d added `Letflow.Routers.Tasks` together with the classification of its seven routes.
-  @data_routers [Letflow.Routers.Entities, Letflow.Routers.Tasks, Letflow.Routers.Documents]
+  # REQ-555 added `Letflow.Routers.EntityViews` with its five `:tenant_wide` routes.
+  @data_routers [
+    Letflow.Routers.Entities,
+    Letflow.Routers.Tasks,
+    Letflow.Routers.Documents,
+    Letflow.Routers.EntityViews
+  ]
 
   # `:self_service` routes are allowed from REQ-518 PR 2c-i-b (AC 21); WHICH routes is the
   # committed `@self_service_routes` list below (SEC F-1).

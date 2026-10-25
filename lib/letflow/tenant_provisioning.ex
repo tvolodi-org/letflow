@@ -844,7 +844,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-541 / GH #3160: number sequences bound to a record type (definitions, counters, allocation log
     # and the counter-only-grows trigger). Empty tables for existing tenants; no row altered.
     {20_261_025_200_001, Letflow.Repo.Migrations.CreateNumberSequences,
-     "20261025200001_create_number_sequences.exs"}
+     "20261025200001_create_number_sequences.exs"},
+    # REQ-555 / GH #3157 (decision 0066): saved list view definitions (`entity_views`). Empty table
+    # for existing tenants; no row altered.
+    {20_261_025_300_001, Letflow.Repo.Migrations.CreateEntityViews,
+     "20261025300001_create_entity_views.exs"}
   ]
 
   @doc """

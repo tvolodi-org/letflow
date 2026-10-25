@@ -78,6 +78,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.Dlq, "/dlq", :post, "/:id/retry", :route},
     {Letflow.Routers.Webhooks, "/webhooks", :post, "/subscriptions", :route},
     {Letflow.Routers.Documents, "/documents", :post, "/:document_id/hold", :route},
+    {Letflow.Routers.EntityViews, "/entity-views", :post, "/", :route},
     {Letflow.Routers.Services, "/services", :post, "/", :probe},
     {Letflow.Routers.AdminServices, "/admin/services", :post, "/", :route},
     {Letflow.Routers.Entities, "/entities", :post, "/records/:entity_type", :route},
@@ -701,15 +702,15 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # --- AC2: 403 block --------------------------------------------------------------------------
 
   describe "AC2 completeness guards" do
-    test "the routers mounted in ApiPipeline are exactly the 30 named in the table: a new router fails here" do
+    test "the routers mounted in ApiPipeline are exactly the 31 named in the table: a new router fails here" do
       mounted = mounted_routers()
       named = Enum.map(@named_routes, &elem(&1, 0))
 
       assert length(mounted) == length(Enum.uniq(mounted))
       assert Enum.sort(mounted) == Enum.sort(named)
       # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
-      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle.
-      assert length(named) == 30
+      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-555: 31 with Letflow.Routers.EntityViews.
+      assert length(named) == 31
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do
