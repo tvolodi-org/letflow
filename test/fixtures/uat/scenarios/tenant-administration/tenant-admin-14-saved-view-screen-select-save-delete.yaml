@@ -7,9 +7,10 @@
 # web/src/pages/entities/EntityListBrowserPage.tsx (the page is routed at entities/<type>; the conflict message for a name already in use; the page size
 # is not part of a view); web/src/i18n (English texts "View", "(no view)", "Save as view", "Delete view", "A view with this name already exists.");
 # docs/roles.md (EntitiesViewsManage: tenant administrator and platform administrator only); test/fixtures/uat/actors.yaml (alice: SwiftRoute TENANT_ADMIN).
-# Not covered here, with the reason: REQ-556 criterion 4 (a hidden value is not shown) and the sight of a non-manager are in scenario 15. Criterion 5 (texts
-# go through the translation mechanism, checked by the repository's own grep test) and criterion 6 (the web gate and the reviewer verdict) are checks of
-# the code and the build, not of the screen, and the screen has no language switch to show; they stay with the unit tests and the gate.
+# Criterion 5 (texts go through the translation mechanism) is covered on the screen in step 8: the screen takes its language from the browser language
+# (English, Russian or Kazakh), so the other steps need an English browser and step 8 switches it to Russian. The repository's own grep test stays with the unit tests.
+# Not covered here, with the reason: REQ-556 criterion 4 (a hidden value is not shown) and the sight of a non-manager are in scenario 15. Criterion 6
+# (the web gate and the reviewer verdict) is a check of the code and the build, not of the screen; it stays with the gate.
 # A failed delete (the server answers with an error) cannot be provoked on a healthy QA system and is not part of this scenario.
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; refusals of access are in scenario 15.
 ---
@@ -24,18 +25,22 @@ description: >
   title, status and priority. Company has no saved view of this type. The administrator of SwiftRoute opens the list screen of this type and finds only the
   entry "(no view)" in the view chooser, all three columns and all three records. The administrator hides the column priority, filters on status open,
   orders by title ascending and saves the view "UAT open tickets". The screen refuses an empty name, hiding the last remaining column, and a second
-  save under the same name. After choosing "(no view)" the screen is back to all columns and all records. The administrator sets the page size to 10 and
-  chooses the view again: columns, filter and order come from the view, only the open tickets T1 and T3 are listed, and the page size is still 10. The
+  save under the same name. After choosing "(no view)" the screen is back to all columns and all records. The administrator sets the page size to 50 and
+  chooses the view again: columns, filter and order come from the view, only the open tickets T1 and T3 are listed, and the page size is still 50. The
   administrator starts a deletion, cancels it (the view stays), deletes it for real (the view is gone and the three records are untouched). With no view
-  chosen, the delete control is not usable.
+  chosen, the delete control is not usable. Finally the administrator opens the screen with the browser language set to Russian and sees the view
+  controls in Russian, without any raw text key.
 
 actors:
   tenant_admin: actor-swiftroute-alice
 
 preconditions:
-  - description: SwiftRoute is set up with its administrator; the record type "UAT view ticket" exists with the fields title, status and priority, and holds exactly the three records "T1" (status open, priority high), "T2" (status closed, priority low) and "T3" (status open, priority low); the type carries no access restriction
+  - description: SwiftRoute is set up with its administrator; the record type "UAT view ticket" exists with the fields title, status and priority, and holds exactly the three records "T1" (status open, priority 3), "T2" (status closed, priority 1) and "T3" (status open, priority 1); the type carries no access restriction
     check: system_seeded
-    detail: The records are saved by the test setup (scenario 11 of this group creates the type; if it is absent the setup creates it). If any other record exists in the type, the report names it and the lists below are judged only on T1, T2 and T3.
+    detail: The records are saved by the test setup (scenario 11 of this group creates the type with title, status and priority as a whole number; if it is absent the setup creates it). If any other record exists in the type, the report names it and the lists below are judged only on T1, T2 and T3.
+  - description: The browser used for steps 1 to 7 has English as its language
+    check: system_seeded
+    detail: The English texts of the screen depend on it. If the browser language cannot be set, the scenario is BLOCKED, not PASS.
   - description: SwiftRoute has no saved view of the record type "UAT view ticket"
     check: system_seeded
     detail: If one exists (from an earlier run), the administrator deletes it on the screen first and the report says so; step 1 is then judged on the state after that.
@@ -76,11 +81,11 @@ steps:
   - step: 5
     actor: tenant_admin
     action: >
-      The administrator sets the page size to 10, then chooses the view "UAT open tickets" and notes the columns, the filter and order controls, the
+      The administrator sets the page size to 50, then chooses the view "UAT open tickets" and notes the columns, the filter and order controls, the
       records listed in their order, and the page size.
     via: gui
     input:
-      page_size: "10"
+      page_size: "50"
   - step: 6
     actor: tenant_admin
     action: >
@@ -94,6 +99,16 @@ steps:
       With "(no view)" chosen, the administrator tries to press "Delete view" and notes the result.
     expect_refusal: true
     via: gui
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator sets the browser language to Russian only, opens the list screen of the record type "UAT view ticket" again, and notes the label of
+      the view chooser, its empty entry, the label of the save control and the label of the delete control. The administrator looks for any text on the view
+      controls that looks like a raw key (words joined by dots, such as "entities.views.save.action"). Afterwards the administrator sets the browser language
+      back to English.
+    via: gui
+    input:
+      browser_language: ru
 
 expected_outcomes:
   - id: EO-001
@@ -140,7 +155,7 @@ expected_outcomes:
     description: Choosing a view sets the columns, filter and order controls to the stored values, lists only the matching records in the stored order, and keeps the page-size value as it was.
     verification:
       method: gui_screen
-      detail: After step 5 the columns title and status are shown; the filter control reads "status equals open"; the order control reads title ascending; T1 then T3 are listed and T2 is not; the page size still reads 10.
+      detail: After step 5 the columns title and status are shown; the filter control reads "status equals open"; the order control reads title ascending; T1 then T3 are listed and T2 is not; the page size still reads 50.
       evidence: Screen after step 5.
     on_fail:
       severity: BLOCKER
@@ -165,6 +180,17 @@ expected_outcomes:
     on_fail:
       severity: MINOR
       business_impact: The administrator could try to delete something that is not chosen.
+      suggested_action: route_to_wf03
+
+  - id: EO-008
+    description: The texts of the view controls come from the translation mechanism, so with a Russian browser they are Russian and no raw key is shown.
+    verification:
+      method: gui_screen
+      detail: In step 8 the chooser label reads "Представление", its empty entry "(без представления)", the save control "Сохранить как представление" and the delete control "Удалить представление"; no text of the view controls contains a dotted key such as "entities.views.save.action".
+      evidence: Screen after step 8.
+    on_fail:
+      severity: MINOR
+      business_impact: Russian-speaking users see English or technical texts on the view controls.
       suggested_action: route_to_wf03
 
 cleanup:
