@@ -627,6 +627,74 @@ defmodule Letflow.Definitions.SolutionPackTest do
   # duplicated here -- same export/3 code path, same not-found error shape.
   # ═══════════════════════════════════════════════════════════════════════════
 
+  describe "REQ-573: export version is strict semver" do
+    for {tag, bad} <- [
+          {"V1a", "1.0"},
+          {"V1b", "v1.0.0"},
+          {"V1c", "2024-10-25"},
+          {"V1d", "1.0.0.1"}
+        ] do
+      test "#{tag}: #{bad} is refused as invalid_pack_version" do
+        tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req573-v1")
+        definition = active_process_definition!(tenant.schema_name)
+
+        assert {:error, :invalid_pack_version} =
+                 SolutionPack.export([definition.id], unquote(bad), prefix: tenant.schema_name)
+      end
+    end
+
+    test "V1e: a bad version is refused before any read" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req573-v1e")
+
+      assert {:error, :invalid_pack_version} =
+               SolutionPack.export([Ecto.UUID.generate()], "1.0", prefix: tenant.schema_name)
+    end
+
+    for {tag, good} <- [{"V2a", "1.0.0"}, {"V2b", "2.3.4-rc.1"}, {"V2c", "1.0.0+build5"}] do
+      test "#{tag}: #{good} is exported unchanged" do
+        tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req573-v2")
+        definition = active_process_definition!(tenant.schema_name)
+
+        assert {:ok, %{version: version}} =
+                 SolutionPack.export([definition.id], unquote(good), prefix: tenant.schema_name)
+
+        assert version == unquote(good)
+      end
+    end
+
+    test "V2d: an absent version is exported as 1.0.0" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req573-v2d")
+      definition = active_process_definition!(tenant.schema_name)
+
+      assert {:ok, %{version: "1.0.0"}} =
+               SolutionPack.export([definition.id], nil, prefix: tenant.schema_name)
+    end
+
+    test "V10: install of a legacy free-form version still succeeds and records it" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req573-v10")
+      cleanup_solution_pack_installs!(tenant.tenant_id)
+
+      doc =
+        %{
+          definitions: [packed_definition_json(Ecto.UUID.generate(), unique("req573-pd"))]
+        }
+        |> pack_document()
+        |> Map.put("version", "legacy-2024")
+
+      assert {:ok, _result} =
+               SolutionPack.install(doc, Ecto.UUID.generate(), prefix: tenant.schema_name)
+
+      assert [row] =
+               Repo.all(
+                 from(s in SolutionPackInstall,
+                   where: s.tenant_id == ^tenant.tenant_id and s.pack_id == ^doc["pack_id"]
+                 )
+               )
+
+      assert row.installed_version == "legacy-2024"
+    end
+  end
+
   describe "REQ-306 round-trip: export from tenant A, install into tenant B, byte-identical row" do
     test "installed entity definition's definition_json/display_name/logical_shape_version match the exported source exactly, status :inactive" do
       tenant_a = TenantFixture.provisioned_tenant!(slug_prefix: "req306-roundtrip-a")
