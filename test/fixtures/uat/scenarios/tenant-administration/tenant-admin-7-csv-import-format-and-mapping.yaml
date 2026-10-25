@@ -23,7 +23,7 @@ tags: [tenant-admin, record-import, csv, format, mapping, refusal, all-or-nothin
 description: >
   The administrator of company A creates the record type "UAT csv contact" with the fields name (text, required), city (text),
   note (text), seats (whole number), price (decimal with exact strings), weight (decimal), active (yes/no), start_date (date),
-  seen_at (date and time with zone), tier (choice of "basic" and "gold"), extra (free structured data) and label (text per language).
+  seen_at (date and time with zone), tier (choice of "basic" and "gold"), extra (free structured data) and label (text per language, with the languages en and de declared).
   The administrator then uploads a CSV file of three rows: one with a city written in quotes and containing a comma, one with a note in
   quotes that contains a line break and a doubled quote mark, and one with an empty city cell. Three records are created; the quoted texts
   arrive without their quote marks, and the record with the empty city has no city at all (not an empty text). The same content sent with
@@ -42,21 +42,22 @@ preconditions:
     detail: If the administrator does not exist, report BLOCKED, not PASS.
   - description: The administrator can mark a decimal field as holding exact strings, and can create fields of every type listed above
     check: custom
-    detail: If the product's record-type editor offers no way to set one of these types or the exact-string option, report BLOCKED for the steps that need it; the rule is not settled by the sources for that type.
+    detail: If the product's record-type editor offers no way to set one of these types, the exact-string option or the languages en and de for the text-per-language field, report BLOCKED for the steps that need it; the rule is not settled by the sources for that type.
 
 steps:
   - step: 1
     actor: tenant_admin
     action: >
-      The administrator creates the record type "UAT csv contact" with the fields listed in the description (name required, all others optional)
+      The administrator creates the record type "UAT csv contact" with the fields listed in the description (name required, all others optional; label with the languages en and de)
       and reads the record count of the type, which is 0.
     via: api
   - step: 2
     actor: tenant_admin
     action: >
-      The administrator uploads a CSV file (content type text/csv) to the import of "UAT csv contact". The first line names the columns name, city, note.
-      Data line 2 is: Anna, "Berlin, Mitte", plain. Data line 3 is: Boris, Hamburg, and a note in quotes that reads: He said ""hi"" [line break] and left.
-      Data line 5 (the quoted note takes lines 3 and 4) is: Clara, (empty city), short. The administrator notes the answer and then reads the three records.
+      The administrator uploads a CSV file (content type text/csv) to the import of "UAT csv contact". The exact lines of the file are, with no space
+      after any comma (the converter does not trim cells, and a quote after a space makes the file malformed). Line 1: name,city,note.
+      Line 2: Anna,"Berlin, Mitte",plain. Lines 3 and 4 (one quoted note with a line break inside): Boris,Hamburg,"He said ""hi"" [line break]and left."
+      Line 5: Clara,,short (the city cell is empty). The administrator notes the answer and then reads the three records.
     via: api
   - step: 3
     actor: tenant_admin
@@ -177,7 +178,7 @@ expected_outcomes:
     description: A refused file writes no record at all.
     verification:
       method: system_state
-      detail: After each refusal of steps 5 to 10 the record count of "UAT csv contact" equals its count before that step (9 after step 4: 3 + 3 + 3).
+      detail: After each refusal of steps 5 to 10 the record count of "UAT csv contact" equals its count before that step (9 after step 4, that is 3 + 3 + 3).
       evidence: The record counts read after steps 5 to 10.
     on_fail:
       severity: BLOCKER
@@ -207,7 +208,7 @@ expected_outcomes:
     description: The JSON import is unchanged and gives the same records as the CSV file, with the same answer shape except for the line number.
     verification:
       method: api_response
-      detail: The answer of step 12 has three results reported as written, in the same shape as step 2 but without a line member; the three records equal those of step 3 in city and note.
+      detail: The answer of step 12 has three results reported as written, with the same status as the answer of step 2 and the same shape except that it has no line member; the three records equal those of step 3 in city and note.
       evidence: The answer and records of step 12 against step 2 and 3.
     on_fail:
       severity: MAJOR

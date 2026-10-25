@@ -5,6 +5,11 @@
 # name; a row refused by the existing import path keeps that path's own result and gains the line);
 # lib/letflow/entities/csv_import.ex (reason names csv_invalid_integer, _decimal, _boolean, _date, _datetime, _json, _localized_text, csv_cell_count).
 # Aliases (actor-any, as in tenant-admin-1): tenant_admin = administrator of company A.
+# Files are written with no space after a delimiter and every cell that holds a comma, quote or line break is quoted with doubled quote marks
+# (for example the structured cell {"k":1} is written "{""k"":1}"); the converter does not trim cells.
+# Criterion 4 negatives: one per type that can fail (whole number, ordinary decimal, exact decimal, yes/no, date, date and time, structured data,
+# text per language) plus the choice field, whose bad value is refused by the record rules, not the converter. The plain text field has no negative:
+# a text cell cannot fail conversion (the converter passes it on as text).
 # Not covered here, by the requirement's own wording: criteria 8, 11 (second half) and 12 are about the code change and are checked by review and CI.
 # Criterion 4's "a value of 17 significant digits survives unchanged" is covered by step 3 and EO-002; the non-strict decimal's JSON-number rule
 # (same precision limit as a JSON document) is covered by comparing with the JSON import of step 10, not by a person reading internals.
@@ -44,7 +49,7 @@ steps:
     action: >
       The administrator uploads a CSV file with one data row "Val1" and these values: seats 12, price 12345678901234567 (17 digits, exact-string field),
       weight 2.5, active TRUE (then a second row "Val2" with active False), start_date 2026-03-15, seen_at 2026-03-15T10:30:00Z, tier gold,
-      extra {"k":1}, label {"en":"Hello","de":"Hallo"}. The administrator notes the answer.
+      extra "{""k"":1}", label "{""en"":""Hello"",""de"":""Hallo""}" (the file is written with the header name,seats,price,weight,active,start_date,seen_at,tier,extra,label and no space after any comma). The administrator notes the answer.
     via: api
   - step: 3
     actor: tenant_admin
@@ -53,9 +58,9 @@ steps:
   - step: 4
     actor: tenant_admin
     action: >
-      The administrator uploads a CSV file with a header line and ten data rows. Rows named Good1 and Good2 are fully correct. The others each
+      The administrator uploads a CSV file with a header line and twelve data rows (cells written as in the note above, no space after a comma). Rows named Good1 and Good2 are fully correct. The others each
       have exactly one bad cell: BadInt (seats "12.5"), BadDec (weight "abc"), BadBool (active "maybe"), BadDate (start_date "15/03/2026"),
-      BadTime (seen_at "2026-03-15 10:30" without a zone), BadJson (extra "{not json"), BadLabel (label "[1,2]" a list, not an object),
+      BadTime (seen_at "2026-03-15 10:30" without a zone), BadJson (extra "{not json"), BadLabel (label "[1,2]" a list, not an object), BadStrict (price "1e5", not allowed in the exact-string decimal field), BadTier (tier "silver", not one of the choices),
       and BadCells (one cell too few). The row BadInt is placed after a quoted name cell of the row Good1 that contains a line break.
       The administrator notes the answer and the line of each result.
     via: api
@@ -115,10 +120,10 @@ expected_outcomes:
     verification:
       method: api_response
       detail: >
-        The answer of step 4 has ten results in file order. Each Bad row is an error result with its line number and the kind of fault of
-        its type (whole number, decimal, yes/no, date, date and time, structured data, text per language, number of cells) and, except for the cell-count row, the
-        column name (seats, weight, active, start_date, seen_at, extra, label). Good1 and Good2 are reported written. The text of
-        the bad cells ("12.5", "abc", "maybe", "15/03/2026", "{not json") appears nowhere in the answer.
+        The answer of step 4 has twelve results in file order. Each Bad row is an error result with its line number and the kind of fault of
+        its type (whole number, decimal, exact decimal, yes/no, date, date and time, structured data, text per language, number of cells) and, except for the cell-count row, the
+        column name (seats, weight, price, active, start_date, seen_at, extra, label). BadTier is refused by the record type's own rules with the ordinary message for a value outside the choices plus its line (not a converter reason). Good1 and Good2 are reported written. The text of
+        the bad cells ("12.5", "abc", "maybe", "15/03/2026", "{not json", "1e5") appears nowhere in the answer.
       evidence: The answer of step 4, read for results, lines, column names and the absence of the bad cell texts.
     on_fail:
       severity: MAJOR
