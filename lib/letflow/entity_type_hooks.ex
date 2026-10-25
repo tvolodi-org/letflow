@@ -35,7 +35,6 @@ defmodule Letflow.EntityTypeHooks do
   alias Letflow.Audit
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Entities.EntityDefinition
-  alias Letflow.Entities.HandlerWrites
   alias Letflow.Entities.ManagedTypes
   alias Letflow.EntityTypeHooks.Binding
   alias Letflow.Repo
@@ -316,7 +315,7 @@ defmodule Letflow.EntityTypeHooks do
       |> Map.get("nodes", [])
       |> Enum.any?(fn node ->
         lines = get_in(node, ["attributes", "module_writes"])
-        is_list(lines) and type in HandlerWrites.registered_targets(lines)
+        is_list(lines) and type in ManagedTypes.module_write_targets(lines)
       end)
     end)
   end
