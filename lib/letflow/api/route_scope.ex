@@ -265,6 +265,18 @@ defmodule Letflow.Api.RouteScope do
       key: :HelpRead,
       class: :self_service,
       ruling: "SEC-518-R2-help"
+    },
+    %{
+      route: "GET /definitions",
+      key: :DefinitionsRead,
+      class: :self_service,
+      ruling: "SEC-525-R01"
+    },
+    %{
+      route: "GET /definitions/search",
+      key: :DefinitionsRead,
+      class: :self_service,
+      ruling: "SEC-525-R04"
     }
   ]
 
