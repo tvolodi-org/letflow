@@ -1,0 +1,236 @@
+# T-0503 (BA-PLATFORM): refusal scenario for the definition reads (REQ-545, REQ-546).
+# Sensitive actions of this scope and where they are covered:
+#   - seeing another customer's process designs (sensitive data): steps 2 to 4
+#   - being turned down without learning whether a thing exists: steps 3, 4, 6
+#   - reading without signing in: steps 7 to 10
+#   - changing users, approving, paying or releasing: not part of reading process designs;
+#     covered by refusal-customer-user-boundaries.yaml and the tenant-administration matrix.
+# Not covered here: the part of the refusal rule that says the refusal for a person without the right is
+# identical whether their company holds designs or none. The roster has no actor without the right in a
+# company that has no designs, so a UAT run cannot check it; the Bilimbaga candidate's company is the
+# only comparison available. Scoped (limited-access) foreign callers are covered in
+# definition-reads-scoped-staff.yaml steps 9 to 11.
+# Every refusal step below is expected to be REFUSED or to return nothing. A step the product lets
+# through is a finding, not a reason to rewrite the step.
+---
+id: platform-definition-reads-refusal
+scope: platform
+title: Process designs of one company cannot be read by another company, by people without the right, or by anyone not signed in
+version: "1.0"
+tags: [isolation, access, refusal, definitions, regression]
+
+description: >
+  A company's process designs show how it runs its business. This scenario has people
+  try to read them who must not: a Vortex quality manager looks for a design that exists
+  only at SwiftRoute, a person who holds no right to read designs tries the list, a
+  single design and the lookup by name, and a visitor who is not signed in tries every
+  one of the four reads. Every attempt must be turned down or must return nothing, and
+  the answer for something that exists elsewhere must be identical to the answer for
+  something that exists nowhere.
+
+actors:
+  foreign_staff: actor-vortex-karl
+  company_wide_staff: actor-swiftroute-tobias
+  candidate:     actor-bilimbaga-candidate
+  visitor:       actor-any
+
+preconditions:
+  - description: SwiftRoute has at least one process design whose name and identifier exist in no other company, and Vortex is set up with its own users
+    check: system_seeded
+  - description: The Bilimbaga candidate account holds only the candidate role, without the right to read process designs
+    check: custom
+    detail: >
+      Checked at run time against the QA realm. If the account holds more, the scenario
+      is BLOCKED for steps 5 and 6, not PASS.
+  - description: Scope enforcement is switched on in the QA environment
+    check: custom
+    detail: >
+      Steps 2 to 4 compare answers and are only meaningful with enforcement on.
+
+steps:
+  - step: 1
+    actor: company_wide_staff
+    action: >
+      A SwiftRoute colleague with company-wide access notes the exact name and the identifier of the
+      SwiftRoute-only design, and a name that exists in no company at all.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+  - step: 2
+    actor: foreign_staff
+    action: >
+      The Vortex quality manager opens the list of process designs and checks that no
+      design of SwiftRoute is among them.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+  - step: 3
+    actor: foreign_staff
+    action: >
+      The Vortex quality manager searches for the exact name of the SwiftRoute-only
+      design, and then for the name that exists in no company, and compares the two
+      answers.
+    expect_refusal: true
+    via: gui
+    input:
+      searches: the SwiftRoute-only design name; the name that exists nowhere
+    sla_context:
+      expected_within_hours: null
+
+  - step: 4
+    actor: foreign_staff
+    action: >
+      The Vortex quality manager tries to open the SwiftRoute-only design by its
+      identifier, then tries to look up its running version by its name, and compares
+      each answer with the answer for an identifier and a name that exist nowhere.
+    expect_refusal: true
+    via: api
+    input:
+      lookups: the SwiftRoute-only design identifier and name noted in step 1; an identifier and a name that exist nowhere
+    sla_context:
+      expected_within_hours: null
+
+  - step: 5
+    actor: candidate
+    action: >
+      The Bilimbaga candidate tries to open the list of process designs and to search
+      it.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+  - step: 6
+    actor: candidate
+    action: >
+      The Bilimbaga candidate tries to open one process design by its identifier and
+      to look up a design's running version by name, and then tries the export of a
+      design, comparing the refusals.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+  - step: 7
+    actor: visitor
+    action: >
+      A visitor who is not signed in tries to open the list of process designs.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+  - step: 8
+    actor: visitor
+    action: >
+      A visitor who is not signed in tries to search the process designs.
+    expect_refusal: true
+    via: api
+    input:
+      search_word: the SwiftRoute-only design name
+    sla_context:
+      expected_within_hours: null
+
+  - step: 9
+    actor: visitor
+    action: >
+      A visitor who is not signed in tries to open one process design by its
+      identifier.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+  - step: 10
+    actor: visitor
+    action: >
+      A visitor who is not signed in tries to look up the running version of a design
+      by its name.
+    expect_refusal: true
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Vortex staff see none of SwiftRoute's designs in the list, and the search for a
+      SwiftRoute-only name returns exactly what a search for a name that exists nowhere
+      returns.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 shows no SwiftRoute design. The two answers of step 3 are identical in
+        content (both empty) and in form.
+      evidence: >
+        Screenshots of steps 2 and 3, compared.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        One customer could read how another runs its business, or learn which designs
+        a competitor has.
+      suggested_action: route_to_security_review
+
+  - id: EO-002
+    description: >
+      Opening a SwiftRoute-only design by identifier, or looking it up by name, gives
+      Vortex staff the same "not found" answer as for an identifier or name that exists
+      nowhere, with no field of the SwiftRoute design.
+    verification:
+      method: http_status
+      detail: >
+        Step 4: both pairs of answers have the same status, the same body and the same
+        headers apart from request-specific ones; the body contains no name, version,
+        description or step of the SwiftRoute design.
+      evidence: >
+        Status and body of the four answers, side by side.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A different answer for "exists elsewhere" and "exists nowhere" lets an outsider
+        map another customer's process designs by trial and error.
+      suggested_action: route_to_security_review
+
+  - id: EO-003
+    description: >
+      A person without the right to read designs is refused on all four reads with the
+      same plain refusal as on the export of a design.
+    verification:
+      method: http_status
+      detail: >
+        Steps 5 and 6: every attempt is refused with the same status and the same
+        message; the refusal of the single design and of the lookup by name is
+        identical to the refusal of the export.
+      evidence: >
+        Status and body of each refusal, compared.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Reading designs would be open to people whose role never included it, or the
+        refusals would reveal which designs exist.
+      suggested_action: route_to_security_review
+
+  - id: EO-004
+    description: >
+      A visitor who is not signed in is refused on all four reads and learns nothing
+      about any design.
+    verification:
+      method: http_status
+      detail: >
+        Steps 7 to 10 each answer "not signed in" with no design data in the body, and
+        the answer does not depend on whether the name or identifier exists.
+      evidence: >
+        Status and body of the four answers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Anyone on the internet could read a company's process designs.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing was created if every refusal held. If any step returned design data it
+    should not have, record it as a finding before anything else is run.

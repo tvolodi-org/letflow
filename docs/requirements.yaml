@@ -39436,6 +39436,101 @@ requirements:
       - "For the process owner: who owns contracts and legal documents and where they are created, and when the purchase-order record that 0057 D1 gives the module is built (draft section 1, IN-01); whether a line may have several suppliers; the rule for a line cancelled after partial fulfilment; whether recording a supplier, reference or officer on a closed or cancelled request is refused (the draft forbids only physical fulfilment). The UAT assumptions in the description stand until confirmed."
     depends_on: [REQ-544]
 
+  - id: REQ-563
+    title: "Tenant notification templates, backend: tenant-scoped storage of message templates per registered template key, a placeholder allow-list without secret values, :NotificationTemplatesManage and a render preview"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3199
+    # Source: docs/migration/core-roadmap-20261014.md, "Customization beyond scripts" ("notification templates", line 106); REQ-551 (label overrides, the sibling slice that names templates as a later candidate); docs/migration/decisions/0043-email-first-login-ba-decisions.md, D-B (REQ-441, login-discovery notifier; "leaks no enumeration signal"); lib/letflow/login_discovery/notifier.ex, notifier/smtp.ex, notifier/noop.ex; docs/agents/instructions/security-invariants.md (INV-1, INV-4, INV-5, INV-10); lib/letflow/api/authorization.ex; lib/letflow/audit.ex. Written by the business analyst (T-0488) 2026-10-25. Not yet validated.
+    description: >
+      A tenant cannot today control the wording of any message the platform composes for its users.
+      The only mail code on main is the login-discovery notifier (Letflow.LoginDiscovery.Notifier,
+      lib/letflow/login_discovery/notifier.ex, adapters notifier/smtp.ex and notifier/noop.ex, REQ-441).
+      That notifier is OUT OF SCOPE of this requirement: its message stays fixed in code, is not
+      templated, and this change must not edit those files (its wording rule, that it must not say or
+      imply whether an address is registered, must not be tenant-changeable). No other notification
+      sender of messages to tenant users exists on main. Checked: grep -rli notif lib/ outside
+      lib/letflow/design/ lists the REQ-441 files (lib/letflow/login_discovery.ex,
+      lib/letflow/routers/login_discovery.ex, lib/letflow/login_discovery/), lib/letflow/obs/alerts.ex
+      and lib/letflow/engine/script_task_dispatcher.ex (it calls
+      Alerts.notify_script_hmac_secret_missing), and lib/letflow/supervisor/infrastructure.ex; the
+      two Alerts users are platform-operator alerts (Letflow.Obs.Alerts moduledoc table, "Audience:
+      Platform operator diagnostics", REQ-201), not messages to tenant users and out of scope. So this slice delivers templates as stored, validated, renderable data and does NOT
+      send anything. Delivery by mail or in-app, and the call sites that use a template, are later
+      requirement candidates.
+
+      Template keys. A template belongs to a template key from a registry in code (one module,
+      Letflow.NotificationTemplates.Registry). The registry has exactly one key in this slice:
+      "task_assigned" (UAT assumption, chosen by the BA as the commonest tenant-visible message; to be
+      confirmed by the process owner). Each registry entry declares: the key, the default subject and
+      body text of the platform, and the placeholder allow-list of that key. A key not in the registry
+      cannot be stored. The allow-list of "task_assigned" is: task_name, process_name, assignee_name,
+      due_date, tenant_name. Every one is a display value of the tenant's own data. The allow-list is
+      an allow-list: a placeholder not named in it is refused.
+
+      No secret values (INV-4). The allow-list never contains a credential, token, password, API key,
+      session or link carrying a one-time token, nor a value resolved through Letflow.Secrets; a
+      template cannot reference a secret by reference or by name either. A test asserts that no
+      registry placeholder name is a secret reference and that the render function receives only the
+      explicit values passed by the caller, never reads Letflow.Secrets and never reads the
+      environment. Template text is public wording shown to the tenant's own users, is not a secret,
+      and may be logged and audited.
+
+      Storage. One tenant-schema table (Ecto :prefix, tenant_id kept in the row, INV-1; migration in
+      priv/repo/migrations/ with the tenant-schema mechanism the neighbouring tenant tables use):
+      template_key, locale, subject, body, updated_by, timestamps; unique on (template_key, locale).
+      Locale rule: a BCP-47 style tag matching the same pattern as Letflow.Identity.Tenant @locale_regex
+      (lib/letflow/identity/tenant.ex); the locale need not be one of the tenant's configured
+      locales (a template may be stored ahead of enabling a locale). Limits after trimming: subject
+      1..200 characters with no control character; body 1..5000 characters, newlines allowed, other
+      control characters refused. Value syntax: plain text; the only markup is the placeholder form
+      {name} with name matching [a-z_]+ and present in the key's allow-list; any other brace use,
+      HTML and ICU plural/select forms are refused (stored and returned as strings; nothing interprets
+      HTML in the backend).
+
+      Permission. New permission atom :NotificationTemplatesManage in lib/letflow/api/authorization.ex,
+      granted to TENANT_ADMIN, and (unconditional clause of Authorization) to PLATFORM_ADMIN; not
+      granted to any other role. A tenant user is never given PLATFORM_ADMIN to test it
+      (docs/roles.md). The implementer settles with SECURITY-REVIEWER whether the existing
+      :TenantSettingsManage would do instead; the criteria below hold for either name.
+
+      Routes (the tenant comes from the auth context only; no route takes a tenant identifier):
+      GET /api/v1/notification-templates lists the caller tenant's stored templates;
+      PUT /api/v1/notification-templates/:template_key (body locale, subject, body) creates or replaces
+      one; DELETE /api/v1/notification-templates/:template_key?locale= removes one (the platform
+      default then applies; a DELETE of a registered key and locale with no stored template in the
+      caller's tenant answers 404 with the body of Letflow.Api.Response.not_found/1,
+      lib/letflow/api/response.ex); POST /api/v1/notification-templates/:template_key/preview (body locale,
+      optional subject and body, and sample values for the allow-listed placeholders) returns the
+      rendered subject and body without storing anything. Render rule: the template of the requested
+      locale, else the platform default of the key; an allow-listed placeholder with no sample value
+      renders as an empty string; placeholder values are inserted as plain text, never re-scanned for
+      placeholders. Every write is audited through lib/letflow/audit.ex with template_key, locale and
+      the actor; the audit event carries the key and locale only, not the text.
+
+      Not in this change, each a later requirement candidate: sending (mail adapter use, in-app
+      delivery), the call sites that render a template, an admin screen, more template keys,
+      attachments, and any change to the REQ-441 login-discovery notifier. Sibling slices of the same
+      roadmap line: label overrides (REQ-551, REQ-553); scheduled jobs and integration mappings are
+      separate requirements.
+    acceptance_criteria:
+      - "1. Storage per tenant: a template stored by tenant A is in tenant A's schema only (Ecto :prefix, tenant_id in the row); a test stores a template as tenant A and shows the table of tenant B has no row and a list by tenant B returns an empty list. The unique pair (template_key, locale) refuses a second row; PUT on the same pair replaces the text and answers 200, a new pair answers 201."
+      - "2. Registry: only the key task_assigned exists. PUT for any other key answers 404 with the body of Letflow.Api.Response.not_found/1 (lib/letflow/api/response.ex) and stores nothing. A test lists the registry and finds exactly the keys and the allow-list task_name, process_name, assignee_name, due_date, tenant_name for task_assigned."
+      - "3. Placeholder allow-list: PUT answers 422 and stores nothing for a text containing a placeholder outside the key's allow-list (for example {password}, {api_key}, {secret_ref}, {tenant_id}), for an unbalanced or empty brace ({, }, {}), for a name with an uppercase letter or digit, and for an ICU plural/select form. A text using only allow-listed placeholders, with none, or with the same one repeated, is accepted. A test covers each case."
+      - "4. No secret values (INV-4): a test asserts that no allow-listed placeholder name of any registry key names a credential, that no allow-listed placeholder name and no accepted template text contains a secret reference of the form Letflow.Secrets @reference_format (lib/letflow/secrets.ex; sec://tenant/<a>/<b>/<c>[#n]), that a PUT whose text contains a sec:// reference answers 422, that the render function takes its values only from its arguments, and (by reading the module source or by stubbing) that rendering calls neither Letflow.Secrets nor Application/System environment lookups. A test shows that a placeholder value supplied in preview that looks like a placeholder (for example the text {tenant_name}) is output literally and not expanded."
+      - "5. Limits: subject of exactly 200 characters and body of exactly 5000 are accepted; 201 and 5001 answer 422; empty or whitespace-only subject or body answers 422; a newline in the body is accepted; a newline or other control character in the subject, or a control character other than newline in the body, answers 422; a locale not matching the Tenant locale pattern answers 422. A test covers each boundary."
+      - "6. Permission: the new permission atom :NotificationTemplatesManage exists in lib/letflow/api/authorization.ex and is granted to TENANT_ADMIN and PLATFORM_ADMIN and to no other role; a test over the role table shows it. GET, PUT, DELETE and POST preview answer 200/201/204/200 for a TENANT_ADMIN and the uniform 403 insufficient permissions (Letflow.Api.Scope.Enforce, lib/letflow/api/scope/enforce.ex) for a TASK_WORKER and for a PROCESS_DESIGNER of the same tenant, for an unauthenticated caller 401. The route-count and authz pins found by grep over test/ for __authz_routes__ and length(snapshot) are updated."
+      - "7. Render and preview: with a stored template for locale ru and the key task_assigned, preview for locale ru returns the stored subject and body with the supplied values inserted; preview for a locale with no stored template returns the platform default text of the key; preview with a body in the request renders that body without storing; a missing sample value renders an empty string; the result of a preview is the same on a second call (no state kept). DELETE of a stored template makes the next preview return the platform default."
+      - "8. Audit: each successful PUT and DELETE writes one audit event carrying template_key, locale and the acting principal and not the subject or body text; a test reads the event. A refused write (422, 403) writes no event."
+      - "9. REQ-441 stays out: git diff of the change shows no edit to lib/letflow/login_discovery/ (notifier.ex, notifier/smtp.ex, notifier/noop.ex) and no template lookup is reachable from deliver_tenant_list/2; test/letflow/login_discovery/notifier_no_leak_test.exs still passes unchanged. The PR body names the REQ-441 notifier as explicitly out of scope and lists sending, call sites, admin screen and more keys as later requirement candidates."
+      - "10. Cross-tenant negative test (INV-10): the routes take no tenant identifier; a test with a template stored only in tenant A shows that a TENANT_ADMIN of tenant B gets no text of tenant A from GET and preview (preview returns the platform default), that a DELETE of the same key and locale by tenant B answers 404 with the body of Letflow.Api.Response.not_found/1 (the same as a DELETE of a template that exists nowhere), and leaves tenant A's template unchanged. A tenant_id sent in query or body is ignored and a test shows the token's tenant is used."
+      - "11. Not-found versus forbidden (INV-5): a caller without the permission gets identical status, identical body and identical content-type header (other headers such as a request id are not compared) for a key and locale that have a stored template and for ones that do not; a test compares them within one run."
+      - "12. Gates: SECURITY-REVIEWER verdict (INV-1, INV-4, INV-5, INV-6, INV-10; new tenant table, new permission, new routes) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static, the new backend test files, test/letflow/ci_backend_path_filter_test.exs and the route-count and authz pins pass, real output quoted."
+    open_questions:
+      - "UAT assumption, to be confirmed by the process owner: the first and only template key is task_assigned, with the placeholders task_name, process_name, assignee_name, due_date, tenant_name, and the limits are subject 200 / body 5000 characters; all are chosen by the BA, not set by a decision record. Whether the permission is a new :NotificationTemplatesManage or the existing :TenantSettingsManage is a design choice for the implementer to settle with SECURITY-REVIEWER. Which message first consumes a template (and so the sending channel) is open and is the next requirement candidate."
+    depends_on: []
+
   - id: REQ-564
     title: "Per-tenant print-template overrides, including Kazakhstan print forms (core roadmap, Customization beyond scripts), slice 0: decision record for how a tenant replaces the printed layout of a document type"
     owner: CODE-DESIGNER
@@ -39737,3 +39832,100 @@ requirements:
       - "UAT assumption, to be confirmed by the process owner: the limits (100 rules, 8 path segments, 200-character path, 256 KB body) and the rule set (copy, constant, required; no transforms) are chosen by the BA from the source above, not set by a decision record."
       - "For the process owner: when an inbound webhook receiver is wanted and which record type or process variables it fills; this slice stores inbound mappings but nothing calls them."
     depends_on: []
+  - id: REQ-566
+    title: "Tenant-owned record types (core roadmap, Customization beyond scripts), slice 0: decision record for per-type write permission, 0051 scope declaration, module references by id, and generated lists, forms and lookups"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3205
+    # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (bullet "tenant-owned entity types"); docs/migration/decisions/0053-tenant-scripted-rules.md "Requirement candidates" (a); decisions 0050 (D3 reference contract, D6, D8) and 0051 (D1, D5, D6, D7, D11, D12); code read: lib/letflow/entities/type_access.ex (moduledoc: restriction rows govern access to a type and carry no read/write distinction; authorized?/3), lib/letflow/entities/definition_access.ex (create/3, activate/3), lib/letflow/entities/step_writes.ex (check_type_access/2), lib/letflow/entities/scope_declaration.ex (moduledoc: a declaration is owned by a module, "never read from a tenant definition"; a type no manifest names is :undeclared and returns no data to a scoped caller), lib/letflow/entities/managed_types.ex. Written by the business analyst (T-0493) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap "Customization beyond scripts", bullet "tenant-owned entity types"; decision
+      0053, requirement candidate (a). A tenant-owned type is a record type a tenant creates for itself
+      through the definitions API, fully theirs, with no module owner. Runtime definitions, activation
+      with column promotion, the generic record form and list, per-type access restriction (REQ-394) and
+      per-field restriction (REQ-231) already exist (0053 candidate (a), "What exists today").
+      Five gaps remain (0053, "What is missing"): (1) referencing module record types by id under the
+      0050 reference contract; (2) reference pickers and related lists for tenant-defined relations in
+      the UI; (3) list and form generation beyond the generic form; (4) per-type WRITE permission;
+      (5) a 0051 scope declaration for the tenant type.
+      WHY THIS IS SLICE 0, NOT ONE CHANGE. Gaps (4) and (5) change who may write and which rows a scoped
+      caller sees, on the tenant-data path, and two of their rules are not settled by any source read:
+      (a) The moduledoc of Letflow.Entities.ScopeDeclaration says a declaration is owned by a module and
+      is never read from a tenant definition, so that a tenant cannot declare, widen or remove one;
+      a tenant-owned type is therefore :undeclared today, and a scoped caller gets no data from it. How a
+      tenant type obtains a declaration (a core-owned setting that only the tenant administrator sets,
+      an always-tenant-wide rule, or another way) is a security decision that 0051 D5 and D6 do not make
+      for types without a module.
+      (b) The moduledoc of Letflow.Entities.TypeAccess describes one restriction row per type with no
+      read/write distinction. Whether a write permission is a second grant table, a mode on the existing
+      grant row, or a permission list on the definition is not settled by the source, and each choice
+      changes what a user who today holds a grant can do after the change (backward compatibility, see
+      the rule "each item is opt-in or backward compatible" in the roadmap).
+      Gap (1) depends on how decision 0050 D3.6 ("declarative-only, no core reference type, no FK in
+      slice 1") is extended to tenant types, which is itself a record-level choice. Gaps (2) and (3) are
+      web work that consumes the outcome of (1), (4) and (5).
+      THIS REQUIREMENT'S WHOLE DELIVERABLE is one decision record, a document under
+      docs/migration/decisions/ with the next free four-digit number on main at the time of the change.
+      It builds no code, no migration, no seed, no route, no UI and no test, and it does not modify any
+      other decision record. The implementation is written as separate requirements only after the record
+      is accepted; each depends_on this one.
+      THE RECORD MUST DECIDE (each as a numbered D- section with reasons and sources; where no source
+      settles a point it says "not settled by the source" and puts it to the owner as an open point with
+      options and a recommendation, it does not pick silently):
+      D1 Tenant isolation: a tenant-owned type, its records, its write grants and its scope declaration
+      live in the tenant schema under the Ecto :prefix with tenant_id in each row (INV-1); no platform,
+      worker or admin path reads them without the prefix; each new route that takes a tenant identifier
+      has a cross-tenant negative test (INV-10) and answers a cross-tenant or unknown type with the same
+      response as an absent one (INV-5). The record lists the new data-access paths it expects and the
+      proof INV-6 requires for each.
+      D2 Per-type write permission: the model chosen (see (b) above), who may grant it (the role and
+      route-level permission), its default for every existing tenant-owned type (an existing user who
+      can write today keeps that ability unless the record rules otherwise and says how existing rows are
+      handled), whether read access is implied by write access, and how it composes with TypeAccess,
+      FieldGrants and the managed_by write lock, which stays absolute for module-managed types. The write
+      paths it covers are named: the generic record routes, the record import, and the process-step and
+      handler entity writes (Letflow.Entities.StepWrites.check_type_access/2).
+      D3 Scope declaration for a tenant-owned type (decision 0051 D5, D6, D7, D11): how the type gets
+      {:column, field} or :tenant_wide, who may set it, that the column is a promoted and indexed field
+      (activation promotes only fields named in a constraints entry), what happens to a tenant type with
+      no declaration (the record states whether it stays :undeclared, which returns no data to a scoped
+      caller, or defaults to :tenant_wide, and why that is safe), that a tenant cannot widen a module
+      type's declaration, and the 404 behaviour for an out-of-scope record. Stage 2 of 0051 (the scoped
+      data path, the approver rule and enforced-tenant writers, REQ-517, REQ-518, REQ-519) is the base
+      the record builds on.
+      D4 Module references by id (decision 0050 D3, D8): how a tenant type declares a field that
+      references a module record (for example a catalog item) by its immutable record_id; that the
+      referencing write runs the module's lookup and active? checks (0050 D3.5), so a dangling, retired
+      or other-tenant target is refused; what stays declarative-only under 0050 D3.6 and what, if
+      anything, is promoted to a foreign key; and the snapshot rule of 0050 D3.4 for documents.
+      D5 Lookups, related lists, generated lists and forms: what the server returns so the web app can
+      render a reference picker and a related list (response shape per route, field authorisation INV-2
+      applied to the picked and listed records, the per-type read and scope rules applied to the target
+      type), and what "generated" means for a list and a form beyond the generic form (derived from the
+      definition only, or with stored layout overrides; the record states which, and leaves
+      per-tenant form, list and print-template overrides to their own roadmap item).
+      D6 Implementation slices: the record lists the requirements it expects, each small enough for one
+      change and each depending on this one, in a stated order, and says none is filed or built by this
+      slice.
+      BOUNDARY. Owned here: tenant-owned types only. Not owned: extensions to MODULE types (the x_ layer,
+      REQ-550), per-tenant form, list and print-template overrides, number sequences, saved list views,
+      and module uninstall. A decision of 0050, 0051 or 0053 is not changed; where the record needs one
+      changed, it says so as an open point for its own amending record.
+      Not in this change: any code, migration, seed, route, UI and test; any edit of docs/requirements.yaml
+      beyond this entry.
+    acceptance_criteria:
+      - "1. One new record exists under docs/migration/decisions/ with the next free four-digit number on main at the time of the change; its header names this requirement, says it builds on decisions 0050, 0051 and 0053 (candidate (a)), and lists the five gaps of 0053 candidate (a) with the section of the record that settles each."
+      - "2. Section D1 states that tenant-owned types, their records, write grants and scope declaration live in the tenant schema under the Ecto :prefix with tenant_id in each row (INV-1), requires a cross-tenant negative test for every new route that takes a tenant identifier (INV-10), and states that a cross-tenant or unknown type gets the same response as an absent one (INV-5)."
+      - "3. Section D2 chooses one write-permission model, names the role and permission that grant it, states the default for every existing tenant-owned type and how existing rows and users are handled (no user who can write today loses or gains write access unless the record says so and why), states how it composes with TypeAccess, FieldGrants and the managed_by write lock, and names every write path it covers (generic record routes, record import, process-step and handler entity writes)."
+      - "4. Section D3 states how a tenant-owned type obtains a 0051 scope declaration, who may set it, and what a type without one does for a scoped caller; it states that a tenant cannot declare or widen the scope of a module-managed type, and it cites decision 0051 D5, D6, D7 and D11 and the module path lib/letflow/entities/scope_declaration.ex that the author opened."
+      - "5. Section D4 states how a tenant type references a module record by its record_id, that the referencing write uses the module's lookup and active? checks so that a retired, dangling or other-tenant target is refused, and which part of decision 0050 D3.6 (declarative-only, no foreign key) is kept or amended."
+      - "6. Section D5 states the server response a reference picker and a related list need, that field authorisation (INV-2) and the per-type read and scope rules apply to the target type, and what \"generated list and form\" means; it names per-tenant form, list and print-template overrides as outside this record."
+      - "7. Each of D1 to D6 states its decision, reasons and the sources opened with file paths that the author opened (no path taken from this requirement text). A point that no source settles is written as \"not settled by the source\" and listed in an open-points section with options and a recommendation, not decided silently."
+      - "8. Section D6 lists the implementation requirements the record expects (at least one for write permission, one for scope declaration, one for module references, one for the web lookups and generated forms), each with its dependency on the record, and states that none is filed or built by this slice; the record contains no implementation code."
+      - "9. The record's Sign-off section (as in decision 0055) carries a REVIEWER verdict and a SECURITY-REVIEWER verdict, because the record sets tenant-data authorisation, scope and storage rules."
+      - "10. The change adds only the record: mix letflow.check.static passes with real output quoted, and git diff main...HEAD shows no change under lib/, test/, priv/, web/ or apps/."
+    open_questions:
+      - "How a tenant-owned type obtains a 0051 scope declaration is not settled by the source: ScopeDeclaration reads declarations from module manifests only and states a tenant cannot declare one. The owner (security) decides between a core-owned tenant-administrator setting, a fixed tenant_wide rule, and another route; the record puts the options to the owner with a recommendation."
+      - "Whether write permission is a second grant table, a mode on the existing TypeAccess grant row or a list on the definition is not settled by the source; the record puts it to the owner with the effect on existing users of each option."
+    depends_on: ["decision 0050 (D3, D8)", "decision 0051 stage 2 (D5, D6, D7, D11)", "decision 0053 (candidate (a))", REQ-394, REQ-231, REQ-496]
