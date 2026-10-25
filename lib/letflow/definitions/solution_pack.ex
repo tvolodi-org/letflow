@@ -171,6 +171,8 @@ defmodule Letflow.Definitions.SolutionPack do
   meaningful checklist.
   """
 
+  import Ecto.Query, only: [from: 2]
+
   alias Letflow.Api.Authorization
   alias Letflow.Definitions
   alias Letflow.Definitions.ExportImport
@@ -338,6 +340,8 @@ defmodule Letflow.Definitions.SolutionPack do
              {:invalid_resolution, artefact_type :: String.t(), artefact_id :: String.t(),
               reason :: :not_a_conflict}}
           | {:error, :empty_artefact_set}
+          | {:error, :version_not_newer}
+          | {:error, :version_downgrade}
           | Definitions.common_error()
 
   @default_pack_version "1.0.0"
@@ -540,6 +544,11 @@ defmodule Letflow.Definitions.SolutionPack do
   against `target_version` (REQ-380 design §4.3). Single atomic operation,
   entirely inside one `Letflow.Repo.transaction/1`:
 
+    0. `check_target_version/3` before any write: an equal target is refused
+       `{:error, :version_not_newer}`, a lower one `{:error, :version_downgrade}`
+       (only against an active install with semver on both sides; see its
+       `@doc`, including the known limit that apply does not advance
+       `installed_version`).
     1. `TenantProvisioning.tenant_id_for_schema_name/1` on `opts[:prefix]`.
     2. Defensive structural guard on `resolutions` (`resolved_content`
        present iff `resolution == :merged`) -- the router's own validation
@@ -601,7 +610,8 @@ defmodule Letflow.Definitions.SolutionPack do
         opts
       )
       when is_list(opts) do
-    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix(opts)) do
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix(opts)),
+         :ok <- check_target_version(tenant_id, pack_id, target_version) do
       :ok = assert_resolution_shapes!(resolutions)
       actor_id = Keyword.fetch!(opts, :actor_id)
       now = DateTime.truncate(DateTime.utc_now(), :microsecond)
@@ -621,6 +631,50 @@ defmodule Letflow.Definitions.SolutionPack do
           {:error, reason} -> Repo.rollback(reason)
         end
       end)
+    end
+  end
+
+  @doc """
+  Compares `target_version` with the version recorded at install time in the
+  tenant's ACTIVE `solution_pack_installs` row for `pack_id` (REQ-573,
+  decision 0069 D1/D7).
+
+  Returns `{:error, :version_not_newer}` when the two compare equal,
+  `{:error, :version_downgrade}` when the target is lower, `:ok` otherwise.
+  Comparison is `Version.compare/2` (numeric, so "10.0.0" > "2.0.0"; a
+  pre-release sorts below its release, build metadata is ignored). When there
+  is no active install, or either string is not semver, the answer is `:ok`
+  and callers behave exactly as before (D7).
+
+  Read-only. `tenant_id` must come from
+  `TenantProvisioning.tenant_id_for_schema_name/1`, never from a request value.
+
+  Known limit: `installed_version` is written only by `install`; a successful
+  `apply_pack_update/6` does not advance it, so the comparison is always
+  against the install-time version.
+  """
+  @spec check_target_version(Ecto.UUID.t(), String.t(), String.t()) ::
+          :ok | {:error, :version_not_newer} | {:error, :version_downgrade}
+  def check_target_version(tenant_id, pack_id, target_version)
+      when is_binary(pack_id) and is_binary(target_version) do
+    installed_version =
+      Repo.one(
+        from(i in SolutionPackInstall,
+          where: i.tenant_id == ^tenant_id and i.pack_id == ^pack_id and i.status == :active,
+          select: i.installed_version
+        )
+      )
+
+    with installed when is_binary(installed) <- installed_version,
+         {:ok, installed_v} <- Version.parse(installed),
+         {:ok, target_v} <- Version.parse(target_version) do
+      case Version.compare(target_v, installed_v) do
+        :gt -> :ok
+        :eq -> {:error, :version_not_newer}
+        :lt -> {:error, :version_downgrade}
+      end
+    else
+      _no_check -> :ok
     end
   end
 
