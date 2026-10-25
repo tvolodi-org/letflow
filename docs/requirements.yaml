@@ -38504,7 +38504,7 @@ requirements:
     depends_on: [REQ-525, REQ-537]
 
   - id: REQ-550
-    title: "Tenant extension layer over module entity types (core roadmap, Customization beyond scripts), slice 0: decision record for the field- and validation-level x_ layer that module upgrades never overwrite"
+    title: "Tenant extension layer over module-owned data types (core roadmap, Customization beyond scripts), slice 0: decision record for the field- and validation-level x_ layer that module upgrades never overwrite"
     owner: CODE-DESIGNER
     status: pending
     stage: S7
