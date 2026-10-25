@@ -38512,8 +38512,11 @@ requirements:
     # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (bullet "tenant extensions to module entities": an x_ tenant layer that module upgrades never overwrite; "its own follow-up record (0055 D4 keeps only the constraints an upgrade imposes)"); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D4 (DIRECTION only) and open point 9; docs/migration/decisions/0053-tenant-scripted-rules.md "Requirement candidates", candidate (b). Written by the business analyst (T-0464) 2026-10-25. Not yet validated.
     description: >
       Source: core roadmap "Customization beyond scripts"; decision 0055 D4; decision 0053 candidate (b).
-      The roadmap says the x_ tenant layer needs its own record, and 0055 D4 says it only "keeps the
-      constraints an upgrade imposes" while "storage, merge point and merge rules are NOT decided here".
+      The roadmap says the x_ tenant layer needs its own record and that 0055 D4 "keeps only the
+      constraints an upgrade imposes". Decision 0055 itself says, in its section "Scope: binding vs
+      direction", that D4 is reduced to the constraints an upgrade must honour and that "storage, merge
+      point and merge rules are NOT decided here"; D4 says the layer is not designed there and that 0053
+      requires its own record.
       This requirement is SLICE 0: its whole deliverable is that decision record, a document under
       docs/migration/decisions/ with the next free number at the time of the change. It builds no code,
       no migration, no seed and no test. The implementation is written as separate requirements only
@@ -38567,7 +38570,7 @@ requirements:
       Not in this change: any code, migration, seed, route, UI and test; a change to decision 0055 (D4
       stays as written; the new record says it settles the "NOT decided here" part of D4 only).
     acceptance_criteria:
-      - "1. One new record exists under docs/migration/decisions/ with the next free four-digit number on main at the time of the change; its header names this requirement, says it builds on decision 0055 D4 and is candidate (b) of decision 0053, and says which sentence of 0055 D4 it settles (\"storage, merge point and merge rules are NOT decided here\"). The diff of this change is that file plus a one-line pointer where the decision records are indexed, if an index exists; it contains no file under lib/, test/, priv/, web/ or apps/."
+      - "1. One new record exists under docs/migration/decisions/ with the next free four-digit number on main at the time of the change; its header names this requirement, says it builds on decision 0055 D4 and is candidate (b) of decision 0053, and says which statement about D4 it settles: the sentence \"storage, merge point and merge rules are NOT decided here\" in the section \"Scope: binding vs direction\" of decision 0055 (D4 itself says the layer needs its own record, citing 0053). The diff of this change is that file plus a one-line pointer where the decision records are indexed, if an index exists; it contains no file under lib/, test/, priv/, web/ or apps/."
       - "2. Its first section states in one sentence that a module upgrade never overwrites, reorders or deletes anything in the tenant layer, and states that the upgrade runner has no write path to the layer and that the tripwire of 0055 D3 aborts a batch that writes to it."
       - "3. The record repeats the four constraints of 0055 D4 as binding and gives, for the conflict case, the exact error {:error, {:extension_conflict, entity_type, name}} and the rule that the two other cases (a new module constraint that an extension contradicts; a retired module field that an extension references) are warnings, not failures."
       - "4. Sections D1 to D6 above each exist as a numbered section; each states its decision, reasons and the sources opened with file paths. A point that no source settles is written as \"not settled by the source\" and listed in an open-points section with the options and a recommendation, not decided silently."
@@ -38576,7 +38579,7 @@ requirements:
       - "7. D4 states that the layer's write path refuses a key without the x_ prefix and a key equal to a module-owned key, with the error shape; D5 names the permission and the role that manages the layer and states that INV-2 field authorisation applies to x_ fields."
       - "8. Boundary section: the record states that it owns the field- and validation-level x_ layer on module entity types, names process-definition and pack-level versioning and overrides as excluded and as owned by the solution-versioning requirement (cited by its REQ id, or by its title while no id is registered), and names the separate roadmap item of per-tenant form, list and print-template overrides with the rule that splits D1's override kinds between the two."
       - "9. The record lists the implementation requirements it expects (each small enough for one change, each depending on this one) and states that none of them is filed or built by this slice; it contains no implementation code."
-      - "10. docs/requirements.yaml is changed only by this entry; mix letflow.check.static passes with real output quoted; a REVIEWER verdict and a SECURITY-REVIEWER verdict (the record sets tenant-data authorisation and storage rules) are recorded."
+      - "10. The change does not modify docs/requirements.yaml; mix letflow.check.static passes with real output quoted; the record's Sign-off section (as in decision 0055) carries a REVIEWER verdict and a SECURITY-REVIEWER verdict, because the record sets tenant-data authorisation and storage rules."
     open_questions:
       - "Boundary to the separate roadmap item \"per-tenant form, list and print-template overrides\": candidate (b) of 0053 puts list, form and print-template overrides into the x_ layer, the roadmap lists them as their own item. Criterion 8 asks the record to split them; which side owns KZ print forms is for the owner if the record cannot derive it from the sources."
       - "The REQ id of the solution-versioning requirement is not yet registered; the record or the reviewer fills it in once the engine has registered it."
