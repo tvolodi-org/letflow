@@ -374,6 +374,41 @@ defmodule Letflow.Routers.Req078SupportingRoutesTest do
       assert [%{"definition_id" => ^expected_id}] = body["definitions"]
     end
 
+    for {tag, bad} <- [
+          {"R1a", "1.0"},
+          {"R1b", "v1.0.0"},
+          {"R1c", "2024-10-25"},
+          {"R1d", "1.0.0.1"}
+        ] do
+      test "REQ-573 #{tag}: POST /solution-packs/export with version #{bad} -- 422 invalid_pack_version" do
+        tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req573-r1")
+        definition = active_definition!(tenant.schema_name)
+
+        resp =
+          build_conn(:post, "/export", tenant,
+            body: %{"definition_ids" => [definition.id], "version" => unquote(bad)}
+          )
+          |> Letflow.Routers.SolutionPacks.call(@solution_packs_opts)
+
+        assert resp.status == 422
+        assert Jason.decode!(resp.resp_body)["detail"] == "invalid_pack_version"
+      end
+    end
+
+    test "REQ-573 R2: POST /solution-packs/export keeps a valid semver version unchanged" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req573-r2")
+      definition = active_definition!(tenant.schema_name)
+
+      resp =
+        build_conn(:post, "/export", tenant,
+          body: %{"definition_ids" => [definition.id], "version" => "2.3.4-rc.1"}
+        )
+        |> Letflow.Routers.SolutionPacks.call(@solution_packs_opts)
+
+      assert resp.status == 200
+      assert Jason.decode!(resp.resp_body)["version"] == "2.3.4-rc.1"
+    end
+
     test "POST /solution-packs/install -- 200, install result shape" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req078-ac1-install")
       cleanup_solution_pack_installs!(tenant.tenant_id)
