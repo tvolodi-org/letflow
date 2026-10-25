@@ -10,7 +10,7 @@ defmodule Letflow.Routers.SolutionPacks do
 
   | Handler | Method/path                     | Delegate                                     | Auth | Response                    |
   |---------|---------------------------------|----------------------------------------------|------|-----------------------------|
-  | export  | `POST /solution-packs/export`   | `Letflow.Definitions.SolutionPack.export/3`  | none in this requirement (REQ-131) | 200, the pack document |
+  | export  | `POST /solution-packs/export`   | `Letflow.Definitions.SolutionPack.export/3`  | none in this requirement (REQ-131) | 200, the pack document; 422 `invalid_pack_version` on a non-semver version |
   | install | `POST /solution-packs/install`  | `Letflow.Definitions.SolutionPack.install/3` | none in this requirement (REQ-131) | 200, the install result |
 
   ## The R-Co path's `{tenant_id}` segment is DROPPED (INV-1)
@@ -261,6 +261,9 @@ defmodule Letflow.Routers.SolutionPacks do
 
         {:error, :empty_definition_ids} ->
           Response.unprocessable(conn, "definition_ids must not be empty")
+
+        {:error, :invalid_pack_version} ->
+          Response.unprocessable(conn, "invalid_pack_version")
 
         {:error, _common_error} ->
           Response.internal_error(conn)
