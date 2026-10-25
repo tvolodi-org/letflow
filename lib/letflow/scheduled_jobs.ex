@@ -119,7 +119,7 @@ defmodule Letflow.ScheduledJobs do
     with {:ok, values} <- validate(attrs, :update),
          {:ok, uuid} <- cast_id(id) do
       decide = fn job ->
-        changes = for {k, v} <- values, Map.get(job, k) != v, into: %{}, do: {k, v}
+        changes = for {k, v} <- values, not same_value?(Map.get(job, k), v), into: %{}, do: {k, v}
 
         if map_size(changes) == 0 do
           {:noop, job}
@@ -236,6 +236,12 @@ defmodule Letflow.ScheduledJobs do
       changes
     end
   end
+
+  # Stored variables have string keys; compare the JSON-normalised values so an unchanged map is a no-op.
+  defp same_value?(a, b) when is_map(a) and is_map(b), do: normalize(a) == normalize(b)
+  defp same_value?(a, b), do: a == b
+
+  defp normalize(value), do: value |> Jason.encode!() |> Jason.decode!()
 
   defp changed_names(changes) do
     changes

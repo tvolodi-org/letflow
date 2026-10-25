@@ -183,6 +183,10 @@ defmodule Letflow.ScheduledJobsTest do
 
     assert ScheduledJobs.list(b.schema_name) == []
     assert {:error, :not_found} = ScheduledJobs.get(b.schema_name, job.id)
+
+    assert {:error, :not_found} =
+             ScheduledJobs.update(b.schema_name, job.id, %{title: "x"}, actor)
+
     assert {:error, :not_found} = ScheduledJobs.disable(b.schema_name, job.id, actor)
     assert {:error, :not_found} = ScheduledJobs.enable(b.schema_name, job.id, actor)
     assert {:ok, %Job{enabled: true}} = ScheduledJobs.get(schema_a, job.id)

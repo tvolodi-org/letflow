@@ -339,7 +339,7 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       assert RouteScope.audit_routes(routes, snapshot) == []
     end
 
-    test "the self-service list is exactly M1, M2, access, H1 and the four definitions reads (REQ-545, REQ-546), each ruled (T-S8)" do
+    test "the self-service list is exactly M1, M2, access, H1 and the four definitions reads (REQ-545, REQ-546) and the REQ-551 labels read, each ruled (T-S8)" do
       assert Enum.sort_by(RouteScope.self_service_routes(), & &1.route) ==
                [
                  %{
@@ -371,6 +371,12 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
                    key: :HelpRead,
                    class: :self_service,
                    ruling: "SEC-518-R2-help"
+                 },
+                 %{
+                   route: "GET /labels",
+                   key: :MyAccessRead,
+                   class: :self_service,
+                   ruling: "SEC-551-labels"
                  },
                  %{
                    route: "GET /me/memberships",

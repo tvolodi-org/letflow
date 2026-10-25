@@ -24,7 +24,7 @@ defmodule Letflow.ScheduledJobs.Job do
   @max_key 100
   @max_title 200
   @max_variables_bytes 16_384
-  @secret_keys ~w(password token secret api_key)
+  @secret_keys ~w(password token secret apikey)
 
   schema "scheduled_jobs" do
     field(:tenant_id, :binary_id)
@@ -169,7 +169,7 @@ defmodule Letflow.ScheduledJobs.Job do
     match?({:ok, _json}, Jason.encode(value))
   end
 
-  # A key named password/token/secret/api_key (any case, any depth, inside lists too) whose
+  # A key containing password/token/secret/apikey (a substring heuristic, ignoring case and _ or - separators; any depth, inside lists too) whose
   # value is not empty. Variables are stored in the job row and written into instance events, so
   # a secret never goes through them: keep secrets out of a job and reference them from the process instead.
   defp secret_like?(map) when is_map(map) and not is_struct(map) do
@@ -182,7 +182,12 @@ defmodule Letflow.ScheduledJobs.Job do
   defp secret_like?(_other), do: false
 
   defp secret_key?(key) when is_atom(key), do: secret_key?(Atom.to_string(key))
-  defp secret_key?(key) when is_binary(key), do: String.downcase(key) in @secret_keys
+
+  defp secret_key?(key) when is_binary(key) do
+    normalized = key |> String.downcase() |> String.replace(~r/[[:space:]_-]/, "")
+    Enum.any?(@secret_keys, &String.contains?(normalized, &1))
+  end
+
   defp secret_key?(_key), do: false
 
   defp empty_value?(value), do: value in [nil, "", %{}, []]

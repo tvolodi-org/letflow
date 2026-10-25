@@ -9,7 +9,7 @@
 # tenant has a job until a platform operator turns the feature on and a tenant admin creates one.
 # There is deliberately NO truncate trigger: the test template reset truncates dirty tables.
 #
-# The CHECK constraints are defence in depth; `Letflow.ScheduledJobs.Job.changeset/2` is the
+# The CHECK constraints are defence in depth; `Letflow.ScheduledJobs.Job.validate/2` is the
 # typed-error path.
 #
 # TENANT-SCOPED MIGRATION -- the `if prefix() do` guard is MANDATORY, and this file is

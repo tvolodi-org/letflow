@@ -201,12 +201,21 @@ defmodule Letflow.Scheduler.ScheduledJobSweep do
 
   # Phase 3.
   defp record_outcome(schema, job, plan, code) do
-    Repo.transaction(fn ->
-      case Repo.one(from(j in Job, where: j.id == ^job.id, lock: "FOR UPDATE"), prefix: schema) do
-        nil -> :gone
-        %Job{} = locked -> write_outcome(schema, locked, plan, code)
-      end
-    end)
+    result =
+      Repo.transaction(fn ->
+        case Repo.one(from(j in Job, where: j.id == ^job.id, lock: "FOR UPDATE"), prefix: schema) do
+          nil -> :gone
+          %Job{} = locked -> write_outcome(schema, locked, plan, code)
+        end
+      end)
+
+    with {:error, reason} <- result do
+      Logger.warning("scheduled job outcome not recorded",
+        schema: schema,
+        job_id: job.id,
+        reason: inspect(reason)
+      )
+    end
 
     if code != "ok" do
       Logger.warning("scheduled job run did not start an instance",
