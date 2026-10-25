@@ -224,8 +224,8 @@ defmodule Letflow.Routers.MobileTenantConfig do
 
   defp resolve_tenant_config(slug) when is_binary(slug) do
     case Identity.safe_get_tenant_by_slug(slug, "mobile-tenant-config") do
-      {:ok, %Tenant{idp_realm_id: realm_id, settings: settings}}
-      when is_binary(realm_id) and realm_id != "" ->
+      {:ok, %Tenant{idp_realm_id: realm_id, settings: settings, status: status}}
+      when is_binary(realm_id) and realm_id != "" and status != :inactive ->
         {realm_id, settings}
 
       _miss_or_nil_realm_or_error ->
