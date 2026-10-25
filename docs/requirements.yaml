@@ -38848,6 +38848,112 @@ requirements:
       - "Whether a module's settings schema can mark a field as a secret reference is not established by this entry; criterion 2 holds either way (the reference string is carried as is and nothing is resolved)."
     depends_on: [REQ-034, REQ-082, REQ-303, REQ-304, REQ-305, REQ-306, REQ-035, REQ-036, REQ-037, REQ-038, REQ-040, REQ-077, REQ-280, REQ-414]
 
+  - id: REQ-559
+    title: "Decision record for Record F (decision 0053 hook 3): form-validation script hook that runs in the locked complete_task transaction (slice 0, decision only)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3184
+    # Source: docs/migration/decisions/0053-tenant-scripted-rules.md (scope list "Record F", "Row-lock answer", D5 "Hook 1 reads are PRE-FETCHED" and its last bullet on a later dynamic data API, D7 "Failure" last sentence, D8, T10 in the threat cases); docs/migration/core-roadmap-20261014.md Wave 3 row "Form-hook scripts (server-side form validation) and after-commit entity-event triggers via outbox"; lib/letflow/engine.ex (the :completion_guards Multi step and check_completion_guards, fetch_and_lock_task); REQ-539 (Record E, GH #3155), which settles the transaction and read rule of a hook that reads data. Written by the business analyst (T-0461) 2026-10-25. Not yet validated.
+    description: >
+      Decision 0053 names "Record F, form-validation script hook" (hook 3, "runs in the locked
+      complete_task transaction") as direction only, non-binding until its own record is ratified.
+      Its "Row-lock answer" says the 50 ms rule binds hook 3, because complete_task takes the task and
+      instance-projection row locks (fetch_and_lock_task, fetch_and_lock_instance_projection in
+      lib/letflow/engine.ex) and runs the completion guards (the :completion_guards Multi step,
+      check_completion_guards) inside that transaction. 0053 D5 says hook 1 reads are pre-fetched
+      and that a later hook with a dynamic data API must say which transaction it reads in; D7 says
+      any hook that runs in or beside a transaction must convert every executor outcome, including
+      exit and crash, to a typed {:error, code} without raising. REQ-539 (Record E) is the slice 0 that
+      decides the read transaction, the F13 atomicity rule and the pin kind for hook 2; Record F reuses
+      those rulings and must not decide them a second time. This requirement is slice 0 only: ONE
+      decision record in docs/migration/decisions/ (next free number on origin/main at the time of
+      writing, taken from git fetch, not from the worktree), written by CODE-DESIGNER and reviewed by
+      REVIEWER and SECURITY-REVIEWER. It writes no application code. The record decides: (1) where hook
+      3 runs inside the complete_task transaction (before or after :completion_guards, whether a
+      script refusal is a completion guard) and which transaction its reads use, with the time budget
+      against the 50 ms rule (the lock hold time of the task and projection rows is the constraint);
+      (2) the pure-function contract: input (the submitted output, the form definition version, the
+      task), output (accept, or a refusal with a manifest-declared code and field-level messages), and
+      that the script cannot change the submitted output; (3) pinning: which definition field names the
+      script key and version, the pin kind and its interaction with the closed pin-kind set (as in
+      REQ-539 item 3); (4) the script principal and field restrictions (0053 D5, INV-2, decision 0062):
+      restricted submitted fields are redacted unless declared; (5) the failure mapping of every
+      executor outcome to stable codes, and the effect on the completion (refused completion leaves the
+      task open and the instance unchanged; fail closed; retry only for script_busy, within a cap);
+      (6) the user-visible shape of a refusal (a validation error the form can show, not a 500) and
+      that a refusal is indistinguishable from the same refusal for any caller who may not complete the
+      task (INV-5); (7) the list of implementation slices, each sized to one change, with
+      dependencies. The record must not silently contradict decisions 0050, 0051, 0053, 0054, 0061 or
+      0062 or the REQ-539 record; where it amends one it says so in an "amends" line.
+    acceptance_criteria:
+      - "1. One new file docs/migration/decisions/NNNN-form-hook-script-validation.md exists (NNNN = next free number on origin/main), with status line, date, a Depends-on line naming 0050, 0051, 0053, 0054, 0061, 0062, GH #2534 and the Record E record of REQ-539, and a section per item (1) to (7) of the description. The diff touches no file under lib/, priv/, web/ or apps/; docs/migration/decisions/ and, if a reason is stated, docs/migration/README.md or the decision index are the only changed paths."
+      - "2. Dependency on REQ-539: the record cites the Record E record by file name and quotes the rulings it reuses (read transaction, pin kind, F13 rule); where Record F needs a different ruling it says so in an 'amends' line with the reason. The requirement is not started before REQ-539 has merged (depends_on)."
+      - "3. Lock and time budget: the record states, by symbol (fetch_and_lock_task, fetch_and_lock_instance_projection, the :completion_guards Multi step), which locks are held while the hook runs, the wall-clock budget of the hook against the 50 ms rule, and what happens when the budget is exceeded (completion refused with a stable code, locks released, no partial write). It states that the sandbox task never opens its own connection (0053 D5, T10). A figure above the 0053 D7 maxima is listed under 'Not decided here' as needing a new ruling, not set silently."
+      - "4. INV-3: the record states that hook 3 runs only under the existing sandbox allow-list, mandatory heap cap and ScriptAdmission with caller monitoring (0053 D7, D8), that the script has no network, file system or other-tenant access, and that the output is validated against the manifest output schema before it is acted on."
+      - "5. INV-1: the record states that every read of the hook uses the tenant :prefix of the run context only, that a script key named by a form definition resolves only inside the tenant's script_rules, and requires an INV-10 cross-tenant negative test in the implementing slice (a form of tenant A naming a script key, a completion by a caller of tenant B: byte-identical not-found)."
+      - "6. INV-8: the record maps every executor outcome (script error, instruction budget, memory limit, timeout, invalid output, admission refused, caller or worker crash, kill switch on) to a stable tenant-visible code and to the effect on the completion: the completion is refused and the task and instance are unchanged, or, for script_busy only, retried within a stated cap and then refused; completing without running the hook is never allowed. No raw Exception.format or inspect text reaches a tenant. The record requires one test per outcome in the implementing slice, including a test that a crash of the sandbox task inside the locked transaction does not leave the transaction open."
+      - "7. Refusal shape (INV-2, INV-5): the record states the response a form receives for a script refusal (stable code, field names from the manifest-declared set, no script source and no restricted field value), and that a caller who may not complete the task gets the same answer as for an unknown task."
+      - "8. Slice list: the record lists the implementation slices (at least: form pin and registry change, runtime and read path, completion integration, failure mapping and audit, dry-run and UAT), each with its dependencies and one SECURITY-REVIEWER gate marker for every slice that touches a tenant-data path. Each slice is sized to one change."
+      - "9. Consistency: a section 'Consistency with earlier records' lists, for each of 0050, 0051, 0053, 0054, 0061, 0062 and the Record E record, whether Record F amends it and quotes the sentence amended; a reader can check each quotation against the source file. Owner-only questions are listed under 'Not decided here'."
+      - "10. SECURITY-REVIEWER verdict recorded on the record (mandatory: tenant-data path, script sandbox, locked transaction) and REVIEWER verdict recorded; mix letflow.check_requirements_registration and the CI path-filter test (test/letflow/ci_backend_path_filter_test.exs) pass, real output quoted."
+    open_questions:
+      - "The precise millisecond budget inside the locked transaction is an owner figure; the record lists it under 'Not decided here' if 0053 D7 does not settle it."
+    depends_on: [REQ-539]
+
+  - id: REQ-560
+    title: "Decision record for Record T (decision 0053 hook 4): after-commit record-event script triggers and the outbox that delivers them, with the atomicity rule (slice 0, decision only)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3183
+    # Source: docs/migration/decisions/0053-tenant-scripted-rules.md (scope list "Record T, after-commit entity-event triggers and the outbox", deviation 11 "no outbox exists; direction only", D7 failure codes and "Only script_busy is retriable", D5 "Determinism" and "Retry of a non-idempotent hook is forbidden", D8, D9); docs/migration/core-roadmap-20261014.md Wave 3 row "Form-hook scripts ... and after-commit entity-event triggers via outbox"; lib/letflow/plugs/api_pipeline.ex (the only mention of an outbox in lib/ outside lib/letflow/design/: a provenance-table row for the deferred R-Co plug OutboxCap, never built), and the existing committed-row-plus-poller code lib/letflow/engine/script_task_dispatcher.ex with script_task_dispatcher/poller.ex, lib/letflow/engine/service_task_dispatcher.ex with service_task_dispatcher/poller.ex, and the dead-letter code lib/letflow/dlq.ex (to be read before the record rules on reuse); lib/letflow/webhooks/delivery.ex is only an example of an append-only attempt log, not a queue; lib/letflow/entities/records.ex (Records.command_multi/3, the write transaction); REQ-539 (Record E, GH #3155). Written by the business analyst (T-0461) 2026-10-25. Not yet validated.
+    description: >
+      Decision 0053 names "Record T, after-commit entity-event triggers and the outbox" (hook 4,
+      old D6) as direction only. Its deviation 11 says that no outbox exists for it. A trigger runs a
+      tenant script after a record write has committed, so the script may not roll the write back; the
+      risk is the gap between the commit and the trigger: a trigger lost when the node dies after the
+      commit, or a trigger run twice. This requirement is slice 0 only: ONE decision record in
+      docs/migration/decisions/ (next free number on origin/main at the time of writing, taken from git
+      fetch, not from the worktree), written by CODE-DESIGNER and reviewed by REVIEWER and
+      SECURITY-REVIEWER. It writes no application code. The record decides: (1) the atomicity rule: an
+      outbox row for each matching trigger is inserted in the SAME transaction as the record write
+      (Records.command_multi/3 and the history and event rows it already writes), so that either both the
+      write and its outbox rows commit or neither does, and the trigger never runs inside the write
+      transaction; (2) the outbox: its table and tenant scope (a tenant schema table under the :prefix),
+      row states, claim by a worker with a lease and FOR UPDATE SKIP LOCKED or an equivalent that
+      cannot double-claim, the delivery guarantee (at-least-once with an idempotency key, or
+      at-most-once, with the reason: 0053 D5 forbids retry of a non-idempotent hook, so the record must
+      say which of the two a trigger gets and what the script author must assume), retry cap, backoff
+      and a dead-letter state, and the relation to the existing poller-and-dispatch code 
+      (lib/letflow/engine/script_task_dispatcher.ex and its poller.ex, lib/letflow/engine/service_task_dispatcher.ex and its poller.ex, lib/letflow/dlq.ex; lib/letflow/webhooks/delivery.ex is only an append-only attempt log): reuse or a separate table, with the reason; (3) the trigger
+      declaration and pinning: which record types and events (create, update, delete, process-step
+      write per 0054) can trigger, the script key and version, the pin kind (reusing the REQ-539
+      ruling), and loop protection (whether a trigger's own writes raise triggers; the rule and a
+      depth cap); (4) the script principal and what a trigger may do: it has no invoking user and, being
+      pure (0053 D4), returns values that the host applies in a separate transaction with its own
+      checks (0050 managed types, 0051 scope, 0061 lock order), never in the original write's
+      transaction; (5) ordering and concurrency per record (whether triggers for one record run in
+      commit order), per-tenant fairness and backpressure through ScriptAdmission (0053 D8) and a cap
+      on outbox depth per tenant; (6) failure mapping of every executor outcome to the 0053 D7 stable
+      codes, the effect on the outbox row, and visibility to the tenant (a failed trigger is an
+      incident, the original write stays committed); (7) the list of implementation slices, each sized to
+      one change, with dependencies. The record must not silently contradict decisions 0050, 0051, 0053,
+      0054, 0061 or 0062 or the REQ-539 record; where it amends one it says so in an "amends" line.
+    acceptance_criteria:
+      - "1. One new file docs/migration/decisions/NNNN-after-commit-trigger-outbox.md exists (NNNN = next free number on origin/main), with status line, date, a Depends-on line naming 0050, 0051, 0053, 0054, 0061, 0062, GH #2534 and the Record E record of REQ-539, and a section per item (1) to (7) of the description. The diff touches no file under lib/, priv/, web/ or apps/; docs/migration/decisions/ and, if a reason is stated, docs/migration/README.md or the decision index are the only changed paths."
+      - "2. Dependency on REQ-539: the record cites the Record E record by file name, quotes the rulings it reuses (pin kind, script principal, failure mapping) and states in an 'amends' line any place where it differs. The requirement is not started before REQ-539 has merged (depends_on)."
+      - "3. Atomicity rule, one normative paragraph: the outbox row is inserted in the same database transaction as the record write; the record states what happens when the write rolls back (no outbox row remains), when the transaction commits and the node dies before any worker runs (the row is picked up after restart, by lease expiry), and that no trigger script runs before the commit. It includes a worked example with a write, a node crash and a restart. A statement that outbox rows are 'written soon after' the commit does not meet this criterion."
+      - "4. Delivery guarantee: the record states at-least-once or at-most-once for a trigger and why, names the idempotency key (built from the outbox row id), states what a script author may assume, and rules on a worker that dies after applying the trigger's result but before marking the row done (no second application of the result)."
+      - "5. Outbox facts: the record names the existing code it read (lib/letflow/engine/script_task_dispatcher.ex with its poller.ex, lib/letflow/engine/service_task_dispatcher.ex with its poller.ex, lib/letflow/dlq.ex; lib/letflow/plugs/api_pipeline.ex is the only lib/ mention of an outbox and names a plug never built), says reuse or separate for each with the reason, and gives the lock mode of the claim query, the lease length (an owner figure or a stated default), the retry cap and the dead-letter state. It states the lock position of the outbox insert and of the result transaction in the lock order of decision 0061."
+      - "6. INV-1: the record states that the outbox table is under the tenant :prefix, that a worker takes the tenant from the row's schema and never from the payload, that the payload holds ids and event type and not record values, and requires an INV-10 cross-tenant negative test in the implementing slice (an outbox row of tenant A is not claimed, listed or counted for tenant B, and an admin listing for tenant B answers byte-identically to a tenant with no rows)."
+      - "7. INV-3: the record states that a trigger runs only under the existing sandbox allow-list, mandatory heap cap and ScriptAdmission with caller monitoring (0053 D7, D8), with the input built by the host and redacted through the field restrictions of the script principal (0053 D5, 0062), and that a value above the D7 maxima is listed under 'Not decided here'."
+      - "8. INV-8: the record maps every executor outcome (script error, instruction budget, memory limit, timeout, invalid output, admission refused, worker crash, kill switch on) and each outbox failure (claim lost, lease expired, tenant schema dropped, result refused by the 0050 or 0051 checks) to a stable code and to the effect on the outbox row; the original write is never undone by a trigger failure; no raw Exception.format or inspect text reaches a tenant. The record requires one test per outcome in the implementing slice and a depth-cap test for trigger loops."
+      - "9. Slice list: the record lists the implementation slices (at least: outbox table and same-transaction insert, claim worker with lease, trigger declaration and pin, script run and result application, failure handling with dead letter and tenant visibility, dry-run and UAT), each with dependencies and a SECURITY-REVIEWER gate marker for every slice that touches a tenant-data path. Each slice is sized to one change."
+      - "10. Consistency and gates: a section 'Consistency with earlier records' lists, for each of 0050, 0051, 0053, 0054, 0061, 0062 and the Record E record, whether Record T amends it and quotes the sentence amended; owner-only questions are listed under 'Not decided here'. SECURITY-REVIEWER and REVIEWER verdicts are recorded; mix letflow.check_requirements_registration and the CI path-filter test pass, real output quoted."
+    open_questions:
+      - "At-least-once or at-most-once delivery for trigger scripts is a product decision with a recommendation from 0053 D5 (no retry of a non-idempotent hook). The record takes it with its reason; if the CODE-DESIGNER finds the choice depends on the owner's tolerance for a lost trigger, it lists it under 'Not decided here'."
+    depends_on: [REQ-539]
   - id: REQ-549
     title: "Module uninstall (core roadmap Wave 3), slice 0: decision record that amends 0039 D5 'No uninstall' and settles what uninstall removes and keeps (soft uninstall, reactivate, orphaned-data reads, data retention)"
     owner: CODE-DESIGNER
@@ -39423,4 +39529,95 @@ requirements:
       - "12. Gates: SECURITY-REVIEWER verdict (INV-1, INV-4, INV-5, INV-6, INV-10; new tenant table, new permission, new routes) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static, the new backend test files, test/letflow/ci_backend_path_filter_test.exs and the route-count and authz pins pass, real output quoted."
     open_questions:
       - "UAT assumption, to be confirmed by the process owner: the first and only template key is task_assigned, with the placeholders task_name, process_name, assignee_name, due_date, tenant_name, and the limits are subject 200 / body 5000 characters; all are chosen by the BA, not set by a decision record. Whether the permission is a new :NotificationTemplatesManage or the existing :TenantSettingsManage is a design choice for the implementer to settle with SECURITY-REVIEWER. Which message first consumes a template (and so the sending channel) is open and is the next requirement candidate."
+    depends_on: []
+
+  - id: REQ-561
+    title: "Tenant-defined scheduled jobs: a tenant table of recurring jobs that start a published process definition, run by the existing Scheduler.Poller (core roadmap, Customization beyond scripts)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3194
+    # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (the candidate "integration mappings, scheduled jobs, notification templates and label overrides"); docs/migration/decisions/0053-tenant-scripted-rules.md D1 (hook_kind list: only service_task now, other kinds reserved) and its non-binding note "Customization beyond scripts" (scheduled jobs need their own record or requirement); lib/letflow/scheduler/poller.ex (moduledoc, REQ-331 addition: sweeps run on the one supervised ticker with with_admission/3 and run_sweep/4); lib/letflow/scheduler/record_deadline_sweep.ex (moduledoc: rules are deploy-time config and no tenant can declare one); lib/letflow/engine.ex (create/2); docs/agents/instructions/security-invariants.md INV-1, INV-2, INV-5, INV-8, INV-10. Written by the business analyst (T-0489) 2026-10-25. Not yet validated.
+    description: >
+      Tenants cannot today make anything happen on a schedule. Two mechanisms exist and neither is this one.
+      (1) Platform timers (lib/letflow/scheduler.ex, schema lib/letflow/scheduler/timer.ex): a timer belongs to one
+      running process instance and wakes that instance (poll_and_fire/1, fire_timer/2, maybe_rearm_timer/3); it
+      cannot start a new instance and is created by the engine, not by a tenant. (2) The generic record transition
+      sweep (lib/letflow/scheduler/record_deadline_sweep.ex, Poller's eighth sweep, REQ-331): its rules are
+      declared in application config by the platform operator, it only moves a record's status when a datetime field
+      has passed, and its moduledoc states that no tenant-facing path can create a rule. This requirement adds a
+      third thing: a tenant-owned definition of a recurring job, stored in the tenant schema, which the same
+      Scheduler.Poller runs when due.
+
+      Scope of this one change, and nothing wider. A job is a row in a new tenant-schema table (follow the
+      neighbouring tenant tables; the tenant is the schema prefix, INV-1) with: a key (unique per tenant), a title,
+      the name of a process definition, optional initial variables (a plain map of literals; a value that looks like
+      a secret is refused, because secrets exist only by reference through Letflow.Secrets (INV-4) and this slice
+      stores no reference at all), an optional scope node id, an interval in whole minutes, an anchor time (UTC), an
+      enabled flag, next_run_at, last_run_at, last_outcome, consecutive_failures, and the creating user id. The
+      action a job performs is exactly one: start a new instance of the named published process definition through
+      Letflow.Engine.create/2 (lib/letflow/engine.ex) with the job's variables and with the job's creating user as
+      actor. A job that runs a tenant script is NOT in this slice: 0053 D1 reserves hook kinds other than
+      service_task for later records, so a scheduled-script job (a new hook kind, a limits review and a decision
+      record under 0053 D0) is a later slice. A script can already be reached by a scheduled job through a process
+      whose service task has route kind script.
+
+      The due-run mechanism is a ninth per-tenant sweep on Scheduler.Poller, built exactly like
+      maybe_run_deadline_sweep/1 (run_sweep/4 over tenant schemas, with_admission/3, inline rescue): no new
+      GenServer, no new supervisor child, no process per job, no second ticker. The new module is a plain context
+      module in the style of Letflow.Scheduler.RecordDeadlineSweep (called by Poller, owns no state). Due jobs are
+      claimed per tenant schema with FOR UPDATE SKIP LOCKED (as Letflow.Scheduler.claim_due_timer_ids/2 does) and
+      each job runs in its own transaction, so one job failing never stops another job or another tenant.
+
+      Schedule semantics, fixed so that only one implementation is acceptable: the interval is a whole number of
+      minutes from 5 to 10080 (one week); next_run_at is always the anchor plus a whole multiple of the interval;
+      cron expressions, time zones and calendar rules (last day of month, working days) are out of scope. Missed
+      runs: if the platform was down or the sweep was late and several slots have passed, the job runs once, for the
+      latest missed slot, and next_run_at moves to the first slot after now; the slots in between are skipped, not
+      replayed, and their count is stored in last_outcome details. The instance start uses the idempotency key job id
+      plus slot time, so two sweeps (two nodes, a restart) claiming the same slot create one instance. Failure: a
+      start that returns an error tuple or raises is caught, stored as last_outcome (a stable code from a closed
+      list, never inspect output), increases consecutive_failures and still advances next_run_at, so a failing job
+      does not loop; the 5th consecutive failure sets enabled to false in the same transaction and writes an audit
+      event; a success resets the counter. An unknown, unpublished or retired definition is such a failure. A job
+      whose creating user is deactivated or no longer holds :InstancesStart (or no longer satisfies the scope rule
+      for the job's scope node id) fails with the code actor_not_allowed and counts as a failure. The closed list of
+      last_outcome codes is: ok, definition_not_found, definition_not_active, definition_needs_reactivation,
+      actor_not_allowed, start_failed, raised (the first three failure codes mirror the create_error type of
+      Letflow.Engine.create/2 in lib/letflow/engine.ex).
+
+      Management is through a new tenant-scoped router with create, read, list, update (title, variables, interval,
+      anchor, scope), enable and disable. A new core permission (the implementer names it in
+      lib/letflow/api/authorization.ex and classifies it tenant, as 0053 D6 does for the scripts permissions) is
+      granted to TENANT_ADMIN only; the role set stays closed (0046). It is not granted to any role except
+      TENANT_ADMIN, PLATFORM_ADMIN holding it only through the unconditional platform clause of
+      core_role_allows?/2. A caller needs, in addition, the core permission :InstancesStart (the policy key of
+      POST /instances in lib/letflow/api/authorization.ex), and for a job with a scope node id the same scope rule
+      that authorize_start_scope/2 in lib/letflow/routers/instances.ex applies to POST /instances; create and
+      enable are refused if the caller fails either, so a job cannot start what its owner could not start by hand. The feature is behind a new application config flag, default false; while false the sweep does nothing
+      and every management route answers the same not-found as an absent route does. Every create, update, enable,
+      disable, automatic disable and run writes an audit event in the same transaction.
+
+      Open questions for the process owner, not settled here: whether PROCESS_DESIGNER may also create jobs (this
+      slice says TENANT_ADMIN only, the safer default for something that starts work unattended); whether a job
+      should run as a dedicated service principal instead of its creating user (this slice uses the creating user so
+      that no new principal kind is introduced). The 5-minute minimum interval and the 5-failure automatic disable
+      are UAT assumptions, to be confirmed by the process owner. Scheduled-script jobs and cron expressions are later
+      slices.
+    acceptance_criteria:
+      - "1. Storage and tenancy (INV-1, INV-6): the job table lives in the tenant schema, created by a migration under priv/repo/migrations/ that reaches existing tenant schemas by the same mechanism the neighbouring tenant tables use, and every read and write of it passes the tenant schema as an explicit prefix. A test with two tenants creates a job in tenant A and asserts that tenant B's list and read never see it and that the sweep for tenant B starts no instance for it."
+      - "2. Schedule validation: create and update refuse, with a typed validation error naming the field and storing nothing, an interval that is not a whole number of minutes from 5 to 10080, a missing or non-UTC anchor, a key that is empty or already used in the tenant, and initial variables that are not a plain map. A table-driven test covers 4, 5, 10080 and 10081 minutes and each other refusal. next_run_at is stored as the anchor plus a whole multiple of the interval, the first such slot not before the creation time."
+      - "3. Due-run mechanism on the existing ticker (REQ-185, REQ-331 shape): Letflow.Scheduler.Poller gets one more per-tenant sweep written like maybe_run_deadline_sweep/1; the diff adds no GenServer, no supervisor child and no Task started per job outside run_sweep/4, and the existing supervision tests (test/letflow/supervisor/pollers_test.exs) pass unchanged. A test with two enabled jobs, one due and one not due, runs one sweep for the tenant and asserts exactly one new instance of the due job's definition, carrying the job's variables, and that the due job's last_run_at, last_outcome and next_run_at are updated in the same transaction."
+      - "4. Action is an existing engine action only: a run calls Letflow.Engine.create/2 with the job's definition name, variables, scope node and creating user as actor, and with the idempotency key job id plus slot time. The module has no code path that evaluates tenant source code, an expression from the job row, a URL or a shell command (INV-3, INV-9). Variables with a key named password, token, secret or api_key and a non-empty literal value are refused at create and update with a typed error; no Secrets reference is stored or resolved in this slice (INV-4). A test asserts both."
+      - "5. Missed runs: for an enabled job whose next_run_at is 3.5 intervals in the past, one sweep starts exactly one instance, sets next_run_at to the first slot after now and records the number of skipped slots (3); a second sweep immediately afterwards starts nothing. A disabled job with a past next_run_at is not run."
+      - "6. Duplicate claim: two concurrent sweeps for the same tenant (two tasks in the test, with sandbox allowance) create at most one instance for the same job and slot, through SKIP LOCKED or the idempotency key; the test asserts the instance count is one."
+      - "7. Failure behaviour (INV-8): a job naming a definition that does not exist, is not published or is retired, and a job whose creating user is deactivated or whose role binding was removed or changed to TASK_WORKER after create (so :InstancesStart is no longer held), each ends its run with a code from the closed list (ok, definition_not_found, definition_not_active, definition_needs_reactivation, actor_not_allowed, start_failed, raised) stored in last_outcome, increments consecutive_failures, advances next_run_at, writes an audit event and does not raise out of the sweep. A job that raises inside the start is rescued the same way, and the next job in the same tenant and the next tenant still run (a test makes the first job raise and asserts the second ran). On the 5th consecutive failure the job is set disabled in the same transaction with an audit event naming the automatic disable; one success resets the counter to zero. No error text, stack or inspect output reaches last_outcome, the API or logs."
+      - "8. Authorization (INV-2, INV-5): create, update, enable, disable, read and list need one new tenant-classified core permission registered in lib/letflow/api/authorization.ex and granted to TENANT_ADMIN only; the authorization golden and docs/roles.md are updated, and a test asserts the exact set of tenant roles holding it. PLATFORM_ADMIN holds it only through the unconditional clause of core_role_allows?/2. A TENANT_ADMIN whose :InstancesStart grant is scoped to a node that does not contain the job's scope node id (the rule of authorize_start_scope/2 in lib/letflow/routers/instances.ex) is refused at create and enable, and nothing is stored. A caller without the permission, and a caller asking for a job id that is absent or belongs to another tenant, get the identical not-found response (same status and body)."
+      - "9. Cross-tenant negative test (INV-10): a test authenticates as TENANT_ADMIN of tenant B and calls read, update, enable and disable on a job id that exists in tenant A, and also passes tenant A's identifier in path, query and body wherever the router accepts one; every call returns the same response as for an id that exists nowhere, and tenant A's row is unchanged afterwards. The router derives the tenant from the authentication context only."
+      - "10. Feature flag: a new application config key, default false in config/config.exs, with the reason stated in the module doc. With the flag false the sweep starts no instance even for a due enabled job and every management route returns the same not-found as an unregistered route; with it true criteria 3 to 9 hold. The route-inventory and scope-enforcement count pins in test/ are updated (grep __authz_routes__ and length(snapshot) in test/ and quote the hits)."
+      - "11. Audit: create, update, enable, disable, automatic disable and each run (success or failure) write one audit event in the transaction that changed the row, with the job key, the actor (the creating user for a run) and the slot time, and with no variable values in the event."
+      - "12. Distinctness is documented: the moduledoc of the new sweep module (no runbook is added) states in three sentences how a tenant job differs from a platform timer (belongs to an instance, wakes it) and from the record transition sweep (operator config, changes record status only); the diff does not edit lib/letflow/scheduler/record_deadline_sweep.ex or the timer code paths of lib/letflow/scheduler.ex."
+      - "13. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data table, routes and permission) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the new module's tests pass, real output quoted."
+    open_questions:
+      - "For the process owner: may PROCESS_DESIGNER also create jobs; should a job run as a dedicated service principal instead of its creating user; are the 5-minute minimum interval and the 5-failure automatic disable acceptable. A scheduled job that runs a tenant script needs a new hook kind and a decision record under 0053 D0 and is a later slice."
     depends_on: []
