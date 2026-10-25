@@ -1,0 +1,158 @@
+# T-0539 (BA): TENANT ADMIN group, scenario 7: the administrator replaces the wording of one screen message for one language,
+# every user of the company reads the merged wording, and removing the override brings the platform wording back.
+# Covers REQ-551 criteria 5, 7 (the ru-RU half), 8 (accepted cases), 9 (audit record) and the write side of 4; and REQ-553 criteria 1 and 2
+# in scenario 10 (the screen side). Refusals are scenario 8, two companies are scenario 9, the screen is scenario 10.
+# Sources: docs/requirements.yaml REQ-551 and REQ-553; priv/labels/entities_defaults.json (ids "entities.tag.form.submitError" and
+# "entities.crud.form.submitError", en and ru texts); docs/roles.md (LabelsManage is held by the tenant administrator only among tenant roles);
+# test/fixtures/uat/actors.yaml (alice, lena, auditor).
+# Not covered here, by the requirements' own wording: REQ-551 criterion 1 (drift test, CI path rule), 12 (diff scope) and 13 (gates), REQ-551
+# criterion 3's table and Repo-call grep, REQ-553 criterion 5 (gates): they concern the code change, checked by review and CI.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusal steps are about
+# changing wording (scenario 8).
+# UAT assumption, to be confirmed by the process owner: the test message is "entities.tag.form.submitError" in Russian; the platform text in
+# priv/labels/entities_defaults.json is the one to compare against at run time (read it in step 2, do not hard-code it).
+---
+id: tenant-administration-7-label-override-set-merge-remove
+scope: tenant-administration
+title: The administrator changes one screen message for one language, everyone in the company reads it, and removing the change restores the platform wording
+version: "1.0"
+tags: [tenant-admin, label-overrides, i18n, audit]
+
+description: >
+  The administrator of SwiftRoute lists English and Russian as the company's languages with Russian as default, then replaces the Russian wording
+  of the message shown when a tag cannot be saved. A task worker and the read-only auditor of the same company read the wording list: the
+  changed message carries the company's text, every other message carries the platform text, and no message of the public sign-in page is in
+  the list. The administrator then writes a text that contains markup characters and a second Russian replacement asked for as "ru-RU";
+  both are stored as plain text and as Russian. The administrator removes the replacement and the platform wording is back. Each change leaves
+  an audit record that names the message, the language and the administrator.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  worker: actor-swiftroute-lena
+  auditor: actor-swiftroute-auditor
+
+preconditions:
+  - description: SwiftRoute is set up, its administrator, a task worker and the read-only auditor exist, and no wording replacement is stored yet
+    check: system_seeded
+    detail: If a replacement for the test message already exists, remove it first and note that in the report; if the administrator, worker or auditor cannot sign in, report BLOCKED.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator sets the company's languages to English and Russian with Russian as the default language, and notes the previous language
+      settings so they can be restored.
+    via: api
+  - step: 2
+    actor: worker
+    action: >
+      The task worker asks for the wording list in Russian. The worker notes the answer: the language it names, the text of the tag-save message
+      and the number of messages in the list. The worker compares the text of the tag-save message with the platform wording file.
+    via: api
+    produces:
+      list_before: the wording list before any replacement
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator replaces the Russian text of the tag-save message with "Тег не сохранён, обратитесь в поддержку SwiftRoute". The administrator
+      notes the answer.
+    via: api
+    input:
+      message: the tag-save message
+      language: ru
+      text: "Тег не сохранён, обратитесь в поддержку SwiftRoute"
+  - step: 4
+    actor: worker
+    action: >
+      The task worker asks for the Russian wording list again, and then asks for it once more with the language written "ru-RU". The worker
+      compares both lists with the list noted in step 2.
+    via: api
+    produces:
+      list_after: the wording list with the replacement
+  - step: 5
+    actor: auditor
+    action: The read-only auditor asks for the Russian wording list and reads the tag-save message.
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator replaces the same message with a text that contains markup characters, "<b>x</b> не сохранён", and then reads the
+      wording list.
+    via: api
+    input:
+      text: "<b>x</b> не сохранён"
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator replaces the same message again, this time naming the language "ru-RU", with a text of exactly 500 characters. The
+      administrator reads the wording list in Russian.
+    via: api
+    input:
+      language: ru-RU
+      text: a text of exactly 500 characters, no line break
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator removes the replacement for the tag-save message in Russian, and then reads the wording list as the worker did in step 2.
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator reads the company's audit record for the changes of steps 3, 6, 7 and 8, and restores the language settings noted in step 1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Before any replacement the list shows the platform wording in Russian for the tag-save message, names Russian as the language served, lists every overridable message and no message of the sign-in page.
+    verification:
+      method: api_response
+      detail: The answer of step 2 names language ru, the tag-save text equals the Russian text in the platform wording file, every message id of that file starting with "entities." is present, and no id starting with "login." is present.
+      evidence: The answer of step 2 compared with priv/labels/entities_defaults.json.
+    on_fail:
+      severity: MAJOR
+      business_impact: Screens would show missing or foreign text before the company has changed anything, or the company would be able to see or change the fixed sign-in wording.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: After the administrator's replacement every user of the company reads the company's text for that message and the platform text for all others, in the same language.
+    verification:
+      method: api_response
+      detail: The answers of step 4 (both "ru" and "ru-RU") and of step 5 carry the step 3 text for the tag-save message, name ru as served language, and every other message equals the step 2 list, with the same number of messages.
+      evidence: The answers of steps 4 and 5 compared with the step 2 answer.
+    on_fail:
+      severity: MAJOR
+      business_impact: The company's own wording does not reach its staff, or a replacement of one message damages other messages.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A text with markup characters is stored and returned unchanged as plain text; a text of exactly 500 characters is accepted; a language written "ru-RU" is stored as Russian and replaces the earlier Russian text.
+    verification:
+      method: api_response
+      detail: Step 6 is accepted and the list returns "<b>x</b> не сохранён" character for character; step 7 is accepted, the list names ru, returns the 500-character text as the one Russian text of the message (step 6's text is replaced, not added next to it).
+      evidence: The answers of steps 6 and 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: Valid company wording is refused, or two entries for one language make the shown text unpredictable.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Removing the replacement brings the platform wording back for that message; a repeat removal gives the same plain not-found answer as removing a replacement that never existed.
+    verification:
+      method: api_response
+      detail: The list of step 8 equals the list of step 2 in every message; the administrator then removes the replacement a second time and the answer is the fixed not-found reply.
+      evidence: The list of step 8 compared with step 2, and the answer of the second removal.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company cannot return to the platform wording, or its removal leaves a stale text on staff screens.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Each change has an audit record naming the message, the language and the administrator, and the record holds nothing of another company.
+    verification:
+      method: audit_event
+      detail: There are records for steps 3, 6, 7 and 8, each with the message id, the language ru and alice as the acting person; no record names another company's data.
+      evidence: The audit records read in step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: Who changed the wording seen by all staff cannot be established.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove any replacement left for the tag-save message and restore the SwiftRoute language settings noted in step 1.

@@ -1,0 +1,107 @@
+# T-0539 (BA): TENANT ADMIN group, scenario 10: the company's own wording appears on the screens after sign-in, as plain text, and never on the
+# public sign-in page.
+# Covers REQ-553 criteria 1 (markup is shown as characters), 2 (company text where replaced, bundled text elsewhere) and 4 (the sign-in page
+# never uses the company wording); REQ-551 criterion 5 seen from the screen.
+# Not covered, with the reason: REQ-553 criterion 3 (the bundled wording is used when the wording request fails, times out or answers 500) cannot
+# be produced by a person using the product: it needs a failing server, so the web unit tests of the requirement are its check. Criterion 5
+# (gates) is checked by CI. The "no request to the wording route on the sign-in page" half of criterion 4 is not visible to a person; only
+# the visible half (the sign-in wording is unchanged) is checked here.
+# Sources: docs/requirements.yaml REQ-553; web/src/i18n/entitiesMessages.ts (entity screens), loginMessages.ts (sign-in page);
+# priv/labels/entities_defaults.json. UAT assumption, to be confirmed by the process owner: the message "entities.tag.form.submitError" is shown
+# on the tag form when saving fails, and the tester can make the save fail (for example by saving a tag whose name already exists); if the screen
+# message cannot be produced, report BLOCKED for steps 3 and 5, not FAIL.
+---
+id: tenant-administration-10-label-override-shown-after-sign-in
+scope: tenant-administration
+title: After sign-in the screens show the company's own wording as plain text, other messages keep the platform wording, and the sign-in page is unchanged
+version: "1.0"
+tags: [tenant-admin, label-overrides, i18n, gui, escaping]
+
+description: >
+  The administrator of SwiftRoute replaces the Russian wording of the tag-save-failed message. A SwiftRoute worker who signs in afterwards and
+  provokes that message sees the company's text; another message of the same screens still shows the platform text. The administrator then
+  replaces the message with a text made of markup characters; the worker sees the characters literally, with no bold text, no image and no
+  pop-up. The public sign-in page keeps its platform wording throughout.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  worker: actor-swiftroute-lena
+
+preconditions:
+  - description: SwiftRoute lists Russian as a company language, the worker can open the tag form, and no replacement exists for the tag-save and record-save messages
+    check: custom
+    detail: If Russian is not listed, the administrator lists it first (scenario 7, step 1). If the worker cannot open the tag form, report BLOCKED.
+
+steps:
+  - step: 1
+    actor: worker
+    action: >
+      Opens the public sign-in page in Russian and notes its wording, signs in, opens the tag form in Russian, provokes the "tag could not be
+      saved" message and notes it, and provokes the "record could not be saved" message on a generic record form and notes it.
+    via: gui
+    produces:
+      before_screens: the sign-in page and the two messages before any replacement
+  - step: 2
+    actor: tenant_admin
+    action: >
+      Replaces the Russian text of the tag-save-failed message with "Тег не сохранён, обратитесь в поддержку SwiftRoute".
+    via: api
+  - step: 3
+    actor: worker
+    action: >
+      Signs out, opens the public sign-in page in Russian, signs in again, opens the tag form in Russian, provokes the tag-save-failed message,
+      and then provokes the record-save-failed message on the generic record form. Notes the wording of the sign-in page and of both messages.
+    via: gui
+    produces:
+      after_screens: the sign-in page and the two messages after the replacement
+  - step: 4
+    actor: tenant_admin
+    action: >
+      Replaces the same message with the text "<img src=x onerror=alert(1)> <b>bold</b>".
+    via: api
+    input:
+      text: "<img src=x onerror=alert(1)> <b>bold</b>"
+  - step: 5
+    actor: worker
+    action: >
+      Signs out and in again, opens the tag form in Russian, provokes the tag-save-failed message, and looks at what is drawn: whether the
+      characters appear as written, whether any bold text, picture or pop-up appears.
+    via: gui
+    produces:
+      markup_screen: the message with the markup text
+
+expected_outcomes:
+  - id: EO-001
+    description: Before any replacement the screens show the platform wording; after the replacement, and after signing in again, the tag-save message shows the company's text and the other message still shows the platform text.
+    verification:
+      method: gui_screen
+      detail: In step 3 the tag-save-failed message reads "Тег не сохранён, обратитесь в поддержку SwiftRoute"; the record-save-failed message reads the same platform text as in step 1.
+      evidence: Screenshots of the messages in steps 1 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The company's own wording never reaches its staff, or a replacement of one message changes others.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The public sign-in page has the same wording before and after the replacement.
+    verification:
+      method: gui_screen
+      detail: The sign-in page noted in step 3 is word for word the page noted in step 1.
+      evidence: Screenshots of the sign-in page in steps 1 and 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The sign-in page's wording rule, that no message says or implies whether an address is registered, could be changed by a company.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A text made of markup is shown as the characters written; nothing is drawn from it and nothing runs.
+    verification:
+      method: gui_screen
+      detail: Step 5 shows "<img src=x onerror=alert(1)> <b>bold</b>" as visible characters, with no picture, no bold text and no pop-up.
+      evidence: Screenshot of the message in step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company administrator could make code run in the browsers of all the company's staff.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the replacement for the tag-save message in Russian.
