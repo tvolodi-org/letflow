@@ -47,45 +47,54 @@ steps:
   - step: 3
     actor: tenant_admin
     action: >
-      For "task assigned", language ru, the administrator tries four texts, each in its own request, with the subject "Hello" and a body
-      that contains one of the placeholders {password}, {api_key}, {secret_ref} or {tenant_id}. Each answer is noted.
+      For "task assigned", language ru, subject "Hello", the administrator tries four bodies, each in its own request: "Hello {password}",
+      "Hello {api_key}", "Hello {secret_ref}" and "Hello {tenant_id}". Each answer is noted.
     expect_refusal: true
     via: api
     input:
       template_key: task_assigned
+      locale: ru
+      subject: Hello
   - step: 4
     actor: tenant_admin
     action: >
-      The administrator tries a body that contains the text sec://tenant/swiftroute/vault/key, then a body "Token {sec://tenant/swiftroute/vault/key#1}", each in its own request. The answers are noted.
+      For "task assigned", language ru, subject "Hello", the administrator tries the body "sec://tenant/swiftroute/vault/key", then the body
+      "Token {sec://tenant/swiftroute/vault/key#1}", each in its own request. The answers are noted.
     expect_refusal: true
     via: api
     input:
       template_key: task_assigned
+      locale: ru
+      subject: Hello
   - step: 5
     actor: tenant_admin
     action: >
-      The administrator tries bodies with an opening brace only ("Hello {"), a closing brace only ("Hello }"), empty braces ("Hello {}"),
-      a placeholder with a capital letter ("{Task_name}"), one with a digit ("{task_name2}"), and a plural form ("{count, plural, one {a} other {b}}"), each in
-      its own request. The answers are noted.
+      For "task assigned", language ru, subject "Hello", the administrator tries six bodies, each in its own request: an opening brace only
+      ("Hello {"), a closing brace only ("Hello }"), empty braces ("Hello {}"), a placeholder with a capital letter ("{Task_name}"), one
+      with a digit ("{task_name2}"), and a plural form ("{count, plural, one {a} other {b}}"). The answers are noted.
     expect_refusal: true
     via: api
     input:
       template_key: task_assigned
+      locale: ru
+      subject: Hello
   - step: 6
     actor: tenant_admin
     action: >
-      The administrator tries a subject of 201 characters (the letter a) with the body "Hello", a body of 5001 characters (the letter b)
-      with the subject "Hello", an empty subject, a blank subject of three spaces, an empty body, and a blank body of three spaces, each
-      in its own request. The answers are noted.
+      For "task assigned", language ru, the administrator tries six requests. With the body "Hello": a subject of 201 characters (the
+      letter a), an empty subject, and a blank subject of three spaces. With the subject "Hello": a body of 5001 characters (the letter b),
+      an empty body, and a blank body of three spaces. The answers are noted.
     expect_refusal: true
     via: api
     input:
       template_key: task_assigned
+      locale: ru
   - step: 7
     actor: tenant_admin
     action: >
-      The administrator tries a subject that contains a line break, a body that contains a tab character, and the language tag "not a
-      locale!" with a valid subject and body, each in its own request. The answers are noted.
+      The administrator tries three requests for "task assigned". First, language ru, body "Hello" and the subject "Line one", a line break,
+      "Line two" (the line break is in the middle). Second, language ru, subject "Hello" and the body "Hello", a tab character, "world"
+      (the tab is in the middle). Third, the language tag "not a locale!" with subject "Hello" and body "Hello". The answers are noted.
     expect_refusal: true
     via: api
     input:
@@ -93,9 +102,17 @@ steps:
   - step: 8
     actor: tenant_admin
     action: >
-      The administrator previews "task assigned" for ru with a body in the request that contains {password}, then with a body that contains
-      "Hello {", and notes the answers; then lists the stored wordings and the audit record again and compares them with step 1.
+      The administrator previews "task assigned" for ru with a body in the request "Hello {password}", then with the body "Hello {", each
+      in its own request. The answers are noted.
     expect_refusal: true
+    via: api
+    input:
+      template_key: task_assigned
+      locale: ru
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator lists the stored wordings and reads the company's audit record again, and compares them with step 1.
     via: api
 
 expected_outcomes:
@@ -103,8 +120,8 @@ expected_outcomes:
     description: A message that is not registered is answered as not found and nothing is stored.
     verification:
       method: http_status
-      detail: Step 2 answers 404 with the standard not-found body; the list of step 8 has no wording for "invoice_overdue".
-      evidence: The answer of step 2 and the list of step 8.
+      detail: Step 2 answers 404 with the standard not-found body; the list of step 9 has no wording for "invoice_overdue".
+      evidence: The answer of step 2 and the list of step 9.
     on_fail:
       severity: MAJOR
       business_impact: Wordings could be stored for messages the platform never sends, or the administrator is told nothing useful.
@@ -113,8 +130,8 @@ expected_outcomes:
     description: Every refused request stores nothing and writes no audit record.
     verification:
       method: system_state
-      detail: The list of stored wordings and the audit record read in step 8 equal those of step 1 (no new entry, no changed text).
-      evidence: The two lists of steps 1 and 8, and the two audit records.
+      detail: The list of stored wordings and the audit record read in step 9 equal those of step 1 (no new entry, no changed text).
+      evidence: The two lists of steps 1 and 9, and the two audit records.
     on_fail:
       severity: BLOCKER
       business_impact: Invalid or dangerous wording is partly saved, or refusals clutter the audit trail.
@@ -123,7 +140,7 @@ expected_outcomes:
     description: Placeholders outside the allowed five, including names that suggest a secret, are refused.
     verification:
       method: http_status
-      detail: Each of the four requests of step 3 answers 422, and the answer does not repeat the submitted text.
+      detail: Each of the four requests of step 3 answers 422 with the message "body uses a placeholder this template does not allow", and the answer does not repeat the submitted text. The preview with {password} in step 8 answers 422 with the same message.
       evidence: The four answers of step 3.
     on_fail:
       severity: BLOCKER
@@ -133,7 +150,7 @@ expected_outcomes:
     description: A reference to a stored secret cannot be written into a wording.
     verification:
       method: http_status
-      detail: Both requests of step 4 answer 422 and the answers do not repeat the reference.
+      detail: Both requests of step 4 answer 422 with the message "body must not contain a secret reference" (the reference check runs before the brace check, so the second body gets this message too), and the answers do not repeat the reference.
       evidence: The two answers of step 4.
     on_fail:
       severity: BLOCKER
@@ -143,8 +160,8 @@ expected_outcomes:
     description: Malformed braces, wrong placeholder names and plural forms are refused.
     verification:
       method: http_status
-      detail: All six requests of step 5 answer 422, and the preview with "Hello {" in step 8 and the preview with {password} are refused too (422, nothing rendered).
-      evidence: The six answers of step 5 and the two previews of step 8.
+      detail: Five requests of step 5 ("Hello {", "Hello }", "Hello {}", "{Task_name}", "{task_name2}") answer 422 with the message "body must be plain text with {name} placeholders only"; the plural form answers 422 with "body uses a placeholder this template does not allow". The preview with "Hello {" in step 8 answers 422 with "body must be plain text with {name} placeholders only", nothing rendered.
+      evidence: The six answers of step 5 and the preview of step 8 with "Hello {".
     on_fail:
       severity: MAJOR
       business_impact: A broken wording would show raw braces to staff or fail when it is first used.
@@ -153,7 +170,7 @@ expected_outcomes:
     description: Over-long, empty and blank texts, forbidden control characters and a bad language tag are refused.
     verification:
       method: http_status
-      detail: All six requests of step 6 and all three of step 7 answer 422 (the 201-character subject and the 5001-character body included).
+      detail: All six requests of step 6 and all three of step 7 answer 422, each with the message of its own rule. For step 6, "subject must be at most 200 characters" (201 characters), "body must be at most 5000 characters" (5001 characters), "subject must not be empty" (empty and blank subject), "body must not be empty" (empty and blank body). For step 7, "subject must not contain control characters" (line break), "body must not contain control characters" (tab), "locale is invalid" (bad language tag).
       evidence: The nine answers of steps 6 and 7.
     on_fail:
       severity: MAJOR

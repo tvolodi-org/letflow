@@ -32,7 +32,7 @@ actors:
 preconditions:
   - description: SwiftRoute is set up with its administrator, and no wording is stored for the message "task assigned" in any language
     check: system_seeded
-    detail: If a wording for ru already exists from an earlier run, step 1 notes it, step 3 is judged as a replacement (200) and EO-001 is judged on the later steps; the report says so.
+    detail: If a wording for ru already exists from an earlier run, step 1 notes it, step 2 is judged as a replacement (200) and EO-001 is judged on the later steps; the report says so.
 
 steps:
   - step: 1
@@ -115,8 +115,8 @@ expected_outcomes:
     description: Before anything is stored the preview returns the platform wording, and after removal it returns it again.
     verification:
       method: api_response
-      detail: The preview of step 1 and the preview of step 8 return the same subject and body, non-empty, and equal to each other; the list of step 8 is empty of ru, kk and en. The preview of kk in step 6 (nothing stored for kk yet) equals the platform wording of step 1.
-      evidence: The previews of steps 1, 6 and 8 and the list of step 8.
+      detail: The preview of step 1 and the preview of step 8 use the same sample values and return the same subject and body, non-empty, and equal to each other; the list of step 8 is empty of ru, kk and en. The answer's source field is "default" in steps 1, 6 (the kk preview, nothing stored for kk yet) and 8, and "stored" in step 3. The kk preview of step 6 is not compared text for text with step 1, because its sample values differ.
+      evidence: The previews of steps 1, 3, 6 and 8 (text and source field) and the list of step 8.
     on_fail:
       severity: MAJOR
       business_impact: A removed wording would leave users with an empty or stale message instead of the platform's.
