@@ -39,7 +39,7 @@ fi
 CHANGED=$(cat) || exit 1
 
 BACKEND_PATHS_RE='^(lib/|priv/|test/|config/|mix\.exs|mix\.lock|\.tool-versions|\.formatter\.exs$|\.gitattributes$|\.env\.example$|scripts/.*\.sh$|deploy/|\.github/workflows/|\.claude/agents/uat-runner\.md$|web/\.env|web/vite\.config\.ts$|web/tests/e2e/env04\.e2e\.spec\.ts$|web/tests/e2e/pipelines/onboarding-wizard\.pipeline\.e2e\.spec\.ts$|docs/requirements\.yaml$|docs/issues/[^/]+\.yaml$|docs/status/requirement_status[^/]*\.yaml$|docs/status/work_board_cutover\.yaml$|docs/roles\.md$|docs/frontend/x-ui-widget-vocabulary\.md$|docs/migration/stage-7-simulation-uat-parity\.md$|docs/runbooks/|docs/agents/shared/HANDOFF_PROTOCOL\.md$|handoffs/registry\.json$|handoffs/(.*/)?step[^/]*\.[^/]*$)'
-FRONTEND_PATHS_RE='^(web/|\.github/workflows/ci\.yml|scripts/ci_changed_paths\.sh$)'
+FRONTEND_PATHS_RE='^(web/|priv/labels/|\.github/workflows/ci\.yml|scripts/ci_changed_paths\.sh$)'
 MOBILE_PATHS_RE='^(apps/mobile/|\.github/workflows/ci\.yml|scripts/ci_changed_paths\.sh$)'
 
 # grep status: 0 = a path matched, 1 = none matched, anything else = error (bad regex, ...).

@@ -35,7 +35,8 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     "GET /definitions" => "SEC-525-R01",
     "GET /definitions/search" => "SEC-525-R04",
     "GET /definitions/:id" => "SEC-525-R02",
-    "GET /definitions/active/:name" => "SEC-525-R03"
+    "GET /definitions/active/:name" => "SEC-525-R03",
+    "GET /labels" => "SEC-551-labels"
   }
 
   setup_all do
@@ -107,7 +108,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     test "the committed list has no :pending_sec_ruling entry and no blank ruling" do
       list = RouteScope.self_service_routes()
 
-      assert length(list) == 8
+      assert length(list) == 9
       assert pending(list) == []
       assert unruled(list) == []
       assert Enum.all?(list, &is_binary(&1.ruling))
@@ -135,7 +136,7 @@ defmodule Letflow.Api.RouteScopeOnFlipBlockerTest do
     end
   end
 
-  describe "T-RW3 the eight routes and their rulings" do
+  describe "T-RW3 the nine routes and their rulings" do
     test "each is :self_service with exactly its ruling id", %{routes: routes} do
       list = RouteScope.self_service_routes()
 

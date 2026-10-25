@@ -844,7 +844,12 @@ defmodule Letflow.TenantProvisioning do
     # REQ-541 / GH #3160: number sequences bound to a record type (definitions, counters, allocation log
     # and the counter-only-grows trigger). Empty tables for existing tenants; no row altered.
     {20_261_025_200_001, Letflow.Repo.Migrations.CreateNumberSequences,
-     "20261025200001_create_number_sequences.exs"}
+     "20261025200001_create_number_sequences.exs"},
+
+    # REQ-551 / GH #3180: tenant label overrides (message id x locale -> replacement text). Empty table
+    # for existing tenants; no row altered.
+    {20_261_025_300_001, Letflow.Repo.Migrations.CreateLabelOverrides,
+     "20261025300001_create_label_overrides.exs"}
   ]
 
   @doc """

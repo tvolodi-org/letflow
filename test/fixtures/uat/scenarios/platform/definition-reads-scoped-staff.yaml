@@ -1,0 +1,267 @@
+# T-0503 (BA-PLATFORM): scenario for the definition reads that staff with a limited access scope may use
+# (REQ-545: list and search of process designs; REQ-546: open one design by its identifier, look up the
+# running version by name). Authored new; not a port.
+# Preconditions that the QA environment must provide are listed in `preconditions`; if one is not
+# provided, the run is BLOCKED, not PASS. "Limited access scope" = the person's access is bound to part
+# of the company only (for example one department), not to the whole company.
+---
+id: platform-definition-reads-scoped-staff
+scope: platform
+title: Staff whose access is limited to part of the company can still list, search and open the company's process designs
+version: "1.0"
+tags: [access, definitions, regression]
+
+description: >
+  Process designs belong to the whole company, not to one department. A person whose
+  access covers only part of the company (here a dispatcher) must still be able to see
+  the list of the company's process designs, search it by name or description, open one
+  design, and see which version of a named design is the one currently running. What
+  they see must have the same shape as what a colleague with company-wide access sees, and it
+  must contain nothing taken from another department's records, tasks or files.
+  Operations that go beyond reading (exporting a design, checking a design) are not part
+  of this and stay closed to them.
+
+actors:
+  dispatcher:   actor-swiftroute-lena
+  company_wide_staff: actor-swiftroute-tobias
+
+preconditions:
+  - description: SwiftRoute is set up with at least two active process designs, one of whose names or descriptions contains a word that no other design contains
+    check: system_seeded
+  - description: The dispatcher's access is bound to part of the company only, and the dispatcher holds the right to read process designs
+    check: custom
+    detail: >
+      Checked at run time against the QA environment. If the seeded dispatcher has access
+      to the whole company, or no account with access limited to part of the company
+      exists, the scenario is BLOCKED (the roster does not record such an account as
+      limited), not PASS.
+  - description: The SwiftRoute colleague with company-wide access holds the right to read process designs, and that access covers the whole company
+    check: custom
+    detail: >
+      Checked at run time. If this person's access is limited to part of the company, the
+      comparison steps are BLOCKED, not PASS.
+  - description: One SwiftRoute design contains a word in its internal steps that appears in no design name or description of SwiftRoute
+    check: custom
+    detail: >
+      Step 4 needs this data. If no such design exists, step 4 is BLOCKED: an empty result
+      could not be told from a missing fixture.
+  - description: Another company (for example Vortex) has a process design whose name and identifier exist nowhere in SwiftRoute, and an identifier and a name exist that belong to no company at all
+    check: custom
+    detail: >
+      Steps 9 to 11 compare answers. If the other company's design is not set up, they are BLOCKED.
+  - description: Scope enforcement is switched on in the QA environment
+    check: custom
+    detail: >
+      The behaviour only means something when limited access is actually enforced.
+
+steps:
+  - step: 1
+    actor: company_wide_staff
+    action: >
+      A SwiftRoute colleague with company-wide access opens the list of the company's process designs and
+      notes the names, the count and the fields shown for each design.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+  - step: 2
+    actor: dispatcher
+    action: >
+      The dispatcher opens the list of the company's process designs.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+  - step: 3
+    actor: dispatcher
+    action: >
+      The dispatcher searches the process designs for the word that only one design
+      contains in its name or description.
+    via: gui
+    input:
+      search_word: the distinctive word of the seeded design
+    sla_context:
+      expected_within_hours: null
+
+  - step: 4
+    actor: dispatcher
+    action: >
+      The dispatcher searches for a word that appears in no design name or description
+      of SwiftRoute but appears inside the steps of one design (a word used only in the
+      design's internal flow).
+    via: gui
+    input:
+      search_word: a word used only inside a design's steps
+    sla_context:
+      expected_within_hours: null
+
+  - step: 5
+    actor: dispatcher
+    action: >
+      The dispatcher opens one design from the list by its identifier.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+  - step: 6
+    actor: company_wide_staff
+    action: >
+      The colleague with company-wide access opens the same design by its identifier and compares the
+      fields shown with those the dispatcher saw.
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+  - step: 7
+    actor: dispatcher
+    action: >
+      The dispatcher looks up which version of a design is currently running, giving
+      only the design's name.
+    via: gui
+    input:
+      design: a design with an active version
+    sla_context:
+      expected_within_hours: null
+
+  - step: 8
+    actor: dispatcher
+    action: >
+      The dispatcher tries to export the design to a file and tries to run the check
+      that validates a design.
+    expect_refusal: true
+    via: gui
+    sla_context:
+      expected_within_hours: null
+
+  - step: 9
+    actor: dispatcher
+    action: >
+      The dispatcher tries to open, by its identifier, the design that exists only in
+      the other company, and then an identifier that exists nowhere, and compares the
+      two answers.
+    expect_refusal: true
+    via: api
+    input:
+      lookups: the other company's design identifier; an identifier that exists nowhere
+    sla_context:
+      expected_within_hours: null
+
+  - step: 10
+    actor: dispatcher
+    action: >
+      The dispatcher tries to look up the running version, by name, of the design that
+      exists only in the other company, and then of a name that exists nowhere, and
+      compares the two answers.
+    expect_refusal: true
+    via: api
+    input:
+      lookups: the other company's design name; a name that exists nowhere
+    sla_context:
+      expected_within_hours: null
+
+  - step: 11
+    actor: dispatcher
+    action: >
+      The dispatcher searches the process designs for the name of the design that exists
+      only in the other company, and then for a name that exists nowhere, and compares
+      the two answers.
+    expect_refusal: true
+    via: api
+    input:
+      searches: the other company's design name; a name that exists nowhere
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-005
+    description: >
+      For the dispatcher with limited access, a design that exists only in another
+      company is answered exactly like a design that exists nowhere.
+    verification:
+      method: http_status
+      detail: >
+        Steps 9 and 10: each pair has the same status, the same headers apart from
+        request-specific ones such as the request identifier, and a byte-identical body.
+        Step 11: both searches give the same empty result. No answer holds a name,
+        version, description or step of the other company's design.
+      evidence: >
+        Status, headers and body of the answers, side by side.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Staff of one company could map another company's process designs by trial and error.
+      suggested_action: route_to_security_review
+
+  - id: EO-001
+    description: >
+      The dispatcher sees the same list of designs as the colleague with company-wide access, with the same
+      fields for each design.
+    verification:
+      method: gui_screen
+      detail: >
+        Steps 1 and 2 show the same designs and the same set of fields per design; no
+        field refers to a record, task, process run or attachment of any department.
+      evidence: >
+        Screenshots of the list for both people, compared by names, count and fields.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Staff with limited access cannot find the process they must start or follow, or
+        are shown more than the company intends.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      Search finds the design by its name or description for the dispatcher, and finds
+      nothing for a word that occurs only inside a design's steps.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 returns exactly the design that contains the word, with a ranking; step 4
+        returns an empty result.
+      evidence: >
+        Screenshots of both results.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Search either hides designs from staff or exposes the inner workings of designs
+        that were not meant to be searched.
+      suggested_action: route_to_wf03
+
+  - id: EO-003
+    description: >
+      The dispatcher can open one design and see the running version of a named design,
+      and sees the same fields the colleague with company-wide access sees for it.
+    verification:
+      method: gui_screen
+      detail: >
+        Steps 5 and 7 show the design; step 6 shows the same fields for the same design;
+        the running version in step 7 is the one the company-wide colleague's list marks as active.
+      evidence: >
+        Screenshots of steps 5, 6 and 7, compared.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Staff with limited access get an error page where the company wants them to
+        read a design, or see a different shape than colleagues.
+      suggested_action: route_to_wf03
+
+  - id: EO-004
+    description: >
+      Exporting and checking a design stay closed to the dispatcher, with a plain refusal.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 8 ends in a plain refusal for both attempts; no file is produced.
+      evidence: >
+        Screenshots of the refusals.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Opening up reads must not open up the operations that go beyond reading.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing was created. If step 8 produced an export file, record it as a finding.
