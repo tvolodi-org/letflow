@@ -860,7 +860,10 @@ defmodule Letflow.TenantProvisioning do
     # REQ-565 / GH #3201 slice 2: nullable webhook_subscriptions.outbound_mapping_id. Catalog-only
     # for existing tenants; every existing row reads NULL (unmapped delivery, unchanged).
     {20_261_025_600_001, Letflow.Repo.Migrations.AddOutboundMappingToWebhookSubscriptions,
-     "20261025600001_add_outbound_mapping_to_webhook_subscriptions.exs"}
+     "20261025600001_add_outbound_mapping_to_webhook_subscriptions.exs"},
+    # REQ-561 / GH #3194: tenant-defined scheduled jobs (one empty table per tenant schema).
+    {20_261_026_100_001, Letflow.Repo.Migrations.CreateScheduledJobs,
+     "20261026100001_create_scheduled_jobs.exs"}
   ]
 
   @doc """

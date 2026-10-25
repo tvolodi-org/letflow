@@ -1,0 +1,162 @@
+# T-0539 (BA): TENANT ADMIN group, scenario 8: what the wording replacement refuses, and who may not use it.
+# Covers REQ-551 criteria 2 (refused messages), 4 (who may write), 6 (language rule), 7 (refused language), 8 (refused texts), 11 (same
+# refusal whether or not a replacement exists).
+# Sources: docs/requirements.yaml REQ-551; docs/roles.md (LabelsManage: tenant administrator only); priv/labels/entities_defaults.json
+# (the allowed message ids; no platform text on main contains a {name} placeholder, checked by grep of the file, so the placeholder rule
+# is tested by "any placeholder is refused", and "a text without a placeholder where the platform text has one is accepted" cannot be
+# exercised on the current wording file: the reason it is left out).
+# Not covered: criterion 6(c), a company with no configured languages. Such a company exists only in test setup, because the tenant settings
+# route refuses an empty language list and cannot remove the key (it merges into the existing settings).
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
+---
+id: tenant-administration-8-label-override-refusals
+scope: tenant-administration
+title: The wording replacement refuses fixed sign-in messages, unknown messages, unlisted languages and unsafe texts, and only the administrator may use it
+version: "1.0"
+tags: [tenant-admin, label-overrides, refusal, access]
+
+description: >
+  The administrator of SwiftRoute lists English and Russian as the company's languages. Writes for sign-in page messages, for a message the
+  platform does not have, for Kazakh (not a company language) and for German (not a platform language) are refused and change nothing. Texts
+  that are empty, longer than 500 characters, contain a line break, use a placeholder or a plural form are refused. A task worker and the
+  read-only auditor can read the wording list but cannot write or remove a replacement; their refusal is identical whether or not a
+  replacement exists. A company whose only language is German is served the English platform wording.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  worker: actor-swiftroute-lena
+  auditor: actor-swiftroute-auditor
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator, a task worker and the read-only auditor; no replacement for the tag-save message exists in any language
+    check: system_seeded
+    detail: If one exists, remove it first and note that in the report.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator sets the company's languages to English and Russian, default Russian, noting the previous settings (if SwiftRoute had
+      no language list before, it cannot be put back to absent: the report notes the value left). The administrator
+      then stores one Russian replacement for the tag-save message, "Тег не сохранён", so that a replacement exists, and notes the wording list.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator tries to replace a sign-in page message (any message whose id starts with "login."), and then a message id that is not in
+      the platform wording file ("entities.does.not.exist"). Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator tries to replace the tag-save message in Kazakh, and then in German, and tries to remove a replacement in Kazakh. Each
+      answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator tries these texts for the tag-save message in Russian, one at a time: an empty text; a text of spaces only; a text of
+      501 characters; a text with a line break inside; "Не сохранено {reason}"; a text with a plural form, "{count, plural, one {тег} other {теги}}".
+      Each answer is noted, and the wording list is read afterwards.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: worker
+    action: >
+      The task worker reads the wording list, then tries to replace the tag-save message in Russian, tries to remove the replacement that exists,
+      and tries to remove the replacement for the other message ("entities.crud.form.submitError") for which none exists. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: auditor
+    action: >
+      The read-only auditor reads the wording list, then tries to replace the tag-save message, to remove the replacement that exists and to
+      remove one that does not exist. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator reads the wording list, then removes the replacement of step 1, then removes it once more, and notes the answers. The
+      administrator also removes a replacement that never existed ("entities.crud.form.submitError", Russian).
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator sets the company's languages to German only with German as default, then reads the wording list asking for
+      German. Finally the administrator restores the language settings noted in step 1.
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      With languages English and Russian and default Russian, the administrator asks for the wording list in Kazakh (not a company language).
+      The administrator notes the language the answer names.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Writes for a sign-in page message and for a message the platform does not have are refused with one uniform error and store nothing.
+    verification:
+      method: http_status
+      detail: Both answers of step 2 are the same 422 refusal with the same body shape; the wording list afterwards has no "login." message and none named "entities.does.not.exist".
+      evidence: The answers of step 2 and the wording list read in step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could change the sign-in wording whose rule is that it never reveals whether an address is registered, or could store text for messages that screens never show.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A language the company does not list, or the platform does not have, is refused for write and for removal, and nothing is stored or removed.
+    verification:
+      method: http_status
+      detail: The three answers of step 3 are 422; the Russian replacement of step 1 is still in the list read in step 4, with no Kazakh or German text anywhere.
+      evidence: The answers of step 3 and the list of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Wording is stored for languages no screen can show, and staff in a listed language may see the wrong text.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Every unsafe or empty text of step 4 is refused and the stored Russian text stays as it was.
+    verification:
+      method: http_status
+      detail: Each of the six answers of step 4 is 422; the wording list afterwards still carries "Тег не сохранён" for the tag-save message. A text of exactly 500 characters was accepted in scenario 7, so the boundary 500 and 501 is covered between the two scenarios.
+      evidence: The six answers and the wording list of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Empty, oversized or code-like texts reach every screen of the company.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A task worker and the read-only auditor can read the wording list but are refused when they write or remove, with the same refusal whether or not a replacement exists.
+    verification:
+      method: http_status
+      detail: Steps 5 and 6 are refused with 403 for the write, for the removal of an existing replacement and for the removal of one that does not exist; for each caller the refusal of the existing and of the missing replacement have the same status, the same body and the same content type. The reads in steps 5 and 6 are 200. The replacement of step 1 is unchanged.
+      evidence: The six refusals and the two reads of steps 5 and 6, and the list of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee, or an outside auditor, could rewrite the words the whole company sees, or learn which messages the company has changed.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: For the administrator, removing a replacement that exists works once; removing it again, or removing one that never existed, gets the same fixed not-found answer.
+    verification:
+      method: http_status
+      detail: In step 7 the first removal succeeds, the second removal and the removal for "entities.crud.form.submitError" give the same not-found status and body.
+      evidence: The three answers of step 7.
+    on_fail:
+      severity: MINOR
+      business_impact: The administrator cannot tell whether a removal took effect.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: The language served follows one rule. A company whose only language is German is served English; a language the company does not list is replaced by the company's default language.
+    verification:
+      method: api_response
+      detail: The answer in step 8 for German names en and carries the English platform text. In step 9 the answer for Kazakh names ru.
+      evidence: The answers of steps 8 and 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: Staff see an unexpected language, or an empty screen, whenever a company's language list and the platform's languages differ.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove any replacement for the tag-save message and restore the SwiftRoute language settings noted in step 1; if there were none before step 1, they cannot be removed, and the report notes the value left.

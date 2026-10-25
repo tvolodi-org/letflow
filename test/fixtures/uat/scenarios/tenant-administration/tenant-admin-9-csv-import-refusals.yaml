@@ -1,0 +1,168 @@
+# T-0536 (BA): TENANT ADMIN group, scenario 9 of 9: who may import a CSV file, which record types it can reach and how large it may be
+# (REQ-557 acceptance criteria 9, 10 and 11 first half).
+# Sources: docs/requirements.yaml REQ-557 (description "WHERE IT SITS", criteria 9, 10, 11); docs/roles.md (the record-import permission is held by the
+# tenant administrator only among the tenant roles); lib/letflow/routers/entities/record_import.ex (a CSV for a record type the caller cannot see, whether
+# absent or another company's, answers not-found before the text is read; more than 200 data rows answers payload-too-large);
+# lib/letflow/plugs/csv_body_parser.ex (a CSV over the body limit is refused as an oversized body, like an oversized JSON body).
+# Aliases (actor-any): tenant_admin = administrator of company A, worker_a = a task worker of company A (both as in tenant-admin-1);
+# tenant_admin_b = administrator of company B (as in scenarios 5 and 6).
+# Platform operator: not used. The import route takes the tenant from the sign-in, so a platform operator would reach only the platform tenant's own types.
+# Not covered here, by the requirement's own wording: criteria 8, 11 second half and 12 are about the code change and are checked by review and CI.
+# Test-setup note: the oversized file (over the body limit of the product's API, 2 MB) and the 201-row file are produced by the test harness from
+# a repeated valid row; their content is invented.
+---
+id: tenant-administration-9-csv-import-refusals
+scope: tenant-administration
+title: A task worker cannot import a CSV file, another company's record type is not reachable, and a file that is too large writes nothing
+version: "1.0"
+tags: [tenant-admin, record-import, csv, refusal, cross-tenant, size-limit, not-found]
+
+description: >
+  A task worker of company A tries to import a correct CSV file into "UAT csv contact" and is refused, and no record is written. The
+  administrator of company B uploads a correct CSV file for "UAT csv contact", a record type that exists only in company A, and gets the
+  same answer as the administrator of company A gets for a record type that does not exist at all, and company A's records are unchanged.
+  A file with a format error sent for a record type the caller cannot see gets that same not-found answer, so a format message cannot reveal
+  that the type exists. A file larger than the API's body limit, and a file with 201 data rows (one more than the 200-record cap), are
+  each refused as too large, with the same answer as the equivalent JSON request, and nothing is written. An ordinary JSON import still works as before.
+
+actors:
+  tenant_admin: actor-any
+  worker_a: actor-any
+  tenant_admin_b: actor-any
+
+preconditions:
+  - description: tenant-administration-7 passed in this run, so the record type "UAT csv contact" exists in company A with all its fields, and tenant_admin and worker_a exist there
+    check: custom
+    detail: If scenario 7 did not pass, report BLOCKED, not PASS.
+  - description: tenant-administration-5 passed in this run, so company B exists with tenant_admin_b as its administrator, and company B has no record type "UAT csv contact"
+    check: custom
+    detail: If company B does not exist, report BLOCKED for steps 4 and 5 (the remaining steps still run); a record type with that name in company B makes those steps BLOCKED, not PASS.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: The administrator of company A reads the record count of "UAT csv contact" and notes it as the "baseline".
+    via: api
+  - step: 2
+    actor: worker_a
+    action: The task worker of company A uploads a correct one-row CSV file (columns name, city; row "Worker Try", Paris) to the import of "UAT csv contact".
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: worker_a
+    action: The task worker of company A posts the equivalent correct JSON document (the same row) to the same import.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator of company A uploads a correct one-row CSV file (columns name, city; row "Ghost", Rome) to the import of a record
+      type "UAT no such type" that does not exist in any company. The administrator notes the status and the whole answer.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_b
+    action: >
+      The administrator of company B uploads the same correct one-row CSV file (row "Cross B", Oslo) to the import of "UAT csv contact"
+      (which exists only in company A). The administrator notes the status and the whole answer.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The administrator of company B uploads a CSV file with a format error (a first line naming a column that is not a field, and then a text that is not valid UTF-8)
+      to the import of "UAT csv contact", and the same file to "UAT no such type".
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator of company A uploads a CSV file larger than the body limit of the API (over 2 MB of valid rows) to the import of "UAT csv contact",
+      and then, for comparison, a JSON document of the same size to the same import.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator of company A uploads a CSV file with 201 valid data rows (under the body limit) to the import of "UAT csv contact", and then,
+      for comparison, a JSON document of 201 valid records to the same import.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator of company A reads the record count of "UAT csv contact" and searches the records for the names "Worker Try", "Cross B" and "Ghost".
+      The administrator of company B reads the record counts of all its record types.
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: The administrator of company A uploads a CSV file with exactly 200 valid data rows (named "Cap001" to "Cap200") to the import and notes the answer.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker cannot import, by CSV or by JSON, and nothing is written.
+    verification:
+      method: system_state
+      detail: Steps 2 and 3 are refused for lack of permission with the same status and body as each other (the file format makes no difference), and no record "Worker Try" exists in step 9.
+      evidence: The two refusals and the search of step 9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person without import authority could load or overwrite company data by choosing a file upload.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A CSV for another company's record type gets the same answer as a CSV for a record type that does not exist, and the other company's data is untouched.
+    verification:
+      method: system_state
+      detail: >
+        Step 5 is answered not-found with the same status and the same body as step 4 (compared apart from any request identifier). In step 9 the count of
+        "UAT csv contact" in company A equals the baseline (plus nothing), no record "Cross B" exists in company A, and company B has no record "Cross B" in any type.
+      evidence: The answers of steps 4 and 5 side by side, and the reads of step 9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company can learn which record types another company has, and write into its records.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A format error in a CSV for a record type the caller cannot see does not reveal whether the type exists.
+    verification:
+      method: system_state
+      detail: Both uploads of step 6 get the same not-found answer (not an unprocessable message about the file), identical to each other and to the answer of step 4.
+      evidence: The two answers of step 6 against step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A format message for one name and a not-found for another tells an outsider which record types exist.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A CSV file over the body limit is refused as too large, as an oversized JSON body is, before any conversion, and writes nothing.
+    verification:
+      method: system_state
+      detail: Both uploads of step 7 are refused with the same "payload too large" status and the same reason; the record count in step 9 equals the baseline.
+      evidence: The two refusals of step 7 and the count of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: A very large upload exhausts the server, or a CSV can avoid the size limit that protects the platform.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A CSV with more than 200 data rows is refused as too large, as 201 JSON records are, and no row of it is written.
+    verification:
+      method: system_state
+      detail: Both uploads of step 8 are refused with the same "payload too large" status and a message naming the 200-record cap; the record count in step 9 equals the baseline (not even the first 200 rows were written).
+      evidence: The two refusals of step 8 and the count of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: A silently truncated load leaves a partial data set that looks complete.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: A CSV file of exactly 200 rows is accepted whole.
+    verification:
+      method: api_response
+      detail: The answer of step 10 has 200 results, each reported as written, with line numbers 2 to 201; the record count rose by 200 over the baseline.
+      evidence: The answer of step 10 and a record count after it.
+    on_fail:
+      severity: MAJOR
+      business_impact: The cap is applied one row too early, so files at the documented limit cannot be loaded.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The 200 records "Cap001".."Cap200" and the record type stay until the test customer is retired by foundation-4a.
