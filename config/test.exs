@@ -370,3 +370,8 @@ config :letflow, :exam_snapshot_complete, true
 # sandbox state, so the periodic tick is pushed out to one hour; the tests call `flush/0` (and
 # `terminate/2` via the supervisor) explicitly.
 config :letflow, :scope_shadow_flush_interval_ms, 3_600_000
+
+# REQ-542 / GH #3164: compiles the document org-resolver test seam (a resolver double named in the
+# test process dictionary). Set to true here and nowhere else; in every other build the branch is
+# not compiled, so no runtime setting can choose the resolver.
+config :letflow, :document_resolver_test_seam, true
