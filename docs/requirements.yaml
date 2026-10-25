@@ -40269,7 +40269,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- the dependency REQ-541 is merged (gh 3160); the engine files the issue for this entry after the gate
+    gh: 3263
     # Source: docs/migration/core-roadmap-20261014.md, section "Customization beyond scripts" ("number sequences"); REQ-541 in docs/requirements.yaml (its description lists the HTTP routes and the management permission as a separate later requirement); lib/letflow/number_sequences.ex (create_definition/2 and its error shapes), lib/letflow/number_sequences/definition.ex; docs/migration/decisions/0056-versioned-documents.md D2; lib/letflow/routers/labels.ex and test/letflow/api/labels_route_classes_test.exs (the nearest route-plus-permission precedent). Written by the business analyst (T-0553) 2026-10-25. Not yet validated.
     description: >
       REQ-541 built the allocator Letflow.NumberSequences, the tenant tables and the record-create hook,
