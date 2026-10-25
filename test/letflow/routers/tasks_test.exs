@@ -79,6 +79,13 @@ defmodule Letflow.Routers.TasksTest do
   # `tasks` table carries mandatory FKs onto both, per
   # priv/repo/migrations/20260818110003_create_tasks.exs) and returns the
   # inserted `Letflow.Engine.Task` row.
+  # Audit rows of `action` in the tenant's schema, for one task or (nil) any task.
+  defp task_audit_rows(tenant, task_id, action) do
+    query = from(e in Letflow.Audit.Entry, where: e.action == ^action)
+    query = if task_id, do: from(e in query, where: e.resource_id == ^task_id), else: query
+    Repo.all(query, prefix: tenant.schema_name)
+  end
+
   defp insert_task!(tenant, attrs) do
     instance_id = Ecto.UUID.generate()
 
@@ -1675,6 +1682,29 @@ defmodule Letflow.Routers.TasksTest do
       assert unchanged.status == :pending
       assert unchanged.assignee_type == nil
       assert unchanged.assignee_ref == nil
+      assert task_audit_rows(tenant_a, nil, "task.reassign") == []
+      assert task_audit_rows(tenant_b, nil, "task.reassign") == []
+    end
+
+    test "tenant B admin reassigning tenant A's assigned task: 404 byte-equal, A unchanged" do
+      tenant_a = TenantFixture.provisioned_tenant!(slug_prefix: "t530-a")
+      tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "t530-b")
+      owner = Ecto.UUID.generate()
+      task_a = insert_task!(tenant_a, %{assignee_type: "USER", assignee_ref: owner})
+      fields = [roles: ["TENANT_ADMIN"], body: %{"user_id" => Ecto.UUID.generate()}]
+
+      cross = build_conn(:post, "/#{task_a.id}/reassign", tenant_b, fields) |> dispatch()
+
+      random =
+        build_conn(:post, "/#{Ecto.UUID.generate()}/reassign", tenant_b, fields) |> dispatch()
+
+      assert cross.status == 404
+      assert cross.resp_body == random.resp_body
+
+      row = Repo.get!(EngineTask, task_a.id, prefix: tenant_a.schema_name)
+      assert row.assignee_ref == owner
+      assert task_audit_rows(tenant_a, nil, "task.reassign") == []
+      assert task_audit_rows(tenant_b, nil, "task.reassign") == []
     end
   end
 
@@ -1820,6 +1850,58 @@ defmodule Letflow.Routers.TasksTest do
       row = Repo.get!(EngineTask, task.id, prefix: tenant.schema_name)
       assert row.assignee_type == "USER"
       assert row.assignee_ref == new_user
+    end
+
+    test "reassign writes exactly one task.reassign audit row with old and new assignee",
+         %{tenant: tenant} do
+      existing = Ecto.UUID.generate()
+      new_user = Ecto.UUID.generate()
+      task = insert_task!(tenant, %{assignee_type: "USER", assignee_ref: existing})
+
+      conn =
+        build_conn(:post, "/#{task.id}/reassign", tenant,
+          roles: ["TENANT_ADMIN"],
+          body: %{"user_id" => new_user}
+        )
+        |> dispatch()
+
+      assert conn.status == 200
+      assert [entry] = task_audit_rows(tenant, task.id, "task.reassign")
+      assert entry.before_state["assignee_ref"] == existing
+      assert entry.after_state["assignee_ref"] == new_user
+      assert task_audit_rows(tenant, task.id, "task.assign") == []
+    end
+
+    test "reassign of a role-routed task to a user audits ROLE -> USER", %{tenant: tenant} do
+      new_user = Ecto.UUID.generate()
+      task = insert_task!(tenant, %{assignee_type: "ROLE", assignee_ref: "TENANT_ADMIN"})
+
+      conn =
+        build_conn(:post, "/#{task.id}/reassign", tenant,
+          roles: ["TENANT_ADMIN"],
+          body: %{"user_id" => new_user}
+        )
+        |> dispatch()
+
+      assert conn.status == 200
+      assert [entry] = task_audit_rows(tenant, task.id, "task.reassign")
+      assert entry.before_state["assignee_type"] == "ROLE"
+      assert entry.before_state["assignee_ref"] == "TENANT_ADMIN"
+      assert entry.after_state["assignee_type"] == "USER"
+      assert entry.after_state["assignee_ref"] == new_user
+    end
+
+    test "refused reassigns (unassigned, unknown id, invalid body) write no audit row",
+         %{tenant: tenant} do
+      task = insert_task!(tenant, %{})
+      body = %{"user_id" => Ecto.UUID.generate()}
+
+      for {id, b} <- [{task.id, body}, {Ecto.UUID.generate(), body}, {task.id, %{}}] do
+        build_conn(:post, "/#{id}/reassign", tenant, roles: ["TENANT_ADMIN"], body: b)
+        |> dispatch()
+      end
+
+      assert task_audit_rows(tenant, nil, "task.reassign") == []
     end
 
     test "reassign on an unassigned task returns 409 :not_currently_assigned, no state change",
