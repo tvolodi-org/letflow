@@ -208,6 +208,54 @@ defmodule Letflow.Engine.PinResolverValidationScriptTest do
       assert Enum.filter(started_pins(t, instance_id), &(&1["kind"] == "script")) == []
     end
 
+    defp pending_task!(t, instance_id) do
+      import Ecto.Query
+      alias Letflow.Engine.Task, as: EngineTask
+
+      Repo.one!(
+        from(k in EngineTask, where: k.instance_id == ^instance_id and k.status == :pending),
+        prefix: t.schema_name
+      )
+    end
+
+    defp complete!(t, task_id) do
+      Letflow.Engine.complete_task(
+        task_id,
+        %{
+          output_variables: %{"amount" => 5},
+          actor_id: Ecto.UUID.generate(),
+          idempotency_key: "r569-e3-#{System.unique_integer([:positive])}"
+        },
+        prefix: t.schema_name
+      )
+    end
+
+    test "E3 completing the task of a definition with the pair behaves as without it", %{t: t} do
+      rule =
+        F.published!(t.schema_name, "check_amount", F.doubling_source(), F.closed_manifest(),
+          hook_kind: "form_validation"
+        )
+
+      with_pair = F.definition!(t.schema_name, human_graph("check_amount", rule.version), [])
+
+      plain_graph =
+        put_in(human_graph("x", 1), ["nodes", Access.at(1), "attributes"], %{"role" => "REVIEWER"})
+
+      without = F.definition!(t.schema_name, plain_graph, [])
+
+      results =
+        for d <- [with_pair, without] do
+          instance_id = F.start!(t.schema_name, d, %{}, Ecto.UUID.generate())
+          task = pending_task!(t, instance_id)
+          assert {:ok, result} = complete!(t, task.id)
+          Map.drop(result, [:task_id, :instance_id, :completed_at])
+        end
+
+      assert [same, same] = results
+      assert same.instance_status == :completed
+      assert same.variables == %{"amount" => 5}
+    end
+
     test "E5 the real lookup refuses the cross-kind graph that activation refuses", %{t: t} do
       rule = F.published!(t.schema_name, "kk", F.doubling_source(), F.closed_manifest())
       lookup = %{PinResolver.default_lookup() | script_lookup: Runtime.pin_lookup(t.schema_name)}

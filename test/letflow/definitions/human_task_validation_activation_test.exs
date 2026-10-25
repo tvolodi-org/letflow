@@ -9,6 +9,7 @@ defmodule Letflow.Definitions.HumanTaskValidationActivationTest do
 
   use Letflow.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import Plug.Conn
   import Plug.Test
 
@@ -288,6 +289,33 @@ defmodule Letflow.Definitions.HumanTaskValidationActivationTest do
 
       assert body_b == body_absent
     end
+
+    test "X2 tenant B completing tenant A's task answers like an unknown task id", %{
+      t: a,
+      other: b
+    } do
+      rule = fv!(a.schema_name, "check_amount")
+      definition = F.definition!(a.schema_name, human_graph("check_amount", rule.version), [])
+      instance_id = F.start!(a.schema_name, definition, %{}, Ecto.UUID.generate())
+
+      task =
+        Repo.one!(
+          from(k in Letflow.Engine.Task,
+            where: k.instance_id == ^instance_id and k.status == :pending
+          ),
+          prefix: a.schema_name
+        )
+
+      cross = complete_route(task.id, b)
+      unknown = complete_route(Ecto.UUID.generate(), b)
+
+      assert cross.status == unknown.status
+      assert cross.resp_body == unknown.resp_body
+      assert cross.status in [403, 404]
+
+      still = Repo.get!(Letflow.Engine.Task, task.id, prefix: a.schema_name)
+      assert still.status == :pending
+    end
   end
 
   describe "retire block" do
@@ -303,6 +331,19 @@ defmodule Letflow.Definitions.HumanTaskValidationActivationTest do
       refute Runtime.referenced_by_active_definition?(s, "other_key", rule.version)
       assert function_exported?(Scripts, :form_validation_enabled?, 0)
     end
+  end
+
+  defp complete_route(task_id, tenant) do
+    conn(:post, "/#{task_id}/complete")
+    |> Map.put(:body_params, %{})
+    |> put_req_header("content-type", "application/json")
+    |> assign(:auth_context, %{
+      user_id: Ecto.UUID.generate(),
+      tenant_id: tenant.tenant_id,
+      roles: ["TENANT_ADMIN"]
+    })
+    |> assign(:trace_id, "r569-complete")
+    |> Letflow.Routers.Tasks.call(Letflow.Routers.Tasks.init([]))
   end
 
   defp activate_route(definition_id, tenant) do
