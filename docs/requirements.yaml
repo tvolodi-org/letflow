@@ -40269,7 +40269,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-564 -- slice 0 (decision 0068) is merged but REQ-564 is still pending in the register; the engine files the GitHub issue after the gate
+    gh: 3250
     # Source: docs/migration/decisions/0068-per-tenant-print-template-overrides.md (D1, D2, D5, D8 "S1 Layout schema and pure renderer", Open owner questions Q2 and Q5, "Tests the implementation slices must add", Threats for SECURITY-REVIEWER); docs/migration/decisions/0033-pdf-qr-rendering-dependencies.md (Addendum ISS-0679: the pdf library has no Unicode path); docs/migration/decisions/0056-versioned-documents.md D5 and D8 (projection onto declared_fields, PDF text only) and threat T10; lib/letflow/modules/exam/certificate_document.ex (the existing Latin-1 renderer, left untouched); lib/letflow/documents.ex moduledoc (declared_fields is %{entity_type => [field_name]}); docs/agents/instructions/security-invariants.md INV-2. Written by the business analyst (T-0555) 2026-10-25. Not yet validated.
     description: >
       Slice S1 of decision 0068 (docs/migration/decisions/0068-per-tenant-print-template-overrides.md, D8),
