@@ -206,14 +206,14 @@ defmodule Letflow.EntityTypeHooksTest do
       assert Enum.any?(
                TenantProvisioning.tenant_scoped_migrations(),
                &match?(
-                 {20_261_025_500_001, Letflow.Repo.Migrations.CreateEntityTypeHookBindings},
+                 {20_261_025_500_002, Letflow.Repo.Migrations.CreateEntityTypeHookBindings},
                  &1
                )
              )
     end
 
     test "M3 the migration over an existing tenant (old CHECK, no table)", %{schema: schema} do
-      version = 20_261_025_500_001
+      version = 20_261_025_500_002
       mod = Letflow.Repo.Migrations.CreateEntityTypeHookBindings
       _ = TenantProvisioning.tenant_scoped_migrations()
 

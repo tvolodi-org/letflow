@@ -156,6 +156,7 @@ defmodule Letflow.TenantFixture do
     "entity_type_hook_bindings",
     "entity_type_instances",
     "entity_type_restrictions",
+    "entity_views",
     "event_idempotency",
     "event_payload_store",
     "event_type_registry",

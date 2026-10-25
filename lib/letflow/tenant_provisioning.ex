@@ -853,10 +853,14 @@ defmodule Letflow.TenantProvisioning do
     # existing tenants; no row altered.
     {20_261_025_400_001, Letflow.Repo.Migrations.CreateIntegrationMappings,
      "20261025400001_create_integration_mappings.exs"},
+    # REQ-555 / GH #3157 (decision 0066): saved list view definitions (`entity_views`). Empty table
+    # for existing tenants; no row altered.
+    {20_261_025_500_001, Letflow.Repo.Migrations.CreateEntityViews,
+     "20261025500001_create_entity_views.exs"},
     # REQ-567 / GH #3217: entity-type hook bindings (empty for existing tenants, no row altered; also
     # widens the script_rules hook_kind CHECK to allow entity_write).
-    {20_261_025_500_001, Letflow.Repo.Migrations.CreateEntityTypeHookBindings,
-     "20261025500001_create_entity_type_hook_bindings.exs"}
+    {20_261_025_500_002, Letflow.Repo.Migrations.CreateEntityTypeHookBindings,
+     "20261025500002_create_entity_type_hook_bindings.exs"}
   ]
 
   @doc """

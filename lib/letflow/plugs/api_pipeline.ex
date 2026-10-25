@@ -213,6 +213,8 @@ defmodule Letflow.Plugs.ApiPipeline do
   forward("/services", to: Letflow.Routers.Services)
   forward("/admin/services", to: Letflow.Routers.AdminServices)
   forward("/entities", to: Letflow.Routers.Entities)
+  # REQ-555 (decision 0066): saved list view definitions; no route returns record data.
+  forward("/entity-views", to: Letflow.Routers.EntityViews)
 
   # REQ-335 -- the candidate-facing exam-session HTTP surface is now served
   # via REQ-404's Letflow.Routers.Modules D4/D5 gate at
