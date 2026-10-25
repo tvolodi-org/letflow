@@ -39,6 +39,7 @@ const JSX_FILES_TO_CHECK = [
   // REQ-343: the generic admin-CRUD screen and the BilimBaga admin section
   // wiring it replaces nine hand-copied pages with.
   'pages/entities/EntityCrudPage.tsx',
+  'components/entities/EntityViewBar.tsx',
   'modules/exam/BilimBagaAdminPage.tsx',
   'modules/exam/BilimBagaEntityRoute.tsx',
 ]

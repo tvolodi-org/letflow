@@ -353,6 +353,7 @@ defmodule Letflow.Api.Authorization do
           | :DocumentHold
           | :DocumentsRetentionManage
           | :LabelsManage
+          | :NotificationTemplatesManage
           | :IntegrationMappingsManage
           | :EntitiesViewsManage
 
@@ -427,6 +428,7 @@ defmodule Letflow.Api.Authorization do
           | :DocumentHold
           | :DocumentsRetentionManage
           | :LabelsManage
+          | :NotificationTemplatesManage
           | :IntegrationMappingsManage
           | :EntitiesViewsManage
           | :ScriptRulesList
@@ -508,7 +510,9 @@ defmodule Letflow.Api.Authorization do
     # REQ-565 (GH #3201): tenant integration mappings. Tenant scope.
     :IntegrationMappingsManage,
     # REQ-555 (decision 0066 D4): create, update and delete of saved list views. Tenant scope.
-    :EntitiesViewsManage
+    :EntitiesViewsManage,
+    # REQ-563 (GH #3199): tenant notification templates. Tenant scope; TENANT_ADMIN through the derived rule.
+    :NotificationTemplatesManage
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -531,7 +535,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All forty-nine core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All fifty core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -557,7 +561,8 @@ defmodule Letflow.Api.Authorization do
   tenant-script registry permissions of decision 0053 D6, plus REQ-536's `:DocumentHold` and
   `:DocumentsRetentionManage` (decision 0063 S7, S8; TENANT_ADMIN through the derived rule), plus
   REQ-551's `:LabelsManage` (tenant label overrides), REQ-565's `:IntegrationMappingsManage` (the tenant
-  integration-mapping routes) and REQ-555's `:EntitiesViewsManage` (decision 0066 D4; saved list views),
+  integration-mapping routes), REQ-555's `:EntitiesViewsManage` (decision 0066 D4; saved list views)
+  and REQ-563's `:NotificationTemplatesManage` (tenant notification templates),
   each TENANT_ADMIN through the derived rule.
   Each has exactly one scope, see `permission_scope/1`.
 
@@ -1219,6 +1224,18 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("PUT", "/labels/:message_id"), do: :LabelsManage
   def endpoint_policy_key("DELETE", "/labels/:message_id"), do: :LabelsManage
 
+  # REQ-563 (GH #3199): tenant notification templates.
+  def endpoint_policy_key("GET", "/notification-templates"), do: :NotificationTemplatesManage
+
+  def endpoint_policy_key("PUT", "/notification-templates/:template_key"),
+    do: :NotificationTemplatesManage
+
+  def endpoint_policy_key("DELETE", "/notification-templates/:template_key"),
+    do: :NotificationTemplatesManage
+
+  def endpoint_policy_key("POST", "/notification-templates/:template_key/preview"),
+    do: :NotificationTemplatesManage
+
   # REQ-555 (decision 0066): saved list views. Reads reuse `:EntitiesQuery`; writes are their own key.
   def endpoint_policy_key("GET", "/entity-views"), do: :EntitiesQuery
   def endpoint_policy_key("GET", "/entity-views/:id"), do: :EntitiesQuery
@@ -1496,6 +1513,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:DocumentsRetentionManage), do: :DocumentsRetentionManage
   def required_permission(:IntegrationMappingsManage), do: :IntegrationMappingsManage
   def required_permission(:LabelsManage), do: :LabelsManage
+  def required_permission(:NotificationTemplatesManage), do: :NotificationTemplatesManage
   # REQ-555: identity clause for the saved-view write routes.
   def required_permission(:EntitiesViewsManage), do: :EntitiesViewsManage
   # GH 2534 PR 7b-2a (design P3): script policy route keys over the script permissions.
