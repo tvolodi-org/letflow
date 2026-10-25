@@ -21,7 +21,7 @@ defmodule Letflow.NumberSequences do
 
   ## Where the number lives
 
-  Not in the record's `field_values`, the event payload or `entity_record_latest`: it is a row of
+  Not in the record's field values, the event payload or `entity_record_latest`: it is a row of
   `number_sequence_numbers` keyed by (entity type, record id), so no create or update payload can
   supply or change it. The create result carries it in the virtual field
   `Letflow.Entities.Record.Latest.record_number`; `number_for/3` and `numbers_for/3` read it.
