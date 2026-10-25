@@ -92,6 +92,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.EventRetention, "/event-retention", :post, "/retirements", :route},
     {Letflow.Routers.Me, "/me", :post, "/memberships", :probe},
     {Letflow.Routers.ScriptRules, "/script-rules", :post, "/:key/versions", :route},
+    {Letflow.Routers.EntityTypeHooks, "/entity-type-hooks", :put, "/:entity_type", :route},
     # REQ-496 (GH #2530): this router's ONLY route is the read-only GET; it requires
     # :UsersGroupsRolesManage (tenant-admin class), which TENANT_AUDITOR does not hold, so the
     # real route (not a probe) is named and must answer the auditor 403.
@@ -706,15 +707,15 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # --- AC2: 403 block --------------------------------------------------------------------------
 
   describe "AC2 completeness guards" do
-    test "the routers mounted in ApiPipeline are exactly the 34 named in the table: a new router fails here" do
+    test "the routers mounted in ApiPipeline are exactly the 35 named in the table: a new router fails here" do
       mounted = mounted_routers()
       named = Enum.map(@named_routes, &elem(&1, 0))
 
       assert length(mounted) == length(Enum.uniq(mounted))
       assert Enum.sort(mounted) == Enum.sort(named)
       # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
-      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews; REQ-563: 34 with Letflow.Routers.NotificationTemplates.
-      assert length(named) == 34
+      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews; REQ-563: 34 with Letflow.Routers.NotificationTemplates; REQ-567: 35 with Letflow.Routers.EntityTypeHooks.
+      assert length(named) == 35
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do

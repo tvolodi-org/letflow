@@ -993,6 +993,10 @@ defmodule Letflow.Api.AuthorizationTest do
         # GH 2534 PR 7b-2b (decision 0053 D6): sod, pending review, confirm, platform solo flag
         {"PUT", "/script-policy/sod", :ScriptPolicyManage},
         {"GET", "/script-policy/pending-review", :ScriptPolicyRead},
+        # REQ-567 part 2 (GH #3217): entity pre-write hook bindings
+        {"GET", "/entity-type-hooks", :EntityTypeHooksList},
+        {"PUT", "/entity-type-hooks/:entity_type", :EntityTypeHooksManage},
+        {"DELETE", "/entity-type-hooks/:entity_type", :EntityTypeHooksManage},
         {"POST", "/script-rules/:key/versions/:version/confirm", :ScriptRulesConfirm},
         {"GET", "/script-rules/:key/versions/:version/audit", :ScriptRulesAuditRead},
         {"PUT", "/tenants/:slug/script-policy/solo-audited", :TenantsManage},
