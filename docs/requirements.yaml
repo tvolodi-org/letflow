@@ -38343,6 +38343,60 @@ requirements:
       - "13. Lock order (0061 rule 5): the counter row's position (after entity-type rows, before the audit chain row) is written into decision 0061 in this pull request, and a forced-overlap test (barrier row held by a third connection, lock-queue FIFO, deadlock and lock-timeout errors reported through the Repo telemetry event) races a process-step create line against a direct create_record of the same bound type and shows no deadlock, no duplicate and no gap."
     depends_on: []
 
+  - id: REQ-539
+    title: "Decision record for Record E (decision 0053 hook 2): record pre-write script hook and derived fields, with the atomicity rule for finding F13 (slice 0, decision only)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3155
+    # Source: docs/migration/decisions/0053-tenant-scripted-rules.md (scope list "Record E", follow-up note F13, D5 "reserved for Records E/F", D7 last paragraph, deviation 8, row-lock answer); docs/migration/core-roadmap-20261014.md Wave 2 row "Entity pre-write validation and derived-field scripts (second invocation point)"; REQ-499 (GH #2587, done) and decision 0054, which replace the "needs REQ-484" prerequisite named in 0053. Written by the business analyst (T-0442) 2026-10-25. Not yet validated.
+    description: >
+      Decision 0053 names "Record E, entity pre-write script hook and derived fields" (hook 2) as
+      direction only, non-binding until its own record is ratified, and says it "needs REQ-484 and a
+      dynamic data API"; its follow-up note F13 says derived fields computed from reads are not atomic
+      with the write and that Record E must address this. REQ-484 was never written as a requirement;
+      the same-transaction write path it stood for is now delivered by REQ-499 (GH #2587:
+      Records.command_multi/3 in lib/letflow/entities/records.ex, EntityPort, StepWrites). The tenant
+      script runtime of GH #2534 (7a..7c-2: Letflow.Engine.Lua sandbox, ScriptAdmission, the
+      script_rules registry in lib/letflow/scripts/, the SERVICE_TASK script route) is merged. This
+      requirement is slice 0 only: ONE decision record in docs/migration/decisions/ (next free number
+      on origin/main at the time of writing; the implementer takes it from git fetch, not from the
+      worktree) that makes Record E binding, written by CODE-DESIGNER and reviewed by REVIEWER and
+      SECURITY-REVIEWER. It writes no application code. The record decides: (1) where hook 2 runs
+      relative to the entity write transaction opened by Records and which transaction its reads use
+      (0053 D5 reserves a dynamic data API for Records E and F and requires the record to say which
+      transaction hook 3 reads in; the 50 ms rule of 0053 "Row-lock answer" binds hook 2); (2) the
+      atomicity rule for derived fields (F13): a derived value computed from a read must be computed
+      under a lock or version check that is held, or re-validated, at the write commit, so that a
+      concurrent change to the read rows cannot produce a stored value that no serial order explains;
+      the record states the rule, the mechanism (for example row lock in the lock order of decision
+      0061, or compare-and-set on a read version, with retry and a retry cap), and what happens on
+      conflict; (3) entity-type pinning of the hook (0053 deviation 8: "Entity-type pinning belongs
+      to Record E"), including the pin kind and its interaction with the closed pin-kind set;
+      (4) the script principal and field restrictions for a hook with no invoking user (0053 D5,
+      INV-2, decision 0062); (5) the failure mapping to stable codes with no raise inside the write
+      transaction (0053 D7 last paragraph, INV-8); (6) the list of implementation slices, each sized to
+      one change, with their dependencies, so that the next requirements can be written from it;
+      (7) managed types and scope: decision 0050 ("Paths the lock must cover (F2)") says hook 2 is an
+      engine or module-side write path that must refuse writes to managed types, with the owning
+      module path identified by the caller and not by request data, and that the T12/T13 scope rules
+      of decision 0051 apply to the same path; the record rules on the managed_by refusal for
+      hook-2 writes and on the 0051 T12/T13 scope check of the old and the new value. The record
+      must not silently contradict decisions 0050, 0051, 0053, 0054, 0061 or 0062; where it amends
+      one it says so in an "amends" line.
+    acceptance_criteria:
+      - "1. One new file docs/migration/decisions/NNNN-entity-pre-write-script-hook.md exists (NNNN = next free number on origin/main), with status line, date, a Depends-on line naming 0050, 0051, 0053, 0054, 0061, 0062, REQ-499 (GH #2587) and GH #2534, and a section per item (1) to (7) of the description. The diff touches no file under lib/, priv/, web/ or apps/; docs/migration/decisions/ and, if the implementer states a reason, docs/migration/README.md or the decision index are the only changed paths."
+      - "2. F13 rule: the record contains a stated rule, in one normative paragraph, for the atomicity of a derived field computed from reads, naming the mechanism (lock or version check), the lock order against decision 0061, the behaviour on conflict (retry count and then a typed failure) and a worked example with two concurrent writers. A statement that the problem is 'accepted' or 'deferred' without a rule does not meet this criterion."
+      - "3. Transaction and time budget: the record states which transaction the hook's reads and the entity write use (quoting Records.command_multi/3 and the transaction opened at the write, by symbol), whether the hook runs inside or before that transaction, the wall-clock budget of the hook against the 50 ms rule of 0053, and the pool-connection rule (the sandbox task never opens its own connection, per 0053 D5 and its T10 reference)."
+      - "4. INV-1: the record states that reads and writes of the hook use only the tenant :prefix of the run context, that the entity type is validated against the tenant's entity definitions and never taken as a table name, and requires an INV-10 cross-tenant negative test in the implementing slice (a hook pinned to a type of tenant A, a caller of tenant B, byte-identical not-found)."
+      - "5. INV-3: the record states that hook 2 runs only under the existing sandbox allow-list, mandatory heap cap and ScriptAdmission with caller monitoring (0053 D7, D8), and states which limits, if any, differ from hook 1 (any value above the D7 maxima is flagged as needing a new ruling, not set silently)."
+      - "6. INV-8: the record maps every executor outcome of a hook-2 run (script error, instruction budget, memory limit, timeout, invalid output, admission refused, caller or worker crash, kill switch on) to a stable tenant-visible code and to the effect on the pending write: the write is rejected and does not commit, or, for script_busy only (0053 D7: only script_busy is retriable), it is retried within a stated retry cap and then rejected; committing the write without the derived value is never allowed (fail closed). The record also states that no raw Exception.format or inspect text reaches a tenant. It requires a test per outcome in the implementing slice."
+      - "7. Slice list: the record lists the implementation slices (at least: pin and registry change, runtime and read path, write-path integration with the F13 mechanism, failure mapping and audit, dry-run and UAT), each with its dependencies and one SECURITY-REVIEWER gate marker for every slice that touches a tenant-data path. Each slice is sized to one change."
+      - "8. Consistency: a section 'Consistency with earlier records' lists, for each of 0050, 0051, 0053, 0054, 0061 and 0062, whether Record E amends it and quotes the sentence amended; a reader can check each quotation against the source file. An unresolved question that only the owner can decide (for example the precise millisecond budget) is listed under 'Not decided here' and not settled inside a criterion."
+      - "9. SECURITY-REVIEWER verdict recorded on the record (mandatory: tenant-data path, script sandbox, field restrictions) and REVIEWER verdict recorded; mix letflow.check_requirements_registration and the CI path-filter test (test/letflow/ci_backend_path_filter_test.exs, or its current name) pass, real output quoted."
+      - "10. Managed types and scope (0050 F2, 0051 T12/T13): the record states that a hook-2 write to a managed type is refused unless the owning module path, identified by the calling code and never by request data, performs it; states that the 0051 T12/T13 scope check applies to both the old and the new value of a field the hook writes; names the stable refusal code; and requires in the implementing slice a refusal test for a managed-type write by a non-owning caller and a refusal test for an out-of-scope old or new value."
+    depends_on: [REQ-499]
+
   - id: REQ-538
     title: "Org-relative task assignment (core roadmap Wave 2), slice 0: decision record for resolving a task's assignee relative to the requester's org position (for example the requester's department head) through a resolver registered via the module Catalog, not in Letflow.Engine"
     owner: CODE-DESIGNER
