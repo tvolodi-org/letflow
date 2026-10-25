@@ -55,7 +55,7 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
       "tasks.scope_node_id"
     ],
     4 => ["denials of tenant-wide and admin-plane routes"],
-    5 => ["definitions, entity-definition, instance and service reads", "RA-6"],
+    5 => ["the other definition reads, entity-definition, instance and service reads", "RA-6"],
     6 => ["Do not scope the CANDIDATE binding"],
     7 => [
       "mandatory reason",

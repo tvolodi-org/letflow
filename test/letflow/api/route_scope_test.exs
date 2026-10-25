@@ -145,7 +145,7 @@ defmodule Letflow.Api.RouteScopeTest do
     end
 
     test "an empty snapshot leaves every default row :unclassified (N2)" do
-      routes = [row(%{}), row(%{path: "/definitions", key: :DefinitionsRead})]
+      routes = [row(%{}), row(%{path: "/entities/query", key: :EntitiesQuery})]
 
       assert Enum.sort(RouteScope.audit_routes(routes, [])) ==
                Enum.sort(Enum.map(routes, &{:unclassified, &1}))
