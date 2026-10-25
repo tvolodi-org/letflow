@@ -46,10 +46,11 @@ description: >
        (UAT assumption, to be confirmed by the process owner: the seed script does not set e-mail
        addresses, so this match is not established by any source I opened).
 
-  PROPER HOME (T-0322, process audit T-0295): for this swiftroute tenant the scenario stays BLOCKED
+  PERMANENT EXCLUSION (GH #3223, T-0532; recorded in test/fixtures/uat/scenario-env-limitations/swiftroute-first-login-administrator-binding.yaml, so the preflight reports it as a GAP and the run scope lists it as excluded): for this swiftroute tenant the scenario stays BLOCKED
   on condition 2, because Alice already holds TENANT_ADMIN and her e-mail is already verified. Its
   proper home is the foundation group (a freshly registered tenant) of T-0222, where an unused
-  administrator grant and an unverified address can exist. Nothing is changed to make it pass here.
+  administrator grant and an unverified address can exist. Nothing is changed to make it pass here, and it is
+  not listed to run in the swiftroute run scope (the preflight reports it as a GAP and uat-scope.md lists it under Excluded).
 
 actors:
   platform_admin: actor-platform-admin
@@ -183,5 +184,8 @@ expected_outcomes:
 cleanup:
   cancel_open_instances: false
   description: >
-    Nothing is started by this scenario. Afterwards the verification seed is run with "false" for
-    swiftroute:actor-swiftroute-alice to restore the accounts to their previous state.
+    Nothing is started by this scenario, and it creates no account. The verification seed is NOT run with
+    "false" for swiftroute:actor-swiftroute-alice: she was already verified before the scenario (the roster
+    holds her as TENANT_ADMIN), and the previous state of an already-verified account is verified. Any run that
+    changed her flag restores it to verified (seed run with "true"), so the other swiftroute scenarios keep
+    working. Alice is never left unverified.
