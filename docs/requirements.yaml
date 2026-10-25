@@ -38562,7 +38562,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3184
     # Source: docs/migration/decisions/0053-tenant-scripted-rules.md (scope list "Record F", "Row-lock answer", D5 "Hook 1 reads are PRE-FETCHED" and its last bullet on a later dynamic data API, D7 "Failure" last sentence, D8, T10 in the threat cases); docs/migration/core-roadmap-20261014.md Wave 3 row "Form-hook scripts (server-side form validation) and after-commit entity-event triggers via outbox"; lib/letflow/engine.ex (the :completion_guards Multi step and check_completion_guards, fetch_and_lock_task); REQ-539 (Record E, GH #3155), which settles the transaction and read rule of a hook that reads data. Written by the business analyst (T-0461) 2026-10-25. Not yet validated.
     description: >
       Decision 0053 names "Record F, form-validation script hook" (hook 3, "runs in the locked
@@ -38615,7 +38615,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3183
     # Source: docs/migration/decisions/0053-tenant-scripted-rules.md (scope list "Record T, after-commit entity-event triggers and the outbox", deviation 11 "no outbox exists; direction only", D7 failure codes and "Only script_busy is retriable", D5 "Determinism" and "Retry of a non-idempotent hook is forbidden", D8, D9); docs/migration/core-roadmap-20261014.md Wave 3 row "Form-hook scripts ... and after-commit entity-event triggers via outbox"; lib/letflow/plugs/api_pipeline.ex (the only mention of an outbox in lib/ outside lib/letflow/design/: a provenance-table row for the deferred R-Co plug OutboxCap, never built), and the existing committed-row-plus-poller code lib/letflow/engine/script_task_dispatcher.ex with script_task_dispatcher/poller.ex, lib/letflow/engine/service_task_dispatcher.ex with service_task_dispatcher/poller.ex, and the dead-letter code lib/letflow/dlq.ex (to be read before the record rules on reuse); lib/letflow/webhooks/delivery.ex is only an example of an append-only attempt log, not a queue; lib/letflow/entities/records.ex (Records.command_multi/3, the write transaction); REQ-539 (Record E, GH #3155). Written by the business analyst (T-0461) 2026-10-25. Not yet validated.
     description: >
       Decision 0053 names "Record T, after-commit entity-event triggers and the outbox" (hook 4,
