@@ -120,6 +120,24 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
     "lib/letflow/routers/tenant_role_scope_grants.ex"
   ]
 
+  # GH #3194 / REQ-561: the tenant scheduled-job table has its own scope_node_id (the node an instance is
+  # started in); the sweep hands it to Engine.create/2 as an INSTANCE attr. Neither file writes tasks.
+  @scheduled_jobs_ledger %{
+    "lib/letflow/scheduled_jobs/job.ex" => [
+      "defp validate_field/3",
+      "defp validate_field/3",
+      "defp validate_field/3",
+      "module (string)",
+      "module (string)",
+      "schema"
+    ],
+    "lib/letflow/scheduler/scheduled_job_sweep.ex" => [
+      "defp actor_allowed?/2",
+      "defp put_scope_node/2",
+      "defp start/4"
+    ]
+  }
+
   # strings only (a manifest comment); not a use of the column
   @strings_only ["lib/letflow/tenant_provisioning.ex"]
 
@@ -191,11 +209,14 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
         end
 
       expected_files =
-        Map.keys(@task_ledger) ++ Map.keys(@instance_ledger) ++ @grants_area ++ @strings_only
+        Map.keys(@task_ledger) ++
+          Map.keys(@instance_ledger) ++
+          Map.keys(@scheduled_jobs_ledger) ++ @grants_area ++ @strings_only
 
       assert Enum.sort(Map.keys(found)) == Enum.sort(expected_files)
 
-      for {file, labels} <- Map.merge(@task_ledger, @instance_ledger) do
+      for {file, labels} <-
+            Map.merge(Map.merge(@task_ledger, @instance_ledger), @scheduled_jobs_ledger) do
         assert Map.fetch!(found, file) == labels, file
       end
 
