@@ -38507,7 +38507,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3177
     # Source: docs/migration/core-roadmap-20261014.md ("Customization beyond scripts", bullet "configuration export/import from test to production"); code read: lib/letflow/definitions/solution_pack.ex (moduledoc "What a Letflow pack document carries", pack_document type), lib/letflow/definitions/promotion.ex (promote_definition/3 and its check_script_bindings call), lib/letflow/identity/tenant_settings.ex (allowed_keys/0, cast/1), lib/letflow/identity/tenant.ex (settings_changeset/2, brand_colors_allowed_keys/0), lib/letflow/routers/tenant_settings.ex, lib/letflow/routers/tenant_modules.ex, lib/letflow/modules/installs.ex (put_settings/3); decisions 0029 (section 2 stands; 0053 supersedes only its sections 1 and 3), 0053 (Record P announced, not written), 0027. Written by the business analyst (T-0466) 2026-10-25. Not yet validated.
     description: >
       INVENTORY (read from main, 2026-10-25). What already moves between environments:
