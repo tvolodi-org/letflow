@@ -134,7 +134,7 @@ Found by a read-only study of the code on 2026-10-25 and re-checked against `ori
 
 ### (a) `tenant_id` cannot be stored today; there is no idempotency for tenant creation
 
-Facts. `Tenant.changeset/3` (`lib/letflow/identity/tenant.ex`) casts only `[:slug, :display_name, :status, :idp_realm_id, :tenant_type]`; the primary key is `@primary_key {:id, :binary_id, autogenerate: true}`, so
+Facts. `Tenant.create_changeset/3` (`lib/letflow/identity/tenant.ex`) casts only `[:slug, :display_name, :status, :idp_realm_id, :tenant_type]`; the primary key is `@primary_key {:id, :binary_id, autogenerate: true}`, so
 the id cannot be supplied. `Letflow.Routers.Onboarding` documents that it deliberately does not read `Idempotency-Key`; a repeated slug or hostname answers 409 and "is NOT a replay of the original 201".
 The contract (rule 3) requires "idempotent by `tenant_id`, a repeated call returns the same result and changes nothing".
 
