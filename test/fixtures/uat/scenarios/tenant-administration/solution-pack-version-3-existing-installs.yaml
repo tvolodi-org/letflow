@@ -227,8 +227,8 @@ expected_outcomes:
     description: Step 8 is applied as before this change, and the recorded version of pack CURRENT still reads 2.0.0 afterwards.
     verification:
       method: system_state
-      detail: Step 8 is a success with no version_downgrade and no version_not_newer; the recorded versions of all SwiftRoute installations read before step 3 and after step 8 are byte-for-byte equal.
-      evidence: The two readings and the answer of step 8.
+      detail: Step 8 is a success with no version_downgrade and no version_not_newer; the recorded versions of all SwiftRoute installations read immediately before step 8 and immediately after step 8 are byte-for-byte equal, and pack CURRENT's recorded version still reads 2.0.0; the recorded versions of all SwiftRoute installations read immediately before step 3 and immediately after step 3 are byte-for-byte equal.
+      evidence: The four readings (before and after step 3, before and after step 8) and the answer of step 8.
     on_fail:
       severity: BLOCKER
       business_impact: Updates offered under a free-text version would be refused, or stored versions rewritten, for existing companies.
