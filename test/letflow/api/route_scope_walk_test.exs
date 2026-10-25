@@ -103,6 +103,8 @@ defmodule Letflow.Api.RouteScopeWalkTest do
              |> Enum.sort() ==
                [
                  "GET /definitions",
+                 "GET /definitions/:id",
+                 "GET /definitions/active/:name",
                  "GET /definitions/search",
                  "GET /help/resolved",
                  "GET /me/access",
@@ -313,6 +315,9 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  # REQ-545: the definitions collection reads (router-local paths "/" and "/search")
                  {"GET", "/", :self_service},
                  {"GET", "/search", :self_service},
+                 # REQ-546: the two single-object definition reads
+                 {"GET", "/active/:name", :self_service},
+                 {"GET", "/:id", :self_service},
                  {"POST", "/:id/attachments/:attachment_id/link", :tenant_wide},
                  {"POST", "/query", :filter},
                  {"POST", "/query/aggregate", :filter},
@@ -465,6 +470,46 @@ defmodule Letflow.Api.RouteScopeWalkTest do
           end
 
         refute compiled?, "#{verb} with #{option} must not compile"
+      end
+    end
+  end
+
+  describe "REQ-546 the walk fails when one edit of a self-service route is missing" do
+    for route <- ["GET /definitions/:id", "GET /definitions/active/:name"] do
+      test "#{route}: declared :self_service but not on the list", %{
+        routes: routes,
+        snapshot: snapshot
+      } do
+        route = unquote(route)
+        list = Enum.reject(RouteScope.self_service_routes(), &(&1.route == route))
+
+        errors = RouteScope.audit_routes(routes, snapshot, list)
+
+        assert Enum.any?(errors, fn
+                 {:self_service_list_mismatch, r} -> "#{r.method} #{r.path}" == route
+                 _ -> false
+               end)
+      end
+
+      test "#{route}: on the list but declared :tenant_wide", %{
+        routes: routes,
+        snapshot: snapshot
+      } do
+        route = unquote(route)
+
+        swapped =
+          Enum.map(routes, fn r ->
+            if "#{r.method} #{r.path}" == route,
+              do: %{r | declared: :tenant_wide, class: :tenant_wide, source: :declared},
+              else: r
+          end)
+
+        errors = RouteScope.audit_routes(swapped, snapshot)
+
+        assert Enum.any?(errors, fn
+                 {:self_service_list_mismatch, r} -> "#{r.method} #{r.path}" == route
+                 _ -> false
+               end)
       end
     end
   end
