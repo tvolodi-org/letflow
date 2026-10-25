@@ -31,10 +31,10 @@ preconditions:
   - description: SwiftRoute has record types of its own named "hook_plain", "hook_taken", "hook_active" and "hook_draftline". "hook_active" is written by a step line of an ACTIVE process definition; "hook_draftline" is written only by a step line of a process definition that is still a draft. "hook_plain" and "hook_taken" are written by no process. None of the four has an attachment.
     check: system_seeded
     detail: Setup-prepared. If "hook_active" cannot be arranged, report BLOCKED for step 11 and EO-005, and run the other steps.
-  - description: SwiftRoute has these check scripts, each version noted with its fingerprint - order-check version 1 (published, kind "entity write", FP-O1); draft-check version 1 (draft, kind "entity write"); old-check version 1 (retired, kind "entity write"); bad-check version 1 (revoked, kind "entity write"); svc-check version 1 (published, kind "service step"). The key "no-such-key" and the version 99 of order-check do not exist.
+  - description: SwiftRoute has these check scripts, each version noted with its fingerprint - order_check version 1 (published, kind "entity write", FP-O1); draft_check version 1 (draft, kind "entity write"); old_check version 1 (retired, kind "entity write"); bad_check version 1 (revoked, kind "entity write"); svc_check version 1 (published, kind "service step"). The key "no_such_key" and the version 99 of order_check do not exist.
     check: system_seeded
     detail: Setup-prepared. A fingerprint of a draft, retired or revoked version is read by the administrator from the script registry.
-  - description: Bilimbaga has the exam module installed, one record type managed by the exam module (noted as MT, for example the question type), and a published check script of kind "entity write" - bilim-check version 1 with fingerprint FP-B1.
+  - description: Bilimbaga has the exam module installed, one record type managed by the exam module (noted as MT, for example the question type), and a published check script of kind "entity write" - bilim_check version 1 with fingerprint FP-B1.
     check: system_seeded
     detail: If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note of actor-bilimbaga-admin), report BLOCKED for step 9 and EO-004; the other steps run.
 
@@ -42,79 +42,79 @@ steps:
   - step: 1
     actor: tenant_admin_a
     action: >
-      The administrator attaches order-check version 1 (fingerprint FP-O1) to "hook_taken". Then asks for the list of attachments and notes it as list L0.
+      The administrator attaches order_check version 1 (fingerprint FP-O1) to "hook_taken". Then asks for the list of attachments and notes it as list L0.
     via: api
   - step: 2
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach draft-check version 1 (with its fingerprint) to "hook_plain".
+      The administrator tries to attach draft_check version 1 (with its fingerprint) to "hook_plain".
     expect_refusal: true
     via: api
   - step: 3
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach old-check version 1, a retired version (with its fingerprint), to "hook_plain".
+      The administrator tries to attach old_check version 1, a retired version (with its fingerprint), to "hook_plain".
     expect_refusal: true
     via: api
   - step: 4
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach bad-check version 1, a revoked version (with its fingerprint), to "hook_plain".
+      The administrator tries to attach bad_check version 1, a revoked version (with its fingerprint), to "hook_plain".
     expect_refusal: true
     via: api
   - step: 5
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach svc-check version 1, a published script of kind "service step" (with its fingerprint), to "hook_plain".
+      The administrator tries to attach svc_check version 1, a published script of kind "service step" (with its fingerprint), to "hook_plain".
     expect_refusal: true
     via: api
   - step: 6
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach order-check version 1 to "hook_plain" with a fingerprint of 64 hexadecimal zeros that is not the fingerprint of that version.
+      The administrator tries to attach order_check version 1 to "hook_plain" with a fingerprint of 64 hexadecimal zeros that is not the fingerprint of that version.
     expect_refusal: true
     via: api
   - step: 7
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach the key "no-such-key", version 1 (with 64 hexadecimal zeros as fingerprint) to "hook_plain".
+      The administrator tries to attach the key "no_such_key", version 1 (with 64 hexadecimal zeros as fingerprint) to "hook_plain".
     expect_refusal: true
     via: api
   - step: 8
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach order-check version 99 (with 64 hexadecimal zeros as fingerprint) to "hook_plain".
+      The administrator tries to attach order_check version 99 (with 64 hexadecimal zeros as fingerprint) to "hook_plain".
     expect_refusal: true
     via: api
   - step: 9
     actor: tenant_admin_b
     action: >
-      The Bilimbaga administrator tries to attach bilim-check version 1 (fingerprint FP-B1) to the record type MT that the exam module manages.
+      The Bilimbaga administrator tries to attach bilim_check version 1 (fingerprint FP-B1) to the record type MT that the exam module manages.
     expect_refusal: true
     via: api
   - step: 10
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach order-check version 1 (fingerprint FP-O1) to "hook_nowhere", a record type that SwiftRoute has not defined.
+      The administrator tries to attach order_check version 1 (fingerprint FP-O1) to "hook_nowhere", a record type that SwiftRoute has not defined.
     expect_refusal: true
     via: api
   - step: 11
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach order-check version 1 (fingerprint FP-O1) to "hook_taken", which already has an attachment, as a first-time attaching (the
+      The administrator tries to attach order_check version 1 (fingerprint FP-O1) to "hook_taken", which already has an attachment, as a first-time attaching (the
       request does not say that it is a replacement).
     expect_refusal: true
     via: api
   - step: 12
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach order-check version 1 to "hook_plain" with the fingerprint left out of the request.
+      The administrator tries to attach order_check version 1 to "hook_plain" with the fingerprint left out of the request.
     expect_refusal: true
     via: api
   - step: 13
     actor: tenant_admin_a
     action: >
-      The administrator tries to attach order-check version 1 (fingerprint FP-O1) to "hook_active", the record type that an active process writes to.
+      The administrator tries to attach order_check version 1 (fingerprint FP-O1) to "hook_active", the record type that an active process writes to.
     expect_refusal: true
     via: api
   - step: 14
@@ -125,7 +125,7 @@ steps:
   - step: 15
     actor: tenant_admin_a
     action: >
-      The administrator attaches order-check version 1 (fingerprint FP-O1) to "hook_draftline", the record type that only a draft process writes to, then asks for the list.
+      The administrator attaches order_check version 1 (fingerprint FP-O1) to "hook_draftline", the record type that only a draft process writes to, then asks for the list.
     via: api
   - step: 16
     actor: tenant_admin_a
@@ -158,7 +158,7 @@ expected_outcomes:
     description: A record type that does not exist, and a record type that already has an attachment, are refused.
     verification:
       method: http_status
-      detail: Step 10 answers 404. Step 11 answers 409 with the reason "already_bound" and the entry of "hook_taken" in step 14 is still version 1 of order-check.
+      detail: Step 10 answers 404. Step 11 answers 409 with the reason "already_bound" and the entry of "hook_taken" in step 14 is still version 1 of order_check.
       evidence: The answers of steps 10 and 11 and the list of step 14.
     on_fail:
       severity: MAJOR
@@ -178,7 +178,7 @@ expected_outcomes:
     description: A record type written by an active process is refused, while one written only by a draft process is accepted.
     verification:
       method: http_status
-      detail: Step 13 answers 409 with the reason "entity_type_hooked". Step 15 answers 201 and its list shows "hook_draftline" with order-check version 1.
+      detail: Step 13 answers 409 with the reason "entity_type_hooked". Step 15 answers 201 and its list shows "hook_draftline" with order_check version 1.
       evidence: The answers of steps 13 and 15.
     on_fail:
       severity: MAJOR
@@ -188,7 +188,7 @@ expected_outcomes:
     description: Refused tries change nothing.
     verification:
       method: system_state
-      detail: In step 14 the list is identical to list L0 (only "hook_taken" with order-check version 1). The audit trail of SwiftRoute has an entry for step 1 and for step 15 only, none for steps 2 to 8 and 10 to 13, and the audit trail of Bilimbaga has none for step 9. The audit trail is read from the database.
+      detail: In step 14 the list is identical to list L0 (only "hook_taken" with order_check version 1). The audit trail of SwiftRoute has an entry for step 1 and for step 15 only, none for steps 2 to 8 and 10 to 13, and the audit trail of Bilimbaga has none for step 9. The audit trail is read from the database.
       evidence: The list of step 14 and the audit entries between step 1 and step 15.
     on_fail:
       severity: MAJOR

@@ -33,10 +33,10 @@ actors:
   tenant_admin_b: actor-bilimbaga-admin
 
 preconditions:
-  - description: SwiftRoute has record types of its own "hook_order_a", "hook_note_a" and "hook_shared", all unmanaged and written by no active process, with no attachment, and a published check script of kind "entity write", order-check version 1 (fingerprint FP-O1).
+  - description: SwiftRoute has record types of its own "hook_order_a", "hook_note_a" and "hook_shared", all unmanaged and written by no active process, with no attachment, and a published check script of kind "entity write", order_check version 1 (fingerprint FP-O1).
     check: system_seeded
     detail: Setup-prepared. If an attachment exists, remove it first and note that in the report.
-  - description: Bilimbaga has a record type of its own "hook_shared" (unmanaged, written by no active process, no attachment), no record type named "hook_order_a" or "hook_nowhere", and a published check script of kind "entity write", bilim-check version 1 (fingerprint FP-B1).
+  - description: Bilimbaga has a record type of its own "hook_shared" (unmanaged, written by no active process, no attachment), no record type named "hook_order_a" or "hook_nowhere", and a published check script of kind "entity write", bilim_check version 1 (fingerprint FP-B1).
     check: system_seeded
     detail: If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note of actor-bilimbaga-admin), report BLOCKED for steps 6 to 8 and EO-003 to EO-005; steps 1 to 5 run.
   - description: An API token issued to the SwiftRoute administrator exists (the administrator's role, not a signed-in session).
@@ -47,13 +47,13 @@ steps:
   - step: 1
     actor: tenant_admin_a
     action: >
-      The SwiftRoute administrator attaches order-check version 1 (fingerprint FP-O1) to "hook_order_a" and asks for the list of attachments.
+      The SwiftRoute administrator attaches order_check version 1 (fingerprint FP-O1) to "hook_order_a" and asks for the list of attachments.
     via: api
   - step: 2
     actor: worker_a
     action: >
-      The task worker tries to list the attachments, tries to attach order-check version 1 (fingerprint FP-O1) to "hook_note_a", tries to replace the attachment of
-      "hook_order_a" with order-check version 1 (fingerprint FP-O1) stating that it is a replacement, and tries to remove the attachment of "hook_order_a". Each answer
+      The task worker tries to list the attachments, tries to attach order_check version 1 (fingerprint FP-O1) to "hook_note_a", tries to replace the attachment of
+      "hook_order_a" with order_check version 1 (fingerprint FP-O1) stating that it is a replacement, and tries to remove the attachment of "hook_order_a". Each answer
       (status, body and content type) is noted.
     expect_refusal: true
     via: api
@@ -66,8 +66,8 @@ steps:
   - step: 4
     actor: tenant_admin_a
     action: >
-      Using an API token, not a signed-in session, the administrator tries to attach order-check version 1 (fingerprint FP-O1) to "hook_note_a", tries to replace the
-      attachment of "hook_order_a" with order-check version 1 (fingerprint FP-O1) stating that it is a replacement, and tries to remove the attachment of "hook_order_a".
+      Using an API token, not a signed-in session, the administrator tries to attach order_check version 1 (fingerprint FP-O1) to "hook_note_a", tries to replace the
+      attachment of "hook_order_a" with order_check version 1 (fingerprint FP-O1) stating that it is a replacement, and tries to remove the attachment of "hook_order_a".
       Each answer is noted.
     expect_refusal: true
     via: api
@@ -79,31 +79,31 @@ steps:
   - step: 6
     actor: tenant_admin_b
     action: >
-      The Bilimbaga administrator tries to attach bilim-check version 1 (fingerprint FP-B1) to "hook_order_a", the record type of SwiftRoute. Then tries the same for
+      The Bilimbaga administrator tries to attach bilim_check version 1 (fingerprint FP-B1) to "hook_order_a", the record type of SwiftRoute. Then tries the same for
       "hook_nowhere", a type that exists in no company. The two answers (status, body and content type) are noted.
     expect_refusal: true
     via: api
   - step: 7
     actor: tenant_admin_b
     action: >
-      The Bilimbaga administrator tries to replace the attachment of "hook_order_a" with bilim-check version 1 (fingerprint FP-B1) stating that it is a replacement, and tries
+      The Bilimbaga administrator tries to replace the attachment of "hook_order_a" with bilim_check version 1 (fingerprint FP-B1) stating that it is a replacement, and tries
       the same for "hook_nowhere". Then tries to remove the attachment of "hook_order_a" and the attachment of "hook_nowhere". The four answers are noted.
     expect_refusal: true
     via: api
   - step: 8
     actor: tenant_admin_b
     action: >
-      The Bilimbaga administrator asks for the list of attachments, with the company SwiftRoute named in the address of the request, and notes it as list LB.
+      The Bilimbaga administrator asks for the list of attachments, with the query parameter tenant=swiftroute added to the request, and notes it as list LB.
     via: api
   - step: 9
     actor: tenant_admin_b
     action: >
-      The Bilimbaga administrator attaches bilim-check version 1 (fingerprint FP-B1) to their own "hook_shared" and asks for the list.
+      The Bilimbaga administrator attaches bilim_check version 1 (fingerprint FP-B1) to their own "hook_shared" and asks for the list.
     via: api
   - step: 10
     actor: tenant_admin_a
     action: >
-      The SwiftRoute administrator attaches order-check version 1 (fingerprint FP-O1) to their own "hook_shared" and asks for the list, then compares with list LA.
+      The SwiftRoute administrator attaches order_check version 1 (fingerprint FP-O1) to their own "hook_shared" and asks for the list, then compares with list LA.
     via: api
   - step: 11
     actor: tenant_admin_b
@@ -156,7 +156,7 @@ expected_outcomes:
     description: The other company's attachment is unchanged and invisible.
     verification:
       method: api_response
-      detail: List LB (step 8) answers 200 and has no entry for "hook_order_a"; the company named in the address is ignored. The list of SwiftRoute in step 10 starts with list LA's entries, and "hook_order_a" is still attached to order-check version 1.
+      detail: List LB (step 8) answers 200 and has no entry for "hook_order_a"; the query parameter tenant=swiftroute is ignored. The list of SwiftRoute in step 10 starts with list LA's entries, and "hook_order_a" is still attached to order_check version 1.
       evidence: List LB and the list of step 10.
     on_fail:
       severity: BLOCKER
@@ -166,7 +166,7 @@ expected_outcomes:
     description: Two companies may each have a record type of the same name with an attachment, and neither sees the other's.
     verification:
       method: api_response
-      detail: Step 9 answers 201 and Bilimbaga's list holds only "hook_shared" with bilim-check. Step 10 answers 201 and SwiftRoute's list holds "hook_order_a" and "hook_shared" with order-check, none with bilim-check. Step 11 shows Bilimbaga's own entry and its removal answers 204. Step 12 shows SwiftRoute's "hook_shared" and "hook_order_a" still attached.
+      detail: Step 9 answers 201 and Bilimbaga's list holds only "hook_shared" with bilim_check. Step 10 answers 201 and SwiftRoute's list holds "hook_order_a" and "hook_shared" with order_check, none with bilim_check. Step 11 shows Bilimbaga's own entry and its removal answers 204. Step 12 shows SwiftRoute's "hook_shared" and "hook_order_a" still attached.
       evidence: The lists of steps 9 to 12.
     on_fail:
       severity: BLOCKER

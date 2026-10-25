@@ -16,8 +16,8 @@ tags: [tenant-admin, entity-type-hooks, bind, rebind, unbind, list]
 
 description: >
   The administrator of SwiftRoute has two record types of their own, "hook_order" and "hook_note", and several published check scripts (kind "entity
-  write"). They attach order-check version 1 to "hook_order" and see the answer and the list. They attach note-check version 1 to "hook_note" and see the
-  list ordered by record type. They replace the attachment of "hook_order" with order-check version 2. Retiring the version that is attached is refused;
+  write"). They attach order_check version 1 to "hook_order" and see the answer and the list. They attach note_check version 1 to "hook_note" and see the
+  list ordered by record type. They replace the attachment of "hook_order" with order_check version 2. Retiring the version that is attached is refused;
   retiring the version no longer attached works. Revoking an attached version is not blocked. They remove the attachment of "hook_order"; removing it
   again, and removing the attachment of a type that does not exist, give the same not-found answer. Saving a record is not part of this scenario: in this
   release the attached script does not run.
@@ -29,7 +29,7 @@ preconditions:
   - description: SwiftRoute has two record types of its own named "hook_order" and "hook_note". No process in SwiftRoute writes records of these types and neither type is managed by a module. Neither type has an attachment.
     check: system_seeded
     detail: Setup-prepared, because a record type with no process lines is not created by any actor in the roster step list. If an attachment exists, remove it first and note that in the report.
-  - description: SwiftRoute has published, not revoked check scripts of kind "entity write" - order-check version 1, order-check version 2 and note-check version 1. The administrator knows the content fingerprint (sha256) of each, noted as FP-O1, FP-O2 and FP-N1.
+  - description: SwiftRoute has published, not revoked check scripts of kind "entity write" - order_check version 1, order_check version 2 and note_check version 1. The administrator knows the content fingerprint (sha256) of each, noted as FP-O1, FP-O2 and FP-N1.
     check: system_seeded
     detail: Setup-prepared (script source and test cases are test fixtures). If the fingerprints cannot be read from the script registry by the administrator, report BLOCKED for the whole scenario.
 
@@ -42,7 +42,7 @@ steps:
   - step: 2
     actor: tenant_admin_a
     action: >
-      The administrator attaches order-check version 1 (with fingerprint FP-O1) to the record type "hook_order". The answer (status and body) is noted.
+      The administrator attaches order_check version 1 (with fingerprint FP-O1) to the record type "hook_order". The answer (status and body) is noted.
     via: api
   - step: 3
     actor: tenant_admin_a
@@ -52,29 +52,29 @@ steps:
   - step: 4
     actor: tenant_admin_a
     action: >
-      The administrator attaches note-check version 1 (with fingerprint FP-N1) to the record type "hook_note", then asks for the list.
+      The administrator attaches note_check version 1 (with fingerprint FP-N1) to the record type "hook_note", then asks for the list.
     via: api
   - step: 5
     actor: tenant_admin_a
     action: >
-      The administrator replaces the attachment of "hook_order" with order-check version 2 (with fingerprint FP-O2), stating that this is a replacement.
+      The administrator replaces the attachment of "hook_order" with order_check version 2 (with fingerprint FP-O2), stating that this is a replacement.
       Then asks for the list.
     via: api
   - step: 6
     actor: tenant_admin_a
     action: >
-      The administrator tries to retire order-check version 2, which is attached to "hook_order".
+      The administrator tries to retire order_check version 2, which is attached to "hook_order", giving the reason "replaced by version 3".
     expect_refusal: true
     via: api
   - step: 7
     actor: tenant_admin_a
     action: >
-      The administrator retires order-check version 1, which is no longer attached to any record type.
+      The administrator retires order_check version 1, which is no longer attached to any record type, giving the reason "replaced by version 2".
     via: api
   - step: 8
     actor: tenant_admin_a
     action: >
-      The administrator revokes note-check version 1, which is attached to "hook_note", then asks for the list.
+      The administrator revokes note_check version 1, which is attached to "hook_note", giving the reason "found unsafe", then asks for the list.
     via: api
   - step: 9
     actor: tenant_admin_a
@@ -115,7 +115,7 @@ expected_outcomes:
     description: The administrator can attach a published, not revoked check script to a record type of their own.
     verification:
       method: api_response
-      detail: Step 2 answers 201. The body names the record type "hook_order", the script key "order-check", version 1 and the fingerprint FP-O1. Step 3 lists exactly one entry, the same record type, key, version and fingerprint, with a time of attaching and the user who attached it (the administrator).
+      detail: Step 2 answers 201. The body names the record type "hook_order", the script key "order_check", version 1 and the fingerprint FP-O1. Step 3 lists exactly one entry, the same record type, key, version and fingerprint, with a time of attaching and the user who attached it (the administrator).
       evidence: The answers of steps 2 and 3.
     on_fail:
       severity: MAJOR
@@ -135,7 +135,7 @@ expected_outcomes:
     description: Replacing an attachment swaps the version and keeps one entry per record type.
     verification:
       method: api_response
-      detail: Step 5 answers 200 with order-check version 2 and fingerprint FP-O2; the list after it still has two entries and the "hook_order" entry shows version 2.
+      detail: Step 5 answers 200 with order_check version 2 and fingerprint FP-O2; the list after it still has two entries and the "hook_order" entry shows version 2.
       evidence: The answer and the list of step 5.
     on_fail:
       severity: MAJOR
