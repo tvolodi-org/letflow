@@ -1,0 +1,172 @@
+# T-0556 (BA): TENANT ADMIN group, scenario 12: saved list views, what the administrator is refused when the view is not valid.
+# Covers REQ-555 criterion 2 (a field not on the type, an unknown operator, an unknown sort direction, a column not on the type: refused,
+# nothing stored), and the shape rules of docs/migration/decisions/0066-generic-saved-views-over-records.md and
+# lib/letflow/entities/views/clauses.ex (name length, empty or repeated columns, a key the view does not have, a company named in the body),
+# plus criterion 5 (an unknown record type is the same not-found as an absent view) and the duplicate name rule of criterion 1.
+# Sources: docs/requirements.yaml REQ-555 criteria 1, 2, 5; the router and clause module named above.
+# Depends on the record type "UAT view ticket" of scenario 11 (fields title, status, priority); this scenario creates it if missing.
+# The four sensitive actions are not in this flow.
+---
+id: tenant-administration-12-saved-views-validation-refusals
+scope: tenant-administration
+title: A saved view with an unknown field, operator, direction, column, name or record type is refused and nothing is stored
+version: "1.0"
+tags: [tenant-admin, saved-views, validation, refusal]
+
+description: >
+  The administrator of SwiftRoute tries to save views over the record type "UAT view ticket" that break one rule each: a filter on a field
+  the type does not have, an unknown filter operator, an unknown sort direction, a column the type does not have, a name that is empty or
+  longer than 120 characters, a list of columns that is empty or names a column twice, a record type that does not exist, and a body that
+  carries an extra key (a company identifier among them). A second view with the name of an existing view over the same type is refused as a
+  duplicate. A change that tries to move a view to another record type is refused. After all the attempts the list holds only the one valid
+  view of step 1, unchanged. In every attempt of steps 2 to 7, apart from the one broken item named in the step, the attempted view is the
+  view of step 1: over "UAT view ticket", with the name "UAT valid view" unless the step gives another name, and the column title. This way
+  each refusal can only come from the item the step names.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator; the record type "UAT view ticket" with the fields title (text), status (text) and priority (whole number) is active; no saved view over it exists
+    check: system_seeded
+    detail: If the type is missing, create it as in scenario 11 step 1 and say so in the report; if views exist from an earlier run, delete them first and note it.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator saves the valid view "UAT valid view" over "UAT view ticket" with the column title, no filter and no sort, and notes
+      its id. This is the baseline for the checks below.
+    via: api
+    input:
+      name: UAT valid view
+      entity_type: UAT view ticket
+      columns: [title]
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the view "UAT bad field" with the filter "colour equals red" (the type has no field colour), and then
+      the view "UAT bad sort field" with the sort "colour ascending". Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the view "UAT bad operator" with the filter "status resembles open" (an operator that does not exist),
+      then the view "UAT bad direction" with the sort "title sideways" (a direction that does not exist), then the view "UAT value too many"
+      with the filter "status is empty" given the value "open" (that operator takes no value), then the view "UAT value missing" with the
+      filter "status equals" given no value (that operator takes exactly one). Each attempted view keeps the column title. Each answer is
+      noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the view "UAT bad column" with the columns title and colour (the type has no field colour). Then
+      tries the view "UAT no columns" with an empty list of columns, then the view "UAT repeated column" with the columns title and title.
+      Each attempted view has no filter and no sort. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator tries to save a view with an empty name, then a view whose name is 121 characters long. Each attempted view is
+      over "UAT view ticket" with the column title and no filter and no sort. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the view "UAT no such type" over the record type "UAT type that does not exist", and notes the answer.
+      The administrator then reads a view by an identifier that is not a valid identifier (the text "not-an-id") and by a well-formed
+      identifier that no view has, and notes both answers.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the view "UAT extra key" with an extra item the view does not have ("colour_scheme": "blue"), and then
+      the view "UAT company key" with an extra item naming the company SwiftRoute as "tenant_id". Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator tries to save a second view named "UAT valid view" over the same record type, and notes the answer. The
+      administrator then tries to change the view of step 1 so that it keeps the name "UAT valid view" and the column title and changes only
+      its record type, to another record type of the company that has the field title, and notes the answer. If the company has no such
+      other record type, the administrator creates one for the test and notes it.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator lists all views and the views of the type "UAT view ticket", reads the view of step 1 by its id, and then deletes
+      it.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A filter or sort on a field the record type does not have, an unknown operator, an unknown direction and a wrong number of values are each refused with a named reason and store nothing.
+    verification:
+      method: http_status
+      detail: Every answer of steps 2 and 3 is 422 with a fixed reason code that differs between the field, operator, direction and value-count cases (the two value-count attempts share one code) and does not repeat the submitted text.
+      evidence: The six answers of steps 2 and 3 (two in step 2, four in step 3) and the list of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: A broken saved list is stored and every user who picks it gets an error or a wrong list.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A column the type does not have, an empty column list, a repeated column, an empty or too long name are each refused and store nothing.
+    verification:
+      method: http_status
+      detail: Every answer of steps 4 and 5 is 422 with a fixed reason code; the list of step 9 shows no view with these names.
+      evidence: The five answers of steps 4 and 5 and the list of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: Lists with empty or unusable columns reach the screens of the company.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A record type that does not exist is answered as not found, the same as a view that does not exist, and a malformed identifier gets that same answer.
+    verification:
+      method: http_status
+      detail: The answer of step 6 for the missing record type and the two readings are 404 with the same status, the same body byte for byte, and the same headers apart from per-request ones (date, request id).
+      evidence: The three answers of step 6, compared.
+    on_fail:
+      severity: MAJOR
+      business_impact: A caller can learn which record types or views exist in the company, or sees a server fault for a typing mistake.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A body with a key the view does not have, including a company identifier, is refused and changes nothing; the company is never taken from the request.
+    verification:
+      method: http_status
+      detail: Both answers of step 7 are 422 with the same fixed reason code, and no view named "UAT extra key" or "UAT company key" exists in the list of step 9.
+      evidence: The two answers of step 7 and the list of step 9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be pointed at another company's data by naming the company in the body.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A second view with the same name over the same record type is refused as a duplicate, and a view cannot be moved to another record type.
+    verification:
+      method: http_status
+      detail: The duplicate of step 8 is 409; the move of step 8 is 422; the view of step 1 is unchanged when read in step 9 (same name, columns and type).
+      evidence: The two answers of step 8 and the reading of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: Two lists with one name confuse users, or a list silently changes the kind of record it shows.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: After every refusal only the valid baseline view exists and it is unchanged; deleting it empties the list.
+    verification:
+      method: api_response
+      detail: In step 9 both lists hold exactly one view, "UAT valid view", with the content of step 1; after the deletion the list of the type is empty.
+      evidence: The two lists and the reading of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: Refused requests leave half-stored lists behind.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the view "UAT valid view" if it still exists. The record type stays for scenario 13 and is retired with the test customer.
