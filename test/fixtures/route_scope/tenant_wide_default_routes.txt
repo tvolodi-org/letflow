@@ -1,5 +1,6 @@
 DELETE /admin/services/:service_id AdminServicesManage
 DELETE /definitions/:id DefinitionsDelete
+DELETE /entity-type-hooks/:entity_type EntityTypeHooksManage
 DELETE /instances/:id/attachments/:attachment_id AttachmentsManage
 DELETE /integration-mappings/:id IntegrationMappingsManage
 DELETE /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
@@ -12,6 +13,7 @@ GET /definitions/:id/export DefinitionsRead
 GET /definitions/delta DefinitionsRead
 GET /dlq DlqReadRetryDiscard
 GET /dlq/:id DlqReadRetryDiscard
+GET /entity-type-hooks EntityTypeHooksList
 GET /event-retention/retirements/:id TenantsManage
 GET /event-retention/summary TenantsManage
 GET /instances InstancesRead
@@ -111,6 +113,7 @@ POST /tenants/:slug/reactivate TenantsManage
 POST /tenants/:test_tenant_id/promote/:process_key PromotionsManage
 POST /webhooks/subscriptions WebhookSubscriptionsManage
 PUT /definitions/:id DefinitionsUpdate
+PUT /entity-type-hooks/:entity_type EntityTypeHooksManage
 PUT /integration-mappings/:id IntegrationMappingsManage
 PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
