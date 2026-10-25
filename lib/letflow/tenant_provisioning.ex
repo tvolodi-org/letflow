@@ -844,7 +844,10 @@ defmodule Letflow.TenantProvisioning do
     # REQ-541 / GH #3160: number sequences bound to a record type (definitions, counters, allocation log
     # and the counter-only-grows trigger). Empty tables for existing tenants; no row altered.
     {20_261_025_200_001, Letflow.Repo.Migrations.CreateNumberSequences,
-     "20261025200001_create_number_sequences.exs"}
+     "20261025200001_create_number_sequences.exs"},
+    # REQ-561 / GH #3194: tenant-defined scheduled jobs (one empty table per tenant schema).
+    {20_261_026_100_001, Letflow.Repo.Migrations.CreateScheduledJobs,
+     "20261026100001_create_scheduled_jobs.exs"}
   ]
 
   @doc """
