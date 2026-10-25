@@ -38556,3 +38556,110 @@ requirements:
     open_questions:
       - "None for the owner: SEC-525-R01 and SEC-525-R04 are recorded in the REQ-525 design under SEC-525-Q1 = Option A and SEC-525-Q2 = accept. The design says INV-10's cross-tenant test does not strictly apply because no route takes a tenant identifier; criterion 7 asks for it anyway as a cheap guard, and the implementer may report it as redundant if an existing router test already covers it."
     depends_on: [REQ-525, REQ-537]
+
+  - id: REQ-554
+    title: "Decision record for Record F (decision 0053 hook 3): form-validation script hook that runs in the locked complete_task transaction (slice 0, decision only)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED
+    # Source: docs/migration/decisions/0053-tenant-scripted-rules.md (scope list "Record F", "Row-lock answer", D5 "Hook 1 reads are PRE-FETCHED" and its last bullet on a later dynamic data API, D7 "Failure" last sentence, D8, T10 in the threat cases); docs/migration/core-roadmap-20261014.md Wave 3 row "Form-hook scripts (server-side form validation) and after-commit entity-event triggers via outbox"; lib/letflow/engine.ex (the :completion_guards Multi step and check_completion_guards, fetch_and_lock_task); REQ-539 (Record E, GH #3155), which settles the transaction and read rule of a hook that reads data. Written by the business analyst (T-0461) 2026-10-25. Not yet validated.
+    description: >
+      Decision 0053 names "Record F, form-validation script hook" (hook 3, "runs in the locked
+      complete_task transaction") as direction only, non-binding until its own record is ratified.
+      Its "Row-lock answer" says the 50 ms rule binds hook 3, because complete_task takes the task and
+      instance-projection row locks (fetch_and_lock_task, fetch_and_lock_instance_projection in
+      lib/letflow/engine.ex) and runs the completion guards (the :completion_guards Multi step,
+      check_completion_guards) inside that transaction. 0053 D5 says hook 1 reads are pre-fetched
+      and that a later hook with a dynamic data API must say which transaction it reads in; D7 says
+      any hook that runs in or beside a transaction must convert every executor outcome, including
+      exit and crash, to a typed {:error, code} without raising. REQ-539 (Record E) is the slice 0 that
+      decides the read transaction, the F13 atomicity rule and the pin kind for hook 2; Record F reuses
+      those rulings and must not decide them a second time. This requirement is slice 0 only: ONE
+      decision record in docs/migration/decisions/ (next free number on origin/main at the time of
+      writing, taken from git fetch, not from the worktree), written by CODE-DESIGNER and reviewed by
+      REVIEWER and SECURITY-REVIEWER. It writes no application code. The record decides: (1) where hook
+      3 runs inside the complete_task transaction (before or after :completion_guards, whether a
+      script refusal is a completion guard) and which transaction its reads use, with the time budget
+      against the 50 ms rule (the lock hold time of the task and projection rows is the constraint);
+      (2) the pure-function contract: input (the submitted output, the form definition version, the
+      task), output (accept, or a refusal with a manifest-declared code and field-level messages), and
+      that the script cannot change the submitted output; (3) pinning: which definition field names the
+      script key and version, the pin kind and its interaction with the closed pin-kind set (as in
+      REQ-539 item 3); (4) the script principal and field restrictions (0053 D5, INV-2, decision 0062):
+      restricted submitted fields are redacted unless declared; (5) the failure mapping of every
+      executor outcome to stable codes, and the effect on the completion (refused completion leaves the
+      task open and the instance unchanged; fail closed; retry only for script_busy, within a cap);
+      (6) the user-visible shape of a refusal (a validation error the form can show, not a 500) and
+      that a refusal is indistinguishable from the same refusal for any caller who may not complete the
+      task (INV-5); (7) the list of implementation slices, each sized to one change, with
+      dependencies. The record must not silently contradict decisions 0050, 0051, 0053, 0054, 0061 or
+      0062 or the REQ-539 record; where it amends one it says so in an "amends" line.
+    acceptance_criteria:
+      - "1. One new file docs/migration/decisions/NNNN-form-hook-script-validation.md exists (NNNN = next free number on origin/main), with status line, date, a Depends-on line naming 0050, 0051, 0053, 0054, 0061, 0062, GH #2534 and the Record E record of REQ-539, and a section per item (1) to (7) of the description. The diff touches no file under lib/, priv/, web/ or apps/; docs/migration/decisions/ and, if a reason is stated, docs/migration/README.md or the decision index are the only changed paths."
+      - "2. Dependency on REQ-539: the record cites the Record E record by file name and quotes the rulings it reuses (read transaction, pin kind, F13 rule); where Record F needs a different ruling it says so in an 'amends' line with the reason. The requirement is not started before REQ-539 has merged (depends_on)."
+      - "3. Lock and time budget: the record states, by symbol (fetch_and_lock_task, fetch_and_lock_instance_projection, the :completion_guards Multi step), which locks are held while the hook runs, the wall-clock budget of the hook against the 50 ms rule, and what happens when the budget is exceeded (completion refused with a stable code, locks released, no partial write). It states that the sandbox task never opens its own connection (0053 D5, T10). A figure above the 0053 D7 maxima is listed under 'Not decided here' as needing a new ruling, not set silently."
+      - "4. INV-3: the record states that hook 3 runs only under the existing sandbox allow-list, mandatory heap cap and ScriptAdmission with caller monitoring (0053 D7, D8), that the script has no network, file system or other-tenant access, and that the output is validated against the manifest output schema before it is acted on."
+      - "5. INV-1: the record states that every read of the hook uses the tenant :prefix of the run context only, that a script key named by a form definition resolves only inside the tenant's script_rules, and requires an INV-10 cross-tenant negative test in the implementing slice (a form of tenant A naming a script key, a completion by a caller of tenant B: byte-identical not-found)."
+      - "6. INV-8: the record maps every executor outcome (script error, instruction budget, memory limit, timeout, invalid output, admission refused, caller or worker crash, kill switch on) to a stable tenant-visible code and to the effect on the completion: the completion is refused and the task and instance are unchanged, or, for script_busy only, retried within a stated cap and then refused; completing without running the hook is never allowed. No raw Exception.format or inspect text reaches a tenant. The record requires one test per outcome in the implementing slice, including a test that a crash of the sandbox task inside the locked transaction does not leave the transaction open."
+      - "7. Refusal shape (INV-2, INV-5): the record states the response a form receives for a script refusal (stable code, field names from the manifest-declared set, no script source and no restricted field value), and that a caller who may not complete the task gets the same answer as for an unknown task."
+      - "8. Slice list: the record lists the implementation slices (at least: form pin and registry change, runtime and read path, completion integration, failure mapping and audit, dry-run and UAT), each with its dependencies and one SECURITY-REVIEWER gate marker for every slice that touches a tenant-data path. Each slice is sized to one change."
+      - "9. Consistency: a section 'Consistency with earlier records' lists, for each of 0050, 0051, 0053, 0054, 0061, 0062 and the Record E record, whether Record F amends it and quotes the sentence amended; a reader can check each quotation against the source file. Owner-only questions are listed under 'Not decided here'."
+      - "10. SECURITY-REVIEWER verdict recorded on the record (mandatory: tenant-data path, script sandbox, locked transaction) and REVIEWER verdict recorded; mix letflow.check_requirements_registration and the CI path-filter test (test/letflow/ci_backend_path_filter_test.exs, or its current name) pass, real output quoted."
+    open_questions:
+      - "The precise millisecond budget inside the locked transaction is an owner figure; the record lists it under 'Not decided here' if 0053 D7 does not settle it."
+    depends_on: [REQ-539]
+
+  - id: REQ-555
+    title: "Decision record for Record T (decision 0053 hook 4): after-commit record-event script triggers and the outbox that delivers them, with the atomicity rule (slice 0, decision only)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED
+    # Source: docs/migration/decisions/0053-tenant-scripted-rules.md (scope list "Record T, after-commit entity-event triggers and the outbox", deviation 11 "no outbox exists; direction only", D7 failure codes and "Only script_busy is retriable", D5 "Determinism" and "Retry of a non-idempotent hook is forbidden", D8, D9); docs/migration/core-roadmap-20261014.md Wave 3 row "Form-hook scripts ... and after-commit entity-event triggers via outbox"; lib/letflow/webhooks/delivery.ex and lib/letflow/plugs/api_pipeline.ex (the only files in lib/ outside lib/letflow/design/ that name an outbox today, to be read before the record claims that no outbox exists); lib/letflow/entities/records.ex (Records.command_multi/3, the write transaction); REQ-539 (Record E, GH #3155). Written by the business analyst (T-0461) 2026-10-25. Not yet validated.
+    description: >
+      Decision 0053 names "Record T, after-commit entity-event triggers and the outbox" (hook 4,
+      old D6) as direction only. Its deviation 11 says that no outbox exists for it. A trigger runs a
+      tenant script after a record write has committed, so the script may not roll the write back; the
+      risk is the gap between the commit and the trigger: a trigger lost when the node dies after the
+      commit, or a trigger run twice. This requirement is slice 0 only: ONE decision record in
+      docs/migration/decisions/ (next free number on origin/main at the time of writing, taken from git
+      fetch, not from the worktree), written by CODE-DESIGNER and reviewed by REVIEWER and
+      SECURITY-REVIEWER. It writes no application code. The record decides: (1) the atomicity rule: an
+      outbox row for each matching trigger is inserted in the SAME transaction as the record write
+      (Records.command_multi/3 and the history and event rows it already writes), so that either both the
+      write and its outbox rows commit or neither does, and the trigger never runs inside the write
+      transaction; (2) the outbox: its table and tenant scope (a tenant schema table under the :prefix),
+      row states, claim by a worker with a lease and FOR UPDATE SKIP LOCKED or an equivalent that
+      cannot double-claim, the delivery guarantee (at-least-once with an idempotency key, or
+      at-most-once, with the reason: 0053 D5 forbids retry of a non-idempotent hook, so the record must
+      say which of the two a trigger gets and what the script author must assume), retry cap, backoff
+      and a dead-letter state, and the relation to any outbox or delivery queue that exists today
+      (lib/letflow/webhooks/delivery.ex): reuse or a separate table, with the reason; (3) the trigger
+      declaration and pinning: which record types and events (create, update, delete, process-step
+      write per 0054) can trigger, the script key and version, the pin kind (reusing the REQ-539
+      ruling), and loop protection (whether a trigger's own writes raise triggers; the rule and a
+      depth cap); (4) the script principal and what a trigger may do: it has no invoking user and, being
+      pure (0053 D4), returns values that the host applies in a separate transaction with its own
+      checks (0050 managed types, 0051 scope, 0061 lock order), never in the original write's
+      transaction; (5) ordering and concurrency per record (whether triggers for one record run in
+      commit order), per-tenant fairness and backpressure through ScriptAdmission (0053 D8) and a cap
+      on outbox depth per tenant; (6) failure mapping of every executor outcome to the 0053 D7 stable
+      codes, the effect on the outbox row, and visibility to the tenant (a failed trigger is an
+      incident, the original write stays committed); (7) the list of implementation slices, each sized to
+      one change, with dependencies. The record must not silently contradict decisions 0050, 0051, 0053,
+      0054, 0061 or 0062 or the REQ-539 record; where it amends one it says so in an "amends" line.
+    acceptance_criteria:
+      - "1. One new file docs/migration/decisions/NNNN-after-commit-trigger-outbox.md exists (NNNN = next free number on origin/main), with status line, date, a Depends-on line naming 0050, 0051, 0053, 0054, 0061, 0062, GH #2534 and the Record E record of REQ-539, and a section per item (1) to (7) of the description. The diff touches no file under lib/, priv/, web/ or apps/; docs/migration/decisions/ and, if a reason is stated, docs/migration/README.md or the decision index are the only changed paths."
+      - "2. Dependency on REQ-539: the record cites the Record E record by file name, quotes the rulings it reuses (pin kind, script principal, failure mapping) and states in an 'amends' line any place where it differs. The requirement is not started before REQ-539 has merged (depends_on)."
+      - "3. Atomicity rule, one normative paragraph: the outbox row is inserted in the same database transaction as the record write; the record states what happens when the write rolls back (no outbox row remains), when the transaction commits and the node dies before any worker runs (the row is picked up after restart, by lease expiry), and that no trigger script runs before the commit. It includes a worked example with a write, a node crash and a restart. A statement that outbox rows are 'written soon after' the commit does not meet this criterion."
+      - "4. Delivery guarantee: the record states at-least-once or at-most-once for a trigger and why, names the idempotency key (built from the outbox row id), states what a script author may assume, and rules on a worker that dies after applying the trigger's result but before marking the row done (no second application of the result)."
+      - "5. Outbox facts: the record names the existing delivery or outbox code it read (lib/letflow/webhooks/delivery.ex and any other file that names an outbox in lib/), says reuse or separate with the reason, and gives the lock mode of the claim query, the lease length (an owner figure or a stated default), the retry cap and the dead-letter state. It states the lock position of the outbox insert and of the result transaction in the lock order of decision 0061."
+      - "6. INV-1: the record states that the outbox table is under the tenant :prefix, that a worker takes the tenant from the row's schema and never from the payload, that the payload holds ids and event type and not record values, and requires an INV-10 cross-tenant negative test in the implementing slice (an outbox row of tenant A is not claimed, listed or counted for tenant B, and an admin listing for tenant B answers byte-identically to a tenant with no rows)."
+      - "7. INV-3: the record states that a trigger runs only under the existing sandbox allow-list, mandatory heap cap and ScriptAdmission with caller monitoring (0053 D7, D8), with the input built by the host and redacted through the field restrictions of the script principal (0053 D5, 0062), and that a value above the D7 maxima is listed under 'Not decided here'."
+      - "8. INV-8: the record maps every executor outcome (script error, instruction budget, memory limit, timeout, invalid output, admission refused, worker crash, kill switch on) and each outbox failure (claim lost, lease expired, tenant schema dropped, result refused by the 0050 or 0051 checks) to a stable code and to the effect on the outbox row; the original write is never undone by a trigger failure; no raw Exception.format or inspect text reaches a tenant. The record requires one test per outcome in the implementing slice and a depth-cap test for trigger loops."
+      - "9. Slice list: the record lists the implementation slices (at least: outbox table and same-transaction insert, claim worker with lease, trigger declaration and pin, script run and result application, failure handling with dead letter and tenant visibility, dry-run and UAT), each with dependencies and a SECURITY-REVIEWER gate marker for every slice that touches a tenant-data path. Each slice is sized to one change."
+      - "10. Consistency and gates: a section 'Consistency with earlier records' lists, for each of 0050, 0051, 0053, 0054, 0061, 0062 and the Record E record, whether Record T amends it and quotes the sentence amended; owner-only questions are listed under 'Not decided here'. SECURITY-REVIEWER and REVIEWER verdicts are recorded; mix letflow.check_requirements_registration and the CI path-filter test pass, real output quoted."
+    open_questions:
+      - "At-least-once or at-most-once delivery for trigger scripts is a product decision with a recommendation from 0053 D5 (no retry of a non-idempotent hook). The record takes it with its reason; if the CODE-DESIGNER finds the choice depends on the owner's tolerance for a lost trigger, it lists it under 'Not decided here'."
+    depends_on: [REQ-539]
