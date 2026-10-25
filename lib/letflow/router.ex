@@ -65,6 +65,10 @@ defmodule Letflow.Router do
   before the `/api/v1` forward for the same reason `/api/tenant-config` is: there is
   no tenant context to resolve and no session to check.
 
+  `/admin/v1` (REQ-572, decision 0072; QA only) is the tenant provisioner mount: credential-authenticated
+  by `Letflow.Plugs.ProvisionerAuth` (a hash-configured credential class, not a role), outside
+  `Letflow.Plugs.ApiPipeline`, and 404 when no credential is configured. See `Letflow.Routers.AdminV1`.
+
   `Letflow.Plugs.HttpMetrics` (REQ-194) is mounted here, ahead of `plug(:match)`, so
   it observes every route this router serves except `GET /metrics` itself (excluded
   to avoid a self-observation feedback loop in the metrics it is producing). It
@@ -146,6 +150,12 @@ defmodule Letflow.Router do
   forward("/api/login-discovery", to: Letflow.Routers.LoginDiscovery)
 
   forward("/api/v1", to: Letflow.Plugs.ApiPipeline)
+
+  # Credential-authenticated by mount (REQ-572, decision 0072 D6; QA only) -- the tenant provisioner,
+  # declared BEFORE the catch-all and OUTSIDE Letflow.Plugs.ApiPipeline. Its first plug,
+  # Letflow.Plugs.ProvisionerAuth, answers 404 when no credential hash is configured. See
+  # Letflow.Routers.AdminV1's moduledoc.
+  forward("/admin/v1", to: Letflow.Routers.AdminV1)
 
   match _ do
     Letflow.Api.Response.not_found(conn)

@@ -185,7 +185,6 @@ defmodule Letflow.Routers.Tenants do
 
   use Letflow.Api.AuthorizedRouter
 
-  alias Letflow.Admission
   alias Letflow.Api.Error
   alias Letflow.Api.Pagination
   alias Letflow.Api.Response
@@ -579,24 +578,9 @@ defmodule Letflow.Routers.Tenants do
   defp deactivate(conn, slug) do
     case Identity.deactivate_tenant(slug) do
       {:ok, tenant} ->
-        # ISS-0437: evict this tenant's Admission-tracked entry so it stops
-        # permanently diluting every remaining active tenant's fair-share
-        # cap. Called here, at the router layer, deliberately -- NOT inside
-        # Identity.deactivate_tenant/1 itself -- mirroring this router's own
-        # create-path precedent of sequencing cross-context orchestration
-        # here rather than inside a single-purpose context module (see
-        # lib/letflow/design/iss0437-admission-tenant-eviction.md §3).
-        # `schema_name_for_tenant/1`'s `{:error, :invalid_tenant_id}` branch
-        # is not reachable here in practice -- `tenant.id` is a real UUID
-        # just read back from Repo inside Identity.deactivate_tenant/1, not
-        # user input -- so it is not defensively re-checked, matching this
-        # router's own established pattern elsewhere.
-        {:ok, schema} = TenantProvisioning.schema_name_for_tenant(tenant.id)
-        :ok = Admission.forget_tenant(schema)
-        # GH 2534 / 0053 D8: the tenant-script admission server keeps its own fair share.
-        :ok = Admission.forget_tenant(schema, Letflow.Engine.Lua.ScriptAdmission)
-        # GH 3252 / REQ-572: stop the tenant's realm key provider so cached JWKS stop verifying.
-        :ok = stop_realm_provider(tenant.id)
+        # ISS-0437 / GH 2534 / GH 3252: evict the tenant from admission and stop its realm provider
+        # (one function, shared with the provisioner's suspend/expire; see Letflow.TenantLifecycle).
+        :ok = Letflow.TenantLifecycle.release_runtime(tenant)
         Response.ok(conn, tenant_map(tenant))
 
       {:error, :not_found} ->
@@ -610,16 +594,6 @@ defmodule Letflow.Routers.Tenants do
 
       {:error, %Ecto.Changeset{}} ->
         Response.unprocessable(conn, "validation failed")
-    end
-  end
-
-  defp stop_realm_provider(tenant_id) do
-    case Identity.resolve_realm_by_tenant(tenant_id) do
-      {:ok, realm} when is_binary(realm) and realm != "" ->
-        Letflow.Oidc.ProviderRegistry.stop(realm)
-
-      _no_realm ->
-        :ok
     end
   end
 
