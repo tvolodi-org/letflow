@@ -700,3 +700,23 @@ export interface HealthStatus {
   version: string
   components: Record<string, ComponentStatus>
 }
+
+// ── Saved entity list views (REQ-555 / REQ-556) ───────────────────────────────
+
+/** A saved list view (`/api/v1/entity-views`). Holds layout only, never a record value. */
+export interface EntityView {
+  id: string
+  entity_type: string
+  name: string
+  columns: string[]
+  filter: EntityQueryFilterClause[]
+  sort: EntityQuerySortClause[]
+}
+
+export interface EntityViewCreateRequest {
+  entity_type: string
+  name: string
+  columns: string[]
+  filter: EntityQueryFilterClause[]
+  sort: EntityQuerySortClause[]
+}
