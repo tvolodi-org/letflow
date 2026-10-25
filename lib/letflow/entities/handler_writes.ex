@@ -87,6 +87,7 @@ defmodule Letflow.Entities.HandlerWrites do
   alias Letflow.EventStore
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Installs
+  alias Letflow.NumberSequences
 
   require Logger
 
@@ -454,11 +455,26 @@ defmodule Letflow.Entities.HandlerWrites do
     |> Enum.reduce(multi, fn type, acc ->
       Multi.run(acc, {tag, type}, fn repo, _changes ->
         case EntityTypeInstance.fetch_instance_id(type, prefix) do
-          {:ok, instance_id} -> EventStore.lock_instance_sequence(repo, instance_id, prefix)
-          {:error, :not_found} -> {:error, {:entity_type_instance_missing, type}}
+          {:ok, instance_id} ->
+            with {:ok, locked} <- EventStore.lock_instance_sequence(repo, instance_id, prefix) do
+              lock_bound_counter(repo, type, prefix, locked)
+            end
+
+          {:error, :not_found} ->
+            {:error, {:entity_type_instance_missing, type}}
         end
       end)
     end)
+  end
+
+  # REQ-541 / GH #3160 (decision 0061 item 5a): right after the type's sequence row, the counter
+  # row of a bound type's current period is locked (empty row inserted if absent, no increment). An
+  # unbound type keeps the step value of `lock_instance_sequence/3`.
+  defp lock_bound_counter(repo, type, prefix, locked) do
+    case NumberSequences.lock_counter(repo, type, prefix) do
+      {:ok, :unbound} -> {:ok, locked}
+      {:ok, {:locked, _period} = bound} -> {:ok, bound}
+    end
   end
 
   @doc """

@@ -97,14 +97,14 @@ defmodule Letflow.Modules.Org.RunbookTest do
 
   test "B-06: the cited code lines still hold the symbol the limit names" do
     expect = [
-      {"lib/letflow/entities/records.ex", 1980, "check_write_authority"},
-      {"lib/letflow/entities/records.ex", 411, "create_record"},
-      {"lib/letflow/entities/records.ex", 1153, "reject_step_key"},
-      {"lib/letflow/entities/records.ex", 1097, "reject_reserved_attributes"},
-      {"lib/letflow/entities/records.ex", 358, "step_key_prefix"},
+      {"lib/letflow/entities/records.ex", 2047, "check_write_authority"},
+      {"lib/letflow/entities/records.ex", 412, "create_record"},
+      {"lib/letflow/entities/records.ex", 1159, "reject_step_key"},
+      {"lib/letflow/entities/records.ex", 1103, "reject_reserved_attributes"},
+      {"lib/letflow/entities/records.ex", 359, "step_key_prefix"},
       {"lib/letflow/routers/entities.ex", 566, "entity_type_managed"},
-      {"lib/letflow/entities/step_writes.ex", 759, "command_multi"},
-      {"lib/letflow/entities/handler_writes.ex", 247, "command_multi"}
+      {"lib/letflow/entities/step_writes.ex", 760, "command_multi"},
+      {"lib/letflow/entities/handler_writes.ex", 248, "command_multi"}
     ]
 
     runbook = File.read!(@runbook)

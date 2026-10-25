@@ -407,7 +407,7 @@ defmodule Letflow.Engine do
       `task.create` audit takes the audit chain row), then tokens, task activation, timers, dispatch
       arms and sub-process children, the entity writes (their own type locks are now no-op re-locks),
       the events, the projection, the completion cascade (the ancestors' sequence rows and projection
-      UPDATEs, with the group already held) and the entity audits last. The pre-lock is lock-only: no
+      UPDATEs, with the group already held) and the entity audits last. The pre-lock is lock-only (its one write: the empty counter row of a type bound to a number sequence, REQ-541): no
       event, audit or sequence number changes position or content. A deadlock or timeout here is
       classified as contention and re-applied (bounded) for HTTP applies and for planned script
       applies; an UNPLANNED script apply goes straight to `apply_script_task_result_once/4`, whose
