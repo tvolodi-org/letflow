@@ -210,6 +210,7 @@ defmodule Letflow.Entities.Records do
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.Registry
   alias Letflow.EventStore.StoredPayload
+  alias Letflow.NumberSequences
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.ColumnPromotion
@@ -447,7 +448,9 @@ defmodule Letflow.Entities.Records do
           prefix: prefix,
           authority: authority,
           # GH #2659: set only by `upsert_record_by_external_ref/3` (parsed); nil otherwise.
-          external_ref: external_ref
+          external_ref: external_ref,
+          # REQ-541: the number sequence bound to the type (read once, before the transaction).
+          number_binding: NumberSequences.fetch_binding(entity_type, prefix)
         })
 
       ctx |> run_command(attrs) |> put_strict_specs(definition)
@@ -876,7 +879,9 @@ defmodule Letflow.Entities.Records do
          :ok <- check_write_authority(definition, line.entity_type, authority),
          {:ok, field_values} <-
            validate_field_values(definition, line.field_values, :standard, nil),
-         {:ok, instance_id} <- fetch_step_instance_id(line.entity_type, prefix) do
+         {:ok, instance_id} <- fetch_step_instance_id(line.entity_type, prefix),
+         # REQ-541: read once, before the transaction; an unbound type builds the same Multi as before.
+         number_binding = NumberSequences.fetch_binding(line.entity_type, prefix) do
       ctx = %{
         kind: :create,
         entity_type: line.entity_type,
@@ -911,6 +916,7 @@ defmodule Letflow.Entities.Records do
          |> run_line_step(namespace, :recheck_definition, fn _repo, _changes ->
            recheck_definition(definition, line.entity_type, prefix, authority)
          end)
+         |> maybe_allocate_line_number(line.line_key, number_binding, line.entity_type, ctx)
          |> run_line_step(namespace, :upsert_record_latest, fn repo, changes ->
            upsert_record_latest(repo, changes, ctx)
          end)
@@ -1177,7 +1183,7 @@ defmodule Letflow.Entities.Records do
   # path with no append.
   defp original_result(original, fingerprint, prefix) do
     case match_original(original, fingerprint, prefix) do
-      {:ok, resolved} -> {:ok, duplicate_result(resolved)}
+      {:ok, resolved} -> {:ok, duplicate_result(resolved, prefix)}
       {:error, _reason} = error -> error
     end
   end
@@ -1198,6 +1204,9 @@ defmodule Letflow.Entities.Records do
         |> Multi.run(:recheck_definition, fn _repo, _changes ->
           recheck_definition(ctx.definition, ctx.entity_type, prefix, ctx.authority)
         end)
+        # REQ-541: allocated after the idempotency check and the type's sequence row, before the
+        # record write; a replay failed at `:idempotency` and allocates nothing.
+        |> maybe_allocate_number(ctx)
         |> Multi.run(:upsert_record_latest, fn repo, changes ->
           upsert_record_latest(repo, changes, ctx)
         end)
@@ -1271,6 +1280,7 @@ defmodule Letflow.Entities.Records do
       )
     )
     |> repo.insert(prefix: ctx.prefix)
+    |> put_record_number(changes)
   end
 
   # GH #2528 design D5: when :check_record_version ran, the changeset is based
@@ -1288,6 +1298,53 @@ defmodule Letflow.Entities.Records do
     })
     |> repo.update(prefix: ctx.prefix)
   end
+
+  # REQ-541 / GH #3160. A bound type gets one extra step; an unbound type builds the Multi it always
+  # built. The step runs after `:idempotency`, the type's sequence row and `:recheck_definition`,
+  # and before `:upsert_record_latest` (the record write), so a replay allocates nothing and a
+  # failed create releases its number with the rollback.
+  defp maybe_allocate_number(multi, %{number_binding: {:ok, definition}} = ctx) do
+    Multi.run(multi, :allocate_number, fn repo, _changes ->
+      NumberSequences.allocate(repo, definition, ctx.entity_type, ctx.record_id, ctx.prefix)
+    end)
+  end
+
+  defp maybe_allocate_number(multi, _ctx), do: multi
+
+  # The `command_multi/3` line form. A plain `Multi.run` (not `run_line_step/4`) because it reads the
+  # transaction's whole `changes`: the engine's type-lock step already locked the counter row of a
+  # period, and the increment must hit that same row.
+  defp maybe_allocate_line_number(multi, line_key, {:ok, definition}, entity_type, ctx) do
+    Multi.run(multi, {:line, line_key, :allocate_number}, fn repo, changes ->
+      opts =
+        case locked_period(changes, entity_type, definition.id) do
+          nil -> []
+          period -> [period: period]
+        end
+
+      NumberSequences.allocate(repo, definition, entity_type, ctx.record_id, ctx.prefix, opts)
+    end)
+  end
+
+  defp maybe_allocate_line_number(multi, _line_key, :none, _entity_type, _ctx), do: multi
+
+  defp locked_period(changes, entity_type, definition_id) do
+    Enum.find_value([:pre_type_lock, :type_lock], fn tag ->
+      case Map.get(changes, {tag, entity_type}) do
+        {:locked, %{definition_id: ^definition_id, period: period}} -> period
+        _other -> nil
+      end
+    end)
+  end
+
+  defp put_record_number({:ok, %Latest{} = row}, changes) do
+    case changes do
+      %{allocate_number: %{formatted: formatted}} -> {:ok, %{row | record_number: formatted}}
+      _no_number -> {:ok, row}
+    end
+  end
+
+  defp put_record_number(other, _changes), do: other
 
   defp fetch_global_seq(changes) do
     %Event{global_seq: global_seq} = Map.fetch!(changes, :insert_event)
@@ -1899,7 +1956,10 @@ defmodule Letflow.Entities.Records do
   # already being a decoded `:map` (no re-parse of a JSON string). GH #2543:
   # it only ever receives an original that match_original/3 resolved and
   # matched, so a `$ref` or non-entity payload never reaches it.
-  defp duplicate_result(%Event{payload: payload, event_type: event_type, global_seq: global_seq}) do
+  defp duplicate_result(
+         %Event{payload: payload, event_type: event_type, global_seq: global_seq},
+         prefix
+       ) do
     entity_def_version_hex = Map.fetch!(payload, "entity_def_version")
     # GH #2794: the original's ref as ONE value (`ref_from_event/1`), spelled into the two
     # columns only by `ExternalRef.to_columns/1`, so the rebuilt `%Latest{}` can never carry a
@@ -1918,7 +1978,14 @@ defmodule Letflow.Entities.Records do
         # GH #2659: the ref the ORIGINAL create carried (nil for an update, delete or ref-less
         # original), so `upsert_create/1` can tell whose record a replayed key belongs to.
         external_system: columns.external_system,
-        external_id: columns.external_id
+        external_id: columns.external_id,
+        # REQ-541: the original's number (nil for an unbound type), so a replay shows it unchanged.
+        record_number:
+          NumberSequences.number_for(
+            Map.fetch!(payload, "entity_type"),
+            Map.fetch!(payload, "record_id"),
+            prefix
+          )
       },
       is_duplicate: true
     }

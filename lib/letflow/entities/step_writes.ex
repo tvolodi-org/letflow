@@ -664,7 +664,8 @@ defmodule Letflow.Entities.StepWrites do
   (a different key tag, because `build_lines/4` emits `{:type_lock, type}` later in the same
   Multi and Ecto.Multi rejects duplicate names; those later steps become no-op re-locks). Unlike
   the private clause above it also covers a node WITHOUT `module_writes`. Lock-only: no read of
-  record data, no authorization step, no write.
+  record data, no authorization step; the one write is the empty number-sequence counter row of a
+  bound type (REQ-541: no event, audit or sequence number).
   """
   @spec lock_planned_types(
           Multi.t(),

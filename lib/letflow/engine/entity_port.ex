@@ -238,7 +238,7 @@ defmodule Letflow.Engine.EntityPort do
   types and the registered target types of the `module_writes` handlers (types without a synthetic
   instance are skipped), each taking the type's `instance_sequences` row. The service apply calls
   it right after its ancestor-group lock and BEFORE its task activation (the first audit chain row),
-  so the entity-type rows precede the audit chain row on both child kinds. It writes nothing and
+  so the entity-type rows precede the audit chain row on both child kinds. Its one write is, for a type bound to a number sequence (REQ-541), an empty counter row (insert-if-absent, then `FOR UPDATE`; no event, audit or sequence number). It writes nothing else and
   reads no record data; the later per-line lock steps then re-lock the same rows.
 
   Optional so that test doubles of this behaviour keep compiling (`lock_types/4` below is then the

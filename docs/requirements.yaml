@@ -38954,6 +38954,261 @@ requirements:
     open_questions:
       - "At-least-once or at-most-once delivery for trigger scripts is a product decision with a recommendation from 0053 D5 (no retry of a non-idempotent hook). The record takes it with its reason; if the CODE-DESIGNER finds the choice depends on the owner's tolerance for a lost trigger, it lists it under 'Not decided here'."
     depends_on: [REQ-539]
+  - id: REQ-549
+    title: "Module uninstall (core roadmap Wave 3), slice 0: decision record that amends 0039 D5 'No uninstall' and settles what uninstall removes and keeps (soft uninstall, reactivate, orphaned-data reads, data retention)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3172
+    # Source: docs/migration/core-roadmap-20261014.md Wave 3 row "Module uninstall" (DR column "yes (new): follow-up record to 0055, after managed_by (#2530)"; "0039 D5 'No uninstall' stands until that record is ratified"); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D11 (constraints), open points 6, 9 and 15; docs/migration/decisions/0039-platform-module-solution-layering.md D5 ("No uninstall in S11") and R4; lib/letflow/modules/installs.ex and lib/letflow/modules/tenant_module.ex (tenant_modules has no status column). managed_by is built: REQ-496 (GH #2530) is status done on main (merge 4a911d40e). Written by the business analyst (T-0460) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap Wave 3 "Module uninstall"; decision 0055 D11; decision 0039 D5. The roadmap says
+      this item needs a NEW decision record, and 0055 D11 names it as the follow-up record "module uninstall",
+      gated on managed_by being built (0050 D7). That gate is met (REQ-496 done, merged 4a911d40e). This
+      requirement is SLICE 0: its whole deliverable is that decision record, a document under
+      docs/migration/decisions/ with the next free number at the time of the change (the highest on main on
+      2026-10-25 is 0063). It builds no code. The implementation is written as separate requirements only
+      after the record is accepted; each depends_on this one.
+      RELATION TO 0039 D5. Today 0039 D5 says "No uninstall in S11" and stays in force until a record is
+      ratified (core roadmap row; 0055 header: "0039 D5 stands until that record is ratified"). The new record
+      must say in its header that it AMENDS 0039 D5 (the "no uninstall" sentence is replaced by the rule the
+      record sets; the other parts of D5, the per-tenant install, the 404 for a not-installed module and
+      :ModulesManage, stay), and must name the exact sentence it replaces. If the owner rules that uninstall
+      stays out, the record says so and D5 stands.
+      WHAT IT MUST DECIDE (each as a numbered D- section with reasons and sources):
+      D1 What uninstall REMOVES and what it KEEPS, as a table with one row per item: the module's router and
+      screens (removed from reach, 404 as for a never-installed module); the tenant_modules row or a status
+      column (0055 open point 15 says the design must either add a state column or delete the row, and keep the
+      run-time recheck of a module write handler's owning module correct, so a disabled module must not pass
+      it); the module's process, form and entity definitions installed from its pack; its entity records and
+      their event history; process instances and tasks of the module's definitions; module settings; the
+      managed_by stamp on the module's entity types (kept, so generic writes stay refused with the uniform 403
+      after uninstall; the record says what happens to the stamp only on a hard purge); permissions and role
+      grants the module added; secrets the module references; the installed version. The default direction
+      0039 R4 proposed ("keep data and definitions; remove the row only") is the recommendation to test; the
+      record decides, per row.
+      D2 Soft uninstall and reactivate: whether uninstall is reversible, what reactivate restores, and whether
+      the installed version is kept so a reactivate cannot skip an upgrade (0055). Hard purge is decided here
+      as in or out; if in, it is its own later slice and needs the owner's retention answer.
+      D3 Orphaned-data reads (0055 D11, bullet 2): who may read the module's records once the module router and
+      its ownership filters are gone; either keep exactly the pre-uninstall TypeAccess, entity_field_restrictions
+      and ownership filters, or restrict to named permissions; the exam answer keys (lib/letflow/modules/exam/exam.ex)
+      must be shown preserved (INV-2).
+      D4 Running work: block starting NEW instances of the module's process definitions (0055 D11, bullet 1);
+      what happens to instances and tasks already open (finish, cancel, or block uninstall while any exist),
+      and how a process step that writes a module-managed type behaves after uninstall.
+      D5 Visibility and dependency: GET /me and list_installed hide an uninstalled module (0055 D11, bullet 3);
+      whether an uninstalled module still satisfies another module's depends_on at install (module_installed? in
+      lib/letflow/modules/installs.ex is shared); uninstall is refused while an installed module depends on it.
+      D6 Authority and audit: who may uninstall (the :ModulesManage rule of 0039 D5, PLATFORM_ADMIN only, per
+      INV-10 bound to the platform tenant), the single approver with mandatory reason and audit that 0055 open
+      point 6 fixed for now, and the record's ruling on a second approver for a module with live data; the
+      hash-chain audit entry written in the same transaction as the state change.
+      D7 Journal and migration: the kind values uninstall and reactivate in tenant_module_upgrades (0055 D1) and
+      the status column on tenant_modules belong to the implementation migration; the record names them and
+      requires registration in the tenant provisioning list (INV-1) and says how existing tenant_modules rows are
+      treated (all become active).
+      D8 Slice plan for the implementation requirements, each sized to one change, with the tests each carries,
+      including a cross-tenant negative test (uninstalling a module in tenant A changes nothing in tenant B).
+      DATA-RETENTION QUESTION FOR THE OWNER. How long a tenant's records and definitions of an uninstalled
+      module are kept before any purge is a legal and business rule the BA cannot derive from the sources read
+      (0039, 0055; 0063 covers versioned documents only). The record states it as an open owner question with
+      options (keep until a platform admin purges; keep for a fixed period set by the owner; purge on
+      uninstall) and a recommendation (keep, soft uninstall only, no purge in the first implementation slice).
+      Until the owner answers, no code slice that deletes tenant data is written.
+      NOT IN THIS ENTRY: any lib/, web/ or apps/ change, any migration, the module upgrade runner (0055), the
+      tenant x_ extension layer, and any change to REQ-496 behaviour. Open owner questions are written into the
+      record as open and not settled silently.
+    open_questions:
+      - "Data retention (D1, D2): how long a tenant's records and definitions of an uninstalled module are kept, and whether a hard purge exists at all. Options: keep until a platform admin purges; fixed period; purge on uninstall. Recommendation: keep, soft uninstall only. The owner decides; until then no slice that deletes tenant data."
+      - "Second approver for uninstall of a module with live data (0055 open point 6): single approver with reason and audit until the owner rules otherwise."
+    acceptance_criteria:
+      - "1. A new file docs/migration/decisions/NNNN-*.md exists, numbered with the next free number found by listing origin/main at the time of the change, with a status line and a Sources section listing the files opened (the roadmap row, 0039, 0055, 0050 D7, lib/letflow/modules/installs.ex, lib/letflow/modules/tenant_module.ex); the diff touches no file under lib/, web/, apps/, priv/ or test/."
+      - "2. The record has sections D1 to D8 as described in this entry, each stating its decision, its reasons and its source; a reader can find each by its heading (checked by grep of the headings)."
+      - "3. The record header states that it amends 0039 D5, quotes the sentence 'No uninstall in S11' as the one replaced (or states that D5 stands if the owner rules uninstall out), and lists what of D5 stays. The same change adds a pointer to the new record in 0039 D5 and in the Wave 3 row of docs/migration/core-roadmap-20261014.md, and changes no other sentence of either file."
+      - "4. D1 is a table with one row for each of the ten items listed in this entry (router and screens, tenant_modules row or status, definitions, entity records and events, instances and tasks, settings, managed_by stamp, permissions and grants, secrets, installed version), each row saying removed or kept and for how long; no row is left blank or 'to be decided' except the retention period, which points to the open owner question."
+      - "5. D1 or D7 decides between a status column and deleting the tenant_modules row, and states that the run-time recheck of a module write handler's owning module (0055 open point 15, lib/letflow/entities/handler_writes.ex) rejects an uninstalled module; it names the test a later slice must add (a write handler of an uninstalled module is refused)."
+      - "6. D3 states, for orphaned module data, the read rule chosen and the property a later test must prove for the exam answer keys (INV-2), and states that an outsider gets not-found indistinguishable from forbidden (INV-5)."
+      - "7. D4 states what happens to each of: a request to start a new instance of the module's definition, an open instance, an open task, and a process step that writes a module-managed type; each with the resulting state and the reason shown to the caller."
+      - "8. D5 and D6 answer the four constraints of 0055 D11 (new instances blocked, orphaned reads, GET /me and list_installed hidden, depends_on satisfaction) and the authority and audit rule; D6 states that the uninstall route takes the tenant from the auth context, and that a cross-tenant negative test (INV-10) is required in the first implementation slice."
+      - "9. The data-retention question appears in the record as an open owner question with the three options and the recommendation of this entry; the record contains no placeholder and does not settle retention silently."
+      - "10. D8 lists the implementation slices, each sized to one change, each with its depends_on (at least this requirement and REQ-496) and its tests, and names SECURITY-REVIEWER as a mandatory gate for every slice; the slice that adds the journal kind values depends on the 0055 upgrade-journal requirement once it exists."
+      - "11. mix letflow.check_requirements_registration passes with the REQ-549 entry present, and any test that scans docs/migration/decisions for headings or numbering is run, real output quoted."
+    depends_on: [REQ-496]
+
+  - id: REQ-550
+    title: "Tenant extension layer over module-owned data types (core roadmap, Customization beyond scripts), slice 0: decision record for the field- and validation-level x_ layer that module upgrades never overwrite"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3174
+    # Source: docs/migration/core-roadmap-20261014.md section "Customization beyond scripts" (bullet "tenant extensions to module entities": an x_ tenant layer that module upgrades never overwrite; "its own follow-up record (0055 D4 keeps only the constraints an upgrade imposes)"); docs/migration/decisions/0055-module-upgrade-migration-uninstall.md D4 (DIRECTION only) and open point 9; docs/migration/decisions/0053-tenant-scripted-rules.md "Requirement candidates", candidate (b). Written by the business analyst (T-0464) 2026-10-25. Not yet validated.
+    description: >
+      Source: core roadmap "Customization beyond scripts"; decision 0055 D4; decision 0053 candidate (b).
+      The roadmap says the x_ tenant layer needs its own record and that 0055 D4 "keeps only the
+      constraints an upgrade imposes". Decision 0055 itself says, in its section "Scope: binding vs
+      direction", that D4 is reduced to the constraints an upgrade must honour and that "storage, merge
+      point and merge rules are NOT decided here"; D4 says the layer is not designed there and that 0053
+      requires its own record.
+      This requirement is SLICE 0: its whole deliverable is that decision record, a document under
+      docs/migration/decisions/ with the next free number at the time of the change. It builds no code,
+      no migration, no seed and no test. The implementation is written as separate requirements only
+      after the record is accepted; each depends_on this one.
+      THE RULE THE RECORD MUST STATE, in its first section: a module upgrade never overwrites, reorders or
+      deletes anything in the tenant layer. This is the promise of 0055 D4 turned into the rule of the
+      layer, and the record repeats the four constraints of D4 as binding on itself: tenant additions live
+      outside the module's entity_definitions row; x_ applies to field and validation keys, not to
+      entity-type names; modules may not use x_-prefixed field or validation keys; an upgrade whose new
+      module version defines a key equal to an extension key fails the plan with the named conflict
+      {:error, {:extension_conflict, entity_type, name}}, while new module constraints that an existing
+      extension contradicts, and retired module fields that an extension references, are warnings. The
+      record also says that the tripwire of 0055 D3 aborts any batch that writes to the layer.
+      WHAT IT MUST DECIDE (each as a numbered D- section with reasons and sources; where the source does
+      not settle a point the record says "not settled by the source" and puts it to the owner as an open
+      point with options, it does not pick silently):
+      D1 Scope of the layer: which module entity types accept tenant extensions (all, or only those a
+      module marks extensible), and what a tenant may add: extra fields (key, type, required, default),
+      extra validations, and the list, form and print-template overrides of that entity type that
+      candidate (b) names (including KZ print forms). The record states which of these override kinds
+      this layer carries and which belong to the separate roadmap item "per-tenant form, list and
+      print-template overrides", so that the two requirements do not overlap.
+      D2 Storage and merge point: where the layer lives (candidate (b) says "stored apart from the module
+      definition and merged over it at read and validation time"; the record decides the table or
+      document, its tenant schema and :prefix, and the tenant_id carried in each row, INV-1), and at
+      which call sites the merge happens (record read, record validation on write, form and list
+      generation). Records keep fields in the field_values JSONB blob with column promotion (0053
+      candidate (b), "Storage is not the gap"); the record states whether an x_ field can be promoted.
+      D3 Merge rules: precedence between module and tenant layer, how an x_ validation combines with
+      module validations (a tenant validation may add a constraint, never relax a module constraint;
+      the record confirms or rules otherwise), ordering of extension rows, and what happens to existing
+      records when an extension field is removed or its type changed.
+      D4 Enforcement that tenant additions are x_: the write path of the layer refuses a key without the
+      x_ prefix and a key that equals a module key (0055 D4 last bullet, "belongs to candidate (b)"),
+      with the error shape and the INV-5 uniform answer where it applies.
+      D5 Authority: which permission manages the layer (a new permission or an existing one), which role
+      holds it, and how it relates to field authorisation (INV-2: an x_ field is subject to the same
+      field restrictions and per-type access as module fields) and to the 0051 scope declarations of the
+      entity type.
+      D6 Interaction with module upgrade and with the tenant scripted rules: what the upgrade plan
+      reports about the layer (the warnings of 0055 D4), that the record migration events of 0055 D3 do
+      not fire the hooks of 0053, and whether an x_ field is visible to a 0053 pre-write script.
+      BOUNDARY. This layer owns the FIELD- and VALIDATION-level x_ layer on MODULE ENTITY TYPES (plus the
+      override kinds D1 assigns to it). It does NOT own process-definition or pack-level versioning and
+      overrides: those belong to the requirement for solution versioning and per-tenant overrides at pack
+      and process-definition level (core roadmap Wave 3, row "Solution versioning and per-tenant
+      overrides"). That requirement's REQ id is not registered at the time of writing (a parallel task
+      writes it); the record cites it by that id once it exists and, until then, by that title. Also
+      excluded: tenant-owned entity types (own roadmap bullet, depends on 0050 and 0051 stage 2), saved
+      list views (generic views requirement), number sequences, and module uninstall.
+      Not in this change: any code, migration, seed, route, UI and test; a change to decision 0055 (D4
+      stays as written; the new record says it settles the "NOT decided here" part of D4 only).
+    acceptance_criteria:
+      - "1. One new record exists under docs/migration/decisions/ with the next free four-digit number on main at the time of the change; its header names this requirement, says it builds on decision 0055 D4 and is candidate (b) of decision 0053, and says which statement about D4 it settles: the sentence \"storage, merge point and merge rules are NOT decided here\" in the section \"Scope: binding vs direction\" of decision 0055 (D4 itself says the layer needs its own record, citing 0053). The diff of this change is that file plus a one-line pointer where the decision records are indexed, if an index exists; it contains no file under lib/, test/, priv/, web/ or apps/."
+      - "2. Its first section states in one sentence that a module upgrade never overwrites, reorders or deletes anything in the tenant layer, and states that the upgrade runner has no write path to the layer and that the tripwire of 0055 D3 aborts a batch that writes to it."
+      - "3. The record repeats the four constraints of 0055 D4 as binding and gives, for the conflict case, the exact error {:error, {:extension_conflict, entity_type, name}} and the rule that the two other cases (a new module constraint that an extension contradicts; a retired module field that an extension references) are warnings, not failures."
+      - "4. Sections D1 to D6 above each exist as a numbered section; each states its decision, reasons and the sources opened with file paths. A point that no source settles is written as \"not settled by the source\" and listed in an open-points section with the options and a recommendation, not decided silently."
+      - "5. D2 names the storage location in the tenant schema under the Ecto :prefix with tenant_id in each row (INV-1) and lists every call site where the merge happens, each cited by a real module path in lib/letflow/ that the author opened (no path taken from this requirement text)."
+      - "6. D3 states that a tenant validation can only add a constraint and never relax a module constraint, or records a different ruling with its reason; it also states what happens to stored values when an extension field is removed or retyped."
+      - "7. D4 states that the layer's write path refuses a key without the x_ prefix and a key equal to a module-owned key, with the error shape; D5 names the permission and the role that manages the layer and states that INV-2 field authorisation applies to x_ fields."
+      - "8. Boundary section: the record states that it owns the field- and validation-level x_ layer on module entity types, names process-definition and pack-level versioning and overrides as excluded and as owned by the solution-versioning requirement (cited by its REQ id, or by its title while no id is registered), and names the separate roadmap item of per-tenant form, list and print-template overrides with the rule that splits D1's override kinds between the two."
+      - "9. The record lists the implementation requirements it expects (each small enough for one change, each depending on this one) and states that none of them is filed or built by this slice; it contains no implementation code."
+      - "10. The change does not modify docs/requirements.yaml; mix letflow.check.static passes with real output quoted; the record's Sign-off section (as in decision 0055) carries a REVIEWER verdict and a SECURITY-REVIEWER verdict, because the record sets tenant-data authorisation and storage rules."
+    open_questions:
+      - "Boundary to the separate roadmap item \"per-tenant form, list and print-template overrides\": candidate (b) of 0053 puts list, form and print-template overrides into the x_ layer, the roadmap lists them as their own item. Criterion 8 asks the record to split them; which side owns KZ print forms is for the owner if the record cannot derive it from the sources."
+      - "The REQ id of the solution-versioning requirement is not yet registered; the record or the reviewer fills it in once the engine has registered it."
+    depends_on: ["decision 0055 (D4)", "decision 0053 (candidate (b))"]
+
+  - id: REQ-557
+    title: "CSV file input as a front end to the existing record import: format, column mapping, type coercion and per-row errors by CSV line (core roadmap, Customization beyond scripts)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    gh: 3182
+    description: >
+      Core roadmap, Customization beyond scripts (data import). Record import exists on main:
+      REQ-314 (design, lib/letflow/design/req314-entity-record-bulk-export-import.md), REQ-318
+      (permission atoms), REQ-320 (POST /entities/records/:entity_type/import, handler
+      lib/letflow/routers/entities/record_import.ex) and REQ-505 / GH #2659 (the optional upsert
+      by external_ref, lib/letflow/entities/import_upsert.ex). Gap: nothing in lib/letflow reads
+      CSV, and a file exported from a spreadsheet or another system cannot be imported without a
+      caller turning it into the JSON document first.
+
+      CSV IS A FRONT END TO REQ-320 ROUTE AND SEMANTICS, NOT A SECOND IMPORT. Everything the
+      route already decides (the 200-record cap, the schema-version and
+      entity_type checks, the permission atom and its gate, per-entry partial success, the
+      upsert mode and its error reasons, the 404 folding) applies to a CSV upload exactly as to
+      the JSON document and is not restated here; read REQ-314, REQ-318, REQ-320 and REQ-505.
+      The record cap belongs to REQ-320. The request body-size limit is not REQ-320's: it is the
+      API pipeline's (lib/letflow/plugs/api_pipeline.ex, shared by every route) and is enforced
+      today by the JSON body parser, so it must be enforced explicitly for a text/csv body
+      (criterion 10).
+      This requirement defines only what is new: the CSV format, the column-to-field mapping, the
+      type coercion into the JSON entry shape, and the mapping of errors back to CSV lines.
+
+      WHERE IT SITS. The same route accepts a second content type, text/csv, and a pure converter
+      in front of the existing handler turns the CSV text into the export_document-shaped map
+      (the entity_type from the path, one entry per data row) that the handler already processes.
+      From that point the code path is the existing one. The converter is a pure function (text
+      and the entity's field definitions in, entries and a row-to-line table out, no Repo
+      access); it adds no route and no write path: every record is still written by
+      Letflow.Entities.Records through the handler's existing calls, with the actor, scope and
+      field-restriction checks that apply to JSON. The JSON request is byte-identical to today.
+      Whether Plug.Parsers (lib/letflow/plugs/api_pipeline.ex, parsers: [:json, multipart])
+      needs a per-route pass-through for text/csv, and where the converter module lives, are for
+      the implementer to decide and state; neither may widen the parsers for other routes.
+
+      CSV FORMAT. UTF-8; a leading byte-order mark is ignored; any other byte sequence that is
+      not valid UTF-8 refuses the whole file. The delimiter is a comma. Quoting follows RFC 4180:
+      a field may be wrapped in double quotes, a doubled double quote inside it is one quote, and
+      a quoted field may contain commas and line breaks. Rows end with LF or CRLF. The first row
+      is a header and is required. A blank line is skipped. Every data row must have as many
+      cells as the header.
+
+      MAPPING. Each header cell names a field of the entity type active definition, exactly.
+      Two reserved headers, external_ref_system and external_ref_id, feed the entry external_ref
+      and are meaningful only when the request asks for the upsert mode that REQ-505 defines
+      (how the request asks, in the query string, is the implementer to state; it is not a new
+      mode). A header naming no field, a duplicate header or a reserved header without its pair
+      refuses the whole file before any row is read as data. An empty cell leaves the field out of
+      field_values (it is not null and not an empty string); a field the definition requires is
+      then reported by the existing validation, not by the converter.
+
+      COERCION (text to JSON value, by the declared type of the field). string and enum: the cell
+      text as is. integer: base-10 digits with an optional sign, as a JSON integer. decimal:
+      depends on the field, because decision 0060 and
+      lib/letflow/design/gh2654-decimal-exact-strings.md (GH #2654) make strictness a per-field
+      opt-in (decimal_strict: true). On a decimal_strict field the canonical decimal string is
+      passed on unchanged, as a string. On a field that is not decimal_strict the cell is passed
+      as the JSON number that a JSON document carrying the same literal decodes to, exactly as
+      the JSON route would receive it (so that field has the same precision limits as for JSON).
+      boolean: true or false, case-insensitive. date: YYYY-MM-DD. datetime: ISO 8601 with a zone.
+      json: the cell parsed as JSON. localized_text: the cell parsed as a JSON object. A cell that
+      does not fit is a row error (below); the converter never guesses and never repairs a value.
+
+      ROW ERRORS BY LINE. A row the converter cannot coerce is not sent to the write path, does
+      not stop the other rows, and appears in the response results with the CSV line number of
+      the row (the physical line on which the row starts, counting the header as line 1), a
+      constant reason from a closed list, and the header name of the cell; the cell text is not
+      echoed. A row that converts and is then refused or written by the existing path is
+      reported by that path own result, and the response adds the same CSV line number to it.
+      No other part of the REQ-320 response changes.
+    acceptance_criteria:
+      - "1. A pure converter exists (module name chosen by the implementer and stated in the PR). A unit test over it, with no database, feeds a CSV with a header and three data rows (one quoted cell containing a comma, one quoted cell containing a line break and a doubled quote, one empty cell) and asserts the exact entries produced: the empty cell yields no key (not null, not an empty string), the quoted cells yield the unquoted text. Real output quoted."
+      - "2. Format tests: a UTF-8 file with a byte-order mark gives the same entries as the same file without; a file with invalid UTF-8 bytes is refused whole with a 422 and a constant reason, before any row is read; LF and CRLF line endings give identical entries; a blank line is skipped; a data row with more or fewer cells than the header is a row error carrying its line number; a missing header row (empty body) is refused whole."
+      - "3. Mapping tests: a header naming no field of the active definition, a duplicate header, and external_ref_system without external_ref_id (or the reverse) each refuse the whole file with a 422 and a constant reason, and a test asserts that zero records exist for the entity type afterwards."
+      - "4. Coercion tests, one positive and one negative case per field type of lib/letflow/entities/definition/validator.ex (string, integer, decimal, boolean, date, datetime, enum, json, localized_text): the positive case asserts the JSON value passed on; decimal is tested on both kinds of field, a decimal_strict field keeping the same string (e.g. a value of 17 significant digits survives unchanged) and a non-strict decimal field receiving the JSON number the equivalent JSON document would carry, and in both cases the record is accepted by the existing validation; the negative case asserts a row error with the header name and the CSV line, and that the other rows of the same file are still processed."
+      - "5. Row-error line numbers: a test file whose bad row follows a quoted cell with an embedded line break asserts the reported line is the physical line on which that row starts (header = line 1). A test asserts the response never contains the text of the failing cell."
+      - "6. Route test (same route, content type text/csv): a CSV of valid rows creates the same records, with the same response shape plus a line member on each result, and the same status, as the equivalent JSON document posted to the same route in the same test. A CSV with one row that the existing path refuses (a field_values violation) returns the existing partial-success response, with that row existing error plus its CSV line."
+      - "7. Upsert test: with the upsert mode requested, a CSV carrying external_ref_system and external_ref_id columns, posted twice, leaves one record per external reference (the second post reports unchanged), matching test/letflow/routers/entities_import_upsert_test.exs for JSON; a CSV without those columns in upsert mode reports the existing external_ref_invalid reason per row."
+      - "8. No new write path: a test or grep, quoted in the PR, shows the converter module has no alias of Repo, Ecto or any Records function and that the only record write calls of the route are the ones it already had; git diff --name-only shows no new route (route-count pins in test/ unchanged) and no change to lib/letflow/entities/records.ex or lib/letflow/entities/import_upsert.ex."
+      - "9. Carried over, not re-specified: the cross-tenant negative test of REQ-320 is run for a CSV body against the same route (a caller of tenant A importing a CSV for an entity type that exists only in tenant B gets the same response as for a type that does not exist, and tenant B has no new record); and the same permission refusal as for JSON is asserted for a CSV request from a caller without the import permission, with nothing written. Both cite the REQ-320 test they mirror."
+      - "10. Limits carried over, not re-specified: a text/csv body over the API pipeline's body limit (lib/letflow/plugs/api_pipeline.ex) gets the same 413 status and reason as the oversized JSON body in test/letflow/plugs/safe_json_parser_test.exs (describe 'oversized body'), before any conversion and with nothing written; and a CSV with more data rows than REQ-320's record cap gets the same 413 status and reason as test/letflow/routers/entities_test.exs describe 'REQ-320 AC -- the 200-record cap ...', with nothing written. Each test cites the test it mirrors by describe/test name."
+      - "11. JSON is unchanged: the existing import tests (the files under test/ that post to the import path, including entities_import_upsert_test.exs) pass unmodified, real output quoted; the table row of the route in the moduledoc of lib/letflow/routers/entities.ex names the text/csv content type and cites the converter by module name, not by line number."
+      - "12. Out of scope and left to later requirement candidates, named in the PR summary and not built here: a web import screen in web/src (none exists today), a column-mapping step where header names differ from field names, other delimiters or encodings, and Excel (xlsx) input."
+    open_questions:
+      - "UAT assumption, to be confirmed by the process owner: header names equal field names and the delimiter is a comma. A file exported with semicolons (common for some regional spreadsheet settings) is refused until the later mapping/delimiter candidate in criterion 12 is built."
+      - "The reserved headers external_ref_system and external_ref_id and the way the request asks for the upsert mode are new names introduced here; no decision record covers them. The implementer states them in the PR; REVIEWER confirms they match the JSON entry shape of REQ-505."
+    depends_on: [REQ-314, REQ-318, REQ-320, REQ-505]
 
   - id: REQ-551
     title: "Tenant label overrides, backend: tenant-scoped storage, :LabelsManage and a merged-catalog read with platform-default fallback"
@@ -39071,6 +39326,7 @@ requirements:
     open_questions:
       - "None for the owner. Whether the fetch lives in a hook or in the provider is the implementer's choice."
     depends_on: [REQ-551]
+
   - id: REQ-546
     title: "GET /definitions/:id and GET /definitions/active/:name become :self_service reads (IMPL-525-B of REQ-525; SEC-525-R02 and SEC-525-R03)"
     owner: ELIXIR-DEV
@@ -39111,3 +39367,71 @@ requirements:
     open_questions:
       - "None for the owner: SEC-525-R02 and SEC-525-R03 are recorded in the REQ-525 design. If IMPL-525-A has not merged when this one is implemented, the count in criterion 9 is computed from the fixture as written there."
     depends_on: [REQ-525, REQ-537]
+
+  - id: REQ-558
+    title: "WMS procurement slice 2: procurement task assignment record with responsible officer, supplier and purchase-order references as separate events, and request line status without receipts (PR-04, PR-05 part)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3188
+    # Source: docs/WMS/WMS_Procurement_Requirements_Draft.md section 1 ("Process boundaries", "Implementation boundary"), section 2 (role "Procurement officer"; paragraph "BPM and module contract"), section 3 (PR-04, PR-05, "Request states"), CS-03 (separation-of-duties rules are configured in BPM); docs/requirements.yaml REQ-474 description point 5 (Counterparty is NOT built); docs/migration/decisions/0057-wms-customer-draft-reconciliation.md D1 (the module owns suppliers and purchase orders; masters carry a nullable external_ref) and D6 (the handler checks the outcome contract, never the route); docs/migration/decisions/0056-versioned-documents.md D9 (refusals are counted, not audited per attempt); docs/guides/adding-an-application-module.md; docs/requirements.yaml entry REQ-544 (the slice-1 module this one extends). Written by the business analyst (T-0462) 2026-10-25. Not yet validated.
+    description: >
+      Second procurement slice of the WMS module family (draft section 3). It extends the purchase request module
+      of REQ-544 and uses the same module layout, permissions registration and idempotent-operation pattern that
+      REQ-544 criteria 5, 7 and 10 set; it changes no file of the engine, the document service or the
+      authorization core, so no core change is needed. If the implementer finds one is needed, that is a finding
+      and the slice is split, not widened.
+
+      Scope. (1) PR-04: after a request is approved (REQ-544), Letflow, not the module, creates and assigns the
+      procurement task to a user (draft section 1, "BPM controls ... which role or user receives a task"; draft
+      section 2, "BPM and module contract": the module "shall not embed a fixed approval sequence or supervisor
+      privilege"). The module offers operations
+      that BPM or the assigned officer call to record, against a request line, three facts as three separate
+      events: the responsible officer (the user Letflow assigned), the selected supplier or contractor, and the
+      purchase-order or contract reference. A line shows its assignee, selected supplier and linked procurement
+      document when they are present. The supplier is stored as a reference with a display name taken from its
+      designated source. Decision 0057 D1 settles that the module owns suppliers and purchase orders (so purchase-order
+      ownership is not an open question); but no supplier or purchase-order master is built on main (REQ-474
+      description point 5, "Counterparty is NOT built"; 0057 verification note on D1: no external_ref field exists
+      in lib/). This slice defers the D1 master to a later slice without contradicting D1. So in this slice the supplier reference and the
+      purchase-order or contract reference are each a source system name plus an identifier, as text, not validated against a
+      master; no master table is created. (2) PR-05, only the part that needs no warehouse receipt: the status of
+      each request line and of the request, derived from the line quantity, a fulfilled quantity and a cancelled
+      mark. From the draft (PR-05): Partial receipts or acceptances yield Partial fulfilment, and Closed
+      requires every line fulfilled or formally cancelled. The rest is a UAT assumption, to be confirmed by the
+      process owner: the line statuses Open, Fulfilled and Cancelled and their definitions, the request status
+      Cancelled when every line is Cancelled, and Fulfilled at a quantity at or above the line quantity
+      (over-fulfilment included); and that a closed or cancelled request refuses a new supplier, reference or
+      officer record (criterion 8; the draft forbids only physical fulfilment of a closed or cancelled version).
+      How the fulfilled quantity gets recorded (the
+      link to an accepted warehouse receipt for material lines, to acceptance evidence for work and service lines,
+      to a payment request) is left to later slices.
+
+      Later slices, named so they are not lost and not part of this one: receipt-linked fulfilment (a material line
+      links to an actual accepted warehouse receipt, WM-01 and WM-02), service and work acceptance evidence, the link
+      to a payment request after acceptance, a supplier and purchase-order master and its source mapping (IN-01),
+      PR-02 attachments, PR-07 stock and duplicate-demand view, and the audit-history half of PR-06.
+
+      Open questions for the process owner, not settled here: who owns contracts and legal documents, where a
+      contract is created, and when the module's purchase-order record of 0057 D1 is built (draft section 1;
+      IN-01 interface catalog); whether one request line may be split among several suppliers
+      (this slice allows one selected supplier per line and treats a second selection as a replacement that keeps
+      the earlier event); and whether a line cancelled after partial fulfilment keeps its fulfilled quantity (this
+      slice keeps it and calls the line Cancelled only when nothing is fulfilled, see criterion 6). The draft marks
+      PR-04 and PR-05 as S/C/P and S/P, so these need customer validation before contract baseline.
+    acceptance_criteria:
+      - "1. Assignment record (PR-04): an operation records, for an approved purchase request line, the responsible officer as a Letflow user id, together with the performer, the time from the server clock and an idempotency key. Repeating the call with the same idempotency key returns the first result and stores one event. The module contains no rule that chooses the officer, no queue, no escalation and no delegation logic; a test calls the operation with two different users in turn and both succeed with no module change."
+      - "2. Separate events (PR-04): supplier selection and purchase-order or contract reference are two different operations producing two different stored events, each with its own performer, time, idempotency key and audit event written in the same transaction. A test records the supplier first, asserts the line shows the supplier and no purchase-order reference, then records the reference and asserts both are shown. Recording the reference before any supplier is selected is accepted and is shown; the module does not force an order."
+      - "3. Reference shape (PR-04): a supplier is stored as a source system name, an identifier and a display name, and a purchase-order or contract reference as a source system name, an identifier and a kind (purchase order or contract); all are non-empty text with a bounded length that the implementer states in the module runbook. Missing parts are a validation error naming each missing field and nothing is stored. No supplier or purchase-order table is created and no value is checked against a master."
+      - "4. Line view (PR-04): the read operation for a request line returns the responsible officer, the selected supplier and the linked procurement document when present, and returns each as absent (not an empty string) when not yet recorded. Each of the three keeps its history: a later supplier selection replaces the shown value and the earlier event stays readable by the same read operation, with who and when. A test selects supplier A, then supplier B, and asserts B is shown and both events are listed in order."
+      - "5. Preconditions and permissions (PR-04, CS-03): the three operations are accepted only for a line of a request whose latest issued version has an approve decision recorded by REQ-544 (the lookup 'is version M approved' of REQ-544 criterion 8); otherwise they are refused with a typed error and nothing is stored. Only a caller holding a new procurement permission registered in the module manifest may record them; holding the Letflow task alone does not grant it, and the requester of the request holding that permission is not refused for being the requester (the module adds no fixed requester-versus-officer rule of its own; CS-03: separation-of-duties rules are configured in BPM and enforced at the action boundary). The permissions golden and docs/roles.md are updated as the module guide requires. The module manifest's role_grants does not list PLATFORM_ADMIN for the new permission; the golden row for PLATFORM_ADMIN is true only through the unconditional platform clause core_role_allows?(:PLATFORM_ADMIN, _) of lib/letflow/api/authorization.ex. The implementer names in the manifest the tenant role(s) that receive the permission (a tenant role such as TENANT_ADMIN, see docs/roles.md) and a test asserts that exactly those tenant roles hold it."
+      - "6. Line status rules (PR-05; Partial is from the draft, the other line statuses are a UAT assumption, to be confirmed by the process owner): the status of a request line is derived, never set by a caller, from its quantity, its fulfilled quantity (zero until a later slice records any) and a cancelled mark. Open: fulfilled quantity is zero and the line is not cancelled. Partial: fulfilled quantity is above zero and below the line quantity. Fulfilled: fulfilled quantity is at least the line quantity. Cancelled: the mark is set and the fulfilled quantity is zero. A cancelled line with a fulfilled quantity above zero keeps the status of its fulfilled quantity (Partial or Fulfilled) and shows the cancelled mark. Quantities are exact decimals, not floating point. A table-driven test over quantity 10 with fulfilled 0, 0.001, 9.999, 10, 10.5, and each with and without the cancelled mark asserts the status."
+      - "7. Request status (PR-05; Closed and Partial are from the draft, request Cancelled is a UAT assumption, to be confirmed by the process owner): the request status is derived from its lines. Closed: every line is Fulfilled or carries the cancelled mark. Cancelled: every line is Cancelled. Partial: at least one line has a fulfilled quantity above zero and the request is not Closed. Otherwise the status is the one REQ-544 gives (approved or earlier). A request with no approved version has no fulfilment status. A test asserts a request of three lines for each of: nothing fulfilled, one line Partial, one Fulfilled and two cancelled with nothing fulfilled (Closed), and all three cancelled with nothing fulfilled (Cancelled)."
+      - "8. Cancelling a line (PR-05): an operation with an idempotency key marks one line cancelled with a reason text, performer and server time, and writes an audit event in the same transaction; cancelling an already cancelled line returns the first result. A cancelled version or a request that is not approved refuses the operation. A closed or cancelled request cannot receive a new supplier, reference or officer record: the operation is refused with the same error shape. This rule is a UAT assumption, to be confirmed by the process owner (the draft, section 3 'Request states', forbids only physical fulfilment of a closed or cancelled version)."
+      - "9. Refusals and tenancy: refusals (validation, state, no permission) write no per-attempt audit event; they are counted in telemetry following decision 0056 D9, as REQ-544 criterion 7 does. A request or line of another tenant, outside the caller's scope or absent returns the same not-found answer (INV-5). A cross-tenant negative test (INV-10 style) shows tenant B can neither read nor record on tenant A's line by id."
+      - "10. Receipt-linked fulfilment is out of this slice: the diff adds no operation that records a fulfilled quantity from a receipt, an acceptance or a payment request, and no read of the stock ledger. The module runbook section for this slice names those operations as later slices. The derivation of criterion 6 and 7 takes the fulfilled quantity from a stored per-line field that this slice only reads and initializes to zero."
+      - "11. No core change: the diff touches no file under lib/letflow/engine/, lib/letflow/documents/ or the core permission lists of lib/letflow/api/authorization.ex except the module's own registered permission entries that the module guide prescribes; the implementer states this check in the summary."
+      - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data operations and a permission) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the new module's tests pass, real output quoted."
+    open_questions:
+      - "For the process owner: who owns contracts and legal documents and where they are created, and when the purchase-order record that 0057 D1 gives the module is built (draft section 1, IN-01); whether a line may have several suppliers; the rule for a line cancelled after partial fulfilment; whether recording a supplier, reference or officer on a closed or cancelled request is refused (the draft forbids only physical fulfilment). The UAT assumptions in the description stand until confirmed."
+    depends_on: [REQ-544]

@@ -840,7 +840,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-508 / GH #2675 (decision 0063 part (a)): retention policy columns on document_types,
     # hold columns on documents, and the column-aware guard_document_types().
     {20_261_025_100_001, Letflow.Repo.Migrations.AddDocumentRetentionAndHold,
-     "20261025100001_add_document_retention_and_hold.exs"}
+     "20261025100001_add_document_retention_and_hold.exs"},
+    # REQ-541 / GH #3160: number sequences bound to a record type (definitions, counters, allocation log
+    # and the counter-only-grows trigger). Empty tables for existing tenants; no row altered.
+    {20_261_025_200_001, Letflow.Repo.Migrations.CreateNumberSequences,
+     "20261025200001_create_number_sequences.exs"}
   ]
 
   @doc """
