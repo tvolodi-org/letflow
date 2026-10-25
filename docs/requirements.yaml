@@ -40264,7 +40264,7 @@ requirements:
       - "Whether the feature flag is later replaced by the per-tenant script policy once F-3 is built is not decided here; F-3 states it. The flag is removed or kept by the requirement that makes the hook run."
     depends_on: [REQ-559]
 
-  - id: REQ-574
+  - id: REQ-576
     title: "Tenant x_ extension layer slice I1: the entity_type_extensions tenant table, its schema module and its tenant-provisioning entry (decision 0067-tenant-x), storage only, no route and no write path"
     owner: ELIXIR-DEV
     status: pending
@@ -40282,7 +40282,7 @@ requirements:
       x_ fields and unique constraints over x_ fields are open point OP-3 of the record and are not built: an x_
       field lives only in the field_values JSONB blob, so this table has no column that names a record column.
 
-      THE TABLE (columns and constraints as D2 lists them, and no others). One migration in priv/repo/migrations/
+      THE TABLE (columns as D2 lists them; the unique key and the name check are D2's, and the kind, status, spec-type and NOT NULL checks are this requirement's own, derived from the allowed values D2 names). One migration in priv/repo/migrations/
       creates entity_type_extensions in the tenant schema, guarded by `if prefix() do` like
       priv/repo/migrations/20261025500001_create_entity_views.exs, with: id (uuid primary key); tenant_id (uuid
       NOT NULL); entity_type (text NOT NULL); kind (text NOT NULL, check kind = 'field'); name (text NOT NULL,
@@ -40298,7 +40298,7 @@ requirements:
       instance_projections, process_definitions, tokens, tasks, promotion_reviews, promotion_assertion_runs) and
       from users and groups, so it does not forbid the column on a new table. The identifier format of entity_type
       and name (the record cites ISS-0777) and the cap per type are checked at the write path of slice I2, not in
-      this table; the database carries only the checks listed above.
+      this table; the database carries only the constraints listed above.
 
       THE SCHEMA MODULE. One Ecto schema module for the table under lib/letflow/entities/ (neighbouring file:
       lib/letflow/entities/entity_definition.ex) with the fields above. It has no changeset function and no
