@@ -65,6 +65,11 @@ defmodule Letflow.Routers.Definitions do
   shape (temporary direct duplication, pending REQ-131's consolidation —
   same precedent, not a shared/imported module).
 
+  `GET /` and `GET /search` are `:self_service` under the scope-enforcement
+  `on` mode (REQ-545, rulings SEC-525-R01 and SEC-525-R04): a scoped
+  `DefinitionsRead` holder keeps both collection reads. The other routes here
+  stay `:tenant_wide`.
+
   ### Route ordering
 
   PROVENANCE (historical, not current decision authority):
@@ -293,7 +298,7 @@ defmodule Letflow.Routers.Definitions do
     handle_get_active_by_name(conn, conn.params["name"])
   end
 
-  authz_get "/search", :DefinitionsRead do
+  authz_get "/search", :DefinitionsRead, scope: :self_service do
     handle_search(conn)
   end
 
@@ -313,7 +318,7 @@ defmodule Letflow.Routers.Definitions do
     handle_get_by_id(conn, conn.params["id"])
   end
 
-  authz_get "/", :DefinitionsRead do
+  authz_get "/", :DefinitionsRead, scope: :self_service do
     handle_list(conn)
   end
 
