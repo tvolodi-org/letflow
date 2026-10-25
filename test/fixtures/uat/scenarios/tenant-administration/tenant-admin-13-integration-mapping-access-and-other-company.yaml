@@ -1,0 +1,162 @@
+# T-0566 (BA): TENANT ADMIN group, scenario 13: who may use integration mappings, and that another company's mapping is invisible.
+# Covers REQ-565 slice 1: criterion 10 (TASK_WORKER, TENANT_AUDITOR and PROCESS_OPERATOR are refused on all five routes), criterion 11 (the same
+# refusal for a mapping that exists and for one that does not; one fixed not-found for a holder), criterion 13 (a mapping of company A is
+# invisible, unchangeable and unremovable for the administrator of company B; a company named in the request is ignored), criterion 4 (two
+# companies may use the same name and read only their own).
+# Sources: docs/requirements.yaml REQ-565 criteria 4, 10, 11, 13; lib/letflow/routers/integration_mappings.ex (moduledoc: one identical 403 before any
+# handler, one fixed 404 for an absent, malformed or other-company id, tenant only from the sign-in); docs/roles.md (IntegrationMappingsManage:
+# tenant administrator and platform administrator only); test/fixtures/uat/actors.yaml (alice, lena, auditor: SwiftRoute; claudia: Meridian with
+# PROCESS_OPERATOR; actor-bilimbaga-admin: Bilimbaga TENANT_ADMIN).
+# The roster has no PROCESS_OPERATOR in SwiftRoute and no PROCESS_DESIGNER anywhere. The operator refusal is therefore tried by Claudia of Meridian
+# on a mapping number of SwiftRoute, which is also a cross-company try: the answer is the same uniform refusal because the permission is checked
+# before any lookup. PROCESS_DESIGNER (criterion 10) is not covered: no such actor in the roster; the reason it is left out.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals below are the access
+# refusals of the flow.
+---
+id: tenant-administration-13-integration-mapping-access-and-other-company
+scope: tenant-administration
+title: Only the administrator may use integration mappings, a refusal does not reveal whether a mapping exists, and one company never sees another's
+version: "1.0"
+tags: [tenant-admin, integration-mappings, refusal, access, cross-tenant, isolation]
+
+description: >
+  The administrator of SwiftRoute stores a mapping. A task worker, the read-only auditor and a Meridian process operator try to list, read,
+  store, replace and remove mappings and are refused every time with one identical answer, for a mapping that exists and for a number that
+  does not. The Bilimbaga administrator, who may use mappings, asks for SwiftRoute's mapping by its number, tries to replace and remove it, and
+  gets the same not-found answer as for a number that never existed; SwiftRoute's mapping is unchanged. A request that names SwiftRoute as
+  the company is ignored. Both administrators store a mapping with the same name and each company lists only its own.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+  auditor_a: actor-swiftroute-auditor
+  operator_b: actor-meridian-claudia
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute, Meridian and Bilimbaga are set up; none of them has an integration mapping named "shared-name" or "only-swiftroute"
+    check: system_seeded
+    detail: If one exists, remove it first and note that in the report. If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note), report BLOCKED for steps 5 to 7 and run the others; EO-003 and EO-004 are then BLOCKED, and EO-005 is judged on the other steps.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute stores a mapping named "only-swiftroute", direction outbound, with one rule: copy "a" to "b". The
+      administrator notes its number (E) and also a number that no mapping has (M, a well-formed number never issued).
+    via: api
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker tries to list the mappings, to read E, to read M, to store a mapping, to replace E, to replace M, to remove E and to remove M.
+      Each answer (status, body and content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor_a
+    action: >
+      The read-only auditor tries the same eight requests as the worker in step 2. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: operator_b
+    action: >
+      The Meridian process operator tries the same eight requests, using the numbers E and M from SwiftRoute. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator lists the mappings, reads E, reads M, tries to replace E (a valid new body), tries to replace M, tries to remove
+      E and tries to remove M. Each answer (status, body and content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for the list of mappings and for E, with the company SwiftRoute named in the address of the request and in
+      a field of the request body when storing; then stores a mapping named "shared-name", direction outbound, with the rule copy "p" to "q",
+      naming SwiftRoute as the company in the body. The administrator notes its number (B) and lists the mappings again.
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator stores a mapping named "shared-name", direction outbound, with the rule copy "r" to "s", then lists the mappings
+      and reads E. The administrator then tries to read B.
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator reads B and notes its rule, then removes B.
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      Clean-up: the SwiftRoute administrator removes E and the SwiftRoute "shared-name" mapping and lists the mappings.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker, the read-only auditor and a process operator are refused on all five routes.
+    verification:
+      method: http_status
+      detail: Every one of the eight requests in each of steps 2, 3 and 4 answers 403. No mapping is created, changed or removed by them, and the list of step 7 shows only the administrators' mappings.
+      evidence: The 24 refusal answers of steps 2 to 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Staff without the right could change what the company sends to its partners, or read the partner field names and fixed values.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The refusal is identical for a mapping that exists and for a number that does not exist.
+    verification:
+      method: http_status
+      detail: For each of the three callers of steps 2 to 4, the answers for E and for M are equal in status, body and content-type header, for read, replace and remove.
+      evidence: The paired answers of steps 2 to 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A caller without the right can find out which mapping numbers exist.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: For the administrator of another company, a mapping of SwiftRoute gets the same fixed not-found answer as a number that never existed, for read, replace and remove.
+    verification:
+      method: http_status
+      detail: In step 5 the answers for E and for M are 404 and equal in status, body and content-type header for read, replace and remove (three pairs). The list of step 5 does not contain "only-swiftroute".
+      evidence: The answers of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company can detect, read, change or remove another company's integration mapping.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: SwiftRoute's mapping is unchanged after the other company's tries.
+    verification:
+      method: api_response
+      detail: In step 7 the SwiftRoute administrator reads E and sees the name "only-swiftroute" and the one rule copying "a" to "b"; the list shows E.
+      evidence: The reading of E in step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Another company's try changed or removed a mapping, which would change what SwiftRoute sends to its partners.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A company named in the request is ignored; the answer and the stored mapping belong to the company of the sign-in.
+    verification:
+      method: api_response
+      detail: In step 6 the request naming SwiftRoute for E answers 404 and the list holds only Bilimbaga's own mappings; the stored "shared-name" belongs to Bilimbaga (it is listed by the Bilimbaga administrator and is not in SwiftRoute's list of step 7 before SwiftRoute stores its own).
+      evidence: The answers of step 6 and the list of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A caller could choose the company a mapping is stored in or read from.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: Two companies may each have a mapping of the same name and each lists and reads only its own.
+    verification:
+      method: api_response
+      detail: Step 7 stores the second "shared-name" with 201 (not refused as a duplicate); SwiftRoute's list has "only-swiftroute" and its own "shared-name" (rule copy "r" to "s") and nothing of Bilimbaga's; reading B answers 404; step 8 shows that B carries the rule copy "p" to "q".
+      evidence: The lists and readings of steps 6 to 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A name used by one company blocks other companies, or one company sees another's mapping.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove "only-swiftroute" and "shared-name" mappings from SwiftRoute and "shared-name" from Bilimbaga if they are left.
