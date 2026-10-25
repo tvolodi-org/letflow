@@ -849,7 +849,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-551 / GH #3180: tenant label overrides (message id x locale -> replacement text). Empty table
     # for existing tenants; no row altered.
     {20_261_025_300_001, Letflow.Repo.Migrations.CreateLabelOverrides,
-     "20261025300001_create_label_overrides.exs"}
+     "20261025300001_create_label_overrides.exs"},
+    # REQ-563 / GH #3199: tenant notification templates (template key x locale -> subject, body). Empty
+    # table for existing tenants; no row altered.
+    {20_261_025_400_001, Letflow.Repo.Migrations.CreateNotificationTemplates,
+     "20261025400001_create_notification_templates.exs"}
   ]
 
   @doc """

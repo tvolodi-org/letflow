@@ -353,6 +353,7 @@ defmodule Letflow.Api.Authorization do
           | :DocumentHold
           | :DocumentsRetentionManage
           | :LabelsManage
+          | :NotificationTemplatesManage
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -425,6 +426,7 @@ defmodule Letflow.Api.Authorization do
           | :DocumentHold
           | :DocumentsRetentionManage
           | :LabelsManage
+          | :NotificationTemplatesManage
           | :ScriptRulesList
           | :ScriptRulesRead
           | :ScriptRulesAuditRead
@@ -500,7 +502,9 @@ defmodule Letflow.Api.Authorization do
     :DocumentHold,
     :DocumentsRetentionManage,
     # REQ-551 (GH #3180): tenant label overrides write. Tenant scope; TENANT_ADMIN through the derived rule.
-    :LabelsManage
+    :LabelsManage,
+    # REQ-563 (GH #3199): tenant notification templates. Tenant scope; TENANT_ADMIN through the derived rule.
+    :NotificationTemplatesManage
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -523,7 +527,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All forty-seven core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All forty-eight core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -548,7 +552,8 @@ defmodule Letflow.Api.Authorization do
   `:ScriptsWrite` (PROCESS_DESIGNER, TENANT_ADMIN) and `:ScriptsPublish` (TENANT_ADMIN), the
   tenant-script registry permissions of decision 0053 D6, plus REQ-536's `:DocumentHold` and
   `:DocumentsRetentionManage` (decision 0063 S7, S8; TENANT_ADMIN through the derived rule), plus
-  REQ-551's `:LabelsManage` (tenant label overrides; TENANT_ADMIN through the derived rule).
+  REQ-551's `:LabelsManage` (tenant label overrides; TENANT_ADMIN through the derived rule), plus
+  REQ-563's `:NotificationTemplatesManage` (tenant notification templates; TENANT_ADMIN through the derived rule).
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1203,6 +1208,18 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("PUT", "/labels/:message_id"), do: :LabelsManage
   def endpoint_policy_key("DELETE", "/labels/:message_id"), do: :LabelsManage
 
+  # REQ-563 (GH #3199): tenant notification templates.
+  def endpoint_policy_key("GET", "/notification-templates"), do: :NotificationTemplatesManage
+
+  def endpoint_policy_key("PUT", "/notification-templates/:template_key"),
+    do: :NotificationTemplatesManage
+
+  def endpoint_policy_key("DELETE", "/notification-templates/:template_key"),
+    do: :NotificationTemplatesManage
+
+  def endpoint_policy_key("POST", "/notification-templates/:template_key/preview"),
+    do: :NotificationTemplatesManage
+
   # REQ-414 — settings write for an installed module.
   def endpoint_policy_key("PUT", "/tenant/modules/:module_id/settings"), do: :ModulesManage
 
@@ -1472,6 +1489,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:DocumentHold), do: :DocumentHold
   def required_permission(:DocumentsRetentionManage), do: :DocumentsRetentionManage
   def required_permission(:LabelsManage), do: :LabelsManage
+  def required_permission(:NotificationTemplatesManage), do: :NotificationTemplatesManage
   # GH 2534 PR 7b-2a (design P3): script policy route keys over the script permissions.
   def required_permission(:ScriptPolicyRead), do: :ScriptsWrite
   def required_permission(:ScriptPolicyManage), do: :ScriptsPublish

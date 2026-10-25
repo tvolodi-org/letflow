@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: exam@0.1.0,org@0.1.0,catalog_items@0.1.0
 # roles: 8
-# permissions: 54
-# rows: 432
+# permissions: 55
+# rows: 440
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -45,6 +45,7 @@ AGENT_RUNNER MetricsRead false core -
 AGENT_RUNNER ModulesManage false core -
 AGENT_RUNNER MyAccessRead true core core
 AGENT_RUNNER MyModulesRead true core core
+AGENT_RUNNER NotificationTemplatesManage false core -
 AGENT_RUNNER PlatformServicesManage false core -
 AGENT_RUNNER PromotionsManage false core -
 AGENT_RUNNER PromotionsRead false core -
@@ -99,6 +100,7 @@ CANDIDATE MetricsRead false core -
 CANDIDATE ModulesManage false core -
 CANDIDATE MyAccessRead true core core
 CANDIDATE MyModulesRead true core core
+CANDIDATE NotificationTemplatesManage false core -
 CANDIDATE PlatformServicesManage false core -
 CANDIDATE PromotionsManage false core -
 CANDIDATE PromotionsRead false core -
@@ -153,6 +155,7 @@ PLATFORM_ADMIN MetricsRead true core core
 PLATFORM_ADMIN ModulesManage true core core
 PLATFORM_ADMIN MyAccessRead true core core
 PLATFORM_ADMIN MyModulesRead true core core
+PLATFORM_ADMIN NotificationTemplatesManage true core core
 PLATFORM_ADMIN PlatformServicesManage true core core
 PLATFORM_ADMIN PromotionsManage true core core
 PLATFORM_ADMIN PromotionsRead true core core
@@ -207,6 +210,7 @@ PROCESS_DESIGNER MetricsRead false core -
 PROCESS_DESIGNER ModulesManage false core -
 PROCESS_DESIGNER MyAccessRead true core core
 PROCESS_DESIGNER MyModulesRead true core core
+PROCESS_DESIGNER NotificationTemplatesManage false core -
 PROCESS_DESIGNER PlatformServicesManage false core -
 PROCESS_DESIGNER PromotionsManage false core -
 PROCESS_DESIGNER PromotionsRead false core -
@@ -261,6 +265,7 @@ PROCESS_OPERATOR MetricsRead true core core
 PROCESS_OPERATOR ModulesManage false core -
 PROCESS_OPERATOR MyAccessRead true core core
 PROCESS_OPERATOR MyModulesRead true core core
+PROCESS_OPERATOR NotificationTemplatesManage false core -
 PROCESS_OPERATOR PlatformServicesManage false core -
 PROCESS_OPERATOR PromotionsManage false core -
 PROCESS_OPERATOR PromotionsRead false core -
@@ -315,6 +320,7 @@ TASK_WORKER MetricsRead false core -
 TASK_WORKER ModulesManage false core -
 TASK_WORKER MyAccessRead true core core
 TASK_WORKER MyModulesRead true core core
+TASK_WORKER NotificationTemplatesManage false core -
 TASK_WORKER PlatformServicesManage false core -
 TASK_WORKER PromotionsManage false core -
 TASK_WORKER PromotionsRead false core -
@@ -369,6 +375,7 @@ TENANT_ADMIN MetricsRead true core core
 TENANT_ADMIN ModulesManage true core core
 TENANT_ADMIN MyAccessRead true core core
 TENANT_ADMIN MyModulesRead true core core
+TENANT_ADMIN NotificationTemplatesManage true core core
 TENANT_ADMIN PlatformServicesManage false core -
 TENANT_ADMIN PromotionsManage true core core
 TENANT_ADMIN PromotionsRead true core core
@@ -423,6 +430,7 @@ TENANT_AUDITOR MetricsRead true core core
 TENANT_AUDITOR ModulesManage false core -
 TENANT_AUDITOR MyAccessRead true core core
 TENANT_AUDITOR MyModulesRead true core core
+TENANT_AUDITOR NotificationTemplatesManage false core -
 TENANT_AUDITOR PlatformServicesManage false core -
 TENANT_AUDITOR PromotionsManage false core -
 TENANT_AUDITOR PromotionsRead true core core

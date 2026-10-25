@@ -93,6 +93,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     # registered here -- see
     # handoffs/WF02-REQ382-20260922/step-02c-security-reviewer.json.
     Letflow.Routers.Labels,
+    Letflow.Routers.NotificationTemplates,
     Letflow.Routers.TenantSettings,
     Letflow.Routers.TenantConfigBundle,
     # REQ-404 -- Letflow.Modules.Fixture.Router's one route
@@ -145,6 +146,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Routers.Help => "/help",
     Letflow.Routers.Me => "/me",
     Letflow.Routers.Labels => "/labels",
+    Letflow.Routers.NotificationTemplates => "/notification-templates",
     Letflow.Routers.TenantSettings => "/tenant/settings",
     Letflow.Routers.TenantConfigBundle => "/tenant/config-bundle",
     Letflow.Modules.Fixture.Router => "/modules/fixture",

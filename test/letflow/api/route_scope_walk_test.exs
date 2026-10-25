@@ -320,6 +320,11 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"GET", "/", :self_service},
                  {"PUT", "/:message_id", :tenant_wide},
                  {"DELETE", "/:message_id", :tenant_wide},
+                 # REQ-563: the NotificationTemplates router: list, put, delete and preview, all declared
+                 {"GET", "/", :tenant_wide},
+                 {"PUT", "/:template_key", :tenant_wide},
+                 {"DELETE", "/:template_key", :tenant_wide},
+                 {"POST", "/:template_key/preview", :tenant_wide},
                  # REQ-546: the two single-object definition reads
                  {"GET", "/active/:name", :self_service},
                  {"GET", "/:id", :self_service},
@@ -368,6 +373,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  Letflow.Routers.Help,
                  Letflow.Routers.Instances,
                  Letflow.Routers.Labels,
+                 Letflow.Routers.NotificationTemplates,
                  Letflow.Routers.Me,
                  Letflow.Routers.Tasks
                ])

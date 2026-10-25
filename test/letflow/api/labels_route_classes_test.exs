@@ -23,7 +23,7 @@ defmodule Letflow.Api.LabelsRouteClassesTest do
   describe "L1/L2 permissions" do
     test "L1 LabelsManage is tenant scope, last core permission, TENANT_ADMIN only" do
       assert Authorization.permission_scope(:LabelsManage) == :tenant
-      assert List.last(Authorization.core_permissions()) == :LabelsManage
+      assert Authorization.core_permissions() |> Enum.take(-2) |> hd() == :LabelsManage
       assert Authorization.required_permission(:LabelsManage) == :LabelsManage
       assert Authorization.role_allows?(:TENANT_ADMIN, :LabelsManage)
 

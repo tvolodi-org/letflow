@@ -65,6 +65,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.Tenants, "/tenants", :post, "/", :route},
     {Letflow.Routers.TenantSettings, "/tenant/settings", :patch, "/", :route},
     {Letflow.Routers.Labels, "/labels", :put, "/:message_id", :route},
+    {Letflow.Routers.NotificationTemplates, "/notification-templates", :put, "/:template_key",
+     :route},
     {Letflow.Routers.TenantConfigBundle, "/tenant/config-bundle", :post, "/import", :route},
     {Letflow.Routers.TenantModules, "/tenant/modules", :post, "/", :route},
     {Letflow.Routers.TenantSolutions, "/tenant/solutions", :post, "/", :route},
@@ -702,15 +704,15 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # --- AC2: 403 block --------------------------------------------------------------------------
 
   describe "AC2 completeness guards" do
-    test "the routers mounted in ApiPipeline are exactly the 31 named in the table: a new router fails here" do
+    test "the routers mounted in ApiPipeline are exactly the 32 named in the table: a new router fails here" do
       mounted = mounted_routers()
       named = Enum.map(@named_routes, &elem(&1, 0))
 
       assert length(mounted) == length(Enum.uniq(mounted))
       assert Enum.sort(mounted) == Enum.sort(named)
       # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
-      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels.
-      assert length(named) == 31
+      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-563: 32 with Letflow.Routers.NotificationTemplates.
+      assert length(named) == 32
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do
@@ -780,7 +782,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert_unchanged(before, ctx)
     end
 
-    test "through the full pipeline with a real auditor token, all 31 mounts (and the Modules router with the exam module installed)",
+    test "through the full pipeline with a real auditor token, all 32 mounts (and the Modules router with the exam module installed)",
          ctx do
       {:ok, _tenant_module} =
         Installs.install("exam", Ecto.UUID.generate(),

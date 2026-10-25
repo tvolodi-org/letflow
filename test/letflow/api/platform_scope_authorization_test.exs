@@ -73,7 +73,8 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :ScriptsPublish,
     :DocumentHold,
     :DocumentsRetentionManage,
-    :LabelsManage
+    :LabelsManage,
+    :NotificationTemplatesManage
   ]
 
   @new_permissions [

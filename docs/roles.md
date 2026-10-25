@@ -152,7 +152,7 @@ without the colon; then one column per role in `roles/0` order (eight columns); 
 final column `scope` (`platform` or `tenant`); whitespace-separated, first line is the header.
 PLATFORM_ADMIN `yes` means as evaluated in the platform tenant. The rows cover every core permission of
 `Authorization.core_permissions/0` (REQ-446 names, `TenantSettingsManage` split, `PlatformServicesManage`,
-REQ-448's `AttachmentLinksIssue`, which gates `POST /instances/:id/attachments/:attachment_id/link`, and REQ-536's `DocumentHold` and `DocumentsRetentionManage`, which gate the document hold and retention-policy routes, and REQ-551's `LabelsManage`, which gates the tenant label-override write routes `PUT` and `DELETE /labels/:message_id`).
+REQ-448's `AttachmentLinksIssue`, which gates `POST /instances/:id/attachments/:attachment_id/link`, and REQ-536's `DocumentHold` and `DocumentsRetentionManage`, which gate the document hold and retention-policy routes, and REQ-551's `LabelsManage`, which gates the tenant label-override write routes `PUT` and `DELETE /labels/:message_id`, and REQ-563's `NotificationTemplatesManage`, which gates the tenant notification-template routes under `/notification-templates`).
 REQ-446 classified `GET /promotions/platform-events` as tenant scope under `PromotionsRead`
 (see the correction note appended to decision 0046); no platform promotion permission exists.
 Module (Catalog) permissions are all tenant scope and are not listed.
@@ -210,4 +210,5 @@ ScriptsPublish                  yes            no               no              
 DocumentHold                    yes            no               no               no          no           no        yes          no             tenant
 DocumentsRetentionManage        yes            no               no               no          no           no        yes          no             tenant
 LabelsManage                    yes            no               no               no          no           no        yes          no             tenant
+NotificationTemplatesManage     yes            no               no               no          no           no        yes          no             tenant
 ```
