@@ -2189,6 +2189,8 @@ defmodule Letflow.Api.AuthorizationTest do
         {"POST", "/tenants/:slug/deactivate", :TenantsManage},
         {"POST", "/tenants/:slug/reactivate", :TenantsManage},
         {"PATCH", "/tenant/settings", :TenantSettingsManage},
+        {"GET", "/tenant/config-bundle", :TenantSettingsManage},
+        {"POST", "/tenant/config-bundle/import", :TenantSettingsManage},
         {"POST", "/onboarding", :TenantsManage},
         {"GET", "/onboarding/:id", :TenantsManage},
         {"POST", "/onboarding/:id/bind-realm", :TenantsManage},

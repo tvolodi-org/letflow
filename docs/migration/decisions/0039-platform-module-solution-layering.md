@@ -167,7 +167,7 @@ permissions, and the pack installer calls `on_install/2` rather than
   exposes anyway).
 - **No uninstall in S11.** Removing a module safely means deciding what happens
   to its definitions and tenant data; that is not decided here. S11 builds
-  install and list only. Uninstall is an open item in the stage file.
+  install and list only. Uninstall is an open item in the stage file. Amended by [0066](0066-module-uninstall-soft-uninstall-and-reactivate.md) once ratified.
 - The SPA reads the installed-module list from `GET /me` and builds its routes
   and navigation from it; a module's screens are not reachable at all for a
   tenant without it.
