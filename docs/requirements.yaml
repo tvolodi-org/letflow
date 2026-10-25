@@ -38455,7 +38455,7 @@ requirements:
       - "None for the owner: SEC-525-Q1 and SEC-525-Q3 are recorded in the REQ-525 design. The requirement only carries them. If the implementer finds a third place that restates the class as role-independent, the change rewords it and names it in the summary."
     depends_on: [REQ-525]
 
-  - id: REQ-546
+  - id: REQ-554
     title: "Decision record for generic saved views over records (shape of slice 1: saved list view definitions)"
     owner: CODE-DESIGNER
     status: pending
@@ -38486,15 +38486,15 @@ requirements:
       - "4. mix letflow.check_requirements_registration and mix letflow.check_issue_refs pass, real output quoted."
     depends_on: [REQ-393, REQ-311]
 
-  - id: REQ-547
+  - id: REQ-555
     title: "Saved list view definitions over one record type: tenant-schema storage, validated CRUD routes and EntitiesViewsManage permission (generic views, slice 1, backend)"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 3155
-    # Source: docs/migration/core-roadmap-20261014.md, Wave 3 generic views row; the decision record of REQ-546. Written by the business analyst (T-0443) 2026-10-25.
+    # Source: docs/migration/core-roadmap-20261014.md, Wave 3 generic views row; the decision record of REQ-554. Written by the business analyst (T-0443) 2026-10-25.
     description: >
-      Backend of slice 1 of generic views. Implements the shape the decision record of REQ-546
+      Backend of slice 1 of generic views. Implements the shape the decision record of REQ-554
       settles; where that record differs from the names below, the record wins and the criteria
       are read with its terms. A saved view is a named definition over exactly one entity type
       holding ordered columns, a filter (the clause list of POST /entities/query) and a sort,
@@ -38509,7 +38509,7 @@ requirements:
       (priv/permission_matrix/effective.golden). TENANT_ADMIN is the only tenant role that holds
       it; PLATFORM_ADMIN is allowed by the unconditional platform clause of
       lib/letflow/api/authorization.ex, so its golden row is true like every other row. Out of
-      scope: the web screen (REQ-548), pivot (slice 2), graph (slice 3), report builder (slice
+      scope: the web screen (REQ-556), pivot (slice 2), graph (slice 3), report builder (slice
       4), views across tenants, views over joined types (REQ-300), view versioning.
     acceptance_criteria:
       - "1. Storage: a tenant-schema migration in priv/repo/migrations/ creates the saved view table with tenant_id inside the schema, a name unique per entity type within a tenant, the entity type key, ordered columns, filter and sort as stored query clauses, and created/updated actor and timestamps. A test asserts that a view created in tenant A is absent from the tenant B schema (INV-1, INV-6)."
@@ -38520,9 +38520,9 @@ requirements:
       - "6. INV-10 cross-tenant negative test: with a view id and entity type key that exist only in tenant A, a TENANT_ADMIN of tenant B calling read, update and delete receives the same 404 as for an absent id with a byte-identical body, and the tenant A view row is unchanged afterwards. No view route takes a tenant identifier from the request."
       - "7. Audit and pins: create, update and delete each write an audit event in the same transaction; refusals write none. Route inventory and scope-enforcement pins (__authz_routes__ tests, route_scope snapshots, route-count pins) are updated for the new routes, all classified TENANT."
       - "8. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permission) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the new view tests and the authorization and route pin tests pass, real output quoted."
-    depends_on: [REQ-546, REQ-393, REQ-311]
+    depends_on: [REQ-554, REQ-393, REQ-311]
 
-  - id: REQ-548
+  - id: REQ-556
     title: "Saved view selector, save and delete on the record list screen (generic views, slice 1, web)"
     owner: FRONTEND-DEV
     status: pending
@@ -38533,7 +38533,7 @@ requirements:
       Web part of slice 1 of generic views. web/src/pages/entities/EntityListBrowserPage.tsx
       (REQ-393, routed at entities/:entityType in web/src/router.tsx) with
       web/src/components/entities/EntityFilterBuilder.tsx gets a view selector wired to the view
-      routes of REQ-547. Selecting a view applies its columns, filter and sort to the existing
+      routes of REQ-555. Selecting a view applies its columns, filter and sort to the existing
       controls; the list is then read by the ordinary POST /entities/query, never from the view
       itself, so server-side redaction (INV-2) applies. Save and delete controls are shown only to
       a user holding EntitiesViewsManage. Out of scope: pivot, graph and report builder (later
@@ -38545,7 +38545,7 @@ requirements:
       - "4. Vitest: a stored column that the response redacts is not rendered as a value."
       - "5. User-visible strings go through the app i18n mechanism; web/src/__tests__/entities-i18n-grep.test.ts passes."
       - "6. cd web && npm run check passes, real output quoted; REVIEWER verdict recorded."
-    depends_on: [REQ-547, REQ-393]
+    depends_on: [REQ-555, REQ-393]
 
   - id: REQ-545
     title: "GET /definitions and GET /definitions/search become :self_service reads (IMPL-525-A of REQ-525; SEC-525-R01, SEC-525-R04)"
