@@ -1,0 +1,185 @@
+# REQ-573 slice S1 (BA-TENANT-ADMINISTRATION): refusals of an older or equal pack version in update review and update apply.
+# Criteria covered: 3 (downgrade refused in review and apply, nothing changes), 4 (equal version: apply refused, review answers the plan,
+# no write even with resolutions), 5 (newer versions behave as before, 10.0.0 is newer than 2.0.0 by number).
+# Sensitive actions: change process definitions is the apply (steps 2, 3 refused); who may apply is in solution-pack-version-4-access-and-other-company.
+# approve, pay or release, see sensitive data, change users: not part of this flow.
+# Steps 1-3 are expected to be REFUSED (one request each). Steps 4-8 are accepted cases in their own steps.
+# Refusal answers: status 422, detail text version_downgrade or version_not_newer, nothing else echoed.
+# Note on comparison basis: the product compares with the version recorded when the pack was INSTALLED (known limit, REQ-573 criterion 8);
+# the steps below never apply successfully before the refusal steps, so the basis is 2.0.0 throughout.
+---
+id: tenant-administration-solution-pack-version-update-refusals
+scope: tenant-administration
+title: An older or equal pack version is refused as an update, a newer one is still offered
+version: "1.0"
+tags: [solution-pack, versioning, refusal, regression]
+
+description: >
+  SwiftRoute installed a process pack at version 2.0.0 and has since adapted some of its processes. Someone offers
+  version 1.9.0 of the pack, which is older: both the review of the update and the update itself are refused, and
+  nothing in the company changes. Offering 2.0.0 again is no update: applying it is refused, even when the
+  administrator brings decisions about conflicts along, while asking for a review still shows the (empty) plan.
+  Offering 2.0.1, and then 10.0.0, still works as before; 10.0.0 counts as newer than 2.0.0 because versions are
+  compared as numbers, not as text.
+
+actors:
+  swiftroute_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator
+    check: system_seeded
+  - description: >
+      SwiftRoute has an active installation of one process pack at version 2.0.0, and the run holds, for that pack, the
+      two artefact lists (the company's current ones and the incoming ones) that an update request needs, with at least one
+      difference between them
+    check: custom
+    detail: >
+      Set up by installing a pack exported with version 2.0.0 (see scenario 1 for the accepted form). If no pack can be
+      installed at 2.0.0 in the test company, the scenario is BLOCKED. No update has been applied to this pack yet.
+  - description: The run can read the pack installation, base and conflict-decision records of SwiftRoute
+    check: custom
+    detail: Needed for the outcomes that compare record counts and the stored installed version; otherwise those outcomes are BLOCKED.
+
+steps:
+  - step: 1
+    actor: swiftroute_admin
+    action: Asks for a review of what version 1.9.0 of the installed pack would change.
+    via: api
+    input:
+      target_version: "1.9.0"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: swiftroute_admin
+    action: Asks to apply version 1.9.0 of the installed pack, bringing a decision "keep the company's own" for every conflict.
+    via: api
+    input:
+      target_version: "1.9.0"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: swiftroute_admin
+    action: Asks to apply version 2.0.0 of the installed pack, the version that is already installed, bringing a decision "take the incoming" for every conflict.
+    via: api
+    input:
+      target_version: "2.0.0"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: swiftroute_admin
+    action: Asks for a review of what version 2.0.0 of the installed pack would change.
+    via: api
+    input:
+      target_version: "2.0.0"
+    produces:
+      update_review: the plan for version 2.0.0, answered as it was before this change
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: swiftroute_admin
+    action: Asks for a review of what version 2.0.1 of the installed pack would change.
+    via: api
+    input:
+      target_version: "2.0.1"
+    produces:
+      update_review: the plan for version 2.0.1
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: swiftroute_admin
+    action: Applies version 2.0.1 of the installed pack, deciding every conflict.
+    via: api
+    input:
+      target_version: "2.0.1"
+    produces:
+      update_result: the update is applied as it was before this change
+    sla_context:
+      expected_within_hours: null
+  - step: 7
+    actor: swiftroute_admin
+    action: Asks for a review of what version 10.0.0 of the installed pack would change.
+    via: api
+    input:
+      target_version: "10.0.0"
+    produces:
+      update_review: the plan for version 10.0.0
+    sla_context:
+      expected_within_hours: null
+  - step: 8
+    actor: swiftroute_admin
+    action: Applies version 10.0.0 of the installed pack, deciding every conflict.
+    via: api
+    input:
+      target_version: "10.0.0"
+    produces:
+      update_result: the update is applied; 10.0.0 is accepted as newer than 2.0.0
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The review in step 1 and the apply in step 2 are both refused with the validation answer whose detail is exactly
+      version_downgrade; neither is a server fault.
+    verification:
+      method: api_response
+      detail: Two answers, status 422, detail text version_downgrade; nothing of the pack's content in them.
+      evidence: The two answers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An old pack could be installed over a newer one and silently undo the company's current processes.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      The apply in step 3 is refused with the validation answer whose detail is exactly version_not_newer, although
+      decisions about conflicts were brought along.
+    verification:
+      method: api_response
+      detail: Status 422, detail text version_not_newer.
+      evidence: The answer.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Re-applying the version already installed could overwrite the company's own changes under the name of an update.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      After steps 1 to 3 the records of the installation, of the pack's stored bases and of the conflict decisions hold exactly
+      the rows they held before step 1, same count and same content.
+    verification:
+      method: system_state
+      detail: Rows of the installation, base and conflict-decision records read before step 1 and after step 3 are identical.
+      evidence: The two readings compared.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused update left traces, so the company's pack state is no longer what it was.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      The review in step 4 for the equal version answers the plan with status 200, as it did before this change, and
+      is not a refusal.
+    verification:
+      method: api_response
+      detail: Status 200 with the plan for 2.0.0.
+      evidence: The answer.
+    on_fail:
+      severity: MAJOR
+      business_impact: Administrators could no longer look at a no-change review, which changes behaviour they did not opt into.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      Versions 2.0.1 and 10.0.0 are accepted in review and apply as before; 10.0.0 is not treated as older than 2.0.0.
+    verification:
+      method: api_response
+      detail: Steps 5 and 7 answer 200 with a plan; steps 6 and 8 answer success; none of the four carries version_downgrade or version_not_newer.
+      evidence: The four answers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Real updates would be refused, so companies could not receive newer packs; comparing as text would block every move from 9.x to 10.x.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Uninstall the pack installed for the scenario from SwiftRoute.

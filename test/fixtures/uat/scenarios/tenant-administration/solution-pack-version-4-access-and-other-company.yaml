@@ -1,0 +1,85 @@
+# REQ-573 slice S1 (BA-TENANT-ADMINISTRATION): who may apply, and that another company's installed version never decides.
+# Criterion covered: 9 (cross-company: the answer follows only the caller's own installation).
+# Sensitive actions: change process definitions (apply) is refused to the read-only auditor, step 1. Seeing another company's data:
+# step 2 is a no-data-leak check, not a refusal. approve, pay or release and change users do not occur in this flow.
+# Route behaviour: the platform operator's token resolves to the platform's own company, so a review sent by the operator is answered
+# from the operator's own (empty) installations and is NOT refused; this is why step 2 is an accepted step with a leak check.
+# The apply-path cross-company case of criterion 9 (a second company applying with its own versions) needs a second company's
+# administrator; the roster has none for a company other than SwiftRoute with a verified installation, so the review route,
+# which shares the same version check, carries the check here. The apply-path case stays covered by the backend test of criterion 9.
+---
+id: tenant-administration-solution-pack-version-access-and-other-company
+scope: platform
+title: The read-only auditor cannot apply a pack update, and another company's installed version never blocks an update
+version: "1.0"
+tags: [solution-pack, versioning, access, isolation, refusal, regression]
+
+description: >
+  SwiftRoute has a pack installed at version 5.0.0. The read-only auditor of SwiftRoute may look at what an update would
+  change but must not be able to apply one; the attempt is refused whatever version is offered. The platform operator,
+  whose own company has not installed that pack, then asks for a review of version 2.0.0 of the same pack: the answer
+  is the plan, never a refusal caused by SwiftRoute's 5.0.0, and nothing of SwiftRoute's installed version appears in it.
+
+actors:
+  swiftroute_auditor: actor-swiftroute-auditor
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: SwiftRoute is set up with its read-only auditor, and the platform company with its operator
+    check: system_seeded
+  - description: >
+      SwiftRoute has an active installation of one pack at version 5.0.0; the platform company has no installation of that pack;
+      the run holds the two artefact lists an update request needs for that pack
+    check: custom
+    detail: Set up by the platform team. If the platform company holds an installation of that pack, the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: swiftroute_auditor
+    action: Tries to apply version 6.0.0 of the installed pack, a newer version, bringing a decision for every conflict.
+    via: api
+    input:
+      target_version: "6.0.0"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: platform_operator
+    action: Asks for a review of what version 2.0.0 of the same pack would change for the platform's own company.
+    via: api
+    input:
+      target_version: "2.0.0"
+    produces:
+      update_review: the plan for the platform's own company, with no refusal and no sign of SwiftRoute's installed version
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The auditor's attempt in step 1 is refused as lack of right (forbidden), not as a version refusal, and no record of
+      SwiftRoute's installation, bases or conflict decisions changes.
+    verification:
+      method: api_response
+      detail: Status 403; the detail is not version_downgrade and not version_not_newer; the pack records of SwiftRoute read before and after are identical.
+      evidence: The answer and the two readings.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A user who may only read could change the company's process definitions through a pack update.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      The operator's review in step 2 is answered with the plan (status 200) and is not refused as version_downgrade, although
+      SwiftRoute's installed version 5.0.0 is higher than 2.0.0; the answer holds nothing of SwiftRoute's installed version.
+    verification:
+      method: api_response
+      detail: Status 200 with the plan for the platform's own company; no version_downgrade; the text 5.0.0 appears nowhere in the answer.
+      evidence: The answer, searched for 5.0.0.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company's installed version could block, or be learned through, another company's update.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Uninstall the pack installed for the scenario from SwiftRoute.

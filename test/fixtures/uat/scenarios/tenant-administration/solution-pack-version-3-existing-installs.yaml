@@ -1,0 +1,187 @@
+# REQ-573 slice S1 (BA-TENANT-ADMINISTRATION): packs installed before the rule, packs without an installation, and the install-time limit.
+# Criteria covered: 6 (a version that is not three-part, on either side, is not checked and nothing is rewritten),
+# 7 (no active installation: versions are ignored), 8 (known limit: comparison is with the install-time version),
+# 10 (installing a pack whose version is not three-part still works).
+# Harness note: the installation of a pack at the text version legacy-2024 cannot be made through the product after this change
+# (export refuses such a version); the platform team prepares it by writing the installation record directly, and the run reads records.
+# If the test company cannot be prepared that way, steps 1, 2, 5 and EO-001 are BLOCKED, not passed.
+# Visibility: the stored installed version is not shown on any screen or in the update answers; outcomes that name it are system_state.
+# Every step here is an ACCEPTED case; there is no refusal step because the rule under test is that no refusal happens.
+# Sensitive actions: none occurs; see scenarios 2 and 4 for refusals.
+---
+id: tenant-administration-solution-pack-version-existing-installs
+scope: tenant-administration
+title: Packs installed before the version rule, and packs not installed, are not blocked, and stored versions are not rewritten
+version: "1.0"
+tags: [solution-pack, versioning, compatibility, regression]
+
+description: >
+  Some companies installed packs when any text was accepted as a version. Those companies must not be blocked by the new
+  rule. SwiftRoute has one pack installed under the version text legacy-2024: reviewing and applying version 2.0.0 works
+  as before. A second pack is installed at 2.0.0 and is offered a version text "next", which is not a version number:
+  again nothing is checked. A third pack was never installed and is reviewed with any version text. Installing a pack
+  whose version is legacy-2024 still works. Last, the limit of this step is shown on purpose: after an update from
+  1.0.0 to 2.0.0 the company's recorded version is still 1.0.0, so applying 2.0.0 a second time is not refused yet.
+
+actors:
+  swiftroute_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator
+    check: system_seeded
+  - description: >
+      SwiftRoute has an active installation of pack LEGACY whose recorded version is the text legacy-2024, an active
+      installation of pack CURRENT at 2.0.0, and no installation of pack NEVER; for each of LEGACY, CURRENT and NEVER the run holds
+      the two artefact lists an update request needs
+    check: custom
+    detail: Prepared by the platform team as described at the top of this file; the installed version of LEGACY is written directly. BLOCKED if it cannot be.
+  - description: "A pack document whose version line is exactly \"version\": \"legacy-2024\" is available for step 5"
+    check: custom
+    detail: Made by taking an exported pack and changing its version line to that text by hand. It contains one new process definition not yet in SwiftRoute.
+  - description: A pack document at version 1.0.0 is available for step 6, with an update document for 2.0.0
+    check: custom
+    detail: Exported with the version 1.0.0, then again with 2.0.0 after a change to a definition; both exported by the administrator through the normal export.
+  - description: The run can read the installation records of SwiftRoute
+    check: custom
+    detail: Needed to compare the stored installed versions before and after; otherwise EO-001 and EO-005 are BLOCKED.
+
+steps:
+  - step: 1
+    actor: swiftroute_admin
+    action: Asks for a review of what version 2.0.0 of pack LEGACY (installed as legacy-2024) would change.
+    via: api
+    input:
+      target_version: "2.0.0"
+    produces:
+      update_review: the plan, answered as before this change
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: swiftroute_admin
+    action: Applies version 2.0.0 of pack LEGACY, deciding every conflict.
+    via: api
+    input:
+      target_version: "2.0.0"
+    produces:
+      update_result: the update is applied as before this change
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: swiftroute_admin
+    action: Asks for a review of what the version text "next" would change for pack CURRENT (installed at 2.0.0).
+    via: api
+    input:
+      target_version: "next"
+    produces:
+      update_review: the plan, answered as before this change
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: swiftroute_admin
+    action: Asks for a review of pack NEVER, which SwiftRoute has not installed, with the version text "whatever".
+    via: api
+    input:
+      target_version: "whatever"
+    produces:
+      update_review: the answer as before this change; the version text is not judged
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: swiftroute_admin
+    action: "Installs the prepared pack document whose version line is \"version\": \"legacy-2024\"."
+    via: api
+    produces:
+      installation: the pack is installed and its recorded version is legacy-2024
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: swiftroute_admin
+    action: Installs a pack at version 1.0.0, then applies its update to version 2.0.0, deciding every conflict.
+    via: api
+    input:
+      first_version: "1.0.0"
+      update_version: "2.0.0"
+    produces:
+      update_result: the update to 2.0.0 is applied
+    sla_context:
+      expected_within_hours: null
+  - step: 7
+    actor: swiftroute_admin
+    action: Applies the same update to version 2.0.0 a second time, deciding every conflict.
+    via: api
+    input:
+      update_version: "2.0.0"
+    produces:
+      update_result: the update is accepted again, because the company's recorded version is still the install-time 1.0.0 (known limit)
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Steps 1 and 2 answer exactly as before this change, a plan and a successful update, and the recorded version of pack LEGACY
+      is still the text legacy-2024 afterwards, as is every other installation's recorded version.
+    verification:
+      method: system_state
+      detail: Recorded installed versions of all SwiftRoute installations read before step 1 and after step 2 are byte-for-byte equal; steps 1 and 2 carry no version_downgrade and no version_not_newer.
+      evidence: The two readings and the two answers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Companies with older packs would be blocked from updating, or their stored versions rewritten, without having opted in.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Step 3 answers the plan as before; a version text that is not a version number is not judged against 2.0.0.
+    verification:
+      method: api_response
+      detail: Status 200 with the plan; no version_downgrade, no version_not_newer.
+      evidence: The answer.
+    on_fail:
+      severity: MAJOR
+      business_impact: Updates offered under a free-text version would suddenly be refused for existing companies.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Step 4 answers as before this change, whatever the version text, because there is no installation to compare with.
+    verification:
+      method: api_response
+      detail: The answer carries neither version_downgrade nor version_not_newer.
+      evidence: The answer.
+    on_fail:
+      severity: MAJOR
+      business_impact: Reviews of packs not yet installed would be refused for a reason that has no meaning there.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Step 5 succeeds and the pack is installed with the recorded version legacy-2024.
+    verification:
+      method: system_state
+      detail: The installation record of the new pack exists, is active, and its recorded version is legacy-2024.
+      evidence: The installation record read after step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Packs already exported before the rule could no longer be installed.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      Known limit, documented on purpose: after step 6 the recorded version of that pack is still 1.0.0, and step 7 is
+      accepted instead of refused as version_not_newer. A later change that records the version applied will change this outcome deliberately.
+    verification:
+      method: system_state
+      detail: Recorded version after step 6 reads 1.0.0; step 7 is answered as a success, not as version_not_newer.
+      evidence: The installation record after step 6 and the answer of step 7.
+    on_fail:
+      severity: MINOR
+      business_impact: Not a fault today; if this changes without the owner's decision, update behaviour moved unannounced.
+      suggested_action: log_only
+  - id: EO-006
+    description: No installation, base or conflict-decision record of other packs or companies changed during the scenario.
+    verification:
+      method: system_state
+      detail: Records of installations of other companies read before and after are equal.
+      evidence: The two readings.
+    on_fail:
+      severity: MAJOR
+      business_impact: A version rule touched data outside the pack being worked on.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Uninstall the packs installed or prepared for the scenario from SwiftRoute.

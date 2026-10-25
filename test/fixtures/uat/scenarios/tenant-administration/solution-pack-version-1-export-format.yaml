@@ -1,0 +1,145 @@
+# REQ-573 slice S1 (BA-TENANT-ADMINISTRATION): pack version format at export. Authored new; not a port.
+# Criteria covered: 1 (export refused for a non-semver version, 422 not 500), 2 (semver values accepted unchanged, absent version = 1.0.0).
+# Sensitive actions: approve, pay or release and change users do not occur in exporting a pack; seeing another company's data is
+# covered by solution-pack-version-4-access-and-other-company. Steps 1-4 are one request each: every request in the step is refused.
+# Steps 5-8 are the accepted cases, each in its own step.
+---
+id: tenant-administration-solution-pack-version-export-format
+scope: tenant-administration
+title: A process pack can only be exported with a proper three-part version number
+version: "1.0"
+tags: [solution-pack, versioning, validation, regression]
+
+description: >
+  A company packs its own process definitions into a pack so that they can be installed elsewhere. From now on the
+  version a pack carries must be a proper three-part version number (major.minor.patch, optionally with a
+  pre-release label or build label), because later steps compare versions to stop an old pack from replacing a
+  newer one. SwiftRoute's administrator tries four version texts that are not of that form and each is refused
+  with a clear answer, not a server fault. Then four accepted forms are exported, and each pack carries exactly
+  the version asked for; a pack exported with no version carries 1.0.0.
+
+actors:
+  swiftroute_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator and at least one process definition that can be packed
+    check: system_seeded
+  - description: The id of one SwiftRoute process definition is known to the run
+    check: custom
+    detail: Taken from the administrator's own definitions list; the same id is used in every step.
+
+steps:
+  - step: 1
+    actor: swiftroute_admin
+    action: Asks to export the definition as a pack with the version text 1.0 (two parts only).
+    via: api
+    input:
+      version: "1.0"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: swiftroute_admin
+    action: Asks to export the definition as a pack with the version text v1.0.0 (a leading letter).
+    via: api
+    input:
+      version: "v1.0.0"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: swiftroute_admin
+    action: Asks to export the definition as a pack with the version text 2024-10-25 (a date).
+    via: api
+    input:
+      version: "2024-10-25"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: swiftroute_admin
+    action: Asks to export the definition as a pack with the version text 1.0.0.1 (four parts).
+    via: api
+    input:
+      version: "1.0.0.1"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: swiftroute_admin
+    action: Exports the definition as a pack with the version 1.0.0.
+    via: api
+    input:
+      version: "1.0.0"
+    produces:
+      pack_document: the exported pack, carrying the version 1.0.0
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: swiftroute_admin
+    action: Exports the definition as a pack with the version 2.3.4-rc.1 (a pre-release label).
+    via: api
+    input:
+      version: "2.3.4-rc.1"
+    produces:
+      pack_document: the exported pack, carrying the version 2.3.4-rc.1
+    sla_context:
+      expected_within_hours: null
+  - step: 7
+    actor: swiftroute_admin
+    action: Exports the definition as a pack with the version 1.0.0+build5 (a build label).
+    via: api
+    input:
+      version: "1.0.0+build5"
+    produces:
+      pack_document: the exported pack, carrying the version 1.0.0+build5
+    sla_context:
+      expected_within_hours: null
+  - step: 8
+    actor: swiftroute_admin
+    action: Exports the definition as a pack and gives no version at all.
+    via: api
+    produces:
+      pack_document: the exported pack, carrying the version 1.0.0
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Each of the four requests in steps 1 to 4 is refused with the validation answer whose detail is exactly
+      invalid_pack_version; none is answered as a server fault, and no pack is handed out.
+    verification:
+      method: api_response
+      detail: Four answers, status 422, detail text invalid_pack_version in each, no pack document in any of them.
+      evidence: The four answers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Packs with free-text versions could be shared, and the later protection against installing an older pack over a newer one could not work.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      The packs exported in steps 5, 6 and 7 carry exactly the version asked for, character for character
+      (1.0.0, 2.3.4-rc.1, 1.0.0+build5).
+    verification:
+      method: api_response
+      detail: The version field of each returned pack equals the version asked for.
+      evidence: The three returned packs, version fields compared with the three inputs.
+    on_fail:
+      severity: MAJOR
+      business_impact: A pack could carry a version different from the one the administrator chose, which breaks comparison of versions later.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The pack exported in step 8 without a version carries the version 1.0.0, as before.
+    verification:
+      method: api_response
+      detail: The version field of the returned pack is 1.0.0.
+      evidence: The returned pack.
+    on_fail:
+      severity: MAJOR
+      business_impact: Administrators who do not choose a version would get a refusal or a different default than before.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Nothing is stored by exporting; no cleanup is needed.
