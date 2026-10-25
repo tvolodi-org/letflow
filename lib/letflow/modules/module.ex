@@ -111,7 +111,8 @@ defmodule Letflow.Modules.Module do
           optional(:manages_entity_types) => [String.t()],
           optional(:widens_grants) => [{atom(), atom()}],
           optional(:write_handlers) => [write_handler_spec()],
-          optional(:scope_declarations) => %{String.t() => {:column, String.t()} | :tenant_wide}
+          optional(:scope_declarations) => %{String.t() => {:column, String.t()} | :tenant_wide},
+          optional(:document_org_resolver) => module()
         }
 
   @callback manifest() :: manifest()
@@ -177,6 +178,7 @@ defmodule Letflow.Modules.Module do
   | `:widens_grants` (optional) | `[{atom(), atom()}]` literal list (narrowing declarations, GH #2586) |
   | `:write_handlers` (optional) | `[t:write_handler_spec/0]` literal list of `Letflow.Modules.WriteHandlerSpec` structs; `function: {Mod, :fun}` with full aliases (GH #2590) |
   | `:scope_declarations` (optional) | `%{String.t() => {:column, String.t()} | :tenant_wide}` literal map (REQ-518) |
+  | `:document_org_resolver` (optional) | module atom implementing `Letflow.Documents.OrgResolver` (REQ-542); at most one module may declare it |
 
   If any `role_grants` value atom is absent from `permissions`, a
   `CompileError` is raised at the call site during compilation. Non-literal
