@@ -99,7 +99,8 @@ defmodule Letflow.Api.TasksRouteClassesTest do
     test "the walk audits the real table to [] and the snapshot lost exactly the seven task lines (122 to 115), holding none",
          %{routes: routes, snapshot: snapshot} do
       assert RouteScope.audit_routes(routes, snapshot) == []
-      assert length(snapshot) == 118
+      # REQ-565 (GH #3201) added the five integration-mappings lines (123).
+      assert length(snapshot) == 123
 
       for line <- @filter_lines ++ @resolver_lines do
         refute line in snapshot, line
