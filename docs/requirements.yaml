@@ -38508,6 +38508,237 @@ requirements:
     open_questions:
       - "None for the owner: SEC-525-Q1 and SEC-525-Q3 are recorded in the REQ-525 design. The requirement only carries them. If the implementer finds a third place that restates the class as role-independent, the change rewords it and names it in the summary."
     depends_on: [REQ-525]
+  - id: REQ-542
+    title: "Versioned documents service part 1 (decision 0056 D1, D3, D8, D9; GH #2588 PR B, first half): type registration, OrgResolver, drafts, new version from current, canonical form and hash function"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3164
+    # Source: docs/migration/decisions/0056-versioned-documents.md D1, D3, D4, D8, D9 and acceptance-criteria candidates 8, 12, 13, 15, 16, 17; docs/migration/decisions/0063-versioned-documents-retention-and-hold.md S3; GH #2588 body (scope items 2-3 and "Decision on the legal-entity lookup", read in full for this rework; closed, kept as content authority); docs/migration/core-roadmap-20261014.md (0056 slice 1 row: "3 PRs"); lib/letflow/documents/ as on main (tables, triggers, schemas, retention and hold only). Written by the business analyst (T-0449) 2026-10-25. Not yet validated.
+    description: >
+      First of two requirements that deliver the document service left undone when GH #2588 (REQ-500)
+      closed with PR #2977, which added only the tables, triggers and schemas under lib/letflow/documents/.
+      On main there is no function to register a type, create a draft or compute a hash (grep verify_binding
+      lib test finds nothing). This requirement adds the context module Letflow.Documents with: registration
+      of a document type from a module's on_install/3 (D1, audited document.type_registered, declared fields
+      checked against restricted fields, D8); the OrgResolver behaviour of the #2588 ruling; creating a draft
+      with issuing_org_unit_id (D1, D8, audited document.draft_created); editing a draft in place; discarding
+      a draft (document.draft_discarded); new_version_from_current, which creates a draft of version N+1 as a
+      copy of the current issued version (D4); and the canonical form, the pre-checks and the pure hash function
+      of D3. Not here: issuing, numbering, supersede, cancel and verify_binding (REQ-543); and the PR C surface
+      of #2588, named so it is not lost: the permissions DocumentsRead, DocumentsDraft, DocumentsIssue and
+      DocumentsCancel, the draft/issue/cancel/read routes with their cross-tenant 404 tests, the sequence-change
+      route with its two-principal rule (0056 D2, D8 and #2588), the refusals aggregation job with
+      document.refusals_summary, and the export documentation. That surface is a later requirement, written
+      after this one and REQ-543 merge; the procurement slice (REQ-544) calls the functions directly and needs
+      no route. The functions are internal and add no route, permission or UI. Audit payloads carry no field
+      values (D9).
+
+      Content hash, stated in full so it is not misread: D3 defines content_hash = sha256(domain_tag ||
+      F(tenant_uuid) || F(document_id) || F(type_key) || F(legal_entity_id-or-sentinel) || F(number) ||
+      F(version_no) || F(canonical_content)). A draft has no number (D2), so the hash cannot be computed at draft
+      time and is not stored on a draft. This requirement delivers the canonical form and a function that takes
+      all eight inputs including the number; REQ-543 computes and stores the hash in the issue transaction after
+      the number is allocated (the D5 ruling).
+    acceptance_criteria:
+      - "1. Type registration (0056 D1, test 16): register_type/3 stores a type row with key, owner module and the declared fields, writes document.type_registered in the same transaction, and an UPDATE of a frozen column of a type that already has a document fails at the database (the existing trigger), reported as an error tuple and not a crash. The three retention policy columns retention_period_days, retention_from and retention_action are exempt as decision 0063 S3 and migration 20261025100001 state; a test shows they can still change and a frozen column (for example numbering_scope) cannot."
+      - "2. Restricted fields (0056 D8, test 12, registration half): a type whose declared fields include a restricted field is refused at registration with an error tuple and nothing stored."
+      - "3. OrgResolver (GH #2588 ruling, conditions 1-3; condition 4 is criterion 4a): a behaviour Letflow.Documents.OrgResolver has unit_exists?(prefix, org_unit_id) (non-retired) and legal_entity_of(prefix, org_unit_id) returning {:ok, id} or {:error, :no_legal_entity | :unit_not_found}. The default resolver returns {:error, :no_legal_entity} always and backs unit_exists? with Letflow.ScopeNodePaths. The active resolver is looked up through Letflow.Modules.Catalog: the default when no module declares one, the module's when exactly one does; two declarations make Catalog.validate/2 return an error. No route, tenant setting, pack section, definition field or on_install/3 argument can set or replace it, and a test shows each of these rejects it."
+      - "4. Legal-entity types and sentinel (ruling conditions 1-2): with the default resolver, register_type of a type with legal_entity_required = true returns {:error, :legal_entity_resolver_unavailable} and writes no row; a row of that kind forced in by raw SQL in test setup makes create_draft fail closed. The sentinel legal entity is used only for types with legal_entity_required = false, and a resolver double that returns an entity cannot make such a type store it."
+      - "4a. Retired units stay resolvable (GH #2588 ruling, condition 4): for a retired org unit legal_entity_of(prefix, unit) still returns its legal entity while unit_exists?(prefix, unit) returns false; an issued document keeps its stored issuing_org_unit_id and legal_entity_id after the unit is retired. A reusable case module Letflow.Documents.OrgResolverContract ships with this change, is run against the default resolver, and a test shows it fails a resolver double that returns {:error, :unit_not_found} for a retired unit."
+      - "5. Draft (0056 D1, D8, D9): create_draft/3 stores a document and a version 1 in status draft with issuing_org_unit_id set, no number, no period and no stored content hash, and writes document.draft_created with no field values in its payload. The unit is validated with unit_exists? at creation; an unknown or retired unit is refused, and a tenant-wide caller who names no org unit is refused (test 17, first half)."
+      - "6. Edit and discard (0056 D4, test 16): a draft is edited in place; a draft is discarded only by the transition to discarded, writing document.draft_discarded; a DELETE of a draft at the database fails; a discarded draft carries no number."
+      - "7. New version (0056 D4, GH #2588 scope item 2): new_version_from_current/2 on a document with a current issued version N creates a draft of version N+1 whose content equals version N's content, with no number and no hash, and leaves version N unchanged. It returns an error tuple for a document with no issued version and for another tenant's or an absent document id (same error)."
+      - "8. Canonical form (0056 D3, test 15): content that contains a float, a non-finite number or a duplicate object key is refused with an error tuple; two strings that are the NFC and NFD forms of the same text give the same canonical bytes."
+      - "9. Hash function (0056 D3, test 13): content_hash/1 takes tenant uuid, document id, type key, legal entity or sentinel, number, version number and canonical content, and no caller-supplied hash is ever accepted. Changing any one of the eight inputs changes the output (tested one input at a time, so identical content in two tenants or two documents differs). A test pins the output for one fixed input that includes a number to a fixed lowercase hex string."
+      - "10. Tenancy and audit (INV-1, INV-6, 0056 D9, test 8): every function reads and writes through the tenant prefix; a call as tenant B for tenant A's document returns the same error as for an absent id; after each audited event of this requirement the audit chain verification passes and no payload contains a content value."
+      - "11. Scope of the change: the diff adds the context module, the OrgResolver behaviour and its default, the Catalog lookup, and tests under lib/letflow/documents/, lib/letflow/modules/catalog.ex and test/, no migration unless the summary quotes the failing test that needs it, no route and no permission entry; the summary states this check with a git diff --stat."
+      - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data access path) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over test/letflow/documents/ and the Catalog tests pass, real output quoted."
+    depends_on: [REQ-508]
+
+  - id: REQ-543
+    title: "Versioned documents service part 2 (decision 0056 D2, D4, D9): issue with gap-free numbering, supersede, cancel, verify_binding"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3163
+    # Source: docs/migration/decisions/0056-versioned-documents.md D2, D4, D9 and acceptance-criteria candidates 1, 3, 4, 11, 19, 23; docs/migration/core-roadmap-20261014.md (0056 slice 1 row). Written by the business analyst (T-0449) 2026-10-25. Not yet validated.
+    description: >
+      Second of two requirements that deliver the document service left undone when GH #2588 (REQ-500)
+      closed with only storage (PR #2977). Builds on REQ-542 (drafts, canonical form, hash function). Adds to the context
+      module: issue/2, which in one transaction allocates the next gap-free number for the scope of the
+      type (D2, row lock on document_sequences, insert-if-absent for a new scope), moves the draft to issued,
+      sets issued_at from the server clock, supersedes the previously issued version, sets current_version and
+      computes content_hash with the allocated number as an input and stores it (D3, D5 ruling: the hash is computed in the issue transaction after the number is allocated, never at draft time), writes document.issued and document.superseded; cancel/3 of an issued version with a mandatory reason
+      (document.cancelled); and verify_binding(document_id, version_no, content_hash) (D4), an INTERNAL
+      function returning true only if that version exists, is issued and the hash matches. A next version is
+      created as a draft through new_version_from_current of REQ-542, and issue/2 re-checks the issuing org unit with the OrgResolver of REQ-542 (unit_exists?) and fails closed for a legal_entity_required type. Rendering and byte-store calls stay out of the numbering
+      transaction (D2 ruling, test 23). Signatures, PDF, retention and hold are slice 2; routes, permissions, the sequence-change route and the refusals summary event are the later surface requirement named in REQ-542.
+      The decision whether a later version needs a new approval stays with the process route (D4); this
+      service only answers verify_binding.
+    acceptance_criteria:
+      - "1. Numbering (0056 D2, test 1): two concurrent issues in one scope give consecutive numbers with no duplicate and no gap; an issue that rolls back releases its number; the first issue in a new scope succeeds. The race cannot be forced, so a source-scan test asserts the row lock on the sequence precedes the number read, and a forced-overlap test with a barrier ships in this change."
+      - "2. Supersede (0056 D4, test 3): issuing version N+1 (created with new_version_from_current) supersedes version N in the same transaction; there are never two issued versions of one document; current_version points to an issued version of the same document; the content hash is computed in that transaction with the allocated number as an input and stored on the version (a draft has none); document.issued (number, version, content hash) and document.superseded are written in the same transaction with no field values."
+      - "3. Cancel (0056 D4, D9): cancelling an issued version requires a non-blank reason, writes document.cancelled, and a cancelled version is readable but never issued again; cancelling a draft, a superseded or a discarded version returns an error tuple and changes nothing."
+      - "4. verify_binding (0056 D4, test 4): returns true for an issued version with the matching hash; returns false for a changed hash, a superseded version, a cancelled version, another document's hash, an absent version and another tenant's document id, with no distinction in the returned value between those cases."
+      - "5. Integrity on read (0056 D3): verify_binding recomputes the hash from the stored content and the stored number, tenant uuid, document id, type key, legal entity and version number (all eight inputs of 0056 D3) and, on a mismatch with the stored hash, returns false and writes document.integrity_failed; a test alters a stored row with the immutability trigger disabled in the test setup only, and the production code path has no such bypass."
+      - "5a. Restricted fields at every issue (0056 D8, test 12, issue half; GH #2588 'at registration AND at every issue'): after a type is registered, a restriction is added that covers one of its declared fields; issue/2 of a draft of that type then returns an error tuple, allocates no number and leaves the sequence unchanged, and the next successful issue in that scope receives the next consecutive number (no gap)."
+      - "5b. Org unit and legal-entity re-check at issue (GH #2588 'Legal-entity types are refused'): issue/2 returns an error tuple and allocates no number for a draft whose issuing org unit is retired or unknown at issue time. For a type row with legal_entity_required = true forced in by raw SQL in test setup, issue/2 fails closed with no number allocated and no sentinel document_sequences row created, and a later issue of another type is unaffected. verify_binding and reads never call unit_exists? (a test with a resolver double that fails on unit_exists? passes them for an issued document whose unit is retired)."
+      - "6. Unique number index (0056 test 11): two documents with a null legal entity and the same type, period and number are rejected by the existing unique index, reported as an error tuple."
+      - "7. No render in the numbering transaction (0056 test 23): a test with a renderer that fails the test if called inside the numbering transaction passes; the issue function calls no renderer and no byte-store function."
+      - "8. Refusals (0056 D9, test 19, counter half): a refused attempt (validation, stale hash, absent version) increments a telemetry counter and writes no per-attempt audit row. The aggregated document.refusals_summary event and its job belong to the later surface requirement named in REQ-542, not here."
+      - "9. Scope of the change: no route and no permission entry is added, no file outside lib/letflow/documents/, test/letflow/documents/ and docs; the summary states this check with a git diff --stat."
+      - "10. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data access path and approval-binding primitive) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over test/letflow/documents/ pass, real output quoted."
+    depends_on: [REQ-542]
+
+  - id: REQ-544
+    title: "WMS procurement slice 1: typed purchase request with mandatory-field and total validation, BPM approve/reject/return decisions bound to the approved document version (PR-01, PR-03, PR-06)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3162
+    # Source: docs/WMS/WMS_Procurement_Requirements_Draft.md section 3 (PR-01, PR-03, PR-06) and section 1 "Implementation boundary"; docs/migration/decisions/0056-versioned-documents.md D4 ("Approval binds a version hash") and D9 (refusals are telemetry plus an aggregated counter); docs/migration/decisions/0057-wms-customer-draft-reconciliation.md; docs/guides/adding-an-application-module.md. Written by the business analyst (T-0449) 2026-10-25. Not yet validated.
+    description: >
+      First procurement slice of the WMS module family (draft section 3). A requester creates a purchase
+      request for materials, works or services; BPM decides; the module records each decision against the
+      exact document version that was approved. Needs no core change in the procurement module itself: it is a module that
+      uses the versioned documents of decision 0056 and the module guide docs/guides/adding-an-application-module.md
+      (layout, manifest, write handlers, route policies, permissions golden); it does not change the engine,
+      the document tables or the authorization core. Prerequisite, stated plainly: the document service API is NOT
+      on main. GH #2588 (REQ-500) is closed, but PR #2977 delivered only storage and integrity (tables, triggers,
+      schemas); lib/letflow/documents/ has no function to create a draft, issue a version or verify_binding. That
+      remainder is its own core work, written as REQ-542 (drafts, new version from the current one, canonical form, hash function, org resolver, type
+      registration) and REQ-543 (issue with the stored content hash, supersede, cancel, verify_binding), and this requirement depends on both. A later surface requirement (permissions, document routes, sequence change) is not needed by this slice.
+      If the implementer finds another core change is needed, that is reported as a finding and the slice is
+      split, not widened.
+
+      Scope. (1) PR-01: the purchase request content (requester, department, justification, required date,
+      priority, and one or more typed lines: description, quantity, unit, estimated unit cost and total cost;
+      works and services lines also scope, deliverables and completion date), with validation and with line
+      and request totals calculated by the module. (2) PR-03: the module operations that BPM calls for the
+      approve, reject and return decisions; the approval route, assignment, delegation and thresholds are BPM
+      configuration and are not coded here (draft section 1, "BPM controls when ... which approval or
+      exception path follows"). (3) PR-06, the part this slice can deliver: the module records the document
+      version and content hash of each decision and refuses to let a decision on one version authorize a
+      changed version, using documents.verify_binding of decision 0056 D4 (REQ-543).
+
+      Later slices, named so they are not lost and not part of this one: PR-02 (attachments through the
+      document store, preserved submitted version), PR-04 (procurement task assignment, supplier and PO
+      references), PR-05 (line-level fulfillment), PR-07 (stock and duplicate-demand view before approval),
+      and the audit-history half of PR-06 (line revisions, attachments and fulfillment history).
+
+      Open questions for the process owner, not settled here: the closed lists of priority values, request
+      kinds' mandatory works/services fields beyond those in the draft, currency handling (a single currency
+      per request is assumed for UAT only), and the rule for return (whether a returned request is edited as
+      a new draft version of the same document). The draft marks PR-01 as S/P (stated and proposed), so these
+      need customer validation before contract baseline.
+    acceptance_criteria:
+      - "1. Create (PR-01): a purchase request is saved with requester, department, justification, required date, priority and at least one line. Each line has a kind (material, work or service), description, quantity greater than zero, unit and estimated unit cost not below zero. A work or service line also requires scope, deliverables and completion date. A request that lacks any mandatory field, or has no lines, is rejected with a validation error naming each missing field, and nothing is saved."
+      - "2. Totals (PR-01): the module calculates every line total as quantity times estimated unit cost and the request total as the sum of its line totals, using exact decimal arithmetic (no floating point), and stores them with the request. A client-supplied total that differs from the calculated value is ignored or rejected; a test with lines such as 3 x 0.10 and 2 x 19.99 asserts the exact stored totals."
+      - "3. Reference data (PR-01): the unit of a line and the department are checked against the installed shared masters (module catalog_items unit read API, module org read API); an unknown or retired value is a validation error. No new master table is created by this slice."
+      - "4. Versioned document (PR-01, PR-06, decision 0056): each submitted request is one document with a purchase-request document type; saving a change after submission creates a new version of the same document (using new_version_from_current of REQ-542 to create the draft of version N+1 and issue of REQ-543 to issue it) and never edits the submitted version. A test asserts that the earlier version's content and content hash are unchanged after a later version is created."
+      - "5. BPM operations (PR-03): the module exposes operations that BPM can call to submit a request and to record approve, reject and return, each taking the document id, the version number, the content hash, the performer and an idempotency key. Repeating a call with the same idempotency key returns the first result and records one decision only. The module contains no approval route, threshold, assignee or delegation logic."
+      - "6. Route independence (PR-03): a test deploys two different process definitions on the same module (for example one approval step and two approval steps in sequence) that call the same operations, and both complete without any change to module code or to the module manifest."
+      - "7. Decision record (PR-03): each accepted decision stores the decision (approve, reject or return), the performer, the time from the server clock, the document id, the version number and the content hash, and writes one audit event in the same transaction. Refusals (validation, stale version, no permission) write no per-attempt audit event; they are counted in telemetry, following the rule of decision 0056 D9 (aggregated counter, at most one bounded summary event per principal and window, whose summary event belongs to the later document surface requirement)."
+      - "8. Version binding (PR-06): an approve decision for version N is accepted only if documents.verify_binding(document_id, N, content_hash), delivered by REQ-543, is true at the moment of the decision. When the document has a later issued version M, an approval recorded for N is reported as not authorizing M: a lookup of 'is version M approved' returns false, and the module refuses to treat the request as approved for further steps until BPM records a decision for M. A test covers: approve N, create and issue N+1, then check that N+1 is not approved and that an approve call that still carries N's hash is refused as stale."
+      - "9. Refusal of changed or cancelled content (PR-06): an approve decision with a content hash that does not match the stored version, for a cancelled or superseded version, or for a non-existent version is refused with the same error shape and no decision is recorded."
+      - "10. Authorization and tenancy: the operations are available only to callers holding the permissions added to the module manifest (a requester may submit and revise only their own request; only a performer holding the approval permission may record a decision; a requester cannot approve their own request). A document or request of another tenant, outside the caller's scope or absent returns the same not-found answer (INV-5). A cross-tenant negative test (INV-10 style) shows tenant B cannot read or decide tenant A's request by id. The permissions golden and docs/roles.md are updated as the module guide requires."
+      - "11. No core change: the diff of this requirement touches no file under lib/letflow/engine/, lib/letflow/documents/ (its service is REQ-542 and REQ-543, merged before this one) or lib/letflow/api/authorization.ex core permission lists except the module's own registered permission entries that the module guide prescribes; the implementer states this check in the summary."
+      - "12. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data operations and permissions) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the new module's tests pass, real output quoted."
+    depends_on: [REQ-542, REQ-543, REQ-506, REQ-507]
+
+
+  - id: REQ-554
+    title: "Decision record for generic saved views over records (shape of slice 1: saved list view definitions)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3153
+    # Source: docs/migration/core-roadmap-20261014.md, Wave 3 row "Generic list, pivot and graph views and a report builder over entities" (decision record marked "yes (new)"). Written by the business analyst (T-0443) 2026-10-25.
+    description: >
+      Design-only slice. The Wave 3 row of docs/migration/core-roadmap-20261014.md on generic
+      list, pivot and graph views and a report builder over entities says a new decision record is
+      needed. This requirement writes that record in docs/migration/decisions/ (next free number)
+      and nothing else: no migration, route, permission or web change. It decides the shape of
+      slice 1 (saved list view definitions: columns, filter and sort over one entity type) and
+      names the later slices (slice 2 pivot over POST /entities/query/aggregate, REQ-315; slice 3
+      graph; slice 4 report builder). Questions the record settles, with the process owner
+      confirming where the source is silent: whether a view is tenant-wide or per-user (no source
+      yet; the BA working assumption is tenant-wide, to be confirmed by the process owner);
+      one entity type per view; that a stored query is replayed through the existing
+      POST /entities/query path (lib/letflow/routers/entities.ex,
+      Letflow.Entities.RequestAccess.check/4, Query.Compiler, Allowlist, Cursor, FieldGrants) so
+      no second read path exists (INV-2, INV-1); which permission creates and edits a view
+      (candidate: a new TENANT-scope permission held by TENANT_ADMIN, with EntitiesQuery for
+      reading); how a view is stored in the tenant schema (INV-1, INV-6). Not the exam results
+      list of decision 0031 / REQ-350.
+    acceptance_criteria:
+      - "1. A new file docs/migration/decisions/NNNN-<slug>.md exists, NNNN being the next free number, with the status line the neighbouring records use, and no file outside docs/migration/decisions/ changes."
+      - "2. The record states, each with its source or marked as an assumption to be confirmed by the process owner: tenant-wide or per-user sharing; one entity type per view; the stored query replayed through POST /entities/query with no second read path; the permission that reads views and the permission that creates, edits and deletes them; storage in the tenant schema."
+      - "3. The record names the tests the build requirements must carry: a cross-tenant negative test (INV-10), a field-redaction test (INV-2) and a not-found test (INV-5), and lists slices 2 to 4 as deferred, each as its own later requirement."
+      - "4. mix letflow.check_requirements_registration and mix letflow.check_issue_refs pass, real output quoted."
+    depends_on: [REQ-393, REQ-311]
+
+  - id: REQ-555
+    title: "Saved list view definitions over one record type: tenant-schema storage, validated CRUD routes and EntitiesViewsManage permission (generic views, slice 1, backend)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3155
+    # Source: docs/migration/core-roadmap-20261014.md, Wave 3 generic views row; the decision record of REQ-554. Written by the business analyst (T-0443) 2026-10-25.
+    description: >
+      Backend of slice 1 of generic views. Implements the shape the decision record of REQ-554
+      settles; where that record differs from the names below, the record wins and the criteria
+      are read with its terms. A saved view is a named definition over exactly one entity type
+      holding ordered columns, a filter (the clause list of POST /entities/query) and a sort,
+      stored in the tenant schema (INV-1; tenant_id kept inside the schema). A view is not a read
+      path for records: no route of this slice returns record data. The list screen replays a
+      stored view as an ordinary POST /entities/query (lib/letflow/routers/entities.ex,
+      Letflow.Entities.RequestAccess.check/4, Query.Compiler, Allowlist, Cursor, FieldGrants), so
+      the type gate, restricted-field guard and per-user redaction (INV-2) apply unchanged.
+      Reading views needs the existing EntitiesQuery permission; creating, editing and deleting
+      needs a new TENANT-scope permission EntitiesViewsManage in lib/letflow/api/authorization.ex
+      with its roles-matrix row in docs/roles.md and the golden
+      (priv/permission_matrix/effective.golden). TENANT_ADMIN is the only tenant role that holds
+      it; PLATFORM_ADMIN is allowed by the unconditional platform clause of
+      lib/letflow/api/authorization.ex, so its golden row is true like every other row. Out of
+      scope: the web screen (REQ-556), pivot (slice 2), graph (slice 3), report builder (slice
+      4), views across tenants, views over joined types (REQ-300), view versioning.
+    acceptance_criteria:
+      - "1. Storage: a tenant-schema migration in priv/repo/migrations/ creates the saved view table with tenant_id inside the schema, a name unique per entity type within a tenant, the entity type key, ordered columns, filter and sort as stored query clauses, and created/updated actor and timestamps. A test asserts that a view created in tenant A is absent from the tenant B schema (INV-1, INV-6)."
+      - "2. Validation on write: create and update validate filter and sort with the same Letflow.Entities.Query.Allowlist and clause rules POST /entities/query uses, and every column against the type fields. A field not on the type, an unknown operator or an unknown sort direction returns 422 with a named error and stores nothing. One test per case."
+      - "3. Routes and permissions: list, read, create, update and delete routes exist; list and read require EntitiesQuery, the other three require EntitiesViewsManage. EntitiesViewsManage is TENANT scope; a matrix test asserts TENANT_ADMIN holds it and every other tenant built-in role does not, and the golden is updated. A caller without the permission gets the same 403 for an existing and an absent view id."
+      - "4. Field authorisation (INV-2): a test shows that a view whose stored filter or columns name a field the caller has no grant on, replayed through POST /entities/query, redacts that field exactly as a hand-built query does; no view route response contains a record value."
+      - "5. Not-found and forbidden (INV-5): a view of an entity type the caller may not read, a view of another tenant and an absent view id return the same 404 with identical headers and body."
+      - "6. INV-10 cross-tenant negative test: with a view id and entity type key that exist only in tenant A, a TENANT_ADMIN of tenant B calling read, update and delete receives the same 404 as for an absent id with a byte-identical body, and the tenant A view row is unchanged afterwards. No view route takes a tenant identifier from the request."
+      - "7. Audit and pins: create, update and delete each write an audit event in the same transaction; refusals write none. Route inventory and scope-enforcement pins (__authz_routes__ tests, route_scope snapshots, route-count pins) are updated for the new routes, all classified TENANT."
+      - "8. SECURITY-REVIEWER verdict recorded (mandatory: new tenant-data routes, new permission) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the new view tests and the authorization and route pin tests pass, real output quoted."
+    depends_on: [REQ-554, REQ-393, REQ-311]
+
+  - id: REQ-556
+    title: "Saved view selector, save and delete on the record list screen (generic views, slice 1, web)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 3157
+    # Source: docs/migration/core-roadmap-20261014.md, Wave 3 generic views row; REQ-393 (the list screen). Written by the business analyst (T-0443) 2026-10-25.
+    description: >
+      Web part of slice 1 of generic views. web/src/pages/entities/EntityListBrowserPage.tsx
+      (REQ-393, routed at entities/:entityType in web/src/router.tsx) with
+      web/src/components/entities/EntityFilterBuilder.tsx gets a view selector wired to the view
+      routes of REQ-555. Selecting a view applies its columns, filter and sort to the existing
+      controls; the list is then read by the ordinary POST /entities/query, never from the view
+      itself, so server-side redaction (INV-2) applies. Save and delete controls are shown only to
+      a user holding EntitiesViewsManage. Out of scope: pivot, graph and report builder (later
+      slices), per-user private views, any backend change.
+    acceptance_criteria:
+      - "1. Vitest: selecting a view sets the columns, filter and sort controls to the stored values."
+      - "2. Vitest: the request body sent after selecting a view is the stored filter and sort, with the page-size control value unchanged."
+      - "3. Vitest: a user without EntitiesViewsManage sees the selector but no save or delete control; a user with it sees both."
+      - "4. Vitest: a stored column that the response redacts is not rendered as a value."
+      - "5. User-visible strings go through the app i18n mechanism; web/src/__tests__/entities-i18n-grep.test.ts passes."
+      - "6. cd web && npm run check passes, real output quoted; REVIEWER verdict recorded."
+    depends_on: [REQ-555, REQ-393]
 
   - id: REQ-545
     title: "GET /definitions and GET /definitions/search become :self_service reads (IMPL-525-A of REQ-525; SEC-525-R01, SEC-525-R04)"
