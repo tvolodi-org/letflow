@@ -40269,7 +40269,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-566 -- REQ-566 is still `pending` in the register; the owner's confirmation of 0070 Q2 and Q3 is also required before the feature task starts
+    gh: 3261
     # Source: docs/migration/decisions/0070-tenant-owned-record-types.md (D1, D2, D6 slice A, "Open owner questions" Q2 and Q3, "Tests the implementation slices must add", "Threats for SECURITY-REVIEWER"); docs/migration/core-roadmap-20261014.md "Customization beyond scripts"; code read: lib/letflow/entities/record_access.ex (write/3, attachment/3, attachment_write/3), lib/letflow/entities/type_access.ex, lib/letflow/entities/restrictions.ex (import_restrictions/2), lib/letflow/entities/step_writes.ex (check_type_access/2), lib/letflow/entities/handler_writes.ex, lib/letflow/routers/entities/record_attachments.ex, priv/permission_matrix/effective.golden, test/support/tenant_fixture.ex (@expected_tenant_tables), test/letflow/api/authorization_tenant_auditor_test.exs; docs/roles.md (EntitiesRestrictionsManage: TENANT_ADMIN only). Written by the business analyst (T-0548) 2026-10-25. Not yet validated.
     description: >
       Slice A of decision 0070 (D6 "Slice A, write permission (D2)"); the decision record is the product of
