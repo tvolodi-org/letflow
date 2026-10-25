@@ -505,6 +505,7 @@ defmodule Letflow.Routers.SolutionPacks do
 
   defp compute_and_render_review(conn, pack_id, target_version, theirs, incoming) do
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix(conn)),
+         :ok <- review_version_check(tenant_id, pack_id, target_version),
          {:ok, plan} <-
            Definitions.compute_pack_update_plan(
              tenant_id,
@@ -521,11 +522,23 @@ defmodule Letflow.Routers.SolutionPacks do
       {:error, :empty_artefact_set} ->
         Response.internal_error(conn)
 
+      {:error, :version_downgrade} ->
+        Response.unprocessable(conn, "version_downgrade")
+
       # tenant_id_for_schema_name/1 failure -- a route-construction bug
       # (unscoped request reaching this handler), same treatment
       # render_install/2 gives :missing_prefix/:invalid_schema_name.
       {:error, _reason} ->
         Response.internal_error(conn)
+    end
+  end
+
+  # An equal target is a no-op update: review still answers the plan (decision
+  # 0069 D1); only apply refuses it. A downgrade is refused by both.
+  defp review_version_check(tenant_id, pack_id, target_version) do
+    case SolutionPack.check_target_version(tenant_id, pack_id, target_version) do
+      {:error, :version_not_newer} -> :ok
+      other -> other
     end
   end
 
@@ -679,6 +692,13 @@ defmodule Letflow.Routers.SolutionPacks do
       "unresolved conflict on artefact_type=#{artefact_type} artefact_id=#{artefact_id}"
     )
   end
+
+  # REQ-573 / decision 0069 D1: the bare code is the detail, no version echoed.
+  defp render_update_apply(conn, {:error, :version_not_newer}),
+    do: Response.unprocessable(conn, "version_not_newer")
+
+  defp render_update_apply(conn, {:error, :version_downgrade}),
+    do: Response.unprocessable(conn, "version_downgrade")
 
   # Route-level pre-check above makes this unreachable in practice --
   # defensive only, same as compute_and_render_review/5's own clause.
