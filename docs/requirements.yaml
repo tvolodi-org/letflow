@@ -39335,7 +39335,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- no pending dependency; S1 staleness may flag this marker while the stage is active
+    gh: 3199
     # Source: docs/migration/core-roadmap-20261014.md, "Customization beyond scripts" ("notification templates", line 106); REQ-551 (label overrides, the sibling slice that names templates as a later candidate); docs/migration/decisions/0043-email-first-login-ba-decisions.md, D-B (REQ-441, login-discovery notifier; "leaks no enumeration signal"); lib/letflow/login_discovery/notifier.ex, notifier/smtp.ex, notifier/noop.ex; docs/agents/instructions/security-invariants.md (INV-1, INV-4, INV-5, INV-10); lib/letflow/api/authorization.ex; lib/letflow/audit.ex. Written by the business analyst (T-0488) 2026-10-25. Not yet validated.
     description: >
       A tenant cannot today control the wording of any message the platform composes for its users.
