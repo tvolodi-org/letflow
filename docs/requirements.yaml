@@ -38508,7 +38508,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED
+    gh: 3180
     # Source: docs/migration/core-roadmap-20261014.md, "Customization beyond scripts" ("label overrides", line 106); docs/migration/decisions/0020-frontend-architecture.md, section "i18n is now on the critical path"; web/src/i18n/entitiesMessages.ts, loginMessages.ts, sessionLocale.ts; lib/letflow/identity/tenant.ex (settings keys locales and default_locale, @locale_regex). Written by the business analyst (T-0469) 2026-10-25, reworked after the gate: split into this backend requirement and REQ-553 (SPA merge). The REQ ids are chosen above the ids that open team branches already carry (REQ-546 to REQ-552). Not yet validated.
     description: >
       A tenant cannot today change the words the SPA shows. The message catalogs are fixed in the
@@ -38591,7 +38591,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-551 -- needs GET /api/v1/labels
+    gh: 3179
     # Source: docs/migration/core-roadmap-20261014.md line 106; docs/migration/decisions/0020-frontend-architecture.md, section "i18n is now on the critical path"; web/src/i18n/entitiesMessages.ts (EntitiesIntlProvider, resolveUiLocale), loginMessages.ts (LoginIntlProvider), sessionLocale.ts. Written by the business analyst (T-0469) 2026-10-25 as the second half of the split of tenant label overrides. Not yet validated.
     description: >
       REQ-551 provides GET /api/v1/labels?locale=, which returns {locale, messages} with the tenant's
