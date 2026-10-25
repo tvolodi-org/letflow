@@ -875,7 +875,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-569 / GH #3246: widens the script_rules hook_kind CHECK to allow form_validation. No row
     # altered: existing rows are service_task or entity_write and satisfy the wider CHECK.
     {20_261_026_300_001, Letflow.Repo.Migrations.WidenScriptRulesHookKindFormValidation,
-     "20261026300001_widen_script_rules_hook_kind_form_validation.exs"}
+     "20261026300001_widen_script_rules_hook_kind_form_validation.exs"},
+    # REQ-570 / GH #3248: record trigger bindings table and the entity_event hook kind in the
+    # script_rules CHECK. Empty table for existing tenants; no row altered.
+    {20_261_026_400_001, Letflow.Repo.Migrations.CreateRecordTriggerBindings,
+     "20261026400001_create_record_trigger_bindings.exs"}
   ]
 
   @doc """

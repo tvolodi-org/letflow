@@ -375,3 +375,6 @@ config :letflow, :scope_shadow_flush_interval_ms, 3_600_000
 # test process dictionary). Set to true here and nowhere else; in every other build the branch is
 # not compiled, so no runtime setting can choose the resolver.
 config :letflow, :document_resolver_test_seam, true
+
+# REQ-570 / GH #3248: record triggers stay off in tests unless a test flips the flag itself.
+config :letflow, :record_triggers_enabled, false
