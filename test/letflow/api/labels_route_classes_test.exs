@@ -2,7 +2,7 @@ defmodule Letflow.Api.LabelsRouteClassesTest do
   @moduledoc """
   REQ-551 / GH #3180, criterion 4 (design IDs L1..L5):
 
-    * L1 `:LabelsManage` is a core permission of TENANT scope, last in `core_permissions/0`;
+    * L1 `:LabelsManage` is a core permission of TENANT scope, second to last in `core_permissions/0` (REQ-555 appended :EntitiesViewsManage);
       TENANT_ADMIN holds it; every other role does not; PLATFORM_ADMIN is denied outside the
       platform tenant;
     * L2 every role holds `:MyAccessRead` (the role-agnostic key of `GET /labels`);
@@ -23,7 +23,7 @@ defmodule Letflow.Api.LabelsRouteClassesTest do
   describe "L1/L2 permissions" do
     test "L1 LabelsManage is tenant scope, appended after the document permissions (REQ-565 then appended IntegrationMappingsManage), TENANT_ADMIN only" do
       assert Authorization.permission_scope(:LabelsManage) == :tenant
-      assert Authorization.core_permissions() |> Enum.take(-2) |> hd() == :LabelsManage
+      assert Authorization.core_permissions() |> Enum.take(-3) |> hd() == :LabelsManage
       assert Authorization.required_permission(:LabelsManage) == :LabelsManage
       assert Authorization.role_allows?(:TENANT_ADMIN, :LabelsManage)
 

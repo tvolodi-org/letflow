@@ -80,6 +80,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.Dlq, "/dlq", :post, "/:id/retry", :route},
     {Letflow.Routers.Webhooks, "/webhooks", :post, "/subscriptions", :route},
     {Letflow.Routers.Documents, "/documents", :post, "/:document_id/hold", :route},
+    {Letflow.Routers.EntityViews, "/entity-views", :post, "/", :route},
     {Letflow.Routers.Services, "/services", :post, "/", :probe},
     {Letflow.Routers.AdminServices, "/admin/services", :post, "/", :route},
     {Letflow.Routers.Entities, "/entities", :post, "/records/:entity_type", :route},
@@ -710,8 +711,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert length(mounted) == length(Enum.uniq(mounted))
       assert Enum.sort(mounted) == Enum.sort(named)
       # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
-      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings.
-      assert length(named) == 32
+      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews.
+      assert length(named) == 33
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do
