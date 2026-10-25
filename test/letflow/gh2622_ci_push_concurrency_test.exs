@@ -129,7 +129,7 @@ defmodule Letflow.Gh2622CiPushConcurrencyTest do
       end
 
       assert src =~
-               ~S{FRONTEND_PATHS_RE='^(web/|\.github/workflows/ci\.yml|scripts/ci_changed_paths\.sh$)'}
+               ~S{FRONTEND_PATHS_RE='^(web/|priv/labels/|\.github/workflows/ci\.yml|scripts/ci_changed_paths\.sh$)'}
 
       assert src =~
                ~S{MOBILE_PATHS_RE='^(apps/mobile/|\.github/workflows/ci\.yml|scripts/ci_changed_paths\.sh$)'}

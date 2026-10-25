@@ -107,6 +107,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  "GET /definitions/active/:name",
                  "GET /definitions/search",
                  "GET /help/resolved",
+                 "GET /labels",
                  "GET /me/access",
                  "GET /me/memberships",
                  "GET /me/modules"
@@ -315,6 +316,10 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  # REQ-545: the definitions collection reads (router-local paths "/" and "/search")
                  {"GET", "/", :self_service},
                  {"GET", "/search", :self_service},
+                 # REQ-551: the Labels router (router-local paths): the catalog read and the two override writes
+                 {"GET", "/", :self_service},
+                 {"PUT", "/:message_id", :tenant_wide},
+                 {"DELETE", "/:message_id", :tenant_wide},
                  # REQ-546: the two single-object definition reads
                  {"GET", "/active/:name", :self_service},
                  {"GET", "/:id", :self_service},
@@ -362,6 +367,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  Letflow.Routers.Entities,
                  Letflow.Routers.Help,
                  Letflow.Routers.Instances,
+                 Letflow.Routers.Labels,
                  Letflow.Routers.Me,
                  Letflow.Routers.Tasks
                ])
