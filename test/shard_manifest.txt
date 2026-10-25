@@ -935,3 +935,6 @@
 16 test/letflow/tenant_provisioning_script_events_test.exs 2047.60
 16 test/scripts/uat_platform_skipped_sidecars_test.exs 393.75
 16 test/support/status_history_test.exs 48.28
+9 test/letflow/plugs/csv_body_parser_test.exs 5542.85
+10 test/letflow/routers/entities_import_csv_test.exs 5542.85
+15 test/letflow/entities/csv_import_test.exs 5542.85
