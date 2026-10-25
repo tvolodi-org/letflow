@@ -1,0 +1,200 @@
+# T-0536 (BA): TENANT ADMIN group, scenario 8 of 9: values in a CSV file are read by the field's type, a bad row is reported by its line,
+# and the update-by-external-reference mode works for a file (REQ-557 acceptance criteria 4, 5, 6 second sentence, 7).
+# Sources: docs/requirements.yaml REQ-557 (description "COERCION", "ROW ERRORS BY LINE"; criteria 4, 5, 6, 7);
+# lib/letflow/routers/entities/record_import.ex (a row the converter refuses is reported with status error, its line, a constant reason type and the header
+# name; a row refused by the existing import path keeps that path's own result and gains the line);
+# lib/letflow/entities/csv_import.ex (reason names csv_invalid_integer, _decimal, _boolean, _date, _datetime, _json, _localized_text, csv_cell_count).
+# Aliases (actor-any, as in tenant-admin-1): tenant_admin = administrator of company A.
+# Not covered here, by the requirement's own wording: criteria 8, 11 (second half) and 12 are about the code change and are checked by review and CI.
+# Criterion 4's "a value of 17 significant digits survives unchanged" is covered by step 3 and EO-002; the non-strict decimal's JSON-number rule
+# (same precision limit as a JSON document) is covered by comparing with the JSON import of step 10, not by a person reading internals.
+---
+id: tenant-administration-8-csv-import-values-and-row-errors
+scope: tenant-administration
+title: A CSV file's cells are read by each field's type, each bad row is reported with its line and no cell text, and the other rows still load
+version: "1.0"
+tags: [tenant-admin, record-import, csv, coercion, row-errors, upsert, external-reference]
+
+description: >
+  On the record type "UAT csv contact" (created in tenant-administration-7), the administrator uploads a file with correct values of every field
+  type: whole number, exact decimal (17 significant digits), ordinary decimal, yes/no in any letter case, date, date and time with a zone,
+  choice, structured data and text per language. All are accepted and stored as the right kind of value. A second file has one bad cell of each type
+  in its own row, interleaved with good rows: each bad row is reported with its physical line in the file (a quoted cell with a line break
+  before it shifts the line) and the column name, no bad cell text is shown in the answer, and the good rows are written. A row that is
+  well-formed but breaks the record type's own rules (the required name is empty) is refused by the normal import with its own
+  message, plus its line. With the update-by-external-reference mode, a file with the external-reference columns uploaded twice leaves one record per
+  reference, and the second upload reports the rows as unchanged; the same file without those columns in this mode is reported
+  row by row as an invalid external reference.
+
+actors:
+  tenant_admin: actor-any
+
+preconditions:
+  - description: tenant-administration-7 passed in this run, so the record type "UAT csv contact" exists with all its fields and tenant_admin is the administrator of company A
+    check: custom
+    detail: If scenario 7 did not pass, report BLOCKED, not PASS.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: The administrator reads the record count of "UAT csv contact" and notes it as the "baseline".
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator uploads a CSV file with one data row "Val1" and these values: seats 12, price 12345678901234567 (17 digits, exact-string field),
+      weight 2.5, active TRUE (then a second row "Val2" with active False), start_date 2026-03-15, seen_at 2026-03-15T10:30:00Z, tier gold,
+      extra {"k":1}, label {"en":"Hello","de":"Hallo"}. The administrator notes the answer.
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: The administrator reads the records "Val1" and "Val2" and compares each value with the file.
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator uploads a CSV file with a header line and ten data rows. Rows named Good1 and Good2 are fully correct. The others each
+      have exactly one bad cell: BadInt (seats "12.5"), BadDec (weight "abc"), BadBool (active "maybe"), BadDate (start_date "15/03/2026"),
+      BadTime (seen_at "2026-03-15 10:30" without a zone), BadJson (extra "{not json"), BadLabel (label "[1,2]" a list, not an object),
+      and BadCells (one cell too few). The row BadInt is placed after a quoted name cell of the row Good1 that contains a line break.
+      The administrator notes the answer and the line of each result.
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: The administrator reads the records of the type and counts those named Good1 and Good2 and any named "Bad...".
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator uploads a CSV file with two rows: one with an empty name cell (the field the record type requires) and one with the name "Needs Name Ok".
+      The administrator notes the answer.
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator uploads a CSV file with the update-by-external-reference mode requested and columns name, external_ref_system and external_ref_id,
+      with two rows (system "UAT-ERP", ids "C-1" and "C-2"). The administrator uploads exactly the same file a second time. The administrator reads the
+      answers and the records with those references.
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator uploads a CSV file with only the column name and one row, with the update-by-external-reference mode requested.
+      The administrator reads the record count before and after.
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator uploads a CSV file with a header line and one valid row, with an upsert mode value the product does not define
+      (the request asks for mode "other"). The administrator reads the record count before and after.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: >
+      The administrator posts the JSON equivalent of the row "Val1" of step 2 (named "Val1json") to the same import and compares the stored seats, price,
+      weight, active, start_date, seen_at, tier, extra and label of both records.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Correct values of every field type are accepted and stored as the right kind of value.
+    verification:
+      method: api_response
+      detail: >
+        The answer of step 2 reports both rows written. In step 3 seats is the whole number 12; price is the exact text 12345678901234567 with every digit;
+        weight is 2.5; active is true for Val1 and false for Val2 (letter case does not matter); start_date is 2026-03-15; seen_at is the moment 2026-03-15 10:30 UTC;
+        tier is gold; extra is the structured value with k equal 1; label has the English and German texts.
+      evidence: The answer of step 2 and the records read in step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Imported numbers lose digits or dates are stored as text, so amounts and deadlines are wrong.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A bad cell makes only its row an error, and the error names the line and the column and no cell text.
+    verification:
+      method: api_response
+      detail: >
+        The answer of step 4 has ten results in file order. Each Bad row is an error result with its line number and the kind of fault of
+        its type (whole number, decimal, yes/no, date, date and time, structured data, text per language, number of cells) and, except for the cell-count row, the
+        column name (seats, weight, active, start_date, seen_at, extra, label). Good1 and Good2 are reported written. The text of
+        the bad cells ("12.5", "abc", "maybe", "15/03/2026", "{not json") appears nowhere in the answer.
+      evidence: The answer of step 4, read for results, lines, column names and the absence of the bad cell texts.
+    on_fail:
+      severity: MAJOR
+      business_impact: A single typo blocks the whole load or cannot be found in a long file, or the answer repeats personal data from the file.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The reported line is the physical line on which the row starts, counting the header as line 1.
+    verification:
+      method: api_response
+      detail: The line of BadInt equals the first line of that row in the file, which comes after the extra line taken by Good1's quoted name with its line break (so it is one higher than its position among the rows would suggest).
+      evidence: The line numbers in the answer of step 4 against the file.
+    on_fail:
+      severity: MAJOR
+      business_impact: Correcting a long file points at the wrong line.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Good rows of a file with bad rows are written, bad rows are not.
+    verification:
+      method: system_state
+      detail: In step 5 one record Good1 and one Good2 exist and no record named "Bad..." exists; the record count rose by exactly 2 over step 2's count.
+      evidence: The records read in step 5 against the baseline and the count after step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A bad row either blocks good data or is stored incomplete.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A row that the record type's own rules refuse is refused with the normal message plus its line, and the next row is still written.
+    verification:
+      method: api_response
+      detail: The answer of step 6 has two results; the first is the ordinary refusal for a missing required field (the same wording the JSON import gives) with line 2; the second is written with line 3.
+      evidence: The answer of step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: The file route gives different validation than the rest of the product, so data rules can be bypassed by choosing CSV.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: Uploading the same file twice in the update-by-external-reference mode leaves one record per reference.
+    verification:
+      method: system_state
+      detail: After step 7 exactly one record exists for each of C-1 and C-2 of system UAT-ERP; the first answer reports both created, the second reports both unchanged.
+      evidence: The answers of both uploads and the records read after step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A repeated nightly load from another system duplicates every record.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: A file without the external-reference columns, in the update mode, is reported row by row as an invalid external reference and writes nothing.
+    verification:
+      method: api_response
+      detail: The answer of step 8 has one result for the row, with the existing "external reference invalid" reason; the record count is unchanged.
+      evidence: The answer of step 8 and the counts before and after.
+    on_fail:
+      severity: MAJOR
+      business_impact: Rows meant to update by reference are created as new records, duplicating existing ones.
+      suggested_action: route_to_wf03
+  - id: EO-008
+    description: An undefined mode value is refused and writes nothing.
+    verification:
+      method: system_state
+      detail: Step 9 is refused as unprocessable with the message that the mode must be "external_ref"; the record count is unchanged.
+      evidence: The refusal and the counts of step 9.
+    on_fail:
+      severity: MINOR
+      business_impact: A mistyped mode silently falls back to creating duplicates.
+      suggested_action: route_to_wf03
+  - id: EO-009
+    description: A CSV row and the equivalent JSON document store identical values.
+    verification:
+      method: api_response
+      detail: The record "Val1json" of step 10 has the same seats, price (all 17 digits), weight, active, start_date, seen_at, tier, extra and label as "Val1".
+      evidence: Both records read in step 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: The two import routes disagree on what a value means, so the choice of file format changes the data.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The records stay for scenario 9; they are retired with the test customer.

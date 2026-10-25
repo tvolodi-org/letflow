@@ -1,0 +1,219 @@
+# T-0536 (BA): TENANT ADMIN group, scenario 7 of 9: a spreadsheet file (CSV) is imported as records; file format and column mapping
+# (REQ-557 acceptance criteria 1, 2, 3, 6 first sentence).
+# Sources: docs/requirements.yaml REQ-557 (description "CSV FORMAT", "MAPPING"; criteria 1, 2, 3, 6);
+# lib/letflow/routers/entities/record_import.ex (a whole-file refusal answers 422 with a constant message that names the kind of fault, never a cell;
+# the import answer lists one result per data row with its line); docs/roles.md (the record-import permission is held by the tenant administrator
+# only among the tenant roles).
+# Aliases (actor-any, as in tenant-admin-1): tenant_admin = administrator of company A.
+# Test-setup note: the record type of step 1 is created by the administrator in this scenario ("UAT csv contact"); its name and fields are
+# invented for the test. Scenarios 8 and 9 reuse it.
+# Not covered here, by the requirement's own wording: criterion 8 (converter module has no database alias, no new route, no change to the
+# record or upsert modules), criterion 11 second half (moduledoc table row) and criterion 12 (out of scope list) are about the code change and
+# are checked by review and CI, not by a person using the product. Criterion 1's "no database" unit test is a code test; its business half
+# (what the quoted and empty cells become) is steps 3 and 4.
+# UAT assumption, to be confirmed by the process owner: header names equal field names and the delimiter is a comma; a file exported with
+# semicolons is refused (REQ-557 open question 1).
+---
+id: tenant-administration-7-csv-import-format-and-mapping
+scope: tenant-administration
+title: The administrator imports a spreadsheet file as records, and a file with a wrong format or wrong column names is refused whole
+version: "1.0"
+tags: [tenant-admin, record-import, csv, format, mapping, refusal, all-or-nothing]
+
+description: >
+  The administrator of company A creates the record type "UAT csv contact" with the fields name (text, required), city (text),
+  note (text), seats (whole number), price (decimal with exact strings), weight (decimal), active (yes/no), start_date (date),
+  seen_at (date and time with zone), tier (choice of "basic" and "gold"), extra (free structured data) and label (text per language).
+  The administrator then uploads a CSV file of three rows: one with a city written in quotes and containing a comma, one with a note in
+  quotes that contains a line break and a doubled quote mark, and one with an empty city cell. Three records are created; the quoted texts
+  arrive without their quote marks, and the record with the empty city has no city at all (not an empty text). The same content sent with
+  Windows line endings, and with a leading byte-order mark, gives the same three records. A blank line in the file is skipped. A file
+  that is not valid UTF-8, an empty file, a file whose first line names a column that is not a field of the record type, a file with the same
+  column twice, a file with one of the two external-reference columns only, and a semicolon-separated file are each refused whole with a
+  message naming the kind of fault, and no record is written by any of them.
+  A task worker is not part of this scenario; the refusal for callers without authority is in scenario 9.
+
+actors:
+  tenant_admin: actor-any
+
+preconditions:
+  - description: tenant-administration-1 passed in this run, so tenant_admin is the administrator of company A
+    check: custom
+    detail: If the administrator does not exist, report BLOCKED, not PASS.
+  - description: The administrator can mark a decimal field as holding exact strings, and can create fields of every type listed above
+    check: custom
+    detail: If the product's record-type editor offers no way to set one of these types or the exact-string option, report BLOCKED for the steps that need it; the rule is not settled by the sources for that type.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator creates the record type "UAT csv contact" with the fields listed in the description (name required, all others optional)
+      and reads the record count of the type, which is 0.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator uploads a CSV file (content type text/csv) to the import of "UAT csv contact". The first line names the columns name, city, note.
+      Data line 2 is: Anna, "Berlin, Mitte", plain. Data line 3 is: Boris, Hamburg, and a note in quotes that reads: He said ""hi"" [line break] and left.
+      Data line 5 (the quoted note takes lines 3 and 4) is: Clara, (empty city), short. The administrator notes the answer and then reads the three records.
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator reads the three records created in step 2 and compares the city of Anna, the note of Boris and the city of Clara with
+      what the file contained.
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator uploads the same three rows of step 2 for the names "Anna2", "Boris2" and "Clara2" with Windows line endings, and
+      then once more for "Anna3", "Boris3" and "Clara3" with a leading byte-order mark and a blank line between two rows. The administrator reads the six records
+      and compares the cities and notes with those of step 3.
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator uploads a file whose bytes are not valid UTF-8 (for example a single byte that is not part of any UTF-8 text inside
+      a name). The administrator reads the record count afterwards.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: The administrator uploads an empty file (no header line at all). The administrator reads the record count afterwards.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator uploads a file whose first line names the columns name and "colour" (the record type has no field "colour"), followed by one valid row.
+      The administrator reads the record count afterwards.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator uploads a file whose first line names the column "name" twice, followed by one valid row. The administrator reads
+      the record count afterwards.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator uploads a file with the update-by-external-reference mode requested and a first line that names the columns name and
+      external_ref_system but not external_ref_id (then the same with external_ref_id but not external_ref_system), each followed by one valid row.
+      The administrator reads the record count after each.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: >
+      The administrator uploads a file whose columns are separated by semicolons (first line "name;city", one valid row "Dora;Kyiv").
+      The administrator reads the record count afterwards.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin
+    action: >
+      The administrator uploads a file whose data row has one cell more than the header and then a valid row. The administrator notes the answer and
+      reads the records.
+    via: api
+  - step: 12
+    actor: tenant_admin
+    action: >
+      The administrator posts to the same import the equivalent JSON document of the three rows of step 2 for the names "Anna4", "Boris4" and
+      "Clara4" (same cities and notes) and reads the answer and the records.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A valid CSV file creates one record per data row, and the answer lists each row with its line number in the file.
+    verification:
+      method: api_response
+      detail: >
+        The answer of step 2 has three results, each reported as written, with line numbers 2, 3 and 5 (the header is line 1, and the row
+        whose note spans two lines starts on line 3); the record count of the type is 3.
+      evidence: The answer of step 2 and the record count after it.
+    on_fail:
+      severity: MAJOR
+      business_impact: A spreadsheet export cannot be loaded without hand conversion, and errors cannot be traced to a line of the file.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Quoted cells arrive as their text without the quote marks, and an empty cell leaves the field absent.
+    verification:
+      method: api_response
+      detail: >
+        Anna's city is: Berlin, Mitte (with the comma). Boris's note is the text He said "hi" followed by a line break and "and left."
+        (one quote mark pair, not doubled). Clara has no city at all: the record shows no city value, not an empty text and not a null.
+      evidence: The three records read in step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Names with commas or quotes are damaged on import, and empty cells overwrite or invent data.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Windows line endings, a leading byte-order mark and a blank line give the same records as the plain file.
+    verification:
+      method: api_response
+      detail: The six records of step 4 have the same cities and notes as in step 3 (Anna2/Anna3 like Anna, and so on); the blank line is not reported as a row and created no record.
+      evidence: The records read in step 4 and the number of results of the second upload (three).
+    on_fail:
+      severity: MINOR
+      business_impact: Files saved by common spreadsheet programs fail or import with a stray character in the first column name.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A file that is not valid UTF-8, an empty file, an unknown column, a duplicated column and a half pair of external-reference columns are each refused whole, as unprocessable with a message naming the kind of fault, before any row is read as data.
+    verification:
+      method: api_response
+      detail: >
+        Steps 5 to 9 are refused as unprocessable (not as a server failure). The messages say, in turn: the file is not valid UTF-8; the file has no header row;
+        a header column is not a field of the record type; a header has a duplicate column; the two external-reference columns must be given together.
+        None repeats a cell of the file.
+      evidence: The refusal answers of steps 5 to 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: A faulty file is half imported or crashes the import, so a data load cannot be repeated safely.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A refused file writes no record at all.
+    verification:
+      method: system_state
+      detail: After each refusal of steps 5 to 10 the record count of "UAT csv contact" equals its count before that step (9 after step 4: 3 + 3 + 3).
+      evidence: The record counts read after steps 5 to 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused load leaves part of its data in the system, and a corrected re-upload then duplicates it.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: A semicolon-separated file is not read as a CSV with another delimiter; it is refused until a delimiter option exists.
+    verification:
+      method: system_state
+      detail: Step 10 is refused whole (the first line is read as one column that is not a field) and no record "Dora" exists. This is a UAT assumption to be confirmed by the process owner.
+      evidence: The refusal of step 10 and the record count after it.
+    on_fail:
+      severity: MINOR
+      business_impact: A regional spreadsheet export is mistaken for a valid file, or fails with a misleading message.
+      suggested_action: log_for_product_owner
+  - id: EO-007
+    description: A data row with the wrong number of cells is reported as a row error with its line and does not stop the other rows.
+    verification:
+      method: api_response
+      detail: The answer of step 11 has two results; the first is an error with line 2 and the kind "wrong number of cells" and no column name; the second row is written. The error does not contain any cell text.
+      evidence: The answer of step 11 and the records read after it.
+    on_fail:
+      severity: MAJOR
+      business_impact: One ragged line blocks a whole load, or is silently shifted into the wrong columns.
+      suggested_action: route_to_wf03
+  - id: EO-008
+    description: The JSON import is unchanged and gives the same records as the CSV file, with the same answer shape except for the line number.
+    verification:
+      method: api_response
+      detail: The answer of step 12 has three results reported as written, in the same shape as step 2 but without a line member; the three records equal those of step 3 in city and note.
+      evidence: The answer and records of step 12 against step 2 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Adding the file route changed what existing integrations get back.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The record type and its records stay for scenarios 8 and 9; they are retired with the test customer.
