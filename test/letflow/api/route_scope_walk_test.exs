@@ -101,7 +101,14 @@ defmodule Letflow.Api.RouteScopeWalkTest do
              |> Enum.filter(&(&1.class == :self_service))
              |> Enum.map(&"#{&1.method} #{&1.path}")
              |> Enum.sort() ==
-               ["GET /help/resolved", "GET /me/access", "GET /me/memberships", "GET /me/modules"]
+               [
+                 "GET /definitions",
+                 "GET /definitions/search",
+                 "GET /help/resolved",
+                 "GET /me/access",
+                 "GET /me/memberships",
+                 "GET /me/modules"
+               ]
     end
   end
 
@@ -303,6 +310,9 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"GET", "/modules", :self_service},
                  {"GET", "/access", :self_service},
                  {"GET", "/resolved", :self_service},
+                 # REQ-545: the definitions collection reads (router-local paths "/" and "/search")
+                 {"GET", "/", :self_service},
+                 {"GET", "/search", :self_service},
                  {"POST", "/:id/attachments/:attachment_id/link", :tenant_wide},
                  {"POST", "/query", :filter},
                  {"POST", "/query/aggregate", :filter},
@@ -342,6 +352,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
 
       assert scopes |> Enum.map(fn {router, _entry} -> router end) |> Enum.uniq() |> Enum.sort() ==
                Enum.sort([
+                 Letflow.Routers.Definitions,
                  Letflow.Routers.Documents,
                  Letflow.Routers.Entities,
                  Letflow.Routers.Help,
