@@ -39935,7 +39935,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-539 -- REQ-539 (decision 0065 record) is still pending in the register; E-1 needs its D4, D7 and D8 binding
+    gh: 3217
     # Source: docs/migration/decisions/0065-entity-pre-write-script-hook.md D4 (pin is a tenant-schema binding row), D7 (INV-1 and the INV-10 test, managed types), D1 (step-line conflict, code entity_type_hooked) and D8 slice E-1; docs/migration/decisions/0053-tenant-scripted-rules.md D1, D3; docs/migration/core-roadmap-20261014.md Wave 2 row "Entity pre-write validation and derived-field scripts (second invocation point)". Written by the business analyst (T-0523) 2026-10-25.
     description: >
       Decision 0065 D8 slice E-1 only ("pin and registry"). Today a tenant script is published only for the
