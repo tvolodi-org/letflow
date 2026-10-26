@@ -421,7 +421,7 @@ defmodule Letflow.RecordTriggersTest do
   end
 
   describe "N nothing runs" do
-    test "N1 only the context, its schema, the manifest and the migration touch the table" do
+    test "N1 only the context, its schema, its router, the manifest and the migration touch the table" do
       readers =
         Path.wildcard("lib/**/*.ex")
         |> Enum.filter(fn f ->
@@ -433,6 +433,7 @@ defmodule Letflow.RecordTriggersTest do
       assert readers == [
                "lib/letflow/record_triggers.ex",
                "lib/letflow/record_triggers/binding.ex",
+               "lib/letflow/routers/record_trigger_bindings.ex",
                "lib/letflow/tenant_provisioning.ex"
              ]
 
