@@ -879,7 +879,10 @@ defmodule Letflow.TenantProvisioning do
     # REQ-570 / GH #3248: record trigger bindings table and the entity_event hook kind in the
     # script_rules CHECK. Empty table for existing tenants; no row altered.
     {20_261_026_400_001, Letflow.Repo.Migrations.CreateRecordTriggerBindings,
-     "20261026400001_create_record_trigger_bindings.exs"}
+     "20261026400001_create_record_trigger_bindings.exs"},
+    # REQ-572 / GH #3252: the pending-grant created_via CHECK also allows 'provisioning'. No row altered.
+    {20_261_027_000_002, Letflow.Repo.Migrations.WidenGrantsCreatedViaChk,
+     "20261027000002_widen_grants_created_via_chk.exs"}
   ]
 
   @doc """

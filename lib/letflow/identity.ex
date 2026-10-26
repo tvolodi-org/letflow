@@ -2165,6 +2165,29 @@ defmodule Letflow.Identity do
   end
 
   @doc """
+  REQ-572 / decision 0072 D3: inserts the tenant row of a provisioner-created tenant with the
+  caller's id as `tenants.id` (`Tenant.provisioning_changeset/2`). An existing id or slug returns
+  `{:error, :exists}` and writes nothing.
+  """
+  @spec create_provisioned_tenant(attrs :: map()) ::
+          {:ok, Tenant.t()} | {:error, :exists} | {:error, Ecto.Changeset.t()}
+  def create_provisioned_tenant(attrs) do
+    case Repo.insert(Tenant.provisioning_changeset(%Tenant{}, attrs)) do
+      {:ok, tenant} ->
+        {:ok, tenant}
+
+      {:error, %Ecto.Changeset{errors: errors} = changeset} ->
+        if Enum.any?(errors, fn {_field, {_message, keyword}} ->
+             Keyword.get(keyword, :constraint) == :unique
+           end) do
+          {:error, :exists}
+        else
+          {:error, changeset}
+        end
+    end
+  end
+
+  @doc """
   Lists tenants, filtered by an optional `search` substring (`ILIKE` across
   `slug`/`display_name`), cursor-paginated via `Letflow.Api.Pagination`.
   Sorted by `inserted_at` ascending, then `id` ascending as a tiebreaker —
@@ -3593,7 +3616,13 @@ defmodule Letflow.Identity do
       Multi.new()
       |> Multi.run(:bind, fn repo, _changes -> lock_and_bind_realm(repo, tenant_id, realm) end)
       |> Multi.run(:audit, fn repo, %{bind: bound} ->
-        audit_realm_bind(repo, bound, actor_id, platform_prefix, Keyword.get(opts, :trace_id))
+        audit_realm_bind(
+          repo,
+          bound,
+          {actor_id, "platform_operator"},
+          platform_prefix,
+          Keyword.get(opts, :trace_id)
+        )
       end)
       |> Repo.transaction()
       |> case do
@@ -3620,6 +3649,56 @@ defmodule Letflow.Identity do
     :exit, reason ->
       Logger.error(
         "tenant realm bind failed (tenant_id=#{inspect(tenant_id)}, exit=#{inspect(bind_exit_tag(reason))})"
+      )
+
+      committed_realm_or_audit_failed(tenant_id, realm)
+  end
+
+  @doc """
+  REQ-572 / decision 0072 D3: `bind_tenant_realm/3` for the provisioner credential. Same row lock
+  and the same outcomes (bound now, same realm already stored, `:realm_already_bound`,
+  `:tenant_not_active`, `:duplicate_realm`), but NO operator user: the tenant-chain entry carries
+  `actor_class: "provisioner"` and the platform-chain entry has a NIL actor. `opts[:platform_prefix]`
+  must be verified by the caller (`Letflow.PlatformTenant.platform_prefix/0`).
+  """
+  @spec bind_provisioned_realm(Ecto.UUID.t(), String.t(), platform_prefix: String.t()) ::
+          {:ok, Tenant.t()}
+          | {:error,
+             :not_found
+             | :realm_already_bound
+             | :tenant_not_active
+             | :duplicate_realm
+             | :audit_failed
+             | Ecto.Changeset.t()}
+  def bind_provisioned_realm(tenant_id, realm, opts) when is_binary(realm) do
+    platform_prefix = Keyword.get(opts, :platform_prefix)
+
+    if is_binary(platform_prefix) do
+      Multi.new()
+      |> Multi.run(:bind, fn repo, _changes -> lock_and_bind_realm(repo, tenant_id, realm) end)
+      |> Multi.run(:audit, fn repo, %{bind: bound} ->
+        audit_realm_bind(repo, bound, {nil, "provisioner"}, platform_prefix, nil)
+      end)
+      |> Repo.transaction()
+      |> case do
+        {:ok, %{bind: {_outcome, tenant}}} -> {:ok, tenant}
+        {:error, :bind, reason, _changes} -> {:error, reason}
+        {:error, _step, _reason, _changes} -> {:error, :audit_failed}
+      end
+    else
+      {:error, :audit_failed}
+    end
+  rescue
+    exception ->
+      Logger.error(
+        "provisioned realm bind failed (tenant_id=#{inspect(tenant_id)}, exception=#{inspect(exception.__struct__)})"
+      )
+
+      committed_realm_or_audit_failed(tenant_id, realm)
+  catch
+    :exit, reason ->
+      Logger.error(
+        "provisioned realm bind failed (tenant_id=#{inspect(tenant_id)}, exit=#{inspect(bind_exit_tag(reason))})"
       )
 
       committed_realm_or_audit_failed(tenant_id, realm)
@@ -3693,10 +3772,16 @@ defmodule Letflow.Identity do
     if unique?, do: :duplicate_realm, else: changeset
   end
 
-  defp audit_realm_bind(_repo, {:unchanged, _tenant}, _actor_id, _platform_prefix, _trace_id),
+  defp audit_realm_bind(_repo, {:unchanged, _tenant}, _actor, _platform_prefix, _trace_id),
     do: {:ok, :unchanged}
 
-  defp audit_realm_bind(repo, {:bound, tenant}, actor_id, platform_prefix, trace_id) do
+  defp audit_realm_bind(
+         repo,
+         {:bound, tenant},
+         {actor_id, actor_class},
+         platform_prefix,
+         trace_id
+       ) do
     # `limit: 1`: tenant_id has only a plain index, so two rows would make get_by raise.
     onboarding_id =
       repo.one(
@@ -3718,7 +3803,7 @@ defmodule Letflow.Identity do
                before_state: nil,
                after_state: %{
                  "idp_realm_id" => tenant.idp_realm_id,
-                 "actor_class" => "platform_operator"
+                 "actor_class" => actor_class
                }
              },
              prefix

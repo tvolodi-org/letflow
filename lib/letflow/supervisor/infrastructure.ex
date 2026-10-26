@@ -64,6 +64,7 @@ defmodule Letflow.Supervisor.Infrastructure do
   7. `Letflow.Api.Scope.ShadowEvidence` (REQ-517 2b: shadow-evidence ETS counters + flush)
   8. `Letflow.Plugs.PublicReadRateLimit.Bucket`
   9. `Letflow.Plugs.LoginDiscoveryRateLimit.Bucket` (REQ-436)
+  9b. `Letflow.Plugs.ProvisionerAuth.RateLimiter` (REQ-572; the live child count is one higher than before)
   10. `Letflow.Admission`
   11. `Letflow.InstanceSupervisor`
   12. `Letflow.SandboxPool.TaskSupervisor`
@@ -267,6 +268,9 @@ defmodule Letflow.Supervisor.Infrastructure do
       # ISS-1030 (design iss1030-onboarding-administrator.md s7 step 11, OQ-16): the
       # once-per-tenant-per-hour throttle for the pending-admin bind's fault WARNING.
       # A leaf with no ordering dependency; nothing looks it up during its own init/1.
+      # REQ-572 / GH 3252 (decision 0072 P10): the fixed-window limit of the provisioner credential.
+      # A leaf with no ordering dependency; own table, nothing looks it up during its own init/1.
+      Letflow.Plugs.ProvisionerAuth.RateLimiter,
       Letflow.Identity.PendingAdminGrants.FaultThrottle,
       # REQ-216 (design req216-admission-control-core.md §4): the global +
       # per-tenant admission-control counting semaphore. NO ordering

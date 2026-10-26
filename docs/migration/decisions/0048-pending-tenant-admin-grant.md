@@ -112,3 +112,5 @@ still deferred; the runbook forbids a brokered "Trust Email" provider), 0046 D4/
 0004 (no human gate introduced). The lock order in section 1.8 matches the code in
 `PendingAdminGrants.transact_bind/7`. Non-blocking follow-up: 0006 R5 itself carries no pointer to this
 record and still reads "immutable"; add a one-line "narrowed by 0048 section 2" note there.
+
+Second creation path (REQ-572, 0072 D5(a)): `PendingAdminGrants.create_provisioned/2` stores a grant with `created_via 'provisioning'` for a tenant made by the provisioner credential; it has exactly one caller, `Letflow.TenantProvisioner`. Everything above (TENANT_ADMIN only, by CHECK; no add or replace route) still holds.
