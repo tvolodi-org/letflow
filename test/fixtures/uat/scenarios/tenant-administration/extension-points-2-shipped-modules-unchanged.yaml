@@ -1,5 +1,7 @@
 # REQ-574 slice X1 (BA-TENANT-ADMINISTRATION): what a company can see on QA of the extension point change: nothing changes for shipped modules and ordinary drafts.
-# Criteria covered: 4 (production modules unchanged: step 1) and 7 (a draft with no owner module goes live as before: step 2, no new entry in step 3's refusal).
+# Criteria covered: 7 (a draft with no owner module goes live as before: step 2, no new entry in step 3's refusal).
+# Step 1 is only a regression look at the module list; it is NOT proof of criterion 4 (the three production manifests are valid): that is step 19
+# of extension-points-1.
 # Everything else of REQ-574 slice X1 (declaration checks, site check, go-live refusal for a module that announces places) cannot be observed on QA:
 # see extension-points-1 for the reason (no module upload route, no shipped module announces a place).
 # Sensitive actions: change process definitions is the go-live (steps 2, 3). approve, pay or release, see sensitive data, change users: not part of this flow.
@@ -34,7 +36,7 @@ steps:
     action: Looks at the list of modules her company has.
     via: api
     produces:
-      module_list: the list as it was before this change, each module with its id and version
+      module_list: the list of installed modules, each with its id and version
   - step: 2
     actor: swiftroute_admin
     action: Takes draft A live.
@@ -53,10 +55,12 @@ steps:
 
 expected_outcomes:
   - id: EO-001
-    description: The module list of step 1 is answered with status 200 and lists the same modules and versions as before this change.
+    description: >
+      The module list of step 1 is answered with status 200, and every module in it is one of the shipped ones with its shipped version:
+      exam 0.1.0, org 0.1.0 or catalog_items 0.1.0.
     verification:
       method: api_response
-      detail: Status 200; the list is compared with the list of the last run before the change.
+      detail: Status 200; each entry's module id and version is one of the three pairs exam 0.1.0, org 0.1.0, catalog_items 0.1.0.
       evidence: The answer.
     on_fail:
       severity: MAJOR

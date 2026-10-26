@@ -2,7 +2,8 @@
 # when the module description is checked, and a process that sits on a missing step is refused at go-live.
 # Criteria covered (numbering = acceptance_criteria order of REQ-574):
 #   1 duplicate name (step 4); 2 wrong kind, bad name, wrong position, missing site key, not a list (steps 5-9);
-#   3 valid list accepted (step 1), rule 13 after rule 12 (step 10); 4 no key behaves as today (steps 2, 3);
+#   3 valid list accepted (step 1), rule 13 after rule 12 (step 10); 4 the three production modules (exam, org, catalog_items) are still valid (step 19);
+#   no key behaves as today (steps 2, 3);
 #   5 site check (steps 11-13); 6 go-live refusal and corrected go-live (steps 14, 15); 7 draft cases that go live as before (steps 16-18).
 # Criteria 8 and 9 (no new route, no migration, no engine or permission change; format, compile and static checks) are properties of the
 # change set, not of a running instance: no step can observe them, so they are not scenario steps. The build gate checks them.
@@ -10,12 +11,14 @@
 # upload or registration route for a module (the only module routes install, change settings, uninstall and reactivate a module that the
 # product already ships). No shipped module declares an extension point, and the only one that does is a test-only module. So the steps
 # below run only where the tester can offer a module description to the catalog check and the test-only module is registered; on QA the
-# scenario is ENV_NOT_SUPPORTED (sidecar test/fixtures/uat/scenario-env-limitations/tenant-administration-extension-points-1-declaration-and-site-checks.yaml).
+# scenario is ENV_NOT_SUPPORTED (sidecar test/fixtures/uat/scenario-env-limitations/tenant-administration-extension-points-declaration-and-site-checks.yaml).
 # The QA-observable part (shipped modules and ordinary drafts behave as before) is scenario extension-points-2.
 # Sensitive actions: change process definitions is the go-live (steps 14-18). approve, pay or release, see sensitive data, change users: not part of this flow.
 # Steps 4-10 and 14 are expected to be REFUSED, one request each. Accepted cases are in their own steps.
 # Refusal answers (module catalog): invalid_extension_points, duplicate_extension_point, unknown_extension_point_kind (exact reason names in the
-# requirement text); go-live: status 422 with a semantic validation list holding an "unknown extension site" entry.
+# requirement text); go-live: the activation call returns a semantic validation failure (a violation list, run through the system actor, so no
+# status code is observed here) holding an "unknown extension site" entry.
+# Step 19 is an accepted case.
 ---
 id: tenant-administration-extension-points-declaration-and-site-checks
 scope: tenant-administration
@@ -165,6 +168,14 @@ steps:
     via: system
     produces:
       live_unknown_version: the draft is live, with no "unknown extension site" entry
+  - step: 19
+    actor: module_catalog
+    action: >
+      Offers, one after the other, the module descriptions of the three modules the product ships and has switched on in its configuration:
+      the exam module, the organisation module and the catalog items module.
+    via: system
+    produces:
+      production_modules_valid: each of the three descriptions is answered valid
 
 expected_outcomes:
   - id: EO-001
@@ -254,6 +265,16 @@ expected_outcomes:
     on_fail:
       severity: MAJOR
       business_impact: Every existing module process could be blocked from going live by a check that should not apply to it.
+      suggested_action: route_to_wf03
+  - id: EO-009
+    description: Each of the three shipped module descriptions of step 19 is answered valid by the catalog check.
+    verification:
+      method: test_result
+      detail: Three answers, each valid; none carries invalid_extension_points, duplicate_extension_point or unknown_extension_point_kind.
+      evidence: The three catalog answers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A shipped module would fail its own description check and could not be offered or installed.
       suggested_action: route_to_wf03
 
 cleanup:
