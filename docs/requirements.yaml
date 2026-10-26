@@ -41890,3 +41890,80 @@ requirements:
       - "8. Existing logo_url values: a tenant with settings logo_url \"https://example.com/l.png\" and no upload returns that string from both endpoints exactly as before; with an upload both return the path while settings[\"logo_url\"] in the database is unchanged; after DELETE /api/v1/tenant/logo or after turning the flag off both return the stored string again; Letflow.Routers.TenantConfig.branding_from_settings/1 still returns the stored string (test of Letflow.Modules.Exam.Certificate branding unchanged)."
       - "9. Gates: SECURITY-REVIEWER verdict recorded (mandatory: INV-1, INV-2, INV-5, INV-8; public unauthenticated read); REVIEWER verdict recorded; route and named-route pins move as the route table requires (grep -rn \"__authz_routes__\\|length(snapshot)\\|length(named)\" test/), stated as +N from the values on origin/main at implement time; mix letflow.check.static and the changed and new test files pass with real output quoted; the PR states the flag is off in QA after auto-CD and that no existing row is changed."
     depends_on: [REQ-590, REQ-585, REQ-280]
+
+  - id: REQ-596
+    title: "Per-tenant solution-pack override storage and management API, slice S2: tenant-schema table, closed property list, create/new-version/retire/list routes, permission, audit (decision 0069 D8 S2)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-562 -- decision 0069 is PROPOSED and needs the REVIEWER and SECURITY-REVIEWER sign-off that REQ-562 records before any slice is implemented
+    # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D2 (what an override is, closed property list), D3 (override_version, made_against, history never deleted), D5 (permission, audit, INV-2), D6 (tenant-schema table, cross-tenant negative), D7 (existing tenants), D8 slice S2, Open points Q3, Q4, Q5, "Threats for SECURITY-REVIEWER"; docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-4, INV-5, INV-10); code read: lib/letflow/routers/solution_packs.ex (authz_post routes /export, /install, /:pack_id/update-review, /:pack_id/update-apply, with :DefinitionsRead and :DefinitionsCreate), lib/letflow/definitions/solution_pack_install.ex and solution_pack_artefact_base.ex (artefact_type and artefact_id are strings, GLOBAL tables), lib/letflow/audit.ex (append_multi/4), lib/letflow/tenant_provisioning.ex (the ordered migration list), test/support/tenant_fixture.ex (@expected_tenant_tables) and test/letflow/support/tenant_fixture_test.exs (length == 72 on this branch), test/fixtures/route_scope/tenant_wide_default_routes.txt. Written by the business analyst (T-0726) 2026-10-26. Not yet validated.
+    description: >
+      Slice S2 of decision 0069 D8 (core roadmap Wave 3, "Solution versioning and per-tenant overrides"). S1 is
+      REQ-573. Decision 0069 is PROPOSED; this slice is implemented only once REQ-562 records its sign-off.
+      What main does today. A tenant that wants to deviate from an installed pack edits the installed definition
+      and the update machinery diffs it against the base row (solution_pack_artefact_bases, GLOBAL, no :prefix).
+      There is no stored override layer, no permission for one and no route to manage one.
+      What this slice builds, and nothing else. (1) STORAGE. A new table solution_pack_overrides in the TENANT
+      schema (Ecto :prefix, INV-1; tenant_id also kept in each row, matching the neighbouring tenant tables;
+      decision 0069 D6), added to the ordered migration list in lib/letflow/tenant_provisioning.ex so new tenants
+      get it. One row per override VERSION, append-only: columns override_id (stable across versions of one
+      override), override_version (monotone per override_id), pack_id, artefact_type (process_definition or
+      variable_schema only), artefact_id (string, as in solution_pack_artefact_bases), made_against (the pack
+      version, a string), patch (a map of overridable property paths to values, not a copy of the definition),
+      patch_hash, status (active or retired), reason, created_by, inserted_at. Orphaned status is S4's and is not
+      written here. At most one override_id is non-retired per (pack_id, artefact_type, artefact_id). Nothing in
+      the three global pack tables is read for a patch value or written by this slice; a join to a global
+      install row is by (tenant_id, pack_id) taken from the auth context only (D6).
+      (2) CLOSED PROPERTY LIST. A module attribute in the new override module lists the overridable property
+      paths per artefact_type; a path not on it is refused with a 422 and the stable detail text
+      property_not_overridable, and the whole request is refused (no partial patch). For process_definition the
+      categories are those of D2: step assignment (assignee role or rule reference), numeric thresholds, step and
+      form labels, deadlines and timer durations. Refused always: graph structure (nodes, edges, node ids),
+      gateway condition expressions, variable names and types, anything another artefact references by id, any
+      script. For variable_schema the source names no overridable property (D2 says only that variable names and
+      types may not be overridden); the S2 design proposes the list and SECURITY-REVIEWER reviews it (Q5), see open
+      question 3. The exact path list is the S2 design's by name (Q5); this entry fixes the categories and the
+      refusals, not the paths.
+      (3) ROUTES, under the existing /solution-packs router, tenant from the auth context only (never path,
+      query or body): GET /solution-packs/:pack_id/overrides lists the latest version of each override of that
+      pack; POST /solution-packs/:pack_id/overrides creates version 1 (body: artefact_type, artefact_id, patch,
+      reason); POST /solution-packs/:pack_id/overrides/:override_id/versions writes the next version; POST
+      /solution-packs/:pack_id/overrides/:override_id/retire writes a retiring version (status retired, empty
+      patch). No PATCH, PUT or DELETE route exists: history is never changed or deleted (D3). The patch must
+      validate against the closed list; the artefact must be one the tenant's active install of pack_id covers;
+      otherwise 404 with the not-found reply of INV-5. Reads return property paths and values only to a caller
+      who may read the artefact; a restricted or secret-reference value is returned as the reference or redacted
+      (INV-2, INV-4); the design states per route the fields a read returns.
+      (4) PERMISSION. One new tenant-scope permission, atom SolutionOverridesManage (chosen here; D5 proposes it),
+      classified TENANT-scope (INV-10, 0046), granted to TENANT_ADMIN only and to no other role, no new role;
+      docs/roles.md is updated. The three POST routes need it; the GET list needs :DefinitionsRead. The two
+      existing update routes keep :DefinitionsRead and :DefinitionsCreate, unchanged (Q4, assumed).
+      (5) AUDIT. Every create, new version and retire writes a hash-chain entry in the same transaction as the row
+      (Audit.append_multi/4): pack_id, artefact_type, artefact_id, override_id, override_version, patch_hash,
+      actor, reason (mandatory); never a patch value.
+      NOT IN THIS SLICE (later entries, decision 0069 D8; none is registered yet): S3 effective definition and
+      activation (merging patch over the installed definition into a new process definition version); S4
+      compute_pack_update_plan/5 and apply_pack_update/6 read overrides (override_conflict, kept, advance,
+      orphan); S5 the web screen; S6 adopt-local-edit (optional). Also not here: pack rollback (Q2), entity_definition
+      overrides, client scripts. An override stored by this slice changes no running or future definition until S3.
+      Existing tenants (D7): no row of solution_pack_installs, solution_pack_artefact_bases or
+      pack_update_resolutions is read for patch values, changed, deleted or backfilled; the new table is empty for
+      every existing tenant and the update-review and update-apply routes answer exactly as before.
+      Assumed answers to the open points of 0069, to be confirmed by the owner (see open questions): Q3(a), Q4,
+      and Q5 left to the S2 design.
+    acceptance_criteria:
+      - "1. Storage: a migration creates solution_pack_overrides in the tenant schema with the columns of the description and a unique key on (override_id, override_version); it is added to the ordered migration list in lib/letflow/tenant_provisioning.ex; a test provisions a new tenant and finds the table, and a test replays the migration on an existing tenant schema and finds it empty. Test S2-storage: after the whole slice, no row of solution_pack_installs, solution_pack_artefact_bases or pack_update_resolutions differs from before (count and content compared), and update-review and update-apply replies for an install with no override are byte-identical to before."
+      - "2. Routes: the four routes of the description exist with the stated permissions; a TENANT_ADMIN creates version 1, writes version 2 and retires it, and the list shows only the latest version per override_id with its status; a second non-retired override for the same (pack_id, artefact_type, artefact_id) is refused with 422 and the detail text override_exists; a version or retire for an unknown override_id, or for a pack with no active install of the tenant, answers the not-found reply; no PATCH, PUT or DELETE method on these paths is routed (a test requests each and receives the router's unmatched reply)."
+      - "3. Test S2-closed-list: for process_definition, a patch that names graph structure (a node or edge or node id), a gateway condition expression, a variable name or type, a script, or any path not on the closed list is refused with 422 property_not_overridable and no row is written; a patch of only listed paths is accepted; a patch mixing a listed and an unlisted path is refused whole. The same three cases for variable_schema against its own list. A threshold path is accepted only where the module wrapping the pack declares the setting in its settings_schema (assumed Q3(a)); otherwise it is refused with the same 422. An artefact_type other than process_definition or variable_schema (for example entity_definition) is refused with 422. The closed lists are in one module attribute whose content is pinned by a test, so a later change to it fails a test."
+      - "4. Test S2-immutable-history: after versions 1, 2 and 3 and a retire, four rows exist for the override_id with override_version 1 to 4 and every earlier row byte-identical to when it was written (compared by patch_hash and all columns); the code path of this slice contains no Repo.update, Repo.delete or update_all/delete_all on the table (a source-scanning test); a direct attempt to create version 2 twice concurrently leaves one version 2 and one refusal. made_against is stored as the string of the pack version of the tenant's active install at write time."
+      - "5. Test S2-audit-no-values: each of create, new version and retire writes exactly one audit entry in the same transaction as the row, carrying pack_id, artefact_type, artefact_id, override_id, override_version, patch_hash, actor and reason; a request without a reason is refused 422 and writes neither row nor entry; a test patches a distinctive value (for example the number 987654.321) and asserts it appears in no audit entry payload, no log line captured during the request, and no row of the three global pack tables; a DROP TABLE audit_entries test shows the failure is rescued, answers a non-500 error and leaves no override row."
+      - "6. Test C-manage (INV-10, INV-5): a TENANT_ADMIN of tenant B cannot list, create a version of, or retire tenant A's override: each answers the same not-found reply as for an override_id that does not exist, compared in one test for status, headers and body; a request carrying another tenant's id in the path, query or body ignores it and uses the token's tenant; no new Repo call in the slice is without a :prefix (source-scanning test); a PLATFORM_ADMIN token on these routes receives its own tenant's data, never another tenant's."
+      - "7. Permission: SolutionOverridesManage is classified TENANT-scope; priv/permission_matrix/effective.golden is regenerated with mix letflow.permission_matrix --write (never hand-merged); the matrix grants it to TENANT_ADMIN and to no other role except the unconditional PLATFORM_ADMIN clause of Authorization; the tenant-auditor refused-set literal and the number-word tables in test/letflow/api/authorization_test.exs are re-taken from origin/main; a user with a tenant role other than TENANT_ADMIN, and a TENANT_AUDITOR, receive 403 on the three POST routes and 200 on the list only with :DefinitionsRead; docs/roles.md lists the permission."
+      - "8. Pins re-derived, stated as +N from the values on origin/main at implement time and not as the numbers quoted here: __authz_routes__ of Letflow.Routers.SolutionPacks (4 today, +4) and every length(snapshot) == N pin (grep -rn \"__authz_routes__\\|length(snapshot)\\|@ledger\" test/); the route_scope snapshot and test/fixtures/route_scope/tenant_wide_default_routes.txt (the three POST routes carry a non-default permission and the list route, :DefinitionsRead without scope:, is added there); @expected_tenant_tables in test/support/tenant_fixture.ex and its length == 72 pin in test/letflow/support/tenant_fixture_test.exs move +1 (grep the previous migration's table name across test/); the migration version is the next free one after merging origin/main."
+      - "9. Gates: SECURITY-REVIEWER verdict recorded and mandatory (adds a route and a tenant table; threats listed in decision 0069: cross-tenant read, structure change by override, values in audit or responses, privilege) and REVIEWER verdict recorded; mix letflow.check.static and every changed and new test file pass with real output quoted; the PR states the table is empty for existing QA tenants after auto-CD and that no existing row is changed."
+    depends_on: [REQ-562, REQ-573, REQ-380, REQ-041]
+    open_questions:
+      - "1. Q3 of decision 0069 (assumed answer (a), not confirmed by the owner): a threshold override is allowed only where the module declares a setting in its settings_schema, not for any threshold property on the closed list. If the owner chooses (b), criterion 3 loosens and the declared-setting check is dropped."
+      - "2. Q4 of decision 0069 (assumed answer, not confirmed by the owner): the permissions of update-review (:DefinitionsRead) and update-apply (:DefinitionsCreate) stay as they are. Requiring SolutionOverridesManage when an apply resolves an override conflict belongs to S4, not here."
+      - "3. Q5 of decision 0069: the final closed property path list for process_definition and the variable_schema list are the S2 design's and are reviewed by SECURITY-REVIEWER; the source names no overridable variable_schema property, so if the design finds none that is safe, variable_schema rows are refused entirely and the owner is told."
