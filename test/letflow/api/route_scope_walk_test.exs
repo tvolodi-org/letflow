@@ -325,6 +325,9 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"PUT", "/:template_key", :tenant_wide},
                  {"DELETE", "/:template_key", :tenant_wide},
                  {"POST", "/:template_key/preview", :tenant_wide},
+                 # REQ-575: the NumberSequences router: create and list, both declared
+                 {"POST", "/", :tenant_wide},
+                 {"GET", "/", :tenant_wide},
                  # REQ-546: the two single-object definition reads
                  {"GET", "/active/:name", :self_service},
                  {"GET", "/:id", :self_service},
@@ -381,6 +384,8 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  Letflow.Routers.Instances,
                  Letflow.Routers.Labels,
                  Letflow.Routers.NotificationTemplates,
+                 # REQ-575
+                 Letflow.Routers.NumberSequences,
                  Letflow.Routers.Me,
                  Letflow.Routers.Tasks
                ])

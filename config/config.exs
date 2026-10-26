@@ -142,6 +142,11 @@ config :letflow, :scheduled_jobs, enabled: false
 # off after activation makes the pin lookup of a bound version unresolvable (the flag is the kill switch).
 config :letflow, :form_validation_hook_enabled, false
 
+# REQ-570 / GH #3248 (decision 0067 D9, slice T-1): record triggers (after-commit scripts bound to a
+# record type and event). Default off: the routes of part 2 and every later slice sit behind it. Read
+# only by Letflow.RecordTriggers.enabled?/0.
+config :letflow, :record_triggers_enabled, false
+
 # GH 2534 PR 7c-1 SECURITY note: the build environment, read by Letflow.Application.start/2's
 # boot guard (Letflow.Scripts.Runtime.boot_check/2 refuses :scripts_test_hooks in :prod).
 config :letflow, :config_env, config_env()

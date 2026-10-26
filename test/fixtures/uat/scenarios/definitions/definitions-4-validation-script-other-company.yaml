@@ -1,0 +1,106 @@
+# T-0669 (BA): DEFINITIONS group, scenario 4: another company cannot use, or learn about, SwiftRoute's check script.
+# Covers REQ-569 slice F-1 criterion 9, first sentence (INV-1 and INV-10: tenant B naming tenant A's published script gets the same refusal, byte for byte, as for a key that exists nowhere).
+# Sources: docs/requirements.yaml REQ-569 criterion 9; docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10); lib/letflow/api/response.ex (script_binding_invalid/3 body has only error, node_id, reason);
+# lib/letflow/scripts/runtime.ex (the script is looked up in the caller's own company data only); test/fixtures/uat/actors.yaml (actor-bilimbaga-admin: TENANT_ADMIN, note on the token).
+# The route takes the company from the sign-in; no request value selects a company. The Bilimbaga administrator is not a platform operator, so a platform-operator case is not part of this scenario.
+# Not observable through an API on QA: the second sentence of criterion 9 (the internal script lookup given another company's prefix) and the third (completing another company's task with the pair on its process;
+# running a task needs a person who is routed to the task in the other company, and the task answer is the unchanged answer of the task routes, not a part of this release).
+# Waiting: REQ-569 F-2 (T-0640 / GH #3298).
+# Needs the switch ON (see definitions-1). Each refusal step holds exactly one activation.
+# Every human task carries the attribute "role" with the value "reviewer"; scripts expected to pass activation have a closed output schema and no reserved input name (otherwise script_output_schema_open).
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
+---
+id: definitions-4-validation-script-other-company
+scope: definitions
+title: Another company cannot use SwiftRoute's check script, and its refusal tells nothing about whether the script exists
+version: "1.0"
+tags: [definitions, scripts, form-validation, other-company, isolation]
+
+description: >
+  SwiftRoute has the published form validation script check_total. The administrator of Bilimbaga uploads two processes whose human task has the same id "review_total": one names check_total version 1,
+  the other names "no_such_key_anywhere" version 1, a key that exists in no company. Activating each is refused with the same answer, byte for byte, so Bilimbaga cannot tell that check_total exists in another company.
+  SwiftRoute's own copy is unchanged and its process using it still activates.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: The switch for form validation scripts is ON in the test environment (see definitions-1).
+    check: system_seeded
+    detail: Setup-prepared. If definitions-1 was reported BLOCKED for the switch, this scenario is BLOCKED too.
+  - description: SwiftRoute has the published form validation script check_total version 1. Bilimbaga has no script with the key check_total and none with the key no_such_key_anywhere.
+    check: system_seeded
+    detail: Setup-prepared. If Bilimbaga has a script check_total, use another key that only SwiftRoute has and note that in the report.
+  - description: The administrator of Bilimbaga can sign in with an approved test token.
+    check: system_seeded
+    detail: See the roster note of actor-bilimbaga-admin. If it cannot sign in, report BLOCKED for the whole scenario.
+  - description: Bilimbaga has no process definition named fv_other_one or fv_other_two, and SwiftRoute has none named fv_other_home.
+    check: system_seeded
+    detail: Setup-prepared. If a name exists, use the next free name and note that in the report.
+
+steps:
+  - step: 1
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator uploads two processes, each version "1": fv_other_one with one human task "review_total" naming the key check_total version 1, and fv_other_two with one human task "review_total" naming the key
+      no_such_key_anywhere version 1. Both uploads must be accepted.
+    via: api
+  - step: 2
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to activate fv_other_one (names check_total, which exists only in SwiftRoute). The answer (status and full body) is noted as A1.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to activate fv_other_two (names a key that exists in no company). The answer (status and full body) is noted as A2.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for the list of scripts of Bilimbaga.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator uploads fv_other_home, version "1": one human task "review_total" naming check_total version 1, and activates it.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Bilimbaga's activation naming SwiftRoute's script is refused as "not published" and is the same as the refusal for a key that exists nowhere.
+    verification:
+      method: api_response
+      detail: Steps 2 and 3 each answer 422 with the error "script_binding_invalid", the node id "review_total" and the reason "script_not_published". A1 and A2 are byte for byte the same (status, headers that carry content, and body).
+      evidence: A1 and A2 as received.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could find out which check scripts other companies keep, or could run another company's script.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Bilimbaga's script list does not show SwiftRoute's script.
+    verification:
+      method: api_response
+      detail: The list of step 4 has no entry check_total.
+      evidence: The list of step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Another company's script is visible.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: SwiftRoute's own use of its script is unchanged.
+    verification:
+      method: http_status
+      detail: Step 5 upload answers 201 and activation answers 200.
+      evidence: The answers of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The refusals of another company disturb the owner's process.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Deprecate fv_other_home in SwiftRoute if the environment keeps it. fv_other_one and fv_other_two stay drafts in Bilimbaga; archive them if the environment allows.

@@ -41065,6 +41065,105 @@ requirements:
       - "The change adds no route (the route-inventory and `__authz_routes__` pins in test/ are unchanged), no migration file in priv/repo/migrations/, no change to lib/letflow/engine.ex and no change to priv/permission_matrix/effective.golden; the implementer lists the greps over test/ that show this."
       - "`mix format`, `mix compile --warnings-as-errors` and `mix letflow.check.static` pass; the moduledoc and `@doc` of `Catalog.validate/2` and the manifest type in module.ex describe rule 13 and the new key."
     depends_on: [REQ-568, REQ-550, REQ-562]
+
+  - id: REQ-581
+    title: "Form-validation script hook (Record F) slice F-2: runner entry, manifest refusal_codes and fields, restriction filter, verdict validation, executor-outcome conversion and a measured default wall clock of at most 50 ms"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3298
+    # Source: docs/migration/decisions/0067-form-hook-script-validation.md (D2 "The pure-function contract", D4 "Principal and restrictions", D5 "Failure mapping", D6 "Lock and time budget", D7 "INV-3 and INV-1" with its INV-10 test, D9 slice F-2, "Not decided here"); docs/migration/decisions/0053-tenant-scripted-rules.md (D5, D7); docs/migration/decisions/0062-restriction-carrying-variables.md (R4, R6); docs/agents/instructions/security-invariants.md (INV-1, INV-3, INV-8, INV-10); REQ-569 in docs/requirements.yaml (slice F-1, GH #3246); code read: lib/letflow/engine/lua/script_runner.ex (run/3, limits/0, @default_timeout_ms, @max_timeout_ms), lib/letflow/engine/script_input.ex (build/4), lib/letflow/scripts/validation.ex (@manifest_keys, manifest/1, codes/2), lib/letflow/scripts/runtime.ex (check_output/2, closed_output_schema?/1, the private load_version/2 of the SERVICE_TASK path), lib/letflow/scripts.ex (@hook_kinds, form_validation_enabled?/0, the Validation.manifest/1 call in the version-create path), lib/letflow/engine/script_task_dispatcher.ex (run_script/6, the executor-outcome case). Written by the business analyst (T-0640) 2026-10-26. Not yet validated.
+    description: >
+      Slice F-2 of decision 0067 (docs/migration/decisions/0067-form-hook-script-validation.md, D9),
+      after the merged F-1 (REQ-569, GH #3246, PR #3281), which made a form-validation script nameable,
+      activatable and pinnable. F-2 builds the pure, engine-free part that runs one such script and turns
+      the result into a typed verdict. It does NOT integrate with the engine: no change to
+      Letflow.Engine.complete_task/3 or to any other function of lib/letflow/engine.ex, no
+      :form_validation_hook Multi step, no HTTP mapping (F-3), no audit rows, no kill-switch check and no
+      one-test-per-row failure suite (F-4), no dry-run (F-5). It adds no route, no permission, no
+      migration and no tenant table. The flag :form_validation_hook_enabled of :letflow (REQ-569) stays
+      default off in config/config.exs, and Letflow.Scripts.FormValidation.run/4 answers
+      {:error, :script_rejected, stats} without starting the sandbox while
+      Letflow.Scripts.form_validation_enabled?/0 is false. Five parts, all in a new
+      module Letflow.Scripts.FormValidation (lib/letflow/scripts/form_validation.ex) plus a hook-kind
+      aware manifest check in lib/letflow/scripts/validation.ex. (1) Manifest: for hook_kind
+      "form_validation" the manifest takes two more keys, refusal_codes (list of codes, the code shape
+      and the length bound that Letflow.Scripts.Validation already applies to fail_codes) and fields
+      (list of field names, same shape and bound), both required; for every other hook kind these keys
+      remain unknown (:invalid_manifest). For hook_kind "form_validation" fail_codes stays required (as
+      for every kind) and must be the empty list, and a "reads" key (any value, including []) is
+      :invalid_manifest, because 0067 D1 gives hook 3 no read phase (a hook 3 with reads needs its own
+      record). Validation.manifest/1 keeps its meaning for the existing kinds;
+      the version-create path of lib/letflow/scripts.ex passes the hook kind to a new
+      Validation.manifest/2. (2) Runner entry: Letflow.Scripts.FormValidation.run(prefix, pin, facts, opts)
+      loads the pinned version from script_rules under the tenant prefix (key, version and sha256 from the
+      instance pin, in the manner of the private load_version/2 of lib/letflow/scripts/runtime.ex, but for
+      hook_kind "form_validation"; a missing, draft, discarded, revoked or retired-and-unmatched row, a sha256
+      mismatch or a manifest whose output schema is not closed (Letflow.Scripts.Runtime.closed_output_schema?/1) is
+      {:error, :script_rejected, stats}), re-checks the restriction policy at every run as decision 0062
+      requires ("at save, publish and every run") by calling
+      Letflow.Scripts.Policy.check_restricted_inputs(prefix, manifest) (lib/letflow/scripts/policy.ex) after
+      loading the row and before building the input, where any result other than :ok is
+      {:error, :script_rejected, stats} and the sandbox is not started, builds the input (part 3), runs the
+      source through
+      Letflow.Engine.Lua.ScriptRunner.run/3 with tenant: prefix, fail_codes: [] (so any fail call ends as
+      :script_failed) and the ctx the runner requires, and
+      returns the converted result (parts 4 and 5). It opens no database connection of its own after
+      loading the row and no host function reaches Repo. (3) Input builder and restriction filter: the
+      input is {"output": submitted variables, "form": {definition_id, definition_version, node_id,
+      schema_version_hash}, "task": {id, node_id, assignee_kind, now}} with now passed as data. The
+      "output" part is built by Letflow.Engine.ScriptInput.build/4 from the manifest input_schema and
+      the variable labels, so a labelled variable enters only through a restricted_inputs entry whose
+      from list covers all its labels (decision 0062 R6); in addition a labelled variable is omitted
+      unless the caller passes opts[:publisher_may_restricted?] as true (default false, so absent means
+      omitted; the caller computes it in F-3 from the publisher's EntitiesRestrictionsManage at run time, 0067 D4).
+      The input holds no value that the transaction's own rows did not already provide: the function
+      reads nothing else. (4) Verdict validation: the script output is checked with
+      Letflow.Scripts.Runtime.check_output/2 (declared keys, reserved $ names, manifest output_schema) and
+      then against the fixed verdict shape: {"ok": true} with no other key, or {"ok": false, "code":
+      one of refusal_codes, "fields": list of {"field": one of the manifest fields, "code": one of
+      refusal_codes}}; any other key, type or value is :output_invalid. The verdict is returned as
+      {:ok, :accepted} or {:ok, {:refused, %{code: code, fields: fields}}} and carries no script
+      source, key, version, sha256 or submitted value; the script cannot change the submitted output
+      (the function discards everything but the verdict). (5) Executor-outcome conversion: every
+      ScriptRunner.run/3 result becomes a stable atom without raising: :script_error, :budget_exceeded,
+      :memory_limit_exceeded, :timeout, :output_invalid and :script_busy keep their name; :script_failed
+      (the script called fail; run/4 passes fail_codes: [], the verdict of a form-validation script is its output)
+      becomes :script_error; any unexpected shape or exit becomes :script_error; a failed input build (ScriptInput.build/4 returns :input_invalid) is :input_invalid before any run. The result is
+      {:error, code, stats}. stats is always the map %{duration_us: d, instructions_used: i,
+      heap_words_at_end: h} and nothing else (for the F-4 audit, no values): when the sandbox was not
+      started (flag off, any :script_rejected, :input_invalid) d is 0 and i and h are nil; when
+      ScriptRunner.run/3 returned an error d is measured around that call and i and h are nil; on success
+      all three come from the runner's stats. No retry is done here: the whole-completion re-run for
+      :script_busy belongs to F-3. Wall clock: the enforced timeout of a form-validation run is the
+      smaller of the manifest limits.timeout_ms and the hook-3 cap of 50 ms (0067 D6); an absent value
+      uses the shipped default, which this slice sets at or below 50 ms after measuring sandbox creation
+      plus spawn on the actual runtime (a measurement test or note with the measured figures quoted in
+      the PR; the default is then the measured figure rounded up, never above 50 ms). The platform
+      defaults and maxima of ScriptRunner.limits/0 (1000 ms, 5000 ms) are unchanged and apply to hook 1
+      only. SECURITY-REVIEWER is mandatory (tenant-data path: script resolution under the tenant
+      prefix, restricted-variable filter, sandbox run). Nothing under web/ or apps/ changes. Out of
+      scope and left open on purpose, each under "Not decided here" in 0067: any wall-clock figure
+      between 50 ms and the 0053 D7 maxima or above them; the maximum number of "fields" entries in a
+      refusal (this slice enforces only the 64 KiB output cap of 0053 D7 on the decoded verdict, and
+      the owner question stays open); the HTTP status numbers of the D5 codes; the 403 of a wrong
+      assignee; a hook with entity reads.
+    acceptance_criteria:
+      - "1. Manifest: with hook_kind \"form_validation\", Letflow.Scripts.Validation.manifest/2 returns :ok for a manifest that has input_schema, output_schema, fail_codes, refusal_codes and fields (fields and refusal_codes each a list of unique strings of the code shape of fail_codes, at most the same length bound) and fail_codes equal to [], and {:error, :invalid_manifest} when refusal_codes or fields is missing, is not a list, has a duplicate, a malformed or an over-long entry, when fail_codes is not [], and when the manifest carries a \"reads\" key of any value including [] (one test each). With the hook kind \"service_task\" a manifest carrying refusal_codes or fields is {:error, :invalid_manifest}, and Validation.manifest/1 and every existing manifest test (test/letflow/scripts/validation_reads_test.exs, test/letflow/entities/script_reads_test.exs) pass unchanged. Creating a form_validation version through Letflow.Scripts with the flag on stores the two keys; with the flag off it is still {:error, :invalid_hook_kind} (REQ-569)."
+      - "2. Flag and kind gate: with Letflow.Scripts.form_validation_enabled?/0 false (the shipped default; a test reads the :form_validation_hook_enabled key of :letflow in a fresh config and expects false), Letflow.Scripts.FormValidation.run/4 returns {:error, :script_rejected, %{duration_us: 0, instructions_used: nil, heap_words_at_end: nil}} and the sandbox is not started (a test with a runner stub or a counter on Letflow.Engine.Lua.ScriptRunner shows zero runs). With the flag on, a pin naming a published version whose hook_kind is \"service_task\" is {:error, :script_rejected, stats}, and so are an absent row, a draft, a discarded row, a revoked row, a sha256 that differs from the pin, and a manifest whose output schema is open; one test per case. config/config.exs still sets the flag to false and no config file turns it on outside config/test.exs."
+      - "3. Accept and refuse verdicts: with the flag on and a published form_validation script returning {\"ok\": true}, run/4 returns {:ok, :accepted}; a script returning {\"ok\": false, \"code\": \"amount_too_high\", \"fields\": [{\"field\": \"amount\", \"code\": \"amount_too_high\"}]} with both names declared in the manifest returns {:ok, {:refused, %{code: \"amount_too_high\", fields: [%{field: \"amount\", code: \"amount_too_high\"}]}}} (the verdict map holds only code and fields). The returned value contains no source text, key, version, sha256 or submitted variable value (a test asserts this on the whole returned term with a submitted value that the script echoes into its own local state)."
+      - "4. Verdict validation: each of these script outputs gives {:error, :output_invalid, stats}, one test per case: an extra top-level key next to ok; {\"ok\": true} with a code or fields key; {\"ok\": \"yes\"} or ok missing; {\"ok\": false} with a code that is not in refusal_codes, with no code, or with a non-string code; a fields entry whose field is not in the manifest fields, whose code is not in refusal_codes, or that has an extra key; fields not a list; an output that is not an object; a key beginning with $; a decoded verdict above 64 KiB. A refusal with an empty fields list and a declared code is accepted as a refusal. A script that modifies the table it was given cannot change what the caller holds (the caller's submitted map is equal before and after the call)."
+      - "5. Executor-outcome conversion, no raise: with a runner stub returning each ScriptRunner.run/3 result, run/4 returns exactly: {:error, :script_error, _} for script_error, for script_failed and for an unexpected term, and for a stub that raises or exits; {:error, :budget_exceeded, _}, {:error, :memory_limit_exceeded, _}, {:error, :timeout, _} and {:error, :script_busy, _} for those codes; {:error, :output_invalid, _} for output_invalid. A real script that loops forever ends as :timeout or :budget_exceeded and one that allocates without bound as :memory_limit_exceeded (existing sandbox, two tests). stats is always %{duration_us: d, instructions_used: i, heap_words_at_end: h} with no other key: d 0 and i, h nil when the sandbox was not started, d measured and i, h nil for a runner error, all three from the runner on success (one test per case). run/4 never retries and never raises for a script outcome. The one-test-per-row suite for decision 0067 D5 and the crash-in-transaction test belong to F-4 and are not required here."
+      - "6. Restriction filter: for a manifest whose input_schema declares amount and note, with note carrying the label restricted_a in the variable labels: (a) no restricted_inputs entry for note, any value of opts[:publisher_may_restricted?]: note is absent from the input the script receives; (b) an entry whose from list covers every label of note and publisher_may_restricted? true: note is present; (c) the same entry and publisher_may_restricted? false or not passed: note is absent; (d) an entry whose from list lacks one of two labels of note: note is absent; (e) an entry whose from pair names a definition that is not active: Letflow.Scripts.Policy.check_restricted_inputs/2 is not :ok, so run/4 returns {:error, :script_rejected, stats} with zero runner calls. If an absent note is required by input_schema the run is {:error, :input_invalid, stats} and the script does not run (:input_invalid is returned by the input builder before any run and is a refusal, not a retry). The test reads the input through a script that returns its own input keys as the refusal code or through a runner stub that records the input, and checks that no refusal term ever holds a restricted value."
+      - "7. Wall clock: Letflow.Scripts.FormValidation defines the shipped default timeout at or below 50 ms and the cap of 50 ms; a test fails if the default exceeds 50 or the cap exceeds 50. The runner is called with timeout_ms equal to min(manifest limits.timeout_ms, 50) and, for a manifest without it, the default (a runner stub records the option for manifests with limits.timeout_ms of 10, 50, 51, 1000 and 5000 and no limit: 10, 50, 50, 50, 50 and the default). Letflow.Engine.Lua.ScriptRunner.limits/0 still returns default_timeout_ms 1000 and max_timeout_ms 5000, and the SERVICE_TASK path is unchanged. The PR quotes the measurement behind the default (sandbox creation plus spawn of a script that returns {\"ok\": true}, count of runs and the observed median and maximum in milliseconds, one run of at most 10 minutes) and the moduledoc of the new module states the figure; the default is the measured figure rounded up and is never above 50. No figure between 50 ms and the 0053 D7 maxima and no 'max number of fields entries' is set by this change."
+      - "8. INV-1 and INV-10 cross-tenant negative test: with tenants A and B, a published form_validation version \"check_amount\" exists only in A's script_rules. run/4 called with B's prefix and a pin naming that key, version and sha256 returns {:error, :script_rejected, %{duration_us: 0, instructions_used: nil, heap_words_at_end: nil}} and the whole result term is equal to the one for a key that exists in no tenant; the sandbox is not started; the call with A's prefix succeeds. The prefix is the only tenant selector: the facts map carries no tenant value that is read (a test passes a facts map with a foreign tenant string in every field and the load still uses the prefix argument). Every Repo call added by the change passes the prefix option; the PR quotes the grep that lists them (grep -n \"Repo\\.\" lib/letflow/scripts/form_validation.ex). No SQL string interpolation (INV-7)."
+      - "9. Scope, no engine integration: the diff changes no function in lib/letflow/engine.ex (Letflow.Engine.complete_task/3 and build_complete_task_multi are untouched, and no module under lib/ other than lib/letflow/scripts/form_validation.ex, lib/letflow/scripts/validation.ex and the one call site in lib/letflow/scripts.ex calls the new functions); it adds no route (the __authz_routes__ and length(snapshot) pins in test/ are unchanged), no permission (priv/permission_matrix/effective.golden unchanged), no migration file in priv/repo/migrations/, no tenant table and no change to any config file (the flag value stays false). The existing completion tests of the engine pass unchanged. The implementer states the greps over test/ that show this: grep -rn \"__authz_routes__\\|length(snapshot)\\|complete_task\" test/ and the result."
+      - "10. Gate: the PR records a SECURITY-REVIEWER verdict in its Gates block before merge, covering tenant-prefix resolution of the pinned version, the restricted-variable filter with the publisher opt-in, the verdict leak check and the fail-closed rejection paths. mix format, mix compile --warnings-as-errors and mix letflow.check.static pass, and mix letflow.check_requirements_registration and test/letflow/ci_backend_path_filter_test.exs pass for the change, with real output quoted in the summary."
+    open_questions:
+      - "Which manifest list supplies the message code of a fields entry: 0067 D2 says 'manifest message code' without naming a key. This entry uses refusal_codes for both the top-level code and each fields[].code (one list). If the owner wants a separate per-field code list it is a later amendment; the choice is flagged for the REQ-VALIDATOR and the SECURITY-REVIEWER."
+      - "The wall-clock figure between 50 ms and the 0053 D7 maxima, and the maximum number of fields entries in a refusal, are 0067 'Not decided here' owner questions and stay open; this slice neither sets nor implies them."
+      - "Mapping :script_failed (the script called fail) to :script_error is a rule of this entry (0067 D5 has no row for it, and run/4 passes fail_codes: []); confirm or change it before F-4 writes the per-row suite."
+    depends_on: [REQ-559, REQ-569]
   - id: REQ-580
     title: "Tenant purge for the provisioning delete step (QA only, D-019): what is removed and kept, who may purge and when, a purged_at marker on the get route, idempotence"
     owner: ELIXIR-DEV
@@ -41344,6 +41443,82 @@ requirements:
       - "Open for the process owner and infra, not decided here (study T5c): Keycloak or Letflow sends reset and welcome mail."
       - "UAT assumption, to be confirmed by the process owner: the first trigger is task assignment with the template task_assigned (the only registered key), the locale is the tenant's default_locale with \"en\" as fallback, the log keeps no message content, and the read permission is :NotificationTemplatesManage."
     depends_on: [REQ-441, REQ-563]
+  - id: REQ-585
+    title: "Tenant branding palette beyond the primary colour: secondary brand colour in the server allowlist, both tenant-config responses and web theming (BilimBaga retirement criterion 9, T9a)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S8
+    gh: 3313
+    # Source: docs/migration/bilimbaga-retirement-status.md section 9 ("Branding, missing" items 1 and 4); docs/migration/decisions/0020-frontend-architecture.md (branding row: "a small fixed set of brand colours", allowlist stays closed); lib/letflow/identity/tenant.ex (@brand_colors_allowed_keys, validate_brand_colors/2, brand_colors_allowed_keys/0); lib/letflow/identity/color_contrast.ex (meets_wcag_aa_normal_text?/2); lib/letflow/routers/tenant_settings.ex (partition_brand_colors/1); lib/letflow/routers/tenant_config.ex (branding_from_settings/1); lib/letflow/routers/mobile_tenant_config.ex (branding_from_settings/1, primary_color_from_settings/1); lib/letflow/tenant_config_bundle.ex (reads Tenant.brand_colors_allowed_keys/0); web/src/theming/brandingDefaults.ts (BRAND_COLOR_CSS_PROPERTY) and applyBranding.ts; web/src/auth/tenantConfig.ts; web/src/styles/tokens.css. Written by the business analyst (T-0671) 2026-10-26. Not yet validated.
+    description: >
+      Today a tenant can store exactly one brand colour, brand_colors.primary: the closed allowlist
+      @brand_colors_allowed_keys in lib/letflow/identity/tenant.ex is ~w(primary), and the web allowlist
+      BRAND_COLOR_CSS_PROPERTY in web/src/theming/brandingDefaults.ts has one entry
+      (primary -> --color-brand-600). The earlier branding requirements (REQ-280, REQ-382, REQ-283) put
+      extending the allowlist out of scope; this requirement does it for ONE new key, "secondary", and
+      nothing else. The server allowlist moves first, the web allowlist follows (the comment in
+      brandingDefaults.ts says so).
+      SERVER. @brand_colors_allowed_keys becomes ~w(primary secondary). validate_brand_colors/2 already
+      applies the same checks to every allowed key (6-digit #RRGGBB hex; contrast of at least 4.5:1,
+      WCAG 2.1 AA normal text, against both reference surfaces #F8F9FA and #FFFFFF through
+      Letflow.Identity.ColorContrast.meets_wcag_aa_normal_text?/2); the secondary key gets exactly these
+      checks, with the key named in the error text. A brand_colors key outside the allowlist sent to
+      PATCH /tenant/settings (Letflow.Routers.TenantSettings) is already dropped by
+      partition_brand_colors/1 and recorded in the audit entry (action
+      "tenant_settings.reject_unrecognized_keys", after_state["rejected_brand_colors_keys"], written by
+      maybe_record_rejected_keys/5); that behaviour stays and now applies to the new list (so "tertiary"
+      or "background" is still ignored, never stored, never a 500). The PATCH response body shape
+      (tenant_id, settings) does not change; no response field is added.
+      Letflow.TenantConfigBundle reads Tenant.brand_colors_allowed_keys/0 and therefore accepts
+      "secondary" on import; no change to that module is needed and the criterion below only pins it.
+      Stored data needs no migration: settings is a JSON map and a tenant without a secondary key keeps
+      working.
+      READ PATHS. GET /api/tenant-config (Letflow.Routers.TenantConfig.branding_from_settings/1) returns
+      the stored brand_colors map as it is, so a stored secondary key appears there once the allowlist
+      admits it; the default when nothing is stored stays %{"primary" => "#228be6"} (no default secondary).
+      The mobile variant GET /api/mobile/tenant-config (Letflow.Routers.MobileTenantConfig) keeps its flat
+      branding shape: it gains an optional string key "secondary_color", present only when the tenant
+      stored a secondary colour and absent otherwise; "primary_color" and the platform defaults are
+      unchanged. The Flutter client (apps/mobile/) is not changed here.
+      SECURITY. Both endpoints are public and pre-auth. The moduledoc of lib/letflow/routers/tenant_config.ex
+      calls a new sub-key of branding "a security change, not a feature", and decision 0020 (section "Both
+      bootstrap endpoints change") makes the branding change SECURITY-REVIEWER gate work under the
+      never-error / INV-5 rule. So this requirement needs that review: secondary is read by an explicit
+      named-key read of settings, never a wholesale copy (INV-2), and for an unknown slug, a missing ?slug=
+      and a lookup failure the mobile body stays byte-identical to today's platform default and carries no
+      secondary_color (INV-5). The mobile moduledoc rule "no absent field" is about the six top-level keys of
+      the response; an optional sub-key inside branding that is absent for some tenants does not conflict
+      with it, and the moduledoc is updated to say so.
+      NO CONSUMER YET. No web component reads --color-brand-secondary after this requirement: the property
+      is set and available, and a later slice (a UI theming slice, not written yet) will use it.
+      WEB. BRAND_COLOR_CSS_PROPERTY gains the entry secondary -> --color-brand-secondary (its type
+      Record<'primary', string> widens to the two keys). web/src/styles/tokens.css declares
+      --color-brand-secondary with a platform default, so a tenant without a secondary colour renders
+      as before, and applyBrandingColors (web/src/theming/applyBranding.ts) sets it on
+      document.documentElement from brand_colors.secondary exactly as it does for primary (it still
+      iterates the allowlist's own keys, never the response's keys). The Record<string, string> type of
+      brand_colors in web/src/auth/tenantConfig.ts already carries the new key. The admin screen
+      web/src/pages/admin/AppearanceSettingsPage.tsx and web/src/api/tenantSettings.ts submit only
+      primary today and are not changed in this requirement; the secondary colour is set through
+      PATCH /api/v1/tenant/settings.
+      OUT OF SCOPE, SEPARATE LATER SLICES. Logo upload (item 4 of the retirement status section 9: an
+      upload path replacing the logo_url string) is NOT built here and gets its own requirement;
+      logo_url stays an absolute http(s) URL string. Also not here: further colour keys (background,
+      font), login-page and e-mail branding, custom domains, the Flutter client reading
+      secondary_color, and a secondary field on the admin screen.
+    acceptance_criteria:
+      - "Letflow.Identity.Tenant.brand_colors_allowed_keys/0 returns exactly [\"primary\", \"secondary\"]; a unit test in test/letflow/identity/tenant_test.exs pins the list"
+      - "settings_changeset/2 accepts brand_colors %{\"secondary\" => \"#1971C2\"} (a 6-digit hex meeting 4.5:1 against both #F8F9FA and #FFFFFF) with no error, and accepts primary and secondary together"
+      - "settings_changeset/2 refuses brand_colors.secondary values that are not a 6-digit #RRGGBB hex (\"red\", \"#FFF\", \"#GG0000\", a number) with an error naming brand_colors.secondary and the hex rule"
+      - "settings_changeset/2 refuses a well-formed secondary hex whose contrast against #F8F9FA or #FFFFFF is below 4.5:1 (for example #FFFF00) with the same contrast error text primary gets, naming the key secondary; a unit test runs the identical value as primary and as secondary and asserts the same verdict"
+      - "PATCH /api/v1/tenant/settings with brand_colors %{\"secondary\" => valid hex, \"tertiary\" => \"#000000\"} answers 200 (never a 500), stores secondary, does not store tertiary, and writes one audit entry with action \"tenant_settings.reject_unrecognized_keys\" whose after_state[\"rejected_brand_colors_keys\"] holds the tertiary key; the response body shape (tenant_id, settings) is unchanged; a route test in test/letflow/routers/tenant_settings_test.exs asserts all of these"
+      - "GET /api/tenant-config for a tenant that stored brand_colors primary and secondary returns both under branding.brand_colors; for a tenant with no stored colours it still returns exactly %{\"primary\" => \"#228be6\"}"
+      - "GET /api/mobile/tenant-config returns branding.secondary_color equal to the stored secondary colour when one is stored, omits the key when none is stored, and returns branding.primary_color unchanged in both cases; the Flutter client under apps/mobile/ is not modified (git diff --stat shows no path under apps/mobile/)"
+      - "Letflow.TenantConfigBundle import accepts a bundle whose tenant_settings.brand_colors holds a valid secondary and still rolls back a bundle with an unknown brand_colors key, with a test in test/letflow/ pinning both"
+      - "web/src/theming/brandingDefaults.ts maps secondary to --color-brand-secondary and web/src/styles/tokens.css declares --color-brand-secondary with a platform default; a vitest test in web/src/theming/__tests__/applyBranding.test.ts shows that brand_colors {primary, secondary} sets both CSS custom properties on document.documentElement, that a missing secondary leaves the tokens.css default in place, and that an unknown key (for example tertiary) sets no property"
+      - "SECURITY-REVIEWER verdict is recorded for the two public endpoints (INV-2: secondary_color and brand_colors.secondary are read by explicit named-key reads of settings, never a wholesale copy; INV-5: for an unknown slug, a missing ?slug= and a lookup failure the mobile body is byte-identical to today's platform default and has no secondary_color); the disclosure sections of the moduledocs of lib/letflow/routers/mobile_tenant_config.ex and lib/letflow/routers/tenant_config.ex name the secondary colour; a case in test/letflow/routers/mobile_tenant_config_test.exs asserts that the default-branch body has no secondary_color key"
+      - "No logo upload path is added: git diff shows no new route, no attachment call and no change to the logo_url validation in lib/letflow/identity/tenant.ex; mix letflow.check.static and cd web && npm run check pass with the output quoted"
+    depends_on: [REQ-280, REQ-382, REQ-283]
   - id: REQ-582
     title: "Exam assignment model (all, user, group, department) stored as exam-pack records and enforced at exam start, replacing the no-op check_assigned/3"
     owner: ELIXIR-DEV
@@ -41435,3 +41610,119 @@ requirements:
       - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-5, INV-6, INV-8; the candidate identity comes from the token) and REVIEWER verdict is recorded. The PR states the answer taken for each open question as the default named in this entry, says how existing exams on QA (auto-CD deploys main) are handled under the fail-closed default, and no route, flag or permission is added."
       - "11. Test E-existing: for a tenant built as the exam pack was installed before this change (no exam_assignment definition, exam module installed, as in ExamFixtures), Letflow.Release.ManagedTypes.ensure_assignment_definition/1 creates and activates the exam_assignment definition with managed_by \"exam\" and the pack's fields; a second run changes nothing and writes no new audit entry; a tenant without the exam module installed is left untouched; a failure in one tenant is reported and does not stop the others; after the call an assignment written with the exam authority is read by check_assigned/3. The function is added to the release-wrapper tests next to the Stamp ones, runs outside the Ecto sandbox where the Stamp tests do, and adds no route, flag or permission."
     depends_on: [REQ-329, REQ-332, REQ-335, REQ-473]
+
+  - id: REQ-588
+    title: "Examiner manual-grading queue for short text answers, backend slice: list, read and mark routes, two exam-module permissions and session finalisation (BilimBaga study T1b)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    gh: 3324
+    # Source: docs/migration/bilimbaga-retirement-status.md (section 1 "Missing" item 3 and "Proposed tasks" T1b); lib/letflow/modules/exam/router.ex (moduledoc "Deliberately NOT routed here": the manual short-text grading queue, FR-BB42; the route table; "Ownership and tenant isolation"; the ExamAuthoringWrite paragraph: a manifest-only permission with no role_grants is held through the core rules alone, PLATFORM_ADMIN and TENANT_ADMIN); lib/letflow/modules/exam/exam.ex (defmanifest: permissions, role_grants, route_policies); lib/letflow/modules/exam/scoring.ex (score_question/2 for :short_text returns grading_status :pending_manual with score 0.0 and max_score 1.0; build_outcome/3 gives session status :grading_pending and passed nil when any question is short text); lib/letflow/modules/exam/session.ex (persist_scores/4, update_session_after_submit/4, passed_for_status/2); lib/letflow/modules/exam/snapshot.ex (passing_score_pct frozen in session.exam_snapshot); priv/modules/exam/entity_definitions/session_question_score.json (grading_status enum graded, pending_manual, ai_graded; a status filter index exists on session_id plus grading_status) and session_answer.json (text_answer); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5); priv/permission_matrix/effective.golden. Written by the business analyst (T-0658) 2026-10-26. Not yet validated.
+    description: >
+      Today a short text answer is scored 0.0 with grading_status pending_manual and the session stays
+      grading_pending for ever: no route lists such answers and no one can set a mark
+      (lib/letflow/modules/exam/router.ex, moduledoc "Deliberately NOT routed here"). This requirement adds
+      the backend an examiner needs, as three routes of the exam module, mounted under
+      /api/v1/modules/exam like the existing exam routes and declared in the route_policies of
+      lib/letflow/modules/exam/exam.ex: GET /grading-queue lists the tenant's answers waiting for a mark
+      (query parameters cursor and page_size, read through Pagination.parse_page_size_param/1 as
+      handle_list_available_exams in lib/letflow/modules/exam/router.ex does, with the same 400 answers (a
+      non-numeric or negative page_size: "invalid page_size"; 0 or above the maximum: the Pagination.page_size_error_message/0 text); optional filter by exam_id); GET
+      /grading-queue/:session_id/:question_id returns one waiting answer for reading; POST
+      /grading-queue/:session_id/:question_id/grade sets the mark. Two new permissions are declared by the
+      exam manifest only, with no role_grants (the ExamAuthoringWrite pattern): ExamGradingRead for the two
+      GET routes and ExamGradingWrite for the POST. Held through the core rules alone, they belong to
+      PLATFORM_ADMIN and TENANT_ADMIN; CANDIDATE, PROCESS_OPERATOR, PROCESS_DESIGNER, TASK_WORKER,
+      AGENT_RUNNER and TENANT_AUDITOR do not hold them (the auditor's allow-list is a closed explicit list).
+      Their record is priv/permission_matrix/effective.golden (as for ExamAuthoringWrite), not docs/roles.md,
+      which lists no module permission. Whether a
+      dedicated examiner role should hold them is an open question and not decided here.
+      WHAT A READER SEES (INV-2, server side). A queue row carries: session id, question id, exam title, the
+      question stem in the locale of the request or the default locale, max_score, the time the session was
+      submitted. The detail adds the candidate's text answer. Neither carries answer_option rows, is_correct,
+      likert fields, question explanation, the candidate's user id or name, the exam snapshot, or any other
+      session field; the candidate is shown only as the session id. (UAT assumption, to be confirmed by the
+      process owner: blind grading, the examiner does not see who the candidate is. Open question 2.)
+      WHAT A MARK DOES. The body of the grade route carries one number, score, from 0 up to and including
+      the answer's max_score (1.0 for a short text question today, per scoring.ex); the server takes the
+      grader from the token and never from the body; a body that carries any other key (session id, status,
+      grading_status, max_score, user id) is refused with 422 and nothing is stored. A valid mark updates the
+      session_question_score row to the given score and grading_status graded, and writes an event with the
+      grader's id (the record write's actor). A row that is already graded is not changed: the route answers
+      409 with a fixed reason text (no second mark in this slice; open question 3). The grade transaction
+      first takes the session row lock (lock_session_row/2 with FOR UPDATE, as finalize_txn does in
+      lib/letflow/modules/exam/session.ex), then re-reads the answer, so two marks on different answers of
+      one session cannot both miss the other. When the mark leaves no
+      pending_manual row in that session, the same transaction finalises the session: status submitted,
+      score_pct = sum of all scores / sum of all max_score * 100, passed = score_pct >= the passing_score_pct
+      frozen in session.exam_snapshot (never the live exam row). A session that still has other pending
+      answers stays grading_pending; the stored passed placeholder (false, a required field of
+      priv/modules/exam/entity_definitions/session.json) is not changed, and the candidate-facing state read
+      keeps returning passed null until the last mark. A session in status in_progress has no pending rows
+      and never appears. A session that expired holding short text answers is already stored as
+      grading_pending, not auto_submitted (maybe_override_status/2 in session.ex); finalising it to submitted
+      is accepted here (open question 6).
+      TENANT ISOLATION (INV-1, INV-5, INV-10). The tenant comes from the token only, as the other exam
+      routes do; no route takes a tenant identifier. Every query runs under the caller's tenant prefix. A
+      session id or question id that does not exist, belongs to another tenant, or is malformed returns the
+      same 404 body, status and headers on all three routes; so does a question that is not short text, and
+      on the two GET routes an answer that is already graded (no longer in the queue). On the grade route an
+      already graded answer of the caller's own tenant returns 409 (see above). A refused grade (404, 409, 422, 403) writes nothing.
+      NOT IN THIS ENTRY: any web screen (REQ-589); a second or corrected mark; assigning answers to named
+      examiners or locking an answer while one examiner reads it; AI grading (grading_status ai_graded stays
+      unused); a notification to the candidate that the result is ready; a rubric or free-text comment on a
+      mark; the exam assignment model (T1a). Existing candidate routes and their permissions are not changed.
+    open_questions:
+      - "Which role holds ExamGradingRead and ExamGradingWrite? This entry gives them to TENANT_ADMIN and PLATFORM_ADMIN through the core rules only, because docs/roles.md has no examiner role and the study (T2a) has not yet mapped BilimBaga's five roles. Does the owner want a ninth built-in role (an examiner), or a role_grants entry for an existing role?"
+      - "Blind grading: the examiner sees no candidate identity. UAT assumption, to be confirmed by the process owner. Does BilimBaga's process need the examiner to see who answered (for example to exclude a conflict of interest)? The source for BilimBaga's rule is the BilimBaga repo (FR-BB42), which this entry did not read."
+      - "A mark is final in this slice (second mark answers 409). Does the process owner need a correction route, with a reason and an audit trail, and who may use it?"
+      - "Does a pass or fail that is decided by an examiner need any second check (two examiners) before the candidate sees it? Not settled by the source."
+      - "Is the mark restricted to 0 or max_score (right or wrong) or any value between? This entry allows any decimal between 0 and max_score inclusive; the BilimBaga rule is not read."
+      - "A session that expired holding short text answers is stored as grading_pending today and becomes submitted after the last mark, so the record no longer shows it was auto-submitted. This entry accepts that. Does the process owner need the auto-submitted outcome kept?"
+    acceptance_criteria:
+      - "1. Permissions: ExamGradingRead and ExamGradingWrite are listed in the permissions of the exam manifest in lib/letflow/modules/exam/exam.ex with no role_grants entry, and the three routes are added to its route_policies (GET /grading-queue and GET /grading-queue/:session_id/:question_id with ExamGradingRead, POST /grading-queue/:session_id/:question_id/grade with ExamGradingWrite). Test G-perm: a TENANT_ADMIN and a PLATFORM_ADMIN token get 200 on both GET routes; tokens of CANDIDATE, PROCESS_OPERATOR, PROCESS_DESIGNER, TASK_WORKER, AGENT_RUNNER and TENANT_AUDITOR each get the same 403 body on all three routes; a request without a token gets 401. priv/permission_matrix/effective.golden is regenerated by mix letflow.permission_matrix --write and gains 'TENANT_ADMIN ExamGradingRead true module:exam core', the PLATFORM_ADMIN ExamGradingRead row with the same values, the same two rows for ExamGradingWrite, and a false row for every other role; the PR quotes the command output. docs/roles.md is not changed (it lists no module permission)."
+      - "2. Queue list, Test G-list: with three sessions of tenant A each holding one pending short text answer, one session holding a graded short text answer and one holding only a single-choice question, GET /grading-queue returns exactly the three pending rows, ordered by the session's submission time then session id, with the fields named in the description and no other; page_size and cursor behave as in the available-exams list (a non-numeric or negative page_size returns 400 'invalid page_size'; a page_size of 0 or above the maximum returns 400 with the Pagination.page_size_error_message/0 text ('page_size out of range (maximum 200)' today), as handle_list_available_exams and render_list_available_exams do; a second page by cursor returns the remaining rows with no repeat); a filter by exam_id returns only that exam's rows; a malformed exam_id returns 400."
+      - "3. Field redaction (INV-2), Test G-redact: the JSON of the list and detail responses is searched for the strings is_correct, likert, explanation, exam_snapshot, passing_score_pct, user_id, candidate_id and for the candidate's email and display name used in the fixture; none is present. The detail returns the candidate's text_answer unchanged (including a value with markup characters, returned as data and not interpreted)."
+      - "4. Mark, Test G-mark: POST .../grade with score 0.75 by a TENANT_ADMIN returns 200; the session_question_score row now has score 0.75, max_score unchanged and grading_status graded; the write's event carries the caller's user id as actor; a body with score 1.2, a negative score, a non-number, a missing score, or any extra key (session_id, status, grading_status, max_score, user_id, tenant_id) returns 422 and the row is unchanged."
+      - "5. Finalisation, Test G-final: a session with two pending short text answers and one graded single-choice answer (score 1.0 of 1.0) stays grading_pending after the first mark (the stored passed placeholder is unchanged and GET /exam-sessions/:id returns passed null), and after the second mark has status submitted, score_pct equal to the exact quotient of the sums times 100 and passed true when score_pct >= the passing_score_pct frozen in its exam_snapshot; a second session whose exam row's threshold was changed after the session started is judged against the frozen threshold, not the live one; the candidate's state read (GET /exam-sessions/:id) returns passed null before the last mark and the decided value after."
+      - "6. Re-mark, Test G-once: a second POST .../grade for an already graded answer returns 409 with a fixed reason text that contains no score or answer text, and the stored score is unchanged; two concurrent grade requests for the same pending answer leave exactly one mark and exactly one finalisation, by the session row lock named in the description (not a supervised process); two concurrent grade requests for the two last pending answers of one session leave both marks stored and the session finalised exactly once (status submitted, score_pct set)."
+      - "7. Not found alike, Test G-404: a random UUID, a session id that exists only in tenant B, a question that is not short text, and a malformed id each return identical status, headers and body on the detail route and on the grade route (404). An answer of the caller own tenant that is already graded returns 404 on the detail route (it is no longer in the queue) and 409 on the grade route (criterion 6)."
+      - "8. Cross-tenant negative, Test G-tenant (INV-1, INV-10): with pending answers in tenant B's schema, a TENANT_ADMIN credential of tenant A gets none of them on the list, a 404 on their detail, and a 404 on grade with tenant B's row unchanged afterwards (read back through tenant B's prefix); none of the three routes has a tenant parameter in path, query or body (checked on the compiled route paths); a PLATFORM_ADMIN token on these routes sees only its own tenant's rows."
+      - "9. Pin sweep: the PR lists, from grep -rn \"__authz_routes__\\|length(snapshot)\\|route_policies\\|ExamAuthoringWrite\" test/, each pin that moves (route-inventory counts, the exam router moduledoc route table gains three rows and loses the first bullet of 'Deliberately NOT routed here', the permission lists) with its new value stated as +N from the value on origin/main at implement time."
+      - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-10, candidate answer text is personal data, finalisation uses the frozen threshold) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests G-perm, G-list, G-redact, G-mark, G-final, G-once, G-404 and G-tenant pass with real output quoted."
+    depends_on: [REQ-332, REQ-335, REQ-410, REQ-355]
+
+  - id: REQ-589
+    title: "Examiner grading screen in the exam module of the web app: queue list, answer view and mark form (BilimBaga study T1b)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S10
+    gh: 3323
+    # Source: REQ-588 in this file (routes, permissions ExamGradingRead and ExamGradingWrite, the fields a row carries); web/src/modules/exam/examRoutes.tsx (examRouteObjects, registered through registry.ts and wrapped in ModuleGuard) and web/src/modules/exam/ExamIntlProvider.tsx, examMessages.ts (the module's own i18n, locales kk, ru, en); web/src/modules/exam/exam.api.ts (the module's API client); docs/migration/bilimbaga-retirement-status.md (section 2 "Missing" item 2: examiner and grader screens depend on 1.3, T2b); docs/roles.md. Written by the business analyst (T-0658) 2026-10-26. Not yet validated.
+    description: >
+      The screen for the examiner of REQ-588, inside the exam module of web/ (web/src/modules/exam/), so it
+      counts as module code and uses the module's own i18n provider. One route is added to examRouteObjects
+      in web/src/modules/exam/examRoutes.tsx: /exam/grading, with the queue list, and a child route
+      /exam/grading/:sessionId/:questionId for one answer. The queue list shows a table of waiting answers
+      (exam title, question stem, submitted time) with an exam filter and the paging the API gives, and an
+      empty state ("nothing to grade") when the list is empty. The answer view shows the question stem, the
+      candidate's text answer as plain text (never as HTML), the largest allowed mark, a number field for the
+      mark and a Save button; saving calls the grade route, shows a confirmation, and returns to the list
+      with the graded row gone; a 409 shows a fixed "already graded" message and a refresh of the list; a 422
+      shows the field error; a 404 shows the module's usual not-found page. The screen shows no candidate
+      name, e-mail or user id, because the API gives none. A navigation entry "Grading" appears in the exam
+      module's navigation only for a user whose permissions include ExamGradingRead as the shell already
+      reads them for other module entries; the route itself is guarded by the same rule and a user without it
+      gets the shell's forbidden page. Texts exist in kk, ru and en in examMessages.ts. No change to the
+      candidate screens.
+    open_questions:
+      - "Which locale does the stem show in: the examiner's interface locale, or the locale the candidate sat the exam in? The source does not settle it; this entry shows the interface locale and falls back to the default locale of the question."
+      - "Does the examiner need keyboard-only marking of many answers in a row (next answer after save)? This entry returns to the list; a 'save and next' action is not built."
+    acceptance_criteria:
+      - "1. Route and guard, Test U-guard (Vitest): /exam/grading and /exam/grading/:sessionId/:questionId render for a user whose permission list includes ExamGradingRead and render the shell's forbidden page for a user without it (a CANDIDATE fixture); the nav entry 'Grading' appears only for the first; both routes are listed in examRouteObjects and reached under the exam module's ModuleGuard."
+      - "2. List, Test U-list: with a mocked API response of three rows the table shows three rows with exam title, question stem and submitted time and no candidate identity; the exam filter sends the exam id to the API; the paging control follows the API's page information; an empty response shows the empty-state text in the interface locale."
+      - "3. Answer view, Test U-answer: the candidate's text answer containing the characters <script>alert(1)</script> is shown as literal text (no element created, checked by querying the DOM); the mark field accepts a number from 0 to the shown largest mark and the Save button is disabled while the field is empty or outside that range."
+      - "4. Save, Test U-save: Save sends exactly one request whose body has the single key score; on 200 the screen shows the confirmation and navigates to the list, which is re-fetched; on 409 it shows the 'already graded' text and re-fetches the list; on 422 it shows the field error; on 404 it shows the module's not-found page; a double click sends one request."
+      - "5. i18n, Test U-i18n: every new text key exists in kk, ru and en in examMessages.ts and the module's message-key completeness check (the existing exam message tests) passes; the screen renders in each locale without a missing-key fallback."
+      - "6. npm run check (type-check, lint, unit tests, guards) passes with real output quoted; no change under web/src outside web/src/modules/exam/ except the minimal navigation registration the shell requires, which the PR names; the existing candidate and admin screen tests still pass."
+    depends_on: [REQ-588]
