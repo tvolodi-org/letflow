@@ -172,7 +172,7 @@ defmodule Letflow.Engine.ModuleWriteRuntimeStampTest do
     assert_refused(ctx, 0, :module_not_installed)
   end
 
-  test "a soft-uninstalled module (row kept, status uninstalled) is refused: module_not_installed" do
+  test "a write handler of an uninstalled module is refused (row kept, status uninstalled): module_not_installed" do
     ctx = Mw.case!("gh3267-w1-uninstalled", :module)
 
     {1, _} =

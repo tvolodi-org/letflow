@@ -10,14 +10,21 @@ defmodule Letflow.Modules.InstallsUninstallTest do
   use Letflow.DataCase, async: false
 
   import Ecto.Query, only: [from: 2]
+  import Plug.Conn
+  import Plug.Test
 
   alias Letflow.Audit.Entry
+  alias Letflow.Definitions.SolutionPackArtefactBase
+  alias Letflow.Definitions.SolutionPackInstall
   alias Letflow.Entities.ScopeDeclaration
+  alias Letflow.Identity
+  alias Letflow.Identity.User
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
   alias Letflow.Support.ScopeSetFixture, as: F
   alias Letflow.TenantConfigBundle
   alias Letflow.TenantFixture
+  alias Letflow.TenantProvisioning.ColumnPromotion
 
   @why "test: REQ-578 transition"
 
@@ -38,6 +45,66 @@ defmodule Letflow.Modules.InstallsUninstallTest do
     row!(prefix, id)
     |> Ecto.Changeset.change(%{manifest_hash: hash})
     |> Repo.update!(prefix: prefix)
+  end
+
+  # ── Real-router helpers (criteria 5 and 6): AuthPipeline -> Modules router / Me router ──
+
+  defp http_ctx(slug_prefix) do
+    t = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
+    ctx = %{schema_name: t.schema_name, slug: t.tenant.slug}
+
+    user =
+      %User{}
+      |> Ecto.Changeset.change(%{
+        username: "req578-user-#{Ecto.UUID.generate()}",
+        display_name: "REQ-578 test user",
+        email: "req578-#{Ecto.UUID.generate()}@example.com",
+        password_hash: "__NO_PASSWORD_SET__",
+        status: :active,
+        auth_source: :internal
+      })
+      |> Repo.insert!(prefix: ctx.schema_name)
+
+    {:ok, %{plaintext: plaintext}} =
+      Identity.create_token(user.id, %{roles: ["TASK_WORKER"], expires_at: nil},
+        prefix: ctx.schema_name
+      )
+
+    Map.put(ctx, :plaintext, plaintext)
+  end
+
+  defp http_get(path, ctx, trace_id \\ "req578-shared-trace-id") do
+    conn(:get, path)
+    |> put_req_header("authorization", "Bearer " <> ctx.plaintext)
+    |> put_req_header("x-tenant-slug", ctx.slug)
+    |> put_req_header("x-trace-id", trace_id)
+    |> Letflow.Router.call(Letflow.Router.init([]))
+  end
+
+  @module_path "/api/v1/modules/fixture/items/42"
+
+  defp me_module_ids(ctx) do
+    conn = http_get("/api/v1/me/modules", ctx)
+    assert conn.status == 200
+    for %{"module_id" => id} <- Jason.decode!(conn.resp_body)["installed_modules"], do: id
+  end
+
+  # The 404 a module id that was never installed gets: the byte-identity reference.
+  defp never_installed_body(ctx),
+    do: http_get("/api/v1/modules/does-not-exist/anything", ctx).resp_body
+
+  @counted_tables ~w(tenant_modules entity_definitions process_definitions entity_record_latest events entity_field_restrictions)
+
+  defp count_rows(prefix) do
+    tenant_counts =
+      Map.new(@counted_tables, fn t ->
+        %{rows: [[n]]} = Repo.query!("SELECT count(*) FROM \"#{prefix}\".#{t}")
+        {t, n}
+      end)
+
+    # `secrets` is a shared table (rows carry tenant_id), so it is counted whole.
+    %{rows: [[secrets]]} = Repo.query!("SELECT count(*) FROM secrets")
+    Map.put(tenant_counts, "secrets", secrets)
   end
 
   describe "M: status column (criterion 1)" do
@@ -318,6 +385,80 @@ defmodule Letflow.Modules.InstallsUninstallTest do
       assert ids.() == ["fixture"]
       {:ok, _} = Installs.uninstall("fixture", Ecto.UUID.generate(), opts(prefix))
       assert ids.() == []
+    end
+  end
+
+  describe "H: HTTP reachability through the real router (criteria 5, 6)" do
+    test "U1h: after uninstall the module router answers the byte-identical 404, /me/modules drops it" do
+      ctx = http_ctx("req578-h1")
+      install!(ctx.schema_name, "fixture")
+
+      assert http_get(@module_path, ctx).status == 200
+      assert me_module_ids(ctx) == ["fixture"]
+
+      {:ok, _} = Installs.uninstall("fixture", Ecto.UUID.generate(), opts(ctx.schema_name))
+
+      conn = http_get(@module_path, ctx)
+      assert conn.status == 404
+      assert conn.resp_body == never_installed_body(ctx)
+      assert me_module_ids(ctx) == []
+    end
+
+    test "U1c: uninstall deletes or changes no definition, record, restriction or secret row" do
+      %{schema_name: prefix, tenant_id: tenant_id} = tenant!("req578-h2")
+
+      # Global tables with an FK to tenants that the fixture teardown does not know (same
+      # arrangement as test/letflow/modules/install_activation_test.exs).
+      on_exit(fn ->
+        Repo.delete_all(from(i in SolutionPackInstall, where: i.tenant_id == ^tenant_id))
+        Repo.delete_all(from(b in SolutionPackArtefactBase, where: b.tenant_id == ^tenant_id))
+        Repo.delete_all(from(cp in ColumnPromotion, where: cp.tenant_id == ^tenant_id))
+      end)
+
+      install!(prefix, "fixture_fk_pack")
+      before_counts = count_rows(prefix)
+      assert before_counts["entity_definitions"] >= 2
+
+      {:ok, _} = Installs.uninstall("fixture_fk_pack", Ecto.UUID.generate(), opts(prefix))
+
+      # events/audit are append-only; the transition adds no event row of its own
+      assert count_rows(prefix) == before_counts
+    end
+
+    test "R1h: after reactivate the router and /me/modules work again as before" do
+      ctx = http_ctx("req578-h3")
+      install!(ctx.schema_name, "fixture")
+      before_conn = http_get(@module_path, ctx)
+      actor = Ecto.UUID.generate()
+      {:ok, _} = Installs.uninstall("fixture", actor, opts(ctx.schema_name))
+      {:ok, _} = Installs.reactivate("fixture", actor, opts(ctx.schema_name))
+
+      after_conn = http_get(@module_path, ctx)
+
+      assert {after_conn.status, after_conn.resp_body} ==
+               {before_conn.status, before_conn.resp_body}
+
+      assert after_conn.status == 200
+      assert me_module_ids(ctx) == ["fixture"]
+    end
+
+    test "R2h: after upgrade_required the router still answers the byte-identical 404" do
+      ctx = http_ctx("req578-h4")
+      prefix = ctx.schema_name
+      install!(prefix, "fixture")
+      {:ok, _} = Installs.uninstall("fixture", Ecto.UUID.generate(), opts(prefix))
+
+      for hash <- [String.duplicate("0", 64), nil] do
+        set_hash!(prefix, "fixture", hash)
+
+        assert {:error, :upgrade_required} =
+                 Installs.reactivate("fixture", Ecto.UUID.generate(), opts(prefix))
+
+        conn = http_get(@module_path, ctx)
+        assert conn.status == 404
+        assert conn.resp_body == never_installed_body(ctx)
+        assert me_module_ids(ctx) == []
+      end
     end
   end
 end
