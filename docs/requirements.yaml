@@ -41499,86 +41499,118 @@ requirements:
       - "11. Test E-existing: for a tenant built as the exam pack was installed before this change (no exam_assignment definition, exam module installed, as in ExamFixtures), Letflow.Release.ManagedTypes.ensure_assignment_definition/1 creates and activates the exam_assignment definition with managed_by \"exam\" and the pack's fields; a second run changes nothing and writes no new audit entry; a tenant without the exam module installed is left untouched; a failure in one tenant is reported and does not stop the others; after the call an assignment written with the exam authority is read by check_assigned/3. The function is added to the release-wrapper tests next to the Stamp ones, runs outside the Ecto sandbox where the Stamp tests do, and adds no route, flag or permission."
     depends_on: [REQ-329, REQ-332, REQ-335, REQ-473]
 
-  - id: REQ-590
-    title: "Tenant logo upload: an uploaded, scanned image replaces the logo_url string on both public tenant-config responses, behind a default-off flag (BilimBaga retirement criterion 9, T9a)"
+  - id: REQ-588
+    title: "Examiner manual-grading queue for short text answers, backend slice: list, read and mark routes, two exam-module permissions and session finalisation (BilimBaga study T1b)"
     owner: ELIXIR-DEV
     status: pending
-    stage: S8
-    # impl_order: UNREGISTERED -- blocked-by: REQ-585 -- GitHub issue is filed by the engine after the gate
-    # Source: docs/migration/bilimbaga-retirement-status.md section 9 ("Branding, missing" item 4: an upload path replacing the logo_url string); REQ-585 description, "OUT OF SCOPE, SEPARATE LATER SLICES" (logo upload gets its own requirement; logo_url stays an absolute http(s) string until then); lib/letflow/identity/tenant.ex (validate_logo_url/2); lib/letflow/identity/tenant_settings.ex (@allowed_keys); lib/letflow/routers/tenant_settings.ex (authz_patch "/", :TenantSettingsManage); lib/letflow/routers/tenant_config.ex (branding_from_settings/1, @default_logo_url); lib/letflow/routers/mobile_tenant_config.ex (branding_from_settings/1, @default_branding); lib/letflow/repository/attachments.ex (upload/2, @allowed_content_types, @max_upload_bytes, run_attachment_scan/2) and lib/letflow/repository/attachment_scanner.ex (scan/2 callback; default Letflow.Repository.AttachmentScanner.SignatureHeuristic); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5, INV-6, INV-8); docs/migration/decisions/0006 D2 (tenant_id kept inside each schema in addition to the prefix). Written by the business analyst (T-0695) 2026-10-26. Not yet validated.
+    stage: S10
+    gh: 3324
+    # Source: docs/migration/bilimbaga-retirement-status.md (section 1 "Missing" item 3 and "Proposed tasks" T1b); lib/letflow/modules/exam/router.ex (moduledoc "Deliberately NOT routed here": the manual short-text grading queue, FR-BB42; the route table; "Ownership and tenant isolation"; the ExamAuthoringWrite paragraph: a manifest-only permission with no role_grants is held through the core rules alone, PLATFORM_ADMIN and TENANT_ADMIN); lib/letflow/modules/exam/exam.ex (defmanifest: permissions, role_grants, route_policies); lib/letflow/modules/exam/scoring.ex (score_question/2 for :short_text returns grading_status :pending_manual with score 0.0 and max_score 1.0; build_outcome/3 gives session status :grading_pending and passed nil when any question is short text); lib/letflow/modules/exam/session.ex (persist_scores/4, update_session_after_submit/4, passed_for_status/2); lib/letflow/modules/exam/snapshot.ex (passing_score_pct frozen in session.exam_snapshot); priv/modules/exam/entity_definitions/session_question_score.json (grading_status enum graded, pending_manual, ai_graded; a status filter index exists on session_id plus grading_status) and session_answer.json (text_answer); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5); priv/permission_matrix/effective.golden. Written by the business analyst (T-0658) 2026-10-26. Not yet validated.
     description: >
-      Today a tenant's logo is the string settings["logo_url"], an absolute http(s) URL checked by
-      validate_logo_url/2 in lib/letflow/identity/tenant.ex and returned unchanged by
-      Letflow.Routers.TenantConfig.branding_from_settings/1 and
-      Letflow.Routers.MobileTenantConfig.branding_from_settings/1. The tenant must host the image itself
-      somewhere else. This requirement adds an upload path so the image lives in Letflow, for ONE image per
-      tenant, behind a new flag that is off by default.
-      REUSE OF THE UPLOAD BOUNDARY. Letflow.Repository.Attachments.upload/2 cannot be called as it is: it
-      requires an instance_id and runs the instance-visibility check. What is reused is its boundary, not the
-      table: (a) the scanner seam Letflow.Repository.AttachmentScanner.scan/2, resolved the way
-      run_attachment_scan/2 resolves it (Application.get_env(:letflow, :attachment_scanner, default)) and
-      wrapped so a raising adapter cannot crash the caller (INV-8); (b) the rule that byte_size is measured
-      from the received bytes and never from a caller-supplied number; (c) reject-before-persist: an infected
-      or scan-failed upload stores nothing. The logo does not go into instance_attachments.
-      NEW STORAGE. A tenant-schema table tenant_logos (one migration, one row at most per tenant, enforced by
-      a unique constraint on tenant_id) holds: tenant_id (kept inside the schema as well as the :prefix, per
-      decision 0006 D2), content_type, byte_size, content_hash (sha256), the image bytes, updated_at and
-      updated_by. Every read and write goes through the tenant :prefix derived from the authenticated tenant
-      (INV-1, INV-6); the public read derives it from the tenant looked up by slug, as tenant-config does.
-      FLAG. Application env :tenant_logo_upload_enabled, default false in every environment (config/config.exs
-      sets false, like :record_triggers_enabled), read by one function Letflow.Identity.TenantLogo.enabled?/0
-      (new module lib/letflow/identity/tenant_logo.ex). With the flag off every route below answers as if it
-      did not exist and both tenant-config responses are byte-identical to today's.
-      LIMITS (one implementation). Allowed content types: image/png, image/jpeg, image/webp. image/svg+xml
-      and image/gif are refused (SVG is markup and can carry script; the gate is on a closed list, not on a
-      deny list). The declared content type is checked against the list AND against the leading magic bytes of
-      the data (PNG 89 50 4E 47 0D 0A 1A 0A; JPEG FF D8 FF; WebP "RIFF" at 0 and "WEBP" at 8); a mismatch is
-      refused, so the INV-a "caller-declared, unverified" weakness of the attachment path does not carry over.
-      Maximum size 524288 bytes (512 KiB), measured on the received bytes.
-      ROUTES (the router's route table is the source for the final paths; mounts named here are the
-      intended ones). Upload and removal sit in a new module Letflow.Routers.TenantLogo mounted at
-      /api/v1/tenant/logo next to /api/v1/tenant/settings: PUT (body: the raw image bytes, content type from
-      the Content-Type header) and DELETE, both gated by the existing permission :TenantSettingsManage, so no
-      permission is added and the permission matrix golden does not move. The public read is
-      GET /api/tenant-config/logo, handled inside Letflow.Routers.TenantConfig (so the same pre-auth, no
-      x-trace-id mount and the same slug/realm resolution as GET /api/tenant-config). The image has to be
-      fetchable without a token because it is rendered by a plain img tag on the pre-login screen.
-      SERVING. The public read answers 200 with the stored bytes, the stored content type, the headers
-      X-Content-Type-Options: nosniff and Content-Security-Policy: default-src 'none'; sandbox, and
-      Content-Disposition: inline. The bytes are never wrapped in HTML or any markup. For an unknown slug, a
-      missing ?slug=, a lookup failure, a tenant with no uploaded logo, and the flag being off, the answer is
-      the same 404 with the same body and the same headers (INV-5): no branch tells the caller which of the
-      five happened.
-      RESPONSES. When the flag is on and the tenant has an uploaded logo, branding.logo_url in BOTH
-      GET /api/tenant-config and GET /api/mobile/tenant-config is the path of the public read for that tenant
-      (/api/tenant-config/logo?slug=<the tenant's slug>) instead of the stored string; no new field is added,
-      so the six top-level keys of the mobile body and the shape of the web body do not change. The stored
-      settings["logo_url"] is not overwritten. Both builders read the logo from the tenant_logos row by an
-      explicit named read of content_type presence only: the bytes, hash, size, updated_by and tenant_id never
-      appear in either response (INV-2). For an unknown slug, a missing ?slug= and a lookup failure the body
-      is byte-identical to today's platform default (INV-5).
-      EXISTING logo_url VALUES. No data migration touches settings. A tenant that has a logo_url string and
-      no upload keeps returning that string exactly as today. PATCH /api/v1/tenant/settings still accepts
-      logo_url with the same absolute http(s) rule (that validation is unchanged here). When both exist, the
-      upload wins in the responses; DELETE of the upload makes the stored logo_url the answer again. Turning
-      the flag off makes the stored string the answer again; the uploaded row is kept.
-      AUDIT. PUT and DELETE each write one audit entry (actions "tenant_logo.upload" and "tenant_logo.delete")
-      holding the content type, byte size and hash, never the bytes. Audit.append_multi raises on a database
-      failure, so the write and its audit entry are in one transaction.
-      OUT OF SCOPE, SEPARATE LATER SLICES. A logo field or preview on web/src/pages/admin/AppearanceSettingsPage.tsx,
-      the Flutter client, resizing or re-encoding the image, several logos per tenant (favicon, dark variant),
-      a CDN, and removing the logo_url string. The web client already uses branding.logo_url as an image
-      source; if a check of web/src shows it requires an absolute URL, that adjustment is part of this change.
+      Today a short text answer is scored 0.0 with grading_status pending_manual and the session stays
+      grading_pending for ever: no route lists such answers and no one can set a mark
+      (lib/letflow/modules/exam/router.ex, moduledoc "Deliberately NOT routed here"). This requirement adds
+      the backend an examiner needs, as three routes of the exam module, mounted under
+      /api/v1/modules/exam like the existing exam routes and declared in the route_policies of
+      lib/letflow/modules/exam/exam.ex: GET /grading-queue lists the tenant's answers waiting for a mark
+      (query parameters cursor and page_size, read through Pagination.parse_page_size_param/1 as
+      handle_list_available_exams in lib/letflow/modules/exam/router.ex does, with the same 400 answers (a
+      non-numeric or negative page_size: "invalid page_size"; 0 or above the maximum: the Pagination.page_size_error_message/0 text); optional filter by exam_id); GET
+      /grading-queue/:session_id/:question_id returns one waiting answer for reading; POST
+      /grading-queue/:session_id/:question_id/grade sets the mark. Two new permissions are declared by the
+      exam manifest only, with no role_grants (the ExamAuthoringWrite pattern): ExamGradingRead for the two
+      GET routes and ExamGradingWrite for the POST. Held through the core rules alone, they belong to
+      PLATFORM_ADMIN and TENANT_ADMIN; CANDIDATE, PROCESS_OPERATOR, PROCESS_DESIGNER, TASK_WORKER,
+      AGENT_RUNNER and TENANT_AUDITOR do not hold them (the auditor's allow-list is a closed explicit list).
+      Their record is priv/permission_matrix/effective.golden (as for ExamAuthoringWrite), not docs/roles.md,
+      which lists no module permission. Whether a
+      dedicated examiner role should hold them is an open question and not decided here.
+      WHAT A READER SEES (INV-2, server side). A queue row carries: session id, question id, exam title, the
+      question stem in the locale of the request or the default locale, max_score, the time the session was
+      submitted. The detail adds the candidate's text answer. Neither carries answer_option rows, is_correct,
+      likert fields, question explanation, the candidate's user id or name, the exam snapshot, or any other
+      session field; the candidate is shown only as the session id. (UAT assumption, to be confirmed by the
+      process owner: blind grading, the examiner does not see who the candidate is. Open question 2.)
+      WHAT A MARK DOES. The body of the grade route carries one number, score, from 0 up to and including
+      the answer's max_score (1.0 for a short text question today, per scoring.ex); the server takes the
+      grader from the token and never from the body; a body that carries any other key (session id, status,
+      grading_status, max_score, user id) is refused with 422 and nothing is stored. A valid mark updates the
+      session_question_score row to the given score and grading_status graded, and writes an event with the
+      grader's id (the record write's actor). A row that is already graded is not changed: the route answers
+      409 with a fixed reason text (no second mark in this slice; open question 3). The grade transaction
+      first takes the session row lock (lock_session_row/2 with FOR UPDATE, as finalize_txn does in
+      lib/letflow/modules/exam/session.ex), then re-reads the answer, so two marks on different answers of
+      one session cannot both miss the other. When the mark leaves no
+      pending_manual row in that session, the same transaction finalises the session: status submitted,
+      score_pct = sum of all scores / sum of all max_score * 100, passed = score_pct >= the passing_score_pct
+      frozen in session.exam_snapshot (never the live exam row). A session that still has other pending
+      answers stays grading_pending; the stored passed placeholder (false, a required field of
+      priv/modules/exam/entity_definitions/session.json) is not changed, and the candidate-facing state read
+      keeps returning passed null until the last mark. A session in status in_progress has no pending rows
+      and never appears. A session that expired holding short text answers is already stored as
+      grading_pending, not auto_submitted (maybe_override_status/2 in session.ex); finalising it to submitted
+      is accepted here (open question 6).
+      TENANT ISOLATION (INV-1, INV-5, INV-10). The tenant comes from the token only, as the other exam
+      routes do; no route takes a tenant identifier. Every query runs under the caller's tenant prefix. A
+      session id or question id that does not exist, belongs to another tenant, or is malformed returns the
+      same 404 body, status and headers on all three routes; so does a question that is not short text, and
+      on the two GET routes an answer that is already graded (no longer in the queue). On the grade route an
+      already graded answer of the caller's own tenant returns 409 (see above). A refused grade (404, 409, 422, 403) writes nothing.
+      NOT IN THIS ENTRY: any web screen (REQ-589); a second or corrected mark; assigning answers to named
+      examiners or locking an answer while one examiner reads it; AI grading (grading_status ai_graded stays
+      unused); a notification to the candidate that the result is ready; a rubric or free-text comment on a
+      mark; the exam assignment model (T1a). Existing candidate routes and their permissions are not changed.
+    open_questions:
+      - "Which role holds ExamGradingRead and ExamGradingWrite? This entry gives them to TENANT_ADMIN and PLATFORM_ADMIN through the core rules only, because docs/roles.md has no examiner role and the study (T2a) has not yet mapped BilimBaga's five roles. Does the owner want a ninth built-in role (an examiner), or a role_grants entry for an existing role?"
+      - "Blind grading: the examiner sees no candidate identity. UAT assumption, to be confirmed by the process owner. Does BilimBaga's process need the examiner to see who answered (for example to exclude a conflict of interest)? The source for BilimBaga's rule is the BilimBaga repo (FR-BB42), which this entry did not read."
+      - "A mark is final in this slice (second mark answers 409). Does the process owner need a correction route, with a reason and an audit trail, and who may use it?"
+      - "Does a pass or fail that is decided by an examiner need any second check (two examiners) before the candidate sees it? Not settled by the source."
+      - "Is the mark restricted to 0 or max_score (right or wrong) or any value between? This entry allows any decimal between 0 and max_score inclusive; the BilimBaga rule is not read."
+      - "A session that expired holding short text answers is stored as grading_pending today and becomes submitted after the last mark, so the record no longer shows it was auto-submitted. This entry accepts that. Does the process owner need the auto-submitted outcome kept?"
     acceptance_criteria:
-      - "Flag: Letflow.Identity.TenantLogo.enabled?/0 reads Application.get_env(:letflow, :tenant_logo_upload_enabled, false) == true and config/config.exs sets it to false; with it off, PUT and DELETE /api/v1/tenant/logo and GET /api/tenant-config/logo answer 404 with the router's ordinary not-found body, and GET /api/tenant-config and GET /api/mobile/tenant-config for a tenant that has a tenant_logos row are byte-identical to the responses for the same tenant with no row; a test pins each"
-      - "Upload accepts a valid image: with the flag on, PUT /api/v1/tenant/logo by a user holding :TenantSettingsManage with a PNG of at most 524288 bytes and Content-Type image/png answers 200, stores one tenant_logos row in that tenant's schema with tenant_id, content_type, a byte_size equal to the received length and the sha256 content_hash, and a second PUT replaces the row (still one row per tenant, enforced by a unique constraint on tenant_id that a test violates directly)"
-      - "Limits are refused with no row written: a PUT of image/svg+xml, image/gif, application/pdf and text/html is refused with a 4xx naming the allowed types; a PUT declared image/png whose bytes begin with the JPEG signature or with <svg is refused (magic-byte check, with one passing and one failing case each for PNG, JPEG, WebP); a PUT of 524289 bytes is refused as too large and a PUT of exactly 524288 bytes is accepted (the boundary is its own step); a PUT of the EICAR test string declared image/png is refused by the scanner seam (Letflow.Repository.AttachmentScanner.scan/2) and a scanner adapter that raises or returns {:error, _} yields a refusal, not a 500 and not a stored row"
-      - "Authorisation: PUT and DELETE /api/v1/tenant/logo are refused for a user without :TenantSettingsManage and for an unauthenticated caller; no permission atom is added (git diff shows priv/permission_matrix/effective.golden unchanged); a test confirms the route is listed with :TenantSettingsManage in the authorization route table"
-      - "Tenant isolation (INV-1, INV-6): with tenants A and B each holding a logo, PUT/DELETE by A's admin changes only A's row (B's row bytes and hash unchanged, asserted by reading B's schema with B's :prefix); GET /api/tenant-config/logo?slug=<A> returns A's bytes and ?slug=<B> returns B's; the tenant_logos table exists in every tenant schema (the tenant table-list pin @expected_tenant_tables in test/support/tenant_fixture.ex and its count in test/letflow/tenant_fixture_test.exs move by +1 from the value on origin/main at implement time) and the module contains no unscoped Repo call"
-      - "Served as an image, never as markup: GET /api/tenant-config/logo?slug=<tenant with logo> answers 200 with exactly the stored bytes, the stored content type, X-Content-Type-Options: nosniff, Content-Security-Policy: default-src 'none'; sandbox and Content-Disposition: inline; a test uploads a PNG whose trailing bytes contain <script>alert(1)</script> and asserts the body is returned byte-identical with an image/png content type and never an html or svg content type"
-      - "INV-5 on the public read: GET /api/tenant-config/logo for an unknown slug, no slug, a forced lookup failure, a real tenant with no uploaded logo, and the flag off returns five responses with the same status 404, the same body and the same header names (a test compares all five), and the request never answers 500"
-      - "INV-2/INV-5 on both tenant-config responses: with the flag on and an uploaded logo, branding.logo_url in GET /api/tenant-config and in GET /api/mobile/tenant-config equals \"/api/tenant-config/logo?slug=<slug>\" and the six top-level keys of the mobile body and the keys of the web body are unchanged; neither body contains the bytes, content_hash, byte_size, updated_by or tenant_id of the logo row (asserted by key and by value); for an unknown slug, a missing ?slug= and a lookup failure the mobile body is byte-identical to today's platform default; the moduledocs of lib/letflow/routers/tenant_config.ex and lib/letflow/routers/mobile_tenant_config.ex state that logo_url may now be a path"
-      - "Existing logo_url values: a tenant with settings logo_url \"https://example.com/l.png\" and no upload returns that string from both endpoints exactly as before; with an upload it returns the path form while settings[\"logo_url\"] in the database is unchanged; after DELETE /api/v1/tenant/logo (200) or after turning the flag off, both endpoints return the stored string again; PATCH /api/v1/tenant/settings with a non-http logo_url is still refused by the unchanged validate_logo_url/2 (git diff shows no change to that function); no migration touches tenants.settings"
-      - "Audit: PUT writes one audit entry with action \"tenant_logo.upload\" and DELETE one with \"tenant_logo.delete\", each carrying content type, byte size and hash and no image bytes (a test scans after_state for the bytes), in the same transaction as the row change; a DROP TABLE audit_entries test shows the failure path is rescued and the logo row is not left changed"
-      - "Verdicts and gates: SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-6, INV-8; the file-upload and public-read surfaces) and REVIEWER verdict is recorded; new route pins move +1 from the values on origin/main at implement time (grep -rn \"__authz_routes__\\|length(snapshot)\" test/ and test/fixtures/route_scope/tenant_wide_default_routes.txt); mix letflow.check.static and the changed and new test files pass with real output quoted; the PR states that the flag is off in QA after auto-CD and that no existing row is changed"
-    depends_on: [REQ-585, REQ-280, REQ-211, REQ-212, REQ-389]
+      - "1. Permissions: ExamGradingRead and ExamGradingWrite are listed in the permissions of the exam manifest in lib/letflow/modules/exam/exam.ex with no role_grants entry, and the three routes are added to its route_policies (GET /grading-queue and GET /grading-queue/:session_id/:question_id with ExamGradingRead, POST /grading-queue/:session_id/:question_id/grade with ExamGradingWrite). Test G-perm: a TENANT_ADMIN and a PLATFORM_ADMIN token get 200 on both GET routes; tokens of CANDIDATE, PROCESS_OPERATOR, PROCESS_DESIGNER, TASK_WORKER, AGENT_RUNNER and TENANT_AUDITOR each get the same 403 body on all three routes; a request without a token gets 401. priv/permission_matrix/effective.golden is regenerated by mix letflow.permission_matrix --write and gains 'TENANT_ADMIN ExamGradingRead true module:exam core', the PLATFORM_ADMIN ExamGradingRead row with the same values, the same two rows for ExamGradingWrite, and a false row for every other role; the PR quotes the command output. docs/roles.md is not changed (it lists no module permission)."
+      - "2. Queue list, Test G-list: with three sessions of tenant A each holding one pending short text answer, one session holding a graded short text answer and one holding only a single-choice question, GET /grading-queue returns exactly the three pending rows, ordered by the session's submission time then session id, with the fields named in the description and no other; page_size and cursor behave as in the available-exams list (a non-numeric or negative page_size returns 400 'invalid page_size'; a page_size of 0 or above the maximum returns 400 with the Pagination.page_size_error_message/0 text ('page_size out of range (maximum 200)' today), as handle_list_available_exams and render_list_available_exams do; a second page by cursor returns the remaining rows with no repeat); a filter by exam_id returns only that exam's rows; a malformed exam_id returns 400."
+      - "3. Field redaction (INV-2), Test G-redact: the JSON of the list and detail responses is searched for the strings is_correct, likert, explanation, exam_snapshot, passing_score_pct, user_id, candidate_id and for the candidate's email and display name used in the fixture; none is present. The detail returns the candidate's text_answer unchanged (including a value with markup characters, returned as data and not interpreted)."
+      - "4. Mark, Test G-mark: POST .../grade with score 0.75 by a TENANT_ADMIN returns 200; the session_question_score row now has score 0.75, max_score unchanged and grading_status graded; the write's event carries the caller's user id as actor; a body with score 1.2, a negative score, a non-number, a missing score, or any extra key (session_id, status, grading_status, max_score, user_id, tenant_id) returns 422 and the row is unchanged."
+      - "5. Finalisation, Test G-final: a session with two pending short text answers and one graded single-choice answer (score 1.0 of 1.0) stays grading_pending after the first mark (the stored passed placeholder is unchanged and GET /exam-sessions/:id returns passed null), and after the second mark has status submitted, score_pct equal to the exact quotient of the sums times 100 and passed true when score_pct >= the passing_score_pct frozen in its exam_snapshot; a second session whose exam row's threshold was changed after the session started is judged against the frozen threshold, not the live one; the candidate's state read (GET /exam-sessions/:id) returns passed null before the last mark and the decided value after."
+      - "6. Re-mark, Test G-once: a second POST .../grade for an already graded answer returns 409 with a fixed reason text that contains no score or answer text, and the stored score is unchanged; two concurrent grade requests for the same pending answer leave exactly one mark and exactly one finalisation, by the session row lock named in the description (not a supervised process); two concurrent grade requests for the two last pending answers of one session leave both marks stored and the session finalised exactly once (status submitted, score_pct set)."
+      - "7. Not found alike, Test G-404: a random UUID, a session id that exists only in tenant B, a question that is not short text, and a malformed id each return identical status, headers and body on the detail route and on the grade route (404). An answer of the caller own tenant that is already graded returns 404 on the detail route (it is no longer in the queue) and 409 on the grade route (criterion 6)."
+      - "8. Cross-tenant negative, Test G-tenant (INV-1, INV-10): with pending answers in tenant B's schema, a TENANT_ADMIN credential of tenant A gets none of them on the list, a 404 on their detail, and a 404 on grade with tenant B's row unchanged afterwards (read back through tenant B's prefix); none of the three routes has a tenant parameter in path, query or body (checked on the compiled route paths); a PLATFORM_ADMIN token on these routes sees only its own tenant's rows."
+      - "9. Pin sweep: the PR lists, from grep -rn \"__authz_routes__\\|length(snapshot)\\|route_policies\\|ExamAuthoringWrite\" test/, each pin that moves (route-inventory counts, the exam router moduledoc route table gains three rows and loses the first bullet of 'Deliberately NOT routed here', the permission lists) with its new value stated as +N from the value on origin/main at implement time."
+      - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-10, candidate answer text is personal data, finalisation uses the frozen threshold) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests G-perm, G-list, G-redact, G-mark, G-final, G-once, G-404 and G-tenant pass with real output quoted."
+    depends_on: [REQ-332, REQ-335, REQ-410, REQ-355]
+
+  - id: REQ-589
+    title: "Examiner grading screen in the exam module of the web app: queue list, answer view and mark form (BilimBaga study T1b)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S10
+    gh: 3323
+    # Source: REQ-588 in this file (routes, permissions ExamGradingRead and ExamGradingWrite, the fields a row carries); web/src/modules/exam/examRoutes.tsx (examRouteObjects, registered through registry.ts and wrapped in ModuleGuard) and web/src/modules/exam/ExamIntlProvider.tsx, examMessages.ts (the module's own i18n, locales kk, ru, en); web/src/modules/exam/exam.api.ts (the module's API client); docs/migration/bilimbaga-retirement-status.md (section 2 "Missing" item 2: examiner and grader screens depend on 1.3, T2b); docs/roles.md. Written by the business analyst (T-0658) 2026-10-26. Not yet validated.
+    description: >
+      The screen for the examiner of REQ-588, inside the exam module of web/ (web/src/modules/exam/), so it
+      counts as module code and uses the module's own i18n provider. One route is added to examRouteObjects
+      in web/src/modules/exam/examRoutes.tsx: /exam/grading, with the queue list, and a child route
+      /exam/grading/:sessionId/:questionId for one answer. The queue list shows a table of waiting answers
+      (exam title, question stem, submitted time) with an exam filter and the paging the API gives, and an
+      empty state ("nothing to grade") when the list is empty. The answer view shows the question stem, the
+      candidate's text answer as plain text (never as HTML), the largest allowed mark, a number field for the
+      mark and a Save button; saving calls the grade route, shows a confirmation, and returns to the list
+      with the graded row gone; a 409 shows a fixed "already graded" message and a refresh of the list; a 422
+      shows the field error; a 404 shows the module's usual not-found page. The screen shows no candidate
+      name, e-mail or user id, because the API gives none. A navigation entry "Grading" appears in the exam
+      module's navigation only for a user whose permissions include ExamGradingRead as the shell already
+      reads them for other module entries; the route itself is guarded by the same rule and a user without it
+      gets the shell's forbidden page. Texts exist in kk, ru and en in examMessages.ts. No change to the
+      candidate screens.
+    open_questions:
+      - "Which locale does the stem show in: the examiner's interface locale, or the locale the candidate sat the exam in? The source does not settle it; this entry shows the interface locale and falls back to the default locale of the question."
+      - "Does the examiner need keyboard-only marking of many answers in a row (next answer after save)? This entry returns to the list; a 'save and next' action is not built."
+    acceptance_criteria:
+      - "1. Route and guard, Test U-guard (Vitest): /exam/grading and /exam/grading/:sessionId/:questionId render for a user whose permission list includes ExamGradingRead and render the shell's forbidden page for a user without it (a CANDIDATE fixture); the nav entry 'Grading' appears only for the first; both routes are listed in examRouteObjects and reached under the exam module's ModuleGuard."
+      - "2. List, Test U-list: with a mocked API response of three rows the table shows three rows with exam title, question stem and submitted time and no candidate identity; the exam filter sends the exam id to the API; the paging control follows the API's page information; an empty response shows the empty-state text in the interface locale."
+      - "3. Answer view, Test U-answer: the candidate's text answer containing the characters <script>alert(1)</script> is shown as literal text (no element created, checked by querying the DOM); the mark field accepts a number from 0 to the shown largest mark and the Save button is disabled while the field is empty or outside that range."
+      - "4. Save, Test U-save: Save sends exactly one request whose body has the single key score; on 200 the screen shows the confirmation and navigates to the list, which is re-fetched; on 409 it shows the 'already graded' text and re-fetches the list; on 422 it shows the field error; on 404 it shows the module's not-found page; a double click sends one request."
+      - "5. i18n, Test U-i18n: every new text key exists in kk, ru and en in examMessages.ts and the module's message-key completeness check (the existing exam message tests) passes; the screen renders in each locale without a missing-key fallback."
+      - "6. npm run check (type-check, lint, unit tests, guards) passes with real output quoted; no change under web/src outside web/src/modules/exam/ except the minimal navigation registration the shell requires, which the PR names; the existing candidate and admin screen tests still pass."
+    depends_on: [REQ-588]
