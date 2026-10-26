@@ -6,8 +6,8 @@ defmodule Letflow.TenantPurgeTest do
   RA (reactivation), O (order).
 
   `async: false`: provisioning flips the sandbox to `:auto`, and the platform-tenant pin and the
-  retention setting are VM-global. The race between two purges (C1) cannot be forced here: the
-  sandbox serialises on one connection and makes the advisory lock reentrant.
+  retention setting are VM-global. Tests C1 (two purges at once) relies on that `:auto` mode: each Task
+  gets its own pool connection, so the advisory lock and the row lock really contend.
   """
 
   use Letflow.DataCase, async: false
@@ -46,8 +46,10 @@ defmodule Letflow.TenantPurgeTest do
 
   defp ago(days), do: DateTime.add(DateTime.utc_now(), -days * @day, :second)
 
-  # A deactivated, provisioned demo tenant whose deletion was requested `requested` days ago, with a
-  # login-directory row and a membership row.
+  # A deactivated, provisioned demo tenant whose deletion was requested `requested` days ago, with one
+  # row in every table of `TenantPurge.removed_tables/0` (a rollout outcome that references the
+  # tenant's column promotion included), an onboarding_registry row, and a user and an instance
+  # projection in its own schema. `:email_key` lets two tenants hold the same login-directory key.
   defp victim!(opts \\ []) do
     fixture = TenantFixture.provisioned_tenant!(slug_prefix: "req580-v")
     id = fixture.tenant_id
@@ -62,40 +64,128 @@ defmodule Letflow.TenantPurgeTest do
       deletion_requested_at: Keyword.get(opts, :requested, ago(31))
     })
 
+    hostname = "purge-#{Ecto.UUID.generate()}.example.com"
+    rollout = Ecto.UUID.bingenerate()
+
     on_exit(fn ->
       Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
       {:ok, bin} = Ecto.UUID.dump(id)
-      Repo.query!("DELETE FROM tenant_memberships WHERE tenant_id = $1", [bin])
-      Repo.query!("DELETE FROM tenant_login_directory WHERE tenant_id = $1", [bin])
+
+      # tenant_schemas stays: the fixture's own cleanup reads it to find the schema.
+      for {table, column} <- TenantPurge.removed_tables(), table != "tenant_schemas" do
+        Repo.query!("DELETE FROM #{table} WHERE #{column} = $1", [bin])
+      end
+
+      Repo.query!("DELETE FROM platform_migration_rollouts WHERE id = $1", [rollout])
+      Repo.query!("DELETE FROM onboarding_registry WHERE tenant_id = $1", [bin])
       Repo.delete_all(from(l in Lifecycle, where: l.tenant_id == ^id))
     end)
 
-    seed_global_rows!(id)
-    fixture
+    seed_global_rows!(id, rollout, Keyword.get(opts, :email_key, :crypto.strong_rand_bytes(32)))
+    seed_registry!(id, fixture.tenant.slug, hostname)
+    seed_schema_rows!(fixture.schema_name)
+    Map.put(fixture, :hostname, hostname)
   end
 
-  defp seed_global_rows!(id) do
+  defp seed_registry!(id, slug, hostname) do
     {:ok, bin} = Ecto.UUID.dump(id)
-    key = :crypto.strong_rand_bytes(32)
 
     Repo.query!(
-      "INSERT INTO tenant_login_directory (email_key, tenant_id, key_id, inserted_at) VALUES ($1, $2, 'k1', now())",
-      [key, bin]
-    )
-
-    Repo.query!(
-      "INSERT INTO tenant_memberships (id, subject_key, tenant_id, display_label, inserted_at, updated_at) VALUES ($1, $2, $3, 'Jane Doe', now(), now())",
-      [Ecto.UUID.bingenerate(), "subject-#{id}", bin]
+      "INSERT INTO onboarding_registry (id, tenant_id, slug, hostname, inserted_at) VALUES ($1, $2, $3, $4, now())",
+      [Ecto.UUID.bingenerate(), bin, slug, hostname]
     )
   end
 
-  defp global_counts(id) do
+  # A user and an instance projection in the tenant's own schema.
+  defp seed_schema_rows!(schema_name) do
+    n = Ecto.UUID.generate()
+
+    %Letflow.Identity.User{}
+    |> Ecto.Changeset.change(%{
+      username: "purge-user-#{n}",
+      display_name: "Jane Doe",
+      email: "jane.doe.#{n}@example.com",
+      password_hash: "__NO_PASSWORD_SET__",
+      status: :active,
+      auth_source: :internal
+    })
+    |> Repo.insert!(prefix: schema_name)
+
+    %Letflow.EventStore.InstanceProjection{}
+    |> Ecto.Changeset.change(%{
+      instance_id: Ecto.UUID.generate(),
+      status: :active,
+      definition_id: Ecto.UUID.generate(),
+      last_event_seq: 0
+    })
+    |> Repo.insert!(prefix: schema_name)
+  end
+
+  # One row in each removed table except tenant_schemas (provisioning wrote that one).
+  defp seed_global_rows!(id, rollout, email_key) do
+    {:ok, bin} = Ecto.UUID.dump(id)
+    promotion = Ecto.UUID.bingenerate()
+    uid = &Ecto.UUID.bingenerate/0
+    tag = Ecto.UUID.generate()
+
+    rows = [
+      {"INSERT INTO platform_migration_rollouts (id, entity_type, attribute, column_spec, started_at) VALUES ($1, 'e-#{tag}', 'a', '{}', now())",
+       [rollout]},
+      {"INSERT INTO entity_column_promotions (id, tenant_id, entity_type, attribute, column_name, pg_type, status, query_eligible, inserted_at, updated_at) VALUES ($1, $2, 'e-#{tag}', 'a', 'c', 'text', 'active', false, now(), now())",
+       [promotion, bin]},
+      {"INSERT INTO platform_migration_rollout_outcomes (id, rollout_id, tenant_id, column_promotion_id) VALUES ($1, $2, $3, $4)",
+       [uid.(), rollout, bin, promotion]},
+      {"INSERT INTO secrets (id, tenant_id, namespace, name, key_id, purpose, algorithm, wrapped_key_algorithm, ciphertext, wrapped_data_key, nonce, wrap_nonce, auth_tag, wrap_auth_tag, aad, wrapping_key_ref, created_at, created_by) VALUES ($1, $2, 'ns', 'n', 1, 'p', 'a', 'w', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'r', now(), 'test')",
+       [uid.(), bin]},
+      {"INSERT INTO public_read_handles (id, handle_hash, tenant_id, kind, resource_id, inserted_at, updated_at) VALUES ($1, $2, $3, 'k', $4, now(), now())",
+       [uid.(), "hash-#{tag}", bin, uid.()]},
+      {"INSERT INTO entity_constraint_activations (id, tenant_id, entity_type, constraint_name, fields, status, inserted_at, updated_at) VALUES ($1, $2, 'e', 'c', ARRAY['a']::varchar[], 'active', now(), now())",
+       [uid.(), bin]},
+      {"INSERT INTO solution_pack_installs (id, tenant_id, pack_id, installed_version, installed_at, inserted_at, updated_at) VALUES ($1, $2, 'p', '1.0.0', now(), now(), now())",
+       [uid.(), bin]},
+      {"INSERT INTO solution_pack_artefact_bases (id, tenant_id, pack_id, artefact_type, artefact_id, base_version, base_content, captured_at, inserted_at, updated_at) VALUES ($1, $2, 'p', 't', 'a', '1.0.0', 'c', now(), now(), now())",
+       [uid.(), bin]},
+      {"INSERT INTO pack_update_resolutions (id, tenant_id, pack_id, target_version, artefact_type, artefact_id, resolution, resolved_by, resolved_at, inserted_at, updated_at) VALUES ($1, $2, 'p', '1.0.1', 't', 'a', 'keep', $3, now(), now(), now())",
+       [uid.(), bin, uid.()]},
+      {"INSERT INTO service_catalog (service_id, endpoint_url, timeout_ms, scope, owner_tenant_id, created_at, updated_at, published_at) VALUES ($1, 'https://svc.example.com', 1000, 'tenant', $2, now(), now(), now())",
+       ["svc-#{tag}", bin]},
+      {"INSERT INTO tenant_login_directory (email_key, tenant_id, key_id, inserted_at) VALUES ($1, $2, 'k1', now())",
+       [email_key, bin]},
+      {"INSERT INTO tenant_memberships (id, subject_key, tenant_id, display_label, inserted_at, updated_at) VALUES ($1, $2, $3, 'Jane Doe', now(), now())",
+       [uid.(), "subject-#{id}", bin]}
+    ]
+
+    for {sql, params} <- rows, do: Repo.query!(sql, params)
+  end
+
+  # {row count, md5 of the rows} per removed table, for one tenant.
+  defp global_snapshot(id) do
     {:ok, bin} = Ecto.UUID.dump(id)
 
     for {table, column} <- TenantPurge.removed_tables(), into: %{} do
-      %{rows: [[n]]} =
-        Repo.query!("SELECT count(*) FROM #{table} WHERE #{column} = $1", [bin])
+      %{rows: [[n, digest]]} =
+        Repo.query!(
+          "SELECT count(*), coalesce(md5(string_agg(t::text, ',' ORDER BY t::text)), '') FROM #{table} t WHERE #{column} = $1",
+          [bin]
+        )
 
+      {table, {n, digest}}
+    end
+  end
+
+  defp global_counts(id),
+    do: id |> global_snapshot() |> Map.new(fn {table, {n, _digest}} -> {table, n} end)
+
+  # Row count of every base table in a tenant schema.
+  defp schema_counts(schema) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE'",
+        [schema]
+      )
+
+    for [table] <- rows, into: %{} do
+      %{rows: [[n]]} = Repo.query!("SELECT count(*) FROM \"#{schema}\".\"#{table}\"")
       {table, n}
     end
   end
@@ -201,18 +291,31 @@ defmodule Letflow.TenantPurgeTest do
 
   describe "R/K purge" do
     test "R1/R2/R4/K1/K2/K3 removes data, keeps the marker rows, writes one audit entry", ctx do
-      v = victim!()
+      key = :crypto.strong_rand_bytes(32)
+      v = victim!(email_key: key)
+      # B holds a login-directory row with the SAME e-mail key as A.
+      b = victim!(email_key: key)
       id = v.tenant_id
       slug = v.tenant.slug
       realm_before = Repo.get!(Tenant, id).idp_realm_id
-      assert %{"tenant_memberships" => 1, "tenant_login_directory" => 1} = global_counts(id)
+      original_name = Repo.get!(Tenant, id).display_name
+      actor = Ecto.UUID.generate()
+
+      before_a = global_snapshot(id)
+      before_b = global_snapshot(b.tenant_id)
+      removed = Enum.map(TenantPurge.removed_tables(), &elem(&1, 0))
+      assert Map.keys(before_a) |> Enum.sort() == Enum.sort(removed)
+      # Every removed table holds a row of A (so "0 after" proves a delete) and of B.
+      assert Enum.all?(before_a, fn {_table, {n, _}} -> n >= 1 end), inspect(before_a)
+      assert Enum.all?(before_b, fn {_table, {n, _}} -> n >= 1 end)
       assert schema_exists?(v.schema_name)
 
-      assert {:ok, :purged} =
-               TenantPurge.purge(id, :platform_admin, actor_id: Ecto.UUID.generate())
+      assert {:ok, :purged} = TenantPurge.purge(id, :platform_admin, actor_id: actor)
 
       refute schema_exists?(v.schema_name)
       assert Enum.all?(global_counts(id), fn {_table, n} -> n == 0 end)
+      assert global_snapshot(b.tenant_id) == before_b
+      assert schema_exists?(b.schema_name)
 
       tenant = Repo.get!(Tenant, id)
       assert %{id: ^id, slug: ^slug, status: :inactive, display_name: "purged"} = tenant
@@ -230,7 +333,49 @@ defmodule Letflow.TenantPurgeTest do
              ]
 
       assert entry.after_state["trigger"] == "platform_admin"
-      refute inspect(entry) =~ "Jane Doe"
+      assert entry.actor_id == actor
+
+      serialized = inspect(entry)
+      refute serialized =~ "Jane Doe"
+      refute serialized =~ "jane.doe"
+      refute serialized =~ original_name
+    end
+
+    test "R3 the provisioner trigger writes an audit entry with no actor", ctx do
+      v = victim!()
+      assert {:ok, :purged} = TenantPurge.purge(v.tenant_id, :provisioner)
+
+      assert [entry] =
+               Enum.filter(
+                 entries(ctx, "platform.tenant.purged"),
+                 &(&1.resource_id == v.tenant_id)
+               )
+
+      assert entry.actor_id == nil
+      assert entry.after_state["trigger"] == "provisioner"
+    end
+
+    test "R7 a purged tenant keeps its slug and hostname reserved (registry row kept)" do
+      v = victim!()
+      {:ok, bin} = Ecto.UUID.dump(v.tenant_id)
+      assert {:ok, :purged} = TenantPurge.purge(v.tenant_id, :provisioner)
+
+      assert %{rows: [[slug, hostname]]} =
+               Repo.query!(
+                 "SELECT slug, hostname FROM onboarding_registry WHERE tenant_id = $1",
+                 [
+                   bin
+                 ]
+               )
+
+      assert slug == v.tenant.slug and hostname == v.hostname
+    end
+
+    test "R8 a deletion-requested tenant is already unreachable before the purge" do
+      key = :crypto.strong_rand_bytes(32)
+      v = victim!(email_key: key)
+      assert Repo.get!(Tenant, v.tenant_id).status == :inactive
+      assert {:ok, []} = Letflow.LoginDirectory.lookup_by_keys([key])
     end
 
     test "R6 every public table with a tenant column is removed or on the kept list" do
@@ -294,6 +439,42 @@ defmodule Letflow.TenantPurgeTest do
                  &(&1.resource_id == v.tenant_id)
                )
     end
+
+    test "C1 two concurrent purges: one :purged, one :already_purged, one audit entry", ctx do
+      v = victim!()
+      id = v.tenant_id
+      parent = self()
+
+      tasks =
+        for _ <- 1..2 do
+          Task.async(fn ->
+            send(parent, {:ready, self()})
+
+            receive do
+              :go -> TenantPurge.purge(id, :provisioner)
+            end
+          end)
+        end
+
+      pids =
+        for _ <- 1..2 do
+          receive do
+            {:ready, pid} -> pid
+          after
+            10_000 -> flunk("a purge task did not start")
+          end
+        end
+
+      Enum.each(pids, &send(&1, :go))
+
+      assert tasks |> Task.await_many(120_000) |> Enum.sort() ==
+               [{:ok, :already_purged}, {:ok, :purged}]
+
+      assert [_one] =
+               Enum.filter(entries(ctx, "platform.tenant.purged"), &(&1.resource_id == id))
+
+      refute schema_exists?(v.schema_name)
+    end
   end
 
   describe "S settings" do
@@ -323,20 +504,28 @@ defmodule Letflow.TenantPurgeTest do
   end
 
   describe "X no cross-tenant deletion" do
-    test "X1 purging A leaves B's schema, rows and lifecycle unchanged" do
-      a = victim!()
+    test "X1 purging A by each trigger leaves every row, table and the schema of B unchanged",
+         ctx do
       b = victim!()
+      b_before = {global_snapshot(b.tenant_id), schema_counts(b.schema_name)}
+      b_rows = {lifecycle!(b.tenant_id), Repo.get!(Tenant, b.tenant_id)}
+      assert b_before |> elem(1) |> Map.values() |> Enum.sum() >= 2
 
-      b_before =
-        {global_counts(b.tenant_id), lifecycle!(b.tenant_id), Repo.get!(Tenant, b.tenant_id)}
+      for trigger <- [:provisioner, :platform_admin, :sweep] do
+        a = victim!()
+        assert {:ok, :purged} = TenantPurge.purge(a.tenant_id, trigger)
+        refute schema_exists?(a.schema_name)
 
-      assert {:ok, :purged} = TenantPurge.purge(a.tenant_id, :provisioner)
+        assert schema_exists?(b.schema_name)
+        assert b_before == {global_snapshot(b.tenant_id), schema_counts(b.schema_name)}
+        assert b_rows == {lifecycle!(b.tenant_id), Repo.get!(Tenant, b.tenant_id)}
+      end
 
-      assert schema_exists?(b.schema_name)
-
-      assert b_before ==
-               {global_counts(b.tenant_id), lifecycle!(b.tenant_id),
-                Repo.get!(Tenant, b.tenant_id)}
+      # and through the platform route
+      a = victim!()
+      assert post_purge(a.tenant.slug, ["PLATFORM_ADMIN"], ctx.platform.tenant_id).status == 200
+      assert b_before == {global_snapshot(b.tenant_id), schema_counts(b.schema_name)}
+      assert b_rows == {lifecycle!(b.tenant_id), Repo.get!(Tenant, b.tenant_id)}
     end
 
     test "X2 DROP SCHEMA exists in exactly one file of lib/" do
@@ -414,22 +603,141 @@ defmodule Letflow.TenantPurgeTest do
       assert schema_exists?(bare.schema_name)
     end
 
-    test "N1-N4 TENANT_ADMIN, no role, and an operator of another tenant are refused", ctx do
+    defp mint!(fixture, roles) do
+      n = Ecto.UUID.generate()
+
+      user =
+        %Letflow.Identity.User{}
+        |> Ecto.Changeset.change(%{
+          username: "purge-caller-#{n}",
+          display_name: "Purge Caller",
+          email: "purge-caller-#{n}@example.com",
+          password_hash: "__NO_PASSWORD_SET__",
+          status: :active,
+          auth_source: :internal
+        })
+        |> Repo.insert!(prefix: fixture.schema_name)
+
+      {:ok, %{plaintext: plaintext}} =
+        Identity.create_token(user.id, %{roles: roles, expires_at: nil},
+          prefix: fixture.schema_name
+        )
+
+      plaintext
+    end
+
+    defp api(method, path, token, slug, body \\ nil) do
+      conn =
+        if body,
+          do:
+            conn(method, path, Jason.encode!(body))
+            |> put_req_header("content-type", "application/json"),
+          else: conn(method, path)
+
+      conn =
+        if token,
+          do:
+            conn
+            |> put_req_header("authorization", "Bearer " <> token)
+            |> put_req_header("x-tenant-slug", slug),
+          else: conn
+
+      Letflow.Router.call(conn, Letflow.Router.init([]))
+    end
+
+    test "N1-N4 no token, a foreign admin, a role-less caller and a foreign platform admin are refused",
+         ctx do
       v = victim!()
       other = TenantFixture.provisioned_tenant!(slug_prefix: "req580-other")
+      path = "/api/v1/tenants/#{v.tenant.slug}/purge"
+      before = {global_snapshot(v.tenant_id), lifecycle!(v.tenant_id)}
 
-      for {roles, tenant_id} <- [
-            {["TENANT_ADMIN"], v.tenant_id},
-            {["TENANT_ADMIN"], other.tenant_id},
-            {[], ctx.platform.tenant_id},
-            {["PLATFORM_ADMIN"], other.tenant_id}
-          ] do
-        conn = post_purge(v.tenant.slug, roles, tenant_id)
-        assert conn.status in [403, 404], "#{inspect(roles)}: #{conn.status}"
+      assert api(:post, path, nil, nil).status == 401
+
+      for roles <- [["TENANT_ADMIN"], ["PROCESS_DESIGNER"]] do
+        conn = api(:post, path, mint!(other, roles), other.tenant.slug)
+        assert conn.status == 403, "#{inspect(roles)}: #{conn.status} #{conn.resp_body}"
       end
 
+      # the same refusal for a caller of the platform tenant without the platform role
+      conn = api(:post, path, mint!(ctx.platform, ["TENANT_ADMIN"]), ctx.platform.tenant.slug)
+      assert conn.status == 403
+
+      # a PLATFORM_ADMIN whose resolved tenant is not the platform tenant (cannot be minted as a
+      # token, so the auth_context is assigned): the 403 of the existing scope rule
+      foreign = post_purge(v.tenant.slug, ["PLATFORM_ADMIN"], other.tenant_id)
+      assert foreign.status == 403
+
       assert schema_exists?(v.schema_name)
-      assert lifecycle!(v.tenant_id).purged_at == nil
+      assert before == {global_snapshot(v.tenant_id), lifecycle!(v.tenant_id)}
+    end
+
+    test "P4 a failing purge answers 500 internal_error with no database text and rolls back",
+         ctx do
+      v = victim!()
+      table = ~s("#{ctx.platform.schema_name}".audit_entries)
+      Repo.query!("ALTER TABLE #{table} RENAME TO audit_entries_gone")
+
+      conn =
+        try do
+          post_purge(v.tenant.slug, ["PLATFORM_ADMIN"], ctx.platform.tenant_id)
+        after
+          Repo.query!(
+            ~s(ALTER TABLE "#{ctx.platform.schema_name}".audit_entries_gone RENAME TO audit_entries)
+          )
+        end
+
+      assert conn.status == 500
+
+      assert %{"status" => 500, "type" => "https://bpm.example.com/problems/internal-error"} =
+               Jason.decode!(conn.resp_body)
+
+      refute conn.resp_body =~ ~r/audit_entries|relation|SELECT|DELETE|DROP|postgres/i
+      assert schema_exists?(v.schema_name)
+      assert %Lifecycle{purged_at: nil} = lifecycle!(v.tenant_id)
+    end
+
+    test "SL1/HN1 a purged slug and hostname stay taken: onboarding answers 409", ctx do
+      v = victim!()
+      assert {:ok, :purged} = TenantPurge.purge(v.tenant_id, :provisioner)
+      token = mint!(ctx.platform, ["PLATFORM_ADMIN"])
+      slug = ctx.platform.tenant.slug
+      fresh = Letflow.TenantSlugFixture.unique_slug("req580-fresh")
+
+      same_slug =
+        api(:post, "/api/v1/onboarding", token, slug, %{
+          "slug" => v.tenant.slug,
+          "display_name" => "Reuse",
+          "hostname" => "fresh-#{Ecto.UUID.generate()}.example.com"
+        })
+
+      same_host =
+        api(:post, "/api/v1/onboarding", token, slug, %{
+          "slug" => fresh,
+          "display_name" => "Reuse",
+          "hostname" => v.hostname
+        })
+
+      assert same_slug.status == 409, same_slug.resp_body
+      assert same_host.status == 409, same_host.resp_body
+      assert Repo.aggregate(from(t in Tenant, where: t.slug == ^fresh), :count) == 0
+    end
+
+    test "TK1 a former user's token of a purged tenant answers 403 tenant_inactive" do
+      v = victim!()
+      assert {:ok, :purged} = TenantPurge.purge(v.tenant_id, :provisioner)
+
+      conn =
+        conn(:get, "/whatever")
+        |> assign(:auth_context, %{
+          user_id: Ecto.UUID.generate(),
+          tenant_id: v.tenant_id,
+          roles: ["TENANT_ADMIN"]
+        })
+        |> Letflow.Plugs.TenantStatus.call(Letflow.Plugs.TenantStatus.init([]))
+
+      assert conn.status == 403
+      assert Jason.decode!(conn.resp_body)["error"] == "tenant_inactive"
     end
 
     test "RA1 reactivate of a purged tenant is 409 and the row stays inactive", ctx do

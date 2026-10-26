@@ -1057,6 +1057,62 @@ defmodule Letflow.Routers.AdminV1Test do
       end
     end
 
+    test "F2 a failing purge answers 500 internal_error, GET still shows purged_at null", ctx do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      assert delete!(id).status == 202
+      retention!(0)
+      table = ~s("#{ctx.platform.schema_name}".audit_entries)
+      Repo.query!("ALTER TABLE #{table} RENAME TO audit_entries_gone")
+
+      conn =
+        try do
+          delete!(id)
+        after
+          Repo.query!(
+            ~s(ALTER TABLE "#{ctx.platform.schema_name}".audit_entries_gone RENAME TO audit_entries)
+          )
+        end
+
+      assert conn.status == 500
+      assert %{"error" => "internal_error"} = json(conn)
+      refute conn.resp_body =~ ~r/audit_entries|relation|SELECT|DELETE|DROP|postgres/i
+
+      after_failure = json(call(:get, "/admin/v1/tenants/#{id}", @write_token))
+      assert after_failure["purged_at"] == nil
+      assert after_failure["status"] == "suspended"
+
+      assert delete!(id).status == 200
+    end
+
+    test "GP2 two reads of a purged tenant answer byte-identical bodies" do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      retention!(0)
+      assert call(:post, "/admin/v1/tenants/#{id}/suspend", @write_token).status == 200
+      assert delete!(id).status == 200
+
+      first = call(:get, "/admin/v1/tenants/#{id}", @write_token)
+      second = call(:get, "/admin/v1/tenants/#{id}", @write_token)
+      assert first.status == 200 and second.status == 200
+      assert first.resp_body == second.resp_body
+    end
+
+    test "HN2 the hostname of a purged tenant stays taken: create answers 409 conflict" do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      retention!(0)
+      assert call(:post, "/admin/v1/tenants/#{id}/suspend", @write_token).status == 200
+      assert delete!(id).status == 200
+      assert Repo.get!(OnboardingRecord, Repo.get_by!(OnboardingRecord, tenant_id: id).id)
+
+      again = create_body(%{"hostname" => body["hostname"]})
+      track(again["tenant_id"])
+      conn = call(:post, "/admin/v1/tenants", @write_token, again)
+      assert conn.status == 409
+      assert json(conn)["error"] == "conflict"
+    end
+
     test "RS1 resume of a purged tenant is 409" do
       {body, _answer} = create!()
       id = body["tenant_id"]
