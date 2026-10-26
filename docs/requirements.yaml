@@ -41184,7 +41184,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- BilimBaga study T1a (docs/migration/bilimbaga-retirement-status.md, criterion 1); all dependencies are done, so check_deferral_staleness S1 may flag this marker until the engine files the issue
+    gh: 3307
     # Source: docs/migration/bilimbaga-retirement-status.md (criterion 1, "Proposed task list" T1a); lib/letflow/modules/exam/session.ex (moduledoc FINDING, create_txn/4, defp check_assigned/3, eligibility_error() type); lib/letflow/modules/exam/router.ex (render_start_session/4 clause for :not_assigned); priv/modules/exam/entity_definitions/README-constraints.md ("Group (iii)", "exam_assignment is deliberately NOT authored -- OPEN QUESTION", source table exam_assignments with assignee_type and assignee_id); priv/modules/org/entity_definitions/org_unit.json and org_unit_membership.json (REQ-473, decision 0050 D1); lib/letflow/identity.ex (group_member?/3); lib/letflow/modules/installs.ex (installed?/2); docs/migration/decisions/0022-bilimbaga-vertical.md (row for departments and exam_assignments); docs/migration/decisions/0006 (D2, tenant_id dropped from schema-isolated tables); lib/letflow/entities/record/latest.ex (entity_record_latest, no tenant_id field); lib/letflow/entities/managed_types/stamp.ex (classify_name/4: an absent name is not inserted); lib/letflow/release/managed_types.ex; test/support/exam_stamp_fixtures.ex. Written by the business analyst (T-0657) 2026-10-26. Not yet validated.
     description: >
       Replaces the documented no-op Letflow.Modules.Exam.Session.check_assigned/3
