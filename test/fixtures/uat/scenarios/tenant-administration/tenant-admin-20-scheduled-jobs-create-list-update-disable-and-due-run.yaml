@@ -1,0 +1,176 @@
+# T-0672 (BA): TENANT ADMIN group, scenario 20: a company administrator sets up a recurring job that starts a process by itself, edits it, switches it off and on, and sees a due job start one instance.
+# Covers REQ-561 criteria 2 (create and update accepted forms; next_run_at is the anchor plus a whole multiple of the interval), 3 and 4 (a due job starts one instance of the named
+# process with the job's variables, and its last run, outcome and next run are updated; the only action is starting a process), 5 (a switched-off job is not run; a second look right
+# after a run starts nothing more), 11 (the audit entries carry no variable values) and 10 (with the feature on, criteria 3 to 9 hold).
+# Sources: docs/requirements.yaml REQ-561 (description and criteria 2 to 5, 10); lib/letflow/routers/scheduled_jobs.ex (moduledoc: GET /, GET /:id, POST /, PATCH /:id,
+# POST /:id/enable, POST /:id/disable; one permission, tenant administrator only; create answers 201, the answers carry no tenant identifier); lib/letflow/scheduled_jobs.ex
+# (enable gives the first slot not before now and resets the failure count); lib/letflow/scheduled_jobs/schedule.ex (a slot is the anchor plus k times the interval; a future anchor
+# is the first slot); docs/roles.md matrix (ScheduledJobsManage: platform administrator and tenant administrator only).
+# NOT COVERED here, and why: criterion 1 (storage in the tenant schema, migration) and criterion 4's code-path part (no tenant source code is evaluated) are code structure, not
+# visible to a user - backend tests. Criteria 12 and 13 (moduledoc distinctness, no edit of the deadline sweep or timer code, security and reviewer verdicts, compile and format checks) are documentation and review evidence of the change, not visible to a user. Criterion 5's missed-slots count needs the platform to be down for several intervals and criterion 6 (two sweeps claiming one slot) needs two
+# concurrent nodes: neither can be forced in the QA environment, backend tests cover them. Criterion 7 (failures) is scenario 21; criterion 2 refusals are scenario 22; criteria 8 and
+# 9 refusals are scenario 23; the feature-off refusal of criterion 10 is scenario 24.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals of the flow are in scenarios 22 to 24.
+# Timing: the due run is waited for. The anchor is set about six minutes ahead, the sweep ticks every second, so the run happens within a few seconds of the anchor. Total wait about 15 minutes.
+---
+id: tenant-administration-20-scheduled-jobs-create-list-update-disable-and-due-run
+scope: tenant-administration
+title: The company administrator creates, lists, reads, edits, switches off and on a recurring job, and a due job starts one process instance with the job's values
+version: "1.0"
+tags: [tenant-admin, scheduled-jobs, create, list, update, disable, enable, due-run]
+
+description: >
+  SwiftRoute's administrator sets up the recurring job "daily-probe": it starts the published process "sched_probe_process" every 10 minutes, counted from an anchor time
+  A about six minutes in the future (a whole-minute time in UTC, written with a trailing Z, for example 2026-11-02T09:30:00Z; the runner computes A when it creates the job and
+  uses the same A in every later step). The job carries the initial value note = "first". The administrator lists the jobs and reads the job, changes its title and its value to
+  note = "second" and its interval to 5 minutes, switches it off and on again, waits until A has passed, and sees exactly one new instance of "sched_probe_process" carrying
+  note = "second", and the job showing a last run, the outcome "ok" and a next run five minutes after A. The administrator then switches the job off, waits
+  longer than one interval and sees that no further instance was started.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The company's scheduled-jobs feature is switched on in the test environment.
+    check: system_seeded
+    detail: If the feature is off, every step of this scenario answers not-found; report BLOCKED (scenario 24 covers the feature-off case) and do not count it as a failure of the job.
+  - description: SwiftRoute has a published, active process definition named "sched_probe_process" that the administrator may start with no input (it may have one automatic step and end), and no scheduled job with the key "daily-probe" and no instance of it yet.
+    check: system_seeded
+    detail: Setup-prepared. If a job "daily-probe" is left from an earlier run, disable it and use another key (for example daily-probe-2) throughout, noting that in the report.
+  - description: The test environment's clock is correct to within one minute and the scheduler runs (the process poller ticks).
+    check: system_seeded
+    detail: If the runner cannot read the instance list of "sched_probe_process" by name, report BLOCKED for steps 5, 6, 7 and 9.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator creates the job with key "daily-probe", title "Daily probe", process "sched_probe_process", initial values note = "first", interval 10 minutes and anchor A
+      (about six minutes ahead, UTC). The administrator notes the answer as J1.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of scheduled jobs and then reads the job J1 by its identifier. Both answers are noted.
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator changes the job: title "Daily probe (edited)", values note = "second", interval 5 minutes. The anchor is not sent. The answer is noted as J2.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator switches the job off and then reads it. Then the administrator switches it on and reads it again. The four answers are noted.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      Straight after step 4 the administrator asks for the instances of "sched_probe_process" (before A) and notes how many there are as N0.
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The runner waits until two minutes after A. The administrator then asks for the instances of "sched_probe_process" and reads the job J1 again. Notes the answers as I1 and J3.
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator asks again for the instances right away and reads the job once more, and notes the answers as I2 and J4. Nothing is changed between step 6 and this step.
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator switches the job off, reads it, and notes the answer as J5. The runner then waits until more than 6 minutes after A, so that the next slot (A plus 5 minutes) has passed.
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the instances of "sched_probe_process" and reads the job, and notes the answers as I3 and J6.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A new job is stored, switched on, with its first run at the anchor, and the answers show no company identifier.
+    verification:
+      method: http_status
+      detail: Step 1 answers 201. J1 shows key "daily-probe", the title, the process name, interval 10, anchor A, enabled true, next run equal to A (the anchor is in the future so it is the first slot), consecutive failures 0, no last run, and the identifier of the administrator as creator. J1 has no field carrying a company or tenant identifier.
+      evidence: Answer J1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot set up a recurring job, or the job starts at the wrong time.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The list and the single read show the job.
+    verification:
+      method: api_response
+      detail: In step 2 the list answers 200 and holds exactly one entry with key "daily-probe" and the same identifier as J1; the single read answers 200 with the same content as J1.
+      evidence: The two answers of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot see which recurring jobs the company has.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: Editing changes title, values and interval, and the next run stays a whole number of intervals after the anchor.
+    verification:
+      method: api_response
+      detail: Step 3 answers 200. J2 shows the new title, note = "second", interval 5, anchor still A, enabled true. The next run in J2 minus A is a whole multiple of 5 minutes and the next run is not before the time of the edit.
+      evidence: Answer J2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Editing a job loses the change or moves the job to an off-schedule time.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A job can be switched off and on again.
+    verification:
+      method: api_response
+      detail: In step 4 the switch-off answers 200 and the read shows enabled false; the switch-on answers 200 and the read shows enabled true, consecutive failures 0 and next run equal to A. Step 5 shows N0 instances (the number that existed before the job; N0 is 0 unless the precondition note says otherwise).
+      evidence: The four answers of step 4 and the count N0.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot stop a job that starts work unattended, or cannot resume it.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: A due job starts exactly one instance of the named process with the job's values and records the run.
+    verification:
+      method: api_response
+      detail: In step 6 the instances of "sched_probe_process" number N0 plus 1 (I1), the new one carries note = "second". J3 shows a last run not before A and not later than two minutes after A, last outcome "ok", consecutive failures 0 and next run equal to A plus 5 minutes.
+      evidence: Answers I1 and J3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The recurring job does not start its process, starts it more than once, or starts it with the wrong values.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: A second look straight after the run starts nothing more and changes nothing.
+    verification:
+      method: api_response
+      detail: In step 7 the number of instances is still N0 plus 1 and J4 equals J3 in last run, next run and last outcome.
+      evidence: Answers I2 and J4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A job could start the same slot twice.
+      suggested_action: route_to_elixir_dev
+  - id: EO-007
+    description: A switched-off job is not run, even after its next slot has passed.
+    verification:
+      method: api_response
+      detail: J5 shows enabled false. In step 9 the number of instances is still N0 plus 1 (I3) and J6 shows enabled false with the same last run as J3.
+      evidence: Answers J5, I3 and J6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The administrator cannot stop unattended work; a stopped job still starts processes.
+      suggested_action: route_to_elixir_dev
+  - id: EO-008
+    description: The run, and every create, edit, switch-on and switch-off, left an audit entry.
+    verification:
+      method: audit_event
+      detail: The company's audit trail holds entries for the creation, the edit, the switch-off and switch-on (the switch-off twice) and the run of the job "daily-probe", with the administrator as the actor of the first four, and the run entry of daily-probe naming the administrator (the job's creator) as actor. No entry contains the values "first" or "second" (the job's note values). If the administrator cannot read the audit trail, report BLOCKED for this outcome only.
+      evidence: The audit entries for the job.
+    on_fail:
+      severity: MAJOR
+      business_impact: Changes to unattended jobs cannot be traced.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: Switch the job "daily-probe" off if it is on, and cancel the instances of "sched_probe_process" that the job started.
