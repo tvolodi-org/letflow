@@ -41328,7 +41328,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- no pending dependency; the engine files the issue
+    gh: 3324
     # Source: docs/migration/bilimbaga-retirement-status.md (section 1 "Missing" item 3 and "Proposed tasks" T1b); lib/letflow/modules/exam/router.ex (moduledoc "Deliberately NOT routed here": the manual short-text grading queue, FR-BB42; the route table; "Ownership and tenant isolation"; the ExamAuthoringWrite paragraph: a manifest-only permission with no role_grants is held through the core rules alone, PLATFORM_ADMIN and TENANT_ADMIN); lib/letflow/modules/exam/exam.ex (defmanifest: permissions, role_grants, route_policies); lib/letflow/modules/exam/scoring.ex (score_question/2 for :short_text returns grading_status :pending_manual with score 0.0 and max_score 1.0; build_outcome/3 gives session status :grading_pending and passed nil when any question is short text); lib/letflow/modules/exam/session.ex (persist_scores/4, update_session_after_submit/4, passed_for_status/2); lib/letflow/modules/exam/snapshot.ex (passing_score_pct frozen in session.exam_snapshot); priv/modules/exam/entity_definitions/session_question_score.json (grading_status enum graded, pending_manual, ai_graded; a status filter index exists on session_id plus grading_status) and session_answer.json (text_answer); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5); priv/permission_matrix/effective.golden. Written by the business analyst (T-0658) 2026-10-26. Not yet validated.
     description: >
       Today a short text answer is scored 0.0 with grading_status pending_manual and the session stays
@@ -41409,7 +41409,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- blocked-by: REQ-588 -- the screen needs the routes of REQ-588
+    gh: 3323
     # Source: REQ-588 in this file (routes, permissions ExamGradingRead and ExamGradingWrite, the fields a row carries); web/src/modules/exam/examRoutes.tsx (examRouteObjects, registered through registry.ts and wrapped in ModuleGuard) and web/src/modules/exam/ExamIntlProvider.tsx, examMessages.ts (the module's own i18n, locales kk, ru, en); web/src/modules/exam/exam.api.ts (the module's API client); docs/migration/bilimbaga-retirement-status.md (section 2 "Missing" item 2: examiner and grader screens depend on 1.3, T2b); docs/roles.md. Written by the business analyst (T-0658) 2026-10-26. Not yet validated.
     description: >
       The screen for the examiner of REQ-588, inside the exam module of web/ (web/src/modules/exam/), so it
