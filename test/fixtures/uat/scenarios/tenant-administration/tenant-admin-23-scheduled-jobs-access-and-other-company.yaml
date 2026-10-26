@@ -1,0 +1,164 @@
+# T-0672 (BA): TENANT ADMIN group, scenario 23: who may manage recurring jobs, and that one company never sees or changes another company's job.
+# Covers REQ-561 criterion 8 (only the company administrator holds the right; a caller without it, a job number that does not exist and another company's job number get the
+# identical not-found answer) and criterion 9 (cross-company: the administrator of another company reads, edits, switches on and off a job number that exists in the first company and
+# gets the same answer as for a number that exists nowhere; the first company's job is unchanged; the company comes only from the sign-in).
+# Sources: docs/requirements.yaml REQ-561 criteria 8 and 9; lib/letflow/routers/scheduled_jobs.ex (moduledoc: the permission is a concealed key, a caller without it gets the plain 404, never
+# a 403; create and enable need an interactive sign-in and give 403 "api_token_not_allowed" to an API token; the company comes only from the sign-in; a body tenant_id is a validation
+# error and so is NOT used in the cross-company requests below, because it would be answered 422 before existence is looked at and prove nothing); docs/roles.md matrix (ScheduledJobsManage:
+# platform administrator and tenant administrator only; the task worker and the auditor hold neither); lib/letflow/scheduled_jobs.ex (an id that is not a valid identifier is also not-found).
+# NOT COVERED - missing actor: a process designer (the roster has none, an actor must not be invented) and a tenant administrator whose start grant is limited to a part of the
+# organisation (criterion 8, "refused at create and enable"): BLOCKED until the roster has such actors; the BA reports it.
+# A platform operator on this route would get its own company's data, not a refusal (the company comes from the sign-in), so no platform step is written here.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the access refusals of the flow.
+---
+id: tenant-administration-23-scheduled-jobs-access-and-other-company
+scope: tenant-administration
+title: Only the company administrator may manage recurring jobs, an API token may not create or switch one on, and another company's job gets the same not-found answer as a job that exists nowhere
+version: "1.0"
+tags: [tenant-admin, scheduled-jobs, refusal, access, cross-tenant, isolation, api-token]
+
+description: >
+  SwiftRoute's administrator creates the job "access-probe" (process "sched_probe_process", interval 60 minutes, anchor 2030-01-01T00:00:00Z, so it never runs during the test) and notes its
+  identifier as JA. A task worker and the read-only auditor try to list, read, create, edit, switch on and switch off, and each request gets the plain not-found answer, the same as for
+  an identifier that exists nowhere. The administrator using an API token, not a signed-in session, is refused when creating or switching on a job. The Bilimbaga administrator, with their
+  own complete and valid requests, tries to read, edit, switch on and switch off the job JA of SwiftRoute and gets the same answer as for an identifier that exists nowhere; SwiftRoute's job
+  is unchanged and does not appear in Bilimbaga's list, also when the request carries tenant=swiftroute in the query. Both companies then have a job with the key "access-probe", each seeing only its own.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+  auditor_a: actor-swiftroute-auditor
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: The company's scheduled-jobs feature is switched on in the test environment.
+    check: system_seeded
+    detail: If the feature is off, report BLOCKED (scenario 24 covers the feature-off case).
+  - description: SwiftRoute has a published, active process definition "sched_probe_process" that the administrator may start with no input, and no scheduled job with the key "access-probe".
+    check: system_seeded
+    detail: Setup-prepared. A job left from an earlier run is switched off and the key access-probe-2 is used throughout, noted in the report.
+  - description: Bilimbaga has a published, active process definition named "sched_probe_process" that its administrator may start with no input, and no scheduled job with the key "access-probe".
+    check: system_seeded
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note of actor-bilimbaga-admin), report BLOCKED for steps 6 to 9, step 11, EO-003, EO-004 and EO-005; steps 1 to 5 and 10 run.
+  - description: An API token issued to the SwiftRoute administrator exists (the administrator's role, not a signed-in session).
+    check: system_seeded
+    detail: If the environment cannot issue an API token for the administrator, report BLOCKED for step 5 and EO-002; the other steps run.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator creates the job "access-probe" (process "sched_probe_process", interval 60 minutes, anchor 2030-01-01T00:00:00Z) and notes the answer as JA1 with its identifier JA.
+      Then asks for the list of scheduled jobs and notes it as list LA.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator reads an identifier that exists nowhere (a well-formed identifier that no job has: 00000000-0000-4000-8000-000000000000) and notes the answer as NF. The administrator also reads the identifier "not-an-id" and notes the answer as NF2.
+    via: api
+  - step: 3
+    actor: worker_a
+    action: >
+      The task worker tries to list the jobs, tries to read JA, tries to create a job with key "worker-probe" (valid in every other respect), tries to edit the title of JA, tries to switch JA on and tries to switch JA off. Each answer (status, body and content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: auditor_a
+    action: >
+      The read-only auditor tries the same six requests as the task worker in step 3 (the key for the create request is "auditor-probe"). Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      Using an API token, not a signed-in session, the administrator tries to create a job with key "token-probe" (valid in every other respect) and tries to switch JA on. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to read the job JA, the job of SwiftRoute. The answer (status, body and content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to edit the title of JA to "taken over" with an otherwise valid request, tries to switch JA on, tries to switch JA off, and tries to read JA with the query parameter tenant=swiftroute added. Each answer is noted; the last one is JB.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for the list of scheduled jobs with the query parameter tenant=swiftroute added to the request, and notes it as list LB.
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator creates their own job "access-probe" (process "sched_probe_process", interval 60 minutes, anchor 2030-01-01T00:00:00Z) and asks for the list.
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator reads JA and asks for the list, then compares with JA1 and list LA. Then switches the job off (clean-up) and notes the answer.
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: >
+      Clean-up: the Bilimbaga administrator switches their own job "access-probe" off.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker and the read-only auditor get the plain not-found answer to every request, the same as for a job that does not exist, and nothing changes.
+    verification:
+      method: http_status
+      detail: Each of the twelve requests in steps 3 and 4 answers 404, and the status, body and content type equal those of NF (step 2), not a 403 that tells the caller a job route exists. List LA is unchanged at the end (step 10), and no job "worker-probe" or "auditor-probe" exists.
+      evidence: The twelve answers of steps 3 and 4, NF and list LA.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Staff without the right could create, change or read recurring jobs that start work unattended, or learn that the feature exists.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: An API token cannot create a job or switch one on.
+    verification:
+      method: http_status
+      detail: Both requests in step 5 answer 403 with the reason "api_token_not_allowed". No job "token-probe" exists afterwards, and JA is as in JA1.
+      evidence: The two answers of step 5 and the list of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A stolen or automated token could set up unattended work with a user's authority.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: For the administrator of another company, SwiftRoute's job gets the same not-found answer as a job that exists nowhere, for read, edit, switch on and switch off.
+    verification:
+      method: http_status
+      detail: The answers in steps 6 and 7, including JB, are all 404, and each equals NF in status, body and content-type header (five requests).
+      evidence: The answers of steps 6, 7 and JB, and NF.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company can find out which jobs another company has, or change them.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: The other company's job is unchanged and invisible, and the company named in the query is ignored.
+    verification:
+      method: api_response
+      detail: List LB answers 200 and has no entry with the identifier JA; the query parameter tenant=swiftroute is ignored. In step 10 JA is as in JA1 (title, enabled true, interval, anchor, next run, failures) and the list holds the entries of LA.
+      evidence: List LB, and the read and list of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could read, or change by its own tries, another company's jobs.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Two companies may each have a job with the same key, and neither sees the other's.
+    verification:
+      method: api_response
+      detail: Step 9 answers 201 and Bilimbaga's list holds only its own "access-probe", with an identifier different from JA. The SwiftRoute list in step 10 holds its own "access-probe" with identifier JA and no Bilimbaga job.
+      evidence: The lists of steps 9 and 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: A key used by one company blocks or exposes another company's job.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Switch off the job "access-probe" in both companies if it is on. The jobs never run (anchor 2030).
