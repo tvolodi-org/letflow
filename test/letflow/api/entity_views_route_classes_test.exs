@@ -2,7 +2,7 @@ defmodule Letflow.Api.EntityViewsRouteClassesTest do
   @moduledoc """
   REQ-555 / GH #3157, criteria 3 and 7 (decision 0066 D4; design ids M1-M4):
 
-    * M1 `:EntitiesViewsManage` is a core permission of TENANT scope, second to last (REQ-563 appended :NotificationTemplatesManage); TENANT_ADMIN
+    * M1 `:EntitiesViewsManage` is a core permission of TENANT scope, third to last (REQ-563 and REQ-561 appended :NotificationTemplatesManage, :ScheduledJobsManage); TENANT_ADMIN
       holds it; every other tenant built-in role does not;
     * M2 PLATFORM_ADMIN is denied it outside the platform tenant (0046 D4);
     * M3 the five routes resolve their policy keys: reads `:EntitiesQuery`, writes the new key;
@@ -20,8 +20,8 @@ defmodule Letflow.Api.EntityViewsRouteClassesTest do
   alias Letflow.Support.RouteInventory
 
   describe "M1 permission" do
-    test "a core permission of tenant scope, second to last" do
-      assert Authorization.core_permissions() |> Enum.take(-2) |> hd() == :EntitiesViewsManage
+    test "a core permission of tenant scope, third to last" do
+      assert Authorization.core_permissions() |> Enum.take(-3) |> hd() == :EntitiesViewsManage
       assert Authorization.permission_scope(:EntitiesViewsManage) == :tenant
       assert Authorization.required_permission(:EntitiesViewsManage) == :EntitiesViewsManage
     end

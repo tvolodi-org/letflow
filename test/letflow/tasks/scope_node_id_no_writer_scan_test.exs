@@ -121,7 +121,7 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
   ]
 
   # GH #3194 / REQ-561: the tenant scheduled-job table has its own scope_node_id (the node an instance is
-  # started in); the sweep hands it to Engine.create/2 as an INSTANCE attr. Neither file writes tasks.
+  # started in); the sweep hands it to Engine.create/2 as an INSTANCE attr; the router only reads and echoes it. No file writes tasks.
   @scheduled_jobs_ledger %{
     "lib/letflow/scheduled_jobs/job.ex" => [
       "defp validate_field/3",
@@ -130,6 +130,12 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
       "module (string)",
       "module (string)",
       "schema"
+    ],
+    "lib/letflow/routers/scheduled_jobs.ex" => [
+      "defp job_map/1",
+      "defp job_map/1 (string)",
+      "module",
+      "module (string)"
     ],
     "lib/letflow/scheduler/scheduled_job_sweep.ex" => [
       "defp actor_allowed?/2",
