@@ -207,8 +207,9 @@ defmodule Letflow.Plugs.AuthPipelineScopeTest do
 
     [off, shadow] = measured
     assert off == shadow
-    # Pinned literal: get_tenant_by_slug, the verify_api_token select, the last_used_at update.
-    assert off == ["tenants", "api_tokens", "api_tokens"]
+
+    # Pinned literal: get_tenant_by_slug, the purged_at lookup (guard_not_purged), the verify_api_token select, the last_used_at update.
+    assert off == ["tenants", "tenant_lifecycles", "api_tokens", "api_tokens"]
     refute "role_scope_grants" in off
   end
 
