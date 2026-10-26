@@ -41620,7 +41620,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S8
-    # impl_order: UNREGISTERED -- blocked-by: REQ-585 -- GitHub issue is filed by the engine after the gate
+    gh: 3338
     # Source: docs/migration/bilimbaga-retirement-status.md section 9 ("Branding, missing" item 4: an upload path replacing the logo_url string); REQ-585 description, "OUT OF SCOPE, SEPARATE LATER SLICES" (logo upload gets its own requirement; logo_url stays an absolute http(s) string until then); lib/letflow/identity/tenant.ex (validate_logo_url/2); lib/letflow/routers/tenant_settings.ex (authz_patch "/", :TenantSettingsManage) and its mount forward("/tenant/settings", ...) in lib/letflow/plugs/api_pipeline.ex; lib/letflow/repository/attachments.ex (upload/2, @allowed_content_types, @max_upload_bytes, run_attachment_scan/2) and lib/letflow/repository/attachment_scanner.ex (scan/2 callback); priv/repo/migrations/20261014000002_create_script_policy.exs (the per-tenant singleton pattern: smallint id plus a CHECK id = 1); lib/letflow/tenant_provisioning.ex (@tenant_scoped_migration_manifest); docs/migration/decisions/0006-identity-tables-schema-per-tenant.md D2 (tenant_id is DROPPED from every table whose isolation boundary is the Postgres schema); docs/agents/instructions/security-invariants.md (INV-1, INV-6, INV-8). Written by the business analyst (T-0695) 2026-10-26. Not yet validated.
     description: >
       Part 1 of 2. Part 2 is the next entry, REQ-591 (public read and the two tenant-config responses). Today a
@@ -41687,7 +41687,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S8
-    # impl_order: UNREGISTERED -- blocked-by: REQ-590 -- GitHub issue is filed by the engine after the gate
+    gh: 3337
     # Source: REQ-590 (storage, flag, TenantLogo module); lib/letflow/routers/tenant_config.ex (handle_tenant_config/1 reads ?realm= and ?host=; resolve_realm/2 miss guard idp_realm_id non-empty and status != :inactive; default_realm_tenant/0; branding_from_settings/1; moduledoc INV-2 section and route table); lib/letflow/routers/mobile_tenant_config.ex (resolve_tenant_config/1 same guard; branding_from_settings/1; reads ?slug= only); Letflow.Identity.safe_get_tenant_by_slug/2 in lib/letflow/identity.ex; docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5, INV-8). Written by the business analyst (T-0695) 2026-10-26. Not yet validated.
     description: >
       Part 2 of 2; needs REQ-590 (the stored image and the flag). The login screen renders the logo with a plain
