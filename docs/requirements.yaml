@@ -41194,13 +41194,17 @@ requirements:
       the backend an examiner needs, as three routes of the exam module, mounted under
       /api/v1/modules/exam like the existing exam routes and declared in the route_policies of
       lib/letflow/modules/exam/exam.ex: GET /grading-queue lists the tenant's answers waiting for a mark
-      (pagination as the other list routes of the module; optional filter by exam); GET
+      (query parameters cursor and page_size, read through Pagination.parse_page_size_param/1 as
+      handle_list_available_exams in lib/letflow/modules/exam/router.ex does, with the same 400 "invalid
+      page_size" on a bad page size; optional filter by exam_id); GET
       /grading-queue/:session_id/:question_id returns one waiting answer for reading; POST
       /grading-queue/:session_id/:question_id/grade sets the mark. Two new permissions are declared by the
       exam manifest only, with no role_grants (the ExamAuthoringWrite pattern): ExamGradingRead for the two
       GET routes and ExamGradingWrite for the POST. Held through the core rules alone, they belong to
-      PLATFORM_ADMIN and TENANT_ADMIN; CANDIDATE, PROCESS_OPERATOR, TASK_WORKER, AGENT_RUNNER and
-      TENANT_AUDITOR do not hold them (the auditor's allow-list is a closed explicit list). Whether a
+      PLATFORM_ADMIN and TENANT_ADMIN; CANDIDATE, PROCESS_OPERATOR, PROCESS_DESIGNER, TASK_WORKER,
+      AGENT_RUNNER and TENANT_AUDITOR do not hold them (the auditor's allow-list is a closed explicit list).
+      Their record is priv/permission_matrix/effective.golden (as for ExamAuthoringWrite), not docs/roles.md,
+      which lists no module permission. Whether a
       dedicated examiner role should hold them is an open question and not decided here.
       WHAT A READER SEES (INV-2, server side). A queue row carries: session id, question id, exam title, the
       question stem in the locale of the request or the default locale, max_score, the time the session was
@@ -41214,17 +41218,25 @@ requirements:
       grading_status, max_score, user id) is refused with 422 and nothing is stored. A valid mark updates the
       session_question_score row to the given score and grading_status graded, and writes an event with the
       grader's id (the record write's actor). A row that is already graded is not changed: the route answers
-      409 with a fixed reason text (no second mark in this slice; open question 3). When the mark leaves no
+      409 with a fixed reason text (no second mark in this slice; open question 3). The grade transaction
+      first takes the session row lock (lock_session_row/2 with FOR UPDATE, as finalize_txn does in
+      lib/letflow/modules/exam/session.ex), then re-reads the answer, so two marks on different answers of
+      one session cannot both miss the other. When the mark leaves no
       pending_manual row in that session, the same transaction finalises the session: status submitted,
       score_pct = sum of all scores / sum of all max_score * 100, passed = score_pct >= the passing_score_pct
       frozen in session.exam_snapshot (never the live exam row). A session that still has other pending
-      answers stays grading_pending with passed absent, so the candidate-facing state read keeps returning
-      passed null until the last mark. A session in status in_progress has no pending rows and never appears.
+      answers stays grading_pending; the stored passed placeholder (false, a required field of
+      priv/modules/exam/entity_definitions/session.json) is not changed, and the candidate-facing state read
+      keeps returning passed null until the last mark. A session in status in_progress has no pending rows
+      and never appears. A session that expired holding short text answers is already stored as
+      grading_pending, not auto_submitted (maybe_override_status/2 in session.ex); finalising it to submitted
+      is accepted here (open question 6).
       TENANT ISOLATION (INV-1, INV-5, INV-10). The tenant comes from the token only, as the other exam
       routes do; no route takes a tenant identifier. Every query runs under the caller's tenant prefix. A
-      session id or question id that does not exist, belongs to another tenant, is not pending (already
-      graded, or the question is not short text), or is malformed returns the same 404 body, status and
-      headers. A refused grade (404, 409, 422, 403) writes nothing.
+      session id or question id that does not exist, belongs to another tenant, or is malformed returns the
+      same 404 body, status and headers on all three routes; so does a question that is not short text, and
+      on the two GET routes an answer that is already graded (no longer in the queue). On the grade route an
+      already graded answer of the caller's own tenant returns 409 (see above). A refused grade (404, 409, 422, 403) writes nothing.
       NOT IN THIS ENTRY: any web screen (REQ-583); a second or corrected mark; assigning answers to named
       examiners or locking an answer while one examiner reads it; AI grading (grading_status ai_graded stays
       unused); a notification to the candidate that the result is ready; a rubric or free-text comment on a
@@ -41235,13 +41247,14 @@ requirements:
       - "A mark is final in this slice (second mark answers 409). Does the process owner need a correction route, with a reason and an audit trail, and who may use it?"
       - "Does a pass or fail that is decided by an examiner need any second check (two examiners) before the candidate sees it? Not settled by the source."
       - "Is the mark restricted to 0 or max_score (right or wrong) or any value between? This entry allows any decimal between 0 and max_score inclusive; the BilimBaga rule is not read."
+      - "A session that expired holding short text answers is stored as grading_pending today and becomes submitted after the last mark, so the record no longer shows it was auto-submitted. This entry accepts that. Does the process owner need the auto-submitted outcome kept?"
     acceptance_criteria:
-      - "1. Permissions: ExamGradingRead and ExamGradingWrite are listed in the permissions of the exam manifest in lib/letflow/modules/exam/exam.ex with no role_grants entry, and the three routes are added to its route_policies (GET /grading-queue and GET /grading-queue/:session_id/:question_id with ExamGradingRead, POST /grading-queue/:session_id/:question_id/grade with ExamGradingWrite). Test G-perm: a TENANT_ADMIN and a PLATFORM_ADMIN token get 200 on both GET routes; tokens of CANDIDATE, PROCESS_OPERATOR, TASK_WORKER and TENANT_AUDITOR each get the same 403 body on all three routes; a request without a token gets 401. docs/roles.md carries the two permissions, and priv/permission_matrix/effective.golden is regenerated by mix letflow.permission_matrix --write and the PR quotes its output."
-      - "2. Queue list, Test G-list: with three sessions of tenant A each holding one pending short text answer, one session holding a graded short text answer and one holding only a single-choice question, GET /grading-queue returns exactly the three pending rows, ordered by the session's submission time then session id, with the fields named in the description and no other; the page size and next-page behaviour follow the list routes of the exam module; a filter by exam id returns only that exam's rows; a malformed exam id returns 400."
+      - "1. Permissions: ExamGradingRead and ExamGradingWrite are listed in the permissions of the exam manifest in lib/letflow/modules/exam/exam.ex with no role_grants entry, and the three routes are added to its route_policies (GET /grading-queue and GET /grading-queue/:session_id/:question_id with ExamGradingRead, POST /grading-queue/:session_id/:question_id/grade with ExamGradingWrite). Test G-perm: a TENANT_ADMIN and a PLATFORM_ADMIN token get 200 on both GET routes; tokens of CANDIDATE, PROCESS_OPERATOR, PROCESS_DESIGNER, TASK_WORKER, AGENT_RUNNER and TENANT_AUDITOR each get the same 403 body on all three routes; a request without a token gets 401. priv/permission_matrix/effective.golden is regenerated by mix letflow.permission_matrix --write and gains 'TENANT_ADMIN ExamGradingRead true module:exam core', the PLATFORM_ADMIN ExamGradingRead row with the same values, the same two rows for ExamGradingWrite, and a false row for every other role; the PR quotes the command output. docs/roles.md is not changed (it lists no module permission)."
+      - "2. Queue list, Test G-list: with three sessions of tenant A each holding one pending short text answer, one session holding a graded short text answer and one holding only a single-choice question, GET /grading-queue returns exactly the three pending rows, ordered by the session's submission time then session id, with the fields named in the description and no other; page_size and cursor behave as in the available-exams list (a page_size of 0 or a non-number returns 400 'invalid page_size'; a second page by cursor returns the remaining rows with no repeat); a filter by exam_id returns only that exam's rows; a malformed exam_id returns 400."
       - "3. Field redaction (INV-2), Test G-redact: the JSON of the list and detail responses is searched for the strings is_correct, likert, explanation, exam_snapshot, passing_score_pct, user_id, candidate_id and for the candidate's email and display name used in the fixture; none is present. The detail returns the candidate's text_answer unchanged (including a value with markup characters, returned as data and not interpreted)."
       - "4. Mark, Test G-mark: POST .../grade with score 0.75 by a TENANT_ADMIN returns 200; the session_question_score row now has score 0.75, max_score unchanged and grading_status graded; the write's event carries the caller's user id as actor; a body with score 1.2, a negative score, a non-number, a missing score, or any extra key (session_id, status, grading_status, max_score, user_id, tenant_id) returns 422 and the row is unchanged."
-      - "5. Finalisation, Test G-final: a session with two pending short text answers and one graded single-choice answer (score 1.0 of 1.0) stays grading_pending with passed absent after the first mark, and after the second mark has status submitted, score_pct equal to the exact quotient of the sums times 100 and passed true when score_pct >= the passing_score_pct frozen in its exam_snapshot; a second session whose exam row's threshold was changed after the session started is judged against the frozen threshold, not the live one; the candidate's state read (GET /exam-sessions/:id) returns passed null before the last mark and the decided value after."
-      - "6. Re-mark, Test G-once: a second POST .../grade for an already graded answer returns 409 with a fixed reason text that contains no score or answer text, and the stored score is unchanged; two concurrent grade requests for the same pending answer leave exactly one mark and exactly one finalisation (Postgres row lock or the existing record-write idempotency, not a supervised process)."
+      - "5. Finalisation, Test G-final: a session with two pending short text answers and one graded single-choice answer (score 1.0 of 1.0) stays grading_pending after the first mark (the stored passed placeholder is unchanged and GET /exam-sessions/:id returns passed null), and after the second mark has status submitted, score_pct equal to the exact quotient of the sums times 100 and passed true when score_pct >= the passing_score_pct frozen in its exam_snapshot; a second session whose exam row's threshold was changed after the session started is judged against the frozen threshold, not the live one; the candidate's state read (GET /exam-sessions/:id) returns passed null before the last mark and the decided value after."
+      - "6. Re-mark, Test G-once: a second POST .../grade for an already graded answer returns 409 with a fixed reason text that contains no score or answer text, and the stored score is unchanged; two concurrent grade requests for the same pending answer leave exactly one mark and exactly one finalisation, by the session row lock named in the description (not a supervised process); two concurrent grade requests for the two last pending answers of one session leave both marks stored and the session finalised exactly once (status submitted, score_pct set)."
       - "7. Not found alike, Test G-404: a random UUID, a session id that exists only in tenant B, a question that is not short text, and a malformed id each return identical status, headers and body on the detail route and on the grade route (404). An answer of the caller own tenant that is already graded returns 404 on the detail route (it is no longer in the queue) and 409 on the grade route (criterion 6)."
       - "8. Cross-tenant negative, Test G-tenant (INV-1, INV-10): with pending answers in tenant B's schema, a TENANT_ADMIN credential of tenant A gets none of them on the list, a 404 on their detail, and a 404 on grade with tenant B's row unchanged afterwards (read back through tenant B's prefix); none of the three routes has a tenant parameter in path, query or body (checked on the compiled route paths); a PLATFORM_ADMIN token on these routes sees only its own tenant's rows."
       - "9. Pin sweep: the PR lists, from grep -rn \"__authz_routes__\\|length(snapshot)\\|route_policies\\|ExamAuthoringWrite\" test/, each pin that moves (route-inventory counts, the exam router moduledoc route table gains three rows and loses the first bullet of 'Deliberately NOT routed here', the permission lists) with its new value stated as +N from the value on origin/main at implement time."
