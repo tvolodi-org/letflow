@@ -2,7 +2,10 @@ defmodule Letflow.Documents do
   @moduledoc """
   The versioned-documents service, part 1 (REQ-542, GH #3164, decision 0056 D1, D3, D8, D9):
   type registration, drafts and a new draft from the current issued version, plus `issue/2` (REQ-543
-  part 2a: gap-free numbering, supersede, hash). Cancel and `verify_binding` stay REQ-543 part 2b.
+  part 2a: gap-free numbering, supersede, hash), `cancel/3` and `verify_binding/4` (part 2b).
+  A refused `issue/2`, `cancel/3` or `verify_binding/4` emits the telemetry event
+  `[:letflow, :documents, :refused]` (`%{count: 1}`, metadata `action`, `reason`, `prefix`) and
+  writes no audit row; `document.refusals_summary` is not built here.
 
   Every function takes the tenant schema name as `prefix` first (INV-1): the tenant comes from
   the prefix, never from a caller-supplied id, and every `Repo` call carries `prefix:`. A document
@@ -564,6 +567,7 @@ defmodule Letflow.Documents do
         }
       end)
     end
+    |> count_refusal(:issue, prefix)
   end
 
   defp type_of!(prefix, document) do
@@ -830,4 +834,221 @@ defmodule Letflow.Documents do
   defp actor(_other), do: {:error, {:unprocessable, :invalid_actor}}
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+  # ---------------------------------------------------------------------------------------
+  # cancel/3, verify_binding/4 and the refusals counter (REQ-543 part 2b)
+  # ---------------------------------------------------------------------------------------
+
+  @reason_max 500
+
+  @doc """
+  Cancels an issued version: `cancel(prefix, %{document_id:, version_no:, reason:}, actor_id)`
+  (REQ-543 criterion 3, decision 0056 D4, D9). The reason is mandatory (not blank, at most 500
+  characters) and goes into the `document.cancelled` event with no content value. Only an
+  `:issued` version can be cancelled; a draft, superseded, discarded or already cancelled version
+  gives `{:error, :not_issued}` and nothing changes. A cancelled version stays readable and is
+  never issued again (the database trigger refuses every transition out of `cancelled`);
+  `documents.current_version` keeps pointing at it, so `new_version_from_current/2` answers
+  `{:error, :no_issued_version}`.
+  """
+  @spec cancel(String.t(), map(), term()) :: {:ok, %DocumentVersion{}} | error()
+  def cancel(prefix, %{} = args, actor_id) when is_binary(prefix) do
+    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         {:ok, document_id} <- document_id(Map.get(args, :document_id)),
+         {:ok, version_no} <- version_no(Map.get(args, :version_no)),
+         {:ok, actor_id} <- actor(actor_id),
+         {:ok, reason} <- cancel_reason(Map.get(args, :reason)) do
+      transact(fn ->
+        document = lock_document!(prefix, document_id)
+        version = version_for_update!(prefix, document_id, version_no)
+
+        if version.status != :issued, do: Repo.rollback(:not_issued)
+
+        from(v in DocumentVersion, where: v.id == ^version.id)
+        |> Repo.update_all(
+          [
+            set: [
+              status: :cancelled,
+              cancelled_at: now(),
+              cancelled_by: actor_id,
+              cancel_reason: reason
+            ]
+          ],
+          prefix: prefix
+        )
+
+        audit!(prefix, actor_id, "document.cancelled", "document", document_id, nil, %{
+          "type_key" => document.type_key,
+          "version_no" => version.version_no,
+          "number" => document.number,
+          "content_hash" => version.content_hash,
+          "reason" => reason
+        })
+
+        Repo.get!(DocumentVersion, version.id, prefix: prefix)
+      end)
+    end
+    |> count_refusal(:cancel, prefix)
+  end
+
+  defp version_no(n) when is_integer(n) and n > 0, do: {:ok, n}
+  defp version_no(_other), do: {:error, :not_found}
+
+  defp cancel_reason(reason) when is_binary(reason) do
+    cond do
+      String.trim(reason) == "" -> {:error, {:unprocessable, :reason_required}}
+      String.length(reason) > @reason_max -> {:error, {:unprocessable, :reason_too_long}}
+      true -> {:ok, reason}
+    end
+  end
+
+  defp cancel_reason(_other), do: {:error, {:unprocessable, :reason_required}}
+
+  defp version_for_update!(prefix, document_id, version_no) do
+    query =
+      from(v in DocumentVersion,
+        where: v.document_id == ^document_id and v.version_no == ^version_no,
+        lock: "FOR UPDATE"
+      )
+
+    case Repo.one(query, prefix: prefix) do
+      nil -> Repo.rollback(:not_found)
+      version -> version
+    end
+  end
+
+  @doc """
+  INTERNAL. True only when version `version_no` of the document is `:issued`, its stored hash
+  equals `content_hash` and the hash recomputed from the stored content, number, tenant uuid,
+  document id, type key, legal entity and version number (decision 0056 D3) equals the stored
+  one. Every other case, including a malformed argument, an absent version and another tenant's
+  document id, gives the same bare `false` (INV-5); the reason is only in the telemetry metadata.
+  Never raises, takes no lock and never calls the org resolver, so a retired org unit does not
+  matter (REQ-543 criterion 5b, read half). Like the rest of the module it checks no permission:
+  the first caller (REQ-544) owns that.
+
+  When the recomputed hash differs from the stored one, `document.integrity_failed` is audited
+  (ids and hashes only, actor nil). Transaction contract: at top level the entry is written in its
+  own transaction and a failure to write it still gives `false`. Inside a caller's transaction the
+  entry is written in that transaction, so it commits or rolls back with the caller. A caller that
+  refuses with `Repo.rollback/1` on `false` loses the entry: verify before opening the
+  transaction, or commit the refusal. A database failure while writing then raises to the caller
+  (and `audit!/7` rolls the caller's transaction back), the same loud outcome as any other audited
+  write in the caller's transaction.
+  """
+  @spec verify_binding(String.t(), term(), term(), term()) :: boolean()
+  def verify_binding(prefix, document_id, version_no, content_hash) do
+    outcome = verify(prefix, document_id, version_no, content_hash)
+    if outcome != :ok, do: count_refusal({:error, outcome}, :verify_binding, prefix)
+    outcome == :ok
+  end
+
+  defp verify(prefix, document_id, version_no, content_hash)
+       when is_binary(prefix) and is_binary(content_hash) do
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         {:ok, id} <- document_id(document_id),
+         {:ok, n} <- version_no(version_no) do
+      query =
+        from(v in DocumentVersion,
+          join: d in Document,
+          on: d.id == v.document_id,
+          where: d.id == ^id and v.version_no == ^n,
+          select: {d, v}
+        )
+
+      case Repo.one(query, prefix: prefix) do
+        nil -> :absent
+        {d, v} -> verify_row(prefix, tenant_id, d, v, content_hash)
+      end
+    else
+      _invalid -> :invalid_input
+    end
+  end
+
+  defp verify(_prefix, _document_id, _version_no, _content_hash), do: :invalid_input
+
+  defp verify_row(_prefix, _tenant_id, _d, %{status: status}, _hash) when status != :issued,
+    do: :not_issued
+
+  defp verify_row(prefix, tenant_id, d, v, content_hash) do
+    recomputed = recompute_hash(d, v)
+
+    cond do
+      d.tenant_id != tenant_id or recomputed != {:ok, v.content_hash} ->
+        record_integrity_failure(prefix, d, v, recomputed)
+
+      byte_size(content_hash) == byte_size(v.content_hash) and
+          :crypto.hash_equals(content_hash, v.content_hash) ->
+        :ok
+
+      true ->
+        :hash_mismatch
+    end
+  end
+
+  defp recompute_hash(d, v) do
+    with {:ok, bytes} <- Canonical.canonicalize(v.content) do
+      Canonical.content_hash(%{
+        tenant_uuid: d.tenant_id,
+        document_id: d.id,
+        type_key: d.type_key,
+        legal_entity_id: d.legal_entity_id,
+        number: d.number,
+        version_no: v.version_no,
+        canonical_content: bytes
+      })
+    end
+  end
+
+  defp record_integrity_failure(prefix, d, v, recomputed) do
+    after_state = %{
+      "type_key" => d.type_key,
+      "version_no" => v.version_no,
+      "stored_hash" => v.content_hash,
+      "recomputed_hash" => recomputed_hash(recomputed)
+    }
+
+    write = fn ->
+      audit!(prefix, nil, "document.integrity_failed", "document", d.id, nil, after_state)
+    end
+
+    if Repo.in_transaction?() do
+      write.()
+      :integrity_failed
+    else
+      try do
+        case transact(write) do
+          {:ok, _} -> :integrity_failed
+          {:error, _} -> :audit_failed
+        end
+      rescue
+        _error -> :audit_failed
+      end
+    end
+  end
+
+  defp recomputed_hash({:ok, hash}), do: hash
+  defp recomputed_hash(_error), do: nil
+
+  # Criterion 8: a refusal is a telemetry count, never an audit row. Runs after the transaction
+  # returned; metadata has no content, hash or id.
+  defp count_refusal({:error, reason} = result, action, prefix) do
+    :telemetry.execute([:letflow, :documents, :refused], %{count: 1}, %{
+      action: action,
+      reason: refusal_reason(reason),
+      prefix: prefix
+    })
+
+    result
+  end
+
+  defp count_refusal(result, _action, _prefix), do: result
+
+  defp refusal_reason(reason) when is_atom(reason), do: reason
+  defp refusal_reason({:unprocessable, reason}) when is_atom(reason), do: reason
+
+  defp refusal_reason(reason) when is_tuple(reason) and is_atom(elem(reason, 0)),
+    do: elem(reason, 0)
+
+  defp refusal_reason(_other), do: :other
 end
