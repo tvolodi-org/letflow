@@ -481,7 +481,7 @@ defmodule Letflow.Modules.Exam.ExamAuthoringTest do
 
       # The stamp (not the manifest) is what closes generic writes on an installed tenant: see
       # `exam_managed_types_http_test.exs`, which runs the refusal on a stamped tenant.
-      assert length(Exam.manifest().manages_entity_types) == 16
+      assert length(Exam.manifest().manages_entity_types) == 17
       ctx = user_ctx(tenant, ["TENANT_ADMIN"])
 
       conn =

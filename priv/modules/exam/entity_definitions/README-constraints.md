@@ -140,7 +140,12 @@ This is a conditional-requiredness rule across two columns — inexpressible for
 same reason as group (i), and doubly moot here, because the entity type it would
 constrain is not authored at all.
 
-### `exam_assignment` is deliberately NOT authored — OPEN QUESTION
+### `exam_assignment` — was NOT authored (was an OPEN QUESTION); REQ-582 took shape 1
+
+**Update (REQ-582):** shape 1 below was taken. `entity_definitions/exam_assignment.json` exists, with
+an unenforced string `assignee_id` and `assignee_type` over `all|user|group|org_unit`; the
+conditional-requiredness rule is not expressible, so a consumer treats a violating record as matching
+nobody. The text below is the original analysis, kept as history.
 
 FR-BB33, source table `exam_assignments` in
 `013_exam_assignments.up.sql`, roadmap section 3.3.
