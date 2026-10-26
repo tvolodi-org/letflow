@@ -1,0 +1,159 @@
+# T-0672 (BA): TENANT ADMIN group, scenario 21: a recurring job that cannot start its process records the failure, does not loop, does not stop another job, and is switched off by itself after five failures in a row.
+# Covers REQ-561 criterion 7 (an unknown process is a failure with a code from the closed list; the failure increases the count, moves the next run on, is audited, and does not stop the
+# next job of the same company; the 5th failure in a row switches the job off with an audit entry; no error text or stack reaches the answer) and the
+# "disabled job is not run" part of criterion 5.
+# Sources: docs/requirements.yaml REQ-561 criterion 7 and description (closed list: ok, definition_not_found, definition_not_active, definition_needs_reactivation, actor_not_allowed,
+# start_failed, raised; "An unknown, unpublished or retired definition is such a failure"); lib/letflow/scheduled_jobs.ex (enable: resets the count, next run is the first slot not before now);
+# lib/letflow/routers/scheduled_jobs.ex (job_map shows last_outcome, last_outcome_details, consecutive_failures, enabled, next_run_at).
+# NOT COVERED, and why: criterion 7's "one success resets the count" (definition_name cannot be edited, so a failing job cannot be turned into a succeeding one from outside; backend tests cover it); the codes actor_not_allowed (needs the creating user deactivated or demoted after the job was created; the roster has no second administrator whose role may
+# be changed), definition_not_active and definition_needs_reactivation (need a retired or stale process version prepared by setup), start_failed and raised (cannot be forced from outside) -
+# backend tests cover them. "No stack or inspect output in logs" cannot be seen by a user; only the API answers are checked. Missing: a way to read company logs.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
+# Timing: the job runs every 5 minutes from an anchor about six minutes ahead; the 5th run is at the anchor plus 20 minutes. Total wait about 30 minutes.
+---
+id: tenant-administration-21-scheduled-jobs-failing-job-and-automatic-disable
+scope: tenant-administration
+title: A recurring job whose process does not exist records each failure, keeps the other job running, is switched off by itself after the fifth failure in a row, and switching it on again resets its failure count
+version: "1.0"
+tags: [tenant-admin, scheduled-jobs, failure, auto-disable, audit]
+
+description: >
+  SwiftRoute's administrator creates two jobs with the same interval of 5 minutes and the same anchor A (about six minutes ahead, UTC, whole minute, trailing Z). "good-probe" starts
+  the published process "sched_probe_process". "bad-probe" names the process "sched_nowhere", which does not exist in the company. After A the bad job fails at each slot: its last outcome
+  is "definition_not_found", its failure count rises by one per slot, its next run moves on by 5 minutes each time, and the good job keeps starting its instance at every slot. At the fifth
+  failure (slot A plus 20 minutes) the bad job is switched off by the system. The administrator switches it on again: the count goes back to 0. No answer shows an error message text,
+  a stack or a technical dump.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The company's scheduled-jobs feature is switched on in the test environment.
+    check: system_seeded
+    detail: If the feature is off, report BLOCKED (scenario 24 covers the feature-off case).
+  - description: SwiftRoute has a published, active process definition "sched_probe_process" that the administrator may start with no input, has no process named "sched_nowhere", and has no scheduled jobs with the keys "good-probe" and "bad-probe".
+    check: system_seeded
+    detail: Setup-prepared. Jobs left from an earlier run are switched off and other keys (good-probe-2, bad-probe-2) are used throughout, noted in the report.
+  - description: The test environment's clock is correct to within one minute and the scheduler runs.
+    check: system_seeded
+    detail: If the runner cannot wait about 30 minutes, report BLOCKED for steps 3 to 6 only.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator creates the job "good-probe" (title "Good probe", process "sched_probe_process", interval 5 minutes, anchor A, no initial values) and the job "bad-probe"
+      (title "Bad probe", process "sched_nowhere", interval 5 minutes, anchor A, no initial values). The two answers are noted as G1 and B1.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the instances of "sched_probe_process" and notes how many there are as N0.
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The runner waits until two minutes after A. The administrator reads both jobs and asks for the instances of "sched_probe_process". Notes the answers as G2, B2 and I1.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The runner waits until two minutes after A plus 10 minutes (the third slot has passed). The administrator reads both jobs again and notes the answers as G3 and B3.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The runner waits until two minutes after A plus 20 minutes (the fifth slot has passed). The administrator reads both jobs and asks for the instances of "sched_probe_process".
+      Notes the answers as G4, B4 and I2.
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The runner waits until A plus 27 minutes (the slot A plus 25 has passed). The administrator reads the bad job and the instances of "sched_probe_process". Notes the answers as B5 and I3.
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator switches the bad job on and reads it. The answer is noted as B6.
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator changes nothing else and switches both jobs off. Clean-up reads of both jobs are noted as G5 and B7.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A job that names a process that does not exist is stored, but its first run fails with a stable code and counts as one failure.
+    verification:
+      method: api_response
+      detail: G1 and B1 answer 201. In step 3, B2 shows last outcome "definition_not_found", consecutive failures 1, enabled true, a last run not before A, and next run equal to A plus 5 minutes. G2 shows last outcome "ok" and consecutive failures 0. I1 holds N0 plus 1 instance.
+      evidence: Answers G1, B1, G2, B2, I1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A mistyped process name either blocks the job list or fails silently with no trace.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A failing job does not loop and does not stop the other job.
+    verification:
+      method: api_response
+      detail: In step 4, B3 shows consecutive failures 3 and next run equal to A plus 15 minutes, enabled true; G3 shows last outcome "ok", consecutive failures 0 and next run equal to A plus 15 minutes. The failed job's next run moved on at every failure.
+      evidence: Answers G3 and B3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One broken job could stop every other recurring job of the company, or run again and again without waiting.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: The fifth failure in a row switches the job off by itself, and only that job.
+    verification:
+      method: api_response
+      detail: In step 5, B4 shows enabled false, consecutive failures 5 and last outcome "definition_not_found". G4 shows enabled true, last outcome "ok". I2 holds N0 plus 5 instances (one for each of the slots A, A+5, A+10, A+15, A+20), all of them from "good-probe" and none missing and none doubled.
+      evidence: Answers G4, B4, I2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A broken job keeps failing forever, or the good job loses runs.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A switched-off job is not run again.
+    verification:
+      method: api_response
+      detail: In step 6, B5 equals B4 in consecutive failures (5), last run and last outcome, and enabled is still false.
+      evidence: Answers B4 and B5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A job switched off by the system keeps retrying.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: Switching the job on again resets the failure count.
+    verification:
+      method: api_response
+      detail: Step 7 answers 200. B6 shows enabled true, consecutive failures 0 and a next run that is a whole multiple of 5 minutes after A and not before the time of switching on.
+      evidence: Answer B6.
+    on_fail:
+      severity: MINOR
+      business_impact: A fixed job is switched off again by its old failures after one new failure.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: No answer carries an error message text, a stack or a technical dump; the failure is told only as a code from the fixed list.
+    verification:
+      method: api_response
+      detail: In every read of the bad job (B2 to B7) the last outcome is one of ok, definition_not_found, definition_not_active, definition_needs_reactivation, actor_not_allowed, start_failed, raised, and the last outcome details hold no text of an error, no module name and no stack.
+      evidence: Answers B2 to B7.
+    on_fail:
+      severity: MAJOR
+      business_impact: Internal details of the platform could be shown to a company administrator.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: The failures and the automatic switch-off are in the audit trail.
+    verification:
+      method: audit_event
+      detail: The company's audit trail holds a failed-run entry for "bad-probe" at every one of the five slots and an entry for the automatic switch-off after the fifth, which names the automatic switch-off (scheduled_job.auto_disabled), with the creating administrator as actor, as for the run entries; it also holds the run entries of "good-probe". If the administrator cannot read the audit trail, report BLOCKED for this outcome only.
+      evidence: The audit entries for both jobs.
+    on_fail:
+      severity: MAJOR
+      business_impact: Nobody can see why a job stopped.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: Switch both jobs off if they are on, and cancel the instances of "sched_probe_process" that the good job started.
