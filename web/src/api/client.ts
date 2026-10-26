@@ -209,6 +209,20 @@ function buildError(response: Response, partial: Partial<ApiError>): ApiError {
 // ── Public API surface ─────────────────────────────────────────────────────────
 
 export const client = {
+  /** Unauthenticated read of a public route (e.g. /api/public/certificate/:handle). Sends no
+   *  Authorization / x-bpm-user-id header even when a session exists, never dispatches the
+   *  session-expired event, and never throws on an HTTP status: the caller gets the status and
+   *  the parsed JSON body (null when the body is not JSON). Network failures reject. */
+  async getPublic(path: string): Promise<{ status: number; body: unknown }> {
+    const response = await window.fetch(`${BASE_URL}${path}`, { headers: { Accept: 'application/json' } })
+    let body: unknown = null
+    try {
+      body = await response.json()
+    } catch {
+      body = null
+    }
+    return { status: response.status, body }
+  },
   get<T>(path: string, params?: Record<string, unknown>): Promise<T> {
     const url = params
       ? `${path}?${new URLSearchParams(

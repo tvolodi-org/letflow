@@ -11,6 +11,7 @@ defmodule Letflow.NumberSequences do
 
   `create_definition/2` is the unaudited, code-only writer; `create_definition_audited/3` is the
   one for routes: it writes the definition and its audit entry in one transaction.
+  `list_definitions/1` reads the definitions for the list route.
 
   ## Not the document allocator
 
@@ -136,6 +137,15 @@ defmodule Letflow.NumberSequences do
       end)
       |> run_audited(schema_prefix)
     end
+  end
+
+  @doc """
+  The definitions of the tenant of `schema_prefix`, ordered by key (unique per tenant, so the
+  order is total). Read-only; an empty tenant answers `[]`.
+  """
+  @spec list_definitions(schema_prefix :: String.t()) :: [Definition.t()]
+  def list_definitions(schema_prefix) when is_binary(schema_prefix) do
+    Repo.all(from(d in Definition, order_by: [asc: d.key]), prefix: schema_prefix)
   end
 
   # Audit.insert_entry raises on a database failure and Repo.transaction does not convert a

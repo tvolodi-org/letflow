@@ -17,7 +17,7 @@ defmodule Letflow.Scripts.Validation do
   alias Letflow.EventStore.Registry.JsonSchema
   alias Letflow.Scripts.Hash
 
-  @manifest_keys ~w(input_schema output_schema fail_codes limits reads restricted_inputs)
+  @manifest_keys ~w(input_schema output_schema fail_codes limits reads restricted_inputs writes)
   @required_manifest_keys ~w(input_schema output_schema fail_codes)
   @limit_keys %{
     "instructions" => :max_instructions,
@@ -29,6 +29,10 @@ defmodule Letflow.Scripts.Validation do
   @max_fail_codes 32
   @max_restricted 32
   @max_restricted_from 8
+  @max_writes 8
+  @max_write_fields 32
+  @max_write_name 128
+  @write_modes ~w(update_self create upsert_by_external_ref)
   @max_schema_depth 8
   @max_schema_bytes 32_768
   @max_cases 32
@@ -77,12 +81,33 @@ defmodule Letflow.Scripts.Validation do
          :ok <- codes(manifest["fail_codes"], @max_fail_codes),
          :ok <- limits(Map.get(manifest, "limits", %{})),
          :ok <- restricted(Map.get(manifest, "restricted_inputs", []), manifest["input_schema"]),
-         :ok <- reads(Map.get(manifest, "reads", []), manifest["input_schema"]) do
+         :ok <- reads(Map.get(manifest, "reads", []), manifest["input_schema"]),
+         :ok <- writes(Map.get(manifest, "writes", [])) do
       :ok
     else
       _ -> {:error, :invalid_manifest}
     end
   end
+
+  # REQ-570 (decision 0067 D5): the write lines an `entity_event` script declares. Shape only; whether
+  # the target type exists, is unmanaged and the fields are writable is checked at bind time.
+  defp writes(list) when is_list(list) do
+    if length(list) <= @max_writes and Enum.all?(list, &write_line?/1), do: :ok, else: :error
+  end
+
+  defp writes(_other), do: :error
+
+  defp write_line?(%{"entity_type" => type, "mode" => mode, "fields" => fields} = line)
+       when map_size(line) == 3 do
+    write_name?(type) and mode in @write_modes and is_list(fields) and fields != [] and
+      length(fields) <= @max_write_fields and Enum.uniq(fields) == fields and
+      Enum.all?(fields, &write_name?/1)
+  end
+
+  defp write_line?(_line), do: false
+
+  defp write_name?(name),
+    do: is_binary(name) and name != "" and byte_size(name) <= @max_write_name
 
   # GH 2534 PR 7c-1 (C11): the top-level output key namespace `$` is reserved for host channels
   # (the designated future channel is `$writes`), so no output property may be named `$...`.

@@ -472,6 +472,12 @@ defmodule Letflow.TenantSchemaReaper do
     # Ecto's repo.in_transaction?/0 cannot see the Ecto SQL sandbox's own BEGIN.
     in_tx? = in_db_transaction?(repo)
 
+    # GH #2441 root cause: inside a transaction (every sandboxed test caller) Postgres
+    # keeps the pg_stat_activity backend snapshot from the transaction's first read, so a
+    # backend that connected after it is invisible and the guard misses it. Discard the
+    # cached snapshot so this read is current.
+    repo.query!("SELECT pg_stat_clear_snapshot()", [])
+
     %{rows: rows} =
       repo.query!(
         "SELECT application_name FROM pg_stat_activity " <>

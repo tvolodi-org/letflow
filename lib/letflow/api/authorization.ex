@@ -354,6 +354,7 @@ defmodule Letflow.Api.Authorization do
           | :DocumentsRetentionManage
           | :LabelsManage
           | :NotificationTemplatesManage
+          | :NumberSequencesManage
           | :ScheduledJobsManage
           | :IntegrationMappingsManage
           | :EntitiesViewsManage
@@ -430,6 +431,7 @@ defmodule Letflow.Api.Authorization do
           | :DocumentsRetentionManage
           | :LabelsManage
           | :NotificationTemplatesManage
+          | :NumberSequencesManage
           | :ScheduledJobsManage
           | :IntegrationMappingsManage
           | :EntitiesViewsManage
@@ -517,6 +519,8 @@ defmodule Letflow.Api.Authorization do
     :EntitiesViewsManage,
     # REQ-563 (GH #3199): tenant notification templates. Tenant scope; TENANT_ADMIN through the derived rule.
     :NotificationTemplatesManage,
+    # REQ-575 (GH #3263): tenant number sequence definitions. Tenant scope; TENANT_ADMIN through the derived rule.
+    :NumberSequencesManage,
     # REQ-561 (GH #3194): tenant scheduled jobs. Tenant scope; TENANT_ADMIN through the derived rule.
     :ScheduledJobsManage
   ]
@@ -541,7 +545,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All fifty-one core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All fifty-two core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -568,7 +572,9 @@ defmodule Letflow.Api.Authorization do
   `:DocumentsRetentionManage` (decision 0063 S7, S8; TENANT_ADMIN through the derived rule), plus
   REQ-551's `:LabelsManage` (tenant label overrides), REQ-565's `:IntegrationMappingsManage` (the tenant
   integration-mapping routes), REQ-555's `:EntitiesViewsManage` (decision 0066 D4; saved list views),
-  REQ-563's `:NotificationTemplatesManage` (tenant notification templates) and REQ-561's
+  REQ-563's `:NotificationTemplatesManage` (tenant notification templates), REQ-575's
+  `:NumberSequencesManage` (tenant number sequence definitions) and
+  REQ-561's
   `:ScheduledJobsManage` (the tenant scheduled-job routes under `/scheduled-jobs`),
   each TENANT_ADMIN through the derived rule.
   Each has exactly one scope, see `permission_scope/1`.
@@ -1252,6 +1258,9 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/notification-templates/:template_key/preview"),
     do: :NotificationTemplatesManage
 
+  # REQ-575 (GH #3263): tenant number sequence definitions.
+  def endpoint_policy_key("POST", "/number-sequences"), do: :NumberSequencesManage
+  def endpoint_policy_key("GET", "/number-sequences"), do: :NumberSequencesManage
   # REQ-561 (GH #3194): tenant scheduled jobs, one key for all six routes.
   def endpoint_policy_key("GET", "/scheduled-jobs"), do: :ScheduledJobsManage
   def endpoint_policy_key("GET", "/scheduled-jobs/:id"), do: :ScheduledJobsManage
@@ -1538,6 +1547,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:IntegrationMappingsManage), do: :IntegrationMappingsManage
   def required_permission(:LabelsManage), do: :LabelsManage
   def required_permission(:NotificationTemplatesManage), do: :NotificationTemplatesManage
+  def required_permission(:NumberSequencesManage), do: :NumberSequencesManage
   def required_permission(:ScheduledJobsManage), do: :ScheduledJobsManage
   # REQ-555: identity clause for the saved-view write routes.
   def required_permission(:EntitiesViewsManage), do: :EntitiesViewsManage

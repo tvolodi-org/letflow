@@ -77,6 +77,7 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :IntegrationMappingsManage,
     :EntitiesViewsManage,
     :NotificationTemplatesManage,
+    :NumberSequencesManage,
     :ScheduledJobsManage
   ]
 

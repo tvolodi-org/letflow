@@ -89,6 +89,7 @@ defmodule Letflow.Api.AuthorizationTest do
       # REQ-555 (decision 0066 D4)
       :EntitiesViewsManage,
       :NotificationTemplatesManage,
+      :NumberSequencesManage,
       :ScheduledJobsManage
     ]
 
@@ -481,7 +482,8 @@ defmodule Letflow.Api.AuthorizationTest do
           48 => "forty-eight",
           49 => "forty-nine",
           50 => "fifty",
-          51 => "fifty-one"
+          51 => "fifty-one",
+          52 => "fifty-two"
         }
         |> Map.get(actual_count)
 
@@ -1086,7 +1088,8 @@ defmodule Letflow.Api.AuthorizationTest do
           48 => "forty-eight",
           49 => "forty-nine",
           50 => "fifty",
-          51 => "fifty-one"
+          51 => "fifty-one",
+          52 => "fifty-two"
         }
         |> Map.get(actual_count)
 
@@ -1587,7 +1590,8 @@ defmodule Letflow.Api.AuthorizationTest do
           48 => "forty-eight",
           49 => "forty-nine",
           50 => "fifty",
-          51 => "fifty-one"
+          51 => "fifty-one",
+          52 => "fifty-two"
         }
         |> Map.get(actual_count)
 
@@ -2452,6 +2456,8 @@ defmodule Letflow.Api.AuthorizationTest do
                    # REQ-555 (decision 0066 D4)
                    :EntitiesViewsManage,
                    :NotificationTemplatesManage,
+                   # REQ-575 (GH #3263)
+                   :NumberSequencesManage,
                    :ScheduledJobsManage
                  ]
 
