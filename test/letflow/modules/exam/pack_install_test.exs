@@ -67,7 +67,9 @@ defmodule Letflow.Modules.Exam.PackInstallTest do
     session session_question session_answer session_event session_question_score certificate
   )
 
-  @entity_types @authoring_types ++ @runtime_types
+  # ... plus REQ-582 `exam_assignment`: packed and installed (inactive) like the rest, but not part of
+  # the activation order below (no foreign-key table is promoted for it here).
+  @entity_types @authoring_types ++ @runtime_types ++ ["exam_assignment"]
 
   # Topological order over the ten documents' own `foreign_keys`:
   #   category, tag, exam       -- zero FKs
@@ -247,11 +249,11 @@ defmodule Letflow.Modules.Exam.PackInstallTest do
       assert document["variable_schemas"] == []
     end
 
-    test "entity_definitions carries exactly the sixteen types (ten authoring + six runtime), correctly wrapped" do
+    test "entity_definitions carries exactly the seventeen types (ten authoring + six runtime + exam_assignment), correctly wrapped" do
       document = pack_document()
       packed = document["entity_definitions"]
 
-      assert length(packed) == 16
+      assert length(packed) == 17
       assert Enum.sort(Enum.map(packed, & &1["name"])) == Enum.sort(@entity_types)
 
       for entry <- packed do
@@ -297,10 +299,10 @@ defmodule Letflow.Modules.Exam.PackInstallTest do
       assert install_result.variable_schemas_written == 0
       assert install_result.warnings == []
 
-      # ---- 2. sixteen entries, each status "installed" -- the literal string
+      # ---- 2. seventeen entries, each status "installed" -- the literal string
       #         installed_entity_definition_maps/1 hardcodes. NOT "inactive".
       installed = install_result.installed_entity_definitions
-      assert length(installed) == 16
+      assert length(installed) == 17
       assert Enum.sort(Enum.map(installed, & &1.name)) == Enum.sort(@entity_types)
       assert Enum.all?(installed, &(&1.status == "installed"))
       assert Enum.uniq(Enum.map(installed, & &1.status)) == ["installed"]

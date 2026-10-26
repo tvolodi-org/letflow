@@ -69,6 +69,7 @@ defmodule Letflow.Modules.Exam do
     required_roles: [],
     # GH #2596: the six runtime/result types. GH #2680 slice 3: the ten authoring types too; the
     # module's own authoring surface (`Letflow.Modules.Exam.Authoring`) is their only writer.
+    # REQ-582: exam_assignment (who an exam is assigned to), written only with the exam module's authority.
     manages_entity_types: [
       "certificate",
       "session",
@@ -85,7 +86,8 @@ defmodule Letflow.Modules.Exam do
       "answer_option",
       "question_tag",
       "tag",
-      "category"
+      "category",
+      "exam_assignment"
     ],
     settings_schema: nil,
     route_policies: [

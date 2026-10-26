@@ -200,7 +200,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
     test "succeeds on each of the six runtime names and each of the ten authoring names", %{
       schema: schema
     } do
-      for name <- Fx.runtime_types() ++ Fx.authoring_types() do
+      for name <- Fx.stamp_types() do
         id = row!(schema, name)
         assert :allowed = attempt(schema, id, "managed_by = 'exam'", "exam", false), name
       end
@@ -406,7 +406,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
 
       assert Enum.sort(AllowExamAuthoringManagedByStamp.stamp_names()) == literal
       assert Enum.sort(Stamp.stamp_names()) == literal
-      assert Enum.sort(Fx.runtime_types() ++ Fx.authoring_types()) == literal
+      assert Enum.sort(Fx.stamp_types()) == literal
 
       manifest = MapSet.new(Letflow.Modules.Exam.manifest().manages_entity_types)
       assert MapSet.subset?(MapSet.new(literal), manifest)
@@ -424,6 +424,6 @@ defmodule Letflow.Entities.ManagedTypes.StampTriggerTest do
     ~r/'([a-z_]+)'/ |> Regex.scan(array) |> Enum.map(&List.last/1) |> Enum.sort()
   end
 
-  defp sixteen, do: Enum.sort(six() ++ Fx.authoring_types())
+  defp sixteen, do: Enum.sort(Fx.stamp_types())
   defp six, do: Enum.sort(Fx.runtime_types())
 end
