@@ -42047,3 +42047,48 @@ requirements:
       - "8. Existing logo_url values: a tenant with settings logo_url \"https://example.com/l.png\" and no upload returns that string from both endpoints exactly as before; with an upload both return the path while settings[\"logo_url\"] in the database is unchanged; after DELETE /api/v1/tenant/logo or after turning the flag off both return the stored string again; Letflow.Routers.TenantConfig.branding_from_settings/1 still returns the stored string (test of Letflow.Modules.Exam.Certificate branding unchanged)."
       - "9. Gates: SECURITY-REVIEWER verdict recorded (mandatory: INV-1, INV-2, INV-5, INV-8; public unauthenticated read); REVIEWER verdict recorded; route and named-route pins move as the route table requires (grep -rn \"__authz_routes__\\|length(snapshot)\\|length(named)\" test/), stated as +N from the values on origin/main at implement time; mix letflow.check.static and the changed and new test files pass with real output quoted; the PR states the flag is off in QA after auto-CD and that no existing row is changed."
     depends_on: [REQ-590, REQ-585, REQ-280]
+  - id: REQ-593
+    title: "Tenant realm template v2: forgot-password switch, reset link lifetime and en/ru/kk locales, with a drift test (BilimBaga study T5c, gaps G1 and G3; G2 Letflow part)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3348
+    # Source: docs/migration/bilimbaga-reset-welcome-mail.md (section 3 "What Letflow and the realm template provide", section 4 gap rows G1, G2, G3, G4, G5, G7); docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md (section 3 D2, the sentence 'A future change of the template is a new directory `v2`, never an edit of `v1` in place', and the row 'SMTP settings are an argument of the call (the shared QA relay), never part of the template and never in git'); priv/keycloak/provisioner/v1/tenant-realm.json and README.md (the files copied, read in full); test/letflow/keycloak_tenant_realm_template_test.exs (the v1 drift test, which must not change; its violations/1, secret_key?/1 and mutation rows are the model); docs/runbooks/onboarding-new-tenant-realm.md (Realm checklist); docs/agents/instructions/security-invariants.md (INV-4). Written by the business analyst (T-0717) 2026-10-26. Not yet validated.
+    description: >
+      BilimBaga's users reset a forgotten password themselves; the v1 tenant realm template
+      (priv/keycloak/provisioner/v1/tenant-realm.json) does not allow it: it has no resetPasswordAllowed
+      field, so Keycloak leaves the 'Forgot password' link off, and it has no locale settings, so reset
+      mail pages are English only (docs/migration/bilimbaga-reset-welcome-mail.md section 3 and gaps G1
+      and G3). Decision 0072 section 3 says 'A future change of the template is a new directory `v2`, never
+      an edit of `v1` in place'. This is therefore a new entry and not an amendment of REQ-572: REQ-572
+      delivered v1 and its drift test, and v1 stays frozen. This entry adds the directory
+      priv/keycloak/provisioner/v2/ holding tenant-realm.json and README.md, and a new drift test file
+      test/letflow/keycloak_tenant_realm_template_v2_test.exs. The v1 files and the v1 drift-test rows
+      (test/letflow/keycloak_tenant_realm_template_test.exs) are not edited, and neither is
+      docs/runbooks/onboarding-new-tenant-realm.md. tenant-realm.json of v2 is the v1 file with exactly
+      these changes: attributes.templateVersion is '2'; resetPasswordAllowed true; actionTokenGeneratedByUserLifespan
+      3600 (seconds, equal to BilimBaga's 60 minute reset token, recovery_service.go resetTokenTTL as the study
+      records it); internationalizationEnabled true; supportedLocales ['en', 'ru', 'kk']; defaultLocale 'en'.
+      The placeholders stay __REALM_ID__ and __TENANT_HOST__. The G2 part that belongs to Letflow: smtpServer
+      stays out of the template (decision 0072 D2, INV-4), and the v2 README states that a v2 realm is only
+      useful with an smtpServer, so smtpServer is mandatory for a v2 realm and the provisioner must refuse to
+      create a realm without it. Whether the provisioner enforces this lives in infra's
+      services/tenant-provisioner and is an infra dependency, not an acceptance criterion of this entry; the
+      choice of the SMTP relay stays the owner's. Out of scope: emailTheme, loginTheme and every mail or page
+      text (infra ships the theme; BA-BILIMBAGA reviews the texts), the welcome mail, any Letflow outbound
+      mail, any route, any status flip, any production claim (QA only, D-019).
+    open_questions:
+      - "G4 (open owner decision, not decided here): who sends a welcome mail and how the one-time initial_password reaches the person; if Letflow, it belongs to the outbound notification requirement (study T5a) and the welcome mail carries a sign-in link and never the password."
+      - "G5 (open owner decision, not decided here): users added later by a TENANT_ADMIN have no Keycloak account creation and no invitation mail from Letflow; whether to build one needs a security design (new credential, tenant-bound realm access) and is decided with the admin client question of decision 0072."
+      - "G7 (open owner decision, not decided here): Keycloak's own mail has no delivery log like BilimBaga's email_log; accept that it is visible only in Keycloak events, or add an event listener."
+      - "defaultLocale 'en' is a UAT assumption, to be confirmed by the process owner: the study lists the three locales but not the default; en is Keycloak's own fallback."
+    acceptance_criteria:
+      - "1. Test V2-dir: the files priv/keycloak/provisioner/v2/tenant-realm.json and priv/keycloak/provisioner/v2/README.md exist, the JSON parses, Path.basename of the directory is 'v2' and attributes.templateVersion is the string '2'."
+      - "2. Test V2-reset (G1): resetPasswordAllowed is the JSON boolean true and actionTokenGeneratedByUserLifespan is the integer 3600 in v2/tenant-realm.json; a mutated copy with resetPasswordAllowed removed, and one with the lifespan 300, are each flagged by the v2 rules in the test."
+      - "3. Test V2-locale (G3): internationalizationEnabled is true and supportedLocales equals ['en', 'ru', 'kk'] (as a set, three entries, no other); a mutated copy with 'kk' removed is flagged. The test also asserts the file has none of the keys emailTheme, loginTheme or localizationTexts, so no text is carried by the template."
+      - "4. Test V2-same: removing the keys resetPasswordAllowed, actionTokenGeneratedByUserLifespan, internationalizationEnabled, supportedLocales and defaultLocale and attributes.templateVersion from the v2 map gives a map equal to the v1 map without attributes.templateVersion, read from priv/keycloak/provisioner/v1/tenant-realm.json, so v2 differs from v1 in nothing else; the only __NAME__ placeholders found in the v2 text are __REALM_ID__ and __TENANT_HOST__."
+      - "5. Test V2-smtp (G2, Letflow part): the v2 map has no key smtpServer, credentials, secret or password at any depth and no users entry, shown to bite by a mutated copy that adds smtpServer with a host (flagged); the text of priv/keycloak/provisioner/v2/tenant-realm.json contains no substring 'smtp' in any case."
+      - "6. Test V2-readme: v2/README.md contains the strings __REALM_ID__, __TENANT_HOST__, templateVersion, resetPasswordAllowed, supportedLocales, smtpServer, and states in words that smtpServer is mandatory for a v2 realm and that the provisioner must refuse to create a realm without it; it also states that v1 is frozen and names emailTheme and the texts as outside the template."
+      - "7. Reader check on the implementing change's git diff main...HEAD: no line under priv/keycloak/provisioner/v1/, in test/letflow/keycloak_tenant_realm_template_test.exs, in docs/runbooks/, in docs/migration/decisions/ or in docs/requirements.yaml is changed; nothing in the diff claims production use."
+      - "8. mix test test/letflow/keycloak_tenant_realm_template_v2_test.exs and mix test test/letflow/keycloak_tenant_realm_template_test.exs both pass with real output quoted, and lf.sh lint passes; the PR text names the infra dependency (smtpServer validation in services/tenant-provisioner, and shipping the v2 template and the email theme with the ru and kk texts) as outside this change."
+    depends_on: [REQ-572]
