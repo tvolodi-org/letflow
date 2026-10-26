@@ -1,0 +1,126 @@
+# Authored by BA-BILIMBAGA for the public certificate verify page (BilimBaga study T4a, GH #3312).
+# Requirement behind the route and page: REQ-357 (certificate projection and the public handle,
+# decision 0028); the page is web/src/pages/VerifyCertificatePage.tsx at /verify/:handle.
+---
+id: bilimbaga-public-certificate-verify-valid-handle
+scope: bilimbaga
+title: Anyone holding the public link of an issued certificate can check it without signing in, and sees only the certificate facts
+version: "1.0"
+tags: [certificate, public_page, privacy]
+
+description: >
+  A candidate who passed a certification exam asks for their certificate. The
+  first time, the answer carries a one-time public handle (the secret part of
+  the link printed on the certificate). A verifier, for example an employer
+  who scanned the link, opens the public verify page with that handle and is
+  not asked to sign in. The page must say the certificate is valid and show
+  only what a certificate is meant to display: the candidate's name, the exam
+  title, the score in percent and the date of issue. It must not show the
+  candidate's email address, account or session identifiers, the organisation's
+  internal identifiers, the pass mark or any answer. Source: REQ-357 and
+  decision 0028 (the page field set is the certificate's display surface).
+  Note: a handle that was revoked or expired cannot be set up through the
+  product's own screens or routes in the UAT environment (no revoke action is
+  exposed), so that case is not exercised here; it is covered by the backend
+  tests of REQ-352 and REQ-357.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  verifier: actor-any
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      The candidate has a submitted and graded exam session that they passed,
+      and has not yet asked for a certificate for it (the public handle is
+      handed out on the first issue only)
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: Asks for the certificate of their passed exam session and keeps the one-time public handle shown in the answer
+    via: api
+    produces:
+      public_handle: "the one-time public handle returned with the first certificate issue"
+
+  - step: 2
+    actor: verifier
+    action: Opens the public verify page with the public handle from step 1, without signing in
+    via: gui
+
+  - step: 3
+    actor: verifier
+    action: Reads everything shown on the verify page, looking for any personal or internal detail beyond the certificate facts
+    via: gui
+
+  - step: 4
+    actor: verifier
+    action: Opens the same verify page a second time with the same handle, again without signing in
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The verifier is not asked to sign in and the page states that the
+      certificate is valid
+    verification:
+      method: gui_screen
+      detail: "The page shows the heading 'Certificate valid' and no sign-in form or redirect to sign-in"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An employer or institution that scans a genuine certificate cannot
+        confirm it. The certificate loses its purpose.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      The page shows the candidate's name, the exam title, the score in
+      percent and the date of issue, matching the certificate the candidate
+      was given
+    verification:
+      method: gui_screen
+      detail: "The Candidate, Exam, Score and Issued on entries on the page equal the values on the issued certificate"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A verifier would be shown different facts from those on the paper
+        certificate and could wrongly reject a genuine one or accept a forged one.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      The page shows nothing beyond those four facts: no email address, no
+      account, session or record identifier, no organisation identifier, no pass
+      mark and no answers
+    verification:
+      method: gui_screen
+      detail: "The whole visible page contains only the heading and the Candidate, Exam, Score and Issued on entries"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Anyone with a forwarded link would learn personal or internal details
+        of a candidate who never agreed to share them. This is a privacy breach.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      Opening the page does not change the certificate or the handle: a second
+      visit with the same handle shows the same facts
+    verification:
+      method: gui_screen
+      detail: "The second visit shows the heading 'Certificate valid' and the same four facts as the first visit"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If a look at the page used up the link, a second verifier or a repeated
+        check would fail on a genuine certificate.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Nothing is created by the verifier. The issued certificate stays as record
+    of the candidate's exam; no clean-up of it is possible or needed.
