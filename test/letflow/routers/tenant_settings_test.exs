@@ -205,7 +205,7 @@ defmodule Letflow.Routers.TenantSettingsTest do
       resp =
         patch_settings(tenant,
           body: %{
-            "brand_colors" => %{"primary" => "#1864AB", "secondary" => "#00ff00"}
+            "brand_colors" => %{"primary" => "#1864AB", "tertiary" => "#00ff00"}
           }
         )
 
@@ -298,7 +298,7 @@ defmodule Letflow.Routers.TenantSettingsTest do
           body: %{
             "app_name" => "Kept",
             "text_size" => "large",
-            "brand_colors" => %{"primary" => "#1864AB", "secondary" => "#00ff00"}
+            "brand_colors" => %{"primary" => "#1864AB", "tertiary" => "#00ff00"}
           }
         )
 
@@ -320,8 +320,32 @@ defmodule Letflow.Routers.TenantSettingsTest do
       assert item["after_state"]["rejected_top_level_keys"] == %{"text_size" => "large"}
 
       assert item["after_state"]["rejected_brand_colors_keys"] == %{
-               "secondary" => "#00ff00"
+               "tertiary" => "#00ff00"
              }
+    end
+
+    test "REQ-585: a valid secondary is stored, tertiary is dropped and audited once" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req585-sec")
+
+      resp =
+        patch_settings(tenant,
+          body: %{"brand_colors" => %{"secondary" => "#1971C2", "tertiary" => "#000000"}}
+        )
+
+      assert resp.status == 200
+      body = Jason.decode!(resp.resp_body)
+      assert Map.keys(body) |> Enum.sort() == ["settings", "tenant_id"]
+      assert body["settings"]["brand_colors"] == %{"secondary" => "#1971C2"}
+
+      reloaded = Repo.get!(Tenant, tenant.tenant_id)
+      assert reloaded.settings == %{"brand_colors" => %{"secondary" => "#1971C2"}}
+
+      audit_resp = get_audit(tenant, query_string: "resource_type=tenant_settings")
+      audit_body = Jason.decode!(audit_resp.resp_body)
+      assert audit_body["count"] == 1
+      assert [item] = audit_body["items"]
+      assert item["action"] == "tenant_settings.reject_unrecognized_keys"
+      assert item["after_state"]["rejected_brand_colors_keys"] == %{"tertiary" => "#000000"}
     end
 
     test "no audit entry is written when every key in the request is recognized" do

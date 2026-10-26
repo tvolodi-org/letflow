@@ -279,12 +279,66 @@ defmodule Letflow.Identity.TenantTest do
 
       changeset =
         Tenant.settings_changeset(tenant, %{
-          "settings" => %{"brand_colors" => %{"secondary" => "#228be6"}}
+          "settings" => %{"brand_colors" => %{"tertiary" => "#228be6"}}
         })
 
       refute changeset.valid?
       assert %{settings: [message]} = errors_on(changeset)
-      assert message =~ "secondary"
+      assert message =~ "tertiary"
+    end
+
+    test "brand_colors: allowed keys are exactly primary and secondary (REQ-585)" do
+      assert Tenant.brand_colors_allowed_keys() == ["primary", "secondary"]
+    end
+
+    test "brand_colors: a valid secondary, alone or with primary, is accepted (REQ-585)" do
+      tenant = insert_tenant!()
+
+      for bc <- [
+            %{"secondary" => "#1971C2"},
+            %{"primary" => "#1864AB", "secondary" => "#1971C2"}
+          ] do
+        changeset = Tenant.settings_changeset(tenant, %{"settings" => %{"brand_colors" => bc}})
+        assert changeset.valid?, inspect(errors_on(changeset))
+      end
+    end
+
+    test "brand_colors: non-hex secondary values are refused, naming the key (REQ-585)" do
+      tenant = insert_tenant!()
+
+      for bad <- ["red", "#FFF", "#GG0000", 123] do
+        changeset =
+          Tenant.settings_changeset(tenant, %{
+            "settings" => %{"brand_colors" => %{"secondary" => bad}}
+          })
+
+        refute changeset.valid?
+        assert %{settings: [message]} = errors_on(changeset)
+        assert message =~ "brand_colors.secondary"
+        assert message =~ "hex"
+      end
+    end
+
+    test "brand_colors: secondary gets the same contrast verdict as primary (REQ-585)" do
+      tenant = insert_tenant!()
+
+      verdict = fn key ->
+        changeset =
+          Tenant.settings_changeset(tenant, %{
+            "settings" => %{"brand_colors" => %{key => "#FFFF00"}}
+          })
+
+        refute changeset.valid?
+        assert %{settings: [message]} = errors_on(changeset)
+        message
+      end
+
+      primary = verdict.("primary")
+      secondary = verdict.("secondary")
+      assert secondary =~ "brand_colors.secondary"
+
+      assert String.replace(secondary, "brand_colors.secondary", "brand_colors.primary") ==
+               primary
     end
 
     test "locales: a valid non-empty list of locale codes round-trips through the database" do
