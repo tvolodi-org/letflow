@@ -41331,6 +41331,255 @@ requirements:
       - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-10, template content in audit payloads, trigger completeness) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests (S1-store, S2-immutable, S2-save, D5-redact, C3-manage, S2-sod, S2-audit and the permission tests) pass with real output quoted."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571]
 
+  - id: REQ-587
+    title: "Candidate my-results list: GET /modules/exam/exam-sessions/mine (own sessions with result and certificate flag) and the My results screen with certificate download (FR-BB41/FR-BB46, BilimBaga certificates)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    gh: 3321
+    # Source: docs/migration/decisions/0031-candidate-results-list-scope.md (Revisitability trigger 1, section 3 one surface for FR-BB41 and FR-BB46, section 4 queried:false constraint, section 5 admin view out of scope); lib/letflow/modules/exam/router.ex moduledoc ("Deliberately NOT routed here", "Permission vocabulary", "Ownership and tenant isolation"); lib/letflow/modules/exam/exam.ex (defmanifest permissions, role_grants, route_policies); lib/letflow/modules/exam/session.ex (list_available_exams/2, get_session_for_user/3, check_owner/2); lib/letflow/modules/exam/certificate.ex (issue_or_get_for_user/3); priv/modules/exam/entity_definitions/session.json and certificate.json; web/src/modules/exam/examRoutes.tsx, exam.api.ts, ExamListPage.tsx, ExamSessionResultPage.tsx; web/src/api/client.ts (getBlob); test/fixtures/route_scope/tenant_wide_default_routes.txt; docs/roles.md (CANDIDATE). Task source: T-0627 study task T4b, T-0666. Written by the business analyst 2026-10-26. Not yet validated.
+    description: >
+      Source: BilimBaga criterion 4 (certificates). A signed-in candidate has no way to list their own past
+      sessions or find their certificates: lib/letflow/modules/exam/router.ex lists GetExamHistory and
+      HandleGetMyResults (FR-BB41, FR-BB46) under "Deliberately NOT routed here", CANDIDATE holds six Exam*
+      permissions and none lists records, and the certificate record has no user field (it names its owner only
+      through session_id, then session.user_id). Decision 0031 section 1 recorded "not today" and named the
+      reopening trigger (Revisitability 1: a direct product request naming a results list); the BilimBaga
+      certificates criterion is that request. Decision 0031 section 2 preferred the generic POST /entities/query
+      route, but CANDIDATE does not hold the permission for it (web/src/modules/exam/exam.api.ts, comment on
+      listAvailableExams: ISS-0718), so this entry follows the precedent that ISS-0718 set for the exam list: one
+      exam-module route. That departure is an open owner question (below); the entry records it, it does not
+      settle it silently.
+      ROUTE. A new route in lib/letflow/modules/exam/router.ex: GET /exam-sessions/mine, full path
+      GET /api/v1/modules/exam/exam-sessions/mine, declared with authz_get next to GET /exam-sessions/available
+      and above GET /exam-sessions/:id (a literal segment wins over :id in Plug.Router, as for "available").
+      It serves FR-BB41 and FR-BB46 as one surface (decision 0031 section 3) with an optional exam_id query
+      parameter (cast with cast_uuid/1; a malformed value gives 400). Query parameters: cursor, page_size
+      (parsed with Pagination.parse_page_size_param/1 as handle_list_available_exams does; invalid gives 400),
+      exam_id. No other parameter is read, and none names a candidate or a tenant.
+      PERMISSION. :ExamSessionRead, which CANDIDATE already holds (lib/letflow/modules/exam/exam.ex role_grants)
+      and TENANT_ADMIN and PLATFORM_ADMIN hold through the core rules. No new permission is minted, so no
+      permission pin moves (authorization_test.exs permission lists, the tenant-auditor refused set,
+      priv/permission_matrix/effective.golden stay as they are). docs/roles.md needs no new row; the CANDIDATE
+      prose gains one sentence naming the list route. TENANT_AUDITOR does not hold :ExamSessionRead and gets the
+      same 403 as today on every exam route.
+      OWNERSHIP FILTER. The read is built in a new function Letflow.Modules.Exam.Session.list_own_sessions/2
+      beside list_available_exams/2, through Compiler.compile/3, Allowlist.load/2 and Cursor.paginate/5 with the
+      request entity_type "session" and the hardcoded filters user_id eq <auth_context.user_id> (the field
+      session.user_id is queried: true, the same field check_owner/2 compares), status in [submitted,
+      auto_submitted, grading_pending] (an in_progress session has no result and is not listed), and, only when
+      exam_id was supplied, exam_id eq <exam_id>. The candidate id comes only from conn.assigns.auth_context,
+      never from the request. Sort: expires_at desc, because expires_at is queried: true while submitted_at,
+      score_pct and passed are queried: false (decision 0031 section 4); this entry flips no queried flag and sorts
+      nothing in memory. UAT assumption, to be confirmed by the process owner: ordering by expires_at (the
+      session deadline) is an acceptable stand-in for "most recent first".
+      RESPONSE. 200 with {items, next_cursor}. Each item is hand-assembled (the answer-key rule of the router
+      moduledoc; session.exam_snapshot is on the restricted list in exam.ex and is never read or returned) with
+      exactly: session_id, exam_id, exam_title (the localized map of the live exam record found by exam_id in the
+      same prefix, null when that record is missing or deleted), status, started_at, submitted_at, score_pct,
+      passed (null for grading_pending), certificate_issued (true when a certificate record exists for that
+      session_id; one prefix-scoped query on entity type "certificate" with session_id in <ids of the page>, not
+      one query per row) and certificate_id (the certificate record id, or null). It carries no user_id, no
+      seed, no snapshot and no answer data. The route never issues a certificate; issuing stays with
+      POST /exam-sessions/:id/certificate and the download route.
+      WEB. Route exam/results in web/src/modules/exam/examRoutes.tsx, a new screen ExamMyResultsPage.tsx wrapped
+      in ExamIntlProvider, a new examApi.listMySessions in exam.api.ts, and a link from ExamListPage.tsx. Per
+      row: exam title (falls back to a neutral localized "Exam" text when exam_title is null), status, score,
+      passed or failed (none for grading_pending), submitted date, a link to the existing
+      sessions/:sessionId/result screen, and, when passed is true, a "Download certificate" action that calls
+      GET /exam-sessions/:id/certificate/download (existing route, permission ExamCertificateIssue) through
+      client.getBlob and saves the PDF. States: loading, a list, an empty state (no sessions), a list-failure
+      state, and a download-failure state that shows a localized message and keeps the list (409 and 404 give
+      the "certificate is not available for this exam" text, any other failure the generic text; the row can be
+      retried). Next page by next_cursor. All strings come from examMessages (ExamIntlProvider), in every locale
+      that file carries, so exam-i18n-grep.test.ts stays green.
+      PINS AND DOCS (state the new values at implement time as "+1 from the value on origin/main"). The route has
+      no scope: option, so it is tenant_wide by default and enters the default-class snapshot:
+      test/fixtures/route_scope/tenant_wide_default_routes.txt gains the line
+      "GET /modules/exam/exam-sessions/mine ExamSessionRead" (sorted as its neighbours), and the three
+      length(snapshot) pins (route_scope_resolver_test.exs, route_scope_self_service_test.exs,
+      tasks_route_classes_test.exs, now 132) move +1. exam.ex route_policies gains {"GET", "/exam-sessions/mine",
+      :ExamSessionRead}; the expected-route list in test/letflow/api/authorization_test.exs (near the row for
+      "/modules/exam/exam-sessions/available") gains the same row. No forward(...) is added, so the
+      length(named) pin does not move. The router moduledoc route table gains the row list_my_sessions, and the
+      bullet "Cross-session history / results-list views (GetExamHistory/HandleGetMyResults, FR-BB41/FR-BB46)"
+      under "Deliberately NOT routed here" is rewritten to say the list is routed by this entry (GetSessionResult
+      stays not routed; the by-id result is the state read). Decision 0031 gets a dated addendum: section 1 is
+      reversed on Revisitability trigger 1, the route is exam-module rather than the generic query (section 2),
+      and section 4 option 2 is not used (no in-memory sort). The sentence in ExamSessionResultPage.tsx that calls
+      the result URL provisional is updated to say the list links to it unchanged.
+      NOT IN THIS ENTRY: an admin or auditor view of other candidates' results (decision 0031 section 5); sorting
+      or filtering by score, pass state or submit date (needs the queried flags, decision 0031 section 4 option 1);
+      issuing a certificate from the list route; a candidate-side verify-by-handle page (exists, REQ-357 and the
+      public verify page); a mobile screen.
+    open_questions:
+      - "Decision 0031 section 2 preferred the generic POST /entities/query route for a results list; this entry uses one exam-module route because CANDIDATE does not hold the entity-query permission. Does the owner accept that departure, or widen CANDIDATE instead?"
+      - "Is ordering by session deadline (expires_at) acceptable as 'most recent first', or does the owner want the queried flags on submitted_at flipped (a pack schema change with DDL, decision 0031 section 4 option 1)?"
+      - "Should a certificate download be offered for every passed session, or only when the exam's certificate is enabled? The list route cannot tell without reading the snapshot; this entry offers it for every passed session and relies on the download route's 409 for the rest."
+    acceptance_criteria:
+      - "1. Route and permission: GET /api/v1/modules/exam/exam-sessions/mine is declared with authz_get in lib/letflow/modules/exam/router.ex and gated by :ExamSessionRead; test: a CANDIDATE token gets 200, a token with no role that holds :ExamSessionRead gets 403, a TENANT_AUDITOR token gets 403 with the same body as for any role without the permission, and an unauthenticated call gets 401. exam.ex route_policies and the authorization_test.exs expected-route list each gain the row, and no permission pin, golden file or docs/roles.md matrix row changes."
+      - "2. Ownership filter (test M-own): with candidate A holding two submitted sessions and one in_progress session and candidate B (same tenant) holding one submitted session, a call by A returns exactly A's two sessions, a call by B returns exactly B's one, and neither response contains a session of the other; an in_progress session is never listed. The test also asserts that the compiled request carries the filter user_id eq the caller's auth_context user id and that a query parameter named user_id, candidate_id or tenant_id is ignored (a call by A with user_id=<B's id> returns A's sessions)."
+      - "3. INV-5 (test M-inv5): another candidate's session and certificate are indistinguishable from not-found. Because the list has no id path, the test proves it on the two routes the list links to: with candidate B's session id and B's certificate id, A's GET /exam-sessions/:id, POST /exam-sessions/:id/certificate and GET /exam-sessions/:id/certificate/download each return a response identical in status, headers and body to the response for a random UUID that exists nowhere; and A's list response never contains a certificate_id or session_id of B. A malformed exam_id gives 400 and a well-formed exam_id of an exam A never sat gives 200 with an empty items list (not 404)."
+      - "4. INV-10 cross-tenant negative (test M-tenant): with sessions and certificates in tenant B's schema and a CANDIDATE token of tenant A, GET .../exam-sessions/mine returns none of B's rows (items empty when A has none); the compiled route path and the accepted query parameters contain no tenant identifier; a PLATFORM_ADMIN token calling the route gets only its own tenant's sessions (200, a no-data-leak check, not a refusal) and never another tenant's."
+      - "5. Response shape (test M-shape): each item holds exactly the keys session_id, exam_id, exam_title, status, started_at, submitted_at, score_pct, passed, certificate_issued, certificate_id; no item holds user_id, seed, exam_snapshot or any answer or option data (checked by comparing the key set); a sentinel string stored in session.exam_snapshot is absent from the response body. A grading_pending session has passed null (its score_pct is present, as in the session view); a session whose exam record is deleted or missing has exam_title null."
+      - "6. Certificate flag (test M-cert): for a passed session with an issued certificate the item has certificate_issued true and certificate_id equal to that record's id; for a passed session with no certificate, and for a failed session, certificate_issued is false and certificate_id is null; the route itself writes no certificate record and no audit row (record counts before and after are equal). The certificate lookup is one query for the whole page, asserted by counting queries on entity type certificate for a page of 5 sessions."
+      - "7. Pagination, filter and order (test M-page): page_size follows Pagination.parse_page_size_param/1 (an invalid value gives 400 with the router's existing 'invalid page_size' text), next_cursor walks the whole set without repeats or gaps for 7 sessions at page_size 3, the optional exam_id restricts items to that exam, and items are ordered by expires_at descending. The entity definitions priv/modules/exam/entity_definitions/session.json are unchanged (no queried flag flipped, no migration)."
+      - "8. Pins and docs (implement step quotes the output): tenant_wide_default_routes.txt gains the line 'GET /modules/exam/exam-sessions/mine ExamSessionRead' and the three length(snapshot) pins move +1 from the value on origin/main at implement time (now 132); the length(named) pin is unchanged; the PR summary lists, from grep -rn \"__authz_routes__\\|length(snapshot)\\|tenant_wide_default_routes\\|exam-sessions/available\" test/, every test file checked and the new value of each pin. The router moduledoc route table gains the list_my_sessions row, the 'Deliberately NOT routed here' bullet for FR-BB41/FR-BB46 is rewritten as described, decision 0031 gets the dated addendum, and grep -rn 'Cross-session history' lib/ docs/ finds no remaining text that says the list is not routed."
+      - "9. Web screen states (Vitest, web/src/modules/exam/__tests__/ExamMyResultsPage.test.tsx): with examApi.listMySessions mocked, the page renders (a) the loading state, (b) one row per item with title, status, score, passed or failed and a link to sessions/<id>/result, (c) the empty state when items is empty, (d) the list-failure state with a retry on a rejected call, (e) a Download certificate action only on rows with passed true, and (f) the next-page control only when next_cursor is non-null. examApi.listMySessions calls GET /api/v1/modules/exam/exam-sessions/mine with cursor, page_size and exam_id only (exam.api.test.ts). ExamListPage.tsx links to exam/results and examRoutes.tsx registers it."
+      - "10. Web download and i18n (Vitest): activating Download certificate calls client.getBlob with /api/v1/modules/exam/exam-sessions/<id>/certificate/download exactly once and saves the returned PDF blob; when getBlob rejects with status 409, 404 or 500 the page shows the localized download-failure message, keeps the list rendered and lets the same row be retried; every new string exists in every locale of examMessages, and exam-i18n-grep.test.ts and the web boundary-lint test pass. npm run check passes with real output quoted. SECURITY-REVIEWER (tenant-data path, INV-1, INV-5, INV-10, answer-key redaction) and REVIEWER verdicts are recorded."
+    depends_on: [REQ-332, REQ-335, REQ-351, REQ-355, REQ-356, REQ-357]
+  - id: REQ-586
+    title: Exam pack parent_id on category (tree) and question (version lineage), with write rules, upgrade rollout for installed tenants and a category tree picker (follow-on of REQ-324, REQ-326 and REQ-343; BilimBaga study T1c)
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    gh: 3315
+    description: >
+      The exam module's two self-referential source columns were deferred on purpose: REQ-326 authored
+      category.json and question.json without parent_id because Definition.Validator Rule 9 rejected a
+      self-referencing fk_def; REQ-324 (done) lifted that rule; REQ-343 (done) built the admin screens flat and
+      said the tree UI waits for "a follow-on requirement". This is that follow-on. Sources read:
+      priv/modules/exam/entity_definitions/category.json and question.json (their description fields still say
+      "REQ-324 (pending)"), priv/modules/exam/README.md section "Deferred: parent_id on category and question",
+      docs/migration/bilimbaga-retirement-status.md item 1.5 and task T1c, docs/migration/decisions/0025 (ON DELETE),
+      0050 (cycle-prevention precedent for a self-referential tree) and 0052 (no entity-definition upgrade through pack
+      update, fact 8 and D6). Decisions settled here, none left to the implementer:
+
+      1. COLUMNS. category gains field parent_id (type string, queried true, required false) with foreign_keys entry
+      fk_category_parent_id (field parent_id, references_entity category) and index idx_category_parent_id. question
+      gains the same with fk_question_parent_id (references_entity question) and idx_question_parent_id. The naming
+      follows the existing fk_question_category_id and idx_question_category_id. The promoted column is uuid
+      (Letflow.Entities.Definition.DDL fk_column_pg_type/2) and nullable: a null parent_id means a root category, or a
+      question that is the first version.
+
+      2. ON DELETE, SEPARATELY. Category tree: ON DELETE RESTRICT, the only clause the DDL emits for a promoted fk
+      (decision 0025 sub-question 1, which does not distinguish a self-edge). The clause is written by
+      lib/letflow/entities/definition/ddl.ex (REFERENCES ... ON DELETE RESTRICT, CREATE TABLE path) and by
+      TenantProvisioning.build_add_column_sql/4 (private, lib/letflow/tenant_provisioning.ex, the ALTER TABLE ADD
+      COLUMN path). Question lineage: also RESTRICT, for the same reason; CASCADE and
+      SET NULL are not used for either, because a hard delete of a parent row would silently destroy or detach a
+      whole subtree or version history. The clause is inert on the application path: Records.delete_record/3 is a
+      soft delete (an UPDATE setting deleted, decision 0025 Reasoning), so the live rule is a write rule in
+      Letflow.Modules.Exam.Authoring (lib/letflow/modules/exam/authoring.ex), the only writer of the ten managed
+      authoring types: DELETE of a category that still has a non-deleted child category, or of a question that still
+      has a non-deleted child version, is refused with the router's existing 409 conflict response and a reason
+      (category_has_children, question_has_children). Deleting the newest version of a lineage is allowed.
+
+      3. CYCLE RULE FOR THE CATEGORY TREE. The database does not prevent a cycle (a plain REFERENCES constraint
+      cannot; decision 0050 says the same about its own tree). Authoring.create and Authoring.update for category
+      refuse (422, reason parent_cycle) a parent_id equal to the record itself or equal to any descendant of it,
+      found by walking the proposed parent's parent_id chain upward to the root inside the tenant schema; the walk
+      keeps a visited set so it terminates even on data that already contains a cycle. A parent_id that does not name
+      a non-deleted category of the same tenant is refused (422, reason parent_not_found), the same answer for
+      "absent", "deleted" and "another tenant's id" (INV-5). There is no depth limit.
+
+      4. WHAT 'ONLY THE LATEST VERSION IS ACTIVE' MEANS. A lineage is the set of non-deleted questions connected by
+      parent_id (all ancestors and all descendants of any member). The latest version is the member with no
+      non-deleted child. ONE definition: at most one member of a lineage has status active. While a successor version
+      is draft or review, the active member may be its predecessor (the published version stays in use until the
+      successor is activated); to publish the successor the author first archives the active predecessor, then
+      activates the successor, and the end state is exactly one active member, the latest version. Nothing else is
+      restricted: draft, review and archived members are unlimited. Enforced in Authoring.create and Authoring.update
+      for question (422), on every write whose resulting record has status active OR whose parent_id changes: the
+      implementation walks all ancestors and all descendants of the resulting record (visited set, terminates on a
+      cycle) and refuses with reason lineage_active_conflict if, after the write, more than one non-deleted member of
+      the resulting lineage (the record itself included) has status active. A draft child created under an active
+      parent leaves one active member and is allowed; activating that child while the parent is active gives two and
+      is refused; archiving the parent first and then activating the child gives one and is allowed. Two further
+      refusals: a parent_id must name a non-deleted question that has no other non-deleted child (reason
+      lineage_branch, so a lineage is a chain), and the version must be greater than the parent's version and less
+      than every child's version (reason version_not_increasing). An update that moves an already-active question
+      under a parent whose lineage has another active member is refused by the first rule. No rule here changes a
+      status by itself (no automatic archive). The exam question pool filters by status in lib/letflow/modules/exam/
+      session.ex, not in question_set_resolver.ex (a pure function over a supplied pool): fetch_pool_questions/2
+      (rule pools: eq("status", "active") and eq("deleted", false)) and fetch_pinned_question_row/2 (manual pins:
+      status == "active"). Because of the one-active rule, a session gets at most one version of a lineage from a rule
+      pool; a manual pin names one question id and is not widened.
+
+      5. UPGRADE PATH FOR TENANTS WITH THE PACK ALREADY INSTALLED (QA, BilimBaga). Decision 0052 fact 8: pack update does
+      not touch entity definitions, and Definitions.activate_definition/4 promotes only constrained columns
+      (ensure_column_promotions in lib/letflow/entities/definitions.ex), so neither pack.json nor a plain activation
+      adds the column. New module Letflow.Modules.Exam.ParentRollout, shaped like
+      lib/letflow/modules/exam/snapshot/rollout.ex (sequential over TenantProvisioning.list_registrations/0, one
+      transaction per tenant, none across tenants, failure recorded as a tag only, dry_run: true writes nothing,
+      tenant id only from tenant_id_for_schema_name/1, all-zero system actor uuid as in Snapshot.Rollout), run through
+      a new Letflow.Release.ExamParentId.rollout/1 and verify/0 beside lib/letflow/release/exam_snapshot.ex, reached
+      through Letflow.Modules.Catalog (the module-boundary rule). Per tenant, idempotent: for each of category and
+      question whose ACTIVE definition lacks parent_id, create a new definition version equal to the tenant's own
+      active definition plus the field, fk_def and index of item 1 (Definitions.create_definition/3), activate it
+      (Definitions.activate_definition/4), then TenantProvisioning.register_column_promotion/4 and
+      run_column_promotion/1 for parent_id, which issues ALTER TABLE ... ADD COLUMN parent_id uuid REFERENCES the
+      type's own table(record_id) ON DELETE RESTRICT; a promotion row left pending or ddl_failed is reported as a tag
+      (decision 0052 D5). MANAGED TYPES: category and question are in the exam manifest's manages_entity_types
+      (lib/letflow/modules/exam/exam.ex), so Definitions.create_definition/3 with owner :tenant is refused
+      (ManagedTypes.check_create/3 returns {:error, :entity_type_managed}) and Snapshot.Rollout's branch that skips a
+      managed active definition (:managed_cannot_upgrade, rollout.ex) must NOT be copied. ParentRollout passes
+      the exam module's owner, ManagedTypes.owner_for!(Letflow.Modules.Exam) (as Authoring.exam_owner/0 does), as the
+      third argument of Definitions.create_definition/3 (the only one of the two that takes an owner);
+      Definitions.activate_definition/4 is called as Snapshot.Rollout calls it (name, system actor id, rationale,
+      schema). A definition already stamped managed_by "exam" is upgraded under that owner. A definition of these two
+      names that is not stamped (installed before the stamp existed) is NOT upgraded: ManagedTypes.check_create/3
+      sends an unstamped claimed name to claim_unmanaged_name/3, which allows only a name with no definition row at
+      all and otherwise returns {:error, {:managed_name_taken, name}}; the rollout reports that tag and leaves the
+      tenant untouched, and adding a stamping path is out of scope (it would change decision 0050 D7). A definition
+      managed by another module, or whose parent_id already exists with a different shape, is likewise reported as a
+      conflict tag and left untouched. EXISTING ROWS: they get a null parent_id. Every existing category becomes a root and every
+      existing question becomes the first version of its own lineage; no parent is inferred from names, tracks or
+      version numbers. A tenant without the exam module, or already upgraded, is skipped. Running it on QA is a
+      post-merge operator step the PR names; it is not part of the change. A tenant that has not been upgraded keeps
+      working and rejects a write carrying parent_id through the existing record validator for an undeclared field.
+      New installs need no rollout: the new pack.json creates both tables with the self-referencing REFERENCES in
+      CREATE TABLE (valid since REQ-324).
+
+      6. PACK AND DOCUMENT CHANGES. Edit category.json and question.json (field, fk, index, and rewrite the description
+      sentences that say parent_id is deferred and REQ-324 is pending); regenerate priv/modules/exam/pack.json with
+      MIX_ENV=test mix run --no-start priv/modules/exam/generate_pack.exs (never by hand; the drift guard in
+      test/letflow/modules/exam/pack_install_test.exs re-reads the sources); replace the README section "Deferred:
+      parent_id on category and question" in priv/modules/exam/README.md with the shipped design and the rollout
+      command; update item 5 of docs/migration/bilimbaga-retirement-status.md and the gap-14 line of docs/migration/stage-10-bilimbaga-vertical.md.
+      The installation order list in generate_pack.exs and the exam module's activation order are unchanged (a
+      self-edge adds no dependency between types). Pinned tests that must move, found by grep and each listed in the
+      PR: test/letflow/modules/exam/entity_definitions_test.exs (describe "relational shape": question declares
+      exactly one foreign_keys entry, and the category equivalent), test/letflow/modules/exam/exam_definitions_test.exs
+      (foreign-key and index shape checks), test/letflow/modules/exam/pack_install_test.exs (drift guard and the
+      promote! pins near line 367), any priv/solutions fixture that embeds the two definitions (and
+      test/letflow/modules/bilimbaga_solution_e2e_test.exs only if the classified grep shows it pins a definition or
+      field count), plus the web tests of item 7. The implementer runs
+      grep -rn "parent_id\|REQ-324\|foreign_keys" test/ priv/ docs/migration/ and classifies every hit.
+
+      7. WEB: CATEGORY TREE PICKER (the REQ-343 gap). web/src/config/bilimbagaEntities.ts says no tree picker and no
+      parent_id screen exist until this follow-on. Add a category tree picker for the category parent_id field in
+      web/src/components/entities/entityWidgetRegistry.ts, next to entityReferenceSelectRenderer
+      (web/src/components/forms/widgets/searchableSelect.tsx, REQ-342): it loads the tenant's category records through
+      the existing entities query API, shows them as an indented tree (children under their parent, ordered by
+      sort_order) using the record name in the user's locale, offers 'no parent' (null), and when editing a category
+      hides that category and its descendants. The server rules of item 3 stay the authority; the picker only avoids
+      offering invalid choices. The question parent_id uses the existing entityReferenceSelectRenderer unchanged (a
+      lineage is a chain, not a tree). Writes still go through web/src/modules/exam/bilimbagaWrites.ts. Labels in kk,
+      ru and en through react-intl (EntitiesIntlProvider catalog). The two tests that forbid parent_id on these screens,
+      web/src/__tests__/bilimbaga-parent-id-exam-assignment-grep.test.ts and the REQ-343 AC3 case in
+      web/src/modules/exam/__tests__/BilimBagaAdminPage.test.tsx, are rewritten so exam_assignment stays forbidden and
+      parent_id is allowed on exactly category and question.
+
+      8. TENANT ISOLATION. No route is added: the authoring routes keep taking the tenant from the token, so the
+      INV-10 route-table pins (grep -rn "__authz_routes__\|length(snapshot)" test/) do not move and the PR says so.
+      Every new data path is covered by a negative test (criteria below): the parent lookup and the descendant walk
+      read only the caller's tenant schema through the :prefix, and the rollout touches one tenant schema at a time.
+    acceptance_criteria:
+      - "category.json and question.json declare parent_id (string, queried true, required false) with fk_category_parent_id and fk_question_parent_id (references_entity equal to their own name) and idx_category_parent_id and idx_question_parent_id; both documents pass Definition.Validator; the description fields no longer say parent_id is deferred or REQ-324 pending (grep -rn 'REQ-324 (pending)\\|deferred' priv/modules/exam/entity_definitions/ prints no hit about parent_id); pack.json is regenerated with generate_pack.exs and the drift guard in pack_install_test.exs passes"
+      - "A tenant installed with the new pack gets entity_category and entity_question tables whose parent_id column is uuid, nullable, with a foreign key referencing the table's own record_id and ON DELETE RESTRICT (pg_constraint confdeltype is 'r' and confrelid is the table itself), proven by a test against real Postgres through Installs.install/3 that also checks the install transaction still completes with the unchanged activation order"
+      - "Authoring.update of a category with parent_id equal to its own record id, or equal to one of its descendants (a direct child, and a grandchild), is refused with 422 and reason parent_cycle through the authoring PUT route; a valid re-parent to a sibling is accepted in its own test; a pre-existing cycle written straight into the table by the test does not make the walk loop (the call returns, bounded by the visited set)"
+      - "Authoring.create and update for category and question refuse (422, reason parent_not_found) a parent_id that is absent, soft-deleted, or the id of a record in another tenant, with a response body identical in all three cases (INV-5)"
+      - "Authoring.delete of a category with a non-deleted child, and of a question with a non-deleted child version, is refused with 409 and reasons category_has_children and question_has_children; deleting a leaf category and deleting the newest question version succeed; a test asserts the database-level ON DELETE RESTRICT separately by a raw SQL DELETE of a referenced category row and of a referenced question row, each failing with a foreign key violation (the two policies are asserted in separate tests, one per entity type)"
+      - "Question lineage rules hold through the authoring routes (one definition: at most one active member per lineage): a second non-deleted child of one question is refused (lineage_branch); a child whose version is not greater than the parent's, or not less than an existing child's, is refused (version_not_increasing); creating a draft child under an active parent succeeds and leaves the parent active; activating that child while the parent is active is refused (lineage_active_conflict); archive the parent then activate the child succeeds, and a test then lists the lineage and finds exactly one active question, the latest version; an update that sets parent_id of an already-active question to a question whose lineage has another active member is refused (lineage_active_conflict) and the row is unchanged; draft, review and archived writes are never refused by the active rule"
+      - "The exam question pool never returns two versions of one lineage to one session: with a three-version lineage (archived, archived, active) a session started from a rule pool on the category (Session.fetch_pool_questions/2) draws only the active version, and a manual pin of an archived version (Session.fetch_pinned_question_row/2) is not drawn while a pin of the active version is; both functions are named in the PR with the lines that filter by status (lib/letflow/modules/exam/session.ex)"
+      - "Letflow.Modules.Exam.ParentRollout upgrades a tenant that has the old active category and question definitions and rows: after one run each active definition declares parent_id and its fk_def, entity_column_promotions for parent_id is complete for both types, the column exists with a foreign key to its own table and ON DELETE RESTRICT, every pre-existing row has a null parent_id and stays readable and unchanged (record count and field values equal before and after), and a following authoring write sets a real parent_id; a second run changes nothing (no new definition version, no new promotion row); dry_run: true writes nothing; a tenant without the exam module is skipped; a tenant whose category and question definitions carry managed_by 'exam' is upgraded under the exam module's owner (ManagedTypes.owner_for!/1), not reported as :entity_type_managed or as a conflict, and a tenant whose two definitions are not yet stamped is reported as managed_name_taken and left untouched (definitions, rows and promotions unchanged); a definition managed by another module is reported as a conflict tag and left untouched"
+      - "The rollout is tenant-isolated and failure-tolerant: with two tenants in one test, a parent_id written in one tenant is not visible in the other and the rollout of the first leaves the second's definitions untouched until its own turn; a forced promotion failure in one tenant is reported as a tag only (no message, no value) while the sweep continues for the next tenant; Letflow.Release.ExamParentId.rollout/1 and verify/0 return the report and a ready flag, reached through Letflow.Modules.Catalog, and a boundary test or mix letflow.check.static shows no direct call into the exam module"
+      - "A tenant that has not been upgraded rejects a write carrying parent_id through the authoring route with the existing undeclared-field rejection, and keeps accepting writes without it; the test quotes the actual response"
+      - "A vitest test for the category tree picker covers: a three-level tree renders indented under its parents in sort_order order; the label is the name in the active locale (kk, ru and en each asserted); choosing a node reports its record id to the form; choosing 'no parent' reports null; editing a category hides that category and its descendants; the question parent_id field still renders through entityReferenceSelectRenderer; no hard-coded English string in the added JSX (web/src/modules/exam/__tests__/exam-i18n-grep.test.ts and the entities i18n grep test pass)"
+      - "web/src/config/bilimbagaEntities.ts and its header note, web/src/__tests__/bilimbaga-parent-id-exam-assignment-grep.test.ts and the REQ-343 AC3 case in BilimBagaAdminPage.test.tsx are updated: exam_assignment is still never rendered or mocked, parent_id appears only for category and question; cd web && npm run check passes with its final result quoted"
+      - "The PR lists every pinned test that moved (at least the files named in description item 6) with the grep command and its classified output, states 'no route added, route-table pins unchanged' with the grep of __authz_routes__ and length(snapshot) across test/, and names the post-merge operator step 'run Letflow.Release.ExamParentId.rollout/1 on QA' as not yet run; mix letflow.check.static passes and the new and changed test files pass with real output quoted"
+    depends_on: [REQ-324, REQ-326, REQ-342, REQ-343, REQ-511]
   - id: REQ-585
     title: "Tenant branding palette beyond the primary colour: secondary brand colour in the server allowlist, both tenant-config responses and web theming (BilimBaga retirement criterion 9, T9a)"
     owner: ELIXIR-DEV
@@ -41614,3 +41863,127 @@ requirements:
       - "5. i18n, Test U-i18n: every new text key exists in kk, ru and en in examMessages.ts and the module's message-key completeness check (the existing exam message tests) passes; the screen renders in each locale without a missing-key fallback."
       - "6. npm run check (type-check, lint, unit tests, guards) passes with real output quoted; no change under web/src outside web/src/modules/exam/ except the minimal navigation registration the shell requires, which the PR names; the existing candidate and admin screen tests still pass."
     depends_on: [REQ-588]
+
+  - id: REQ-590
+    title: "Tenant logo upload, part 1 of 2: per-tenant storage, default-off flag, and authorised PUT/DELETE with type, size and scanner limits (BilimBaga retirement criterion 9, T9a)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S8
+    gh: 3338
+    # Source: docs/migration/bilimbaga-retirement-status.md section 9 ("Branding, missing" item 4: an upload path replacing the logo_url string); REQ-585 description, "OUT OF SCOPE, SEPARATE LATER SLICES" (logo upload gets its own requirement; logo_url stays an absolute http(s) string until then); lib/letflow/identity/tenant.ex (validate_logo_url/2); lib/letflow/routers/tenant_settings.ex (authz_patch "/", :TenantSettingsManage) and its mount forward("/tenant/settings", ...) in lib/letflow/plugs/api_pipeline.ex; lib/letflow/repository/attachments.ex (upload/2, @allowed_content_types, @max_upload_bytes, run_attachment_scan/2) and lib/letflow/repository/attachment_scanner.ex (scan/2 callback); priv/repo/migrations/20261014000002_create_script_policy.exs (the per-tenant singleton pattern: smallint id plus a CHECK id = 1); lib/letflow/tenant_provisioning.ex (@tenant_scoped_migration_manifest); docs/migration/decisions/0006-identity-tables-schema-per-tenant.md D2 (tenant_id is DROPPED from every table whose isolation boundary is the Postgres schema); docs/agents/instructions/security-invariants.md (INV-1, INV-6, INV-8). Written by the business analyst (T-0695) 2026-10-26. Not yet validated.
+    description: >
+      Part 1 of 2. Part 2 is the next entry, REQ-591 (public read and the two tenant-config responses). Today a
+      tenant's logo is the string settings["logo_url"], an absolute http(s) URL checked by validate_logo_url/2
+      in lib/letflow/identity/tenant.ex. This part lets a tenant administrator store ONE image per tenant inside
+      Letflow, behind a new flag that is off by default. Nothing in this part changes any tenant-config response
+      and nothing reads the image back publicly.
+      REUSE OF THE UPLOAD BOUNDARY. Letflow.Repository.Attachments.upload/2 cannot be called as it is: it
+      requires an instance_id and runs the instance-visibility check. What is reused is its boundary, not the
+      table: (a) the scanner seam Letflow.Repository.AttachmentScanner.scan/2, resolved the way
+      run_attachment_scan/2 resolves it (Application.get_env(:letflow, :attachment_scanner, default)) and
+      wrapped so a raising adapter cannot crash the caller (INV-8); (b) the rule that byte_size is measured from
+      the received bytes and never from a caller-supplied number; (c) reject-before-persist: an infected or
+      scan-failed upload stores nothing. The logo does not go into instance_attachments.
+      NEW STORAGE. A tenant-schema table tenant_logos (one migration, registered in
+      @tenant_scoped_migration_manifest of lib/letflow/tenant_provisioning.ex, with the mandatory `if prefix()`
+      guard like the script_policy migration). It has NO tenant_id column: decision 0006 D2 drops tenant_id from
+      every table whose isolation boundary is the schema, and the tenant is the :prefix. One row per tenant is
+      enforced the way script_policy does it: id smallint primary key plus a CHECK constraint named
+      tenant_logos_singleton with check "id = 1", created with the schema prefix. Other columns: content_type,
+      byte_size, content_hash (sha256 hex), data (the image bytes), updated_at, updated_by. Every read and write
+      goes through the tenant :prefix derived from the authenticated tenant (INV-1, INV-6).
+      FLAG. Application env :tenant_logo_upload_enabled, default false in every environment (config/config.exs
+      sets false, like :record_triggers_enabled), read by one function Letflow.Identity.TenantLogo.enabled?/0
+      (new module lib/letflow/identity/tenant_logo.ex, which also holds the store, replace and delete functions).
+      With the flag off the routes below answer as if they did not exist.
+      LIMITS (one implementation). Allowed content types: image/png, image/jpeg, image/webp. image/svg+xml and
+      image/gif are refused (SVG is markup and can carry script; the rule is a closed allow list, not a deny
+      list). The declared Content-Type is checked against the list AND against the leading magic bytes of the
+      data (PNG 89 50 4E 47 0D 0A 1A 0A; JPEG FF D8 FF; WebP "RIFF" at offset 0 and "WEBP" at offset 8); a
+      mismatch is refused, so the "caller-declared, unverified" weakness of the attachment path does not carry
+      over. Maximum size 524288 bytes (512 KiB), measured on the received bytes. Check order: content type,
+      size, magic bytes, then the scanner.
+      ROUTES (the router's route table is the source for the final paths). A new module
+      Letflow.Routers.TenantLogo mounted at /api/v1/tenant/logo next to /api/v1/tenant/settings in
+      lib/letflow/plugs/api_pipeline.ex: PUT (body: the raw image bytes, content type from the Content-Type
+      header) and DELETE, both gated by the existing permission :TenantSettingsManage, so no permission is
+      added and the permission matrix golden does not move.
+      AUDIT. PUT and DELETE each write one audit entry (actions "tenant_logo.upload" and "tenant_logo.delete")
+      holding the content type, byte size and hash, never the bytes. Audit.append_multi raises on a database
+      failure, so the row change and its audit entry are in one transaction.
+      EXISTING logo_url VALUES. No migration touches tenants.settings and PATCH /api/v1/tenant/settings still
+      validates logo_url with the unchanged validate_logo_url/2. How the two values interact in responses is
+      REQ-591.
+      OUT OF SCOPE. The public read, the tenant-config responses (REQ-591); a logo field or preview on
+      web/src/pages/admin/AppearanceSettingsPage.tsx, the Flutter client, resizing or re-encoding, several logos
+      per tenant, a CDN, removing the logo_url string.
+    acceptance_criteria:
+      - "1. Flag: Letflow.Identity.TenantLogo.enabled?/0 returns Application.get_env(:letflow, :tenant_logo_upload_enabled, false) == true and config/config.exs sets it to false; with it off, PUT and DELETE /api/v1/tenant/logo answer 404 with the router's ordinary not-found body and write nothing (a test pins each)."
+      - "2. Storage shape: the migration creates tenant_logos in every tenant schema with no tenant_id column, id smallint primary key and the CHECK constraint tenant_logos_singleton (id = 1); a test inserts a row with id 2 directly and asserts the constraint violation; the migration is listed in @tenant_scoped_migration_manifest."
+      - "3. Upload accepts a valid image: with the flag on, PUT /api/v1/tenant/logo by a user holding :TenantSettingsManage with a PNG of at most 524288 bytes and Content-Type image/png answers 200 and stores one tenant_logos row in that tenant's schema with content_type, byte_size equal to the received length, the sha256 content_hash and updated_by; a second PUT replaces the same row (still one row)."
+      - "4. Type and signature limits, each its own step, no row written: a PUT of image/svg+xml, image/gif, application/pdf and text/html is refused with a 4xx naming the allowed types; a PUT declared image/png whose bytes begin with the JPEG signature, and one whose bytes begin with <svg, are refused; one passing and one failing magic-byte case each for PNG, JPEG and WebP."
+      - "5. Size limits, each its own step: a PUT of 524289 bytes is refused as too large and writes nothing; a PUT of exactly 524288 valid bytes is accepted."
+      - "6. Scanner seam (check order: content type, size, magic bytes, then scan): a PUT of the 8 PNG signature bytes 89 50 4E 47 0D 0A 1A 0A followed by the EICAR test string, declared image/png and of at most 524288 bytes, passes the type, size and magic-byte checks, is refused with the scanner's refusal reason (distinct from the type and signature refusal reasons of criterion 4, asserted by that reason) and writes no row; a scanner adapter that raises, and one that returns {:error, _}, each receive a valid PNG upload (so it reaches the scanner) and yield a 4xx refusal (not a crash, not a 500) and no stored row."
+      - "7. Authorisation: PUT and DELETE /api/v1/tenant/logo are refused for a user without :TenantSettingsManage and for an unauthenticated caller; priv/permission_matrix/effective.golden is unchanged; a test confirms the route is listed with :TenantSettingsManage in the authorization route table."
+      - "8. Tenant isolation (INV-1, INV-6): with tenants A and B each holding a logo, PUT and DELETE by A's administrator change only A's row (B's bytes and hash unchanged, asserted by reading B's schema with B's :prefix); Letflow.Identity.TenantLogo contains no Repo call without a :prefix; the tenant table-list pin @expected_tenant_tables in test/support/tenant_fixture.ex and its count assertion in test/letflow/support/tenant_fixture_test.exs move +1 from the value on origin/main at implement time."
+      - "9. DELETE removes the row (200 when a row existed, 404 with the ordinary not-found body when none existed); after DELETE a PUT works again."
+      - "10. Audit and existing values: PUT writes one audit entry \"tenant_logo.upload\" and DELETE one \"tenant_logo.delete\", each with content type, byte size and hash and no image bytes (a test scans after_state for the bytes), in the same transaction as the row change; a DROP TABLE audit_entries test shows the failure is rescued and the logo row is left unchanged; PATCH /api/v1/tenant/settings with a non-http logo_url is still refused (git diff shows validate_logo_url/2 unchanged and no migration touches tenants.settings)."
+      - "11. Gates: SECURITY-REVIEWER verdict recorded (mandatory: INV-1, INV-6, INV-8; file-upload surface) and REVIEWER verdict recorded; route pins move +1 from the values on origin/main at implement time (grep -rn \"__authz_routes__\\|length(snapshot)\" test/ and test/fixtures/route_scope/tenant_wide_default_routes.txt); mix letflow.check.static and the changed and new test files pass with real output quoted; the PR states that the flag is off in QA after auto-CD."
+    depends_on: [REQ-585, REQ-280, REQ-211, REQ-212, REQ-389]
+
+  - id: REQ-591
+    title: "Tenant logo upload, part 2 of 2: public no-token logo read and the uploaded logo replacing branding.logo_url in both tenant-config responses, behind the REQ-590 flag (BilimBaga retirement criterion 9, T9a)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S8
+    gh: 3337
+    # Source: REQ-590 (storage, flag, TenantLogo module); lib/letflow/routers/tenant_config.ex (handle_tenant_config/1 reads ?realm= and ?host=; resolve_realm/2 miss guard idp_realm_id non-empty and status != :inactive; default_realm_tenant/0; branding_from_settings/1; moduledoc INV-2 section and route table); lib/letflow/routers/mobile_tenant_config.ex (resolve_tenant_config/1 same guard; branding_from_settings/1; reads ?slug= only); Letflow.Identity.safe_get_tenant_by_slug/2 in lib/letflow/identity.ex; docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5, INV-8). Written by the business analyst (T-0695) 2026-10-26. Not yet validated.
+    description: >
+      Part 2 of 2; needs REQ-590 (the stored image and the flag). The login screen renders the logo with a plain
+      image tag before any token exists, so the read is public.
+      PUBLIC READ. GET /api/tenant-config/logo?slug=<slug>, handled inside Letflow.Routers.TenantConfig (same
+      pre-auth, no-x-trace-id mount). It resolves ONLY through Letflow.Identity.safe_get_tenant_by_slug/2 on the
+      ?slug= value: no ?realm=, no ?host=, no default-tenant fallback. It uses the same miss guard as both
+      config resolvers: the tenant must have a non-empty idp_realm_id and status other than :inactive. The
+      tenant's :prefix is derived from the tenant found. 200 answers the stored bytes with the stored content
+      type, X-Content-Type-Options: nosniff, Content-Security-Policy: default-src 'none'; sandbox and
+      Content-Disposition: inline; the bytes are never wrapped in markup. Seven cases return one identical 404
+      (same status, body and header names; INV-5): no ?slug=, an unknown slug, a lookup failure, a tenant with
+      a nil or empty idp_realm_id, an inactive tenant, a tenant with no uploaded logo, and the flag off.
+      RESPONSES. branding.logo_url, in the same position, replaces the stored string only when the flag is on
+      and the tenant resolved by that endpoint's own rules has an uploaded logo; then it is
+      /api/tenant-config/logo?slug=<slug>. No key is added to either body. Web GET /api/tenant-config, per
+      branch: ?realm= hit (guard passed) with an upload: path with the slug the caller sent; ?realm= hit
+      without an upload: the stored string, as today; ?realm= miss, ?host=, no parameter: these resolve the
+      default-realm tenant (slug bpm-default, which oidc_authority already discloses); the path with slug
+      bpm-default is used only when that tenant passes the same guard as the logo route (non-empty idp_realm_id,
+      status other than :inactive) and has an upload, otherwise today's value; lookup failure: today's platform default
+      value, byte-identical. Mobile GET /api/mobile/tenant-config: a ?slug= hit with an upload gets the path
+      with that slug; unknown slug, missing slug, lookup failure, inactive tenant and nil realm stay
+      byte-identical to today's platform default, and no upload is read for them (INV-5).
+      INV-2 REASONING FOR THE SECURITY REVIEW. The web body's documented rule is that it never carries a slug.
+      This change lets a slug appear only where the caller already supplied it (?realm= hit) or where it is the
+      constant bpm-default already implied by oidc_authority; nothing new is learnable. The moduledoc
+      disclosure section and route table of Letflow.Routers.TenantConfig are updated to say so and to document
+      the new route and its 404 posture (the table row "always 200" stays true for GET /api/tenant-config).
+      The logo row's bytes, hash, size, updated_by never appear in either body (INV-2); the builders read only
+      whether a logo exists plus the tenant slug already in hand.
+      EXISTING logo_url VALUES. No data migration. A tenant with a logo_url string and no upload returns that
+      string exactly as today. When both exist, the upload wins in the responses and settings["logo_url"] is
+      not overwritten. DELETE of the upload (REQ-590), or turning the flag off, makes the stored string the
+      answer again; the uploaded row is kept when the flag is turned off. Letflow.Routers.TenantConfig
+      .branding_from_settings/1 keeps its public signature (Letflow.Modules.Exam.Certificate calls it) and keeps
+      returning the stored string.
+      OUT OF SCOPE. The web admin UI, the Flutter client; if web/src requires an absolute URL for the logo
+      image, that adjustment is part of this change.
+    acceptance_criteria:
+      - "1. Flag off: with :tenant_logo_upload_enabled false, GET /api/tenant-config/logo answers the same 404 as the seven miss cases, and GET /api/tenant-config and GET /api/mobile/tenant-config for a tenant that has a tenant_logos row are byte-identical to the responses for the same tenant with no row."
+      - "2. Serving: GET /api/tenant-config/logo?slug=<tenant with logo> answers 200 with exactly the stored bytes, the stored content type, X-Content-Type-Options: nosniff, Content-Security-Policy: default-src 'none'; sandbox and Content-Disposition: inline; a PNG whose trailing bytes contain <script>alert(1)</script> is returned byte-identical with an image/png content type, never an html or svg content type."
+      - "3. INV-5 on the read: the seven cases (no slug, unknown slug, forced lookup failure, tenant with nil idp_realm_id, tenant with empty idp_realm_id, inactive tenant, tenant with no uploaded logo) plus the flag-off case return the same status 404, the same body and the same header names, compared in one test, and none answers 500; a request carrying ?realm= or ?host= without ?slug= gets that same 404."
+      - "4. Tenant isolation (INV-1): with tenants A and B each holding a logo, ?slug=<A> returns A's bytes and ?slug=<B> returns B's; the read uses the :prefix of the tenant found by slug and no Repo call without a prefix exists in the new code."
+      - "5. Web response branches: for each of ?realm= hit with an upload, ?realm= hit without an upload, ?realm= miss, ?host=, no parameter and a forced lookup failure, a test asserts branding.logo_url as stated in the description (including slug bpm-default on the default branches when that tenant has an upload); an inactive default-realm tenant, and one with a nil or empty idp_realm_id, that has an upload keeps today's value on the default branches (never a path that the logo route would answer with 404); the keys of the web body and of branding are unchanged."
+      - "6. Mobile response: a ?slug= hit with an upload returns branding.logo_url equal to the path with that slug and the six top-level keys are unchanged; unknown slug, missing slug, lookup failure, inactive tenant and nil-realm tenant return a body byte-identical to today's platform default."
+      - "7. INV-2: neither body contains the bytes, content_hash, byte_size, updated_by of the logo row, asserted by key and by value; the moduledocs of lib/letflow/routers/tenant_config.ex (disclosure section and route table) and lib/letflow/routers/mobile_tenant_config.ex state that logo_url may now be a path, which slug can appear on each branch, and the 404 posture of the new route."
+      - "8. Existing logo_url values: a tenant with settings logo_url \"https://example.com/l.png\" and no upload returns that string from both endpoints exactly as before; with an upload both return the path while settings[\"logo_url\"] in the database is unchanged; after DELETE /api/v1/tenant/logo or after turning the flag off both return the stored string again; Letflow.Routers.TenantConfig.branding_from_settings/1 still returns the stored string (test of Letflow.Modules.Exam.Certificate branding unchanged)."
+      - "9. Gates: SECURITY-REVIEWER verdict recorded (mandatory: INV-1, INV-2, INV-5, INV-8; public unauthenticated read); REVIEWER verdict recorded; route and named-route pins move as the route table requires (grep -rn \"__authz_routes__\\|length(snapshot)\\|length(named)\" test/), stated as +N from the values on origin/main at implement time; mix letflow.check.static and the changed and new test files pass with real output quoted; the PR states the flag is off in QA after auto-CD and that no existing row is changed."
+    depends_on: [REQ-590, REQ-585, REQ-280]
