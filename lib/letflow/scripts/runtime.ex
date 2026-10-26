@@ -252,7 +252,12 @@ defmodule Letflow.Scripts.Runtime do
     end
   end
 
-  defp manifest_taint(manifest) do
+  @doc """
+  The sorted `"entity_type.field"` labels a script run with this manifest is tainted by: its
+  `restricted_inputs` `from` pairs plus the read taint (decision 0062 R5). Pure.
+  """
+  @spec manifest_taint(map()) :: [String.t()]
+  def manifest_taint(manifest) do
     from_labels =
       manifest
       |> Validation.restricted_input_entries()
