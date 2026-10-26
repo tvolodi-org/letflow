@@ -77,7 +77,9 @@ defmodule Letflow.Routers.TenantConfig do
   tenant id, slug, display name, status, user count, locale/language
   configuration, or any other tenant attribute — the response map is
   hand-built with exactly these three values plus `tenant_type`, and the `branding` block
-  is hand-built with exactly its three sub-keys, both **never** derived from
+  is hand-built with exactly its three sub-keys (`brand_colors` itself holds
+  the closed sub-keys `primary` and, when stored, `secondary` (REQ-585), each
+  read by name and never copied wholesale), both **never** derived from
   `%Letflow.Identity.Tenant{}` (INV-2) or from that struct's `:settings` field
   by anything other than an explicit, named-key read. A non-default `branding`
   block is itself a signal that a slug is real — the same bounded inference
@@ -341,7 +343,7 @@ defmodule Letflow.Routers.TenantConfig do
     %{
       "app_name" => Map.get(settings, "app_name", @default_app_name),
       "logo_url" => Map.get(settings, "logo_url", @default_logo_url),
-      "brand_colors" => Map.get(settings, "brand_colors", @default_brand_colors)
+      "brand_colors" => brand_colors_from_settings(settings)
     }
   end
 
@@ -351,6 +353,26 @@ defmodule Letflow.Routers.TenantConfig do
       "logo_url" => @default_logo_url,
       "brand_colors" => @default_brand_colors
     }
+  end
+
+  # REQ-585: `brand_colors` is rebuilt from two named reads (`primary`,
+  # `secondary`), never copied wholesale (INV-2). Nothing usable stored
+  # (absent, non-map, empty, no binary value) -> the platform default.
+  defp brand_colors_from_settings(settings) do
+    case Map.get(settings, "brand_colors") do
+      %{} = stored ->
+        built =
+          for key <- ["primary", "secondary"],
+              value = Map.get(stored, key),
+              is_binary(value),
+              into: %{},
+              do: {key, value}
+
+        if built == %{}, do: @default_brand_colors, else: built
+
+      _absent_or_malformed ->
+        @default_brand_colors
+    end
   end
 
   # Read at the point of use via System.get_env/1, never threaded through a
