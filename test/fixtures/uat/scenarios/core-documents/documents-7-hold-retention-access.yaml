@@ -4,7 +4,8 @@
 # outside the caller's part of the company, a document of another company and an absent id get the same 404; an unknown type key and a type key of
 # another company get the same 404; a refusal writes no audit event), 9 (a retention permission limited to part of the company is refused with
 # 403, the retention settings stay unchanged and no event is written) and 10 (cross-company negative test of all three routes: same 404 as for an
-# absent id, byte-identical body, the first company's data unchanged; no route takes a company from the request).
+# absent id, byte-identical body, the first company's data unchanged; step 23 adds a company field to the request and it is ignored).
+# Criterion 7 is also covered in full: steps 19-20 (permission before body: 403, not 422) and steps 21-22 (body before lookup: 422, not 404).
 # Sources: docs/requirements.yaml REQ-536 criteria 6-10; docs/migration/decisions/0063-versioned-documents-retention-and-hold.md S7;
 # lib/letflow/routers/documents.ex moduledoc (permission first, then validation, then the scoped lookup; the policy route needs a whole-company
 # grant; every not-found case is one answer); docs/roles.md matrix rows DocumentHold and DocumentsRetentionManage (TENANT_ADMIN yes, task
@@ -44,9 +45,9 @@ preconditions:
   - description: A service-level harness can call the document service for SwiftRoute, and SwiftRoute has two active organisational units, "unit 1" and "unit 2"
     check: custom
     detail: Without the harness every step is BLOCKED. The two units are used by steps 14 to 16 only; steps 1 to 13 need one of them.
-  - description: SwiftRoute and Bilimbaga are set up, and the document type "UAT access contract" exists only in SwiftRoute
-    check: system_seeded
-    detail: Bilimbaga has no document type with that key. If the key already exists in Bilimbaga, steps 10 and 13 are BLOCKED.
+  - description: SwiftRoute and Bilimbaga are set up, and Bilimbaga has no document type with the key "UAT access contract" (step 1 creates it in SwiftRoute only)
+    check: custom
+    detail: If the key already exists in Bilimbaga, steps 10 and 13 are BLOCKED.
   - description: The Bilimbaga administrator can sign in
     check: custom
     detail: If there is no approved test token for actor-bilimbaga-admin, steps 8 to 13 and EO-003 are BLOCKED and the other steps run.
@@ -183,6 +184,38 @@ steps:
       The administrator of SwiftRoute releases the hold on the document of step 1 with the reason code "litigation_closed" and the note
       "UAT own unit release".
     via: api
+  - step: 19
+    actor: worker_a
+    action: >
+      The task worker asks for a legal hold on the document of step 1 with no reason code and no note.
+    expect_refusal: true
+    via: api
+  - step: 20
+    actor: worker_a
+    action: >
+      The task worker sets the policy of the type of step 1 to 365 days, start "issued", action "keep", with the reason code "policy_review"
+      (a period together with "keep" breaks the rule that ties period and action).
+    expect_refusal: true
+    via: api
+  - step: 21
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute asks for a legal hold on the made-up document id with no reason code and the note "UAT invalid body".
+    expect_refusal: true
+    via: api
+  - step: 22
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute sets the policy of the made-up type key to 365 days, start "issued", action "archive", with no reason code.
+    expect_refusal: true
+    via: api
+  - step: 23
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for a legal hold on the document of step 1 with the reason code "litigation" and the note "UAT named
+      company hold", and adds to the request an extra field naming SwiftRoute as the company (field "tenant_id", value the SwiftRoute company id).
+    expect_refusal: true
+    via: api
 
 expected_outcomes:
   - id: EO-001
@@ -224,6 +257,26 @@ expected_outcomes:
     on_fail:
       severity: BLOCKER
       business_impact: A manager of one department could freeze documents of another department or change the company's retention rule for everybody.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: The order of checks holds - permission first, then the body, then the lookup of the document or type.
+    verification:
+      method: http_status
+      detail: Steps 19 and 20 (caller without the permission, invalid body) answer 403, not 422. Steps 21 and 22 (permitted caller, invalid body, absent id or key) answer 422 with the text "invalid reason_code", not 404. The hold columns, retention settings and audit entries are as before the steps.
+      evidence: The status and body of steps 19 to 22 and the harness read of the document, the type and the audit trail.
+    on_fail:
+      severity: MAJOR
+      business_impact: A caller without the permission could learn from a validation message that a document exists, or a missing identifier could hide an invalid request.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: A company named in the request body is ignored; the company comes only from the caller's sign-in.
+    verification:
+      method: http_status
+      detail: Step 23 answers 404 with the same body byte for byte as step 8 and the same headers apart from per-request ones. SwiftRoute's hold columns for the document of step 1 and its audit trail are unchanged by step 23. If step 8 is BLOCKED this outcome is BLOCKED.
+      evidence: The status and body of steps 8 and 23 and the harness read of SwiftRoute's document and audit trail.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A caller could act on another company's documents by naming that company in the request.
       suggested_action: route_to_security_review
 
 cleanup:
