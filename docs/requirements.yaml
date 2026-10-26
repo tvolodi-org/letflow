@@ -41237,7 +41237,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- all depends_on requirements are done, so no blocked-by; check_deferral_staleness S1 may flag this marker until the engine files the issue
+    gh: 3321
     # Source: docs/migration/decisions/0031-candidate-results-list-scope.md (Revisitability trigger 1, section 3 one surface for FR-BB41 and FR-BB46, section 4 queried:false constraint, section 5 admin view out of scope); lib/letflow/modules/exam/router.ex moduledoc ("Deliberately NOT routed here", "Permission vocabulary", "Ownership and tenant isolation"); lib/letflow/modules/exam/exam.ex (defmanifest permissions, role_grants, route_policies); lib/letflow/modules/exam/session.ex (list_available_exams/2, get_session_for_user/3, check_owner/2); lib/letflow/modules/exam/certificate.ex (issue_or_get_for_user/3); priv/modules/exam/entity_definitions/session.json and certificate.json; web/src/modules/exam/examRoutes.tsx, exam.api.ts, ExamListPage.tsx, ExamSessionResultPage.tsx; web/src/api/client.ts (getBlob); test/fixtures/route_scope/tenant_wide_default_routes.txt; docs/roles.md (CANDIDATE). Task source: T-0627 study task T4b, T-0666. Written by the business analyst 2026-10-26. Not yet validated.
     description: >
       Source: BilimBaga criterion 4 (certificates). A signed-in candidate has no way to list their own past
