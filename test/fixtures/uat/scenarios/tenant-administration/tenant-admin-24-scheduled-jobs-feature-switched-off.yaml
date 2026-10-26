@@ -1,0 +1,87 @@
+# T-0672 (BA): TENANT ADMIN group, scenario 24: while the platform operator has not switched the recurring-jobs feature on, the job routes answer as if they did not exist and no job runs.
+# Covers REQ-561 criterion 10 (flag false: the sweep starts no instance even for a due enabled job, and every management route answers the same not-found as an unregistered route).
+# Sources: docs/requirements.yaml REQ-561 criterion 10; lib/letflow/routers/scheduled_jobs.ex (moduledoc "Feature flag": with the flag false every caller gets the pipeline's own not-found,
+# as for an unregistered path, before any permission is looked at); config/config.exs (the flag, default false).
+# This scenario needs an environment in which the feature is OFF, the opposite of scenarios 20 to 23. The feature is a platform setting, not something a company administrator can change,
+# and the roster has no actor that may change it. The runner therefore reports this scenario BLOCKED in a run where the feature is on. It is not a permanent exclusion (no sidecar):
+# run it in its own pass with the feature off, after preparing the job of precondition 2.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the feature-off refusals.
+---
+id: tenant-administration-24-scheduled-jobs-feature-switched-off
+scope: tenant-administration
+title: With the recurring-jobs feature switched off, every job route answers not-found like a route that does not exist, and a due job starts nothing
+version: "1.0"
+tags: [tenant-admin, scheduled-jobs, refusal, feature-flag]
+
+description: >
+  The feature is switched off for the platform. SwiftRoute has an enabled job "flag-off-probe" that was created earlier while the feature was on, whose next run has already passed.
+  The administrator tries to list, read, create, edit, switch on and switch off jobs and gets the plain not-found answer to each, equal to the answer for a path that was never part of
+  the product. The task worker gets the same answer. After the slot has passed and some minutes have gone by, no instance of the job's process has been started.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+
+preconditions:
+  - description: The recurring-jobs feature is switched OFF in the test environment.
+    check: system_seeded
+    detail: If the feature is on (a request in step 2 does not answer 404), report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute has a published, active process definition "sched_probe_process" that the administrator may start with no input, with no instance, and an enabled job "flag-off-probe" (interval 5 minutes) created while the feature was on, whose next run lies in the past or within the next five minutes. Its identifier is JF.
+    check: system_seeded
+    detail: Setup-prepared with the feature temporarily on, then the feature switched off. If this job cannot be prepared, steps 1 to 4 and EO-001 still run with an identifier that exists nowhere (00000000-0000-4000-8000-000000000000) as JF, and step 5 and EO-002 are BLOCKED.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the instances of "sched_probe_process" and notes how many there are as N0 and the time as T0.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to list the scheduled jobs, tries to read JF, tries to create a job with key "flag-off-new" (valid in every other respect), tries to edit the title of JF, tries to switch JF on and tries to switch JF off. Each answer (status, body and content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: worker_a
+    action: >
+      The task worker tries the same six requests as the administrator in step 2 (the key for the create request is "flag-off-worker"). Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      For comparison, the administrator tries to read the path "scheduled-jobs-never-existed" in the same place as the job routes, a path that is not part of the product. The answer is noted as NR.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The runner waits until the job's slot has passed by more than 6 minutes after T0 (at least one full interval of 5 minutes with margin). The administrator asks for the instances of "sched_probe_process" and notes the count as N1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Every job route answers not-found, the same as a route that does not exist, for the administrator and for the worker, and nothing is created.
+    verification:
+      method: http_status
+      detail: All twelve requests in steps 2 and 3 answer 404, and each equals NR (step 4) in status, body and content type. This holds although the administrator holds the right and the create request is valid.
+      evidence: The twelve answers of steps 2 and 3 and NR.
+    on_fail:
+      severity: MAJOR
+      business_impact: A feature the platform operator has not opted into is reachable, or its existence is revealed.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A due enabled job starts nothing while the feature is off.
+    verification:
+      method: api_response
+      detail: N1 equals N0. No instance of "sched_probe_process" was started in the time between T0 and step 5.
+      evidence: The counts N0 and N1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Unattended work starts with a user's authority in a platform that has not switched the feature on.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: The job "flag-off-probe" is left for the next run, or switched off by the operator when the feature is switched on again. No instance exists to cancel.
