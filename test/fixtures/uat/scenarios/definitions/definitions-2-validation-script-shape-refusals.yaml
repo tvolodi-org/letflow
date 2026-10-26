@@ -1,0 +1,126 @@
+# T-0669 (BA): DEFINITIONS group, scenario 2: a human task with a badly formed check-script name or version is refused at upload.
+# Covers REQ-569 slice F-1 criterion 3 (the refusals: bad key, version 0, version as text, version 1.5, version absent, only one of the two; message names the node and neither value).
+# Sources: docs/requirements.yaml REQ-569 criterion 3; lib/letflow/definitions/graph.ex (check_human_task_validation_reference/1: violation code invalid_script_reference; "Pure: it does not read the hook flag");
+# lib/letflow/routers/definitions.ex (render_write: 422 with the member "errors", each {"code","message"}; duplicate name and version is 409, so every upload below has its own name);
+# lib/letflow/scripts/validation.ex (key ^[a-z][a-z0-9_]{0,63}$).
+# The shape check does not read the switch of REQ-569 criterion 2, so this scenario runs whether the switch is on or off.
+# Every human task carries the attribute "role" with the value "reviewer" (an upload without it is refused for that reason, which would hide the fault under test); the check-script pair is the only deliberate fault.
+# No script is needed: the check is made before any script is looked up.
+# Each refusal step holds exactly one request. Criterion 3 asks that the message names the node id and contains neither attribute value: the values used are "Bad-Key", "0", "1" as text and "1.5";
+# the node id is "review_total" and contains none of them.
+# Waiting: the check at task completion (REQ-569 F-2, T-0640 / GH #3298) is out of scope.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
+---
+id: definitions-2-validation-script-shape-refusals
+scope: definitions
+title: A human task with a badly formed check-script name or version is refused when the process is uploaded
+version: "1.0"
+tags: [definitions, scripts, form-validation, upload, refusal]
+
+description: >
+  The administrator of SwiftRoute uploads processes whose human task "review_total" names a check script wrongly: a key that is not a valid script key, version 0, version written as text "1",
+  version 1.5, a key with no version, and a version with no key. Every upload is refused with the reason "invalid_script_reference". The message names the task and does not repeat what was
+  written. After the refusals the list of processes has none of the refused names. A correct pair in the same position is accepted (scenario definitions-1 covers activation).
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has no process definition named fv_shape_ok, fv_shape_key, fv_shape_v0, fv_shape_vtext, fv_shape_vfrac, fv_shape_nover or fv_shape_nokey.
+    check: system_seeded
+    detail: Setup-prepared. If a name exists, use the next free name and note that in the report.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads the process fv_shape_ok, version "1": start, one human task "review_total" naming the check script "check_total", version 1, and an end. The answer is noted.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload fv_shape_key, version "1", whose human task "review_total" names the key "Bad-Key" (capital letter and hyphen) with version 1.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload fv_shape_v0, version "1", whose human task "review_total" names the key "check_total" with version 0.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload fv_shape_vtext, version "1", whose human task "review_total" names the key "check_total" with the version written as the text "1" (in quotes), not as a number.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload fv_shape_vfrac, version "1", whose human task "review_total" names the key "check_total" with version 1.5.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload fv_shape_nover, version "1", whose human task "review_total" names the key "check_total" and has no version.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload fv_shape_nokey, version "1", whose human task "review_total" has the version 1 and no key.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of process definitions.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A correct pair passes the upload check.
+    verification:
+      method: http_status
+      detail: Step 1 answers 201. The check script check_total does not need to exist for an upload.
+      evidence: The answer of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A correct process cannot be uploaded.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Each badly formed pair is refused with the reason "invalid_script_reference".
+    verification:
+      method: http_status
+      detail: Steps 2 to 7 each answer 422. The answer of each lists an error with the code "invalid_script_reference".
+      evidence: The answers of steps 2 to 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A process with an unusable check-script name is stored and fails later, in front of the person who fills in the form.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The message names the task and repeats neither the key nor the version that was written.
+    verification:
+      method: api_response
+      detail: >-
+        In the answers of steps 2 to 7 the message of the error contains the task id "review_total". The message of every error equals the fixed text, which reads: Node 'review_total' (HUMAN_TASK) has an invalid 'validation_script_key'/'validation_script_version' pair (key ^[a-z][a-z0-9_]{0,63}$, version an integer >= 1, both present). Because the text is fixed, it holds neither the written key "Bad-Key" nor the written version.
+      evidence: The error messages of steps 2 to 7.
+    on_fail:
+      severity: MINOR
+      business_impact: A value typed by an administrator is echoed back; low risk but the product's rule is to name the node only.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Refused uploads store nothing.
+    verification:
+      method: api_response
+      detail: The list of step 8 has fv_shape_ok and none of fv_shape_key, fv_shape_v0, fv_shape_vtext, fv_shape_vfrac, fv_shape_nover, fv_shape_nokey.
+      evidence: The list of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A refused process is kept, so it can be activated by mistake.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Deprecate fv_shape_ok if the environment keeps it. Nothing else was stored.
