@@ -172,6 +172,24 @@ defmodule Letflow.Engine.ModuleWriteRuntimeStampTest do
     assert_refused(ctx, 0, :module_not_installed)
   end
 
+  test "a soft-uninstalled module (row kept, status uninstalled) is refused: module_not_installed" do
+    ctx = Mw.case!("gh3267-w1-uninstalled", :module)
+
+    {1, _} =
+      Repo.update_all(
+        from(m in Letflow.Modules.TenantModule, where: m.module_id == "fixture_ledger"),
+        [set: [status: :uninstalled]],
+        prefix: ctx.schema
+      )
+
+    assert_refused(ctx, 0, :module_not_installed)
+
+    assert Repo.exists?(
+             from(m in Letflow.Modules.TenantModule, where: m.module_id == "fixture_ledger"),
+             prefix: ctx.schema
+           )
+  end
+
   test "a tenant not replayed to TASK_ENTITY_WRITES_APPLIED v3 is refused: event_schema_outdated" do
     ctx = Mw.case!("gh2590-r4b-rs-schema", :module)
 

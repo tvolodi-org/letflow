@@ -58,13 +58,24 @@ defmodule Letflow.Modules.Installs do
 
   OUT OF SCOPE (0039 D5, REQ-402's own BUILDS): installing several modules
   in dependency order in one request (solution install, REQ-415); settings
-  writes to an already-installed module (REQ-414); uninstall.
+  writes to an already-installed module (REQ-414); purging an uninstalled module's data.
+
+  ## Status (decision 0066, REQ-578)
+
+  A `tenant_modules` row is `:active` or `:uninstalled`. `uninstall/3` and `reactivate/3` only flip
+  that status (the row, its settings, version and manifest hash stay), each in one transaction with
+  exactly one audit entry. `list_installed/1`, `installed?/2`, `installed_manifest_hash/2`,
+  `put_settings/3` and the dependency check of `install/3` see an uninstalled row as not installed;
+  `install/3` of it stays `{:error, :already_installed}` (reactivate, not reinstall).
+  `list_all/1` reads rows of any status (scope declarations keep their pre-uninstall filters, D3).
   """
 
   import Ecto.Query, only: [from: 2]
 
   require Logger
 
+  alias Ecto.Multi
+  alias Letflow.Audit
   alias Letflow.Definitions.SolutionPack
   alias Letflow.Entities.ManagedTypes
   alias Letflow.EventStore.Registry.JsonSchema
@@ -97,7 +108,158 @@ defmodule Letflow.Modules.Installs do
   def list_installed(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
+    Repo.all(
+      from(m in TenantModule, where: m.status == :active, order_by: [asc: m.installed_at]),
+      prefix: prefix
+    )
+  end
+
+  @doc """
+  Every `tenant_modules` row of the tenant, whatever its status, ordered by `installed_at`.
+  Only for readers that must keep their pre-uninstall behaviour for an uninstalled module
+  (decision 0066 D3: scope declarations). Raises without `:prefix`, like `list_installed/1`.
+  """
+  @spec list_all(opts()) :: [TenantModule.t()]
+  def list_all(opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
     Repo.all(from(m in TenantModule, order_by: [asc: m.installed_at]), prefix: prefix)
+  end
+
+  @type transition_error ::
+          {:error, :rationale_required}
+          | {:error, :not_installed}
+          | {:error, :upgrade_required}
+          | {:error, {:dependents_installed, [String.t()]}}
+          | {:error, {:dependency_not_installed, module_id :: String.t()}}
+
+  @doc """
+  Soft-uninstalls `module_id` (decision 0066 D2): the row stays, its status becomes
+  `:uninstalled`. `{:error, :not_installed}` when there is no active row;
+  `{:error, {:dependents_installed, ids}}` (sorted) when an active module depends on it.
+  Needs a non-blank `opts[:rationale]`. Writes exactly one audit entry in the same transaction.
+  """
+  @spec uninstall(String.t(), Ecto.UUID.t(), opts()) ::
+          {:ok, TenantModule.t()} | transition_error()
+  def uninstall(module_id, actor_id, opts) do
+    transition(
+      module_id,
+      actor_id,
+      opts,
+      :active,
+      :uninstalled,
+      &check_no_dependents/2,
+      "module.uninstall"
+    )
+  end
+
+  @doc """
+  Reactivates an uninstalled `module_id`. `{:error, :not_installed}` when there is no
+  uninstalled row; `{:error, {:dependency_not_installed, dep}}` when a dependency is not active;
+  `{:error, :upgrade_required}` when the row's manifest hash is missing or differs from the
+  compiled one (or the module is gone from the catalog). Needs a non-blank `opts[:rationale]`.
+  Writes exactly one audit entry in the same transaction.
+  """
+  @spec reactivate(String.t(), Ecto.UUID.t(), opts()) ::
+          {:ok, TenantModule.t()} | transition_error()
+  def reactivate(module_id, actor_id, opts) do
+    transition(
+      module_id,
+      actor_id,
+      opts,
+      :uninstalled,
+      :active,
+      &check_reactivatable/2,
+      "module.reactivate"
+    )
+  end
+
+  # The audit step is not rescued: a database failure raises out of `Repo.transaction/1`, which
+  # has rolled back the status change (REQ-578 criterion 9).
+  defp transition(module_id, actor_id, opts, from, to, check_fun, action) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    with {:ok, rationale} <- fetch_rationale(opts) do
+      Multi.new()
+      |> Multi.run(:row, fn repo, _changes -> lock_row(repo, module_id, from, prefix) end)
+      |> Multi.run(:check, fn _repo, %{row: row} -> check_fun.(row, prefix) end)
+      |> Multi.update(:status, fn %{row: row} -> TenantModule.status_changeset(row, to) end,
+        prefix: prefix
+      )
+      |> Multi.run(:audit, fn repo, %{row: row} ->
+        Audit.insert_entry(
+          repo,
+          %{
+            actor_id: actor_id,
+            action: action,
+            resource_type: "tenant_module",
+            resource_id: row.id,
+            before_state: %{"module_id" => module_id, "status" => Atom.to_string(from)},
+            after_state: %{
+              "module_id" => module_id,
+              "status" => Atom.to_string(to),
+              "rationale" => rationale
+            }
+          },
+          prefix
+        )
+      end)
+      |> Repo.transaction()
+      |> case do
+        {:ok, %{status: tenant_module}} -> {:ok, tenant_module}
+        {:error, _step, reason, _changes} -> {:error, reason}
+      end
+    end
+  end
+
+  defp lock_row(repo, module_id, status, prefix) do
+    query =
+      from(m in TenantModule,
+        where: m.module_id == ^module_id and m.status == ^status,
+        lock: "FOR UPDATE"
+      )
+
+    case repo.one(query, prefix: prefix) do
+      nil -> {:error, :not_installed}
+      %TenantModule{} = row -> {:ok, row}
+    end
+  end
+
+  # An active row whose module left the catalog contributes nothing: its depends_on is unknown.
+  defp check_no_dependents(%TenantModule{module_id: module_id}, prefix) do
+    dependents =
+      from(m in TenantModule, where: m.status == :active and m.module_id != ^module_id)
+      |> Repo.all(prefix: prefix)
+      |> Enum.filter(fn %TenantModule{module_id: other} ->
+        case Catalog.fetch(other) do
+          {:ok, entry} -> module_id in entry.manifest().depends_on
+          {:error, :not_found} -> false
+        end
+      end)
+      |> Enum.map(& &1.module_id)
+      |> Enum.sort()
+
+    case dependents do
+      [] -> {:ok, :no_dependents}
+      ids -> {:error, {:dependents_installed, ids}}
+    end
+  end
+
+  defp check_reactivatable(%TenantModule{module_id: module_id, manifest_hash: hash}, prefix) do
+    case Catalog.fetch(module_id) do
+      {:error, :not_found} ->
+        {:error, :upgrade_required}
+
+      {:ok, entry_module} ->
+        with :ok <- check_dependencies_installed(entry_module, prefix),
+             {:ok, compiled} when is_binary(hash) and compiled == hash <-
+               Catalog.manifest_hash(module_id) do
+          {:ok, :reactivatable}
+        else
+          {:error, {:dependency_not_installed, _dep}} = error -> error
+          _hash_differs -> {:error, :upgrade_required}
+        end
+    end
   end
 
   @doc """
@@ -198,7 +360,7 @@ defmodule Letflow.Modules.Installs do
      - If `settings_schema` is a map, validates with the existing
        `Letflow.EventStore.Registry.JsonSchema.validate/2`; any violations
        return `{:error, {:settings_validation_failed, violations}}`.
-  3. A `tenant_modules` row must exist for `module_id` in the tenant schema —
+  3. An active `tenant_modules` row must exist for `module_id` in the tenant schema —
      if not, `{:error, {:module_not_installed, module_id}}`.
   4. The row's `settings` field is updated.
 
@@ -224,7 +386,7 @@ defmodule Letflow.Modules.Installs do
   The manifest hash recorded when `module_id` was installed in the tenant identified by
   `opts[:prefix]` (GH #2590 / REQ-501 R2).
 
-  `{:error, :not_installed}` when no `tenant_modules` row exists, and
+  `{:error, :not_installed}` when no `tenant_modules` row exists or it is uninstalled, and
   `{:error, :no_installed_hash}` when the row predates the column (OQ-R7: no backfill, so
   such a module has no installed hash until it is reinstalled or upgraded). Nothing in core
   consumes it yet; the activation check (R3) and the run-time check (R4) are its readers.
@@ -237,6 +399,7 @@ defmodule Letflow.Modules.Installs do
 
     case Repo.get_by(TenantModule, [module_id: module_id], prefix: prefix) do
       nil -> {:error, :not_installed}
+      %TenantModule{status: :uninstalled} -> {:error, :not_installed}
       %TenantModule{manifest_hash: hash} when is_binary(hash) -> {:ok, hash}
       %TenantModule{manifest_hash: nil} -> {:error, :no_installed_hash}
     end
@@ -264,6 +427,7 @@ defmodule Letflow.Modules.Installs do
   defp fetch_tenant_module_row(module_id, prefix) do
     case Repo.get_by(TenantModule, [module_id: module_id], prefix: prefix) do
       nil -> {:error, {:module_not_installed, module_id}}
+      %TenantModule{status: :uninstalled} -> {:error, {:module_not_installed, module_id}}
       %TenantModule{} = tm -> {:ok, tm}
     end
   end
@@ -296,7 +460,10 @@ defmodule Letflow.Modules.Installs do
   # question ("does a tenant_modules row for this module_id exist in this
   # tenant's schema?"), so both share this one query shape.
   defp module_installed?(module_id, prefix) do
-    Repo.exists?(from(m in TenantModule, where: m.module_id == ^module_id), prefix: prefix)
+    Repo.exists?(
+      from(m in TenantModule, where: m.module_id == ^module_id and m.status == :active),
+      prefix: prefix
+    )
   end
 
   # Returns the entity definitions THIS install's pack inserted, `%{name => id}`

@@ -11,7 +11,8 @@ defmodule Letflow.Entities.ScopeDeclaration do
 
     1. the compiled manifests of `Letflow.Modules.Catalog.entry_modules/0` that name the type;
        no manifest names it -> `:undeclared` with ZERO queries;
-    2. the declaring module must be INSTALLED in the tenant (one read per call);
+    2. the declaring module must have a `tenant_modules` row of ANY status (one read per call):
+       an uninstalled module keeps exactly its pre-uninstall read filters (decision 0066 D3);
     3. the type must be MANAGED by the declaring module (`ManagedTypes.owner_of/2`, one read per
        candidate type): the stamp must equal the declaring module id, otherwise `:undeclared`.
        An UNMANAGED type resolves to a declaration only when the declaring module id is on the
@@ -82,7 +83,7 @@ defmodule Letflow.Entities.ScopeDeclaration do
   end
 
   defp installed_module_ids(prefix) do
-    [prefix: prefix] |> Installs.list_installed() |> MapSet.new(& &1.module_id)
+    [prefix: prefix] |> Installs.list_all() |> MapSet.new(& &1.module_id)
   end
 
   # A type named by two modules is ambiguous: fail closed.
