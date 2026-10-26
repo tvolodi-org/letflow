@@ -41185,7 +41185,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- every dependency is done, nothing pending to block on; check_deferral_staleness S1 may flag it while S10 is active
+    gh: 3315
     description: >
       The exam module's two self-referential source columns were deferred on purpose: REQ-326 authored
       category.json and question.json without parent_id because Definition.Validator Rule 9 rejected a
