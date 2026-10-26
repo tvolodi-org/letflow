@@ -41614,3 +41614,64 @@ requirements:
       - "5. i18n, Test U-i18n: every new text key exists in kk, ru and en in examMessages.ts and the module's message-key completeness check (the existing exam message tests) passes; the screen renders in each locale without a missing-key fallback."
       - "6. npm run check (type-check, lint, unit tests, guards) passes with real output quoted; no change under web/src outside web/src/modules/exam/ except the minimal navigation registration the shell requires, which the PR names; the existing candidate and admin screen tests still pass."
     depends_on: [REQ-588]
+
+  - id: REQ-592
+    title: "Certificate PDF QR code resolves to the public verify page: mint a fresh public-read handle on every download (BilimBaga study T4c gap 9)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    # impl_order: UNREGISTERED -- the engine files the GitHub issue after the gate
+    # Source: docs/migration/bilimbaga-study-t4c-certificates.md row 9 (the defect) and its "Notes for the planner"; lib/letflow/modules/exam/router.ex (render_download_certificate, the line `verification = %{base_url: certificate_verify_base_url(), code: certificate.id}` and its "interim stand-in" comment; render_issue_certificate, the first-issuance mint through PublicRead.issue_handle/4 with certificate.public_read_resource_id); lib/letflow/modules/exam/certificate.ex (certificate_view: `id: record.record_id` versus `public_read_resource_id: record.id`); lib/letflow/modules/exam/certificate_document.ex (moduledoc "Verification code", render/2 takes verification.code from the caller); lib/letflow/public_read.ex (issue_handle/4 mints 32 random bytes and stores the SHA-256 only; resolve/2) and lib/letflow/routers/public_read.ex (GET /api/public/certificate/:handle, rate limit first); docs/migration/decisions/0028-unauthenticated-read-boundary.md (decision point 3 "stored as SHA-256 only", point 4 "one refusal", standing prohibitions); docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10). Written by the business analyst (T-0705) 2026-10-26. Not yet validated.
+    description: >
+      The defect. The certificate PDF carries a QR code that must open the public verify page. Today
+      render_download_certificate in lib/letflow/modules/exam/router.ex builds the verification argument with
+      `code: certificate.id`, where certificate.id is the entity record id (certificate_view sets it from
+      record.record_id). The QR therefore encodes <CERTIFICATE_VERIFY_BASE_URL>/verify/<record id>. No route
+      resolves a record id: the only unauthenticated read is GET /api/public/certificate/:handle, and a handle
+      is a capability minted by PublicRead.issue_handle/4, returned once as public_handle on the first issuance
+      (render_issue_certificate) and stored as a SHA-256 hash only, so the plaintext cannot be read back when the
+      candidate downloads the PDF later. A printed QR cannot verify anything.
+      The choice, between two ways to give a re-downloaded PDF a resolvable code. (A) A persisted verification
+      code: a new column on the certificate entity holding the code in plaintext, rendered into every PDF. It
+      needs a storage change (a field on the certificate definition and a backfill for certificates already
+      issued), and it contradicts decision 0028 point 3 (handles are stored as SHA-256 only, so that a read of
+      the table yields no usable credential); it would be a second, plaintext credential store next to
+      public_read_handles, which the decision's "one resolution mechanism" (point 2) does not allow without
+      reopening the record. (B) A re-mintable handle: every successful download calls PublicRead.issue_handle/4
+      once more for the same certificate and puts the new plaintext into that PDF's QR code. It needs no change
+      to the certificate entity, no backfill and no change to decision 0028: the table, the hash-only storage,
+      the single refusal, the rate limit and the projection stay as they are. The costs: one extra
+      public_read_handles row (and one audit entry, written by issue_handle/4) per download, and several live
+      handles for one certificate, all of which resolve to the same projection. This entry chooses (B) because
+      it is the only choice that leaves decision 0028 untouched and needs no data migration.
+      The change. In render_download_certificate, for the {:ok, certificate} case, call
+      PublicRead.issue_handle(tenant_id, "certificate", certificate.public_read_resource_id) with tenant_id
+      from conn.assigns.auth_context.tenant_id (never from the request), and pass the returned plaintext as
+      `code` to CertificateDocument.render/2. The resource id is certificate.public_read_resource_id (the Ecto
+      primary key the projection matches), never certificate.id. If the mint returns {:error, _}, the route does
+      not send a PDF with a dead QR: it logs a warning that names no handle and answers through
+      Response.internal_error/1 (same as a render failure). The "interim stand-in" comment and the
+      CertificateDocument moduledoc section "Verification code" are updated to describe the new behaviour.
+      The first-issuance mint in render_issue_certificate and its public_handle response field stay as they are.
+      Already-issued certificates and already-downloaded PDFs. No data change is made to either: certificate
+      entities are not touched, there is no backfill and no migration. A certificate issued before this change
+      gets a working code the next time its owner downloads the PDF. A PDF downloaded before this change keeps
+      its record-id QR, which still resolves nothing; a file already printed or saved cannot be corrected, and
+      the owner must download it again. The handle returned once on first issuance stays valid and is not
+      revoked. This is stated in the PR summary and in the moduledoc of CertificateDocument.
+      The SPA verify page /verify/:code does not exist in web/ (study row 10) and is a separate change that
+      follows this one; this entry does not add it and does not add or change any route.
+    open_questions:
+      - "Should the number of live handles per certificate be capped, or should old ones be revoked on a new download? The source does not settle it. Default of this entry: no cap and no revocation, because a revoked handle would break a PDF the candidate has already printed; the growth is one row per download by an authenticated owner. The process owner may ask for a cap later."
+      - "Should a revoked or expired certificate refuse the download? Out of scope: BilimBaga has neither (study rows 13 and 14) and the exam module never calls revoke."
+    acceptance_criteria:
+      - "1. Test Q-resolve (the defect, red proof): a candidate who owns a passed session calls the download route (the one handled by render_download_certificate) with a real token through the real router; the code carried in the PDF's QR (the verify URL the renderer is given, read back through the renderer's input or by decoding the QR text) resolves through GET /api/public/certificate/<code> with 200 and the projection of that certificate (candidate name, exam title, score, issue date). On the unmodified code the same test fails because the code is the record id and the public route answers 404."
+      - "2. Test Q-resource: the handle row minted by the download has kind \"certificate\", the tenant id of the caller's token and resource_id equal to the certificate's public_read_resource_id (the entity's Ecto primary key), not its record_id; the plaintext is not stored (only handle_hash is in the row) and is not present in the log output captured during the request."
+      - "3. Test Q-twice: two downloads of the same certificate produce two different codes, both resolve with 200, and the handle returned by the first issuance (public_handle) still resolves; no certificate entity field changed between the calls (the stored fields are identical before and after)."
+      - "4. Test Q-mintfail: with the mint forced to return {:error, _} (a handle table made unwritable in the test, as the first-issuance mint-failure test does), the download answers 500 through Response.internal_error/1 and the body is not a PDF; the certificate row is unchanged."
+      - "5. INV-5, Test Q-404: on the public route, a random well-formed code, the certificate's record id (the old QR value), a malformed code, and a handle of a certificate whose tenant is deactivated each return the identical status, headers and body (404 application/problem+json, byte-identical to Letflow.Api.Response.not_found/1); the download route answers a session that does not exist and a session of another candidate in the same tenant with the same 404, and neither request mints a handle (the handle row count is unchanged)."
+      - "6. INV-1 and INV-10 cross-tenant negative, Test Q-tenant: with a passed session in tenant B, a CANDIDATE token of tenant A calling the download route with tenant B's session id gets 404 and no handle row is created for tenant B or for tenant A; the route has no tenant parameter in path, query or body (checked on the compiled route path); a code minted by tenant A's download resolves only tenant A's certificate and the response contains nothing of tenant B."
+      - "7. Decision 0028 stays untouched: no change under docs/migration/decisions/, no new route under /api/public, no new field in CertificatePublicProjection, no column added to the certificate entity or to public_read_handles, no migration in priv/repo/migrations/; the PR lists these as checked with the diff stat."
+      - "8. Pin sweep: the PR lists the output of grep -rn \"render_download_certificate\\|certificate/download\\|interim stand-in\\|certificate.id\" test/ lib/ docs/ and states which hits changed; the route-inventory pins (test/fixtures/route_scope/tenant_wide_default_routes.txt and the length(snapshot) pins) do not move because no route is added; the comments and moduledoc text naming the interim stand-in are replaced."
+      - "9. SECURITY-REVIEWER verdict is recorded (mandatory: this touches the unauthenticated read boundary of decision 0028, INV-1, INV-4 handle plaintext in no log, INV-5, INV-10) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests Q-resolve, Q-resource, Q-twice, Q-mintfail, Q-404 and Q-tenant pass with real output quoted."
+    depends_on: [REQ-357]
