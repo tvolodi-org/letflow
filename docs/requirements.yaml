@@ -41185,7 +41185,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S8
-    # impl_order: UNREGISTERED -- all depends_on requirements are done; the engine files the GitHub issue after the gate
+    gh: 3313
     # Source: docs/migration/bilimbaga-retirement-status.md section 9 ("Branding, missing" items 1 and 4); docs/migration/decisions/0020-frontend-architecture.md (branding row: "a small fixed set of brand colours", allowlist stays closed); lib/letflow/identity/tenant.ex (@brand_colors_allowed_keys, validate_brand_colors/2, brand_colors_allowed_keys/0); lib/letflow/identity/color_contrast.ex (meets_wcag_aa_normal_text?/2); lib/letflow/routers/tenant_settings.ex (partition_brand_colors/1); lib/letflow/routers/tenant_config.ex (branding_from_settings/1); lib/letflow/routers/mobile_tenant_config.ex (branding_from_settings/1, primary_color_from_settings/1); lib/letflow/tenant_config_bundle.ex (reads Tenant.brand_colors_allowed_keys/0); web/src/theming/brandingDefaults.ts (BRAND_COLOR_CSS_PROPERTY) and applyBranding.ts; web/src/auth/tenantConfig.ts; web/src/styles/tokens.css. Written by the business analyst (T-0671) 2026-10-26. Not yet validated.
     description: >
       Today a tenant can store exactly one brand colour, brand_colors.primary: the closed allowlist
