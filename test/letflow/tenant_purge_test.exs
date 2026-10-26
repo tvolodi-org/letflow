@@ -725,19 +725,35 @@ defmodule Letflow.TenantPurgeTest do
 
     test "TK1 a former user's token of a purged tenant answers 403 tenant_inactive" do
       v = victim!()
+      token = mint!(v, ["TENANT_ADMIN"])
       assert {:ok, :purged} = TenantPurge.purge(v.tenant_id, :provisioner)
 
+      # through the real router: AuthPipeline must not query the dropped schema (INV-8)
+      conn = api(:get, "/api/v1/me", token, v.tenant.slug)
+
+      assert conn.status == 403, conn.resp_body
+      assert Jason.decode!(conn.resp_body)["error"] == "tenant_inactive"
+    end
+
+    test "PT1 PATCH of a purged tenant is refused and display_name stays purged", ctx do
+      v = victim!()
+      assert {:ok, :purged} = TenantPurge.purge(v.tenant_id, :provisioner)
+      name = Repo.get!(Tenant, v.tenant_id).display_name
+
       conn =
-        conn(:get, "/whatever")
+        conn(:patch, "/#{v.tenant.slug}", Jason.encode!(%{"display_name" => "Back"}))
+        |> put_req_header("content-type", "application/json")
         |> assign(:auth_context, %{
           user_id: Ecto.UUID.generate(),
-          tenant_id: v.tenant_id,
-          roles: ["TENANT_ADMIN"]
+          tenant_id: ctx.platform.tenant_id,
+          roles: ["PLATFORM_ADMIN"]
         })
-        |> Letflow.Plugs.TenantStatus.call(Letflow.Plugs.TenantStatus.init([]))
+        |> assign(:trace_id, "t")
+        |> Plug.Parsers.call(Plug.Parsers.init(parsers: [:json], json_decoder: Jason))
+        |> Letflow.Routers.Tenants.call(@opts)
 
-      assert conn.status == 403
-      assert Jason.decode!(conn.resp_body)["error"] == "tenant_inactive"
+      assert conn.status == 409
+      assert Repo.get!(Tenant, v.tenant_id).display_name == name
     end
 
     test "RA1 reactivate of a purged tenant is 409 and the row stays inactive", ctx do

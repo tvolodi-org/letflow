@@ -410,7 +410,8 @@ defmodule Letflow.Routers.Tenants do
 
   defp handle_patch(conn, slug) do
     with :ok <- TenantTarget.authorize_target_tenant(conn, slug),
-         {:ok, _existing} <- Identity.get_tenant_by_slug(slug) do
+         {:ok, existing} <- Identity.get_tenant_by_slug(slug),
+         :ok <- not_purged(existing) do
       case Validation.validate(@patch_schema, conn.body_params) do
         {:errors, field_errors} ->
           Response.send_problem(conn, Validation.problem(field_errors))
@@ -431,7 +432,13 @@ defmodule Letflow.Routers.Tenants do
       end
     else
       {:error, :not_found} -> Response.not_found(conn)
+      {:error, :tenant_purged} -> Response.conflict(conn, "tenant was purged")
     end
+  end
+
+  # REQ-580: the kept tenants row of a purged tenant stays as the purge left it.
+  defp not_purged(%{id: id}) do
+    if Identity.tenant_purged?(id), do: {:error, :tenant_purged}, else: :ok
   end
 
   # ISS-1032 / GH 2351: the platform chain's schema comes from ONE accessor and must equal the schema

@@ -2474,15 +2474,23 @@ defmodule Letflow.Identity do
         {:error, :not_found}
 
       %Tenant{id: id} ->
-        purged? =
-          Repo.exists?(
-            from(l in Letflow.TenantProvisioner.Lifecycle,
-              where: l.tenant_id == ^id and not is_nil(l.purged_at)
-            )
-          )
-
-        if purged?, do: {:error, :tenant_purged}, else: set_tenant_status(slug, :active)
+        if tenant_purged?(id),
+          do: {:error, :tenant_purged},
+          else: set_tenant_status(slug, :active)
     end
+  end
+
+  @doc """
+  True when the tenant's `tenant_lifecycles.purged_at` is set (REQ-580): its schema is gone, so
+  no code may query the tenant schema.
+  """
+  @spec tenant_purged?(Ecto.UUID.t()) :: boolean()
+  def tenant_purged?(tenant_id) do
+    Repo.exists?(
+      from(l in Letflow.TenantProvisioner.Lifecycle,
+        where: l.tenant_id == ^tenant_id and not is_nil(l.purged_at)
+      )
+    )
   end
 
   @doc """
