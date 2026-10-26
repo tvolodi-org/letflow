@@ -34,7 +34,7 @@ actors:
 preconditions:
   - description: The switch for form validation scripts is ON in the test environment.
     check: system_seeded
-    detail: Setup-prepared (application setting form_validation_hook_enabled, default off). If step 1 is refused with the reason "invalid_hook_kind", the switch is off; report BLOCKED for the whole scenario and run scenario definitions-5 instead. This is not a product failure.
+    detail: Setup-prepared (application setting form_validation_hook_enabled, default off). If step 2 is refused with the reason "invalid_hook_kind", the switch is off; report BLOCKED for the whole scenario and run scenario definitions-5 instead. If setup could not publish check_total version 1 because the switch is off, the same BLOCKED applies. This is not a product failure.
   - description: SwiftRoute has the published script check_total version 1 of kind "form validation" (made by setup, see header), no script with the key check_draft, check_other or check_nokind, and no process definition named fv_accept_one, fv_accept_two or fv_accept_three.
     check: system_seeded
     detail: Setup-prepared. If a new name exists, use the next free name and note that in the report. If check_total version 1 cannot be arranged as published, report BLOCKED for steps 1, 5 to 8.
@@ -87,6 +87,11 @@ steps:
       The administrator uploads the process fv_accept_three, version "1": a start event that carries the attribute "validation_script_key" with the value "no_such_script" and "validation_script_version" 1,
       one human task "review_total" with no check script, and an end. Then activates it.
     via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of scripts of SwiftRoute and notes which keys and statuses appear.
+    via: api
 
 expected_outcomes:
   - id: EO-001
@@ -103,8 +108,8 @@ expected_outcomes:
     description: Any other kind, and a missing kind, are still refused.
     verification:
       method: http_status
-      detail: Step 3 answers 422 with the reason "invalid_hook_kind". Step 4 answers 422 with the reason "invalid_hook_kind". The list of scripts read afterwards has no check_other and no check_nokind (and still check_draft only as a draft).
-      evidence: The answers of steps 3 and 4 and the list read after step 4.
+      detail: Step 3 answers 422 with the reason "invalid_hook_kind". Step 4 answers 422 with the reason "invalid_hook_kind". The list of scripts read in step 9 has no check_other and no check_nokind (and still check_draft only as a draft).
+      evidence: The answers of steps 3 and 4 and the list read in step 9.
     on_fail:
       severity: MAJOR
       business_impact: A script of an unknown kind could be stored and later be taken for a check script.

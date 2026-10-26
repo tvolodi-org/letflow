@@ -65,14 +65,19 @@ steps:
     action: >
       The administrator uploads the process fv_off_service, version "1": start, one service step "post_total" naming svc_flag_total version 1 as its script, and an end. Then activates it and reads its status.
     via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of scripts of SwiftRoute and notes which keys appear.
+    via: api
 
 expected_outcomes:
   - id: EO-001
     description: With the switch off a form validation script, and a script with no kind, are refused.
     verification:
       method: http_status
-      detail: Steps 1 and 2 each answer 422 with the reason "invalid_hook_kind". The list of scripts has neither check_off_total nor check_off_nokind.
-      evidence: The answers of steps 1 and 2 and the list of scripts read afterwards.
+      detail: Steps 1 and 2 each answer 422 with the reason "invalid_hook_kind". The list of scripts read in step 6 has neither check_off_total nor check_off_nokind.
+      evidence: The answers of steps 1 and 2 and the list of scripts read in step 6.
     on_fail:
       severity: BLOCKER
       business_impact: A feature that is not finished would be usable by companies, and a script could be bound that no part of the product runs.
