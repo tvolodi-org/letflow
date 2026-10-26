@@ -13,8 +13,8 @@ defmodule Letflow.ScheduledJobs do
   `enabled?/0` reads `config :letflow, :scheduled_jobs, enabled: false` fresh on every call. It is
   off by default because a job starts work unattended with the authority of the user who created
   it, so a platform operator opts in. While it is false the sweep neither claims nor queries
-  anything. (The management routes and the route half of the flag are a follow-up slice, REQ-561
-  part 2: the permission, the router and the cross-tenant suite.)
+  anything. The management routes (`Letflow.Routers.ScheduledJobs`, `/scheduled-jobs`) read the same
+  flag per request and answer the pipeline's 404 while it is false.
 
   ## What this module does NOT decide
 
