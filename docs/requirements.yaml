@@ -41185,7 +41185,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-563 -- the template store and Letflow.NotificationTemplates.preview/6 are merged (PR 3237) but the register still shows REQ-563 pending
+    gh: 3310
     # Source: docs/migration/bilimbaga-retirement-status.md section 5 ("Missing" item 1, "Proposed tasks" T5a, T5c); REQ-441 (lib/letflow/login_discovery/notifier.ex, notifier/smtp.ex, notifier/smtp/config.ex, notifier/smtp/transport.ex, notifier/smtp/message.ex, notifier/noop.ex, dispatch.ex; decision docs/migration/decisions/0045-mail-library-choice.md); REQ-563 (lib/letflow/notification_templates.ex, notification_templates/registry.ex, routers/notification_templates.ex); lib/letflow/tasks.ex (assign_task/3, reassign_task/3); lib/letflow/identity/tenant_settings.ex (default_locale); priv/repo/migrations/20261026200001_create_notification_templates.exs (PLACEMENT header: per-tenant, tenant_id uuid NOT NULL); docs/agents/instructions/security-invariants.md (INV-1 Reference, INV-4, INV-8). Written by the business analyst (T-0659) 2026-10-26. Not yet validated.
     description: >
       Today the platform can send exactly one message: the login-discovery tenant list (REQ-441). The
