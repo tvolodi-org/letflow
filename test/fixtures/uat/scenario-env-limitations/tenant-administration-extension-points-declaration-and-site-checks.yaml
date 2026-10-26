@@ -1,0 +1,17 @@
+scenario_id: tenant-administration-extension-points-declaration-and-site-checks
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: >
+  REQ-574 slice X1 checks a module description (manifest) in Letflow.Modules.Catalog.validate/2 (rule 13) and, at go-live, the extension
+  points of a module version (Graph.check_extension_sites/2 via Definitions.run_semantic_validation/2). The module list is fixed at build time
+  (config :letflow, :modules); there is no upload or registration route for a module, and no shipped module declares an extension point (the
+  only one is the test-only module test/support/modules/fixture_points/, registered in config/test.exs). A bad declaration therefore cannot be
+  offered to QA through any API, and the go-live refusal needs a module that QA does not have. The scenario is meant for a run where the tester
+  can call the catalog check directly (the ExUnit tests of the requirement do this); on QA it reports ENV_NOT_SUPPORTED by design. The
+  QA-observable regression part is scenario tenant-administration-extension-points-shipped-modules-unchanged.
+recorded_by: BA
+recorded_at: "2026-10-26"
+issue_ref: "3256"
+review: >
+  Revisit when a route to register or upload a module description exists, or when a shipped module declares an extension point (slice X2
+  and later of decision 0071).
