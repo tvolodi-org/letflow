@@ -363,7 +363,7 @@ defmodule Letflow.Routers.TenantConfigTest do
       assert {:error, %Ecto.Changeset{} = changeset} =
                Identity.update_tenant_settings(tenant.slug, %{
                  "settings" => %{
-                   "brand_colors" => %{"primary" => "#123456", "secondary" => "#abcdef"}
+                   "brand_colors" => %{"primary" => "#123456", "tertiary" => "#abcdef"}
                  }
                })
 
@@ -371,8 +371,52 @@ defmodule Letflow.Routers.TenantConfigTest do
 
       {conn, body} = get_config(tenant.slug)
       assert conn.status == 200
-      refute Map.has_key?(body["branding"]["brand_colors"], "secondary")
-      refute Jason.encode!(body) =~ "secondary"
+      refute Map.has_key?(body["branding"]["brand_colors"], "tertiary")
+      refute Jason.encode!(body) =~ "tertiary"
+    end
+
+    test "REQ-585: both stored colours are returned; none stored is exactly the default" do
+      tenant =
+        insert_tenant!(%{
+          slug: unique_slug("req585-both"),
+          display_name: "REQ-585 Both",
+          idp_realm_id: unique_realm("req585-both")
+        })
+
+      {:ok, _} =
+        Identity.update_tenant_settings(tenant.slug, %{
+          "settings" => %{"brand_colors" => %{"primary" => "#1864AB", "secondary" => "#1971C2"}}
+        })
+
+      {_conn, body} = get_config(tenant.slug)
+
+      assert body["branding"]["brand_colors"] == %{
+               "primary" => "#1864AB",
+               "secondary" => "#1971C2"
+             }
+
+      bare =
+        insert_tenant!(%{
+          slug: unique_slug("req585-none"),
+          display_name: "REQ-585 None",
+          idp_realm_id: unique_realm("req585-none")
+        })
+
+      {_conn, body} = get_config(bare.slug)
+      assert body["branding"]["brand_colors"] == %{"primary" => "#228be6"}
+    end
+
+    test "REQ-585: branding_from_settings reads named keys only (bypassed extra key not served)" do
+      branding =
+        Letflow.Routers.TenantConfig.branding_from_settings(%{
+          "brand_colors" => %{"secondary" => "#1971C2", "tertiary" => "#000000", "primary" => 5}
+        })
+
+      assert branding["brand_colors"] == %{"secondary" => "#1971C2"}
+
+      assert Letflow.Routers.TenantConfig.branding_from_settings(%{"brand_colors" => %{}})[
+               "brand_colors"
+             ] == %{"primary" => "#228be6"}
     end
   end
 

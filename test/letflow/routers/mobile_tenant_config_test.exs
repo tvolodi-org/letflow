@@ -473,6 +473,64 @@ defmodule Letflow.Routers.MobileTenantConfigTest do
     end
   end
 
+  describe "REQ-585: optional branding.secondary_color" do
+    @default_branding_literal %{
+      "app_name" => "Letflow",
+      "logo_url" => nil,
+      "primary_color" => "#228be6"
+    }
+
+    test "a stored secondary is served as secondary_color; primary_color is unchanged" do
+      tenant =
+        insert_tenant!(%{
+          slug: unique_slug("req585-sec"),
+          display_name: "REQ-585 Secondary Tenant",
+          idp_realm_id: unique_realm("req585-sec")
+        })
+
+      assert {:ok, _} =
+               Identity.update_tenant_settings(tenant.slug, %{
+                 "settings" => %{
+                   "brand_colors" => %{"primary" => "#1864AB", "secondary" => "#1971C2"}
+                 }
+               })
+
+      {conn, body} = get_mobile_config(tenant.slug)
+      assert conn.status == 200
+      assert body["branding"]["secondary_color"] == "#1971C2"
+      assert body["branding"]["primary_color"] == "#1864AB"
+      assert Map.keys(body) |> Enum.sort() == @expected_keys
+    end
+
+    test "no stored secondary omits the key; primary_color unchanged" do
+      tenant =
+        insert_tenant!(%{
+          slug: unique_slug("req585-nosec"),
+          display_name: "REQ-585 No Secondary Tenant",
+          idp_realm_id: unique_realm("req585-nosec")
+        })
+
+      assert {:ok, _} =
+               Identity.update_tenant_settings(tenant.slug, %{
+                 "settings" => %{"brand_colors" => %{"primary" => "#1864AB"}}
+               })
+
+      {_conn, body} = get_mobile_config(tenant.slug)
+      refute Map.has_key?(body["branding"], "secondary_color")
+      assert body["branding"]["primary_color"] == "#1864AB"
+    end
+
+    test "unknown slug, missing slug and lookup failure serve the default branding, no secondary_color" do
+      for arg <- [unique_slug("req585-unknown"), :no_slug_param, <<0>>] do
+        {conn, body} = get_mobile_config(arg)
+        assert conn.status == 200
+        assert body["branding"] == @default_branding_literal
+        assert Jason.encode!(body) =~ "primary_color"
+        refute Jason.encode!(body) =~ "secondary_color"
+      end
+    end
+  end
+
   # ═══════════════════════════════════════════════════════════════════════════
   # REQ-282 AC3 -- a tenant WITH stored branding/locales gets its own values
   # (per-sub-key fallback), a tenant WITHOUT gets platform defaults
