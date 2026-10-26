@@ -299,11 +299,10 @@ defmodule Letflow.Identity.Tenant do
       unbounded).
     * `logo_url` — an absolute `http`/`https` URL (via `URI.parse/1`), or
       `nil`.
-    * `brand_colors` — a map whose only allowed key is `"primary"` (the
-      current system has exactly one brand colour today, mirroring
-      `mobile_tenant_config.ex`'s `@default_branding["primary_color"]` —
-      see design §9 OQ-1; additional slots are new scope, not invented
-      here), whose value must be a 6-digit hex color (`#RRGGBB`).
+    * `brand_colors` — a map whose only allowed keys are `"primary"` and
+      `"secondary"` (REQ-585; further slots are new scope), whose values
+      must each be a 6-digit hex color (`#RRGGBB`) with the same contrast
+      rule.
     * `locales` — a non-empty list of locale-shaped strings (light shape
       check: `~r/^[a-z]{2,3}(-[A-Z]{2})?\z/`, not full BCP-47/CLDR
       validation — see design §9 OQ-3).
@@ -374,7 +373,7 @@ defmodule Letflow.Identity.Tenant do
 
   defp validate_logo_url(errors, _settings), do: errors
 
-  @brand_colors_allowed_keys ~w(primary)
+  @brand_colors_allowed_keys ~w(primary secondary)
   @hex_color_regex ~r/^#[0-9A-Fa-f]{6}\z/
 
   # REQ-382 §2.6 — the two `tokens.css` reference background surfaces
