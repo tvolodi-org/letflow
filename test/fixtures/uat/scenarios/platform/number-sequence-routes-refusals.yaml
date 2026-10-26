@@ -7,6 +7,7 @@
 # Steps 2, 3 and 4 are expected to be REFUSED ("no right"). Steps 6, 7 and 9 are NOT refusals: the routes take the company from the
 # sign-in and have no company identifier in the address, so another company's rule cannot be named, and the other company simply
 # sees its own (empty) list. This is a no-data-leak check, not a refusal.
+# Criteria 8 (audit) is covered here only for the 403-writes-no-audit part (EO-002); the other parts of criterion 8 are checked by the implementer's tests.
 # Not applicable to the request "not found indistinguishable from absent": a rule of another company cannot be addressed at all.
 # Preconditions: the Bilimbaga administrator is the roster's only other-company TENANT_ADMIN; if a token for that account is not available to the run,
 # steps 6 to 8 are BLOCKED, not PASS.

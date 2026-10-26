@@ -4,6 +4,8 @@
 # Criteria 4 (permission), 6 (other customer), 7 (platform operator) are in number-sequence-routes-refusals.yaml.
 # Criteria 5, 9, 10, 11, 12 are code, pin, documentation and gate criteria; they are checked by the implementer's tests
 # and by the reviews, not by a business user, and are left out on purpose.
+# Two parts of criterion 8 are also left out for the same reason: the test that makes the audit step fail and sees the rule not stored,
+# and the unchanged signature and tests of the older create function. The 403-writes-no-audit part is in the refusals scenario (EO-002).
 # Visibility note: an answer to a create or a list shows id, key, record type, prefix, padding, period and creation time. It shows no counter
 # and no customer identifier. The number given to a record is not shown to users or in answers; the outcome that reads it is a system read
 # of the tenant number table (system_state) and is BLOCKED, not PASS, where the run cannot read that table. The audit entry is read the same way.
@@ -137,7 +139,7 @@ steps:
     actor: customer_admin
     action: >
       Creates a rule for the third type with key "third-rule", prefix "T", width 1 and period "year", writing into the request
-      a customer identifier that belongs to another company (the identifier of Vortex), then asks for the list.
+      a customer identifier that is not their own company's, then asks for the list.
     via: api
     sla_context:
       expected_within_hours: null
@@ -216,11 +218,11 @@ expected_outcomes:
       suggested_action: route_to_wf03
   - id: EO-007
     description: >
-      Step 13 is accepted (width 1 is the smallest accepted width; width 12 was accepted in step 3), the rule is listed under SwiftRoute, and the other
-      company's identifier written in the request is ignored: nothing is stored for Vortex.
+      Step 13 is accepted (width 1 is the smallest accepted width; width 12 was accepted in step 3), the rule is listed under SwiftRoute, and the
+      customer identifier written in the request is ignored: the rule belongs to the administrator's own company.
     verification:
       method: api_response
-      detail: The answer is a "created" answer and the list now holds three rules. The answer holds no customer identifier. Whether nothing was stored for Vortex is checked in the refusals scenario (step on the other company).
+      detail: The answer is a "created" answer and the list now holds three rules. The answer holds no customer identifier, and SwiftRoute's own list holds the third rule. The other-company side is checked in the refusals scenario (Bilimbaga writing SwiftRoute's identifier).
       evidence: The answer of step 13 and the list after it.
     on_fail:
       severity: BLOCKER
