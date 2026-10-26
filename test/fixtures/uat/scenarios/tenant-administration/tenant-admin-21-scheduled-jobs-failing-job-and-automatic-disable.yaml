@@ -13,7 +13,7 @@
 ---
 id: tenant-administration-21-scheduled-jobs-failing-job-and-automatic-disable
 scope: tenant-administration
-title: A recurring job whose process does not exist records each failure, keeps the other job running, is switched off by itself after the fifth failure in a row, and works again once fixed and switched on
+title: A recurring job whose process does not exist records each failure, keeps the other job running, is switched off by itself after the fifth failure in a row, and switching it on again resets its failure count
 version: "1.0"
 tags: [tenant-admin, scheduled-jobs, failure, auto-disable, audit]
 
