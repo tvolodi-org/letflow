@@ -1,0 +1,211 @@
+# T-0672 (BA): TENANT ADMIN group, scenario 22: a recurring job is refused when its schedule, key or values are wrong, and nothing is stored.
+# Covers REQ-561 criterion 2 (interval 4 and 10081 refused, 5 and 10080 accepted; missing or non-UTC anchor; empty or used key; values that are not a plain map), criterion 4
+# (values with a key such as password and a non-empty text are refused) and the create-time start rule of criterion 8 (a scope node the
+# administrator may not start in is refused and nothing is stored), and that a company identifier in the request is not accepted.
+# Sources: docs/requirements.yaml REQ-561 criteria 2, 4, 8; lib/letflow/scheduled_jobs/job.ex (codes required, invalid, not_utc, too_long, too_large, secret_like, not_accepted, taken;
+# interval 5 to 10080 whole minutes; an anchor with an offset other than zero or without any offset is not_utc; a key used twice in the company is taken; a tenant_id in the body is
+# not_accepted; a key containing password, token, secret or apikey in the values, with a non-empty value, is secret_like); lib/letflow/api/validation.ex (a validation refusal answers 422
+# and names the field); lib/letflow/routers/scheduled_jobs.ex (a scope node that is unknown, retired, out of the administrator's scope or of another company answers 422 invalid_scope_node).
+# Each refused request is its own step so that every step is refused as a whole; the accepted boundary cases are in their own steps (4 and 8 - interval 5 and 10080).
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; refusals of the flow are listed here, access refusals in scenario 23.
+---
+id: tenant-administration-22-scheduled-jobs-validation-refusals
+scope: tenant-administration
+title: A recurring job with an interval outside 5 to 10080 minutes, a wrong anchor, a used or empty key, bad or secret-like values, or a node outside the administrator's scope is refused and nothing is stored
+version: "1.0"
+tags: [tenant-admin, scheduled-jobs, validation, refusal, secrets, boundary]
+
+description: >
+  SwiftRoute's administrator tries to create recurring jobs with invalid input. Every try is answered with a validation refusal that names the field and the kind of fault, shows no value
+  that was sent, and stores nothing: the list of jobs after the refusals equals the list before. Boundary values are tested on both sides: intervals 4 and 10081 are refused while 5 and
+  10080 are accepted. A valid base request is used for every try, changing only the one field under test. The base request is: key "val-1" (a different key in each accepted try), title
+  "Validation probe", process "sched_probe_process", interval 60 minutes, anchor 2030-01-01T00:00:00Z, no values. Accepted jobs are switched off at the end.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The company's scheduled-jobs feature is switched on in the test environment.
+    check: system_seeded
+    detail: If the feature is off, report BLOCKED (scenario 24 covers the feature-off case).
+  - description: SwiftRoute has a published, active process definition "sched_probe_process" that the administrator may start with no input, a scope node "node-nowhere" does not exist in the company, and there are no scheduled jobs with keys beginning "val-".
+    check: system_seeded
+    detail: Setup-prepared. Jobs left from an earlier run are switched off, and the keys val-a and val-b used below are changed to unused ones, noted in the report. The anchor 2030-01-01T00:00:00Z is far in the future, so the accepted jobs never run during the test.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of scheduled jobs and notes it as list L0.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request with interval 4 minutes (key "val-2").
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request with interval 10081 minutes (key "val-3").
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator creates the base request with interval 5 minutes (key "val-a") and, separately, the base request with interval 10080 minutes (key "val-b"). Both answers are noted.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request with interval 7.5 (key "val-5").
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request with no anchor (key "val-6").
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request with the anchor 2030-01-01T02:00:00+02:00 (key "val-7"), a time that is written with a two-hour offset and not in UTC.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request with an empty key (the key is two spaces).
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request with the key "val-a", which step 4 already used in this company.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request (key "val-10") with the values given as a list of two texts instead of a set of named values.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request (key "val-11") with the value password = "hunter2".
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request (key "val-12") with the value api_key = "abc123" inside a nested set of values: settings holding api_key = "abc123".
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request (key "val-13") with the extra field tenant_id = "swiftroute" in the request body.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create the base request (key "val-14") with the scope node "node-nowhere".
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: tenant_admin_a
+    action: >
+      The administrator creates the base request (key "val-c") with the value password = "" (an empty text) and the value label = "ok". Notes the answer.
+    via: api
+  - step: 16
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to change the job "val-a" to interval 4 minutes.
+    expect_refusal: true
+    via: api
+  - step: 17
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to change the job "val-a" to the value token = "t0ken".
+    expect_refusal: true
+    via: api
+  - step: 18
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to change the job "val-a" to the anchor 2030-01-01T02:00:00+02:00.
+    expect_refusal: true
+    via: api
+  - step: 19
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the job "val-a" and asks for the list of scheduled jobs, notes them as V1 and list L1, then switches the jobs "val-a", "val-b" and "val-c" off (clean-up).
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Intervals just outside the allowed range are refused and the ones on the edge are accepted.
+    verification:
+      method: http_status
+      detail: Steps 2 and 3 answer 422 naming the field interval_minutes with the fault "invalid". Step 4 answers 201 twice; the jobs show interval 5 and 10080, enabled true, and next run equal to the anchor.
+      evidence: The answers of steps 2, 3 and 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A job could run too often and load the platform, or a valid job is refused.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A non-whole interval, a missing anchor, an anchor not in UTC, an empty key, a key already used and values that are not a set of named values are refused with the field named.
+    verification:
+      method: http_status
+      detail: Step 5 answers 422 naming interval_minutes "invalid"; step 6 answers 422 naming anchor_at "required"; step 7 answers 422 naming anchor_at "not_utc"; step 8 answers 422 naming key "required"; step 9 answers 422 naming key "taken"; step 10 answers 422 naming variables "invalid".
+      evidence: The answers of steps 5 to 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: Jobs with an unclear schedule or key are stored, and the administrator is not told what is wrong.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: Values that look like secrets are refused, also when nested, but an empty text under such a name is accepted.
+    verification:
+      method: http_status
+      detail: Steps 11 and 12 answer 422 naming variables with the fault "secret_like", and the answer does not repeat "hunter2" or "abc123". Step 15 answers 201 and the job shows label = "ok".
+      evidence: The answers of steps 11, 12 and 15.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A password or key typed into a job's values would be stored in plain text in the company's data and shown in answers.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A company identifier in the request is not accepted, and a scope node the administrator cannot start in is refused.
+    verification:
+      method: http_status
+      detail: Step 13 answers 422 naming tenant_id with the fault "not_accepted". Step 14 answers 422 with the reason "invalid_scope_node".
+      evidence: The answers of steps 13 and 14.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A job could be created for another company, or could start work where its owner may not start it.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A change that breaks the same rules is refused and leaves the job as it was.
+    verification:
+      method: http_status
+      detail: Steps 16, 17 and 18 answer 422 naming interval_minutes "invalid", variables "secret_like" and anchor_at "not_utc". Job V1 (step 19) has interval 5, no values and its original anchor, as when step 4 created it.
+      evidence: The answers of steps 16 to 18 and V1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A later edit could bring a bad schedule or a secret into a job that was valid.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: No refused request stored a job.
+    verification:
+      method: api_response
+      detail: List L1 (step 19) holds the jobs of L0 plus exactly three new ones, with keys val-a, val-b and val-c, and none with the keys val-2, val-3, val-5 to val-14.
+      evidence: Lists L0 and L1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Refused input is stored anyway.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Switch off the jobs val-a, val-b and val-c if they are on. They never run (anchor 2030).
