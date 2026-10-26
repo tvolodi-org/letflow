@@ -361,6 +361,40 @@ defmodule Letflow.TenantSchemaReaperTest do
       assert log =~ "TenantSchemaReaper guard read (GH #2441)"
       assert log =~ "in_transaction=true"
     end
+
+    test "sees a foreign tag that appeared after an earlier pg_stat_activity read in the same transaction" do
+      tenant = insert_tenant!()
+      schema_name = valid_schema_name()
+      create_schema!(schema_name)
+
+      row_id =
+        insert_tenant_schemas_row!(
+          tenant.id,
+          schema_name,
+          naive_now() |> NaiveDateTime.add(-10_000, :second)
+        )
+
+      on_exit(fn -> drop_schema!(schema_name) end)
+
+      Ecto.Adapters.SQL.Sandbox.mode(Repo, :auto)
+      fake_tag = "letflow_mixtest_fake#{System.unique_integer([:positive])}"
+
+      # One database transaction: Postgres caches the pg_stat_activity backend snapshot at
+      # the first read and keeps it to the end of the transaction, so a backend that
+      # connects afterwards is invisible unless the guard clears the snapshot itself.
+      {:ok, {result, conn}} =
+        Repo.transaction(fn ->
+          Repo.query!("SELECT application_name FROM pg_stat_activity")
+          conn = FakeInvocationConnection.start!(fake_tag)
+          {TenantSchemaReaper.sweep_orphans(Repo, 1), conn}
+        end)
+
+      Ecto.Adapters.SQL.Sandbox.mode(Repo, :auto)
+      FakeInvocationConnection.stop_and_wait_gone!(conn, fake_tag)
+
+      assert {:ok, %{reclaimed: 0}} = result
+      assert tenant_schemas_row_exists?(row_id)
+    end
   end
 
   describe "sweep_orphans/2 return-shape contract" do
