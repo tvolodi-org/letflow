@@ -40,6 +40,10 @@ defmodule Letflow.Supervisor.InfrastructureTest do
   `Letflow.Identity.PendingAdminGrants.FaultThrottle` directly after
   `Letflow.Plugs.LoginDiscoveryRateLimit.Bucket`, bringing the live list from 22 to 23.
 
+  REQ-572 (decision 0072 P10) added `Letflow.Plugs.ProvisionerAuth.RateLimiter` directly after
+  `Letflow.Plugs.LoginDiscoveryRateLimit.Bucket` and before the FaultThrottle, bringing the live
+  list from 25 to 26.
+
   Read-only against the already-running, application-supervised singletons
   -- no restart, no config mutation, safe to run `async: true`.
 
@@ -75,7 +79,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
     refute Letflow.Scheduler.Poller in ids
   end
 
-  test "Letflow.Supervisor.Infrastructure owns the 25 expected children, in order" do
+  test "Letflow.Supervisor.Infrastructure owns the 26 expected children, in order" do
     children = Supervisor.which_children(Letflow.Supervisor.Infrastructure)
 
     ids =
@@ -106,6 +110,8 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Plugs.LoginDiscoveryRateLimit.Bucket,
              # ISS-1030 PR 2: once-per-tenant-per-hour throttle for the pending-admin
              # bind's fault warning. A leaf with no ordering dependency.
+             # REQ-572: fixed-window limit of the provisioner credential. A leaf.
+             Letflow.Plugs.ProvisionerAuth.RateLimiter,
              Letflow.Identity.PendingAdminGrants.FaultThrottle,
              Letflow.Admission,
              Letflow.InstanceSupervisor,
@@ -136,7 +142,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Obs.Alerts.TaskSupervisor
            ]
 
-    assert length(ids) == 25
+    assert length(ids) == 26
   end
 
   test "ISS-0224: SandboxPool.TaskSupervisor precedes SandboxPool" do

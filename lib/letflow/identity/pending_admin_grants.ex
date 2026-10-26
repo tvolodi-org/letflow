@@ -56,6 +56,7 @@ defmodule Letflow.Identity.PendingAdminGrants do
   @lock_timeout "2s"
   @created_via_class "platform_operator_onboarding"
   @role "TENANT_ADMIN"
+  @provisioner_class "provisioner"
 
   @type creator :: %{user_id: Ecto.UUID.t()}
 
@@ -128,18 +129,38 @@ defmodule Letflow.Identity.PendingAdminGrants do
           | {:error, Ecto.Changeset.t()}
           | {:error, :audit_failed}
   def create(email_key, %{user_id: user_id}, opts) when is_binary(email_key) do
+    write_grant(email_key, user_id, :onboarding, opts)
+  end
+
+  @doc """
+  Decision 0072 D5(a): the second creation path. Stores the pending first-administrator
+  grant for a tenant created by the provisioner credential (`Letflow.TenantProvisioner`).
+  Same transaction shape as `create/3`, but the grant row carries `created_via
+  'provisioning'` and both audit entries have a NIL actor (a credential is not a user).
+  The e-mail, the credential and its hash are never written to an audit entry.
+
+  `create_provisioned/2` has exactly ONE caller, `Letflow.TenantProvisioner`.
+  """
+  @spec create_provisioned(email_key :: String.t(), write_opts()) ::
+          {:ok, PendingAdminGrant.t()}
+          | {:error, :duplicate}
+          | {:error, Ecto.Changeset.t()}
+          | {:error, :audit_failed}
+  def create_provisioned(email_key, opts) when is_binary(email_key) do
+    write_grant(email_key, nil, :provisioning, opts)
+  end
+
+  defp write_grant(email_key, user_id, via, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
     platform_prefix = Keyword.fetch!(opts, :platform_prefix)
     grant_id = Ecto.UUID.generate()
 
     with {:ok, tenant_id} <- tenant_id_for(prefix),
-         true <- is_binary(user_id) do
+         true <- actor_valid?(via, user_id) do
       Multi.new()
       |> Multi.insert(
         :grant,
-        PendingAdminGrant.create_changeset(%PendingAdminGrant{id: grant_id}, %{
-          email_key: email_key
-        }),
+        grant_changeset(via, grant_id, %{email_key: email_key}),
         prefix: prefix
       )
       |> Multi.run(:tenant_audit, fn repo, _changes ->
@@ -148,7 +169,7 @@ defmodule Letflow.Identity.PendingAdminGrants do
           grant_entry("tenant.admin_grant.created", nil, grant_id, nil, %{
             "grant_id" => grant_id,
             "role" => @role,
-            "created_via" => @created_via_class
+            "created_via" => created_event_via(via)
           }),
           prefix
         )
@@ -161,11 +182,7 @@ defmodule Letflow.Identity.PendingAdminGrants do
             user_id,
             grant_id,
             Keyword.get(opts, :trace_id),
-            %{
-              "grant_id" => grant_id,
-              "tenant_id" => tenant_id,
-              "onboarding_id" => Keyword.get(opts, :onboarding_id)
-            }
+            platform_created_details(via, grant_id, tenant_id, opts)
           ),
           platform_prefix
         )
@@ -191,6 +208,32 @@ defmodule Letflow.Identity.PendingAdminGrants do
       Logger.error("pending administrator grant create failed (exit)")
       {:error, :audit_failed}
   end
+
+  # A provisioning grant has no operator user: both audit entries carry a nil actor.
+  defp actor_valid?(:onboarding, user_id), do: is_binary(user_id)
+  defp actor_valid?(:provisioning, nil), do: true
+
+  defp grant_changeset(:onboarding, grant_id, attrs),
+    do: PendingAdminGrant.create_changeset(%PendingAdminGrant{id: grant_id}, attrs)
+
+  defp grant_changeset(:provisioning, grant_id, attrs),
+    do: PendingAdminGrant.provisioning_changeset(%PendingAdminGrant{id: grant_id}, attrs)
+
+  defp platform_created_details(:onboarding, grant_id, tenant_id, opts),
+    do: %{
+      "grant_id" => grant_id,
+      "tenant_id" => tenant_id,
+      "onboarding_id" => Keyword.get(opts, :onboarding_id)
+    }
+
+  defp platform_created_details(:provisioning, grant_id, tenant_id, _opts),
+    do: %{"grant_id" => grant_id, "tenant_id" => tenant_id, "created_via" => "provisioning"}
+
+  defp created_event_via(:onboarding), do: @created_via_class
+  defp created_event_via(:provisioning), do: "provisioning"
+
+  defp created_via_class(%PendingAdminGrant{created_via: "provisioning"}), do: @provisioner_class
+  defp created_via_class(%PendingAdminGrant{}), do: @created_via_class
 
   defp insert_failure(%Ecto.Changeset{errors: errors} = changeset) do
     duplicate? =
@@ -311,13 +354,13 @@ defmodule Letflow.Identity.PendingAdminGrants do
       |> Multi.run(:tenant_admin_guard, fn repo, _changes ->
         last_grant_guard(repo, grant_id, prefix)
       end)
-      |> Multi.run(:tenant_audit, fn repo, _changes ->
+      |> Multi.run(:tenant_audit, fn repo, %{grant: grant} ->
         Audit.insert_entry(
           repo,
           grant_entry("tenant.admin_grant.revoked", nil, grant_id, nil, %{
             "grant_id" => grant_id,
             "role" => @role,
-            "created_via" => @created_via_class
+            "created_via" => created_via_class(grant)
           }),
           prefix
         )
@@ -605,7 +648,7 @@ defmodule Letflow.Identity.PendingAdminGrants do
           "grant_id" => grant.id,
           "role" => @role,
           "bound_user_id" => user.id,
-          "created_via" => @created_via_class,
+          "created_via" => created_via_class(grant),
           "email_basis" => basis
         }),
         prefix
