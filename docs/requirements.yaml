@@ -41498,3 +41498,87 @@ requirements:
       - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-5, INV-6, INV-8; the candidate identity comes from the token) and REVIEWER verdict is recorded. The PR states the answer taken for each open question as the default named in this entry, says how existing exams on QA (auto-CD deploys main) are handled under the fail-closed default, and no route, flag or permission is added."
       - "11. Test E-existing: for a tenant built as the exam pack was installed before this change (no exam_assignment definition, exam module installed, as in ExamFixtures), Letflow.Release.ManagedTypes.ensure_assignment_definition/1 creates and activates the exam_assignment definition with managed_by \"exam\" and the pack's fields; a second run changes nothing and writes no new audit entry; a tenant without the exam module installed is left untouched; a failure in one tenant is reported and does not stop the others; after the call an assignment written with the exam authority is read by check_assigned/3. The function is added to the release-wrapper tests next to the Stamp ones, runs outside the Ecto sandbox where the Stamp tests do, and adds no route, flag or permission."
     depends_on: [REQ-329, REQ-332, REQ-335, REQ-473]
+
+  - id: REQ-590
+    title: "Tenant logo upload: an uploaded, scanned image replaces the logo_url string on both public tenant-config responses, behind a default-off flag (BilimBaga retirement criterion 9, T9a)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S8
+    # impl_order: UNREGISTERED -- blocked-by: REQ-585 -- GitHub issue is filed by the engine after the gate
+    # Source: docs/migration/bilimbaga-retirement-status.md section 9 ("Branding, missing" item 4: an upload path replacing the logo_url string); REQ-585 description, "OUT OF SCOPE, SEPARATE LATER SLICES" (logo upload gets its own requirement; logo_url stays an absolute http(s) string until then); lib/letflow/identity/tenant.ex (validate_logo_url/2); lib/letflow/identity/tenant_settings.ex (@allowed_keys); lib/letflow/routers/tenant_settings.ex (authz_patch "/", :TenantSettingsManage); lib/letflow/routers/tenant_config.ex (branding_from_settings/1, @default_logo_url); lib/letflow/routers/mobile_tenant_config.ex (branding_from_settings/1, @default_branding); lib/letflow/repository/attachments.ex (upload/2, @allowed_content_types, @max_upload_bytes, run_attachment_scan/2) and lib/letflow/repository/attachment_scanner.ex (scan/2 callback; default Letflow.Repository.AttachmentScanner.SignatureHeuristic); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5, INV-6, INV-8); docs/migration/decisions/0006 D2 (tenant_id kept inside each schema in addition to the prefix). Written by the business analyst (T-0695) 2026-10-26. Not yet validated.
+    description: >
+      Today a tenant's logo is the string settings["logo_url"], an absolute http(s) URL checked by
+      validate_logo_url/2 in lib/letflow/identity/tenant.ex and returned unchanged by
+      Letflow.Routers.TenantConfig.branding_from_settings/1 and
+      Letflow.Routers.MobileTenantConfig.branding_from_settings/1. The tenant must host the image itself
+      somewhere else. This requirement adds an upload path so the image lives in Letflow, for ONE image per
+      tenant, behind a new flag that is off by default.
+      REUSE OF THE UPLOAD BOUNDARY. Letflow.Repository.Attachments.upload/2 cannot be called as it is: it
+      requires an instance_id and runs the instance-visibility check. What is reused is its boundary, not the
+      table: (a) the scanner seam Letflow.Repository.AttachmentScanner.scan/2, resolved the way
+      run_attachment_scan/2 resolves it (Application.get_env(:letflow, :attachment_scanner, default)) and
+      wrapped so a raising adapter cannot crash the caller (INV-8); (b) the rule that byte_size is measured
+      from the received bytes and never from a caller-supplied number; (c) reject-before-persist: an infected
+      or scan-failed upload stores nothing. The logo does not go into instance_attachments.
+      NEW STORAGE. A tenant-schema table tenant_logos (one migration, one row at most per tenant, enforced by
+      a unique constraint on tenant_id) holds: tenant_id (kept inside the schema as well as the :prefix, per
+      decision 0006 D2), content_type, byte_size, content_hash (sha256), the image bytes, updated_at and
+      updated_by. Every read and write goes through the tenant :prefix derived from the authenticated tenant
+      (INV-1, INV-6); the public read derives it from the tenant looked up by slug, as tenant-config does.
+      FLAG. Application env :tenant_logo_upload_enabled, default false in every environment (config/config.exs
+      sets false, like :record_triggers_enabled), read by one function Letflow.Identity.TenantLogo.enabled?/0
+      (new module lib/letflow/identity/tenant_logo.ex). With the flag off every route below answers as if it
+      did not exist and both tenant-config responses are byte-identical to today's.
+      LIMITS (one implementation). Allowed content types: image/png, image/jpeg, image/webp. image/svg+xml
+      and image/gif are refused (SVG is markup and can carry script; the gate is on a closed list, not on a
+      deny list). The declared content type is checked against the list AND against the leading magic bytes of
+      the data (PNG 89 50 4E 47 0D 0A 1A 0A; JPEG FF D8 FF; WebP "RIFF" at 0 and "WEBP" at 8); a mismatch is
+      refused, so the INV-a "caller-declared, unverified" weakness of the attachment path does not carry over.
+      Maximum size 524288 bytes (512 KiB), measured on the received bytes.
+      ROUTES (the router's route table is the source for the final paths; mounts named here are the
+      intended ones). Upload and removal sit in a new module Letflow.Routers.TenantLogo mounted at
+      /api/v1/tenant/logo next to /api/v1/tenant/settings: PUT (body: the raw image bytes, content type from
+      the Content-Type header) and DELETE, both gated by the existing permission :TenantSettingsManage, so no
+      permission is added and the permission matrix golden does not move. The public read is
+      GET /api/tenant-config/logo, handled inside Letflow.Routers.TenantConfig (so the same pre-auth, no
+      x-trace-id mount and the same slug/realm resolution as GET /api/tenant-config). The image has to be
+      fetchable without a token because it is rendered by a plain img tag on the pre-login screen.
+      SERVING. The public read answers 200 with the stored bytes, the stored content type, the headers
+      X-Content-Type-Options: nosniff and Content-Security-Policy: default-src 'none'; sandbox, and
+      Content-Disposition: inline. The bytes are never wrapped in HTML or any markup. For an unknown slug, a
+      missing ?slug=, a lookup failure, a tenant with no uploaded logo, and the flag being off, the answer is
+      the same 404 with the same body and the same headers (INV-5): no branch tells the caller which of the
+      five happened.
+      RESPONSES. When the flag is on and the tenant has an uploaded logo, branding.logo_url in BOTH
+      GET /api/tenant-config and GET /api/mobile/tenant-config is the path of the public read for that tenant
+      (/api/tenant-config/logo?slug=<the tenant's slug>) instead of the stored string; no new field is added,
+      so the six top-level keys of the mobile body and the shape of the web body do not change. The stored
+      settings["logo_url"] is not overwritten. Both builders read the logo from the tenant_logos row by an
+      explicit named read of content_type presence only: the bytes, hash, size, updated_by and tenant_id never
+      appear in either response (INV-2). For an unknown slug, a missing ?slug= and a lookup failure the body
+      is byte-identical to today's platform default (INV-5).
+      EXISTING logo_url VALUES. No data migration touches settings. A tenant that has a logo_url string and
+      no upload keeps returning that string exactly as today. PATCH /api/v1/tenant/settings still accepts
+      logo_url with the same absolute http(s) rule (that validation is unchanged here). When both exist, the
+      upload wins in the responses; DELETE of the upload makes the stored logo_url the answer again. Turning
+      the flag off makes the stored string the answer again; the uploaded row is kept.
+      AUDIT. PUT and DELETE each write one audit entry (actions "tenant_logo.upload" and "tenant_logo.delete")
+      holding the content type, byte size and hash, never the bytes. Audit.append_multi raises on a database
+      failure, so the write and its audit entry are in one transaction.
+      OUT OF SCOPE, SEPARATE LATER SLICES. A logo field or preview on web/src/pages/admin/AppearanceSettingsPage.tsx,
+      the Flutter client, resizing or re-encoding the image, several logos per tenant (favicon, dark variant),
+      a CDN, and removing the logo_url string. The web client already uses branding.logo_url as an image
+      source; if a check of web/src shows it requires an absolute URL, that adjustment is part of this change.
+    acceptance_criteria:
+      - "Flag: Letflow.Identity.TenantLogo.enabled?/0 reads Application.get_env(:letflow, :tenant_logo_upload_enabled, false) == true and config/config.exs sets it to false; with it off, PUT and DELETE /api/v1/tenant/logo and GET /api/tenant-config/logo answer 404 with the router's ordinary not-found body, and GET /api/tenant-config and GET /api/mobile/tenant-config for a tenant that has a tenant_logos row are byte-identical to the responses for the same tenant with no row; a test pins each"
+      - "Upload accepts a valid image: with the flag on, PUT /api/v1/tenant/logo by a user holding :TenantSettingsManage with a PNG of at most 524288 bytes and Content-Type image/png answers 200, stores one tenant_logos row in that tenant's schema with tenant_id, content_type, a byte_size equal to the received length and the sha256 content_hash, and a second PUT replaces the row (still one row per tenant, enforced by a unique constraint on tenant_id that a test violates directly)"
+      - "Limits are refused with no row written: a PUT of image/svg+xml, image/gif, application/pdf and text/html is refused with a 4xx naming the allowed types; a PUT declared image/png whose bytes begin with the JPEG signature or with <svg is refused (magic-byte check, with one passing and one failing case each for PNG, JPEG, WebP); a PUT of 524289 bytes is refused as too large and a PUT of exactly 524288 bytes is accepted (the boundary is its own step); a PUT of the EICAR test string declared image/png is refused by the scanner seam (Letflow.Repository.AttachmentScanner.scan/2) and a scanner adapter that raises or returns {:error, _} yields a refusal, not a 500 and not a stored row"
+      - "Authorisation: PUT and DELETE /api/v1/tenant/logo are refused for a user without :TenantSettingsManage and for an unauthenticated caller; no permission atom is added (git diff shows priv/permission_matrix/effective.golden unchanged); a test confirms the route is listed with :TenantSettingsManage in the authorization route table"
+      - "Tenant isolation (INV-1, INV-6): with tenants A and B each holding a logo, PUT/DELETE by A's admin changes only A's row (B's row bytes and hash unchanged, asserted by reading B's schema with B's :prefix); GET /api/tenant-config/logo?slug=<A> returns A's bytes and ?slug=<B> returns B's; the tenant_logos table exists in every tenant schema (the tenant table-list pin @expected_tenant_tables in test/support/tenant_fixture.ex and its count in test/letflow/tenant_fixture_test.exs move by +1 from the value on origin/main at implement time) and the module contains no unscoped Repo call"
+      - "Served as an image, never as markup: GET /api/tenant-config/logo?slug=<tenant with logo> answers 200 with exactly the stored bytes, the stored content type, X-Content-Type-Options: nosniff, Content-Security-Policy: default-src 'none'; sandbox and Content-Disposition: inline; a test uploads a PNG whose trailing bytes contain <script>alert(1)</script> and asserts the body is returned byte-identical with an image/png content type and never an html or svg content type"
+      - "INV-5 on the public read: GET /api/tenant-config/logo for an unknown slug, no slug, a forced lookup failure, a real tenant with no uploaded logo, and the flag off returns five responses with the same status 404, the same body and the same header names (a test compares all five), and the request never answers 500"
+      - "INV-2/INV-5 on both tenant-config responses: with the flag on and an uploaded logo, branding.logo_url in GET /api/tenant-config and in GET /api/mobile/tenant-config equals \"/api/tenant-config/logo?slug=<slug>\" and the six top-level keys of the mobile body and the keys of the web body are unchanged; neither body contains the bytes, content_hash, byte_size, updated_by or tenant_id of the logo row (asserted by key and by value); for an unknown slug, a missing ?slug= and a lookup failure the mobile body is byte-identical to today's platform default; the moduledocs of lib/letflow/routers/tenant_config.ex and lib/letflow/routers/mobile_tenant_config.ex state that logo_url may now be a path"
+      - "Existing logo_url values: a tenant with settings logo_url \"https://example.com/l.png\" and no upload returns that string from both endpoints exactly as before; with an upload it returns the path form while settings[\"logo_url\"] in the database is unchanged; after DELETE /api/v1/tenant/logo (200) or after turning the flag off, both endpoints return the stored string again; PATCH /api/v1/tenant/settings with a non-http logo_url is still refused by the unchanged validate_logo_url/2 (git diff shows no change to that function); no migration touches tenants.settings"
+      - "Audit: PUT writes one audit entry with action \"tenant_logo.upload\" and DELETE one with \"tenant_logo.delete\", each carrying content type, byte size and hash and no image bytes (a test scans after_state for the bytes), in the same transaction as the row change; a DROP TABLE audit_entries test shows the failure path is rescued and the logo row is not left changed"
+      - "Verdicts and gates: SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-6, INV-8; the file-upload and public-read surfaces) and REVIEWER verdict is recorded; new route pins move +1 from the values on origin/main at implement time (grep -rn \"__authz_routes__\\|length(snapshot)\" test/ and test/fixtures/route_scope/tenant_wide_default_routes.txt); mix letflow.check.static and the changed and new test files pass with real output quoted; the PR states that the flag is off in QA after auto-CD and that no existing row is changed"
+    depends_on: [REQ-585, REQ-280, REQ-211, REQ-212, REQ-389]
