@@ -119,9 +119,16 @@ defmodule Letflow.Modules.Catalog do
   @spec create_via_module_surface(Letflow.Entities.Records.create_attrs(), prefix :: String.t()) ::
           :not_managed | {:ok, term()} | {:error, term()}
   def create_via_module_surface(%{entity_type: entity_type} = attrs, prefix) do
-    if entity_type in Letflow.Modules.Exam.Authoring.authoring_types(),
-      do: Letflow.Modules.Exam.Authoring.create(attrs, prefix),
-      else: :not_managed
+    cond do
+      entity_type in Letflow.Modules.Exam.Authoring.authoring_types() ->
+        Letflow.Modules.Exam.Authoring.create(attrs, prefix)
+
+      entity_type == "exam_assignment" ->
+        Letflow.Modules.Exam.Authoring.create_assignment(attrs, prefix)
+
+      true ->
+        :not_managed
+    end
   end
 
   @doc "Looks up a registered entry module by its manifest's `:id` string."

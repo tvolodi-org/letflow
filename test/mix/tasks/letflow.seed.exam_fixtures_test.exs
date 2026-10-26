@@ -331,17 +331,43 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixturesTest do
   end
 
   # ---------------------------------------------------------------------
-  # AC11 -- no exam_assignment
+  # REQ-582 part B -- exam_assignment (supersedes REQ-345 AC11 "no exam_assignment")
   # ---------------------------------------------------------------------
 
-  describe "no exam_assignment" do
-    test "no exam_assignment entity definition is active in the seeded tenant" do
-      assert :ok = ExamFixtures.run([])
+  describe "exam_assignment (REQ-582)" do
+    defp assignments(schema) do
+      import Ecto.Query, only: [from: 2]
 
+      Repo.all(
+        from(l in Latest, where: l.entity_type == "exam_assignment" and l.deleted == false),
+        prefix: schema
+      )
+    end
+
+    test "the definition is active and each fixture exam has exactly one active all assignment" do
+      assert :ok = ExamFixtures.run([])
       schema = schema_name!()
 
-      assert {:error, :not_found} =
-               Definitions.get_active_definition_by_name("exam_assignment", schema)
+      assert {:ok, _} = Definitions.get_active_definition_by_name("exam_assignment", schema)
+
+      rows = assignments(schema)
+      assert length(rows) == 2
+      assert length(Enum.uniq(Enum.map(rows, & &1.field_values["exam_id"]))) == 2
+
+      for row <- rows do
+        assert row.field_values["assignee_type"] == "all"
+        assert row.field_values["active"] == true
+      end
+    end
+
+    test "a second run adds no assignment" do
+      assert :ok = ExamFixtures.run([])
+      schema = schema_name!()
+      before_ids = schema |> assignments() |> Enum.map(& &1.record_id) |> Enum.sort()
+
+      assert :ok = ExamFixtures.run([])
+
+      assert schema |> assignments() |> Enum.map(& &1.record_id) |> Enum.sort() == before_ids
     end
   end
 end

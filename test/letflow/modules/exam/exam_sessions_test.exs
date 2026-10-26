@@ -108,7 +108,10 @@ defmodule Letflow.Modules.Exam.RouterTest do
       "certificate_enabled" => false
     }
 
-    ExamFixtures.create_record!(schema, "exam", Map.merge(defaults, attrs))
+    exam = ExamFixtures.create_record!(schema, "exam", Map.merge(defaults, attrs))
+    # REQ-582: the start check is enforced, so an exam under test is assigned to everyone.
+    ExamFixtures.assign_all!(schema, exam.record_id)
+    exam
   end
 
   defp create_question!(schema, category_id, attrs \\ %{}) do

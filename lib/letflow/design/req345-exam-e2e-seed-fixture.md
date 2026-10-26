@@ -90,10 +90,9 @@ Seeds, in the bpm-default tenant, via Letflow.Entities.Records (never direct SQL
     because of Q5). Persisted/returned outcome: status "grading_pending",
     score_pct 0.0, passed nil.
 
-  NOT SEEDED, DELIBERATELY: no exam_assignment record — none exists in this
-  tenant's schema (open question, see lib/letflow/exam/session.ex:595's
-  documented check_assigned/3 no-op) — every candidate is already treated as
-  assigned. Seeding a workaround record would misrepresent a gap as solved.
+  ASSIGNED (REQ-582): Session.check_assigned/3 is now enforced, so the seed
+  writes one active "all" exam_assignment per fixture exam (it was a no-op
+  when this design was written).
 
   ASSERTABLE ONLY OVER RAW HTTP. The seeded session can be asserted via
   GET /exam-sessions/:id only. web/src/pages/exam/ExamSessionPage.tsx:112-127's
