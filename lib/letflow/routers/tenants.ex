@@ -24,6 +24,7 @@ defmodule Letflow.Routers.Tenants do
   | patch       | `PATCH /tenants/:slug`                | `Identity.get_tenant_by_slug/1` then `Identity.patch_tenant/3`                                           | `:TenantsManage` | 200, `tenant_map/1`         |
   | deactivate  | `POST /tenants/:slug/deactivate`      | `Identity.deactivate_tenant/1`                                                                           | `:TenantsManage` | 200, `tenant_map/1`         |
   | reactivate  | `POST /tenants/:slug/reactivate`      | `Identity.reactivate_tenant/1`                                                                           | `:TenantsManage` | 200, `tenant_map/1`         |
+  | purge       | `POST /tenants/:slug/purge`           | `Identity.get_tenant_by_slug/1` then `TenantPurge.purge/3`                                               | `:TenantsManage` | 200 `{tenant_id, status, purged_at}` |
 
   GH 2534 PR 7b-2a (decision 0053 D7, `lib/letflow/design/gh2534-7b2a-script-policy.md`
   section 9.2) adds two `:TenantsManage` routes: `GET /tenants/:slug/script-policy` and
@@ -221,6 +222,10 @@ defmodule Letflow.Routers.Tenants do
 
   authz_post "/:slug/deactivate", :TenantsManage do
     handle_deactivate(conn, conn.params["slug"])
+  end
+
+  authz_post "/:slug/purge", :TenantsManage do
+    handle_purge(conn, conn.params["slug"])
   end
 
   authz_post "/:slug/reactivate", :TenantsManage do
@@ -603,7 +608,38 @@ defmodule Letflow.Routers.Tenants do
       Response.ok(conn, tenant_map(tenant))
     else
       {:error, :not_found} -> Response.not_found(conn)
+      {:error, :tenant_purged} -> Response.conflict(conn, "tenant was purged")
       {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
+    end
+  end
+
+  # REQ-580 criterion 7b: PLATFORM_ADMIN purge of a deactivated tenant past its retention. Bodyless;
+  # the target is the path slug only (INV-1). Unknown slug, platform tenant and a tenant without a
+  # lifecycle row are the one 404.
+  defp handle_purge(conn, slug) do
+    with :ok <- TenantTarget.authorize_target_tenant(conn, slug),
+         {:ok, tenant} <- Identity.get_tenant_by_slug(slug) do
+      case Letflow.TenantPurge.purge(tenant.id, :platform_admin,
+             actor_id: conn.assigns.auth_context.user_id
+           ) do
+        {:ok, _outcome} ->
+          Response.ok(conn, %{
+            tenant_id: tenant.id,
+            status: "deleted",
+            purged_at: Letflow.TenantPurge.marker(tenant.id)
+          })
+
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:error, :not_eligible} ->
+          Response.conflict(conn, "not_eligible")
+
+        {:error, :purge_failed} ->
+          Response.internal_error(conn)
+      end
+    else
+      {:error, :not_found} -> Response.not_found(conn)
     end
   end
 

@@ -890,6 +890,7 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("PATCH", "/tenants/:slug"), do: :TenantsManage
   def endpoint_policy_key("POST", "/tenants/:slug/deactivate"), do: :TenantsManage
   def endpoint_policy_key("POST", "/tenants/:slug/reactivate"), do: :TenantsManage
+  def endpoint_policy_key("POST", "/tenants/:slug/purge"), do: :TenantsManage
 
   # GH 2534 PR 7b-2a (decision 0053 D7): the operator's view of a tenant's script policy and
   # its PLATFORM kill-switch latch (Letflow.Routers.Tenants). Platform scope.

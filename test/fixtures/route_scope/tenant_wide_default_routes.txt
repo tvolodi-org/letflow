@@ -115,6 +115,7 @@ POST /tenant/modules ModulesManage
 POST /tenant/solutions ModulesManage
 POST /tenants TenantsManage
 POST /tenants/:slug/deactivate TenantsManage
+POST /tenants/:slug/purge TenantsManage
 POST /tenants/:slug/reactivate TenantsManage
 POST /tenants/:test_tenant_id/promote/:process_key PromotionsManage
 POST /webhooks/subscriptions WebhookSubscriptionsManage

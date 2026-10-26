@@ -51,6 +51,7 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
     {Letflow.Routers.Tenants, :patch, "/no-such-slug", %{}},
     {Letflow.Routers.Tenants, :post, "/no-such-slug/deactivate", nil},
     {Letflow.Routers.Tenants, :post, "/no-such-slug/reactivate", nil},
+    {Letflow.Routers.Tenants, :post, "/no-such-slug/purge", nil},
     {Letflow.Routers.Onboarding, :post, "/", %{}},
     {Letflow.Routers.Onboarding, :get, "/" <> @unused_uuid, nil},
     {Letflow.Routers.Onboarding, :post, "/" <> @unused_uuid <> "/bind-realm",
@@ -86,7 +87,7 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
   end
 
   defp assert_all_forbidden(fixture, roles) do
-    assert length(@routes) == 24
+    assert length(@routes) == 25
 
     for {label, status} <- platform_route_statuses(fixture, roles) do
       assert status == 403, "#{label}: expected 403, got #{status}"

@@ -716,7 +716,7 @@ defmodule Letflow.Routers.AdminV1Test do
       end
     end
 
-    test "N2 the router declares exactly the five routes and no credential, user or list route" do
+    test "N2 the router declares exactly the six routes and no credential, user or list route" do
       source = File.read!("lib/letflow/routers/admin_v1.ex")
       routes = Regex.scan(~r/^  (get|post|put|patch|delete) "([^"]+)"/m, source)
 
@@ -726,7 +726,8 @@ defmodule Letflow.Routers.AdminV1Test do
                  {"post", "/tenants"},
                  {"post", "/tenants/:id/suspend"},
                  {"post", "/tenants/:id/resume"},
-                 {"post", "/tenants/:id/expire"}
+                 {"post", "/tenants/:id/expire"},
+                 {"delete", "/tenants/:id"}
                ])
     end
 
@@ -831,17 +832,246 @@ defmodule Letflow.Routers.AdminV1Test do
 
   # --- D / BR ----------------------------------------------------------------
 
-  describe "D3 DELETE" do
-    test "409 for a provisioned id, 404 otherwise, nothing written" do
+  # REQ-580: DELETE records the request and purges once the retention has run out.
+  describe "D DELETE" do
+    defp retention!(days) do
+      prov = Application.get_env(:letflow, Letflow.TenantProvisioner, [])
+
+      Application.put_env(
+        :letflow,
+        Letflow.TenantProvisioner,
+        Keyword.put(prov, :retention_days, days)
+      )
+    end
+
+    defp lifecycle!(id), do: Repo.get!(Lifecycle, id)
+
+    defp delete!(id, token \\ @write_token), do: call(:delete, "/admin/v1/tenants/#{id}", token)
+
+    test "D1 an active tenant is deactivated and the request is audited; nothing is purged",
+         ctx do
       {body, _answer} = create!()
+      id = body["tenant_id"]
+      retention!(30)
+
+      conn = delete!(id)
+      assert conn.status == 202
+      assert json(conn) == %{"tenant_id" => id, "status" => "suspended"}
+
+      assert Repo.get!(Tenant, id).status == :inactive
+      assert %Lifecycle{deletion_requested_at: %DateTime{}, purged_at: nil} = lifecycle!(id)
+
+      assert [_one] =
+               Enum.filter(
+                 platform_entries(ctx, "platform.tenant_lifecycle.changed"),
+                 &(&1.resource_id == id)
+               )
+
+      assert [entry] =
+               Enum.filter(
+                 platform_entries(ctx, "platform.tenant.deletion_requested"),
+                 &(&1.resource_id == id)
+               )
+
+      assert Enum.sort(Map.keys(entry.after_state)) == ["deletion_requested_at", "tenant_id"]
+    end
+
+    test "D2/D4 inside retention a repeat changes and audits nothing more", ctx do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      retention!(30)
+      assert delete!(id).status == 202
+      requested = lifecycle!(id)
+
+      conn = delete!(id)
+      assert conn.status == 202
+      assert json(conn) == %{"tenant_id" => id, "status" => "suspended"}
+      assert lifecycle!(id) == requested
+
+      assert [_one] =
+               Enum.filter(
+                 platform_entries(ctx, "platform.tenant.deletion_requested"),
+                 &(&1.resource_id == id)
+               )
+
+      assert platform_entries(ctx, "platform.tenant.purged")
+             |> Enum.filter(&(&1.resource_id == id)) == []
+    end
+
+    test "D3/D4 past the retention the tenant is purged; a repeat answers the same and writes nothing",
+         ctx do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      retention!(0)
+
+      assert call(:post, "/admin/v1/tenants/#{id}/suspend", @write_token).status == 200
+      conn = delete!(id)
+      assert conn.status == 200
+      assert json(conn) == %{"tenant_id" => id, "status" => "deleted"}
+
+      {:ok, schema} = TenantProvisioning.schema_name_for_tenant(id)
+
+      assert Repo.query!("SELECT 1 FROM information_schema.schemata WHERE schema_name = $1", [
+               schema
+             ]).rows == []
+
+      assert %Lifecycle{lifecycle: "deleted", purged_at: %DateTime{}} = purged = lifecycle!(id)
+
+      entries = fn ->
+        for action <- ~w(platform.tenant.purged platform.tenant.deletion_requested),
+            e <- platform_entries(ctx, action),
+            e.resource_id == id,
+            do: e.id
+      end
+
+      before = entries.()
+      assert length(before) == 2
+
+      assert delete!(id).resp_body == conn.resp_body
+      assert lifecycle!(id) == purged
+      assert entries.() == before
+    end
+
+    test "D5 an expired tenant counts its retention from expires_at" do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      retention!(30)
+      assert call(:post, "/admin/v1/tenants/#{id}/expire", @write_token).status == 200
+      past = DateTime.add(DateTime.utc_now(), -31 * 86_400, :second)
+      Repo.update_all(from(l in Lifecycle, where: l.tenant_id == ^id), set: [expires_at: past])
+
+      conn = delete!(id)
+      assert conn.status == 200 and json(conn)["status"] == "deleted"
+    end
+
+    test "D6 unknown, non-uuid and non-provisioned ids are one 404, nothing written" do
+      bare =
+        Repo.insert!(%Tenant{
+          id: Ecto.UUID.generate(),
+          slug: "bare-#{System.unique_integer([:positive])}",
+          display_name: "bare"
+        })
+
+      track(bare.id)
       before = counts()
-      conn = call(:delete, "/admin/v1/tenants/#{body["tenant_id"]}", @write_token)
-      assert conn.status == 409 and json(conn)["error"] == "conflict"
-
-      assert call(:delete, "/admin/v1/tenants/#{Ecto.UUID.generate()}", @write_token).status ==
-               404
-
+      bodies = for id <- [Ecto.UUID.generate(), "not-a-uuid", bare.id], do: delete!(id)
+      assert Enum.all?(bodies, &(&1.status == 404))
+      assert bodies |> Enum.map(& &1.resp_body) |> Enum.uniq() |> length() == 1
       assert counts() == before
+    end
+
+    test "D7 the read credential is 403 and changes nothing" do
+      {body, _answer} = create!()
+      conn = delete!(body["tenant_id"], @read_token)
+      assert conn.status == 403
+      assert lifecycle!(body["tenant_id"]).lifecycle == "active"
+      assert delete!(body["tenant_id"], "wrong-token").status == 401
+    end
+
+    test "D8/D10 a production tenant is 409 and is not deactivated" do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      Repo.update_all(from(l in Lifecycle, where: l.tenant_id == ^id), set: [tier: "production"])
+
+      conn = delete!(id)
+      assert conn.status == 409 and json(conn)["error"] == "conflict"
+      assert Repo.get!(Tenant, id).status == :active
+      assert %Lifecycle{lifecycle: "active", deletion_requested_at: nil} = lifecycle!(id)
+    end
+
+    test "D10 the platform tenant with a lifecycle row is 409 and stays active", ctx do
+      id = ctx.platform.tenant_id
+      Repo.insert!(%Lifecycle{tenant_id: id, lifecycle: "active", tier: "demo", language: "en"})
+
+      on_exit(fn ->
+        Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+        Repo.delete_all(from(l in Lifecycle, where: l.tenant_id == ^id))
+      end)
+
+      assert delete!(id).status == 409
+      assert Repo.get!(Tenant, id).status == :active
+      assert lifecycle!(id).deletion_requested_at == nil
+    end
+
+    test "D9 a suspended row without deletion_requested_at gets it from a repeat DELETE", ctx do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      retention!(30)
+      assert call(:post, "/admin/v1/tenants/#{id}/suspend", @write_token).status == 200
+      assert lifecycle!(id).deletion_requested_at == nil
+
+      assert delete!(id).status == 202
+      assert lifecycle!(id).deletion_requested_at != nil
+
+      assert [_one] =
+               Enum.filter(
+                 platform_entries(ctx, "platform.tenant.deletion_requested"),
+                 &(&1.resource_id == id)
+               )
+    end
+
+    test "RS2 resume after a DELETE is 409 and changes nothing" do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      retention!(30)
+      assert delete!(id).status == 202
+      before = lifecycle!(id)
+
+      assert call(:post, "/admin/v1/tenants/#{id}/resume", @write_token).status == 409
+      assert lifecycle!(id) == before
+      assert Repo.get!(Tenant, id).status == :inactive
+    end
+
+    test "E8 expire of a deletion-requested tenant is allowed; retention counts from expires_at" do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      retention!(30)
+      assert delete!(id).status == 202
+      assert call(:post, "/admin/v1/tenants/#{id}/expire", @write_token).status == 200
+
+      # expires_at is 14 days ahead: not yet eligible.
+      assert json(delete!(id))["status"] == "expired"
+      past = DateTime.add(DateTime.utc_now(), -31 * 86_400, :second)
+      Repo.update_all(from(l in Lifecycle, where: l.tenant_id == ^id), set: [expires_at: past])
+      assert json(delete!(id))["status"] == "deleted"
+    end
+
+    test "GP1 a purged tenant answers GET with status deleted and purged_at, never 404" do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      before = json(call(:get, "/admin/v1/tenants/#{id}", @write_token))
+      assert before["purged_at"] == nil
+
+      retention!(0)
+      assert call(:post, "/admin/v1/tenants/#{id}/suspend", @write_token).status == 200
+      assert delete!(id).status == 200
+
+      for token <- [@write_token, @read_token] do
+        conn = call(:get, "/admin/v1/tenants/#{id}", token)
+        assert conn.status == 200
+        answer = json(conn)
+        assert Enum.sort(Map.keys(answer)) == @get_keys
+        assert answer["status"] == "deleted"
+        assert {:ok, _at, 0} = DateTime.from_iso8601(answer["purged_at"])
+        refute conn.resp_body =~ "REQ-572 Demo"
+      end
+    end
+
+    test "RS1 resume of a purged tenant is 409" do
+      {body, _answer} = create!()
+      id = body["tenant_id"]
+      retention!(0)
+      assert call(:post, "/admin/v1/tenants/#{id}/suspend", @write_token).status == 200
+      assert delete!(id).status == 200
+      assert call(:post, "/admin/v1/tenants/#{id}/resume", @write_token).status == 409
+      assert Repo.get!(Tenant, id).status == :inactive
+    end
+
+    test "S2 the retention variable is read by runtime.exs and listed in .env.example" do
+      runtime = File.read!("config/runtime.exs")
+      [_, list] = Regex.run(~r/provisioner_env =\s*~w\((.*?)\)/s, runtime)
+      assert list =~ "LETFLOW_PROVISIONER_RETENTION_DAYS"
+      assert File.read!("deploy/.env.example") =~ "LETFLOW_PROVISIONER_RETENTION_DAYS"
     end
   end
 
