@@ -34,8 +34,10 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
   alias Letflow.Definitions.SolutionPack
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.ManagedTypes.Stamp
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Entities.Records
   alias Letflow.EventStore.Event
   alias Letflow.ExamFixtures
   alias Letflow.ExamStampFixtures, as: Fx
@@ -52,7 +54,10 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
   @task_worker ["TASK_WORKER"]
 
   @six Fx.runtime_types()
-  @ten Fx.authoring_types()
+  @ten Fx.stamp_types() -- Fx.runtime_types()
+  # Every type the exam module manages: the sixteen stamped ones plus REQ-582 `exam_assignment`, which
+  # `Fx.full_tenant!/1` already holds owner-stamped (not stamped by `Stamp`).
+  @managed @six ++ @ten ++ ["exam_assignment"]
 
   # ── helpers ─────────────────────────────────────────────────────────────────────────────────
 
@@ -157,7 +162,7 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
   defp iso(offset),
     do: DateTime.utc_now() |> DateTime.add(offset, :second) |> DateTime.to_iso8601()
 
-  # Valid field_values for every one of the sixteen types.
+  # Valid field_values for every one of the seventeen types.
   defp values("session", _n) do
     %{
       "exam_id" => Ecto.UUID.generate(),
@@ -282,6 +287,15 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
   defp values("question_tag", _n),
     do: %{"question_id" => Ecto.UUID.generate(), "tag_id" => Ecto.UUID.generate()}
 
+  defp values("exam_assignment", _n) do
+    %{
+      "exam_id" => Ecto.UUID.generate(),
+      "assignee_type" => "all",
+      "assigned_by" => Ecto.UUID.generate(),
+      "active" => true
+    }
+  end
+
   defp import_document(type, count) do
     %{
       "record_export_schema_version" => "entities/record-export/v1",
@@ -298,7 +312,7 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
     }
   end
 
-  # An exam tenant with all sixteen definitions active, one record per type created BEFORE the
+  # An exam tenant with all seventeen definitions active, one record per type created BEFORE the
   # stamp, then stamped. Returns the context plus %{type => record_id}.
   setup do
     %{tenant_id: tenant_id, schema_name: schema} = Fx.full_tenant!("gh2596-http")
@@ -308,6 +322,22 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
       for type <- @six ++ @ten, into: %{} do
         {type, ExamFixtures.create_record!(schema, type, values(type, 1)).record_id}
       end
+
+    # `exam_assignment` is already owner-stamped (REQ-582), so only the exam module's authority
+    # can create its record.
+    assert {:ok, %{record: assignment}} =
+             Records.create_record(
+               %{
+                 entity_type: "exam_assignment",
+                 field_values: values("exam_assignment", 1),
+                 actor_id: Ecto.UUID.generate(),
+                 idempotency_key: Ecto.UUID.generate()
+               },
+               schema,
+               ManagedTypes.owner_for!(Letflow.Modules.Exam)
+             )
+
+    records = Map.put(records, "exam_assignment", assignment.record_id)
 
     items_before =
       for type <- @six, into: %{}, do: {type, query_items(tenant_id, actor.id, schema, type)}
@@ -336,7 +366,7 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
          ctx do
       events_before = event_count(ctx.schema)
 
-      for type <- @six ++ @ten, roles <- [@operator, @admin] do
+      for type <- @managed, roles <- [@operator, @admin] do
         id = ctx.records[type]
         before = stored(ctx, type, id)
         count_before = record_count(ctx.schema, type)
@@ -373,7 +403,7 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
          ctx do
       events_before = event_count(ctx.schema)
 
-      for type <- @six ++ @ten do
+      for type <- @managed do
         count_before = record_count(ctx.schema, type)
 
         assert_managed!(
@@ -607,7 +637,7 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
 
     test "POST /definitions/:name/activate on a stamped name (sixteen) is refused",
          ctx do
-      for name <- @six ++ @ten do
+      for name <- @managed do
         assert_managed!(
           call_entities(ctx, @designer, :post, "/definitions/#{name}/activate", %{
             "rationale" => "x"
@@ -622,7 +652,7 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
 
   defp assert_stamps_intact!(ctx) do
     map = Fx.managed_by_map(ctx.schema)
-    for name <- @six ++ @ten, do: assert(map[name] == ["exam"], name)
+    for name <- @managed, do: assert(map[name] == ["exam"], name)
   end
 
   # ── T-13 ────────────────────────────────────────────────────────────────────────────────────
@@ -655,12 +685,12 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
 
     test "a tenant (non-owner) install of the real exam pack over the stamped names changes nothing",
          ctx do
-      before = Fx.dump(ctx.schema, @six ++ @ten)
+      before = Fx.dump(ctx.schema, @managed)
 
       assert {:error, _reason} =
                SolutionPack.install(Fx.pack_document(), ctx.actor_id, prefix: ctx.schema)
 
-      assert Fx.dump(ctx.schema, @six ++ @ten) == before
+      assert Fx.dump(ctx.schema, @managed) == before
       assert_stamps_intact!(ctx)
       assert match?({:ok, _}, Definitions.get_active_definition_by_name("session", ctx.schema))
     end
