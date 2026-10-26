@@ -41614,3 +41614,106 @@ requirements:
       - "5. i18n, Test U-i18n: every new text key exists in kk, ru and en in examMessages.ts and the module's message-key completeness check (the existing exam message tests) passes; the screen renders in each locale without a missing-key fallback."
       - "6. npm run check (type-check, lint, unit tests, guards) passes with real output quoted; no change under web/src outside web/src/modules/exam/ except the minimal navigation registration the shell requires, which the PR names; the existing candidate and admin screen tests still pass."
     depends_on: [REQ-588]
+
+  - id: REQ-593
+    title: "Exam analytics reports over the aggregate API: per-exam summary, score distribution and per-question difficulty, with the classification of every BilimBaga report (BilimBaga study T6c)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    # impl_order: UNREGISTERED -- no pending dependency; the registration lint (S1 staleness) may flag it while S10 is active
+    # Source: docs/migration/bilimbaga-study-t6d-analytics.md (sections 3, 4, 5, 6: the report table, the per-report analysis, the first set of three, the access rule); docs/migration/bilimbaga-retirement-status.md (criterion 6, task T6c); priv/modules/exam/entity_definitions/{session,session_question_score}.json (the `queried` flags); lib/letflow/entities/query/compiler.ex (run_aggregate) and lib/letflow/entities/query/allowlist.ex (only `queried: true` fields are usable); lib/letflow/routers/entities.ex (the route `POST /entities/query/aggregate`, scope: :filter, policy key EntitiesAggregate); lib/letflow/api/authorization.ex (EntitiesAggregate) and the docs/roles.md matrix row EntitiesAggregate; docs/migration/decisions/0055-module-upgrade-migration-uninstall.md (module upgrade, classes A, B, C); docs/migration/decisions/0031-candidate-results-list-scope.md (no cross-session results list). Written by the business analyst (T-0704) 2026-10-26. Not yet validated.
+    description: >
+      BilimBaga (c:\Users\tvolo\dev\ai-dala\BilimBaga, checkout at 445216d, possibly behind origin/main) has eleven
+      report outputs R1..R11 (study T6d section 3). Letflow's exam pack has none of them: the aggregate query
+      (`POST /entities/query/aggregate`) can only use fields with `queried: true`, and today `session.score_pct`,
+      `session.passed`, `session.submitted_at` and the `session_question_score` fields `score` and `max_score` are
+      all `queried: false` (priv/modules/exam/entity_definitions/session.json and session_question_score.json).
+      This requirement delivers the first set of three reports as a read-only API recipe over the aggregate route
+      (no new route, no new function in the compiler, no new web screen) and records the classification of every
+      report. Sized to three tasks: (a) the definition change and its rollout to existing tenants, (b) writing the
+      per-question `correct` flag when a question is graded, (c) the report tests.
+      CLASSIFICATION (every row of the T6d table). "Computable" means by `POST /entities/query/aggregate` with the
+      functions that exist (count, sum, avg, min, max; filters eq, neq, gt, gte, lt, lte, in, not_in, contains,
+      starts_with, is_null, is_not_null) once the named fields are `queried: true`; a ratio is the client dividing
+      two counts and is not an extension.
+      R1 completion rate by exam: DROPPED from this requirement, reason: needs an assignment entity and departments,
+      which the pack does not have (retirement criteria 1 and 5); belongs to that work.
+      R2 overdue employees: DROPPED, reason: needs assignments with deadlines and a negation across entities (no
+      aggregate function fixes it); belongs to the assignment work.
+      R3 recent activity: DROPPED from the aggregate API, reason: it is a sorted list, not an aggregate; the plain
+      query route serves it once `session.submitted_at` is `queried: true`, which this requirement does not do.
+      R4 average score by track: NEEDS AN AGGREGATE EXTENSION: group-by on a field of a joined entity (the question's
+      category track); the aggregate resolves group-by only on the primary entity. Not built here.
+      R5 attempts, pass rate, average score: COMPUTABLE after `session.score_pct` and `session.passed` are made
+      queried (report 1 below).
+      R5 score histogram: COMPUTABLE with ten `count` calls using gte/lt filters on `score_pct` (report 2 below); a
+      single-call bucket group-by would be an extension and is not built.
+      R5 median: NEEDS AN AGGREGATE EXTENSION: `median` (or percentile). Not built here.
+      R5 unique participants: NEEDS AN AGGREGATE EXTENSION: `count_distinct`. Not built here.
+      R5 per-question correct rate: COMPUTABLE after a queried boolean `correct` and a queried `exam_id` exist on
+      `session_question_score` (report 3 below).
+      R5 per-question average time: DROPPED from this requirement, reason: `session_answer.time_spent_seconds` is not
+      queried and the row has no exam id, so it needs the same exam restriction as report 3 plus a promotion; a later
+      requirement.
+      R5 answer distribution per option: DROPPED, reason: `selected_option_ids` is a JSON array and cannot be counted
+      per option; it needs one row per selected option or a read model.
+      R6 employee session history: COMPUTABLE as a list (not an aggregate) by `POST /entities/query` over `session` by
+      `user_id`; no change in this requirement.
+      R6 progress per track: DROPPED, reason: needs a joined group-by and assignments.
+      R7 results CSV and R8 employee record CSV: DROPPED from this requirement, reason: exports, not aggregates (row
+      cap, CSV-injection guard); decision 0031 records that Letflow has no cross-session results list; a requirement
+      of their own.
+      R9 dashboard PDF: DROPPED, reason: needs R1, a date-range filter on `submitted_at` and PDF rendering.
+      R10 AI insights per exam and R11 AI loyalty narrative: OUT OF SCOPE: AI features, they belong to the AI study
+      (T6a, T6b) and are not analytics queries.
+      THE THREE REPORTS. All count only sessions with status in (submitted, auto_submitted), as BilimBaga does, and
+      every report request is filtered by one `exam_id`.
+      Report 1, per-exam summary: attempts = `count`; passed = `count` with `passed eq true`; average =
+      `avg(score_pct)`; pass rate is passed divided by attempts in the client.
+      Report 2, score distribution: ten `count` calls over the ranges 0 to under 10, 10 to under 20, ... 90 to 100
+      (the last range includes 100), as BilimBaga's ten buckets of 10 points.
+      Report 3, per-question difficulty: `count` grouped by `question_id` on `session_question_score`, filtered by
+      `exam_id`, once with `correct eq true` and once without; the correct rate per question is the client dividing.
+      DEFINITION CHANGE (task a, and b for the writer). In session.json set `queried: true` on `score_pct` and
+      `passed`. In session_question_score.json add two fields: `exam_id` (string, queried, not required) and `correct`
+      (boolean, queried, not required), both written by the grading code when a question score row is written
+      (task b: the file that writes `session_question_score` rows, found by grep for the entity name under
+      lib/letflow/modules/exam/). Both are optional, so old rows stay valid. `correct` is true when `score` equals
+      `max_score` at the time the row is final (grading_status graded or ai_graded); a pending_manual row carries no
+      `correct` value and is not counted as correct or incorrect.
+      ROLLOUT TO EXISTING TENANTS (study T6d requires it stated). The change ships as a new version of the exam
+      module and reaches an installed tenant through the module upgrade of decision 0055 (plan, then apply with
+      `plan_hash` and a rationale). Existing tenants, QA included: (1) `queried` false to true on `score_pct` and
+      `passed` makes the platform create the promoted columns and fill them from the stored record values, so
+      sessions submitted before the upgrade are counted; (2) the two new fields are additive and optional (decision
+      0055 class A); rows written before the upgrade have no `exam_id` and no `correct`, so report 3 covers only
+      question scores graded after the upgrade, and the report states that boundary; no backfill is built; (3) no
+      existing record is deleted or overwritten. Whether the `queried` flip itself is class A, B or C in 0055 is not
+      stated in that record; the plan output for the exam module shows the class and the PR records it (open question).
+      ACCESS RULE. The reports are read only through `POST /entities/query/aggregate`, which needs the existing
+      permission EntitiesAggregate; no new permission is added (so the permission matrix golden and the auditor
+      refused set do not move). By docs/roles.md that permission is held by PLATFORM_ADMIN (own tenant),
+      PROCESS_DESIGNER, PROCESS_OPERATOR, TASK_WORKER, TENANT_ADMIN and TENANT_AUDITOR and is not held by CANDIDATE or
+      AGENT_RUNNER. Department scope: BilimBaga narrows every role but super admin to its department subtree; Letflow
+      has no department entity, so the reports are tenant-wide for every holder, stated as a known difference. A
+      scoped caller (REQ-518 scope sets) whose scope does not declare `session` or `session_question_score` gets an
+      empty result, not an error, and the requirement tests that behaviour instead of assuming it. Reports never name
+      `session.exam_snapshot` or any answer-key field (one restricted field rejects the whole request with 403).
+    open_questions:
+      - "Is flipping `queried` from false to true on an existing field an upgrade class A, B or C under decision 0055? The record does not say; the upgrade plan for the exam module decides it and the PR names the result. If it is class B, the module version must declare the covering step."
+      - "Should the department narrowing be rebuilt when a department entity exists? Not decided here; BilimBaga's rule is tenant-wide in this first set."
+      - "Median, count_distinct and the joined group-by (R4, R5 median, R5 unique participants) are named as extensions and not scheduled; the portfolio owner decides whether the pilot needs them."
+    acceptance_criteria:
+      - "1. Classification, Test A-class: a document-reading test (or a reader) finds in this entry's description every one of R1..R11 of docs/migration/bilimbaga-study-t6d-analytics.md section 3 (R5 split into its parts) with exactly one class (computable, needs an aggregate extension with the missing function named, dropped with a reason, or out of scope), and R10 and R11 are marked out of scope."
+      - "2. Definition, Test A-def: after the change, priv/modules/exam/entity_definitions/session.json has `queried: true` on `score_pct` and `passed`, and session_question_score.json declares `exam_id` (string) and `correct` (boolean), both queried and not required; the definition validator accepts both files and the existing exam pack tests still pass."
+      - "3. Writer, Test A-write: when a question score row is written with grading_status graded or ai_graded, it carries the session's exam id and `correct` true exactly when score equals max_score; a pending_manual row carries the exam id and no `correct` value; the later manual grading write sets `correct` once, without changing the row's other fields."
+      - "4. Report 1, Test R-summary: with a fixture exam of five sessions (three submitted, one auto_submitted, one in_progress; three passed) in one tenant, three aggregate requests (count; count with passed eq true; avg of score_pct, each filtered by exam_id and status in submitted and auto_submitted) return 4, 3 and the arithmetic mean of the four scores; the in_progress session is not counted."
+      - "5. Report 2, Test R-histogram: with sessions scoring 0, 9.99, 10, 55, 99.99 and 100, the ten count requests return 2, 1, 0, 0, 0, 1, 0, 0, 0, 2 and the ten numbers sum to the number of finished sessions; a score of exactly 100 falls in the last range, not in none."
+      - "6. Report 3, Test R-question: with two questions in one exam, 3 graded rows each, question A correct in 3 rows and question B in 1 row, the grouped counts give a correct rate of 3 of 3 for A and 1 of 3 for B; a pending_manual row is in neither count; a row of another exam is not counted."
+      - "7. Access, Test R-perm: a TENANT_AUDITOR credential and a TASK_WORKER credential get 200 on the report requests; a CANDIDATE credential and an AGENT_RUNNER credential get 403; a request that names `session.exam_snapshot` as a filter or group-by field gets 403 and no data."
+      - "8. Cross-tenant negative, Test R-tenant (INV-1, INV-10): with finished sessions in tenant B's schema, the three reports run by a TENANT_ADMIN of tenant A return counts and averages of tenant A only (zero when A has none) and nothing of B; the request has no tenant parameter in path, query or body; a PLATFORM_ADMIN token sees only its own tenant's data."
+      - "9. Scope, Test R-scope: a caller whose REQ-518 scope declares neither `session` nor `session_question_score` gets an empty result (counts of zero or no groups), not an error, on the report requests; the test shows the actual current behaviour and the PR states it."
+      - "10. Rollout, Test R-upgrade: on a tenant with the previous exam module version and one submitted, passed session of score 80 stored before the change, applying the module upgrade (plan, then apply as decision 0055 D2 requires) makes report 1 return attempts 1, passed 1 and average 80 for that session, and a score row written before the upgrade is not counted in report 3; the PR names the upgrade class the plan reports for the `queried` flip."
+      - "11. No new route, no new function in the aggregate compiler and no new permission: `git diff` of the PR touches no file under lib/letflow/routers/ or lib/letflow/entities/query/ and adds no permission atom; the route-inventory pins and the permission matrix golden are unchanged (grep -rn \"__authz_routes__\\|length(snapshot)\" test/ listed in the PR with unchanged values)."
+      - "12. SECURITY-REVIEWER verdict is recorded (tenant-data read path: INV-1, INV-2, INV-10) and REVIEWER verdict is recorded; mix letflow.check.static and the tests A-def, A-write, R-summary, R-histogram, R-question, R-perm, R-tenant, R-scope and R-upgrade pass with real output quoted."
+    depends_on: [REQ-511, REQ-518, REQ-350]
