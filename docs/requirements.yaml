@@ -41180,7 +41180,7 @@ requirements:
       - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-10, template content in audit payloads, trigger completeness) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests (S1-store, S2-immutable, S2-save, D5-redact, C3-manage, S2-sod, S2-audit and the permission tests) pass with real output quoted."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571]
 
-  - id: REQ-584
+  - id: REQ-586
     title: Exam pack parent_id on category (tree) and question (version lineage), with write rules, upgrade rollout for installed tenants and a category tree picker (follow-on of REQ-324, REQ-326 and REQ-343; BilimBaga study T1c)
     owner: ELIXIR-DEV
     status: pending
@@ -41205,8 +41205,10 @@ requirements:
       question that is the first version.
 
       2. ON DELETE, SEPARATELY. Category tree: ON DELETE RESTRICT, the only clause the DDL emits for a promoted fk
-      (decision 0025 sub-question 1, which does not distinguish a self-edge; DDL.build_add_column_sql in
-      lib/letflow/tenant_provisioning.ex writes it). Question lineage: also RESTRICT, for the same reason; CASCADE and
+      (decision 0025 sub-question 1, which does not distinguish a self-edge). The clause is written by
+      lib/letflow/entities/definition/ddl.ex (REFERENCES ... ON DELETE RESTRICT, CREATE TABLE path) and by
+      TenantProvisioning.build_add_column_sql/4 (private, lib/letflow/tenant_provisioning.ex, the ALTER TABLE ADD
+      COLUMN path). Question lineage: also RESTRICT, for the same reason; CASCADE and
       SET NULL are not used for either, because a hard delete of a parent row would silently destroy or detach a
       whole subtree or version history. The clause is inert on the application path: Records.delete_record/3 is a
       soft delete (an UPDATE setting deleted, decision 0025 Reasoning), so the live rule is a write rule in
@@ -41223,17 +41225,25 @@ requirements:
       a non-deleted category of the same tenant is refused (422, reason parent_not_found), the same answer for
       "absent", "deleted" and "another tenant's id" (INV-5). There is no depth limit.
 
-      4. WHAT 'ONLY THE LATEST VERSION IS ACTIVE' MEANS. A lineage is the chain of questions linked by parent_id.
-      The latest version is the question with no non-deleted question whose parent_id points at it. Invariant: in one
-      lineage at most one question has status active, and if one does it is the latest version. Enforced in
-      Authoring.create and Authoring.update for question (422): a parent_id must name a non-deleted question that has
-      no other non-deleted child (reason lineage_branch) and the new version must be greater than the parent's version
-      (reason version_not_increasing); setting status active on a question whose ancestor is active is refused
-      (reason ancestor_active, the author archives the predecessor first); setting status active on a question that
-      already has a non-deleted child is refused (reason superseded). Statuses draft, review and archived are not
-      restricted by lineage. The exam question pool (lib/letflow/modules/exam/question_set_resolver.ex) already
-      selects by status; the implementer states in the PR where it filters and proves that no lineage yields two
-      questions to one session.
+      4. WHAT 'ONLY THE LATEST VERSION IS ACTIVE' MEANS. A lineage is the set of non-deleted questions connected by
+      parent_id (all ancestors and all descendants of any member). The latest version is the member with no
+      non-deleted child. ONE definition: at most one member of a lineage has status active. While a successor version
+      is draft or review, the active member may be its predecessor (the published version stays in use until the
+      successor is activated); to publish the successor the author first archives the active predecessor, then
+      activates the successor, and the end state is exactly one active member, the latest version. Nothing else is
+      restricted: draft, review and archived members are unlimited. Enforced in Authoring.create and Authoring.update
+      for question (422), on every write whose resulting record has status active OR whose parent_id changes: the
+      implementation walks all ancestors and all descendants of the resulting record (visited set, terminates on a
+      cycle) and refuses with reason lineage_active_conflict if another non-deleted member is active. Two further
+      refusals: a parent_id must name a non-deleted question that has no other non-deleted child (reason
+      lineage_branch, so a lineage is a chain), and the version must be greater than the parent's version and less
+      than every child's version (reason version_not_increasing). An update that moves an already-active question
+      under a parent whose lineage has another active member is refused by the first rule. No rule here changes a
+      status by itself (no automatic archive). The exam question pool filters by status in lib/letflow/modules/exam/
+      session.ex, not in question_set_resolver.ex (a pure function over a supplied pool): fetch_pool_questions/2
+      (rule pools: eq("status", "active") and eq("deleted", false)) and fetch_pinned_question_row/2 (manual pins:
+      status == "active"). Because of the one-active rule, a session gets at most one version of a lineage from a rule
+      pool; a manual pin names one question id and is not widened.
 
       5. UPGRADE PATH FOR TENANTS WITH THE PACK ALREADY INSTALLED (QA, BilimBaga). Decision 0052 fact 8: pack update does
       not touch entity definitions, and Definitions.activate_definition/4 promotes only constrained columns
@@ -41249,7 +41259,16 @@ requirements:
       (Definitions.activate_definition/4), then TenantProvisioning.register_column_promotion/4 and
       run_column_promotion/1 for parent_id, which issues ALTER TABLE ... ADD COLUMN parent_id uuid REFERENCES the
       type's own table(record_id) ON DELETE RESTRICT; a promotion row left pending or ddl_failed is reported as a tag
-      (decision 0052 D5). EXISTING ROWS: they get a null parent_id. Every existing category becomes a root and every
+      (decision 0052 D5). MANAGED TYPES: category and question are in the exam manifest's manages_entity_types
+      (lib/letflow/modules/exam/exam.ex), so Definitions.create_definition/3 with owner :tenant is refused
+      (ManagedTypes.check_create/3 returns {:error, :entity_type_managed}) and Snapshot.Rollout's branch that skips a
+      managed active definition (:managed_cannot_upgrade, rollout.ex) must NOT be copied. ParentRollout passes
+      the exam module's owner, ManagedTypes.owner_for!(Letflow.Modules.Exam) (as Authoring.exam_owner/0 does), to
+      create_definition/3 and activate_definition/4. A definition already stamped managed_by "exam" is upgraded
+      under that owner; a definition of these two names not yet stamped (installed before the stamp existed) is
+      claimed and stamped by the same call (check_create/3 claim_unmanaged_name path), not reported as a conflict; a
+      definition managed by another module, or whose parent_id already exists with a different shape, is reported
+      as a conflict tag and left untouched. EXISTING ROWS: they get a null parent_id. Every existing category becomes a root and every
       existing question becomes the first version of its own lineage; no parent is inferred from names, tracks or
       version numbers. A tenant without the exam module, or already upgraded, is skipped. Running it on QA is a
       post-merge operator step the PR names; it is not part of the change. A tenant that has not been upgraded keeps
@@ -41262,15 +41281,15 @@ requirements:
       MIX_ENV=test mix run --no-start priv/modules/exam/generate_pack.exs (never by hand; the drift guard in
       test/letflow/modules/exam/pack_install_test.exs re-reads the sources); replace the README section "Deferred:
       parent_id on category and question" in priv/modules/exam/README.md with the shipped design and the rollout
-      command; update the open item in priv/modules/exam/entity_definitions/README-constraints.md, item 5 of
-      docs/migration/bilimbaga-retirement-status.md and the gap-14 line of docs/migration/stage-10-bilimbaga-vertical.md.
+      command; update item 5 of docs/migration/bilimbaga-retirement-status.md and the gap-14 line of docs/migration/stage-10-bilimbaga-vertical.md.
       The installation order list in generate_pack.exs and the exam module's activation order are unchanged (a
       self-edge adds no dependency between types). Pinned tests that must move, found by grep and each listed in the
       PR: test/letflow/modules/exam/entity_definitions_test.exs (describe "relational shape": question declares
       exactly one foreign_keys entry, and the category equivalent), test/letflow/modules/exam/exam_definitions_test.exs
       (foreign-key and index shape checks), test/letflow/modules/exam/pack_install_test.exs (drift guard and the
-      promote! pins near line 367), test/letflow/modules/bilimbaga_solution_e2e_test.exs and any priv/solutions fixture
-      that embeds the two definitions, plus the web tests of item 7. The implementer runs
+      promote! pins near line 367), any priv/solutions fixture that embeds the two definitions (and
+      test/letflow/modules/bilimbaga_solution_e2e_test.exs only if the classified grep shows it pins a definition or
+      field count), plus the web tests of item 7. The implementer runs
       grep -rn "parent_id\|REQ-324\|foreign_keys" test/ priv/ docs/migration/ and classifies every hit.
 
       7. WEB: CATEGORY TREE PICKER (the REQ-343 gap). web/src/config/bilimbagaEntities.ts says no tree picker and no
@@ -41297,9 +41316,9 @@ requirements:
       - "Authoring.update of a category with parent_id equal to its own record id, or equal to one of its descendants (a direct child, and a grandchild), is refused with 422 and reason parent_cycle through the authoring PUT route; a valid re-parent to a sibling is accepted in its own test; a pre-existing cycle written straight into the table by the test does not make the walk loop (the call returns, bounded by the visited set)"
       - "Authoring.create and update for category and question refuse (422, reason parent_not_found) a parent_id that is absent, soft-deleted, or the id of a record in another tenant, with a response body identical in all three cases (INV-5)"
       - "Authoring.delete of a category with a non-deleted child, and of a question with a non-deleted child version, is refused with 409 and reasons category_has_children and question_has_children; deleting a leaf category and deleting the newest question version succeed; a test asserts the database-level ON DELETE RESTRICT separately by a raw SQL DELETE of a referenced category row and of a referenced question row, each failing with a foreign key violation (the two policies are asserted in separate tests, one per entity type)"
-      - "Question lineage rules hold through the authoring routes: a second non-deleted child of one question is refused (lineage_branch); a child whose version is not greater than the parent's is refused (version_not_increasing); status active on a question whose ancestor is active is refused (ancestor_active); status active on a question that already has a non-deleted child is refused (superseded); archive the predecessor then activate the child succeeds; draft, review and archived writes are never refused by a lineage rule; after the sequence a test lists the lineage and finds exactly one active question, the latest version"
-      - "The exam question pool never returns two versions of one lineage to one session: a test with a three-version lineage (archived, archived, active) and a session start returns only the active version; the PR names the line in question_set_resolver.ex that filters by status"
-      - "Letflow.Modules.Exam.ParentRollout upgrades a tenant that has the old active category and question definitions and rows: after one run each active definition declares parent_id and its fk_def, entity_column_promotions for parent_id is complete for both types, the column exists with a foreign key to its own table and ON DELETE RESTRICT, every pre-existing row has a null parent_id and stays readable and unchanged (record count and field values equal before and after), and a following authoring write sets a real parent_id; a second run changes nothing (no new definition version, no new promotion row); dry_run: true writes nothing; a tenant without the exam module is skipped"
+      - "Question lineage rules hold through the authoring routes (one definition: at most one active member per lineage): a second non-deleted child of one question is refused (lineage_branch); a child whose version is not greater than the parent's, or not less than an existing child's, is refused (version_not_increasing); creating a draft child under an active parent succeeds and leaves the parent active; activating that child while the parent is active is refused (lineage_active_conflict); archive the parent then activate the child succeeds, and a test then lists the lineage and finds exactly one active question, the latest version; an update that sets parent_id of an already-active question to a question whose lineage has another active member is refused (lineage_active_conflict) and the row is unchanged; draft, review and archived writes are never refused by the active rule"
+      - "The exam question pool never returns two versions of one lineage to one session: with a three-version lineage (archived, archived, active) a session started from a rule pool on the category (Session.fetch_pool_questions/2) draws only the active version, and a manual pin of an archived version (Session.fetch_pinned_question_row/2) is not drawn while a pin of the active version is; both functions are named in the PR with the lines that filter by status (lib/letflow/modules/exam/session.ex)"
+      - "Letflow.Modules.Exam.ParentRollout upgrades a tenant that has the old active category and question definitions and rows: after one run each active definition declares parent_id and its fk_def, entity_column_promotions for parent_id is complete for both types, the column exists with a foreign key to its own table and ON DELETE RESTRICT, every pre-existing row has a null parent_id and stays readable and unchanged (record count and field values equal before and after), and a following authoring write sets a real parent_id; a second run changes nothing (no new definition version, no new promotion row); dry_run: true writes nothing; a tenant without the exam module is skipped; a tenant whose category and question definitions carry managed_by 'exam' is upgraded under the exam module's owner (ManagedTypes.owner_for!/1), not reported as :entity_type_managed or as a conflict, and a tenant whose two definitions are not yet stamped is upgraded and stamped; a definition managed by another module is reported as a conflict tag and left untouched"
       - "The rollout is tenant-isolated and failure-tolerant: with two tenants in one test, a parent_id written in one tenant is not visible in the other and the rollout of the first leaves the second's definitions untouched until its own turn; a forced promotion failure in one tenant is reported as a tag only (no message, no value) while the sweep continues for the next tenant; Letflow.Release.ExamParentId.rollout/1 and verify/0 return the report and a ready flag, reached through Letflow.Modules.Catalog, and a boundary test or mix letflow.check.static shows no direct call into the exam module"
       - "A tenant that has not been upgraded rejects a write carrying parent_id through the authoring route with the existing undeclared-field rejection, and keeps accepting writes without it; the test quotes the actual response"
       - "A vitest test for the category tree picker covers: a three-level tree renders indented under its parents in sort_order order; the label is the name in the active locale (kk, ru and en each asserted); choosing a node reports its record id to the form; choosing 'no parent' reports null; editing a category hides that category and its descendants; the question parent_id field still renders through entityReferenceSelectRenderer; no hard-coded English string in the added JSX (web/src/modules/exam/__tests__/exam-i18n-grep.test.ts and the entities i18n grep test pass)"
