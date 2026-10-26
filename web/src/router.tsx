@@ -41,6 +41,7 @@ import SolutionPackUpdateReviewPage from '@/pages/solution-packs/SolutionPackUpd
 import EventRetentionPage from '@/pages/admin/event-retention/EventRetentionPage'
 import EntityListBrowserPage from '@/pages/entities/EntityListBrowserPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
+import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 import { REGISTERED_MODULE_ROUTE_OBJECTS } from '@/modules/registry'
 
 /**
@@ -67,6 +68,12 @@ export const router = createBrowserRouter([
     // with the flag off nothing links to it.
     path: '/login',
     element: <LoginRoute />,
+  },
+  {
+    // BilimBaga T4a: public certificate check keyed by the one-time public handle;
+    // outside ProtectedRoute, no login.
+    path: '/verify/:handle',
+    element: <VerifyCertificatePage />,
   },
   {
     path: '/',

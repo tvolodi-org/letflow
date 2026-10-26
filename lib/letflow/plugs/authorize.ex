@@ -111,7 +111,9 @@ defmodule Letflow.Plugs.Authorize do
   # decides, the resource does not) answer the plain 404 of a missing resource instead (INV-5).
   # Scope.Enforce refusals stay 403: they reach only callers who already hold the permission and
   # depend on the caller's grant, never on the resource.
-  @concealed_keys [:ScriptRulesAuditRead]
+  # REQ-561: every scheduled-jobs route, because a 403 would tell a non-admin that the feature is
+  # switched on and which ids exist.
+  @concealed_keys [:ScriptRulesAuditRead, :ScheduledJobsManage]
 
   defp deny(conn, policy_key) when policy_key in @concealed_keys,
     do: conn |> Response.not_found() |> halt()
