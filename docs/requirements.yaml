@@ -41895,7 +41895,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- blocked-by: REQ-518 -- the scoped-caller empty-result criterion (9) is tested against the REQ-518 scope sets, which are still pending
+    gh: 3350
     # Source: docs/migration/bilimbaga-study-t6d-analytics.md (sections 3, 4, 5, 6: the report table, the per-report analysis, the first set of three, the access rule); docs/migration/bilimbaga-retirement-status.md (criterion 6, task T6c); priv/modules/exam/entity_definitions/{session,session_question_score}.json (the `queried` flags); lib/letflow/entities/query/compiler.ex (run_aggregate) and lib/letflow/entities/query/allowlist.ex (only `queried: true` fields are usable); lib/letflow/routers/entities.ex (the route `POST /entities/query/aggregate`, scope: :filter, policy key EntitiesAggregate); lib/letflow/api/authorization.ex (EntitiesAggregate) and the docs/roles.md matrix row EntitiesAggregate; lib/letflow/release/managed_types.ex and lib/letflow/entities/managed_types/assignment_definition.ex (the REQ-582 release ensure precedent), lib/letflow/modules/exam/session.ex (persist_scores/4), docs/migration/decisions/0055-module-upgrade-migration-uninstall.md (upgrade path not built on main); docs/migration/decisions/0031-candidate-results-list-scope.md (no cross-session results list). Written by the business analyst (T-0704) 2026-10-26. Not yet validated.
     description: >
       BilimBaga (c:\Users\tvolo\dev\ai-dala\BilimBaga, checkout at 445216d, possibly behind origin/main) has eleven
