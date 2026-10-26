@@ -1,13 +1,13 @@
 # T-0672 (BA): TENANT ADMIN group, scenario 20: a company administrator sets up a recurring job that starts a process by itself, edits it, switches it off and on, and sees a due job start one instance.
 # Covers REQ-561 criteria 2 (create and update accepted forms; next_run_at is the anchor plus a whole multiple of the interval), 3 and 4 (a due job starts one instance of the named
 # process with the job's variables, and its last run, outcome and next run are updated; the only action is starting a process), 5 (a switched-off job is not run; a second look right
-# after a run starts nothing more) and 10 (with the feature on, criteria 3 to 9 hold).
+# after a run starts nothing more), 11 (the audit entries carry no variable values) and 10 (with the feature on, criteria 3 to 9 hold).
 # Sources: docs/requirements.yaml REQ-561 (description and criteria 2 to 5, 10); lib/letflow/routers/scheduled_jobs.ex (moduledoc: GET /, GET /:id, POST /, PATCH /:id,
 # POST /:id/enable, POST /:id/disable; one permission, tenant administrator only; create answers 201, the answers carry no tenant identifier); lib/letflow/scheduled_jobs.ex
 # (enable gives the first slot not before now and resets the failure count); lib/letflow/scheduled_jobs/schedule.ex (a slot is the anchor plus k times the interval; a future anchor
 # is the first slot); docs/roles.md matrix (ScheduledJobsManage: platform administrator and tenant administrator only).
 # NOT COVERED here, and why: criterion 1 (storage in the tenant schema, migration) and criterion 4's code-path part (no tenant source code is evaluated) are code structure, not
-# visible to a user - backend tests. Criterion 5's missed-slots count needs the platform to be down for several intervals and criterion 6 (two sweeps claiming one slot) needs two
+# visible to a user - backend tests. Criteria 12 and 13 (moduledoc distinctness, no edit of the deadline sweep or timer code, security and reviewer verdicts, compile and format checks) are documentation and review evidence of the change, not visible to a user. Criterion 5's missed-slots count needs the platform to be down for several intervals and criterion 6 (two sweeps claiming one slot) needs two
 # concurrent nodes: neither can be forced in the QA environment, backend tests cover them. Criterion 7 (failures) is scenario 21; criterion 2 refusals are scenario 22; criteria 8 and
 # 9 refusals are scenario 23; the feature-off refusal of criterion 10 is scenario 24.
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals of the flow are in scenarios 22 to 24.
@@ -24,7 +24,7 @@ description: >
   A about six minutes in the future (a whole-minute time in UTC, written with a trailing Z, for example 2026-11-02T09:30:00Z; the runner computes A when it creates the job and
   uses the same A in every later step). The job carries the initial value note = "first". The administrator lists the jobs and reads the job, changes its title and its value to
   note = "second" and its interval to 5 minutes, switches it off and on again, waits until A has passed, and sees exactly one new instance of "sched_probe_process" carrying
-  note = "second", started by the administrator, and the job showing a last run, the outcome "ok" and a next run five minutes after A. The administrator then switches the job off, waits
+  note = "second", and the job showing a last run, the outcome "ok" and a next run five minutes after A. The administrator then switches the job off, waits
   longer than one interval and sees that no further instance was started.
 
 actors:
@@ -131,10 +131,10 @@ expected_outcomes:
       business_impact: The administrator cannot stop a job that starts work unattended, or cannot resume it.
       suggested_action: route_to_elixir_dev
   - id: EO-005
-    description: A due job starts exactly one instance of the named process with the job's values, as the creating administrator, and records the run.
+    description: A due job starts exactly one instance of the named process with the job's values and records the run.
     verification:
       method: api_response
-      detail: In step 6 the instances of "sched_probe_process" number N0 plus 1 (I1), the new one carries note = "second" and was started by the administrator (actor-swiftroute-alice). J3 shows a last run not before A and not later than two minutes after A, last outcome "ok", consecutive failures 0 and next run equal to A plus 5 minutes.
+      detail: In step 6 the instances of "sched_probe_process" number N0 plus 1 (I1), the new one carries note = "second". J3 shows a last run not before A and not later than two minutes after A, last outcome "ok", consecutive failures 0 and next run equal to A plus 5 minutes.
       evidence: Answers I1 and J3.
     on_fail:
       severity: BLOCKER
@@ -164,7 +164,7 @@ expected_outcomes:
     description: The run, and every create, edit, switch-on and switch-off, left an audit entry.
     verification:
       method: audit_event
-      detail: The company's audit trail holds entries for the creation, the edit, the switch-off and switch-on (the switch-off twice) and the run of the job "daily-probe", with the administrator as the actor of the first four. If the administrator cannot read the audit trail, report BLOCKED for this outcome only.
+      detail: The company's audit trail holds entries for the creation, the edit, the switch-off and switch-on (the switch-off twice) and the run of the job "daily-probe", with the administrator as the actor of the first four, and the run entry of daily-probe naming the administrator (the job's creator) as actor. No entry contains the values "first" or "second" (the job's note values). If the administrator cannot read the audit trail, report BLOCKED for this outcome only.
       evidence: The audit entries for the job.
     on_fail:
       severity: MAJOR

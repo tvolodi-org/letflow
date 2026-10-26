@@ -1,17 +1,16 @@
 # T-0672 (BA): TENANT ADMIN group, scenario 22: a recurring job is refused when its schedule, key or values are wrong, and nothing is stored.
 # Covers REQ-561 criterion 2 (interval 4 and 10081 refused, 5 and 10080 accepted; missing or non-UTC anchor; empty or used key; values that are not a plain map), criterion 4
-# (values with a key such as password and a non-empty text are refused) and the create-time start rule of criterion 8 (a scope node the
-# administrator may not start in is refused and nothing is stored), and that a company identifier in the request is not accepted.
-# Sources: docs/requirements.yaml REQ-561 criteria 2, 4, 8; lib/letflow/scheduled_jobs/job.ex (codes required, invalid, not_utc, too_long, too_large, secret_like, not_accepted, taken;
+# (values with a key such as password and a non-empty text are refused), and that a company identifier in the request is not accepted. NOT COVERED: the scope-limited refusal of criterion 8 (see scenario 23: no roster actor can be refused by it).
+# Sources: docs/requirements.yaml REQ-561 criteria 2, 4; lib/letflow/scheduled_jobs/job.ex (codes required, invalid, not_utc, too_long, too_large, secret_like, not_accepted, taken;
 # interval 5 to 10080 whole minutes; an anchor with an offset other than zero or without any offset is not_utc; a key used twice in the company is taken; a tenant_id in the body is
 # not_accepted; a key containing password, token, secret or apikey in the values, with a non-empty value, is secret_like); lib/letflow/api/validation.ex (a validation refusal answers 422
-# and names the field); lib/letflow/routers/scheduled_jobs.ex (a scope node that is unknown, retired, out of the administrator's scope or of another company answers 422 invalid_scope_node).
-# Each refused request is its own step so that every step is refused as a whole; the accepted boundary cases are in their own steps (4 and 8 - interval 5 and 10080).
+# and names the field); lib/letflow/routers/scheduled_jobs.ex (the scope rule for scoped administrators is not covered here).
+# Each refused request is its own step so that every step is refused as a whole; the accepted boundary cases are in their own steps (step 4 - interval 5 and 10080).
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; refusals of the flow are listed here, access refusals in scenario 23.
 ---
 id: tenant-administration-22-scheduled-jobs-validation-refusals
 scope: tenant-administration
-title: A recurring job with an interval outside 5 to 10080 minutes, a wrong anchor, a used or empty key, bad or secret-like values, or a node outside the administrator's scope is refused and nothing is stored
+title: A recurring job with an interval outside 5 to 10080 minutes, a wrong anchor, a used or empty key, or bad or secret-like values is refused and nothing is stored
 version: "1.0"
 tags: [tenant-admin, scheduled-jobs, validation, refusal, secrets, boundary]
 
@@ -28,7 +27,7 @@ preconditions:
   - description: The company's scheduled-jobs feature is switched on in the test environment.
     check: system_seeded
     detail: If the feature is off, report BLOCKED (scenario 24 covers the feature-off case).
-  - description: SwiftRoute has a published, active process definition "sched_probe_process" that the administrator may start with no input, a scope node "node-nowhere" does not exist in the company, and there are no scheduled jobs with keys beginning "val-".
+  - description: SwiftRoute has a published, active process definition "sched_probe_process" that the administrator may start with no input, and there are no scheduled jobs with keys beginning "val-".
     check: system_seeded
     detail: Setup-prepared. Jobs left from an earlier run are switched off, and the keys val-a and val-b used below are changed to unused ones, noted in the report. The anchor 2030-01-01T00:00:00Z is far in the future, so the accepted jobs never run during the test.
 
@@ -112,33 +111,27 @@ steps:
   - step: 14
     actor: tenant_admin_a
     action: >
-      The administrator tries to create the base request (key "val-14") with the scope node "node-nowhere".
-    expect_refusal: true
-    via: api
-  - step: 15
-    actor: tenant_admin_a
-    action: >
       The administrator creates the base request (key "val-c") with the value password = "" (an empty text) and the value label = "ok". Notes the answer.
     via: api
-  - step: 16
+  - step: 15
     actor: tenant_admin_a
     action: >
       The administrator tries to change the job "val-a" to interval 4 minutes.
     expect_refusal: true
     via: api
-  - step: 17
+  - step: 16
     actor: tenant_admin_a
     action: >
       The administrator tries to change the job "val-a" to the value token = "t0ken".
     expect_refusal: true
     via: api
-  - step: 18
+  - step: 17
     actor: tenant_admin_a
     action: >
       The administrator tries to change the job "val-a" to the anchor 2030-01-01T02:00:00+02:00.
     expect_refusal: true
     via: api
-  - step: 19
+  - step: 18
     actor: tenant_admin_a
     action: >
       The administrator reads the job "val-a" and asks for the list of scheduled jobs, notes them as V1 and list L1, then switches the jobs "val-a", "val-b" and "val-c" off (clean-up).
@@ -169,18 +162,18 @@ expected_outcomes:
     description: Values that look like secrets are refused, also when nested, but an empty text under such a name is accepted.
     verification:
       method: http_status
-      detail: Steps 11 and 12 answer 422 naming variables with the fault "secret_like", and the answer does not repeat "hunter2" or "abc123". Step 15 answers 201 and the job shows label = "ok".
-      evidence: The answers of steps 11, 12 and 15.
+      detail: Steps 11 and 12 answer 422 naming variables with the fault "secret_like", and the answer does not repeat "hunter2" or "abc123". Step 14 answers 201 and the job shows label = "ok".
+      evidence: The answers of steps 11, 12 and 14.
     on_fail:
       severity: BLOCKER
       business_impact: A password or key typed into a job's values would be stored in plain text in the company's data and shown in answers.
       suggested_action: route_to_security_review
   - id: EO-004
-    description: A company identifier in the request is not accepted, and a scope node the administrator cannot start in is refused.
+    description: A company identifier in the request is not accepted.
     verification:
       method: http_status
-      detail: Step 13 answers 422 naming tenant_id with the fault "not_accepted". Step 14 answers 422 with the reason "invalid_scope_node".
-      evidence: The answers of steps 13 and 14.
+      detail: Step 13 answers 422 naming tenant_id with the fault "not_accepted".
+      evidence: The answer of step 13.
     on_fail:
       severity: BLOCKER
       business_impact: A job could be created for another company, or could start work where its owner may not start it.
@@ -189,8 +182,8 @@ expected_outcomes:
     description: A change that breaks the same rules is refused and leaves the job as it was.
     verification:
       method: http_status
-      detail: Steps 16, 17 and 18 answer 422 naming interval_minutes "invalid", variables "secret_like" and anchor_at "not_utc". Job V1 (step 19) has interval 5, no values and its original anchor, as when step 4 created it.
-      evidence: The answers of steps 16 to 18 and V1.
+      detail: Steps 15, 16 and 17 answer 422 naming interval_minutes "invalid", variables "secret_like" and anchor_at "not_utc". Job V1 (step 18) has interval 5, no values and its original anchor, as when step 4 created it.
+      evidence: The answers of steps 15 to 17 and V1.
     on_fail:
       severity: MAJOR
       business_impact: A later edit could bring a bad schedule or a secret into a job that was valid.
@@ -199,7 +192,7 @@ expected_outcomes:
     description: No refused request stored a job.
     verification:
       method: api_response
-      detail: List L1 (step 19) holds the jobs of L0 plus exactly three new ones, with keys val-a, val-b and val-c, and none with the keys val-2, val-3, val-5 to val-14.
+      detail: List L1 (step 18) holds the jobs of L0 plus exactly three new ones, with keys val-a, val-b and val-c, and none with the keys val-2, val-3, val-5 to val-13.
       evidence: Lists L0 and L1.
     on_fail:
       severity: BLOCKER

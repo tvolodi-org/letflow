@@ -1,11 +1,11 @@
 # T-0672 (BA): TENANT ADMIN group, scenario 21: a recurring job that cannot start its process records the failure, does not loop, does not stop another job, and is switched off by itself after five failures in a row.
 # Covers REQ-561 criterion 7 (an unknown process is a failure with a code from the closed list; the failure increases the count, moves the next run on, is audited, and does not stop the
-# next job of the same company; the 5th failure in a row switches the job off with an audit entry; one success resets the count; no error text or stack reaches the answer) and the
+# next job of the same company; the 5th failure in a row switches the job off with an audit entry; no error text or stack reaches the answer) and the
 # "disabled job is not run" part of criterion 5.
 # Sources: docs/requirements.yaml REQ-561 criterion 7 and description (closed list: ok, definition_not_found, definition_not_active, definition_needs_reactivation, actor_not_allowed,
 # start_failed, raised; "An unknown, unpublished or retired definition is such a failure"); lib/letflow/scheduled_jobs.ex (enable: resets the count, next run is the first slot not before now);
 # lib/letflow/routers/scheduled_jobs.ex (job_map shows last_outcome, last_outcome_details, consecutive_failures, enabled, next_run_at).
-# NOT COVERED, and why: the codes actor_not_allowed (needs the creating user deactivated or demoted after the job was created; the roster has no second administrator whose role may
+# NOT COVERED, and why: criterion 7's "one success resets the count" (definition_name cannot be edited, so a failing job cannot be turned into a succeeding one from outside; backend tests cover it); the codes actor_not_allowed (needs the creating user deactivated or demoted after the job was created; the roster has no second administrator whose role may
 # be changed), definition_not_active and definition_needs_reactivation (need a retired or stale process version prepared by setup), start_failed and raised (cannot be forced from outside) -
 # backend tests cover them. "No stack or inspect output in logs" cannot be seen by a user; only the API answers are checked. Missing: a way to read company logs.
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
@@ -147,7 +147,7 @@ expected_outcomes:
     description: The failures and the automatic switch-off are in the audit trail.
     verification:
       method: audit_event
-      detail: The company's audit trail holds a failed-run entry for "bad-probe" at every one of the five slots and an entry for the automatic switch-off after the fifth, whose actor is the system and not a person; it also holds the run entries of "good-probe". If the administrator cannot read the audit trail, report BLOCKED for this outcome only.
+      detail: The company's audit trail holds a failed-run entry for "bad-probe" at every one of the five slots and an entry for the automatic switch-off after the fifth, which names the automatic switch-off (scheduled_job.auto_disabled), with the creating administrator as actor, as for the run entries; it also holds the run entries of "good-probe". If the administrator cannot read the audit trail, report BLOCKED for this outcome only.
       evidence: The audit entries for both jobs.
     on_fail:
       severity: MAJOR
