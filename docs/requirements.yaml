@@ -41231,6 +41231,83 @@ requirements:
       - "9. Route-inventory pins listed and moved: the five routes are declared with scope: :tenant_wide in lib/letflow/routers/documents.ex; Letflow.Routers.Documents.__authz_routes__/0 lists them (+5 from the value on origin/main at implement time); test/fixtures/route_scope/tenant_wide_default_routes.txt gains no line and the three length(snapshot) pins stay at their value on origin/main (now 126); the PR summary lists, from grep -rn \"__authz_routes__\\|length(snapshot)\\|tenant_wide_default_routes\" test/, every test file checked and the new value of each pin; the moduledoc table of the documents router gains the five rows."
       - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-10, template content in audit payloads, trigger completeness) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests (S1-store, S2-immutable, S2-save, D5-redact, C3-manage, S2-sod, S2-audit and the permission tests) pass with real output quoted."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571]
+
+  - id: REQ-585
+    title: "Tenant branding palette beyond the primary colour: secondary brand colour in the server allowlist, both tenant-config responses and web theming (BilimBaga retirement criterion 9, T9a)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S8
+    gh: 3313
+    # Source: docs/migration/bilimbaga-retirement-status.md section 9 ("Branding, missing" items 1 and 4); docs/migration/decisions/0020-frontend-architecture.md (branding row: "a small fixed set of brand colours", allowlist stays closed); lib/letflow/identity/tenant.ex (@brand_colors_allowed_keys, validate_brand_colors/2, brand_colors_allowed_keys/0); lib/letflow/identity/color_contrast.ex (meets_wcag_aa_normal_text?/2); lib/letflow/routers/tenant_settings.ex (partition_brand_colors/1); lib/letflow/routers/tenant_config.ex (branding_from_settings/1); lib/letflow/routers/mobile_tenant_config.ex (branding_from_settings/1, primary_color_from_settings/1); lib/letflow/tenant_config_bundle.ex (reads Tenant.brand_colors_allowed_keys/0); web/src/theming/brandingDefaults.ts (BRAND_COLOR_CSS_PROPERTY) and applyBranding.ts; web/src/auth/tenantConfig.ts; web/src/styles/tokens.css. Written by the business analyst (T-0671) 2026-10-26. Not yet validated.
+    description: >
+      Today a tenant can store exactly one brand colour, brand_colors.primary: the closed allowlist
+      @brand_colors_allowed_keys in lib/letflow/identity/tenant.ex is ~w(primary), and the web allowlist
+      BRAND_COLOR_CSS_PROPERTY in web/src/theming/brandingDefaults.ts has one entry
+      (primary -> --color-brand-600). The earlier branding requirements (REQ-280, REQ-382, REQ-283) put
+      extending the allowlist out of scope; this requirement does it for ONE new key, "secondary", and
+      nothing else. The server allowlist moves first, the web allowlist follows (the comment in
+      brandingDefaults.ts says so).
+      SERVER. @brand_colors_allowed_keys becomes ~w(primary secondary). validate_brand_colors/2 already
+      applies the same checks to every allowed key (6-digit #RRGGBB hex; contrast of at least 4.5:1,
+      WCAG 2.1 AA normal text, against both reference surfaces #F8F9FA and #FFFFFF through
+      Letflow.Identity.ColorContrast.meets_wcag_aa_normal_text?/2); the secondary key gets exactly these
+      checks, with the key named in the error text. A brand_colors key outside the allowlist sent to
+      PATCH /tenant/settings (Letflow.Routers.TenantSettings) is already dropped by
+      partition_brand_colors/1 and recorded in the audit entry (action
+      "tenant_settings.reject_unrecognized_keys", after_state["rejected_brand_colors_keys"], written by
+      maybe_record_rejected_keys/5); that behaviour stays and now applies to the new list (so "tertiary"
+      or "background" is still ignored, never stored, never a 500). The PATCH response body shape
+      (tenant_id, settings) does not change; no response field is added.
+      Letflow.TenantConfigBundle reads Tenant.brand_colors_allowed_keys/0 and therefore accepts
+      "secondary" on import; no change to that module is needed and the criterion below only pins it.
+      Stored data needs no migration: settings is a JSON map and a tenant without a secondary key keeps
+      working.
+      READ PATHS. GET /api/tenant-config (Letflow.Routers.TenantConfig.branding_from_settings/1) returns
+      the stored brand_colors map as it is, so a stored secondary key appears there once the allowlist
+      admits it; the default when nothing is stored stays %{"primary" => "#228be6"} (no default secondary).
+      The mobile variant GET /api/mobile/tenant-config (Letflow.Routers.MobileTenantConfig) keeps its flat
+      branding shape: it gains an optional string key "secondary_color", present only when the tenant
+      stored a secondary colour and absent otherwise; "primary_color" and the platform defaults are
+      unchanged. The Flutter client (apps/mobile/) is not changed here.
+      SECURITY. Both endpoints are public and pre-auth. The moduledoc of lib/letflow/routers/tenant_config.ex
+      calls a new sub-key of branding "a security change, not a feature", and decision 0020 (section "Both
+      bootstrap endpoints change") makes the branding change SECURITY-REVIEWER gate work under the
+      never-error / INV-5 rule. So this requirement needs that review: secondary is read by an explicit
+      named-key read of settings, never a wholesale copy (INV-2), and for an unknown slug, a missing ?slug=
+      and a lookup failure the mobile body stays byte-identical to today's platform default and carries no
+      secondary_color (INV-5). The mobile moduledoc rule "no absent field" is about the six top-level keys of
+      the response; an optional sub-key inside branding that is absent for some tenants does not conflict
+      with it, and the moduledoc is updated to say so.
+      NO CONSUMER YET. No web component reads --color-brand-secondary after this requirement: the property
+      is set and available, and a later slice (a UI theming slice, not written yet) will use it.
+      WEB. BRAND_COLOR_CSS_PROPERTY gains the entry secondary -> --color-brand-secondary (its type
+      Record<'primary', string> widens to the two keys). web/src/styles/tokens.css declares
+      --color-brand-secondary with a platform default, so a tenant without a secondary colour renders
+      as before, and applyBrandingColors (web/src/theming/applyBranding.ts) sets it on
+      document.documentElement from brand_colors.secondary exactly as it does for primary (it still
+      iterates the allowlist's own keys, never the response's keys). The Record<string, string> type of
+      brand_colors in web/src/auth/tenantConfig.ts already carries the new key. The admin screen
+      web/src/pages/admin/AppearanceSettingsPage.tsx and web/src/api/tenantSettings.ts submit only
+      primary today and are not changed in this requirement; the secondary colour is set through
+      PATCH /api/v1/tenant/settings.
+      OUT OF SCOPE, SEPARATE LATER SLICES. Logo upload (item 4 of the retirement status section 9: an
+      upload path replacing the logo_url string) is NOT built here and gets its own requirement;
+      logo_url stays an absolute http(s) URL string. Also not here: further colour keys (background,
+      font), login-page and e-mail branding, custom domains, the Flutter client reading
+      secondary_color, and a secondary field on the admin screen.
+    acceptance_criteria:
+      - "Letflow.Identity.Tenant.brand_colors_allowed_keys/0 returns exactly [\"primary\", \"secondary\"]; a unit test in test/letflow/identity/tenant_test.exs pins the list"
+      - "settings_changeset/2 accepts brand_colors %{\"secondary\" => \"#1971C2\"} (a 6-digit hex meeting 4.5:1 against both #F8F9FA and #FFFFFF) with no error, and accepts primary and secondary together"
+      - "settings_changeset/2 refuses brand_colors.secondary values that are not a 6-digit #RRGGBB hex (\"red\", \"#FFF\", \"#GG0000\", a number) with an error naming brand_colors.secondary and the hex rule"
+      - "settings_changeset/2 refuses a well-formed secondary hex whose contrast against #F8F9FA or #FFFFFF is below 4.5:1 (for example #FFFF00) with the same contrast error text primary gets, naming the key secondary; a unit test runs the identical value as primary and as secondary and asserts the same verdict"
+      - "PATCH /api/v1/tenant/settings with brand_colors %{\"secondary\" => valid hex, \"tertiary\" => \"#000000\"} answers 200 (never a 500), stores secondary, does not store tertiary, and writes one audit entry with action \"tenant_settings.reject_unrecognized_keys\" whose after_state[\"rejected_brand_colors_keys\"] holds the tertiary key; the response body shape (tenant_id, settings) is unchanged; a route test in test/letflow/routers/tenant_settings_test.exs asserts all of these"
+      - "GET /api/tenant-config for a tenant that stored brand_colors primary and secondary returns both under branding.brand_colors; for a tenant with no stored colours it still returns exactly %{\"primary\" => \"#228be6\"}"
+      - "GET /api/mobile/tenant-config returns branding.secondary_color equal to the stored secondary colour when one is stored, omits the key when none is stored, and returns branding.primary_color unchanged in both cases; the Flutter client under apps/mobile/ is not modified (git diff --stat shows no path under apps/mobile/)"
+      - "Letflow.TenantConfigBundle import accepts a bundle whose tenant_settings.brand_colors holds a valid secondary and still rolls back a bundle with an unknown brand_colors key, with a test in test/letflow/ pinning both"
+      - "web/src/theming/brandingDefaults.ts maps secondary to --color-brand-secondary and web/src/styles/tokens.css declares --color-brand-secondary with a platform default; a vitest test in web/src/theming/__tests__/applyBranding.test.ts shows that brand_colors {primary, secondary} sets both CSS custom properties on document.documentElement, that a missing secondary leaves the tokens.css default in place, and that an unknown key (for example tertiary) sets no property"
+      - "SECURITY-REVIEWER verdict is recorded for the two public endpoints (INV-2: secondary_color and brand_colors.secondary are read by explicit named-key reads of settings, never a wholesale copy; INV-5: for an unknown slug, a missing ?slug= and a lookup failure the mobile body is byte-identical to today's platform default and has no secondary_color); the disclosure sections of the moduledocs of lib/letflow/routers/mobile_tenant_config.ex and lib/letflow/routers/tenant_config.ex name the secondary colour; a case in test/letflow/routers/mobile_tenant_config_test.exs asserts that the default-branch body has no secondary_color key"
+      - "No logo upload path is added: git diff shows no new route, no attachment call and no change to the logo_url validation in lib/letflow/identity/tenant.ex; mix letflow.check.static and cd web && npm run check pass with the output quoted"
+    depends_on: [REQ-280, REQ-382, REQ-283]
   - id: REQ-582
     title: "Exam assignment model (all, user, group, department) stored as exam-pack records and enforced at exam start, replacing the no-op check_assigned/3"
     owner: ELIXIR-DEV
