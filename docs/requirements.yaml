@@ -41895,7 +41895,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-572 -- the v2 template is a copy of the v1 directory that REQ-572 adds
+    gh: 3348
     # Source: docs/migration/bilimbaga-reset-welcome-mail.md (section 3 "What Letflow and the realm template provide", section 4 gap rows G1, G2, G3, G4, G5, G7); docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md (section 3 D2, the sentence 'A future change of the template is a new directory `v2`, never an edit of `v1` in place', and the row 'SMTP settings are an argument of the call (the shared QA relay), never part of the template and never in git'); priv/keycloak/provisioner/v1/tenant-realm.json and README.md (the files copied, read in full); test/letflow/keycloak_tenant_realm_template_test.exs (the v1 drift test, which must not change; its violations/1, secret_key?/1 and mutation rows are the model); docs/runbooks/onboarding-new-tenant-realm.md (Realm checklist); docs/agents/instructions/security-invariants.md (INV-4). Written by the business analyst (T-0717) 2026-10-26. Not yet validated.
     description: >
       BilimBaga's users reset a forgotten password themselves; the v1 tenant realm template
