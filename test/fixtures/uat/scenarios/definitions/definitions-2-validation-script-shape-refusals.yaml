@@ -4,6 +4,7 @@
 # lib/letflow/routers/definitions.ex (render_write: 422 with the member "errors", each {"code","message"}; duplicate name and version is 409, so every upload below has its own name);
 # lib/letflow/scripts/validation.ex (key ^[a-z][a-z0-9_]{0,63}$).
 # The shape check does not read the switch of REQ-569 criterion 2, so this scenario runs whether the switch is on or off.
+# Every human task carries the attribute "role" with the value "reviewer" (an upload without it is refused for that reason, which would hide the fault under test); the check-script pair is the only deliberate fault.
 # No script is needed: the check is made before any script is looked up.
 # Each refusal step holds exactly one request. Criterion 3 asks that the message names the node id and contains neither attribute value: the values used are "Bad-Key", "0", "1" as text and "1.5";
 # the node id is "review_total" and contains none of them.
@@ -102,7 +103,8 @@ expected_outcomes:
     description: The message names the task and repeats neither the key nor the version that was written.
     verification:
       method: api_response
-      detail: In the answers of steps 2 to 7 the message of the error contains the task id "review_total". The message of step 2 does not contain "Bad-Key". The messages of steps 3 to 5 do not contain the written version ("0", "1" in quotes, "1.5") as a value. (The words "version" and ">= 1" in the rule text are not a repeated value.)
+      detail: >-
+        In the answers of steps 2 to 7 the message of the error contains the task id "review_total". The message of every error equals the fixed text, which reads: Node 'review_total' (HUMAN_TASK) has an invalid 'validation_script_key'/'validation_script_version' pair (key ^[a-z][a-z0-9_]{0,63}$, version an integer >= 1, both present). Because the text is fixed, it holds neither the written key "Bad-Key" nor the written version.
       evidence: The error messages of steps 2 to 7.
     on_fail:
       severity: MINOR

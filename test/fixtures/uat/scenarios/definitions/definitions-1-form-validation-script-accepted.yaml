@@ -9,6 +9,9 @@
 # Not observable through an API on QA, so not checked here (the reason is given, they are covered by the product's own tests): criteria 7 and 8 (the frozen script reference in the pins of a started instance
 #   is stored inside the instance; no read route shows it, and starting an instance needs an operator role this group does not use); criterion 5 and 6 at function level (the internal check names);
 #   criterion 9 second and third sentences (the internal pin lookup, completing another company's task); criterion 10 and 11 (review gate and diff scope are properties of the change, not of the running product).
+# Note: since REQ-567 (GH #3217) the kind "entity_write" is also a valid script kind, so the example "entity_write" in REQ-569 criterion 1 no longer holds; this scenario refuses only a kind the product does not know.
+# Publishing: under the default strict separation-of-duties policy the author of a script cannot publish it, and SwiftRoute has one administrator; so check_total version 1 is published by setup, and publishing is covered by setup, not by a step here.
+# Every human task in all five scenarios carries a non-empty "role" attribute (value "reviewer"), because an upload without it is refused for that reason; the only deliberate fault in a refused upload is the check-script pair.
 # Waiting: running the check when a task is completed (REQ-569 slice F-2, T-0640 / GH #3298) is not part of this release. No step completes a task and none expects a task completion to be refused.
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
 ---
@@ -19,8 +22,8 @@ version: "1.0"
 tags: [definitions, scripts, form-validation, activation, accept]
 
 description: >
-  The administrator of SwiftRoute creates and publishes a check script of kind "form validation" (key check_total) and sees that the registry keeps the kind. Creating a script of the kind
-  "entity write" with the same body is still refused, as is a script with no kind. The administrator then uploads a process with a human task "review_total" that names check_total version 1 as
+  The administrator of SwiftRoute sees that the published check script check_total (kind "form validation", published by setup) is kept with that kind, and creates a draft of a second one (check_draft). Creating a script of an unknown kind
+  ("stock movement") with the same body is refused, as is a script with no kind. The administrator then uploads a process with a human task "review_total" that names check_total version 1 as
   its check script, and activates it. A second process has two human tasks that both name check_total version 1 and is also activated. A third process has a start event that carries a check-script
   name, and a human task with none; it is accepted and activated, because only human tasks are read as check-script bindings. Nothing is run: in this release the check script does not run
   when a task is completed.
@@ -32,29 +35,28 @@ preconditions:
   - description: The switch for form validation scripts is ON in the test environment.
     check: system_seeded
     detail: Setup-prepared (application setting form_validation_hook_enabled, default off). If step 1 is refused with the reason "invalid_hook_kind", the switch is off; report BLOCKED for the whole scenario and run scenario definitions-5 instead. This is not a product failure.
-  - description: SwiftRoute has no script with the key check_total, and no process definition named fv_accept_one, fv_accept_two or fv_accept_three.
+  - description: SwiftRoute has the published script check_total version 1 of kind "form validation" (made by setup, see header), no script with the key check_draft, check_other or check_nokind, and no process definition named fv_accept_one, fv_accept_two or fv_accept_three.
     check: system_seeded
-    detail: Setup-prepared. If they exist, use the next free names and note that in the report.
-  - description: The test setup supplies the body of a valid form validation script, noted as FV-BODY - source, manifest and test cases that pass the product's own script checks.
+    detail: Setup-prepared. If a new name exists, use the next free name and note that in the report. If check_total version 1 cannot be arranged as published, report BLOCKED for steps 1, 5 to 8.
+  - description: The test setup supplies the body of a valid form validation script, noted as FV-BODY - source, manifest and test cases that pass the product's own script checks. The manifest declares a closed output schema and no reserved input name, because activation also refuses an open output schema (script_output_schema_open) and reserved input names.
     check: system_seeded
-    detail: Script source is a test fixture. FV-BODY is the same body in steps 1, 3 and 4; only the kind differs.
+    detail: Script source is a test fixture. FV-BODY is the same body in steps 1, 3 and 4 and in the setup-prepared check_total; only the kind differs. Every human task of every upload carries the "role" attribute with a non-empty value ("reviewer").
 
 steps:
   - step: 1
     actor: tenant_admin_a
     action: >
-      The administrator creates a new draft version of the script check_total, with the kind "form validation" and the body FV-BODY, then reads it back. The answer (status and kind) is noted.
+      The administrator reads the script check_total version 1 (published by setup). The answer (status and kind) is noted.
     via: api
   - step: 2
     actor: tenant_admin_a
     action: >
-      The administrator publishes check_total version 1 and reads the list of scripts.
+      The administrator creates a new draft version of the script check_draft, with the kind "form validation" and the body FV-BODY, then reads it back. The answer (status and kind) is noted.
     via: api
   - step: 3
     actor: tenant_admin_a
     action: >
-      The administrator tries to create a new draft version of the script check_other with the kind "entity write" and the body FV-BODY, and a second try with the kind "stock movement", a kind the product does not know.
-      Both tries are made in this one step; both must be refused.
+      The administrator tries to create a new draft version of the script check_other with the kind "stock movement", a kind the product does not know, and the body FV-BODY.
     expect_refusal: true
     via: api
   - step: 4
@@ -88,11 +90,11 @@ steps:
 
 expected_outcomes:
   - id: EO-001
-    description: A script of kind "form validation" is created and published, and the registry keeps the kind.
+    description: A script of kind "form validation" is kept with that kind, and a draft of that kind can be created.
     verification:
       method: http_status
-      detail: Step 1 answers 201 and the version read back shows the kind "form_validation" and the status draft. Step 2 answers 200 and the list shows check_total version 1 as published.
-      evidence: The answers of steps 1 and 2.
+      detail: Step 1 shows check_total version 1 as published with the kind "form_validation". Step 2 answers 201 and the version read back shows the kind "form_validation" and the status draft.
+      evidence: The answers of steps 1 and 2 (publishing itself is covered by setup).
     on_fail:
       severity: MAJOR
       business_impact: The administrator cannot prepare a check script for forms, so the form check cannot be offered later.
@@ -101,7 +103,7 @@ expected_outcomes:
     description: Any other kind, and a missing kind, are still refused.
     verification:
       method: http_status
-      detail: Both tries of step 3 answer 422 with the reason "invalid_hook_kind". Step 4 answers 422 with the reason "invalid_hook_kind". The list of scripts read afterwards has no check_other and no check_nokind.
+      detail: Step 3 answers 422 with the reason "invalid_hook_kind". Step 4 answers 422 with the reason "invalid_hook_kind". The list of scripts read afterwards has no check_other and no check_nokind (and still check_draft only as a draft).
       evidence: The answers of steps 3 and 4 and the list read after step 4.
     on_fail:
       severity: MAJOR
@@ -140,4 +142,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: Deprecate the processes fv_accept_one, fv_accept_two and fv_accept_three if the environment keeps them. Keep the published script check_total; scenario definitions-3 uses it.
+  description: Deprecate the processes fv_accept_one, fv_accept_two and fv_accept_three if the environment keeps them. Keep the published script check_total; scenario definitions-3 uses it. Leave check_draft as a draft.

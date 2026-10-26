@@ -6,6 +6,7 @@
 # Needs the switch of REQ-569 criterion 2 ON (see definitions-1). Not observable through an API on QA: the pin that the same version gets at instance start (criterion 6, second half "from PinResolver.resolve/4");
 # see definitions-1 header. Waiting: the check at task completion (REQ-569 F-2, T-0640 / GH #3298).
 # Each refusal step holds exactly one activation. Uploads are accepted (the shape is right) and are made in step 1; the refusal comes at activation.
+# Every human task carries the attribute "role" with the value "reviewer". Every script that is expected to pass activation (check_total versions 1 and 2, mix_total versions 1 and 2, svc_total) has a manifest with a closed output schema and no reserved input name; otherwise activation answers script_output_schema_open, not the reason expected here.
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
 ---
 id: definitions-3-validation-script-activation-refusals
@@ -29,7 +30,7 @@ preconditions:
     detail: Setup-prepared. If definitions-1 was reported BLOCKED for the switch, this scenario is BLOCKED too.
   - description: SwiftRoute has these scripts - check_total versions 1 and 2, both published, kind "form validation" (version 1 is the one published in definitions-1; version 2 has the same body as FV-BODY of definitions-1); draft_total version 1 (draft, kind "form validation"); old_total version 1 (retired, kind "form validation"); bad_total version 1 (revoked, kind "form validation"); svc_total version 1 (published, kind "service step"); mix_total version 1 (published, kind "service step") and mix_total version 2 (published, kind "form validation"). The key "no_such_key" does not exist.
     check: system_seeded
-    detail: Setup-prepared. The administrator can make the draft, retired and revoked versions through the script registry (create, publish then retire, publish then revoke). If mix_total with two kinds cannot be arranged, report BLOCKED for step 11 and the mixed half of EO-003, and run the other steps.
+    detail: Setup-prepared. The administrator can make the draft, retired and revoked versions through the script registry (create a draft; publish, then retire; publish, then revoke; a second administrator publishes, or the policy is set to solo_audited, else these versions are setup-prepared). If mix_total with two kinds cannot be arranged, report BLOCKED for step 9 and the mixed half of EO-003, and run the other steps.
   - description: SwiftRoute has no process definition named fv_act_a, fv_act_b, fv_act_c, fv_act_d, fv_act_e, fv_act_rev, fv_act_two, fv_act_mix or fv_act_same.
     check: system_seeded
     detail: Setup-prepared. If a name exists, use the next free name and note that in the report.

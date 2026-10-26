@@ -7,6 +7,7 @@
 # running a task needs a person who is routed to the task in the other company, and the task answer is the unchanged answer of the task routes, not a part of this release).
 # Waiting: REQ-569 F-2 (T-0640 / GH #3298).
 # Needs the switch ON (see definitions-1). Each refusal step holds exactly one activation.
+# Every human task carries the attribute "role" with the value "reviewer"; scripts expected to pass activation have a closed output schema and no reserved input name (otherwise script_output_schema_open).
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
 ---
 id: definitions-4-validation-script-other-company

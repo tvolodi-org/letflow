@@ -7,6 +7,7 @@
 # shows it). The scenario shows the effect, not the setting.
 # UAT assumption, to be confirmed by the process owner: the QA environment runs with the product default (switch off). If the switch is on in QA, this scenario is BLOCKED and definitions-1, 3, 4 run instead.
 # The published form validation script check_flag_total (precondition) was made while the switch was on; it is setup-prepared because no API call can publish it while the switch is off.
+# Every human task carries the attribute "role" with the value "reviewer"; scripts expected to pass activation have a closed output schema and no reserved input name (otherwise script_output_schema_open).
 # Each refusal step holds exactly one request. The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
 # Waiting: REQ-569 F-2 (T-0640 / GH #3298).
 ---
