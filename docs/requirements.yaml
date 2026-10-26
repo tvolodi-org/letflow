@@ -41231,3 +41231,101 @@ requirements:
       - "9. Route-inventory pins listed and moved: the five routes are declared with scope: :tenant_wide in lib/letflow/routers/documents.ex; Letflow.Routers.Documents.__authz_routes__/0 lists them (+5 from the value on origin/main at implement time); test/fixtures/route_scope/tenant_wide_default_routes.txt gains no line and the three length(snapshot) pins stay at their value on origin/main (now 126); the PR summary lists, from grep -rn \"__authz_routes__\\|length(snapshot)\\|tenant_wide_default_routes\" test/, every test file checked and the new value of each pin; the moduledoc table of the documents router gains the five rows."
       - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-10, template content in audit payloads, trigger completeness) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests (S1-store, S2-immutable, S2-save, D5-redact, C3-manage, S2-sod, S2-audit and the permission tests) pass with real output quoted."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571]
+
+  - id: REQ-587
+    title: "Candidate my-results list: GET /modules/exam/exam-sessions/mine (own sessions with result and certificate flag) and the My results screen with certificate download (FR-BB41/FR-BB46, BilimBaga certificates)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    # impl_order: UNREGISTERED -- all depends_on requirements are done, so no blocked-by; check_deferral_staleness S1 may flag this marker until the engine files the issue
+    # Source: docs/migration/decisions/0031-candidate-results-list-scope.md (Revisitability trigger 1, section 3 one surface for FR-BB41 and FR-BB46, section 4 queried:false constraint, section 5 admin view out of scope); lib/letflow/modules/exam/router.ex moduledoc ("Deliberately NOT routed here", "Permission vocabulary", "Ownership and tenant isolation"); lib/letflow/modules/exam/exam.ex (defmanifest permissions, role_grants, route_policies); lib/letflow/modules/exam/session.ex (list_available_exams/2, get_session_for_user/3, check_owner/2); lib/letflow/modules/exam/certificate.ex (issue_or_get_for_user/3); priv/modules/exam/entity_definitions/session.json and certificate.json; web/src/modules/exam/examRoutes.tsx, exam.api.ts, ExamListPage.tsx, ExamSessionResultPage.tsx; web/src/api/client.ts (getBlob); test/fixtures/route_scope/tenant_wide_default_routes.txt; docs/roles.md (CANDIDATE). Task source: T-0627 study task T4b, T-0666. Written by the business analyst 2026-10-26. Not yet validated.
+    description: >
+      Source: BilimBaga criterion 4 (certificates). A signed-in candidate has no way to list their own past
+      sessions or find their certificates: lib/letflow/modules/exam/router.ex lists GetExamHistory and
+      HandleGetMyResults (FR-BB41, FR-BB46) under "Deliberately NOT routed here", CANDIDATE holds six Exam*
+      permissions and none lists records, and the certificate record has no user field (it names its owner only
+      through session_id, then session.user_id). Decision 0031 section 1 recorded "not today" and named the
+      reopening trigger (Revisitability 1: a direct product request naming a results list); the BilimBaga
+      certificates criterion is that request. Decision 0031 section 2 preferred the generic POST /entities/query
+      route, but CANDIDATE does not hold the permission for it (web/src/modules/exam/exam.api.ts, comment on
+      listAvailableExams: ISS-0718), so this entry follows the precedent that ISS-0718 set for the exam list: one
+      exam-module route. That departure is an open owner question (below); the entry records it, it does not
+      settle it silently.
+      ROUTE. A new route in lib/letflow/modules/exam/router.ex: GET /exam-sessions/mine, full path
+      GET /api/v1/modules/exam/exam-sessions/mine, declared with authz_get next to GET /exam-sessions/available
+      and above GET /exam-sessions/:id (a literal segment wins over :id in Plug.Router, as for "available").
+      It serves FR-BB41 and FR-BB46 as one surface (decision 0031 section 3) with an optional exam_id query
+      parameter (cast with cast_uuid/1; a malformed value gives 400). Query parameters: cursor, page_size
+      (parsed with Pagination.parse_page_size_param/1 as handle_list_available_exams does; invalid gives 400),
+      exam_id. No other parameter is read, and none names a candidate or a tenant.
+      PERMISSION. :ExamSessionRead, which CANDIDATE already holds (lib/letflow/modules/exam/exam.ex role_grants)
+      and TENANT_ADMIN and PLATFORM_ADMIN hold through the core rules. No new permission is minted, so no
+      permission pin moves (authorization_test.exs permission lists, the tenant-auditor refused set,
+      priv/permission_matrix/effective.golden stay as they are). docs/roles.md needs no new row; the CANDIDATE
+      prose gains one sentence naming the list route. TENANT_AUDITOR does not hold :ExamSessionRead and gets the
+      same 403 as today on every exam route.
+      OWNERSHIP FILTER. The read is built in a new function Letflow.Modules.Exam.Session.list_own_sessions/2
+      beside list_available_exams/2, through Compiler.compile/3, Allowlist.load/2 and Cursor.paginate/5 with the
+      request entity_type "session" and the hardcoded filters user_id eq <auth_context.user_id> (the field
+      session.user_id is queried: true, the same field check_owner/2 compares), status in [submitted,
+      auto_submitted, grading_pending] (an in_progress session has no result and is not listed), and, only when
+      exam_id was supplied, exam_id eq <exam_id>. The candidate id comes only from conn.assigns.auth_context,
+      never from the request. Sort: expires_at desc, because expires_at is queried: true while submitted_at,
+      score_pct and passed are queried: false (decision 0031 section 4); this entry flips no queried flag and sorts
+      nothing in memory. UAT assumption, to be confirmed by the process owner: ordering by expires_at (the
+      session deadline) is an acceptable stand-in for "most recent first".
+      RESPONSE. 200 with {items, next_cursor}. Each item is hand-assembled (the answer-key rule of the router
+      moduledoc; session.exam_snapshot is on the restricted list in exam.ex and is never read or returned) with
+      exactly: session_id, exam_id, exam_title (the localized map of the live exam record found by exam_id in the
+      same prefix, null when that record is missing or deleted), status, started_at, submitted_at, score_pct,
+      passed (null for grading_pending), certificate_issued (true when a certificate record exists for that
+      session_id; one prefix-scoped query on entity type "certificate" with session_id in <ids of the page>, not
+      one query per row) and certificate_id (the certificate record id, or null). It carries no user_id, no
+      seed, no snapshot and no answer data. The route never issues a certificate; issuing stays with
+      POST /exam-sessions/:id/certificate and the download route.
+      WEB. Route exam/results in web/src/modules/exam/examRoutes.tsx, a new screen ExamMyResultsPage.tsx wrapped
+      in ExamIntlProvider, a new examApi.listMySessions in exam.api.ts, and a link from ExamListPage.tsx. Per
+      row: exam title (falls back to a neutral localized "Exam" text when exam_title is null), status, score,
+      passed or failed (none for grading_pending), submitted date, a link to the existing
+      sessions/:sessionId/result screen, and, when passed is true, a "Download certificate" action that calls
+      GET /exam-sessions/:id/certificate/download (existing route, permission ExamCertificateIssue) through
+      client.getBlob and saves the PDF. States: loading, a list, an empty state (no sessions), a list-failure
+      state, and a download-failure state that shows a localized message and keeps the list (409 and 404 give
+      the "certificate is not available for this exam" text, any other failure the generic text; the row can be
+      retried). Next page by next_cursor. All strings come from examMessages (ExamIntlProvider), in every locale
+      that file carries, so exam-i18n-grep.test.ts stays green.
+      PINS AND DOCS (state the new values at implement time as "+1 from the value on origin/main"). The route has
+      no scope: option, so it is tenant_wide by default and enters the default-class snapshot:
+      test/fixtures/route_scope/tenant_wide_default_routes.txt gains the line
+      "GET /modules/exam/exam-sessions/mine ExamSessionRead" (sorted as its neighbours), and the three
+      length(snapshot) pins (route_scope_resolver_test.exs, route_scope_self_service_test.exs,
+      tasks_route_classes_test.exs, now 132) move +1. exam.ex route_policies gains {"GET", "/exam-sessions/mine",
+      :ExamSessionRead}; the expected-route list in test/letflow/api/authorization_test.exs (near the row for
+      "/modules/exam/exam-sessions/available") gains the same row. No forward(...) is added, so the
+      length(named) pin does not move. The router moduledoc route table gains the row list_my_sessions, and the
+      bullet "Cross-session history / results-list views (GetExamHistory/HandleGetMyResults, FR-BB41/FR-BB46)"
+      under "Deliberately NOT routed here" is rewritten to say the list is routed by this entry (GetSessionResult
+      stays not routed; the by-id result is the state read). Decision 0031 gets a dated addendum: section 1 is
+      reversed on Revisitability trigger 1, the route is exam-module rather than the generic query (section 2),
+      and section 4 option 2 is not used (no in-memory sort). The sentence in ExamSessionResultPage.tsx that calls
+      the result URL provisional is updated to say the list links to it unchanged.
+      NOT IN THIS ENTRY: an admin or auditor view of other candidates' results (decision 0031 section 5); sorting
+      or filtering by score, pass state or submit date (needs the queried flags, decision 0031 section 4 option 1);
+      issuing a certificate from the list route; a candidate-side verify-by-handle page (exists, REQ-357 and the
+      public verify page); a mobile screen.
+    open_questions:
+      - "Decision 0031 section 2 preferred the generic POST /entities/query route for a results list; this entry uses one exam-module route because CANDIDATE does not hold the entity-query permission. Does the owner accept that departure, or widen CANDIDATE instead?"
+      - "Is ordering by session deadline (expires_at) acceptable as 'most recent first', or does the owner want the queried flags on submitted_at flipped (a pack schema change with DDL, decision 0031 section 4 option 1)?"
+      - "Should a certificate download be offered for every passed session, or only when the exam's certificate is enabled? The list route cannot tell without reading the snapshot; this entry offers it for every passed session and relies on the download route's 409 for the rest."
+    acceptance_criteria:
+      - "1. Route and permission: GET /api/v1/modules/exam/exam-sessions/mine is declared with authz_get in lib/letflow/modules/exam/router.ex and gated by :ExamSessionRead; test: a CANDIDATE token gets 200, a token with no role that holds :ExamSessionRead gets 403, a TENANT_AUDITOR token gets 403 with the same body as for any role without the permission, and an unauthenticated call gets 401. exam.ex route_policies and the authorization_test.exs expected-route list each gain the row, and no permission pin, golden file or docs/roles.md matrix row changes."
+      - "2. Ownership filter (test M-own): with candidate A holding two submitted sessions and one in_progress session and candidate B (same tenant) holding one submitted session, a call by A returns exactly A's two sessions, a call by B returns exactly B's one, and neither response contains a session of the other; an in_progress session is never listed. The test also asserts that the compiled request carries the filter user_id eq the caller's auth_context user id and that a query parameter named user_id, candidate_id or tenant_id is ignored (a call by A with user_id=<B's id> returns A's sessions)."
+      - "3. INV-5 (test M-inv5): another candidate's session and certificate are indistinguishable from not-found. Because the list has no id path, the test proves it on the two routes the list links to: with candidate B's session id and B's certificate id, A's GET /exam-sessions/:id, POST /exam-sessions/:id/certificate and GET /exam-sessions/:id/certificate/download each return a response identical in status, headers and body to the response for a random UUID that exists nowhere; and A's list response never contains a certificate_id or session_id of B. A malformed exam_id gives 400 and a well-formed exam_id of an exam A never sat gives 200 with an empty items list (not 404)."
+      - "4. INV-10 cross-tenant negative (test M-tenant): with sessions and certificates in tenant B's schema and a CANDIDATE token of tenant A, GET .../exam-sessions/mine returns none of B's rows (items empty when A has none); the compiled route path and the accepted query parameters contain no tenant identifier; a PLATFORM_ADMIN token calling the route gets only its own tenant's sessions (200, a no-data-leak check, not a refusal) and never another tenant's."
+      - "5. Response shape (test M-shape): each item holds exactly the keys session_id, exam_id, exam_title, status, started_at, submitted_at, score_pct, passed, certificate_issued, certificate_id; no item holds user_id, seed, exam_snapshot or any answer or option data (checked by comparing the key set); a sentinel string stored in session.exam_snapshot is absent from the response body. A grading_pending session has passed null (its score_pct is present, as in the session view); a session whose exam record is deleted or missing has exam_title null."
+      - "6. Certificate flag (test M-cert): for a passed session with an issued certificate the item has certificate_issued true and certificate_id equal to that record's id; for a passed session with no certificate, and for a failed session, certificate_issued is false and certificate_id is null; the route itself writes no certificate record and no audit row (record counts before and after are equal). The certificate lookup is one query for the whole page, asserted by counting queries on entity type certificate for a page of 5 sessions."
+      - "7. Pagination, filter and order (test M-page): page_size follows Pagination.parse_page_size_param/1 (an invalid value gives 400 with the router's existing 'invalid page_size' text), next_cursor walks the whole set without repeats or gaps for 7 sessions at page_size 3, the optional exam_id restricts items to that exam, and items are ordered by expires_at descending. The entity definitions priv/modules/exam/entity_definitions/session.json are unchanged (no queried flag flipped, no migration)."
+      - "8. Pins and docs (implement step quotes the output): tenant_wide_default_routes.txt gains the line 'GET /modules/exam/exam-sessions/mine ExamSessionRead' and the three length(snapshot) pins move +1 from the value on origin/main at implement time (now 132); the length(named) pin is unchanged; the PR summary lists, from grep -rn \"__authz_routes__\\|length(snapshot)\\|tenant_wide_default_routes\\|exam-sessions/available\" test/, every test file checked and the new value of each pin. The router moduledoc route table gains the list_my_sessions row, the 'Deliberately NOT routed here' bullet for FR-BB41/FR-BB46 is rewritten as described, decision 0031 gets the dated addendum, and grep -rn 'Cross-session history' lib/ docs/ finds no remaining text that says the list is not routed."
+      - "9. Web screen states (Vitest, web/src/modules/exam/__tests__/ExamMyResultsPage.test.tsx): with examApi.listMySessions mocked, the page renders (a) the loading state, (b) one row per item with title, status, score, passed or failed and a link to sessions/<id>/result, (c) the empty state when items is empty, (d) the list-failure state with a retry on a rejected call, (e) a Download certificate action only on rows with passed true, and (f) the next-page control only when next_cursor is non-null. examApi.listMySessions calls GET /api/v1/modules/exam/exam-sessions/mine with cursor, page_size and exam_id only (exam.api.test.ts). ExamListPage.tsx links to exam/results and examRoutes.tsx registers it."
+      - "10. Web download and i18n (Vitest): activating Download certificate calls client.getBlob with /api/v1/modules/exam/exam-sessions/<id>/certificate/download exactly once and saves the returned PDF blob; when getBlob rejects with status 409, 404 or 500 the page shows the localized download-failure message, keeps the list rendered and lets the same row be retried; every new string exists in every locale of examMessages, and exam-i18n-grep.test.ts and the web boundary-lint test pass. npm run check passes with real output quoted. SECURITY-REVIEWER (tenant-data path, INV-1, INV-5, INV-10, answer-key redaction) and REVIEWER verdicts are recorded."
+    depends_on: [REQ-332, REQ-335, REQ-351, REQ-355, REQ-356, REQ-357]
