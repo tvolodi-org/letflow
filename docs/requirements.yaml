@@ -41180,7 +41180,7 @@ requirements:
       - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-10, template content in audit payloads, trigger completeness) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests (S1-store, S2-immutable, S2-save, D5-redact, C3-manage, S2-sod, S2-audit and the permission tests) pass with real output quoted."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571]
 
-  - id: REQ-582
+  - id: REQ-584
     title: "Outbound notification delivery with a per-tenant delivery log: send the task_assigned template through the REQ-441 mail adapter boundary on task assignment, and record each attempt"
     owner: ELIXIR-DEV
     status: pending
@@ -41226,6 +41226,21 @@ requirements:
       have no locale of their own and none is added. Other trigger points (reminders, results,
       welcome) are out of scope.
 
+      Template values (every value is a string; preview/6 requires a binary of at most 500 codepoints,
+      so each is cut to 500 codepoints and a missing source gives ""): task_name = node_name of the
+      task row (lib/letflow/engine/task.ex), else ""; process_name = definition_name of the
+      instance_definition_snapshots row whose instance_id equals the task's instance_id
+      (lib/letflow/definitions/instance_definition_snapshot.ex), else ""; assignee_name = display_name of
+      the assignee's user row (lib/letflow/identity/user.ex), else its username; due_date = "" always,
+      because tasks have no due date column and none is added; tenant_name = display_name of the
+      caller's tenant row (lib/letflow/identity/tenant.ex, table tenants), else "".
+
+      Unusable outcomes before the adapter. If the assignee user id resolves to no user row in the
+      tenant schema, or the user has no email address, the row is "skipped"/"no_email" and no adapter is
+      called. If preview/6 returns {:error, _} (for example :invalid_locale for a default_locale that
+      does not match the locale pattern, or {:invalid_values, _}), the row is "failed"/"adapter_error"
+      (no new reason is added) and no adapter is called.
+
       Delivery log. One tenant-schema table, notification_deliveries, created through the same
       tenant-schema migration mechanism and with the same placement as priv/repo/migrations/20261026200001_create_notification_templates.exs
       (per-tenant via the :prefix, and tenant_id uuid NOT NULL kept in the row, as that migration's
@@ -41233,7 +41248,8 @@ requirements:
       tenant_id, template_key, locale, recipient_user_id, status, reason, trigger_ref (the task id),
       inserted_at. The closed sets are: status one of "sent", "failed", "skipped"; reason one of
       "no_email", "adapter_noop", "adapter_error", or null when status is "sent". Mapping: an assignee
-      without an email address writes "skipped"/"no_email" and calls no adapter; the Noop adapter selected
+      without an email address or without a user row writes "skipped"/"no_email" and calls no adapter; a
+      preview/6 error writes "failed"/"adapter_error" and calls no adapter; the Noop adapter selected
       writes "skipped"/"adapter_noop"; every {:error, _} from the adapter (including the Smtp reasons
       :not_configured, :invalid_recipient, :invalid_message and :failed), every raise, exit and the
       timeout writes "failed"/"adapter_error"; :ok writes "sent"/null. A value outside these sets is
@@ -41259,10 +41275,10 @@ requirements:
       service. This requirement builds no reset or welcome mail and its design does not depend on the answer.
     acceptance_criteria:
       - "1. Port reuse: Letflow.LoginDiscovery.Notifier declares the callback deliver_message/1; Notifier.Smtp, Notifier.Noop and the test double implement it; grep -rn \":gen_smtp_client\\|:mimemail\" lib/ --include=*.ex matches only lib/letflow/login_discovery/notifier/smtp/transport.ex, and mix.exs and mix.lock gain no dependency. deliver_tenant_list/2 and its tests are unchanged."
-      - "2. Send path: with the capturing test adapter and a tenant whose default_locale is \"fr\", assigning a task to a user with an email makes the adapter receive one message whose to is that address and whose subject and body are the stored task_assigned template of locale \"fr\" with the values inserted; with no stored row of \"fr\", the platform default text; with default_locale unset, the stored or default text for \"en\" and the log row's locale is \"en\". A test covers the three cases."
+      - "2. Send path: with the capturing test adapter and a tenant whose default_locale is \"fr\", assigning a task to a user with an email makes the adapter receive one message whose to is that address and whose subject and body are the stored task_assigned template of locale \"fr\" with the values inserted; with no stored row of \"fr\", the platform default text; with default_locale unset, the stored or default text for \"en\" and the log row's locale is \"en\". A test covers the three cases. Values: with the task node_name \"Review\", the snapshot definition_name \"Leave\", the user display_name \"Ann\" and the tenant display_name \"Acme\", the message contains those four texts; with a nil node_name, a nil user display_name (username used) and no snapshot row, a message is still sent and one \"sent\" row is written, with \"\" in place of the missing task_name and process_name; due_date is \"\" in every case."
       - "3. Assignment unaffected (INV-8): if the adapter returns {:error, :failed}, raises, or sleeps past timeout_ms (the test sets Letflow.LoginDiscovery.Notifier timeout_ms to a small value), assign_task/3 returns the same success result without waiting for the adapter, and the task is assigned; after waiting for the delivery task with a bounded poll of the log (at most 2 seconds), exactly one row exists for each of the three cases, with status \"failed\" and reason \"adapter_error\". The same holds for reassign_task/3 in one case."
       - "4. Log rows: a successful send writes one row with status \"sent\" and a null reason; an assignee without an email writes status \"skipped\" and reason \"no_email\" and calls no adapter; with the Noop adapter the row is \"skipped\" with reason \"adapter_noop\". Each row carries template_key \"task_assigned\", locale, recipient_user_id and trigger_ref equal to the task id."
-      - "5. Closed sets: inserting a row with a status outside \"sent\"/\"failed\"/\"skipped\", a reason outside \"no_email\"/\"adapter_noop\"/\"adapter_error\", or status \"sent\" with a non-null reason, is refused by the changeset, and a direct SQL insert of the same is refused by the CHECK; each of the Smtp reasons :not_configured, :invalid_recipient, :invalid_message and :failed, returned by the test double, writes \"failed\"/\"adapter_error\"."
+      - "5. Closed sets: inserting a row with a status outside \"sent\"/\"failed\"/\"skipped\", a reason outside \"no_email\"/\"adapter_noop\"/\"adapter_error\", or status \"sent\" with a non-null reason, is refused by the changeset, and a direct SQL insert of the same is refused by the CHECK; each of the Smtp reasons :not_configured, :invalid_recipient, :invalid_message and :failed, returned by the test double, writes \"failed\"/\"adapter_error\". A default_locale not matching the locale pattern, written directly in test setup (preview/6 returns {:error, :invalid_locale}), writes \"failed\"/\"adapter_error\" and calls no adapter; an assignee user id with no user row writes \"skipped\"/\"no_email\" and calls no adapter."
       - "6. No secrets or content in the log (INV-4): a test drives all outcomes and asserts that the table has no column holding subject, body, recipient address or error text, and that a row, the GET response and the application log output of a failed delivery (captured with ExUnit.CaptureLog) contain none of: the recipient address, the template text, the SMTP password or username values set in the test environment."
       - "7. Per-tenant scoping (INV-1, INV-10): rows written for an assignment in tenant A are in tenant A's schema only; the table of tenant B has no row and GET by a TENANT_ADMIN of tenant B returns an empty list; the route has no tenant parameter in path, query or body; a cross-tenant negative test shows tenant B cannot read, filter to or count tenant A's rows. A PLATFORM_ADMIN token gets only its own tenant's rows."
       - "8. Read route: GET /api/v1/notification-deliveries answers 200 with newest-first rows (at most 100) for a caller holding :NotificationTemplatesManage; status=failed returns only failed rows; an unknown status value answers 422; a caller without the permission gets the uniform 403 identical in status, body and content-type for a tenant with rows and one without (INV-5)."
