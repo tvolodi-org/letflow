@@ -1,0 +1,102 @@
+# T-0669 (BA): DEFINITIONS group, scenario 5: with the switch for form validation scripts OFF (the default), nothing about them is accepted.
+# Covers REQ-569 slice F-1 criterion 2 (a form validation script is refused with invalid_hook_kind; activation of a process whose human task names a form validation script that was published while the switch was on is
+# script_not_published; a service-step script binding behaves the same with the switch on and off) and criterion 1, last sentence (a version body without kind is invalid_hook_kind).
+# Sources: docs/requirements.yaml REQ-569 criteria 1, 2; config/config.exs (form_validation_hook_enabled false); lib/letflow/scripts.ex (form_validation_enabled?/0);
+# lib/letflow/scripts/runtime.ex (pinnable_kind?/1: the form kind is pinnable only with the switch on).
+# This scenario needs the switch OFF, which is the default of the product. Not observable through an API on QA: that the setting reads false in a fresh configuration (the product's own test reads the setting; no route
+# shows it). The scenario shows the effect, not the setting.
+# UAT assumption, to be confirmed by the process owner: the QA environment runs with the product default (switch off). If the switch is on in QA, this scenario is BLOCKED and definitions-1, 3, 4 run instead.
+# The published form validation script check_flag_total (precondition) was made while the switch was on; it is setup-prepared because no API call can publish it while the switch is off.
+# Each refusal step holds exactly one request. The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
+# Waiting: REQ-569 F-2 (T-0640 / GH #3298).
+---
+id: definitions-5-form-validation-switch-off
+scope: definitions
+title: With the form validation switch off, a form validation script is refused and a human task cannot use one
+version: "1.0"
+tags: [definitions, scripts, form-validation, switch-off, refusal]
+
+description: >
+  With the switch off, the administrator of SwiftRoute tries to create a script of kind "form validation" and is refused with the reason "invalid_hook_kind"; a version with no kind is refused with the same reason.
+  A process whose human task names a form validation script that was published earlier (check_flag_total version 1, made while the switch was on) can be uploaded but its activation is refused as
+  "script_not_published". A process whose service step names a published service step script (svc_flag_total version 1) is activated, as it is with the switch on.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The switch for form validation scripts is OFF in the test environment.
+    check: system_seeded
+    detail: Product default. If step 1 is accepted (201), the switch is on; report BLOCKED for the whole scenario. This is not a product failure.
+  - description: SwiftRoute has the published form validation script check_flag_total version 1 (made while the switch was on) and the published service step script svc_flag_total version 1. No process definition is named fv_off_human or fv_off_service.
+    check: system_seeded
+    detail: Setup-prepared. If check_flag_total cannot be arranged, report BLOCKED for steps 3 and 4 and EO-002, and run the other steps.
+  - description: The test setup supplies the body FV-BODY of definitions-1 (source, manifest, test cases).
+    check: system_seeded
+    detail: Script source is a test fixture.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create a new draft version of the script check_off_total with the kind "form validation" and the body FV-BODY.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to create a new draft version of the script check_off_nokind with the body FV-BODY and no kind.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads the process fv_off_human, version "1": start, one human task "review_total" naming check_flag_total version 1, and an end. The answer is noted.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to activate fv_off_human.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads the process fv_off_service, version "1": start, one service step "post_total" naming svc_flag_total version 1 as its script, and an end. Then activates it and reads its status.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: With the switch off a form validation script, and a script with no kind, are refused.
+    verification:
+      method: http_status
+      detail: Steps 1 and 2 each answer 422 with the reason "invalid_hook_kind". The list of scripts has neither check_off_total nor check_off_nokind.
+      evidence: The answers of steps 1 and 2 and the list of scripts read afterwards.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A feature that is not finished would be usable by companies, and a script could be bound that no part of the product runs.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: With the switch off a human task cannot use a form validation script, even one published earlier.
+    verification:
+      method: http_status
+      detail: Step 3 answers 201. Step 4 answers 422 with the error "script_binding_invalid", the node id "review_total" and the reason "script_not_published".
+      evidence: The answers of steps 3 and 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A process could go into use with a check that the product does not run, so the administrator believes forms are checked when they are not.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A service step script binding behaves as with the switch on.
+    verification:
+      method: http_status
+      detail: Step 5 upload answers 201, activation answers 200 and the status read is active.
+      evidence: The answers of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Turning the new feature off also breaks processes that already use service step scripts.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Deprecate fv_off_service if the environment keeps it; fv_off_human stays a draft.
