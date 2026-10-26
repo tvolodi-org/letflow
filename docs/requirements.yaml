@@ -41896,7 +41896,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- blocked-by: REQ-510 -- register status still pending though the authoring routes shipped (GH #2680)
+    gh: 3355
     description: >-
       Source: docs/migration/bilimbaga-retirement-status.md section 2 item 3 ("Admin screens are generic
       CRUD ... no exam builder with sections and rules in one view") and task T2b-T2d. Today an
