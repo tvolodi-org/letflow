@@ -505,7 +505,7 @@ defmodule Letflow.Modules.Exam.SnapshotRolloutTest do
     test "a session field named exam_snapshot of ANOTHER type is a :conflict and nothing is written" do
       %{schema_name: schema} = StampFx.bare_tenant!("gh2682-t56-conflict", true)
 
-      for name <- StampFx.authoring_types() ++ (StampFx.runtime_types() -- ["session"]) do
+      for name <- StampFx.stamp_types() -- ["session"] do
         StampFx.create_definition!(
           schema,
           Map.put(StampFx.legacy_definition(name), :constraints, [])

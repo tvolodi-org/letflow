@@ -187,6 +187,38 @@ defmodule Letflow.Modules.Installs do
   end
 
   @doc """
+  Creates the pack's entity definition `name` (inactive, stamped with the module's `managed_by`)
+  in a tenant that has `module_id` installed but lacks it (REQ-582; used by
+  `Letflow.Entities.ManagedTypes.AssignmentDefinition`). Writes no `tenant_modules` or
+  `solution_pack_installs` row and never activates. `name` must be one of the manifest's
+  `manages_entity_types`. Schema source: `opts[:prefix]` only (INV-1). The caller owns the
+  surrounding transaction (this opens a nested one, which joins it).
+  """
+  @spec ensure_pack_entity_definition(
+          module_id :: String.t(),
+          name :: String.t(),
+          actor_id :: Ecto.UUID.t(),
+          opts()
+        ) :: {:ok, Letflow.Entities.EntityDefinition.t()} | {:error, term()}
+  def ensure_pack_entity_definition(module_id, name, actor_id, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    with {:ok, entry_module} <- fetch_module(module_id),
+         true <- module_installed?(module_id, prefix) or {:error, :module_not_installed},
+         manifest = entry_module.manifest(),
+         true <- name in manifest.manages_entity_types or {:error, :not_a_managed_type},
+         pack_path when is_binary(pack_path) <- manifest.pack || {:error, :not_a_managed_type},
+         {:ok, document} <- read_pack_document(pack_path),
+         owner = ManagedTypes.module_owner(entry_module),
+         {:ok, [created]} <-
+           SolutionPack.install_entity_definitions(document, [name], actor_id, opts, owner) do
+      {:ok, created}
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
   Updates the `settings` of the installed module identified by `module_id`
   in the tenant identified by `opts[:prefix]` (REQ-414).
 

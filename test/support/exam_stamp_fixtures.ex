@@ -32,6 +32,7 @@ defmodule Letflow.ExamStampFixtures do
   alias Letflow.Definitions.SolutionPackInstall
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EventTypes
+  alias Letflow.Entities.ManagedTypes.AssignmentDefinition
   alias Letflow.ExamFixtures
   alias Letflow.Identity.User
   alias Letflow.Modules.Exam
@@ -45,7 +46,7 @@ defmodule Letflow.ExamStampFixtures do
 
   @runtime_types ~w(certificate session session_answer session_event session_question session_question_score)
 
-  @authoring_types ~w(answer_option category exam exam_manual_question exam_question_rule
+  @authoring_types ~w(answer_option category exam exam_assignment exam_manual_question exam_question_rule
                       exam_question_rule_tag exam_section question question_tag tag)
 
   @exception_version 20_261_024_120_001
@@ -56,9 +57,19 @@ defmodule Letflow.ExamStampFixtures do
   @spec runtime_types() :: [String.t()]
   def runtime_types, do: @runtime_types
 
-  @doc "The ten authoring type names the exam module manages since GH #2680 slice 3."
+  @doc """
+  The eleven authoring type names the exam module manages: the ten of GH #2680 slice 3 plus
+  `exam_assignment` (REQ-582), which is managed but NOT stamped (see `stamp_types/0`).
+  """
   @spec authoring_types() :: [String.t()]
   def authoring_types, do: @authoring_types
+
+  @doc """
+  The sixteen type names `Stamp.stamp_names/0` (and the stamp migrations) cover: the six runtime
+  types and the ten stamped authoring types, i.e. everything managed except `exam_assignment`.
+  """
+  @spec stamp_types() :: [String.t()]
+  def stamp_types, do: @runtime_types ++ (@authoring_types -- ["exam_assignment"])
 
   @doc "The tenant-schema `schema_migrations` version of `AllowExamAuthoringManagedByStamp` (sixteen names)."
   @spec exception_version() :: pos_integer()
@@ -111,7 +122,7 @@ defmodule Letflow.ExamStampFixtures do
   end
 
   @doc """
-  A tenant with the exam `tenant_modules` row and ALL sixteen exam definitions created (legacy,
+  A tenant with the exam `tenant_modules` row and ALL seventeen exam definitions: the sixteen stamp types (legacy,
   FK-stripped, no constraints so no column promotion) and ACTIVE, unstamped, plus the answer-key
   field restrictions `Exam.on_install/2` seeds. The state of an exam tenant installed before the
   stamp, with every type usable through the generic record routes.
@@ -120,10 +131,13 @@ defmodule Letflow.ExamStampFixtures do
   def full_tenant!(slug_prefix) do
     tenant = bare_tenant!(slug_prefix, true)
 
-    for name <- @authoring_types ++ @runtime_types do
+    for name <- stamp_types() do
       create_definition!(tenant.schema_name, Map.put(legacy_definition(name), :constraints, []))
       activate!(tenant.schema_name, name)
     end
+
+    # REQ-582: `exam_assignment` is not stamped; the release step supplies it owner-stamped and active.
+    assert %{status: :created} = AssignmentDefinition.run_tenant(tenant.schema_name, [])
 
     :ok = Exam.on_install(tenant.schema_name, %{})
     tenant
