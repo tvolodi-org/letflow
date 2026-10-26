@@ -29,6 +29,15 @@ function requireEnv(name: string, value: string | undefined): string {
 }
 
 test.describe('REQ-438 email-first login', () => {
+  // BilimBaga study T3b (B3): "unauthenticated visitor lands on /login". Needs only the
+  // flag-on build from the prerequisites above, no tenant email or realm.
+  test('an unauthenticated visitor to a protected route lands on /login', async ({ page }) => {
+    await page.goto('/instances')
+    await expect(page).toHaveURL(/\/login$/, { timeout: 15_000 })
+    await expect(page.getByTestId('login-page')).toBeVisible()
+    await expect(page.getByTestId('login-email-form')).toBeVisible()
+  })
+
   test('a single-tenant user lands on their own realm login with the username pre-filled', async ({ page }) => {
     const email = requireEnv('E2E_EMAIL_FIRST_EMAIL', process.env.E2E_EMAIL_FIRST_EMAIL)
     const slug = requireEnv('E2E_EMAIL_FIRST_REALM_SLUG', process.env.E2E_EMAIL_FIRST_REALM_SLUG)
