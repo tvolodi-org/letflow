@@ -307,7 +307,25 @@ defmodule Letflow.Routers.TenantsTest do
 
       assert resp.status == 200
       assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
-      assert Registry.lookup(Letflow.Registry, {:oidc_provider, realm}) == []
+
+      # Registry removes the key asynchronously after the process dies.
+      deadline = System.monotonic_time(:millisecond) + 2_000
+
+      wait_unregistered = fn wait ->
+        cond do
+          Registry.lookup(Letflow.Registry, {:oidc_provider, realm}) == [] ->
+            :ok
+
+          System.monotonic_time(:millisecond) >= deadline ->
+            flunk("realm provider key still registered 2s after the process went DOWN")
+
+          true ->
+            Process.sleep(10)
+            wait.(wait)
+        end
+      end
+
+      wait_unregistered.(wait_unregistered)
     end
 
     test "an empty display_name is rejected 422" do
