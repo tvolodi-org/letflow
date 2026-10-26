@@ -1,0 +1,231 @@
+# T-0708 (BA): core-documents scenario 7: who may hold documents and change retention, and that another company or another part of the company learns nothing.
+# Covers REQ-536 criteria 6 (the roles part: only the tenant administrator holds the two permissions; here a task worker and the read-only
+# auditor are refused), 7 (a caller without the permission gets the same 403 for an existing and for an absent document), 8 (a document
+# outside the caller's part of the company, a document of another company and an absent id get the same 404; an unknown type key and a type key of
+# another company get the same 404; a refusal writes no audit event), 9 (a retention permission limited to part of the company is refused with
+# 403, the retention settings stay unchanged and no event is written) and 10 (cross-company negative test of all three routes: same 404 as for an
+# absent id, byte-identical body, the first company's data unchanged; no route takes a company from the request).
+# Sources: docs/requirements.yaml REQ-536 criteria 6-10; docs/migration/decisions/0063-versioned-documents-retention-and-hold.md S7;
+# lib/letflow/routers/documents.ex moduledoc (permission first, then validation, then the scoped lookup; the policy route needs a whole-company
+# grant; every not-found case is one answer); docs/roles.md matrix rows DocumentHold and DocumentsRetentionManage (TENANT_ADMIN yes, task
+# worker no, auditor no); test/fixtures/uat/actors.yaml (alice: SwiftRoute TENANT_ADMIN; lena: SwiftRoute task worker; auditor: SwiftRoute
+# TENANT_AUDITOR; actor-bilimbaga-admin: Bilimbaga TENANT_ADMIN, whose token needs a qa-login mapping that is not yet approved).
+# The platform operator is deliberately not used: the platform administrator role holds every permission, so a platform operator calling these
+# routes is not a refusal case and is not tested here.
+# GAP for the owner: the actor roster has no login whose grant is limited to one organisational unit. Steps 14 to 16 therefore name the
+# service-level harness as the caller and run only where the environment can issue such a limited grant; otherwise they are BLOCKED and the
+# rest still runs.
+---
+id: core-documents-7-hold-retention-access
+scope: core-documents
+title: Only the tenant administrator may hold documents or change retention; others, other companies and limited grants get a refusal that reveals nothing
+version: "1.0"
+tags: [documents, legal-hold, retention, access, cross-tenant, refusal, isolation]
+
+description: >
+  A task worker and the read-only auditor of SwiftRoute are refused when they try to place or release a legal hold or to change a
+  document type's retention policy, and the refusal is the same for a document that exists and for an identifier that no document has.
+  The administrator of Bilimbaga tries the same three actions on a document and a document type that exist only in SwiftRoute: every answer
+  is the answer for something that does not exist, byte for byte the same as for a made-up identifier, and nothing of SwiftRoute changes.
+  Where the environment can issue a limited grant, a caller whose retention permission covers only part of SwiftRoute is refused on the
+  retention policy, and a caller whose hold permission covers one organisational unit gets the "does not exist" answer for a document issued by
+  another unit, while still being able to hold a document of their own unit.
+  The documents, the document type and the reading of stored values and the audit trail go through the document service harness (no screen
+  exists). Without the harness the scenario is BLOCKED, not PASS.
+
+actors:
+  module: actor-system-documents-service
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+  auditor_a: actor-swiftroute-auditor
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: A service-level harness can call the document service for SwiftRoute, and SwiftRoute has two active organisational units, "unit 1" and "unit 2"
+    check: custom
+    detail: Without the harness every step is BLOCKED. The two units are used by steps 14 to 16 only; steps 1 to 13 need one of them.
+  - description: SwiftRoute and Bilimbaga are set up, and the document type "UAT access contract" exists only in SwiftRoute
+    check: system_seeded
+    detail: Bilimbaga has no document type with that key. If the key already exists in Bilimbaga, steps 10 and 13 are BLOCKED.
+  - description: The Bilimbaga administrator can sign in
+    check: custom
+    detail: If there is no approved test token for actor-bilimbaga-admin, steps 8 to 13 and EO-003 are BLOCKED and the other steps run.
+  - description: The harness can issue a caller whose DocumentsRetentionManage grant, and a caller whose DocumentHold grant, covers only "unit 1" of SwiftRoute
+    check: custom
+    detail: No roster login has such a grant. If the environment cannot issue it, steps 14 to 16 and EO-004 are BLOCKED, and the report says so. Such a caller must not hold the platform administrator role.
+  - description: The SwiftRoute task worker and auditor can sign in and hold neither permission
+    check: custom
+    detail: Per the role matrix neither role holds the two permissions.
+
+steps:
+  - step: 1
+    actor: module
+    action: >
+      Creates in SwiftRoute the document type "UAT access contract" and two documents of it, never on hold: the document, issued by
+      "unit 1", and document 2, issued by "unit 2". Notes the type key, both document ids, the three retention settings of the type, the hold columns of the document, and the number of hold and
+      retention audit entries in the SwiftRoute audit trail. Also makes up a well-formed document id and a well-formed type key that
+      nothing has (the made-up id and the made-up key).
+    via: system
+    produces:
+      document_id: the id of the document
+      document_2_id: the id of document 2
+      type_key: the key of the type
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker asks for a legal hold on the document of step 1 with the reason code "litigation" and the note "UAT worker hold".
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: worker_a
+    action: >
+      The task worker asks to release the hold on the document of step 1 with the reason code "litigation_closed" and the note "UAT worker
+      release".
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: worker_a
+    action: >
+      The task worker sets the policy of the type of step 1 to 365 days, start "issued", action "archive", with the reason code
+      "policy_review".
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: worker_a
+    action: >
+      The task worker asks for a legal hold on the made-up document id with the reason code "litigation" and the note "UAT worker hold".
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: auditor_a
+    action: >
+      The read-only auditor asks for a legal hold on the document of step 1 with the reason code "litigation" and the note "UAT auditor
+      hold".
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: auditor_a
+    action: >
+      The read-only auditor sets the policy of the type of step 1 to 365 days, start "issued", action "archive", with the reason code
+      "policy_review".
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for a legal hold on the document of step 1 (a document of SwiftRoute), with the reason code
+      "litigation" and the note "UAT other company hold".
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks to release the hold on the document of step 1, with the reason code "litigation_closed" and the note
+      "UAT other company release".
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator sets the policy of the type key of step 1 (a type of SwiftRoute) to 365 days, start "issued", action
+      "archive", with the reason code "policy_review".
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for a legal hold on the made-up document id with the reason code "litigation" and the note "UAT other
+      company hold".
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks to release the hold on the made-up document id with the reason code "litigation_closed" and the note
+      "UAT other company release".
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator sets the policy of the made-up type key to 365 days, start "issued", action "archive", with the reason
+      code "policy_review".
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: module
+    action: >
+      As the caller whose retention permission covers only "unit 1", sets the policy of the type of step 1 to 365 days, start "issued",
+      action "archive", with the reason code "policy_review".
+    expect_refusal: true
+    via: system
+  - step: 15
+    actor: module
+    action: >
+      As the caller whose hold permission covers only "unit 1", asks for a legal hold on document 2 with the reason code "litigation" and the note "UAT other unit hold".
+    expect_refusal: true
+    via: system
+  - step: 16
+    actor: module
+    action: >
+      As the caller whose hold permission covers only "unit 1", asks for a legal hold on the document of step 1 (issued by "unit 1") with the
+      reason code "litigation" and the note "UAT own unit hold".
+    via: system
+  - step: 17
+    actor: module
+    action: >
+      Reads the hold columns of both documents, the retention settings of the type and the hold and retention audit entries of SwiftRoute
+      since step 1, while the document of step 1 is still on hold from step 16.
+    via: system
+  - step: 18
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute releases the hold on the document of step 1 with the reason code "litigation_closed" and the note
+      "UAT own unit release".
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker and the read-only auditor are refused every hold, release and retention change with the same answer, whether the document exists or not.
+    verification:
+      method: http_status
+      detail: Steps 2, 3, 4, 6 and 7 answer 403. Step 5 (the made-up document id) answers the same 403 as step 2 with the same body byte for byte and the same headers apart from per-request ones (date, request id).
+      evidence: The status, headers and body of steps 2 to 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee or an outside auditor could freeze or release documents under legal hold, or shorten the time documents are kept, or could learn which document identifiers exist.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The refusals of steps 2 to 7 changed nothing in SwiftRoute.
+    verification:
+      method: audit_event
+      detail: The harness read of step 17 shows the document of step 1 with the hold columns of step 1 (never held) apart from the effect of step 16, the retention settings of the type as in step 1, and no hold or retention audit entry caused by steps 2 to 7. The only hold audit entry since step 1 is the set of step 16.
+      evidence: The values noted in step 1 compared with the harness reads, and the audit entries listed in step 17.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused request must not leave a hold, a policy change or an audit entry behind.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The Bilimbaga administrator gets the answer for something that does not exist, for the SwiftRoute document, the SwiftRoute type and the made-up identifiers alike, and SwiftRoute's data is unchanged.
+    verification:
+      method: http_status
+      detail: Steps 8 to 13 all answer 404. Step 8 and step 11 have the same status, the same body byte for byte and the same headers apart from per-request ones; the same holds for steps 9 and 12, and for steps 10 and 13. The body does not name SwiftRoute, the document type or the document. After the steps, the hold columns of the document of step 1 and the retention settings of the type are as in step 1, and no hold or retention audit entry exists in SwiftRoute for steps 8 to 13 (SwiftRoute's audit trail) or in Bilimbaga's.
+      evidence: The status, headers and body of steps 8 to 13, and the harness reads of SwiftRoute's document, type and audit trail and of Bilimbaga's audit trail.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Another company could confirm that a document or document type exists in SwiftRoute, or change its legal hold or retention.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A caller whose retention permission covers only part of the company is refused; a caller limited to one unit sees a document of another unit as nonexistent but can hold a document of their own unit.
+    verification:
+      method: http_status
+      detail: Step 14 answers 403 and the retention settings of the type and the retention audit entries are as in step 1. Step 15 answers 404 with the same body byte for byte as step 11 and the same headers apart from per-request ones, and document 2 is not on hold with no hold audit entry for it. Step 16 answers 200 with on hold true, and step 18 answers 200 with on hold false.
+      evidence: The answers of steps 14 to 16 and 18 and the harness reads of the type, of documents 1 and 2 and of the audit trail.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A manager of one department could freeze documents of another department or change the company's retention rule for everybody.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Release the hold of the document of step 1 if it is still on hold, and remove the two test documents and the test document type "UAT access contract" created in SwiftRoute.
