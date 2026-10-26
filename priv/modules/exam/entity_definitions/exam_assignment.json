@@ -1,0 +1,57 @@
+{
+  "name": "exam_assignment",
+  "display_name": "Exam Assignment",
+  "description": "Who an exam is assigned to. Ports FR-BB33 (Exam Assignment), source table `exam_assignments` in BilimBaga's backend/migrations/013_exam_assignments.up.sql; product spec is corporate_exam_platform_roadmap.md section 3.3 (REQ-582, shape 1 of the open question recorded in README-constraints.md Group (iii)). `assignee_type` is :enum over exactly all, user, group and org_unit; `assignee_id` names the user, group or organisational unit and is empty for `all`. The rule 'assignee_id is required unless assignee_type is all' is not expressible in an entity definition, so a record that violates it is treated by the consumer as matching nobody. `exam_id` is :string and carries the foreign key to `exam`. `deadline` is optional. `assigned_by` is the assigning user's id as a string (the identity subsystem is not reachable by an entity foreign key). A withdrawn assignment is written as `active` false, never deleted. OMISSIONS. No `id`, `created_at` or `updated_at` field is declared: the record subsystem owns record identity and the event store owns the timeline. The type is managed by the exam module: only the exam module's authority may write its records.",
+  "fields": [
+    {
+      "name": "exam_id",
+      "type": "string",
+      "queried": true,
+      "required": true
+    },
+    {
+      "name": "assignee_type",
+      "type": "enum",
+      "enum_values": ["all", "user", "group", "org_unit"],
+      "queried": true,
+      "required": true
+    },
+    {
+      "name": "assignee_id",
+      "type": "string",
+      "queried": true,
+      "required": false
+    },
+    {
+      "name": "deadline",
+      "type": "datetime",
+      "queried": false,
+      "required": false
+    },
+    {
+      "name": "assigned_by",
+      "type": "string",
+      "queried": false,
+      "required": true
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "queried": true,
+      "required": true
+    }
+  ],
+  "indexes": [
+    {
+      "name": "idx_exam_assignment_exam_id",
+      "fields": ["exam_id"]
+    }
+  ],
+  "foreign_keys": [
+    {
+      "name": "fk_exam_assignment_exam_id",
+      "field": "exam_id",
+      "references_entity": "exam"
+    }
+  ]
+}

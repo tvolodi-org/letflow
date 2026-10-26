@@ -13,6 +13,8 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   `session_question_score` (GH #2596) and the ten exam authoring types `exam`, `exam_section`,
   `exam_question_rule`, `exam_question_rule_tag`, `exam_manual_question`, `question`,
   `answer_option`, `question_tag`, `tag`, `category` (GH #2680 slice 3).
+  REQ-582 `exam_assignment` is managed by the exam module but deliberately NOT stamped: it is supplied
+  by `Letflow.Entities.ManagedTypes.AssignmentDefinition`.
   Both sets are candidates only through the exam module's own `manages_entity_types`; no other
   name can be stamped.
 
