@@ -38,6 +38,8 @@ GET /promotions PromotionsRead
 GET /promotions/:id PromotionsRead
 GET /promotions/:id/context PromotionsRead
 GET /promotions/platform-events PromotionsRead
+GET /scheduled-jobs ScheduledJobsManage
+GET /scheduled-jobs/:id ScheduledJobsManage
 GET /script-policy ScriptPolicyRead
 GET /script-policy/pending-review ScriptPolicyRead
 GET /script-policy/readable-masters ScriptPolicyRead
@@ -53,6 +55,7 @@ GET /webhooks/subscriptions WebhookSubscriptionsManage
 GET /webhooks/subscriptions/:id/deliveries WebhookSubscriptionsManage
 PATCH /admin/services/:service_id AdminServicesManage
 PATCH /definitions/:id DefinitionsPatch
+PATCH /scheduled-jobs/:id ScheduledJobsManage
 PATCH /tenant/settings TenantSettingsManage
 PATCH /tenants/:slug TenantsManage
 PATCH /webhooks/subscriptions/:id WebhookSubscriptionsManage
@@ -93,6 +96,9 @@ POST /promotions/:id/reject PromotionsManage
 POST /promotions/:review_id/run-assertions PromotionsManage
 POST /promotions/plan PromotionsManage
 POST /public-read-handles PublicReadHandlesIssue
+POST /scheduled-jobs ScheduledJobsManage
+POST /scheduled-jobs/:id/disable ScheduledJobsManage
+POST /scheduled-jobs/:id/enable ScheduledJobsManage
 POST /script-policy/readable-masters/:entity_type/clear ScriptPolicyManage
 POST /script-rules/:key/dry-run ScriptsWrite
 POST /script-rules/:key/versions ScriptsWrite
