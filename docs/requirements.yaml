@@ -41767,6 +41767,129 @@ requirements:
       - "6. npm run check (type-check, lint, unit tests, guards) passes with real output quoted; no change under web/src outside web/src/modules/exam/ except the minimal navigation registration the shell requires, which the PR names; the existing candidate and admin screen tests still pass."
     depends_on: [REQ-588]
 
+  - id: REQ-590
+    title: "Tenant logo upload, part 1 of 2: per-tenant storage, default-off flag, and authorised PUT/DELETE with type, size and scanner limits (BilimBaga retirement criterion 9, T9a)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S8
+    gh: 3338
+    # Source: docs/migration/bilimbaga-retirement-status.md section 9 ("Branding, missing" item 4: an upload path replacing the logo_url string); REQ-585 description, "OUT OF SCOPE, SEPARATE LATER SLICES" (logo upload gets its own requirement; logo_url stays an absolute http(s) string until then); lib/letflow/identity/tenant.ex (validate_logo_url/2); lib/letflow/routers/tenant_settings.ex (authz_patch "/", :TenantSettingsManage) and its mount forward("/tenant/settings", ...) in lib/letflow/plugs/api_pipeline.ex; lib/letflow/repository/attachments.ex (upload/2, @allowed_content_types, @max_upload_bytes, run_attachment_scan/2) and lib/letflow/repository/attachment_scanner.ex (scan/2 callback); priv/repo/migrations/20261014000002_create_script_policy.exs (the per-tenant singleton pattern: smallint id plus a CHECK id = 1); lib/letflow/tenant_provisioning.ex (@tenant_scoped_migration_manifest); docs/migration/decisions/0006-identity-tables-schema-per-tenant.md D2 (tenant_id is DROPPED from every table whose isolation boundary is the Postgres schema); docs/agents/instructions/security-invariants.md (INV-1, INV-6, INV-8). Written by the business analyst (T-0695) 2026-10-26. Not yet validated.
+    description: >
+      Part 1 of 2. Part 2 is the next entry, REQ-591 (public read and the two tenant-config responses). Today a
+      tenant's logo is the string settings["logo_url"], an absolute http(s) URL checked by validate_logo_url/2
+      in lib/letflow/identity/tenant.ex. This part lets a tenant administrator store ONE image per tenant inside
+      Letflow, behind a new flag that is off by default. Nothing in this part changes any tenant-config response
+      and nothing reads the image back publicly.
+      REUSE OF THE UPLOAD BOUNDARY. Letflow.Repository.Attachments.upload/2 cannot be called as it is: it
+      requires an instance_id and runs the instance-visibility check. What is reused is its boundary, not the
+      table: (a) the scanner seam Letflow.Repository.AttachmentScanner.scan/2, resolved the way
+      run_attachment_scan/2 resolves it (Application.get_env(:letflow, :attachment_scanner, default)) and
+      wrapped so a raising adapter cannot crash the caller (INV-8); (b) the rule that byte_size is measured from
+      the received bytes and never from a caller-supplied number; (c) reject-before-persist: an infected or
+      scan-failed upload stores nothing. The logo does not go into instance_attachments.
+      NEW STORAGE. A tenant-schema table tenant_logos (one migration, registered in
+      @tenant_scoped_migration_manifest of lib/letflow/tenant_provisioning.ex, with the mandatory `if prefix()`
+      guard like the script_policy migration). It has NO tenant_id column: decision 0006 D2 drops tenant_id from
+      every table whose isolation boundary is the schema, and the tenant is the :prefix. One row per tenant is
+      enforced the way script_policy does it: id smallint primary key plus a CHECK constraint named
+      tenant_logos_singleton with check "id = 1", created with the schema prefix. Other columns: content_type,
+      byte_size, content_hash (sha256 hex), data (the image bytes), updated_at, updated_by. Every read and write
+      goes through the tenant :prefix derived from the authenticated tenant (INV-1, INV-6).
+      FLAG. Application env :tenant_logo_upload_enabled, default false in every environment (config/config.exs
+      sets false, like :record_triggers_enabled), read by one function Letflow.Identity.TenantLogo.enabled?/0
+      (new module lib/letflow/identity/tenant_logo.ex, which also holds the store, replace and delete functions).
+      With the flag off the routes below answer as if they did not exist.
+      LIMITS (one implementation). Allowed content types: image/png, image/jpeg, image/webp. image/svg+xml and
+      image/gif are refused (SVG is markup and can carry script; the rule is a closed allow list, not a deny
+      list). The declared Content-Type is checked against the list AND against the leading magic bytes of the
+      data (PNG 89 50 4E 47 0D 0A 1A 0A; JPEG FF D8 FF; WebP "RIFF" at offset 0 and "WEBP" at offset 8); a
+      mismatch is refused, so the "caller-declared, unverified" weakness of the attachment path does not carry
+      over. Maximum size 524288 bytes (512 KiB), measured on the received bytes. Check order: content type,
+      size, magic bytes, then the scanner.
+      ROUTES (the router's route table is the source for the final paths). A new module
+      Letflow.Routers.TenantLogo mounted at /api/v1/tenant/logo next to /api/v1/tenant/settings in
+      lib/letflow/plugs/api_pipeline.ex: PUT (body: the raw image bytes, content type from the Content-Type
+      header) and DELETE, both gated by the existing permission :TenantSettingsManage, so no permission is
+      added and the permission matrix golden does not move.
+      AUDIT. PUT and DELETE each write one audit entry (actions "tenant_logo.upload" and "tenant_logo.delete")
+      holding the content type, byte size and hash, never the bytes. Audit.append_multi raises on a database
+      failure, so the row change and its audit entry are in one transaction.
+      EXISTING logo_url VALUES. No migration touches tenants.settings and PATCH /api/v1/tenant/settings still
+      validates logo_url with the unchanged validate_logo_url/2. How the two values interact in responses is
+      REQ-591.
+      OUT OF SCOPE. The public read, the tenant-config responses (REQ-591); a logo field or preview on
+      web/src/pages/admin/AppearanceSettingsPage.tsx, the Flutter client, resizing or re-encoding, several logos
+      per tenant, a CDN, removing the logo_url string.
+    acceptance_criteria:
+      - "1. Flag: Letflow.Identity.TenantLogo.enabled?/0 returns Application.get_env(:letflow, :tenant_logo_upload_enabled, false) == true and config/config.exs sets it to false; with it off, PUT and DELETE /api/v1/tenant/logo answer 404 with the router's ordinary not-found body and write nothing (a test pins each)."
+      - "2. Storage shape: the migration creates tenant_logos in every tenant schema with no tenant_id column, id smallint primary key and the CHECK constraint tenant_logos_singleton (id = 1); a test inserts a row with id 2 directly and asserts the constraint violation; the migration is listed in @tenant_scoped_migration_manifest."
+      - "3. Upload accepts a valid image: with the flag on, PUT /api/v1/tenant/logo by a user holding :TenantSettingsManage with a PNG of at most 524288 bytes and Content-Type image/png answers 200 and stores one tenant_logos row in that tenant's schema with content_type, byte_size equal to the received length, the sha256 content_hash and updated_by; a second PUT replaces the same row (still one row)."
+      - "4. Type and signature limits, each its own step, no row written: a PUT of image/svg+xml, image/gif, application/pdf and text/html is refused with a 4xx naming the allowed types; a PUT declared image/png whose bytes begin with the JPEG signature, and one whose bytes begin with <svg, are refused; one passing and one failing magic-byte case each for PNG, JPEG and WebP."
+      - "5. Size limits, each its own step: a PUT of 524289 bytes is refused as too large and writes nothing; a PUT of exactly 524288 valid bytes is accepted."
+      - "6. Scanner seam (check order: content type, size, magic bytes, then scan): a PUT of the 8 PNG signature bytes 89 50 4E 47 0D 0A 1A 0A followed by the EICAR test string, declared image/png and of at most 524288 bytes, passes the type, size and magic-byte checks, is refused with the scanner's refusal reason (distinct from the type and signature refusal reasons of criterion 4, asserted by that reason) and writes no row; a scanner adapter that raises, and one that returns {:error, _}, each receive a valid PNG upload (so it reaches the scanner) and yield a 4xx refusal (not a crash, not a 500) and no stored row."
+      - "7. Authorisation: PUT and DELETE /api/v1/tenant/logo are refused for a user without :TenantSettingsManage and for an unauthenticated caller; priv/permission_matrix/effective.golden is unchanged; a test confirms the route is listed with :TenantSettingsManage in the authorization route table."
+      - "8. Tenant isolation (INV-1, INV-6): with tenants A and B each holding a logo, PUT and DELETE by A's administrator change only A's row (B's bytes and hash unchanged, asserted by reading B's schema with B's :prefix); Letflow.Identity.TenantLogo contains no Repo call without a :prefix; the tenant table-list pin @expected_tenant_tables in test/support/tenant_fixture.ex and its count assertion in test/letflow/support/tenant_fixture_test.exs move +1 from the value on origin/main at implement time."
+      - "9. DELETE removes the row (200 when a row existed, 404 with the ordinary not-found body when none existed); after DELETE a PUT works again."
+      - "10. Audit and existing values: PUT writes one audit entry \"tenant_logo.upload\" and DELETE one \"tenant_logo.delete\", each with content type, byte size and hash and no image bytes (a test scans after_state for the bytes), in the same transaction as the row change; a DROP TABLE audit_entries test shows the failure is rescued and the logo row is left unchanged; PATCH /api/v1/tenant/settings with a non-http logo_url is still refused (git diff shows validate_logo_url/2 unchanged and no migration touches tenants.settings)."
+      - "11. Gates: SECURITY-REVIEWER verdict recorded (mandatory: INV-1, INV-6, INV-8; file-upload surface) and REVIEWER verdict recorded; route pins move +1 from the values on origin/main at implement time (grep -rn \"__authz_routes__\\|length(snapshot)\" test/ and test/fixtures/route_scope/tenant_wide_default_routes.txt); mix letflow.check.static and the changed and new test files pass with real output quoted; the PR states that the flag is off in QA after auto-CD."
+    depends_on: [REQ-585, REQ-280, REQ-211, REQ-212, REQ-389]
+
+  - id: REQ-591
+    title: "Tenant logo upload, part 2 of 2: public no-token logo read and the uploaded logo replacing branding.logo_url in both tenant-config responses, behind the REQ-590 flag (BilimBaga retirement criterion 9, T9a)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S8
+    gh: 3337
+    # Source: REQ-590 (storage, flag, TenantLogo module); lib/letflow/routers/tenant_config.ex (handle_tenant_config/1 reads ?realm= and ?host=; resolve_realm/2 miss guard idp_realm_id non-empty and status != :inactive; default_realm_tenant/0; branding_from_settings/1; moduledoc INV-2 section and route table); lib/letflow/routers/mobile_tenant_config.ex (resolve_tenant_config/1 same guard; branding_from_settings/1; reads ?slug= only); Letflow.Identity.safe_get_tenant_by_slug/2 in lib/letflow/identity.ex; docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5, INV-8). Written by the business analyst (T-0695) 2026-10-26. Not yet validated.
+    description: >
+      Part 2 of 2; needs REQ-590 (the stored image and the flag). The login screen renders the logo with a plain
+      image tag before any token exists, so the read is public.
+      PUBLIC READ. GET /api/tenant-config/logo?slug=<slug>, handled inside Letflow.Routers.TenantConfig (same
+      pre-auth, no-x-trace-id mount). It resolves ONLY through Letflow.Identity.safe_get_tenant_by_slug/2 on the
+      ?slug= value: no ?realm=, no ?host=, no default-tenant fallback. It uses the same miss guard as both
+      config resolvers: the tenant must have a non-empty idp_realm_id and status other than :inactive. The
+      tenant's :prefix is derived from the tenant found. 200 answers the stored bytes with the stored content
+      type, X-Content-Type-Options: nosniff, Content-Security-Policy: default-src 'none'; sandbox and
+      Content-Disposition: inline; the bytes are never wrapped in markup. Seven cases return one identical 404
+      (same status, body and header names; INV-5): no ?slug=, an unknown slug, a lookup failure, a tenant with
+      a nil or empty idp_realm_id, an inactive tenant, a tenant with no uploaded logo, and the flag off.
+      RESPONSES. branding.logo_url, in the same position, replaces the stored string only when the flag is on
+      and the tenant resolved by that endpoint's own rules has an uploaded logo; then it is
+      /api/tenant-config/logo?slug=<slug>. No key is added to either body. Web GET /api/tenant-config, per
+      branch: ?realm= hit (guard passed) with an upload: path with the slug the caller sent; ?realm= hit
+      without an upload: the stored string, as today; ?realm= miss, ?host=, no parameter: these resolve the
+      default-realm tenant (slug bpm-default, which oidc_authority already discloses); the path with slug
+      bpm-default is used only when that tenant passes the same guard as the logo route (non-empty idp_realm_id,
+      status other than :inactive) and has an upload, otherwise today's value; lookup failure: today's platform default
+      value, byte-identical. Mobile GET /api/mobile/tenant-config: a ?slug= hit with an upload gets the path
+      with that slug; unknown slug, missing slug, lookup failure, inactive tenant and nil realm stay
+      byte-identical to today's platform default, and no upload is read for them (INV-5).
+      INV-2 REASONING FOR THE SECURITY REVIEW. The web body's documented rule is that it never carries a slug.
+      This change lets a slug appear only where the caller already supplied it (?realm= hit) or where it is the
+      constant bpm-default already implied by oidc_authority; nothing new is learnable. The moduledoc
+      disclosure section and route table of Letflow.Routers.TenantConfig are updated to say so and to document
+      the new route and its 404 posture (the table row "always 200" stays true for GET /api/tenant-config).
+      The logo row's bytes, hash, size, updated_by never appear in either body (INV-2); the builders read only
+      whether a logo exists plus the tenant slug already in hand.
+      EXISTING logo_url VALUES. No data migration. A tenant with a logo_url string and no upload returns that
+      string exactly as today. When both exist, the upload wins in the responses and settings["logo_url"] is
+      not overwritten. DELETE of the upload (REQ-590), or turning the flag off, makes the stored string the
+      answer again; the uploaded row is kept when the flag is turned off. Letflow.Routers.TenantConfig
+      .branding_from_settings/1 keeps its public signature (Letflow.Modules.Exam.Certificate calls it) and keeps
+      returning the stored string.
+      OUT OF SCOPE. The web admin UI, the Flutter client; if web/src requires an absolute URL for the logo
+      image, that adjustment is part of this change.
+    acceptance_criteria:
+      - "1. Flag off: with :tenant_logo_upload_enabled false, GET /api/tenant-config/logo answers the same 404 as the seven miss cases, and GET /api/tenant-config and GET /api/mobile/tenant-config for a tenant that has a tenant_logos row are byte-identical to the responses for the same tenant with no row."
+      - "2. Serving: GET /api/tenant-config/logo?slug=<tenant with logo> answers 200 with exactly the stored bytes, the stored content type, X-Content-Type-Options: nosniff, Content-Security-Policy: default-src 'none'; sandbox and Content-Disposition: inline; a PNG whose trailing bytes contain <script>alert(1)</script> is returned byte-identical with an image/png content type, never an html or svg content type."
+      - "3. INV-5 on the read: the seven cases (no slug, unknown slug, forced lookup failure, tenant with nil idp_realm_id, tenant with empty idp_realm_id, inactive tenant, tenant with no uploaded logo) plus the flag-off case return the same status 404, the same body and the same header names, compared in one test, and none answers 500; a request carrying ?realm= or ?host= without ?slug= gets that same 404."
+      - "4. Tenant isolation (INV-1): with tenants A and B each holding a logo, ?slug=<A> returns A's bytes and ?slug=<B> returns B's; the read uses the :prefix of the tenant found by slug and no Repo call without a prefix exists in the new code."
+      - "5. Web response branches: for each of ?realm= hit with an upload, ?realm= hit without an upload, ?realm= miss, ?host=, no parameter and a forced lookup failure, a test asserts branding.logo_url as stated in the description (including slug bpm-default on the default branches when that tenant has an upload); an inactive default-realm tenant, and one with a nil or empty idp_realm_id, that has an upload keeps today's value on the default branches (never a path that the logo route would answer with 404); the keys of the web body and of branding are unchanged."
+      - "6. Mobile response: a ?slug= hit with an upload returns branding.logo_url equal to the path with that slug and the six top-level keys are unchanged; unknown slug, missing slug, lookup failure, inactive tenant and nil-realm tenant return a body byte-identical to today's platform default."
+      - "7. INV-2: neither body contains the bytes, content_hash, byte_size, updated_by of the logo row, asserted by key and by value; the moduledocs of lib/letflow/routers/tenant_config.ex (disclosure section and route table) and lib/letflow/routers/mobile_tenant_config.ex state that logo_url may now be a path, which slug can appear on each branch, and the 404 posture of the new route."
+      - "8. Existing logo_url values: a tenant with settings logo_url \"https://example.com/l.png\" and no upload returns that string from both endpoints exactly as before; with an upload both return the path while settings[\"logo_url\"] in the database is unchanged; after DELETE /api/v1/tenant/logo or after turning the flag off both return the stored string again; Letflow.Routers.TenantConfig.branding_from_settings/1 still returns the stored string (test of Letflow.Modules.Exam.Certificate branding unchanged)."
+      - "9. Gates: SECURITY-REVIEWER verdict recorded (mandatory: INV-1, INV-2, INV-5, INV-8; public unauthenticated read); REVIEWER verdict recorded; route and named-route pins move as the route table requires (grep -rn \"__authz_routes__\\|length(snapshot)\\|length(named)\" test/), stated as +N from the values on origin/main at implement time; mix letflow.check.static and the changed and new test files pass with real output quoted; the PR states the flag is off in QA after auto-CD and that no existing row is changed."
+    depends_on: [REQ-590, REQ-585, REQ-280]
   - id: REQ-593
     title: "Tenant realm template v2: forgot-password switch, reset link lifetime and en/ru/kk locales, with a drift test (BilimBaga study T5c, gaps G1 and G3; G2 Letflow part)"
     owner: ELIXIR-DEV
@@ -41805,10 +41928,10 @@ requirements:
     acceptance_criteria:
       - "1. Test V2-dir: the files priv/keycloak/provisioner/v2/tenant-realm.json and priv/keycloak/provisioner/v2/README.md exist, the JSON parses, Path.basename of the directory is 'v2' and attributes.templateVersion is the string '2'."
       - "2. Test V2-reset (G1): resetPasswordAllowed is the JSON boolean true and actionTokenGeneratedByUserLifespan is the integer 3600 in v2/tenant-realm.json; a mutated copy with resetPasswordAllowed removed, and one with the lifespan 300, are each flagged by the v2 rules in the test."
-      - "3. Test V2-locale (G3): internationalizationEnabled is true and supportedLocales equals ['en', 'ru', 'kk'] (as a set, three entries, no other); a mutated copy with 'kk' removed is flagged. The test also asserts the file has no emailTheme, no loginTheme and no localization texts key, so no text is carried by the template."
+      - "3. Test V2-locale (G3): internationalizationEnabled is true and supportedLocales equals ['en', 'ru', 'kk'] (as a set, three entries, no other); a mutated copy with 'kk' removed is flagged. The test also asserts the file has none of the keys emailTheme, loginTheme or localizationTexts, so no text is carried by the template."
       - "4. Test V2-same: removing the keys resetPasswordAllowed, actionTokenGeneratedByUserLifespan, internationalizationEnabled, supportedLocales and defaultLocale and attributes.templateVersion from the v2 map gives a map equal to the v1 map without attributes.templateVersion, read from priv/keycloak/provisioner/v1/tenant-realm.json, so v2 differs from v1 in nothing else; the only __NAME__ placeholders found in the v2 text are __REALM_ID__ and __TENANT_HOST__."
-      - "5. Test V2-smtp (G2, Letflow part): the v2 map has no key smtpServer, credentials, secret or password at any depth and no users entry, shown to bite by a mutated copy that adds smtpServer with a host (flagged); the file text contains no substring 'smtp' in any case."
+      - "5. Test V2-smtp (G2, Letflow part): the v2 map has no key smtpServer, credentials, secret or password at any depth and no users entry, shown to bite by a mutated copy that adds smtpServer with a host (flagged); the text of priv/keycloak/provisioner/v2/tenant-realm.json contains no substring 'smtp' in any case."
       - "6. Test V2-readme: v2/README.md contains the strings __REALM_ID__, __TENANT_HOST__, templateVersion, resetPasswordAllowed, supportedLocales, smtpServer, and states in words that smtpServer is mandatory for a v2 realm and that the provisioner must refuse to create a realm without it; it also states that v1 is frozen and names emailTheme and the texts as outside the template."
-      - "7. Reader check on git diff main...HEAD: no line under priv/keycloak/provisioner/v1/, in test/letflow/keycloak_tenant_realm_template_test.exs, in docs/runbooks/ or in docs/migration/decisions/ is changed; the entry's gap list names G4, G5 and G7 as open owner decisions and decides none of them; nothing in the diff claims production use; the diff touches docs/requirements.yaml only by appending this entry."
+      - "7. Reader check on the implementing change's git diff main...HEAD: no line under priv/keycloak/provisioner/v1/, in test/letflow/keycloak_tenant_realm_template_test.exs, in docs/runbooks/, in docs/migration/decisions/ or in docs/requirements.yaml is changed; nothing in the diff claims production use."
       - "8. mix test test/letflow/keycloak_tenant_realm_template_v2_test.exs and mix test test/letflow/keycloak_tenant_realm_template_test.exs both pass with real output quoted, and lf.sh lint passes; the PR text names the infra dependency (smtpServer validation in services/tenant-provisioner, and shipping the v2 template and the email theme with the ru and kk texts) as outside this change."
     depends_on: [REQ-572]
