@@ -41615,7 +41615,7 @@ requirements:
       - "6. npm run check (type-check, lint, unit tests, guards) passes with real output quoted; no change under web/src outside web/src/modules/exam/ except the minimal navigation registration the shell requires, which the PR names; the existing candidate and admin screen tests still pass."
     depends_on: [REQ-588]
 
-  - id: REQ-593
+  - id: REQ-594
     title: "Exam analytics reports over the aggregate API: per-exam summary, score distribution and per-question difficulty, with the classification of every BilimBaga report (BilimBaga study T6c)"
     owner: ELIXIR-DEV
     status: pending
