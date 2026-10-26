@@ -467,8 +467,7 @@ defmodule Letflow.Scripts.FormValidationRunTest do
     test "X16 an allocating script ends as memory limit", %{schema: schema} do
       source = "local t = {}\nfor i = 1, 1000000 do t[i] = { i } end\nreturn { ok = true }"
       rule = publish!(schema, "x16", source, fv_manifest(%{}, %{"heap_words" => 100_000}))
-      assert {:error, code, _} = FormValidation.run(schema, pin(rule), facts())
-      assert code in [:memory_limit_exceeded, :timeout, :budget_exceeded]
+      assert {:error, :memory_limit_exceeded, _} = FormValidation.run(schema, pin(rule), facts())
     end
   end
 

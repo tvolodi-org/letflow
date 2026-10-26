@@ -79,6 +79,18 @@ defmodule Letflow.Scripts.ValidationFormValidationTest do
     invalid(manifest(%{"fields" => [nil]}))
   end
 
+  test "M7b over-long entry, 64 characters accepted" do
+    long = String.duplicate("a", 65)
+    invalid(manifest(%{"refusal_codes" => [long]}))
+    invalid(manifest(%{"fields" => [long]}))
+    ok = String.duplicate("a", 64)
+
+    assert Validation.manifest(
+             manifest(%{"refusal_codes" => [ok], "fields" => [ok]}),
+             "form_validation"
+           ) == :ok
+  end
+
   test "M8 more than 32 entries" do
     many = for i <- 1..33, do: "c#{i}"
     invalid(manifest(%{"refusal_codes" => many}))

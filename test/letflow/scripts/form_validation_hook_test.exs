@@ -13,6 +13,19 @@ defmodule Letflow.Scripts.FormValidationHookTest do
   alias Letflow.Support.ScriptTaskFixture, as: F
   alias Letflow.TenantFixture
 
+  # The first sandbox call in a fresh VM is slow; warm it so the publish test case of S2 does not
+  # time out on a cold runner.
+  setup_all do
+    opts = [
+      tenant: "tenant_warmup",
+      timeout_ms: 5_000,
+      ctx: %{instance_id: "i", node_id: "n", token_id: "t", now: ~U[2026-01-01 00:00:00Z]}
+    ]
+
+    {:ok, _} = Letflow.Engine.Lua.ScriptRunner.run("return { ok = true }", %{}, opts)
+    :ok
+  end
+
   defp actor, do: %{user_id: Ecto.UUID.generate(), credential: :oidc, trace_id: "req569-trace"}
 
   defp body("form_validation" = kind) do

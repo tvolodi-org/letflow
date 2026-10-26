@@ -42,7 +42,8 @@ Letflow.TenantSchemaReaper.sweep_template_build_orphans(Letflow.Repo)
 # `mix test --include wasm_hang test/letflow/engine/wasm/`.
 #
 # ISS-0426: excludes every test tagged `@tag :lua_wallclock_race` (11 tests in
-# test/letflow/engine/lua/executor_test.exs, REQ-155/156/162) whose assertion
+# test/letflow/engine/lua/executor_test.exs, REQ-155/156/162, plus X15/X16 in
+# test/letflow/scripts/form_validation_run_test.exs, REQ-581) whose assertion
 # depends on which of two racing wall-clock outcomes wins -- e.g. a shorter
 # configured timeout terminating measurably sooner, or a wall-clock kill firing
 # before a script's own instruction budget would otherwise let it continue. Under
