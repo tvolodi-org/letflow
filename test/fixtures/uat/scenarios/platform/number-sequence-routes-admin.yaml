@@ -1,0 +1,245 @@
+# REQ-575 (BA-PLATFORM): UAT scenario for the customer administrator who sets up and lists numbering rules.
+# Criteria of the requirement covered here: 1 (create, listed, record gets its number), 2 (list, empty list, order, field set),
+# 3 (refused definitions store nothing; padding 1 and 12 accepted; tenant_id in body ignored), 8 (audit entry on create, none on a refusal).
+# Criteria 4 (permission), 6 (other customer), 7 (platform operator) are in number-sequence-routes-refusals.yaml.
+# Criteria 5, 9, 10, 11, 12 are code, pin, documentation and gate criteria; they are checked by the implementer's tests
+# and by the reviews, not by a business user, and are left out on purpose.
+# Visibility note: an answer to a create or a list shows id, key, record type, prefix, padding, period and creation time. It shows no counter
+# and no customer identifier. The number given to a record is not shown to users or in answers; the outcome that reads it is a system read
+# of the tenant number table (system_state) and is BLOCKED, not PASS, where the run cannot read that table. The audit entry is read the same way.
+# Steps 5 to 11 are expected to be REFUSED (a validation answer); steps 1-4, 12 and 13 are expected to be ACCEPTED.
+---
+id: platform-number-sequence-routes-admin
+scope: platform
+title: A customer administrator creates and lists numbering rules, a rule binds to its record type, and an invalid rule is turned down and stores nothing
+version: "1.0"
+tags: [numbering, administration, records, refusal, regression]
+
+description: >
+  Until now a numbering rule for a record type could only be set up by the platform team. SwiftRoute's administrator now
+  sets one up herself: she lists the rules (none yet), creates a rule that numbers orders like ORD-2026-000001, lists
+  again, and creates an order to see the rule at work. She then tries invalid rules (a record type that does not exist,
+  one the platform manages itself, a history-only one, a repeated key, a second rule for the same type, a bad prefix,
+  bad width, bad period, a missing field) and each is turned down and leaves the list unchanged. The widest and narrowest
+  accepted widths are accepted. A customer identifier she writes into the request is ignored: the rule belongs to her own customer.
+
+actors:
+  customer_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its own users and workspace, and the administrator can sign in
+    check: system_seeded
+  - description: >
+      SwiftRoute has an ordinary record type "order" (not managed by the platform itself, history editable) with no numbering rule, and
+      at least two more ordinary record types with no numbering rule (called "second type" and "third type" below); no numbering rule exists in SwiftRoute at the start
+    check: custom
+    detail: >
+      Set up by the platform team before the run. Confirm with the first list (step 1). If a rule already exists the scenario is
+      BLOCKED, because the empty list, the order of the list and the one-rule-per-type check depend on it. The existing scenarios
+      number-sequence-numbering and number-sequence-refusals also use the type "order" with a rule set up by the platform team; run this scenario on a
+      SwiftRoute that does not have that rule, or after those scenarios have been cleaned up.
+  - description: SwiftRoute also has one record type that the platform manages itself and one record type whose history can only be added to
+    check: custom
+    detail: Needed for steps 6 and 7; if the test tenant lacks either, that step is BLOCKED.
+  - description: The run can read the tenant number table and the audit trail of SwiftRoute
+    check: custom
+    detail: Needed for the outcomes that name a stored number or an audit entry; otherwise those outcomes are BLOCKED.
+
+steps:
+  - step: 1
+    actor: customer_admin
+    action: Asks for the list of numbering rules of her company and notes the answer.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: customer_admin
+    action: >
+      Creates a numbering rule with key "orders", record type "order", prefix "ORD", width 6 and period "year",
+      and notes the answer.
+    via: api
+    produces:
+      rule_id: the identifier of the new rule
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: customer_admin
+    action: >
+      Creates a second rule with key "alpha-rule", the second type, prefix "AL", width 12 and period "none", then asks for the list of rules and notes it.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: customer_admin
+    action: Creates an order through the ordinary record creation and notes its record reference.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: customer_admin
+    action: >
+      Tries to create a rule for a record type name that does not exist in SwiftRoute (key "ghost", prefix "GH", width 6, period "year").
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: customer_admin
+    action: Tries to create a rule (key "managed-rule", prefix "MG", width 6, period "year") for the record type that the platform manages itself.
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 7
+    actor: customer_admin
+    action: Tries to create a rule (key "history-rule", prefix "HI", width 6, period "year") for the record type whose history can only be added to.
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 8
+    actor: customer_admin
+    action: Tries to create a rule with the key "orders" again, for the third type (prefix "TH", width 6, period "year").
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 9
+    actor: customer_admin
+    action: Tries to create a rule with a new key "orders-two" for the record type "order", which already has a rule (prefix "OT", width 6, period "year").
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 10
+    actor: customer_admin
+    action: >
+      Tries, in five separate requests, to create a rule for the third type with a prefix of nine letters ("ABCDEFGHI"), with the prefix
+      "AB-1" (a dash), with width 0, with width 13, and with period "month". Each request otherwise uses key "third-rule", prefix "TH", width 6 and period "year".
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 11
+    actor: customer_admin
+    action: Tries to create a rule for the third type that leaves out the key (prefix "TH", width 6, period "year").
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 12
+    actor: customer_admin
+    action: Asks for the list of rules again and notes it.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 13
+    actor: customer_admin
+    action: >
+      Creates a rule for the third type with key "third-rule", prefix "T", width 1 and period "year", writing into the request
+      a customer identifier that belongs to another company (the identifier of Vortex), then asks for the list.
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Before any rule is created the list answers successfully with an empty list, not a not-found answer.
+    verification:
+      method: api_response
+      detail: The answer of step 1 is a success with no rule in it.
+      evidence: The answer of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: An administrator opening the page for the first time would see an error instead of an empty list.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      The creation in step 2 is accepted and the answer shows the identifier, key, record type, prefix, width, period and creation time
+      of the new rule, and shows neither a customer identifier nor any counter value. The list in step 3 contains it.
+    verification:
+      method: api_response
+      detail: The answer of step 2 is a "created" answer holding exactly those seven items; the list of step 3 holds the rule with the same values.
+      evidence: The answer of step 2 and the list of step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An administrator cannot switch numbering on for a record type, or the answer discloses internal counters or customer identifiers.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      The list in step 3 holds the two rules ordered by key ("alpha-rule" before "orders"), each with the same seven items and nothing else.
+    verification:
+      method: api_response
+      detail: Two rules in key order, the field set of EO-002 each.
+      evidence: The list of step 3.
+    on_fail:
+      severity: MINOR
+      business_impact: The list would be shown in an unpredictable order, which makes a long list hard to check.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      The rule is bound to its record type: the order created in step 4 is stored with the number ORD-<current year>-000001
+      (prefix, year, count padded to six digits). A record in a type without a rule is unaffected.
+    verification:
+      method: system_state
+      detail: The number stored for the order of step 4, read per record reference from the tenant number table, is exactly ORD-<current year>-000001. The number is not shown in any answer, so this is a system read.
+      evidence: The row of the tenant number table with the record reference of step 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A rule that was accepted but does not number the records of its type would make the new setup useless while looking correct.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      Steps 5 to 11 (each of the five requests of step 10 included) are turned down with a validation answer (422), each with a fixed text that does not
+      repeat what was written in the request, and none of them stores a rule.
+    verification:
+      method: api_response
+      detail: >
+        Every request of steps 5 to 11 is refused with a validation answer. The refusals of steps 5, 6 and 7 carry one and the same text, so that the answer
+        does not tell whether the record type exists. The other refusals carry the text for an invalid definition.
+      evidence: The refusal answers, compared to each other for steps 5, 6 and 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: Invalid rules could be stored (a wrong prefix on paper documents), or the answers could reveal which record types exist.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: >
+      The list in step 12 is exactly the list of step 3, because nothing from steps 5 to 11 was stored.
+    verification:
+      method: api_response
+      detail: The two rules of step 3, same identifiers and values, and no others.
+      evidence: The lists of steps 3 and 12 compared.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused rule would still take effect and number records in a way the administrator was told was impossible.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: >
+      Step 13 is accepted (width 1 is the smallest accepted width; width 12 was accepted in step 3), the rule is listed under SwiftRoute, and the other
+      company's identifier written in the request is ignored: nothing is stored for Vortex.
+    verification:
+      method: api_response
+      detail: The answer is a "created" answer and the list now holds three rules. The answer holds no customer identifier. Whether nothing was stored for Vortex is checked in the refusals scenario (step on the other company).
+      evidence: The answer of step 13 and the list after it.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An administrator could create numbering rules in another company by naming it.
+      suggested_action: route_to_wf03
+  - id: EO-008
+    description: >
+      Each accepted creation (steps 2, 3 and 13) left one audit entry naming the rule's identifier, key, record type and the administrator who created it; the refused requests of steps 5 to 11 left none.
+    verification:
+      method: system_state
+      detail: The audit trail of SwiftRoute holds exactly three entries for number rules, with the data above; none for the refused requests.
+      evidence: The audit trail rows read after step 13.
+    on_fail:
+      severity: MAJOR
+      business_impact: A change of numbering could not be traced to the person who made it.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Delete the order created in step 4. The numbering rules cannot be deleted through the product (no delete route yet); the platform team removes
+    them from the test tenant before the next run.
