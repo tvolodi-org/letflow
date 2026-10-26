@@ -193,6 +193,10 @@ defmodule Letflow.Plugs.ApiPipeline do
   # bind or rebind, unbind). Tenant scope; :ScriptsWrite / :ScriptsPublish.
   forward("/entity-type-hooks", to: Letflow.Routers.EntityTypeHooks)
 
+  # REQ-570 part 2 (GH #3248, decision 0067 D9): record trigger bindings (list, bind or rebind,
+  # unbind). Tenant scope; :ScriptsWrite / :ScriptsPublish; behind :record_triggers_enabled.
+  forward("/record-trigger-bindings", to: Letflow.Routers.RecordTriggerBindings)
+
   # REQ-561 part 2 (GH #3194): tenant-defined scheduled jobs. Tenant scope; :ScheduledJobsManage,
   # TENANT_ADMIN only. Behind the :scheduled_jobs flag (404 while it is off).
   forward("/scheduled-jobs", to: Letflow.Routers.ScheduledJobs)

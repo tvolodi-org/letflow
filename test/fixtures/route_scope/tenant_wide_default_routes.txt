@@ -5,6 +5,7 @@ DELETE /instances/:id/attachments/:attachment_id AttachmentsManage
 DELETE /integration-mappings/:id IntegrationMappingsManage
 DELETE /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
+DELETE /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 DELETE /script-rules/:key/versions/:version ScriptsWrite
 DELETE /webhooks/subscriptions/:id WebhookSubscriptionsManage
 GET /admin/services AdminServicesRead
@@ -38,6 +39,7 @@ GET /promotions PromotionsRead
 GET /promotions/:id PromotionsRead
 GET /promotions/:id/context PromotionsRead
 GET /promotions/platform-events PromotionsRead
+GET /record-trigger-bindings RecordTriggerBindingsList
 GET /scheduled-jobs ScheduledJobsManage
 GET /scheduled-jobs/:id ScheduledJobsManage
 GET /script-policy ScriptPolicyRead
@@ -123,6 +125,7 @@ PUT /entity-type-hooks/:entity_type EntityTypeHooksManage
 PUT /integration-mappings/:id IntegrationMappingsManage
 PUT /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
+PUT /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 PUT /script-policy/kill-switch ScriptPolicyManage
 PUT /script-policy/readable-masters/:entity_type ScriptPolicyManage
 PUT /script-policy/sod ScriptPolicyManage
