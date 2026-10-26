@@ -48,7 +48,7 @@ defmodule Letflow.Routers.MobileTenantConfig do
     1. **Availability.** The mobile app cannot get past its bootstrap screen
        without a config; a `404`/`500` here strands the user before they ever
        reach a login screen — the one failure mode MOB-2 exists to prevent.
-    2. **Anti-enumeration.** A miss (`{:error, :not_found}`), a slug with no
+    2. **Anti-enumeration.** A miss (`{:error, :not_found}`), a deactivated tenant (GH #3252), a slug with no
        `idp_realm_id` set, a lookup exception, and a missing `?slug=` param
        all produce the byte-identical default body. A caller with a wordlist
        cannot distinguish "this slug does not exist" from "this slug exists
@@ -212,7 +212,7 @@ defmodule Letflow.Routers.MobileTenantConfig do
   # non-nil, non-empty idp_realm_id wins and its (possibly nil) :settings is
   # threaded straight through, so mobile_config_map/2's fallback helpers never
   # perform a second, independent DB lookup for the same slug in the same
-  # request. Every other case (miss, nil/empty realm, lookup error,
+  # request. Every other case (miss, nil/empty realm, deactivated tenant, lookup error,
   # missing/absent slug) falls through to the default realm with settings
   # forced to nil (design §2 OQ-A resolution: a tenant found but with no
   # usable realm is treated as "not usably provisioned" across the board,
@@ -224,8 +224,8 @@ defmodule Letflow.Routers.MobileTenantConfig do
 
   defp resolve_tenant_config(slug) when is_binary(slug) do
     case Identity.safe_get_tenant_by_slug(slug, "mobile-tenant-config") do
-      {:ok, %Tenant{idp_realm_id: realm_id, settings: settings}}
-      when is_binary(realm_id) and realm_id != "" ->
+      {:ok, %Tenant{idp_realm_id: realm_id, settings: settings, status: status}}
+      when is_binary(realm_id) and realm_id != "" and status != :inactive ->
         {realm_id, settings}
 
       _miss_or_nil_realm_or_error ->

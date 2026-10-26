@@ -1,0 +1,94 @@
+# REQ-574 slice X1 (BA-TENANT-ADMINISTRATION): what a company can see on QA of the extension point change: nothing changes for shipped modules and ordinary drafts.
+# Criteria covered: 7 (a draft with no owner module goes live as before: step 2, no new entry in step 3's refusal).
+# Step 1 is only a regression look at the module list; it is NOT proof of criterion 4 (the three production manifests are valid): that is step 19
+# of extension-points-1.
+# Everything else of REQ-574 slice X1 (declaration checks, site check, go-live refusal for a module that announces places) cannot be observed on QA:
+# see extension-points-1 for the reason (no module upload route, no shipped module announces a place).
+# Sensitive actions: change process definitions is the go-live (steps 2, 3). approve, pay or release, see sensitive data, change users: not part of this flow.
+# Step 3 is expected to be REFUSED (one request). Steps 1 and 2 are accepted cases.
+---
+id: tenant-administration-extension-points-shipped-modules-unchanged
+scope: tenant-administration
+title: After the extension point change, shipped modules and ordinary process drafts behave exactly as before
+version: "1.0"
+tags: [modules, extension-points, regression, refusal]
+
+description: >
+  SwiftRoute's administrator looks at the modules the company has and takes an ordinary process draft (it belongs to no module) live; it goes live as
+  before. A second draft that has a real error in one of its rules is still refused at go-live, and the refusal names that rule error only, with no entry
+  about extension places, because no shipped module announces any.
+
+actors:
+  swiftroute_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator
+    check: system_seeded
+  - description: >
+      SwiftRoute holds two process drafts that belong to no module: draft A is valid; draft B has a decision rule that uses a field the process
+      does not hold
+    check: custom
+    detail: Created by the tester through the ordinary process editor path. If they cannot be created, steps 2 and 3 are BLOCKED.
+
+steps:
+  - step: 1
+    actor: swiftroute_admin
+    action: Looks at the list of modules her company has.
+    via: api
+    produces:
+      module_list: the list of installed modules, each with its id and version
+  - step: 2
+    actor: swiftroute_admin
+    action: Takes draft A live.
+    via: api
+    input:
+      draft: draft A
+    produces:
+      live_definition: draft A is live
+  - step: 3
+    actor: swiftroute_admin
+    action: Takes draft B live.
+    via: api
+    input:
+      draft: draft B
+    expect_refusal: true
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The module list of step 1 is answered with status 200, and every module in it is one of the shipped ones with its shipped version:
+      exam 0.1.0, org 0.1.0 or catalog_items 0.1.0.
+    verification:
+      method: api_response
+      detail: Status 200; each entry's module id and version is one of the three pairs exam 0.1.0, org 0.1.0, catalog_items 0.1.0.
+      evidence: The answer.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company would see its modules change although nothing in them was meant to change.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Draft A goes live (status 200) with no violation of any kind.
+    verification:
+      method: api_response
+      detail: Status 200; the draft's status afterwards is active.
+      evidence: The answer.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The new check could block ordinary processes from going live.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      Draft B is refused with status 422 and a list of rule problems that names the unknown field; the list holds no "unknown extension site" entry, and
+      draft B stays a draft.
+    verification:
+      method: api_response
+      detail: Status 422, the list names the unknown field only; draft B's status afterwards is draft.
+      evidence: The answer and the draft's status.
+    on_fail:
+      severity: MAJOR
+      business_impact: Either a broken process could go live, or the answer would mislead the author with an entry that does not apply.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: The tester discards draft B and draft A, or leaves them as ordinary drafts of the company.

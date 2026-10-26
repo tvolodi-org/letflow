@@ -1,0 +1,282 @@
+# REQ-574 slice X1 (BA-TENANT-ADMINISTRATION): a module version may declare "extension points" in its description; bad declarations are refused
+# when the module description is checked, and a process that sits on a missing step is refused at go-live.
+# Criteria covered (numbering = acceptance_criteria order of REQ-574):
+#   1 duplicate name (step 4); 2 wrong kind, bad name, wrong position, missing site key, not a list (steps 5-9);
+#   3 valid list accepted (step 1), rule 13 after rule 12 (step 10); 4 the three production modules (exam, org, catalog_items) are still valid (step 19);
+#   no key behaves as today (steps 2, 3);
+#   5 site check (steps 11-13); 6 go-live refusal and corrected go-live (steps 14, 15); 7 draft cases that go live as before (steps 16-18).
+# Criteria 8 and 9 (no new route, no migration, no engine or permission change; format, compile and static checks) are properties of the
+# change set, not of a running instance: no step can observe them, so they are not scenario steps. The build gate checks them.
+# WHY THIS SCENARIO IS NOT RUNNABLE ON QA (named, not dropped): module descriptions are fixed when the product is built and there is no
+# upload or registration route for a module (the only module routes install, change settings, uninstall and reactivate a module that the
+# product already ships). No shipped module declares an extension point, and the only one that does is a test-only module. So the steps
+# below run only where the tester can offer a module description to the catalog check and the test-only module is registered; on QA the
+# scenario is ENV_NOT_SUPPORTED (sidecar test/fixtures/uat/scenario-env-limitations/tenant-administration-extension-points-declaration-and-site-checks.yaml).
+# The QA-observable part (shipped modules and ordinary drafts behave as before) is scenario extension-points-2.
+# Sensitive actions: change process definitions is the go-live (steps 14-18). approve, pay or release, see sensitive data, change users: not part of this flow.
+# Steps 4-10 and 14 are expected to be REFUSED, one request each. Accepted cases are in their own steps.
+# Refusal answers (module catalog): invalid_extension_points, duplicate_extension_point, unknown_extension_point_kind (exact reason names in the
+# requirement text); go-live: the activation call returns a semantic validation failure (a violation list, run through the system actor, so no
+# status code is observed here) holding an "unknown extension site" entry.
+# Step 19 is an accepted case.
+---
+id: tenant-administration-extension-points-declaration-and-site-checks
+scope: tenant-administration
+title: A module's extension point declaration is checked when the module is described, and a process on a missing step cannot go live
+version: "1.0"
+tags: [modules, extension-points, refusal, regression]
+
+description: >
+  A module version can announce named places in its own processes where a company's own small script may later be plugged in. This
+  scenario covers only the announcement. A good announcement (two places with different names, each "run a script step after" a named
+  step) is accepted, and so are a module with an empty list and a module with no announcement at all, with an unchanged fingerprint.
+  Announcements that repeat a name, use another kind of place, use a name that is not lower-case letters, digits and underscores
+  starting with a letter, ask for any position other than "after", leave out a part of the site, or are not a list, are each refused. When
+  the module description has another fault that is checked earlier, that fault is the one reported. Finally, when a process of the
+  module goes live, an announcement that points at a step the process does not have stops the go-live and the process stays a draft;
+  with the step name corrected it goes live; and drafts that have no owner module, whose owner module announces nothing, or whose
+  owner version matches no known module version, go live as before.
+
+actors:
+  module_catalog: actor-system-module-catalog
+  definitions_service: actor-system-definitions-service
+
+preconditions:
+  - description: The tester can offer a module description to the module catalog check and read its answer
+    check: custom
+    detail: >
+      There is no upload route for modules. If the test environment cannot call the catalog check directly, the scenario is BLOCKED, not PASS.
+  - description: >
+      A test-only module "fixture points" is registered; it announces one place named after_review, aimed at the step "review" of its process
+      "fx_points_def", with input "amount" and returned "approved" (a yes/no)
+    check: custom
+    detail: >
+      The module list is fixed at build time; QA has no such module, so steps 14-18 are BLOCKED there. Steps 14-18 also need drafts of
+      "fx_points_def" owned by that module version; the tester creates them.
+  - description: The tester can read the fingerprint of a module description
+    check: custom
+    detail: Needed for the fingerprint comparison in step 3.
+
+steps:
+  - step: 1
+    actor: module_catalog
+    action: >
+      Offers a module description with two announced places, named "after_review" and "after_payment", both of kind "script_step", each
+      with site position "after", an input list and a returns map of text to text.
+    via: system
+    produces:
+      accepted_with_points: the catalog answers that the description is valid
+  - step: 2
+    actor: module_catalog
+    action: Offers the same module description once with no announcement key at all and once with an empty announcement list.
+    via: system
+    produces:
+      accepted_without_points: both are valid and give the same answer
+  - step: 3
+    actor: module_catalog
+    action: >
+      Reads the fingerprint of the module description of step 2 without the key, and the fingerprint of the one in step 1 with its valid list.
+    via: system
+    produces:
+      fingerprints: the two fingerprints
+  - step: 4
+    actor: module_catalog
+    action: Offers a module description whose announcement list holds two places both named "after_review".
+    via: system
+    expect_refusal: true
+  - step: 5
+    actor: module_catalog
+    action: Offers a module description whose only announced place has the kind "webhook_step" instead of "script_step".
+    via: system
+    expect_refusal: true
+  - step: 6
+    actor: module_catalog
+    action: Offers a module description whose only announced place is named "After-Review" (capital letter and a hyphen).
+    via: system
+    expect_refusal: true
+  - step: 7
+    actor: module_catalog
+    action: Offers a module description whose only announced place has site position "before".
+    via: system
+    expect_refusal: true
+  - step: 8
+    actor: module_catalog
+    action: Offers a module description whose only announced place has a site that names the process but has no step name.
+    via: system
+    expect_refusal: true
+  - step: 9
+    actor: module_catalog
+    action: Offers a module description whose announcement value is the text "after_review" instead of a list.
+    via: system
+    expect_refusal: true
+  - step: 10
+    actor: module_catalog
+    action: >
+      Offers a module description that has both an invalid document organisation resolver (an earlier-checked fault) and two announced places
+      with the same name.
+    via: system
+    expect_refusal: true
+  - step: 11
+    actor: definitions_service
+    action: >
+      Asks the site check for a process named "fx_points_def" whose steps are "start", "review" and "end", with the announced place aimed at "review".
+    via: system
+    produces:
+      no_violations: the check answers with no violations
+  - step: 12
+    actor: definitions_service
+    action: >
+      Asks the site check for the same process and a place aimed at a process named "another_def" and at a step "missing".
+    via: system
+    produces:
+      ignored_other_process: the check answers with no violations
+  - step: 13
+    actor: definitions_service
+    action: >
+      Asks the site check for the process "fx_points_def" with steps "start", "review" and "end" and a place aimed at the step "approval".
+    via: system
+    produces:
+      one_violation: the check answers with exactly one violation of the kind "unknown extension site"
+  - step: 14
+    actor: definitions_service
+    action: >
+      Takes a draft of "fx_points_def" owned by the test-only module at its registered version, with steps "start", "check" and "end" (no step
+      "review", which the module announces a place on), and asks to take the draft live.
+    via: system
+    expect_refusal: true
+  - step: 15
+    actor: definitions_service
+    action: Renames the step "check" of the same draft to "review" and takes the draft live.
+    via: system
+    produces:
+      live_definition: the draft is live
+  - step: 16
+    actor: definitions_service
+    action: Takes a draft with no owner module live.
+    via: system
+    produces:
+      live_without_owner: the draft is live, with no "unknown extension site" entry
+  - step: 17
+    actor: definitions_service
+    action: Takes a draft live whose owner module announces no places.
+    via: system
+    produces:
+      live_owner_without_points: the draft is live, with no "unknown extension site" entry
+  - step: 18
+    actor: definitions_service
+    action: Takes a draft live whose owner module version matches no registered version of that module.
+    via: system
+    produces:
+      live_unknown_version: the draft is live, with no "unknown extension site" entry
+  - step: 19
+    actor: module_catalog
+    action: >
+      Offers, one after the other, the module descriptions of the three modules the product ships and has switched on in its configuration:
+      the exam module, the organisation module and the catalog items module.
+    via: system
+    produces:
+      production_modules_valid: each of the three descriptions is answered valid
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The description of step 1 is accepted. The one of step 10, which has an earlier-checked fault and a repeated name, is refused with the
+      earlier fault's reason, not with the repeated-name reason.
+    verification:
+      method: test_result
+      detail: Step 1 answers valid; step 10 answers the invalid document organisation resolver reason and does not answer duplicate_extension_point.
+      evidence: The two catalog answers.
+    on_fail:
+      severity: MAJOR
+      business_impact: A good module could not be released, or a faulty one would be reported with a misleading reason.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Step 4 is refused with the reason duplicate_extension_point, naming "after_review".
+    verification:
+      method: test_result
+      detail: Answer is an error with reason duplicate_extension_point and the repeated name.
+      evidence: The answer.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Two places with one name would let a company's script attach to the wrong place.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Step 5 is refused with the reason unknown_extension_point_kind, naming "webhook_step".
+    verification:
+      method: test_result
+      detail: Answer is an error with reason unknown_extension_point_kind and the offered kind.
+      evidence: The answer.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A kind of place the product cannot run would be accepted into a release.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      Steps 6, 7, 8 and 9 are each refused with the reason invalid_extension_points, carrying the offending value.
+    verification:
+      method: test_result
+      detail: Four answers, each an error with reason invalid_extension_points; none is accepted.
+      evidence: The four answers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Malformed announcements would reach later steps that assume a valid shape.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      The descriptions of step 2 (no key, empty list) are both accepted with the same answer, and the fingerprints of step 3 are identical.
+    verification:
+      method: test_result
+      detail: Same answer twice; the two fingerprints are equal strings.
+      evidence: The answers and the two fingerprints.
+    on_fail:
+      severity: MAJOR
+      business_impact: Existing modules would change behaviour or look changed to the upgrade logic although they announce nothing.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: >
+      The site check returns no violations in steps 11 and 12 and exactly one "unknown extension site" violation in step 13.
+    verification:
+      method: test_result
+      detail: Violation lists of length 0, 0 and 1; the one in step 13 names "approval".
+      evidence: The three lists.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A place on a missing step would go unnoticed until a later slice tried to use it.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: >
+      Step 14 is refused with a semantic validation answer holding an "unknown extension site" violation and the draft stays a draft; step 15 takes
+      the corrected draft live.
+    verification:
+      method: system_state
+      detail: Step 14 answers a semantic validation failure; the draft's status after step 14 is draft; after step 15 it is active.
+      evidence: The answers of steps 14 and 15 and the draft status read between them.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A process could go live with an announced place that points at nothing.
+      suggested_action: route_to_wf03
+  - id: EO-008
+    description: >
+      Steps 16, 17 and 18 take their drafts live exactly as before; no answer carries an "unknown extension site" entry.
+    verification:
+      method: system_state
+      detail: Three drafts end up active; none of the three answers holds the violation.
+      evidence: The three answers and statuses.
+    on_fail:
+      severity: MAJOR
+      business_impact: Every existing module process could be blocked from going live by a check that should not apply to it.
+      suggested_action: route_to_wf03
+  - id: EO-009
+    description: Each of the three shipped module descriptions of step 19 is answered valid by the catalog check.
+    verification:
+      method: test_result
+      detail: Three answers, each valid; none carries invalid_extension_points, duplicate_extension_point or unknown_extension_point_kind.
+      evidence: The three catalog answers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A shipped module would fail its own description check and could not be offered or installed.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: The tester discards the drafts and the live test-only definition created for the scenario.
