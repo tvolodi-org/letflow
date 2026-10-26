@@ -2,8 +2,8 @@ defmodule Letflow.Modules.Exam.ManagedManifestTest do
   @moduledoc """
   GH #2596 T-01 and T-02 (AC1), design `lib/letflow/design/gh2596-exam-managed-types.md` sections
   2, 3 and 14 (spec `test/specs/GH2596-exam-managed.md`), extended by GH #2680 slice 3: the exam
-  manifest manages EXACTLY the sixteen entity types of the exam pack (the six runtime/result types
-  and the ten authoring types), and no pack type can be silently unmanaged.
+  manifest manages EXACTLY the seventeen entity types of the exam pack (the six runtime/result types,
+  the ten authoring types and REQ-582 exam_assignment), and no pack type can be silently unmanaged.
 
   A NEW entity-definition file / pack entry that is not in `@declared` fails `unclassified/2`, so a
   new type must be declared deliberately.
@@ -23,7 +23,7 @@ defmodule Letflow.Modules.Exam.ManagedManifestTest do
 
   @declared ~w(answer_option category exam exam_manual_question exam_question_rule
                exam_question_rule_tag exam_section question question_tag tag certificate session
-               session_answer session_event session_question session_question_score)
+               session_answer session_event session_question session_question_score exam_assignment)
 
   defp source_names do
     @definitions_dir
@@ -41,7 +41,7 @@ defmodule Letflow.Modules.Exam.ManagedManifestTest do
   defp unclassified(names, declared), do: Enum.reject(names, &(&1 in declared))
 
   describe "T-01 (AC1): the declared set" do
-    test "manages_entity_types, as a set, equals the sixteen exam names" do
+    test "manages_entity_types, as a set, equals the seventeen exam names" do
       declared = Exam.manifest().manages_entity_types
 
       assert Enum.sort(declared) == Enum.sort(@declared)
@@ -69,10 +69,10 @@ defmodule Letflow.Modules.Exam.ManagedManifestTest do
   end
 
   describe "T-02 (AC1): completeness" do
-    test "source files == pack entries == the sixteen declared names; the two groups are disjoint" do
+    test "source files == pack entries == the seventeen declared names; the two groups are disjoint" do
       assert source_names() == pack_names()
       assert source_names() == Enum.sort(@declared)
-      assert length(source_names()) == 16
+      assert length(source_names()) == 17
 
       assert Enum.sort(Fx.runtime_types() ++ Fx.authoring_types()) == Enum.sort(@declared)
       assert Enum.filter(Fx.runtime_types(), &(&1 in Fx.authoring_types())) == []

@@ -9,6 +9,15 @@ grading rules", built by REQ-ANALYST + CODE-DESIGNER and delivered in a
 solution-pack document. Nothing under `priv/packs/` may depend on or
 duplicate code under `lib/letflow/` or `web/`.
 
+## REQ-582: `exam_assignment`
+
+The pack now carries seventeen entity types (the ten authoring types, the six runtime/result types and
+`exam_assignment`, who an exam is assigned to). `exam_assignment` is managed by the exam module
+(`manages_entity_types`) but is NOT one of the sixteen names `Stamp.stamp_names/0` covers. A tenant
+that installed the pack before it existed gets the definition (created owner-stamped and activated)
+from `Letflow.Release.ManagedTypes.ensure_assignment_definition/1`, run once per deploy. A tenant that
+installs the pack afterwards carries it inactive like the other sixteen and activates it with them.
+
 ## Convention: one file per entity type
 
 `entity_definitions/` holds one JSON file per entity type, named after the

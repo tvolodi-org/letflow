@@ -349,15 +349,16 @@ defmodule Letflow.Modules.Exam.ExamDefinitionsTest do
       # It states the loss plainly rather than presenting relocation as equivalent.
       assert readme =~ "THIS IS A LOSS, NOT AN EQUIVALENT RELOCATION"
 
-      # It records exam_assignment as an unresolved open question.
-      assert readme =~ "exam_assignment` is deliberately NOT authored"
+      # It records exam_assignment as the former open question, resolved by REQ-582 (shape 1).
+      assert readme =~ "exam_assignment` — was NOT authored"
+      assert readme =~ "REQ-582 took shape 1"
       assert readme =~ "FR-BB33"
       assert readme =~ "polymorphic"
       assert readme =~ "OPEN QUESTION"
     end
 
-    test "exam_assignment is not authored as a definition document" do
-      refute File.exists?(Path.join(definitions_dir(), "exam_assignment.json"))
+    test "exam_assignment is authored as a definition document (REQ-582 took shape 1)" do
+      assert File.exists?(Path.join(definitions_dir(), "exam_assignment.json"))
     end
   end
 
