@@ -41620,7 +41620,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-555 -- needs the saved view storage and routes of REQ-555; the engine files the issue after the gate
+    gh: 3342
     # Source: docs/migration/decisions/0066-generic-saved-views-over-records.md, "Deferred slices": "Slice 2: pivot view over `POST /entities/query/aggregate` (REQ-315)."; core roadmap Wave 3 (docs/migration/core-roadmap-20261014.md). Written by the business analyst (T-0690) 2026-10-26.
     description: >
       Backend of slice 2 of generic views (decision 0066, "Deferred slices": "Slice 2: pivot view
