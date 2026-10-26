@@ -1,6 +1,7 @@
-# Generates priv/modules/exam/pack.json from the sixteen entity-definition
-# documents under priv/modules/exam/entity_definitions/: the ten AUTHORING types
-# and (GH #2596) the six runtime/result types the exam manifest manages.
+# Generates priv/modules/exam/pack.json from the seventeen entity-definition
+# documents under priv/modules/exam/entity_definitions/: the ten AUTHORING types,
+# (REQ-582) exam_assignment and (GH #2596) the six runtime/result types the exam
+# manifest manages.
 #
 # REQ-328, provenance choice (a): pack.json IS committed, and this script is
 # the only thing that may write it. See priv/packs/bilimbaga/README.md for why
@@ -28,6 +29,7 @@ entity_types = ~w(
   category
   tag
   exam
+  exam_assignment
   question
   exam_section
   answer_option

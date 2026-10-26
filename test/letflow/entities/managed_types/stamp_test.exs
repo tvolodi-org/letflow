@@ -36,7 +36,8 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
   import ExUnit.CaptureIO
 
   @six Fx.runtime_types()
-  @ten Fx.authoring_types()
+  # The ten STAMPED authoring types (REQ-582 `exam_assignment` is managed but not in `stamp_names`).
+  @ten Fx.stamp_types() -- Fx.runtime_types()
 
   # The authoring names `activate_exam_definitions!/1` plants (no exam pack install).
   @planted_authoring ~w(answer_option category exam exam_manual_question exam_question_rule question)
@@ -122,7 +123,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
   # ── (a) T-15 ────────────────────────────────────────────────────────────────────────────────
 
   describe "T-15 (AC4a): fresh install" do
-    test "install stamps all sixteen at insert (the ten authoring names too); the stamp adds 0" do
+    test "install stamps all sixteen at insert (the ten authoring names too, and exam_assignment); the stamp adds 0" do
       %{schema_name: schema} = Fx.bare_tenant!("gh2596-fresh", false)
 
       assert {:ok, _tenant_module} =
@@ -132,7 +133,9 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
                )
 
       map = Fx.managed_by_map(schema)
-      assert Enum.sort(Map.keys(map)) == Enum.sort(@six ++ @ten)
+      assert Enum.sort(Map.keys(map)) == Enum.sort(@six ++ @ten ++ ["exam_assignment"])
+      assert map["exam_assignment"] == ["exam"]
+      assert ManagedTypes.owner_of("exam_assignment", schema) == {:ok, "exam"}
       for name <- @six, do: assert(map[name] == ["exam"], name)
       for name <- @ten, do: assert(map[name] == ["exam"], name)
 
@@ -223,13 +226,16 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       :ok = Fx.install_pack!(schema)
 
       map = Fx.managed_by_map(schema)
-      assert Enum.sort(Map.keys(map)) == Enum.sort(@six ++ @ten)
+      assert Enum.sort(Map.keys(map)) == Enum.sort(@six ++ @ten ++ ["exam_assignment"])
       assert Enum.all?(Map.values(map), &(&1 == [nil]))
 
       assert %{status: :stamped, rows_stamped: 16, conflicts: [], error: nil} = run!(schema)
 
       assert_all_stamped!(schema)
       for name <- @ten, do: assert(Fx.managed_by_map(schema)[name] == ["exam"], name)
+
+      # REQ-582: exam_assignment is not in stamp_names, so the stamp leaves the :tenant-installed row alone.
+      assert Fx.managed_by_map(schema)["exam_assignment"] == [nil]
 
       assert %{status: :nothing_to_stamp, rows_stamped: 0} = run!(schema)
       assert Fx.stamp_audit_count(schema) == 1

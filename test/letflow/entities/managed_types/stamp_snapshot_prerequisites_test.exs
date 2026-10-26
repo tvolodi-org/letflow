@@ -36,7 +36,8 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotPrerequisitesTest do
   alias Mix.Tasks.Letflow.StampManagedTypes
 
   @six Fx.runtime_types()
-  @ten Fx.authoring_types()
+  # The ten STAMPED authoring types (REQ-582 `exam_assignment` is managed but not in `stamp_names`).
+  @ten Fx.stamp_types() -- Fx.runtime_types()
 
   @statuses [
     :stamped,
