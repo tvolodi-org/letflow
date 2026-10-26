@@ -41896,7 +41896,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-562 -- decision 0069 is PROPOSED and needs the REVIEWER and SECURITY-REVIEWER sign-off that REQ-562 records before any slice is implemented
+    gh: 3353
     # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D2 (what an override is, closed property list), D3 (override_version, made_against, history never deleted), D5 (permission, audit, INV-2), D6 (tenant-schema table, cross-tenant negative), D7 (existing tenants), D8 slice S2, Open points Q3, Q4, Q5, "Threats for SECURITY-REVIEWER"; docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-4, INV-5, INV-10); code read: lib/letflow/routers/solution_packs.ex (authz_post routes /export, /install, /:pack_id/update-review, /:pack_id/update-apply, with :DefinitionsRead and :DefinitionsCreate), lib/letflow/definitions/solution_pack_install.ex and solution_pack_artefact_base.ex (artefact_type and artefact_id are strings, GLOBAL tables), lib/letflow/audit.ex (append_multi/4), lib/letflow/tenant_provisioning.ex (the ordered migration list), test/support/tenant_fixture.ex (@expected_tenant_tables) and test/letflow/support/tenant_fixture_test.exs (length == 72 on this branch), test/fixtures/route_scope/tenant_wide_default_routes.txt. Written by the business analyst (T-0726) 2026-10-26. Not yet validated.
     description: >
       Slice S2 of decision 0069 D8 (core roadmap Wave 3, "Solution versioning and per-tenant overrides"). S1 is
