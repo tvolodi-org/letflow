@@ -41231,3 +41231,94 @@ requirements:
       - "9. Route-inventory pins listed and moved: the five routes are declared with scope: :tenant_wide in lib/letflow/routers/documents.ex; Letflow.Routers.Documents.__authz_routes__/0 lists them (+5 from the value on origin/main at implement time); test/fixtures/route_scope/tenant_wide_default_routes.txt gains no line and the three length(snapshot) pins stay at their value on origin/main (now 126); the PR summary lists, from grep -rn \"__authz_routes__\\|length(snapshot)\\|tenant_wide_default_routes\" test/, every test file checked and the new value of each pin; the moduledoc table of the documents router gains the five rows."
       - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-10, template content in audit payloads, trigger completeness) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests (S1-store, S2-immutable, S2-save, D5-redact, C3-manage, S2-sod, S2-audit and the permission tests) pass with real output quoted."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571]
+  - id: REQ-582
+    title: "Exam assignment model (all, user, group, department) stored as exam-pack records and enforced at exam start, replacing the no-op check_assigned/3"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    gh: 3307
+    # Source: docs/migration/bilimbaga-retirement-status.md (criterion 1, "Proposed task list" T1a); lib/letflow/modules/exam/session.ex (moduledoc FINDING, create_txn/4, defp check_assigned/3, eligibility_error() type); lib/letflow/modules/exam/router.ex (render_start_session/4 clause for :not_assigned); priv/modules/exam/entity_definitions/README-constraints.md ("Group (iii)", "exam_assignment is deliberately NOT authored -- OPEN QUESTION", source table exam_assignments with assignee_type and assignee_id); priv/modules/org/entity_definitions/org_unit.json and org_unit_membership.json (REQ-473, decision 0050 D1); lib/letflow/identity.ex (group_member?/3); lib/letflow/modules/installs.ex (installed?/2); docs/migration/decisions/0022-bilimbaga-vertical.md (row for departments and exam_assignments); docs/migration/decisions/0006 (D2, tenant_id dropped from schema-isolated tables); lib/letflow/entities/record/latest.ex (entity_record_latest, no tenant_id field); lib/letflow/entities/managed_types/stamp.ex (classify_name/4: an absent name is not inserted); lib/letflow/release/managed_types.ex; test/support/exam_stamp_fixtures.ex. Written by the business analyst (T-0657) 2026-10-26. Not yet validated.
+    description: >
+      Replaces the documented no-op Letflow.Modules.Exam.Session.check_assigned/3
+      (lib/letflow/modules/exam/session.ex) with a real check, so that a candidate can start an exam
+      only if the exam is assigned to them. Today every candidate can start every active exam
+      (docs/migration/bilimbaga-retirement-status.md, criterion 1). The error atom :not_assigned is
+      already declared in eligibility_error() and already rendered by render_start_session/4 in
+      lib/letflow/modules/exam/router.ex as 403 "you are not assigned to this exam"; this requirement
+      makes it reachable and adds no route, no flag and no permission.
+      MODEL (a proposal for review, built from the source table exam_assignments recorded in
+      priv/modules/exam/entity_definitions/README-constraints.md). One new record type in the exam
+      pack, exam_assignment, authored in priv/modules/exam/generate_pack.exs and regenerated into
+      priv/modules/exam/pack.json and priv/modules/exam/entity_definitions/. Fields: exam_id (string,
+      required, queried, declarative reference to exam, as in the other exam-pack definitions),
+      assignee_type (enum: all, user, group, org_unit; required, queried), assignee_id (string, queried,
+      required unless assignee_type is all), deadline (datetime, optional, stored only), assigned_by
+      (string, required, the writing user), active (boolean, required, queried; an assignment is
+      withdrawn by writing active false, not by deleting). The rule "assignee_id is required unless
+      assignee_type is all" is not expressible as a definition constraint (README-constraints.md
+      "Group (iii)"); it is enforced by the check below, which treats an assignment that breaks it as
+      matching nobody. A department is an org_unit record of the org module
+      (priv/modules/org/entity_definitions/org_unit.json); a candidate belongs to a department when an
+      active org_unit_membership record (org_unit_membership.json: user_id, org_unit_id, active) joins
+      that user and unit. Membership of a child unit does not count for its parent (see open question 2).
+      STORAGE AND INV-1. Assignments are tenant records written through the existing entity-record write
+      path (Letflow.Entities.Records) into the tenant's own schema; isolation is the :prefix of that
+      schema alone; the entity record tables (entity_record_latest, lib/letflow/entities/record/latest.ex)
+      carry no tenant_id column (decision 0006 D2), and no tenant identifier is a request field. This requirement adds no endpoint
+      to create assignments: who may write them, and through which screen, is open question 3. Tests
+      write them with Records.create_record/3 and the exam module's authority (an Owner struct of ManagedTypes, lib/letflow/entities/managed_types.ex), because exam_assignment is a managed type (next paragraph).
+      MANAGED TYPE. exam_assignment is appended to manages_entity_types in lib/letflow/modules/exam/exam.ex (16 names today), like every other exam-pack type, so Records.check_write_authority/3 (ManagedTypes.check_record_write/3, decision 0050 D7) refuses a generic Records write of exam_assignment that holds no module authority. Without this the type would be writable by any holder of entity write rights, which would decide open question 3 silently. No permission changes.
+      README SHAPE. priv/modules/exam/entity_definitions/README-constraints.md names three shapes for assignment under "exam_assignment is deliberately NOT authored". This entry takes shape 1, an exam-pack record type, because decision 0022 maps exam_assignments to Definition + Records; the process-definition shape (0022 "assign -> notify -> take -> grade -> certify -> expire") is not taken here, and the README section is updated to point at this requirement.
+      ENFORCEMENT. In create_txn/4 the check stays in the position it has today (after lock_exam_row,
+      before the status, window and attempt checks). check_assigned(candidate_id, exam_id, prefix)
+      reads the exam's active exam_assignment records in the tenant prefix and returns :ok if at least
+      one matches the candidate, else {:error, :not_assigned}. A record matches when: assignee_type is
+      all; or user and assignee_id equals candidate_id; or group and Letflow.Identity.group_member?/3
+      (lib/letflow/identity.ex) is true for that group and candidate; or org_unit, the org module is
+      installed in the tenant (Letflow.Modules.Installs.installed?/2, lib/letflow/modules/installs.ex)
+      and an active org_unit_membership joins candidate and unit. If the org module is not installed,
+      org_unit records match nobody and nothing crashes (INV-8). An exam with no active assignment
+      matches nobody (fail closed; see open question 1 for the effect on existing exams). The
+      candidate id is the authenticated user id (router.ex), never a request value. The check reads
+      only the assignments of the one exam, and only inside the caller's tenant prefix.
+      INV-5. The refusal for a missing assignment carries the fixed text already rendered and no
+      detail naming the assignment, group, department or exam setup. An exam id that does not exist in
+      the caller's tenant, or exists only in another tenant, is refused by the existing
+      :exam_not_active result of lock_exam_row/2, as today; this requirement does not change that and
+      adds no new way to learn that another tenant's exam exists. Whether a not-assigned refusal
+      should be made identical to that not-found refusal is open question 4.
+      EXISTING TENANTS. A tenant that installed the exam pack before this change (QA, deployed by
+      auto-CD) has no exam_assignment definition, and Stamp does not supply it: an absent name is
+      reported in types_absent and nothing is inserted (lib/letflow/entities/managed_types/stamp.ex,
+      classify_name/4). Without a definition the check would find nothing and, fail closed, every exam
+      would be unstartable with no way to write an assignment. This entry adds a release-callable,
+      idempotent function Letflow.Release.ManagedTypes.ensure_assignment_definition/1
+      (lib/letflow/release/managed_types.ex, the module that already wraps Stamp.run/1), which for each
+      registered tenant with the exam module installed creates and activates the exam_assignment
+      definition from the pack with the exam module's Owner authority, so the row carries managed_by
+      "exam" from insert and needs no stamp. It adds no route, flag or permission; infra runs it once
+      per deploy as it does the stamp. exam_assignment is NOT added to Stamp.stamp_names/0 (it is never
+      an unstamped legacy row).
+      NOT IN THIS ENTRY: any route, screen, flag or permission; filtering the candidate's available-exams
+      list by assignment; enforcing deadline; notices and reminders (study T5b); the management screens
+      (study T2b); and seeding of assignments for the QA tenant beyond the exam fixture below.
+    open_questions:
+      - "1. Existing exams. After this change an exam with no active assignment cannot be started by anyone. Does the owner want that (fail closed), or should an exam without any assignment stay open to every candidate, as it is today? The seed in lib/mix/tasks/letflow.seed.exam_fixtures.ex is changed here to write one assignment of type all per fixture exam, so the QA fixture keeps working; other existing tenant exams need a decision."
+      - "2. Is a department exactly one org_unit, or the whole subtree of an org_unit (membership of a child unit counts for the parent)? This entry builds the exact-unit match only. Is an org_unit the right source of departments for BilimBaga, or does the pilot need its own department record? The source system's department semantics are not recorded in the sources opened; the study (criterion 1, item 2) names this as a design task."
+      - "3. Who may create and withdraw assignments (an examiner role, the department head, TENANT_ADMIN), and through which route or screen? This entry builds none; the answer decides the next requirement."
+      - "4. Should a not-assigned refusal be indistinguishable from an unknown exam (INV-5), at the cost of a less helpful message to a candidate who was simply not assigned? Today 403 reveals that the exam id exists in the tenant."
+      - "5. Is the deadline of an assignment a hard stop at exam start, a display value, or only the base for reminders? Stored and not enforced here."
+      - "6. Should the available-exams list of the candidate show only assigned exams? Not changed here."
+    acceptance_criteria:
+      - "1. Definition: the exam pack defines exam_assignment with the fields of the description in priv/modules/exam/generate_pack.exs; priv/modules/exam/pack.json and priv/modules/exam/entity_definitions/exam_assignment.json are regenerated by running the generator; assignee_type accepts exactly all, user, group and org_unit; a record with assignee_type other than these, or without exam_id, is refused by the record write. exam_assignment is appended to manages_entity_types in lib/letflow/modules/exam/exam.ex and to @declared in test/letflow/modules/exam/exam_managed_manifest_test.exs; a test with no module authority shows that Records.create_record/3 without the exam authority refuses an exam_assignment write, and the same write with the exam module's authority succeeds. exam_assignment joins the authoring partition (@authoring_types, 10 today, in test/support/exam_stamp_fixtures.ex), not the runtime partition (@runtime_types, 6), because it is written by examiners, not by candidate sessions. Pins move +1 from the value on origin/main at implement time (16 today), found with grep -rn \"manages_entity_types\\|source_names()\\|== 16\\|rows_stamped: 16\\|runtime_types()\\|authoring_types()\" test/ : among them test/letflow/modules/exam/exam_authoring_test.exs (length(Exam.manifest().manages_entity_types) == 16), exam_managed_manifest_test.exs (length(source_names()) == 16), pack_install_test.exs (two == 16 pins, packed and installed), and the consumers of Fx.authoring_types() (test/letflow/routers/exam_managed_types_http_test.exs: the @ten loops and one defp values(type, n) clause per type; test/letflow/entities/managed_types/stamp_test.exs). The rows_stamped: 16 assertion (exam_managed_types_http_test.exs, Stamp.run_tenant/2) does not move, because exam_assignment is not in Stamp.stamp_names/0. The PR summary classifies every hit of that grep as moved or not moved, with a reason."
+      - "2. Test A-all: with an active exam_assignment of type all for the exam, a candidate who is in no group and no department starts a session (create_with_seed/4 returns {:ok, session_view})."
+      - "3. Test A-user: an assignment of type user naming candidate A lets A start and refuses candidate B (a different user of the same tenant) with {:error, :not_assigned}; no session record for B exists afterwards."
+      - "4. Test A-group: an assignment of type group lets a member of that group start and refuses a user who is not a member; after the member is removed from the group the same user is refused."
+      - "5. Test A-dept: with the org module installed, an assignment of type org_unit lets a candidate with an active org_unit_membership in that unit start; it refuses a candidate whose membership has active false, a candidate who is a member only of a child unit of that unit, and a candidate with no membership. With the org module not installed in the tenant, an org_unit assignment matches nobody and start returns {:error, :not_assigned}, not an exception."
+      - "6. Test A-none-withdrawn: an exam with no assignment record, an exam whose only assignment has active false, and an exam whose only assignment has assignee_type user and no assignee_id each return {:error, :not_assigned} for every candidate. One matching active assignment among several non-matching ones is enough."
+      - "7. Test A-order-and-http: the new check stays before the status, window and attempt checks, so a candidate who is not assigned to an archived exam gets :not_assigned, as the old order gives; POST of the session start route of lib/letflow/modules/exam/router.ex for a not-assigned candidate returns 403 with exactly the body text \"you are not assigned to this exam\", the body names no assignment, group, department or other exam; an assigned candidate gets the response they got before this change. The route table, its inventory pins and the permission list are unchanged (grep -rn \"__authz_routes__\\|length(snapshot)\" test/ is run and the PR summary says no pin moved)."
+      - "8. Test A-isolation (INV-1, INV-5, INV-6): with tenants A and B each having an exam_assignment of type all for an exam id, and a user of tenant A, a start request carrying the exam id that exists only in tenant B returns the same status and body as for an id that exists nowhere; a user's group or department membership in tenant B gives no match in tenant A; the assignment read is run with the tenant's :prefix (a test shows that an assignment inserted into tenant B's schema is invisible to check_assigned/3 for tenant A). Letflow.Modules.Exam.Session carries no unscoped read added by this change."
+      - "9. Existing tests and seed: every existing test that starts a session through create_with_seed/4, create/3 or the start route (grep -rn \"create_with_seed\\|Session.create\\|sessions\" test/ lib/mix/tasks/letflow.seed.exam_fixtures.ex) writes an assignment of type all for its exam where it relied on the no-op, and the seed writes one per fixture exam; the moduledoc FINDING section of lib/letflow/modules/exam/session.ex, the comment in lib/letflow/modules/exam/certificate.ex that mentions the no-op, and the two other mentions of the no-op in lib/mix/tasks/letflow.seed.exam_fixtures.ex and lib/letflow/design/req345-exam-e2e-seed-fixture.md are updated to say the check is enforced. mix letflow.check.static and the changed and new test files pass with real output quoted."
+      - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-5, INV-6, INV-8; the candidate identity comes from the token) and REVIEWER verdict is recorded. The PR states the answer taken for each open question as the default named in this entry, says how existing exams on QA (auto-CD deploys main) are handled under the fail-closed default, and no route, flag or permission is added."
+      - "11. Test E-existing: for a tenant built as the exam pack was installed before this change (no exam_assignment definition, exam module installed, as in ExamFixtures), Letflow.Release.ManagedTypes.ensure_assignment_definition/1 creates and activates the exam_assignment definition with managed_by \"exam\" and the pack's fields; a second run changes nothing and writes no new audit entry; a tenant without the exam module installed is left untouched; a failure in one tenant is reported and does not stop the others; after the call an assignment written with the exam authority is read by check_assigned/3. The function is added to the release-wrapper tests next to the Stamp ones, runs outside the Ecto sandbox where the Stamp tests do, and adds no route, flag or permission."
+    depends_on: [REQ-329, REQ-332, REQ-335, REQ-473]
