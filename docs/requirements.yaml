@@ -41620,7 +41620,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- the engine files the GitHub issue after the gate
+    gh: 3342
     # Source: docs/migration/bilimbaga-study-t4c-certificates.md row 9 (the defect) and its "Notes for the planner"; lib/letflow/modules/exam/router.ex (render_download_certificate, the line `verification = %{base_url: certificate_verify_base_url(), code: certificate.id}` and its "interim stand-in" comment; render_issue_certificate, the first-issuance mint through PublicRead.issue_handle/4 with certificate.public_read_resource_id); lib/letflow/modules/exam/certificate.ex (certificate_view: `id: record.record_id` versus `public_read_resource_id: record.id`); lib/letflow/modules/exam/certificate_document.ex (moduledoc "Verification code", render/2 takes verification.code from the caller); lib/letflow/public_read.ex (issue_handle/4 mints 32 random bytes and stores the SHA-256 only; resolve/2) and lib/letflow/routers/public_read.ex (GET /api/public/certificate/:handle, rate limit first); docs/migration/decisions/0028-unauthenticated-read-boundary.md (decision point 3 "stored as SHA-256 only", point 4 "one refusal", standing prohibitions); docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10). Written by the business analyst (T-0705) 2026-10-26. Not yet validated.
     description: >
       The defect. The certificate PDF carries a QR code that must open the public verify page. Today
