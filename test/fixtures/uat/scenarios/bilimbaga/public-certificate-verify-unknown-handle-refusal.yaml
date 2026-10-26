@@ -1,0 +1,124 @@
+# Authored by BA-BILIMBAGA for the public certificate verify page (BilimBaga study T4a, GH #3312).
+# Requirement behind the route and page: REQ-357 (certificate projection and the public handle,
+# decision 0028: one identical refusal for every unsuccessful lookup); invariant INV-5.
+---
+id: bilimbaga-public-certificate-verify-unknown-handle-refusal
+scope: bilimbaga
+title: A handle that does not match any certificate gets the same plain "not valid" page as a handle that never existed
+version: "1.0"
+tags: [refusal, certificate, public_page, privacy]
+
+description: >
+  A verifier opens the public verify page with a handle that matches no issued
+  certificate: a made-up one, an altered copy of a real one, or a string that
+  is not even shaped like a handle. The page must give one and the same
+  neutral answer, "Certificate not valid", for all of them. It must not say
+  whether the handle was once real, was revoked, has expired, or belongs to
+  another organisation, and it must show no candidate detail and no error text.
+  This keeps people from guessing handles and learning anything from the
+  difference in answers (decision 0028; REQ-357 says a revoked, expired or
+  unknown certificate gets the same refusal). A revoked or expired handle
+  cannot be set up through the product's own screens in the UAT environment
+  (no revoke action is exposed), so those two are covered by the backend tests
+  only; this scenario exercises the unknown, altered and malformed cases that
+  go through the same refusal.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  verifier: actor-any
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      The candidate has a submitted and graded exam session that they passed
+      and has already received a public handle for the certificate (the
+      handle is handed out on the first issue only); the scenario for the
+      valid handle may be run first and supplies it
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: Asks for the certificate of their passed exam session and keeps the one-time public handle if one is shown in the answer; on a repeat issue no handle is shown and the handle from the earlier run is used
+    via: api
+    produces:
+      public_handle: "a real public handle from the first certificate issue"
+
+  - step: 2
+    actor: verifier
+    action: Opens the public verify page with the text "not-a-real-handle-0000" as the handle, without signing in
+    via: gui
+    expect_refusal: true
+
+  - step: 3
+    actor: verifier
+    action: Opens the public verify page with the real public handle from step 1 with its last character changed to a different letter, without signing in
+    via: gui
+    expect_refusal: true
+
+  - step: 4
+    actor: verifier
+    action: Opens the public verify page with the text "!!" as the handle, which is not shaped like any handle, without signing in
+    via: gui
+    expect_refusal: true
+
+  - step: 5
+    actor: verifier
+    action: Compares the three refusal pages from steps 2, 3 and 4, word for word
+    via: gui
+
+  - step: 6
+    actor: verifier
+    action: Opens the public verify page with the real, unaltered public handle from step 1, without signing in
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Each of the three attempts with a handle that matches no certificate
+      shows the page "Certificate not valid" and no certificate facts
+    verification:
+      method: gui_screen
+      detail: "Steps 2, 3 and 4 each show the heading 'Certificate not valid' and the sentence 'This certificate could not be verified.' and no name, exam, score or date"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A made-up or guessed handle that shows anything about a candidate lets
+        outsiders harvest personal data by trial and error.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The three refusal pages are identical: nothing in the wording tells a
+      made-up handle, an altered real handle and a malformed handle apart, and
+      none says the handle was revoked, expired or from another organisation
+    verification:
+      method: gui_screen
+      detail: "The visible text of the pages from steps 2, 3 and 4 is word-for-word the same, with no error code, no technical message and no sign-in prompt"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        If the answer differs by cause, an outsider can tell which handles are
+        close to real ones or exist, and can narrow a guess. The anonymous link
+        is only safe if every miss looks the same.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      The refused attempts do not affect the real certificate: the real
+      handle still shows the valid page afterwards
+    verification:
+      method: gui_screen
+      detail: "Step 6 shows the heading 'Certificate valid' with the candidate's name, exam title, score and date of issue"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If wrong guesses could lock or burn a genuine link, anyone could
+        disable another person's certificate check by guessing.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    The verifier creates nothing. No clean-up is needed.

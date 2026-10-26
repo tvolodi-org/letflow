@@ -540,6 +540,46 @@ defmodule Letflow.Definitions.SolutionPack do
   end
 
   @doc """
+  Creates the named `entity_definitions` of a pack document on behalf of `owner`,
+  for a tenant that has the pack's module installed but lacks those definitions (REQ-582: the
+  exam module's `exam_assignment`, added to the pack after tenants installed it). Unlike
+  `install/4` it writes NO `solution_pack_installs` row (a second install of a pack is refused
+  with `:duplicate_pack_install`), no process definitions and no variable schemas.
+
+  Same helpers as `install/4`: the create locks are taken first in sorted order, then each entry
+  goes through `Letflow.Entities.Definitions.create_definition/3` with `owner` and the caller's
+  `opts[:prefix]` (INV-1), all in one transaction. `{:error, :no_matching_entity_definition}`
+  when `names` matches no entry of the pack.
+  """
+  @spec install_entity_definitions(
+          document :: map(),
+          names :: [String.t()],
+          actor_id :: Ecto.UUID.t(),
+          opts :: Definitions.opts(),
+          owner :: ManagedTypes.owner()
+        ) :: {:ok, [EntityDefinition.t()]} | {:error, term()}
+  def install_entity_definitions(document, names, actor_id, opts, owner)
+      when is_list(names) and is_list(opts) do
+    with {:ok, parsed} <- parse_document(document),
+         :ok <- check_unsupported_sections(parsed),
+         :ok <- check_schema_version(parsed),
+         {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix(opts)),
+         [_ | _] = selected <- Enum.filter(parsed.entity_definitions, &(&1.name in names)) do
+      Repo.transaction(fn ->
+        with :ok <- lock_packed_entity_names(selected, opts),
+             {:ok, created} <- create_packed_entity_definitions(selected, actor_id, opts, owner) do
+          Enum.map(created, fn {_packed, entity_definition} -> entity_definition end)
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+    else
+      [] -> {:error, :no_matching_entity_definition}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
   Applies a solution-pack update for one tenant's install of `pack_id`
   against `target_version` (REQ-380 design §4.3). Single atomic operation,
   entirely inside one `Letflow.Repo.transaction/1`:

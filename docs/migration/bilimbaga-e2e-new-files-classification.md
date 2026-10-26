@@ -124,3 +124,20 @@ tab-switch 5 (5 PN).
 - Rows are from titles and the `web/src` tree, no spec was executed. A T3b task confirms each row against the real DOM.
 - Effect on T3a totals: the corpus is 30 files and 216 tests (on disk); T3a's 135 classified rows plus these 47 give 182
   classified. The remaining 34 are the ported ones (T3a section 1).
+
+## 4. T3b batch 2: ported (T-0712)
+
+Specs: `web/tests/e2e/tab-switch.e2e.spec.ts` (7 tests) and `web/tests/e2e/verify-certificate.e2e.spec.ts` (3).
+Neither could be run on this host; the check is `cd web && npm run check`.
+
+| Source test | Result |
+|---|---|
+| `tab-switch`: tab hidden, blur, log policy, auto-submit | ported (session start and events stubbed; auto-submit renders `exam-result-page` in place, no result URL) |
+| `tab-switch`: warn policy modal | ported as the `exam-anticheat-warning` banner; it has no dismiss control, so "can be dismissed" is dropped |
+| `tab-switch` (b) bare blur under submit | ported |
+| `tab-switch` (a) tab switch under submit sends exactly one event | ported as `test.fixme`: `useAntiCheatSignals` has no blur window, a tab switch with a blur sends two events (gap, not a pass) |
+| `certificates`: not-valid, public/no Authorization, valid fields | ported (overlap with `VerifyCertificatePage.test.tsx` noted in the spec header: real router and browser level) |
+| `exam-start-failure`: successful start navigates | skipped, duplicate of `employee-portal.e2e.spec.ts` test 05 and `exam-taking.e2e.spec.ts` |
+
+Ported 10 of the 11 (9 PORTABLE-NOW plus the 2 `origin/main` tab-switch tests); 1 skipped as a duplicate, 1 of the
+10 is `fixme`. Remaining in the 47 + 4 set: 41 not portable now (BLOCKED or DROP, section 2 totals), unchanged.
