@@ -53,6 +53,9 @@ const NO_ADMIN_AUTHORING_ENTITY_TYPES = new Set([
   'session_question',
   'session_question_score',
   'certificate',
+  // (c) exam_assignment (REQ-582 part A): definition and managed type only;
+  // its admin screen arrives with a later part of that requirement.
+  'exam_assignment',
 ])
 
 function realPackEntityTypes(): string[] {
