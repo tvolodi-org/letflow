@@ -38,7 +38,7 @@ defmodule Letflow.Scripts do
   alias Letflow.Scripts.ScriptRule
   alias Letflow.Scripts.Validation
 
-  @hook_kinds ["service_task", "entity_write", "form_validation"]
+  @hook_kinds ["service_task", "entity_write", "form_validation", "entity_event"]
   @test_budget_ms 30_000
   @max_version 2_147_483_647
   @zero_instance "00000000-0000-0000-0000-000000000000"
@@ -796,6 +796,10 @@ defmodule Letflow.Scripts do
 
       not is_binary(source) or byte_size(source) > 65_536 or not String.valid?(source) ->
         {:error, :invalid_source}
+
+      # `writes` is a declaration of an `entity_event` script only.
+      hook_kind != "entity_event" and is_map(manifest) and Map.has_key?(manifest, "writes") ->
+        {:error, :invalid_manifest}
 
       true ->
         with :ok <- Validation.manifest(manifest),

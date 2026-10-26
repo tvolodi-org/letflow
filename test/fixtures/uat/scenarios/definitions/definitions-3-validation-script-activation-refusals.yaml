@@ -1,0 +1,161 @@
+# T-0669 (BA): DEFINITIONS group, scenario 3: activation of a process is refused when the check script of a human task is not a published script of kind "form validation", or two versions of one script are named.
+# Covers REQ-569 slice F-1 criterion 5 (refusals (a) to (e) and the reverse case) and criterion 6 (version conflict, both mixes, and the same version accepted).
+# Sources: docs/requirements.yaml REQ-569 criteria 5, 6; lib/letflow/scripts/runtime.ex (check_bindings/2, check_binding_row: every row that is not published and of the node's kind is script_not_published; a key bound at two
+# versions is script_version_conflict; the first failing node in graph node order is reported); lib/letflow/api/response.ex (script_binding_invalid/3: status 422, body {"error":"script_binding_invalid","node_id":<id>,"reason":<reason>});
+# lib/letflow/routers/definitions.ex (activate); lib/letflow/routers/script_rules.ex (publish, retire, revoke are ScriptsPublish, the tenant administrator holds it).
+# Needs the switch of REQ-569 criterion 2 ON (see definitions-1). Not observable through an API on QA: the pin that the same version gets at instance start (criterion 6, second half "from PinResolver.resolve/4");
+# see definitions-1 header. Waiting: the check at task completion (REQ-569 F-2, T-0640 / GH #3298).
+# Each refusal step holds exactly one activation. Uploads are accepted (the shape is right) and are made in step 1; the refusal comes at activation.
+# Every human task carries the attribute "role" with the value "reviewer". Every script that is expected to pass activation (check_total versions 1 and 2, mix_total versions 1 and 2, svc_total) has a manifest with a closed output schema and no reserved input name; otherwise activation answers script_output_schema_open, not the reason expected here.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
+---
+id: definitions-3-validation-script-activation-refusals
+scope: definitions
+title: A process whose human task names an unfit check script, or two versions of one script, cannot be activated
+version: "1.0"
+tags: [definitions, scripts, form-validation, activation, refusal]
+
+description: >
+  The administrator of SwiftRoute uploads processes whose human task "review_total" names a check script, and tries to activate each. A script that does not exist, a draft, a retired version, a revoked
+  version and a published script of the kind "service step" are each refused with the reason "script_not_published" and the id of the task. A published form validation script named by a service step
+  (the reverse) is refused the same way. A process that names one script at version 1 on one human task and at version 2 on another is refused with "script_version_conflict", as is one that names a script
+  at version 1 on a service step and at version 2 on a human task. The same script at the same version on two human tasks is accepted. After the refusals the refused processes are still drafts.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The switch for form validation scripts is ON in the test environment (see definitions-1).
+    check: system_seeded
+    detail: Setup-prepared. If definitions-1 was reported BLOCKED for the switch, this scenario is BLOCKED too.
+  - description: SwiftRoute has these scripts - check_total versions 1 and 2, both published, kind "form validation" (version 1 is the one published by setup and read in definitions-1; version 2 has the same body as FV-BODY of definitions-1); draft_total version 1 (draft, kind "form validation"); old_total version 1 (retired, kind "form validation"); bad_total version 1 (revoked, kind "form validation"); svc_total version 1 (published, kind "service step"); mix_total version 1 (published, kind "service step") and mix_total version 2 (published, kind "form validation"). The key "no_such_key" does not exist.
+    check: system_seeded
+    detail: Setup-prepared. The administrator can make the draft, retired and revoked versions through the script registry (create a draft; publish, then retire; publish, then revoke; a second administrator publishes, or the policy is set to solo_audited, else these versions are setup-prepared). If mix_total with two kinds cannot be arranged, report BLOCKED for step 9 and the mixed half of EO-003, and run the other steps.
+  - description: SwiftRoute has no process definition named fv_act_a, fv_act_b, fv_act_c, fv_act_d, fv_act_e, fv_act_rev, fv_act_two, fv_act_mix or fv_act_same.
+    check: system_seeded
+    detail: Setup-prepared. If a name exists, use the next free name and note that in the report.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads nine processes, each version "1" and each with the shape start, tasks, end; every upload must be accepted. fv_act_a has one human task "review_total" naming no_such_key version 1.
+      fv_act_b names draft_total version 1. fv_act_c names old_total version 1. fv_act_d names bad_total version 1. fv_act_e names svc_total version 1. fv_act_rev has one service step "post_total" that names
+      check_total version 1 as its script (attributes "script_key" and "script_version"). fv_act_two has two human tasks, "review_total" naming check_total version 1 and then "second_review" naming check_total version 2.
+      fv_act_mix has one service step "post_total" naming mix_total version 1 and then one human task "review_total" naming mix_total version 2. fv_act_same has two human tasks "review_total" and "second_review",
+      both naming check_total version 1.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to activate fv_act_a (the script key has no script).
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to activate fv_act_b (the script version is a draft).
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to activate fv_act_c (the script version is retired).
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to activate fv_act_d (the script version is revoked).
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to activate fv_act_e (the script is published but of the kind "service step").
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to activate fv_act_rev (a service step names a published script of the kind "form validation").
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to activate fv_act_two (check_total at version 1 on one human task and at version 2 on the other).
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to activate fv_act_mix (mix_total at version 1 on the service step and at version 2 on the human task).
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the status of the eight refused processes, fv_act_a to fv_act_e, fv_act_rev, fv_act_two and fv_act_mix.
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator activates fv_act_same (check_total at version 1 on both human tasks) and reads its status.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A script that does not exist, a draft, a retired version, a revoked version and a script of the wrong kind are each refused as "not published" and name the task.
+    verification:
+      method: http_status
+      detail: Steps 2 to 6 each answer 422 with the error "script_binding_invalid", the reason "script_not_published" and the node id "review_total".
+      evidence: The answers of steps 2 to 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A process could go into use with a check script that nobody reviewed, that was withdrawn, or that is not a form check.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The kind must match the node. A form validation script named by a service step is refused too.
+    verification:
+      method: http_status
+      detail: Step 7 answers 422 with the error "script_binding_invalid", the reason "script_not_published" and the node id "post_total".
+      evidence: The answer of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A form check script could be run as a service step, with different input and different rights.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Two versions of one script in one process are refused as a conflict, in both mixes, and the node reported is the first failing one in the order of the process.
+    verification:
+      method: http_status
+      detail: Step 8 answers 422 with the reason "script_version_conflict" and the node id "second_review". Step 9 answers 422 with the reason "script_version_conflict" and the node id "review_total".
+      evidence: The answers of steps 8 and 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: One process would use two versions of the same check, and the result depends on which task is met first.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Refused activations leave the processes as drafts.
+    verification:
+      method: api_response
+      detail: In step 10 each of the eight processes has the status draft.
+      evidence: The statuses of step 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: A refused process looks active, or half-activated, and tasks are started on it.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The same script at the same version on two human tasks is accepted.
+    verification:
+      method: http_status
+      detail: Step 11 answers 200 and the status read is active.
+      evidence: The answer of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A process cannot use one check on two forms.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Deprecate fv_act_same and the eight drafts if the environment keeps them. Scripts stay.
