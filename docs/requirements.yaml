@@ -41185,50 +41185,71 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- BilimBaga study T5a, criterion 5; both dependencies are done or merged, so S1 staleness may flag this marker
-    # Source: docs/migration/bilimbaga-retirement-status.md section 5 ("Missing" item 1, "Proposed tasks" T5a, T5c); REQ-441 (lib/letflow/login_discovery/notifier.ex, notifier/smtp.ex, notifier/smtp/config.ex, notifier/smtp/transport.ex, notifier/smtp/message.ex, notifier/noop.ex; decision docs/migration/decisions/0045-mail-library-choice.md); REQ-563 (lib/letflow/notification_templates.ex, notification_templates/registry.ex); lib/letflow/tasks.ex (assign_task/3, reassign_task/3); docs/agents/instructions/security-invariants.md (INV-1, INV-4, INV-8); docs/migration/decisions/0006 D2. Written by the business analyst (T-0659) 2026-10-26. Not yet validated.
+    # impl_order: UNREGISTERED -- blocked-by: REQ-563 -- the template store and Letflow.NotificationTemplates.preview/6 are merged (PR 3237) but the register still shows REQ-563 pending
+    # Source: docs/migration/bilimbaga-retirement-status.md section 5 ("Missing" item 1, "Proposed tasks" T5a, T5c); REQ-441 (lib/letflow/login_discovery/notifier.ex, notifier/smtp.ex, notifier/smtp/config.ex, notifier/smtp/transport.ex, notifier/smtp/message.ex, notifier/noop.ex, dispatch.ex; decision docs/migration/decisions/0045-mail-library-choice.md); REQ-563 (lib/letflow/notification_templates.ex, notification_templates/registry.ex, routers/notification_templates.ex); lib/letflow/tasks.ex (assign_task/3, reassign_task/3); lib/letflow/identity/tenant_settings.ex (default_locale); priv/repo/migrations/20261026200001_create_notification_templates.exs (PLACEMENT header: per-tenant, tenant_id uuid NOT NULL); docs/agents/instructions/security-invariants.md (INV-1 Reference, INV-4, INV-8). Written by the business analyst (T-0659) 2026-10-26. Not yet validated.
     description: >
       Today the platform can send exactly one message: the login-discovery tenant list (REQ-441). The
       tenant templates of REQ-563 are stored and previewable but nothing renders them for a real
       recipient, and no send attempt is recorded anywhere (the SMTP adapter is deliberately
       fire-and-forget and returns only :ok or {:error, :failed}). This slice sends one message kind
-      and keeps a log of attempts. Name of the module: Letflow.Notifications (new,
-      lib/letflow/notifications.ex).
+      and keeps a log of attempts. Name of the new module: Letflow.Notifications
+      (lib/letflow/notifications.ex).
 
       Adapter boundary (one choice). The REQ-441 boundary is reused, no second mail adapter and no new
       mail dependency: Letflow.LoginDiscovery.Notifier (lib/letflow/login_discovery/notifier.ex)
       gains one callback, deliver_message(message) where message is a map with to, subject and body
       (strings), returning :ok or {:error, term}. The adapters selected by the existing configuration
       (Notifier.Smtp, Notifier.Noop, and the test double test/support/login_discovery_notifier_double.ex)
-      implement it. Notifier.Smtp builds the message with its own Smtp.Message validation
-      (valid_address?/1, sanitize_text/2 as used today), reads the connection through Smtp.Config.runtime/0
-      and sends through Smtp.Transport.send_message/4, the only module that names the mail library.
-      The sender address is the platform sender already configured for REQ-441 (the environment
-      references LETFLOW_SMTP_*); a per-tenant sender is out of scope. deliver_tenant_list/2 and its
-      message stay unchanged.
+      implement it. Notifier.Smtp validates with its own Smtp.Message (valid_address?/1,
+      sanitize_text/2), reads the connection through Smtp.Config.runtime/0 and sends through
+      Smtp.Transport.send_message/4, the only module that calls the mail library. The sender address is
+      the platform sender already configured for REQ-441 (the environment references LETFLOW_SMTP_*); a
+      per-tenant sender is out of scope. deliver_tenant_list/2 and its message stay unchanged.
 
-      Trigger wiring. When Letflow.Tasks.assign_task/3 or reassign_task/3 (lib/letflow/tasks.ex)
-      succeeds and the new assignee is a user with an email address, Letflow.Notifications.notify_task_assigned
-      renders the tenant's "task_assigned" template (REQ-563: the stored template of the assignee's
-      locale, else the platform default, via Letflow.NotificationTemplates.render/3 with the
-      allow-listed values task_name, process_name, assignee_name, due_date, tenant_name) and delivers it
-      through the configured adapter. The assignment commits first; delivery runs after the commit and
-      its failure, timeout or crash never changes the result of the assignment (INV-8). Other trigger
-      points (reminders, results, welcome) are out of scope.
+      Trigger wiring and where delivery runs (one shape). When Letflow.Tasks.assign_task/3 or
+      reassign_task/3 (lib/letflow/tasks.ex) succeeds and the new assignee is a user, Letflow.Notifications
+      starts one delivery after the assignment transaction has committed. Delivery runs in a task
+      started with Task.Supervisor.start_child on a Letflow.Notifications.TaskSupervisor (a new
+      supervisor in the application tree, the same shape as Letflow.LoginDiscovery.TaskSupervisor), and the
+      adapter call inside it runs under a hard timeout of timeout_ms, read from the existing config key
+      `config :letflow, Letflow.LoginDiscovery.Notifier, timeout_ms:` (default 5_000, read the way
+      Letflow.LoginDiscovery.Dispatch.timeout_ms/0 reads it), killed with Task.shutdown(task, :brutal_kill)
+      on expiry. The request that assigned the task never waits for the adapter. Whatever the outcome, the
+      delivery task writes exactly one log row at its end.
 
-      Delivery log. One tenant-schema table, notification_deliveries (Ecto :prefix per decision 0006
-      D2, and tenant_id kept in the row as the neighbouring tenant tables do; migration in
-      priv/repo/migrations/ with the tenant-schema mechanism of the neighbouring tables): id,
-      template_key, locale, recipient_user_id, status (one of "sent", "failed", "skipped"),
-      reason (a short closed code, for example "no_email", "adapter_noop", "adapter_error", null when
-      sent), trigger_ref (the task id), inserted_at. The log never stores the subject, the body, the
-      recipient email address, the adapter's error term, a connection setting or any credential
-      (INV-4); the recipient is the user id only. "skipped" is written when the assignee has no
-      email address or the configured adapter is the non-delivering Noop. Read access: GET
-      /api/v1/notification-deliveries lists the caller tenant's rows newest first with the existing
-      list pagination, filter by status; the tenant comes from the auth context only. The permission is
-      the existing :TenantSettingsManage (no new permission atom, so no permission-matrix change); the
-      implementer confirms with SECURITY-REVIEWER and the criteria hold for either name.
+      Template and locale. The locale is the tenant's default_locale setting (lib/letflow/identity/tenant_settings.ex);
+      when it is unset the locale is "en", and that value is the one written in the log row. Subject and
+      body come from Letflow.NotificationTemplates.preview/6 (lib/letflow/notification_templates.ex)
+      called with template key "task_assigned", that locale, nil for both request texts and the
+      allow-listed values task_name, process_name, assignee_name, due_date, tenant_name: the stored row of
+      that locale, else the platform default (Letflow.NotificationTemplates.Registry.default/2). Users
+      have no locale of their own and none is added. Other trigger points (reminders, results,
+      welcome) are out of scope.
+
+      Delivery log. One tenant-schema table, notification_deliveries, created through the same
+      tenant-schema migration mechanism and with the same placement as priv/repo/migrations/20261026200001_create_notification_templates.exs
+      (per-tenant via the :prefix, and tenant_id uuid NOT NULL kept in the row, as that migration's
+      PLACEMENT header and the INV-1 Reference in security-invariants.md state). Columns: id,
+      tenant_id, template_key, locale, recipient_user_id, status, reason, trigger_ref (the task id),
+      inserted_at. The closed sets are: status one of "sent", "failed", "skipped"; reason one of
+      "no_email", "adapter_noop", "adapter_error", or null when status is "sent". Mapping: an assignee
+      without an email address writes "skipped"/"no_email" and calls no adapter; the Noop adapter selected
+      writes "skipped"/"adapter_noop"; every {:error, _} from the adapter (including the Smtp reasons
+      :not_configured, :invalid_recipient, :invalid_message and :failed), every raise, exit and the
+      timeout writes "failed"/"adapter_error"; :ok writes "sent"/null. A value outside these sets is
+      refused by the changeset and by a database CHECK. The log never stores the subject, the body, the
+      recipient email address, the adapter's error term, a connection setting or any credential (INV-4);
+      the recipient is the user id only.
+
+      Read route. Letflow.Routers.NotificationDeliveries (lib/letflow/routers/notification_deliveries.ex),
+      mounted with forward("/notification-deliveries", to: Letflow.Routers.NotificationDeliveries) in
+      lib/letflow/plugs/api_pipeline.ex next to the notification-templates forward, declares
+      authz_get "/", :NotificationTemplatesManage, scope: :tenant_wide (the permission of the neighbouring REQ-563
+      routes; no new permission atom, so no permission-matrix change), and
+      lib/letflow/api/authorization.ex gains the clause endpoint_policy_key("GET", "/notification-deliveries"),
+      returning :NotificationTemplatesManage. GET /api/v1/notification-deliveries returns the caller tenant's rows newest first
+      (inserted_at descending, id descending), at most 100 rows, with an optional status filter; there is no
+      pagination in this slice. The tenant comes from the auth context only.
 
       Retries, queueing, bounce handling and a tenant-level sender are the other parts of the BilimBaga
       "general outbound mail service" and are NOT in this slice: one attempt, one row.
@@ -41237,16 +41258,17 @@ requirements:
       Keycloak (realm SMTP and templates in the realm template, REQ-572 item) or by Letflow through this
       service. This requirement builds no reset or welcome mail and its design does not depend on the answer.
     acceptance_criteria:
-      - "1. Port reuse: Letflow.LoginDiscovery.Notifier declares the callback deliver_message/1; Notifier.Smtp, Notifier.Noop and the test double implement it; a grep of lib/ finds no second module that names the mail library (gen_smtp) other than lib/letflow/login_discovery/notifier/smtp/transport.ex, and mix.exs and mix.lock gain no dependency. deliver_tenant_list/2 and its tests are unchanged."
-      - "2. Send path: with the capturing test adapter, assigning a task to a user with an email makes the adapter receive one message whose to is that address and whose subject and body are the tenant's stored task_assigned template for the user's locale with the values inserted; with no stored template, the platform default text; a test covers both."
-      - "3. Assignment unaffected (INV-8): if the adapter returns {:error, :failed}, raises, or exceeds its timeout, assign_task/3 still returns the same success result and the task is assigned; a test covers the three cases and asserts one row with status \"failed\" and reason \"adapter_error\" for each."
-      - "4. Log rows: a successful send writes one row with status \"sent\" and a null reason; an assignee without an email writes status \"skipped\" and reason \"no_email\" and calls no adapter; with the Noop adapter the row is \"skipped\" with reason \"adapter_noop\". Each row carries template_key, locale, recipient_user_id and trigger_ref."
-      - "5. No secrets or content in the log (INV-4): a test inserts rows through all four outcomes and asserts that the table has no column holding subject, body, recipient address or error text, and that a row, the GET response and the application log output of a failed delivery (captured with ExUnit.CaptureLog) contain none of: the recipient address, the template text, the SMTP password or username values set in the test environment."
-      - "6. Per-tenant scoping (INV-1): rows written for an assignment in tenant A are in tenant A's schema only; a test shows the table of tenant B has no row and that GET by a TENANT_ADMIN of tenant B returns an empty list. The route takes no tenant identifier; a cross-tenant negative test (INV-10) shows tenant B cannot read, filter to or count tenant A's rows."
-      - "7. Read route: GET /api/v1/notification-deliveries answers 200 with newest-first rows for a caller holding :TenantSettingsManage; status=failed returns only failed rows; an unknown status value answers 422; a caller without the permission gets the uniform 403 identical in status, body and content-type for a tenant with rows and one without (INV-5). The route is declared in lib/letflow/routers/ and the route-inventory and authz pins named by grep -rn \"__authz_routes__\\|length(snapshot)\" test/ are moved and listed in the PR summary."
-      - "8. Table and migration pins: the new tenant table moves @expected_tenant_tables in test/support/tenant_fixture.ex and its count in tenant_fixture_test.exs by +1 from the value on origin/main at implement time; the migration takes the next free version at implement time."
-      - "9. Scope: the PR touches no reset or welcome mail path, adds no retry or queue, and records the Keycloak-versus-Letflow question (T5c) as undecided in the PR body; SECURITY-REVIEWER (INV-1, INV-4, INV-5, INV-8, INV-10) and REVIEWER verdicts are recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the new test files pass with real output quoted."
+      - "1. Port reuse: Letflow.LoginDiscovery.Notifier declares the callback deliver_message/1; Notifier.Smtp, Notifier.Noop and the test double implement it; grep -rn \":gen_smtp_client\\|:mimemail\" lib/ --include=*.ex matches only lib/letflow/login_discovery/notifier/smtp/transport.ex, and mix.exs and mix.lock gain no dependency. deliver_tenant_list/2 and its tests are unchanged."
+      - "2. Send path: with the capturing test adapter and a tenant whose default_locale is \"fr\", assigning a task to a user with an email makes the adapter receive one message whose to is that address and whose subject and body are the stored task_assigned template of locale \"fr\" with the values inserted; with no stored row of \"fr\", the platform default text; with default_locale unset, the stored or default text for \"en\" and the log row's locale is \"en\". A test covers the three cases."
+      - "3. Assignment unaffected (INV-8): if the adapter returns {:error, :failed}, raises, or sleeps past timeout_ms (the test sets Letflow.LoginDiscovery.Notifier timeout_ms to a small value), assign_task/3 returns the same success result without waiting for the adapter, and the task is assigned; after waiting for the delivery task with a bounded poll of the log (at most 2 seconds), exactly one row exists for each of the three cases, with status \"failed\" and reason \"adapter_error\". The same holds for reassign_task/3 in one case."
+      - "4. Log rows: a successful send writes one row with status \"sent\" and a null reason; an assignee without an email writes status \"skipped\" and reason \"no_email\" and calls no adapter; with the Noop adapter the row is \"skipped\" with reason \"adapter_noop\". Each row carries template_key \"task_assigned\", locale, recipient_user_id and trigger_ref equal to the task id."
+      - "5. Closed sets: inserting a row with a status outside \"sent\"/\"failed\"/\"skipped\", a reason outside \"no_email\"/\"adapter_noop\"/\"adapter_error\", or status \"sent\" with a non-null reason, is refused by the changeset, and a direct SQL insert of the same is refused by the CHECK; each of the Smtp reasons :not_configured, :invalid_recipient, :invalid_message and :failed, returned by the test double, writes \"failed\"/\"adapter_error\"."
+      - "6. No secrets or content in the log (INV-4): a test drives all outcomes and asserts that the table has no column holding subject, body, recipient address or error text, and that a row, the GET response and the application log output of a failed delivery (captured with ExUnit.CaptureLog) contain none of: the recipient address, the template text, the SMTP password or username values set in the test environment."
+      - "7. Per-tenant scoping (INV-1, INV-10): rows written for an assignment in tenant A are in tenant A's schema only; the table of tenant B has no row and GET by a TENANT_ADMIN of tenant B returns an empty list; the route has no tenant parameter in path, query or body; a cross-tenant negative test shows tenant B cannot read, filter to or count tenant A's rows. A PLATFORM_ADMIN token gets only its own tenant's rows."
+      - "8. Read route: GET /api/v1/notification-deliveries answers 200 with newest-first rows (at most 100) for a caller holding :NotificationTemplatesManage; status=failed returns only failed rows; an unknown status value answers 422; a caller without the permission gets the uniform 403 identical in status, body and content-type for a tenant with rows and one without (INV-5)."
+      - "9. Route and table pins moved and listed in the PR summary: the router is Letflow.Routers.NotificationDeliveries with scope: :tenant_wide and its forward line in lib/letflow/plugs/api_pipeline.ex; from grep -rn \"__authz_routes__\\|length(snapshot)\\|length(named)\\|@named_routes\\|mounted_routers\" test/ every pin and the forward list parsed in test/letflow/routers/tenant_auditor_routes_test.exs are checked and moved (+1 forward, +1 route from the values on origin/main at implement time; test/fixtures/route_scope/tenant_wide_default_routes.txt as its rule requires); the new tenant table moves @expected_tenant_tables in test/support/tenant_fixture.ex and its count in tenant_fixture_test.exs by +1 from origin/main at implement time; the migration takes the next free version at implement time."
+      - "10. Scope: the PR touches no reset or welcome mail path, adds no retry or queue, adds no user locale column, and records the Keycloak-versus-Letflow question (T5c) as undecided in the PR body; SECURITY-REVIEWER (INV-1, INV-4, INV-5, INV-8, INV-10) and REVIEWER verdicts are recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the new test files pass with real output quoted."
     open_questions:
       - "Open for the process owner and infra, not decided here (study T5c): Keycloak or Letflow sends reset and welcome mail."
-      - "UAT assumption, to be confirmed by the process owner: the first trigger is task assignment with the template task_assigned (the only registered key), the log keeps no message content, and the read permission is :TenantSettingsManage."
+      - "UAT assumption, to be confirmed by the process owner: the first trigger is task assignment with the template task_assigned (the only registered key), the locale is the tenant's default_locale with \"en\" as fallback, the log keeps no message content, and the read permission is :NotificationTemplatesManage."
     depends_on: [REQ-441, REQ-563]
