@@ -65,6 +65,12 @@ scenario file. A tenant-side actor holds TENANT_ADMIN or a tenant role, never PL
 
 Record history consequence (REQ-516 S2, decision 0059 D2): the history route masks `field_values` with the caller's CURRENT restriction rows and grants, at read time. Restrictions are not stored per event. So if a restriction is removed later, the history written while it applied shows those values to an auditor who holds no grant. Restricted values in history follow the caller's current restrictions and grants, not the restrictions in force when each event was written. The history route reads the live events table only; archived or retention-removed events are not shown.
 
+## The provisioner is a credential, not a role
+The tenant provisioner (REQ-572, decision 0072 D6, QA only) is NOT one of the eight roles and adds no role, permission or `auth_context`. It is a hash-configured credential class
+(`LETFLOW_PROVISIONER_CREDENTIAL_SHA256`, and a read-only class `LETFLOW_PROVISIONER_READONLY_CREDENTIAL_SHA256`) accepted only by the `/admin/v1` routes, outside `/api/v1`: create, get, suspend,
+resume and expire a tenant. It cannot call any other route, read tenant data, act as an administrator or create a credential. The role count and the names above are unchanged. A PLATFORM_ADMIN outside the
+platform tenant stays refused (0046 D1). Operating the credential: `docs/runbooks/tenant-provisioner-credential.md`.
+
 ## Known limitation: scoped approvers (stage 2)
 
 Each task carries the scope node of the instance it was created for: `tasks.scope_node_id` is copied from `instance_projections.scope_node_id` when the task is created, and existing tasks were backfilled from their own instance (REQ-532 / GH #3091). A task of an instance with no scope node keeps NULL, which is fail-closed: a scoped caller never sees it, and a tenant-wide holder sees it as before. Scoped approvers therefore see the tasks of their scope, and the flip to `on` is no longer refused for scoped approvers.
@@ -153,7 +159,7 @@ without the colon; then one column per role in `roles/0` order (eight columns); 
 final column `scope` (`platform` or `tenant`); whitespace-separated, first line is the header.
 PLATFORM_ADMIN `yes` means as evaluated in the platform tenant. The rows cover every core permission of
 `Authorization.core_permissions/0` (REQ-446 names, `TenantSettingsManage` split, `PlatformServicesManage`,
-REQ-448's `AttachmentLinksIssue`, which gates `POST /instances/:id/attachments/:attachment_id/link`, and REQ-536's `DocumentHold` and `DocumentsRetentionManage`, which gate the document hold and retention-policy routes, and REQ-551's `LabelsManage`, which gates the tenant label-override write routes `PUT` and `DELETE /labels/:message_id`, REQ-565's `IntegrationMappingsManage`, which gates the tenant integration-mapping routes, REQ-555's `EntitiesViewsManage`, which gates the create, update and delete routes of saved list views, and REQ-563's `NotificationTemplatesManage`, which gates the tenant notification-template routes under `/notification-templates`, and REQ-575's `NumberSequencesManage`, which gates `POST` and `GET /number-sequences` (tenant number sequence definitions; TENANT_ADMIN only, the other tenant roles are refused)).
+REQ-448's `AttachmentLinksIssue`, which gates `POST /instances/:id/attachments/:attachment_id/link`, and REQ-536's `DocumentHold` and `DocumentsRetentionManage`, which gate the document hold and retention-policy routes, and REQ-551's `LabelsManage`, which gates the tenant label-override write routes `PUT` and `DELETE /labels/:message_id`, REQ-565's `IntegrationMappingsManage`, which gates the tenant integration-mapping routes, REQ-555's `EntitiesViewsManage`, which gates the create, update and delete routes of saved list views, REQ-563's `NotificationTemplatesManage`, which gates the tenant notification-template routes under `/notification-templates`, REQ-561's `ScheduledJobsManage`, which gates the tenant scheduled-job routes under `/scheduled-jobs`, and REQ-575's `NumberSequencesManage`, which gates `POST` and `GET /number-sequences` (tenant number sequence definitions; TENANT_ADMIN only, the other tenant roles are refused)).
 REQ-446 classified `GET /promotions/platform-events` as tenant scope under `PromotionsRead`
 (see the correction note appended to decision 0046); no platform promotion permission exists.
 Module (Catalog) permissions are all tenant scope and are not listed.
@@ -215,4 +221,5 @@ LabelsManage                    yes            no               no              
 EntitiesViewsManage            yes            no               no               no          no           no        yes          no             tenant
 NotificationTemplatesManage     yes            no               no               no          no           no        yes          no             tenant
 NumberSequencesManage           yes            no               no               no          no           no        yes          no             tenant
+ScheduledJobsManage             yes            no               no               no          no           no        yes          no             tenant
 ```

@@ -59,7 +59,12 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # One named write route per router mounted in Letflow.Plugs.ApiPipeline (design 7.2).
   # {router, mount prefix, verb, local path, kind}; kind :route is a declared route of the router
   # (checked against __authz_routes__/0), :probe is the named non-GET unmatched probe of a
-  # read-only router, :modules is the plain-Plug Modules router (full pipeline only).
+  # read-only router, :modules is the plain-Plug Modules router (full pipeline only), :concealed is a
+  # declared route whose key is in Plugs.Authorize @concealed_keys: the auditor gets the plain 404, not
+  # a 403 (REQ-561; the router also answers 404 while its feature flag is off).
+  # Routers whose every key is concealed (404 for a caller without the permission, REQ-561).
+  @concealed_routers [Letflow.Routers.ScheduledJobs]
+
   @named_routes [
     {Letflow.Routers.Identity, "/identity", :post, "/users", :route},
     {Letflow.Routers.Tenants, "/tenants", :post, "/", :route},
@@ -94,6 +99,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.Me, "/me", :post, "/memberships", :probe},
     {Letflow.Routers.ScriptRules, "/script-rules", :post, "/:key/versions", :route},
     {Letflow.Routers.EntityTypeHooks, "/entity-type-hooks", :put, "/:entity_type", :route},
+    {Letflow.Routers.ScheduledJobs, "/scheduled-jobs", :post, "/", :concealed},
     # REQ-496 (GH #2530): this router's ONLY route is the read-only GET; it requires
     # :UsersGroupsRolesManage (tenant-admin class), which TENANT_AUDITOR does not hold, so the
     # real route (not a probe) is named and must answer the auditor 403.
@@ -708,19 +714,19 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # --- AC2: 403 block --------------------------------------------------------------------------
 
   describe "AC2 completeness guards" do
-    test "the routers mounted in ApiPipeline are exactly the 36 named in the table: a new router fails here" do
+    test "the routers mounted in ApiPipeline are exactly the 37 named in the table: a new router fails here" do
       mounted = mounted_routers()
       named = Enum.map(@named_routes, &elem(&1, 0))
 
       assert length(mounted) == length(Enum.uniq(mounted))
       assert Enum.sort(mounted) == Enum.sort(named)
       # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
-      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews; REQ-563: 34 with Letflow.Routers.NotificationTemplates; REQ-567: 35 with Letflow.Routers.EntityTypeHooks.  REQ-575: 36 with Letflow.Routers.NumberSequences.
-      assert length(named) == 36
+      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews; REQ-563: 34 with Letflow.Routers.NotificationTemplates; REQ-567: 35 with Letflow.Routers.EntityTypeHooks; REQ-561: 36 with Letflow.Routers.ScheduledJobs; REQ-575: 37 with Letflow.Routers.NumberSequences.
+      assert length(named) == 37
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do
-      for {router, _prefix, method, local, kind} <- @named_routes, kind == :route do
+      for {router, _prefix, method, local, kind} <- @named_routes, kind in [:route, :concealed] do
         key = route_key!(router, method, local)
         permission = Authorization.required_permission(key)
 
@@ -772,7 +778,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
          ctx do
       before = snapshot(ctx)
 
-      for {router, _prefix, method, local, kind} <- @named_routes, kind != :modules do
+      for {router, _prefix, method, local, kind} <- @named_routes,
+          kind not in [:modules, :concealed] do
         conn =
           call(router, method, concrete(local), ctx.a, @auditor, body: body_for(method))
 
@@ -786,7 +793,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert_unchanged(before, ctx)
     end
 
-    test "through the full pipeline with a real auditor token, all 34 mounts (and the Modules router with the exam module installed)",
+    test "through the full pipeline with a real auditor token, all 37 mounts (and the Modules router with the exam module installed)",
          ctx do
       {:ok, _tenant_module} =
         Installs.install("exam", Ecto.UUID.generate(),
@@ -812,9 +819,38 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
         path = "/api/v1" <> prefix <> local_path
         conn = api(method, path, ctx.a, token, body_for(method))
 
-        assert conn.status == 403,
+        expected = if kind == :concealed, do: 404, else: 403
+
+        assert conn.status == expected,
                "#{inspect(router)} #{method} #{path} (#{kind}): #{conn.status} #{conn.resp_body}"
       end
+
+      assert_unchanged(before, ctx)
+    end
+
+    test "M2c flag on: the auditor gets the plain 404 on the concealed scheduled-jobs route, directly and through the pipeline, nothing changes",
+         ctx do
+      previous = Application.get_env(:letflow, :scheduled_jobs)
+      Application.put_env(:letflow, :scheduled_jobs, enabled: true)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:letflow, :scheduled_jobs, previous),
+          else: Application.delete_env(:letflow, :scheduled_jobs)
+      end)
+
+      token = Fixture.mint_token!(ctx.a, @auditor)
+      before = snapshot(ctx)
+
+      direct =
+        call(Letflow.Routers.ScheduledJobs, :post, "/", ctx.a, @auditor, body: %{})
+
+      assert direct.status == 404
+
+      piped = api(:post, "/api/v1/scheduled-jobs", ctx.a, token, %{})
+      assert piped.status == 404
+      untraced = &(&1.resp_body |> Jason.decode!() |> Map.delete("trace_id"))
+      assert untraced.(piped) == untraced.(direct)
 
       assert_unchanged(before, ctx)
     end
@@ -962,10 +998,17 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert length(results) > 100
 
       for {router, method, local, held?, status} <- results, status != nil do
-        if held? do
-          refute status == 403, "#{inspect(router)} #{method} #{local} is held but got 403"
-        else
-          assert status == 403, "#{inspect(router)} #{method} #{local} not held but got #{status}"
+        cond do
+          router in @concealed_routers ->
+            assert status == 404,
+                   "#{inspect(router)} #{method} #{local} is concealed but got #{status}"
+
+          held? ->
+            refute status == 403, "#{inspect(router)} #{method} #{local} is held but got 403"
+
+          true ->
+            assert status == 403,
+                   "#{inspect(router)} #{method} #{local} not held but got #{status}"
         end
       end
 

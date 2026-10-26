@@ -52,6 +52,17 @@ defmodule Letflow.Identity.PendingAdminGrant do
     |> check_constraint(:email_key, name: :pending_tenant_admin_grants_state_chk)
   end
 
+  @doc """
+  Insert changeset of the provisioner path (decision 0072 D5(a)). Like `create_changeset/2`,
+  but the row is stamped `created_via 'provisioning'`; the value is a literal here, never cast.
+  """
+  @spec provisioning_changeset(t(), map()) :: Ecto.Changeset.t()
+  def provisioning_changeset(%__MODULE__{} = grant, attrs) do
+    grant
+    |> create_changeset(attrs)
+    |> put_change(:created_via, "provisioning")
+  end
+
   @doc "The lifecycle state of a grant row, derived from its two marker columns."
   @spec state(t()) :: state()
   def state(%__MODULE__{consumed_at: %DateTime{}}), do: :bound

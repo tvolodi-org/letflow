@@ -1,0 +1,177 @@
+# T-0633 (BA): TENANT ADMIN group, scenario 17: the administrator attaches a published check script to a record type, replaces it, removes it, and lists the attachments.
+# Covers REQ-567 slice E-1 criteria 3 (bind), 6 (rebind, unbind, unbind of an unbound type, retire block, revoke not blocked) and 8 (list).
+# Sources: docs/requirements.yaml REQ-567 criteria 3, 6, 8; lib/letflow/routers/entity_type_hooks.ex (moduledoc: PUT bind, PUT with rebind true, DELETE unbind,
+# GET list, allowlist of the answer fields, plain 404 for an absent or unbound type); lib/letflow/routers/script_rules.ex (retire answers 409 version_in_use);
+# docs/roles.md (ScriptsPublish: tenant administrator and platform administrator; ScriptsWrite adds the process designer); test/fixtures/uat/actors.yaml.
+# Scope of the slice (criterion 11): the attachment is only stored. The check does NOT run when a record is saved, so no step here writes a record or expects a
+# write to be refused. Running the check on a record write belongs to later slices and later scenarios.
+# The audit trail of a bind, rebind and unbind (criteria 3 and 6) is read from the database, not through a route; it is judged in EO-007 as system_state.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
+---
+id: tenant-administration-17-entity-type-hook-bind-rebind-unbind-list
+scope: tenant-administration
+title: The administrator attaches a published check script to a record type, replaces it, removes it, and lists the attachments
+version: "1.0"
+tags: [tenant-admin, entity-type-hooks, bind, rebind, unbind, list]
+
+description: >
+  The administrator of SwiftRoute has two record types of their own, "hook_order" and "hook_note", and several published check scripts (kind "entity
+  write"). They attach order_check version 1 to "hook_order" and see the answer and the list. They attach note_check version 1 to "hook_note" and see the
+  list ordered by record type. They replace the attachment of "hook_order" with order_check version 2. Retiring the version that is attached is refused;
+  retiring the version no longer attached works. Revoking an attached version is not blocked. They remove the attachment of "hook_order"; removing it
+  again, and removing the attachment of a type that does not exist, give the same not-found answer. Saving a record is not part of this scenario: in this
+  release the attached script does not run.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has two record types of its own named "hook_order" and "hook_note". No process in SwiftRoute writes records of these types and neither type is managed by a module. Neither type has an attachment.
+    check: system_seeded
+    detail: Setup-prepared, because a record type with no process lines is not created by any actor in the roster step list. If an attachment exists, remove it first and note that in the report.
+  - description: SwiftRoute has published, not revoked check scripts of kind "entity write" - order_check version 1, order_check version 2 and note_check version 1. The administrator knows the content fingerprint (sha256) of each, noted as FP-O1, FP-O2 and FP-N1.
+    check: system_seeded
+    detail: Setup-prepared (script source and test cases are test fixtures). If the fingerprints cannot be read from the script registry by the administrator, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of attachments of record types.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator attaches order_check version 1 (with fingerprint FP-O1) to the record type "hook_order". The answer (status and body) is noted.
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of attachments and notes every field of the entry for "hook_order".
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator attaches note_check version 1 (with fingerprint FP-N1) to the record type "hook_note", then asks for the list.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator replaces the attachment of "hook_order" with order_check version 2 (with fingerprint FP-O2), stating that this is a replacement.
+      Then asks for the list.
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to retire order_check version 2, which is attached to "hook_order", giving the reason "replaced by version 3".
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator retires order_check version 1, which is no longer attached to any record type, giving the reason "replaced by version 2".
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator revokes note_check version 1, which is attached to "hook_note", giving the reason "found unsafe", then asks for the list.
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator removes the attachment of "hook_order", then asks for the list.
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to remove the attachment of "hook_order" a second time. The answer (status, body and content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to remove the attachment of a record type named "hook_nowhere", which no company has defined. The answer (status, body and
+      content type) is noted.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      Clean-up: the administrator removes the attachment of "hook_note" and asks for the list.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Before any attachment the list is empty.
+    verification:
+      method: api_response
+      detail: In step 1 the answer is 200 with an empty list of entries.
+      evidence: The answer of step 1.
+    on_fail:
+      severity: MINOR
+      business_impact: The precondition was not met or another attachment is visible; the rest of the scenario cannot be judged cleanly.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The administrator can attach a published, not revoked check script to a record type of their own.
+    verification:
+      method: api_response
+      detail: Step 2 answers 201. The body names the record type "hook_order", the script key "order_check", version 1 and the fingerprint FP-O1. Step 3 lists exactly one entry, the same record type, key, version and fingerprint, with a time of attaching and the user who attached it (the administrator).
+      evidence: The answers of steps 2 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The company cannot choose which check belongs to a record type.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The list is ordered by record type and carries no script text.
+    verification:
+      method: api_response
+      detail: After step 4 the list has two entries and "hook_note" comes before "hook_order". No entry contains the script source, the script manifest or test cases; each entry has only record type, script key, version, fingerprint, time attached, time updated and user who attached.
+      evidence: The list of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Script content could be read by a user through the attachment list, or the list is unstable.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Replacing an attachment swaps the version and keeps one entry per record type.
+    verification:
+      method: api_response
+      detail: Step 5 answers 200 with order_check version 2 and fingerprint FP-O2; the list after it still has two entries and the "hook_order" entry shows version 2.
+      evidence: The answer and the list of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company cannot move a record type to a corrected check script.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A script version that is attached cannot be retired; one that is not attached can; revoking is never blocked.
+    verification:
+      method: http_status
+      detail: Step 6 is refused with 409 and the reason "version_in_use". Step 7 answers 200 and the version shows as retired. Step 8 answers 200 for the revoke, and the list after it still shows the "hook_note" entry.
+      evidence: The answers of steps 6 to 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A retired check script could stay attached without anyone noticing, or an attached script that turned out to be unsafe could not be revoked.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: Removing an attachment works once; a second removal and a removal for a type that does not exist give the same not-found answer.
+    verification:
+      method: http_status
+      detail: Step 9 answers 204 and the list no longer has "hook_order". Steps 10 and 11 both answer 404 and the two answers are equal in status, body and content-type header.
+      evidence: The answers of steps 9 to 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: The answer reveals whether a record type name exists, or a removal is reported as done when it was not.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: Each attaching, replacing and removing is recorded in the audit trail, and a refused request records nothing.
+    verification:
+      method: system_state
+      detail: The audit trail of SwiftRoute has one entry for each of steps 2, 4, 5, 9 and 12 (five entries) with the administrator as the actor, and no entry for the refused steps 6, 10 and 11. The entries are read from the database (UAT assumption, to be confirmed by the process owner - no tenant-user route is relied on to list them).
+      evidence: The audit entries of the company between step 1 and the end.
+    on_fail:
+      severity: MAJOR
+      business_impact: Changes to which check belongs to a record type cannot be traced to a person.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove any attachment on "hook_order" and "hook_note" in SwiftRoute if left. The retired and revoked script versions stay.

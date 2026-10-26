@@ -89,7 +89,8 @@ defmodule Letflow.Api.AuthorizationTest do
       # REQ-555 (decision 0066 D4)
       :EntitiesViewsManage,
       :NotificationTemplatesManage,
-      :NumberSequencesManage
+      :NumberSequencesManage,
+      :ScheduledJobsManage
     ]
 
     test "core_permissions/0 returns the closed core list through ISS-0935's :EntitiesRestrictionsManage, no Catalog atoms" do
@@ -481,7 +482,8 @@ defmodule Letflow.Api.AuthorizationTest do
           48 => "forty-eight",
           49 => "forty-nine",
           50 => "fifty",
-          51 => "fifty-one"
+          51 => "fifty-one",
+          52 => "fifty-two"
         }
         |> Map.get(actual_count)
 
@@ -999,6 +1001,12 @@ defmodule Letflow.Api.AuthorizationTest do
         {"GET", "/entity-type-hooks", :EntityTypeHooksList},
         {"PUT", "/entity-type-hooks/:entity_type", :EntityTypeHooksManage},
         {"DELETE", "/entity-type-hooks/:entity_type", :EntityTypeHooksManage},
+        {"GET", "/scheduled-jobs", :ScheduledJobsManage},
+        {"GET", "/scheduled-jobs/:id", :ScheduledJobsManage},
+        {"POST", "/scheduled-jobs", :ScheduledJobsManage},
+        {"PATCH", "/scheduled-jobs/:id", :ScheduledJobsManage},
+        {"POST", "/scheduled-jobs/:id/enable", :ScheduledJobsManage},
+        {"POST", "/scheduled-jobs/:id/disable", :ScheduledJobsManage},
         {"POST", "/script-rules/:key/versions/:version/confirm", :ScriptRulesConfirm},
         {"GET", "/script-rules/:key/versions/:version/audit", :ScriptRulesAuditRead},
         {"PUT", "/tenants/:slug/script-policy/solo-audited", :TenantsManage},
@@ -1080,7 +1088,8 @@ defmodule Letflow.Api.AuthorizationTest do
           48 => "forty-eight",
           49 => "forty-nine",
           50 => "fifty",
-          51 => "fifty-one"
+          51 => "fifty-one",
+          52 => "fifty-two"
         }
         |> Map.get(actual_count)
 
@@ -1581,7 +1590,8 @@ defmodule Letflow.Api.AuthorizationTest do
           48 => "forty-eight",
           49 => "forty-nine",
           50 => "fifty",
-          51 => "fifty-one"
+          51 => "fifty-one",
+          52 => "fifty-two"
         }
         |> Map.get(actual_count)
 
@@ -2447,7 +2457,8 @@ defmodule Letflow.Api.AuthorizationTest do
                    :EntitiesViewsManage,
                    :NotificationTemplatesManage,
                    # REQ-575 (GH #3263)
-                   :NumberSequencesManage
+                   :NumberSequencesManage,
+                   :ScheduledJobsManage
                  ]
 
       pair_count = length(Authorization.roles()) * length(@pre_req401_permissions)

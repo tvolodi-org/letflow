@@ -153,6 +153,24 @@ defmodule Letflow.Identity.Tenant do
   end
 
   @doc """
+  REQ-572 / decision 0072 D3: the changeset of a tenant made by the provisioner credential. It is
+  the only changeset that casts `:id` (the caller's tenant id becomes `tenants.id`). `:slug` and
+  `:display_name` are derived/validated by the caller; `status` is forced to `:migrating` (activated
+  by `Letflow.TenantOnboarding.provision_and_migrate/1`) and `tenant_type` to `"test"`. No realm is
+  cast: it is bound after provisioning, like the onboarding route.
+  """
+  @spec provisioning_changeset(t :: %__MODULE__{}, attrs :: map()) :: Ecto.Changeset.t()
+  def provisioning_changeset(tenant, attrs) do
+    tenant
+    |> cast(attrs, [:id, :slug, :display_name])
+    |> validate_required([:id, :slug, :display_name])
+    |> put_change(:status, :migrating)
+    |> put_change(:tenant_type, "test")
+    |> unique_constraint(:slug)
+    |> unique_constraint(:id, name: :tenants_pkey)
+  end
+
+  @doc """
   Changeset for `PATCH /tenants/:slug` (REQ-075) — casts **only**
   `:display_name`, (REQ-442) `:login_disclosure_mode`, the latter validated
   against `login_disclosure_modes/0` (`nil` is allowed: reset to the deployment

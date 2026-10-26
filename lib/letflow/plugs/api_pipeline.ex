@@ -193,6 +193,10 @@ defmodule Letflow.Plugs.ApiPipeline do
   # bind or rebind, unbind). Tenant scope; :ScriptsWrite / :ScriptsPublish.
   forward("/entity-type-hooks", to: Letflow.Routers.EntityTypeHooks)
 
+  # REQ-561 part 2 (GH #3194): tenant-defined scheduled jobs. Tenant scope; :ScheduledJobsManage,
+  # TENANT_ADMIN only. Behind the :scheduled_jobs flag (404 while it is off).
+  forward("/scheduled-jobs", to: Letflow.Routers.ScheduledJobs)
+
   # GH 2534 PR 7b-2a (decision 0053 D5, D7): the tenant's script policy (kill switch tenant
   # latch, readable masters). Tenant scope; :ScriptPolicyRead / :ScriptPolicyManage.
   forward("/script-policy", to: Letflow.Routers.ScriptPolicy)

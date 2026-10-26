@@ -21,9 +21,9 @@ defmodule Letflow.Api.LabelsRouteClassesTest do
   alias Letflow.Support.RouteInventory
 
   describe "L1/L2 permissions" do
-    test "L1 LabelsManage is tenant scope, appended after the document permissions (REQ-565 then appended IntegrationMappingsManage, EntitiesViewsManage and NotificationTemplatesManage), TENANT_ADMIN only" do
+    test "L1 LabelsManage is tenant scope, appended after the document permissions (REQ-565 then appended IntegrationMappingsManage, EntitiesViewsManage, NotificationTemplatesManage and ScheduledJobsManage), TENANT_ADMIN only" do
       assert Authorization.permission_scope(:LabelsManage) == :tenant
-      assert Authorization.core_permissions() |> Enum.take(-5) |> hd() == :LabelsManage
+      assert Authorization.core_permissions() |> Enum.take(-6) |> hd() == :LabelsManage
       assert Authorization.required_permission(:LabelsManage) == :LabelsManage
       assert Authorization.role_allows?(:TENANT_ADMIN, :LabelsManage)
 

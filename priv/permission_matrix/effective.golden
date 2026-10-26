@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: catalog_items@0.1.0,exam@0.1.0,org@0.1.0
 # roles: 8
-# permissions: 58
-# rows: 464
+# permissions: 59
+# rows: 472
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -54,6 +54,7 @@ AGENT_RUNNER PromotionsManage false core -
 AGENT_RUNNER PromotionsRead false core -
 AGENT_RUNNER PublicReadHandlesIssue false core -
 AGENT_RUNNER RolesManage false core -
+AGENT_RUNNER ScheduledJobsManage false core -
 AGENT_RUNNER ScriptsPublish false core -
 AGENT_RUNNER ScriptsWrite false core -
 AGENT_RUNNER TasksAssign false core -
@@ -112,6 +113,7 @@ CANDIDATE PromotionsManage false core -
 CANDIDATE PromotionsRead false core -
 CANDIDATE PublicReadHandlesIssue false core -
 CANDIDATE RolesManage false core -
+CANDIDATE ScheduledJobsManage false core -
 CANDIDATE ScriptsPublish false core -
 CANDIDATE ScriptsWrite false core -
 CANDIDATE TasksAssign false core -
@@ -170,6 +172,7 @@ PLATFORM_ADMIN PromotionsManage true core core
 PLATFORM_ADMIN PromotionsRead true core core
 PLATFORM_ADMIN PublicReadHandlesIssue true core core
 PLATFORM_ADMIN RolesManage true core core
+PLATFORM_ADMIN ScheduledJobsManage true core core
 PLATFORM_ADMIN ScriptsPublish true core core
 PLATFORM_ADMIN ScriptsWrite true core core
 PLATFORM_ADMIN TasksAssign true core core
@@ -228,6 +231,7 @@ PROCESS_DESIGNER PromotionsManage false core -
 PROCESS_DESIGNER PromotionsRead false core -
 PROCESS_DESIGNER PublicReadHandlesIssue false core -
 PROCESS_DESIGNER RolesManage true core core
+PROCESS_DESIGNER ScheduledJobsManage false core -
 PROCESS_DESIGNER ScriptsPublish false core -
 PROCESS_DESIGNER ScriptsWrite true core core
 PROCESS_DESIGNER TasksAssign false core -
@@ -286,6 +290,7 @@ PROCESS_OPERATOR PromotionsManage false core -
 PROCESS_OPERATOR PromotionsRead false core -
 PROCESS_OPERATOR PublicReadHandlesIssue false core -
 PROCESS_OPERATOR RolesManage false core -
+PROCESS_OPERATOR ScheduledJobsManage false core -
 PROCESS_OPERATOR ScriptsPublish false core -
 PROCESS_OPERATOR ScriptsWrite false core -
 PROCESS_OPERATOR TasksAssign true core core
@@ -344,6 +349,7 @@ TASK_WORKER PromotionsManage false core -
 TASK_WORKER PromotionsRead false core -
 TASK_WORKER PublicReadHandlesIssue false core -
 TASK_WORKER RolesManage false core -
+TASK_WORKER ScheduledJobsManage false core -
 TASK_WORKER ScriptsPublish false core -
 TASK_WORKER ScriptsWrite false core -
 TASK_WORKER TasksAssign false core -
@@ -402,6 +408,7 @@ TENANT_ADMIN PromotionsManage true core core
 TENANT_ADMIN PromotionsRead true core core
 TENANT_ADMIN PublicReadHandlesIssue true core core
 TENANT_ADMIN RolesManage true core core
+TENANT_ADMIN ScheduledJobsManage true core core
 TENANT_ADMIN ScriptsPublish true core core
 TENANT_ADMIN ScriptsWrite true core core
 TENANT_ADMIN TasksAssign true core core
@@ -460,6 +467,7 @@ TENANT_AUDITOR PromotionsManage false core -
 TENANT_AUDITOR PromotionsRead true core core
 TENANT_AUDITOR PublicReadHandlesIssue false core -
 TENANT_AUDITOR RolesManage false core -
+TENANT_AUDITOR ScheduledJobsManage false core -
 TENANT_AUDITOR ScriptsPublish false core -
 TENANT_AUDITOR ScriptsWrite false core -
 TENANT_AUDITOR TasksAssign false core -
