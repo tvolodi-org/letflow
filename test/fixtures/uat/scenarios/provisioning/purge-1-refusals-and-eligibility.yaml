@@ -34,8 +34,11 @@ description: >
   PLATFORM_ADMIN of another tenant (a PLATFORM_ADMIN whose database-resolved tenant is not the platform tenant gets the
   403 of the existing scope rule), a user with no role and a request with no token cannot reach the route (401 or 403,
   nothing changes), and that the provisioner credential sent to POST /api/v1/tenants/:slug/purge is refused as in
-  REQ-572 criterion 3". Criterion 8 says a
-  refused or failed purge leaves every other customer unchanged. This scenario shows, on two throwaway customers X and Z
+  REQ-572 criterion 3". Criterion 8, quoted: "purging A by id through each trigger leaves every row, table and the schema of B
+  unchanged (row counts per table compared before and after), and a purge/2 call whose tenant id is that of the platform
+  tenant, of a tenant created by POST /tenants without a lifecycle row, or of a production tenant leaves everything
+  unchanged". Here the refused calls on X and Z are the triggers shown, and the final step checks that X and Z are
+  unchanged; the other triggers are covered by provisioning-4 and the product's own tests. This scenario shows, on two throwaway customers X and Z
   made for the run: an active customer is refused as not eligible; a customer switched off by hand (active lifecycle,
   switched-off state) is refused as not eligible; unknown names and the platform's own workspace get the same plain
   "not found"; the customer's own administrator, the administrator of another company, a user with only the candidate

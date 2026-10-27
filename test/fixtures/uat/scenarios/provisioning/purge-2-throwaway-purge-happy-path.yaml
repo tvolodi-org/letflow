@@ -14,7 +14,7 @@
 # UAT ASSUMPTION, to be confirmed by the process owner (QA only, not a rule): the retention (starting value 30 days, a whole
 # number of days read when the application starts) cannot be waited for. It stays at its starting value for steps 1 to 6, so
 # that step 4 (a purge inside the retention) is refused. In step 7 infra sets the retention setting to 0 days and restarts the
-# QA application; afterwards it sets it back to 30 days and restarts again. Without step 7, steps 8 to 15 are BLOCKED, not
+# QA application; afterwards it sets it back to 30 days and restarts again. Without step 7, steps 8 to 16 are BLOCKED, not
 # PASS; steps 1 to 6 can still be reported.
 ---
 id: provisioning-purge-2-throwaway-purge-happy-path
@@ -29,9 +29,21 @@ description: >
   platform operator's purge call answers "409 {error: "not_eligible"}" then and, after the retention, "200 {tenant_id,
   status: "deleted", purged_at}" and "200 with the same body on a repeat". Criterion 9 says the front door's read of a
   purged customer "answers 200 ... not 404" with status deleted and an ISO-8601 UTC purged_at, and that two reads give
-  byte-identical bodies. Criterion 6 says a purged customer cannot be switched on again (409), its former users get
-  "403 tenant_inactive", and its name stays reserved. Criterion 8 says purging W leaves another customer (V, made for the
-  run and left untouched) unchanged.
+  byte-identical bodies. Criterion 6, quoted: "After the purge, POST /tenants/:slug/reactivate for the tenant answers 409 with
+  an error code in the existing error shape and changes nothing", "a request with a former user's token of the tenant
+  answers 403 tenant_inactive as for any inactive tenant", "POST /onboarding and POST /tenants with the slug of a purged
+  tenant answer the existing slug-conflict answer (the slug stays reserved; it is never reused for a new tenant)" and "The
+  hostname stays reserved too: the tenant's onboarding_registry row is kept (criterion 3d), a test shows that POST
+  /api/v1/onboarding with that hostname and a new slug answers the existing hostname-conflict 409, and, once REQ-572 has
+  built POST /admin/v1/tenants, that it answers 409 conflict for that hostname". Steps 12 to 15 cover these. The slug half
+  is shown through the platform's create-customer call (step 14), which reaches the same duplicate-slug answer as the
+  onboarding call; the hostname half is shown through the front door's create call (step 15). The REQ-572 resume-route 409
+  is covered in provisioning-4-delete-retention-and-purge.yaml, step "The front door tries to resume customer B after the
+  purge". Criterion 8, quoted: "purging A by id through each trigger leaves every row, table and the schema of B unchanged
+  (row counts per table compared before and after)". Here A is W and B is V (made for the run and left untouched); the
+  platform route is the trigger shown (steps 9 and 16). The other triggers and the platform, no-lifecycle and production
+  identifiers are covered by provisioning-4, by purge-1 step 9 (refusals leave X and Z unchanged) and by the product's own
+  tests, not by this scenario.
 
 actors:
   front_door: actor-system-front-door
@@ -50,14 +62,15 @@ preconditions:
     check: custom
     detail: >
       If it is already 0 days, step 4 would purge W early; report BLOCKED. Infra shortens it to 0 days only in step 7 and
-      restarts the QA application. No request may carry a retention; it is a setting only. Without step 7, steps 8 to 15 are BLOCKED.
+      restarts the QA application. No request may carry a retention; it is a setting only. Without step 7, steps 8 to 16 are BLOCKED.
 
 steps:
   - step: 1
     actor: realm_provisioner
     action: >
       TEST-TOOLING STEP (outside the product): the realm provisioner makes one realm each for customers W and V (named
-      "t-" plus the first 20 hex digits of the identifier), each with its owner as first administrator.
+      "t-" plus the first 20 hex digits of the identifier), each with its owner as first administrator. It also makes a fresh
+      realm for a third, new identifier N, used only in step 15 (N is never created as a customer).
     via: api
   - step: 2
     actor: front_door
@@ -125,6 +138,13 @@ steps:
     expect_refusal: true
     via: api
   - step: 15
+    actor: front_door
+    action: >
+      The front door tries to create a new customer with the fresh identifier N, N's own fresh realm (step 1), a new owner
+      e-mail and the address (hostname) of W. Only the address is reused, so a refusal can only come from the address rule.
+    expect_refusal: true
+    via: api
+  - step: 16
     actor: owner_v
     action: The owner of V lists the people of V. This still works with the same people as in step 2.
     via: api
@@ -178,13 +198,14 @@ expected_outcomes:
       business_impact: The realm reaper would delete a realm too early, never, or learn customer content from the marker.
       suggested_action: route_to_wf03
   - id: EO-005
-    description: A purged customer cannot come back and its name stays reserved.
+    description: A purged customer cannot come back and its name and address stay reserved.
     verification:
       method: http_status
       detail: >
         Step 12 answers 409 (the customer was purged) and W is still deleted afterwards; step 13 is refused as 403
-        "tenant_inactive"; step 14 is refused with 409 "slug already exists".
-      evidence: The status and error text of steps 12 to 14.
+        "tenant_inactive"; step 14 is refused with 409 "slug already exists"; step 15 is refused with 409 conflict, and no
+        customer N is created (the front door's read of N afterwards answers 404).
+      evidence: The status and error text of steps 12 to 15, and the front door's read of N.
     on_fail:
       severity: MAJOR
       business_impact: A purged customer is revived without its data, or its name is reused for a different customer.
@@ -193,8 +214,8 @@ expected_outcomes:
     description: Purging W leaves another customer unchanged (cross-tenant negative).
     verification:
       method: system_state
-      detail: Step 15 lists the same people of V as step 2, and the record of V in step 11 is as in step 5.
-      evidence: The people counts of V at steps 2 and 15 and the two records.
+      detail: Step 16 lists the same people of V as step 2, and the record of V in step 11 is as in step 5.
+      evidence: The people counts of V at steps 2 and 16 and the two records.
     on_fail:
       severity: BLOCKER
       business_impact: A purge of one customer damages another customer's data.
