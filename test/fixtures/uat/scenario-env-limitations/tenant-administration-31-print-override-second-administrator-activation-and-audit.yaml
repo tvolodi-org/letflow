@@ -1,0 +1,16 @@
+scenario_id: tenant-administration-31-print-override-second-administrator-activation-and-audit
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: |
+  The scenario needs a second TENANT_ADMIN of the same company (activation needs a person other than the one who saved the draft). The actor
+  roster (test/fixtures/uat/actors.yaml) has one TENANT_ADMIN per company (actor-swiftroute-alice for SwiftRoute), and a second test account is
+  UAT-class, so it needs the owner's approval. The BA does not invent an actor. Until a second SwiftRoute administrator account is approved and
+  added to the roster, each expected outcome is verified in CI by the REQ-579 backend tests (outcome id | criterion | test name):
+  (all in test/letflow/documents/print_overrides_test.exs)
+  EO-001, EO-002 activation | criterion 6 | S2-sod-1; EO-002 status 409s | S2-sod-3
+  EO-003 | criterion 4 | D5-redact-1
+  EO-004 | criterion 6 | S2-sod-2 (retire by creator)
+  EO-005 | criterion 7 | S2-audit-1/2 and S2-audit-3
+recorded_by: BUSINESS-ANALYST
+recorded_at: "2026-10-28"
+issue_ref: "GH #3289"
