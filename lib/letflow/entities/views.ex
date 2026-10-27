@@ -1,7 +1,8 @@
 defmodule Letflow.Entities.Views do
   @moduledoc """
-  Saved list view definitions (REQ-555, GH #3157, decision 0066 D1..D7).
+  Saved view definitions (REQ-555, GH #3157, decision 0066 D1..D7; pivot kind REQ-598, GH #3367).
 
+  A `pivot` view stores a filter, `group_by` and `aggregates` instead of columns and sort.
   A view is a named, tenant-shared definition over ONE entity type: ordered `columns`, a `filter` and
   a `sort` in the wire shape of `POST /entities/query`. It stores no record value and no function
   here reads a record: a list screen replays a stored view through the ordinary query route, which
@@ -84,17 +85,20 @@ defmodule Letflow.Entities.Views do
     end
   end
 
-  @doc "Replaces the name, columns, filter and sort of a view; the entity type cannot change."
+  @doc """
+  Replaces the name and clauses of a view (columns, filter, sort; group_by and aggregates for a
+  pivot); the entity type and the kind cannot change.
+  """
   @spec update(String.t(), String.t(), term(), map()) :: {:ok, View.t()} | {:error, error()}
   def update(prefix, user_id, id, body) do
     with {:ok, view} <- get(prefix, user_id, id),
-         {:ok, shaped} <- Clauses.parse_body(body, :update),
+         {:ok, shaped} <- Clauses.parse_body(body, :update, view.kind),
          :ok <- same_type(shaped, view),
          :ok <- Clauses.check(prefix, view.entity_type, shaped) do
       # updated_at is forced so a PUT that changes nothing still moves it and updated_by, matching its audit entry.
       changes =
         shaped
-        |> Map.take([:name, :columns, :filter, :sort])
+        |> Map.take([:name, :columns, :filter, :sort, :group_by, :aggregates])
         |> Map.merge(%{updated_by: user_id, updated_at: DateTime.utc_now()})
 
       Multi.new()

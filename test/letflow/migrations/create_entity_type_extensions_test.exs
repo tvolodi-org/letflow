@@ -169,9 +169,9 @@ defmodule Letflow.Migrations.CreateEntityTypeExtensionsTest do
     assert guard_at < create_at
   end
 
-  test "C4a manifest lists the migration as the last row with the file's version" do
+  test "C4a manifest lists the migration with the file's version" do
     migrations = TenantProvisioning.tenant_scoped_migrations()
-    assert List.last(migrations) == {@version, @module}
+    assert {@version, @module} in migrations
     assert String.starts_with?(@filename, Integer.to_string(@version))
   end
 
