@@ -68,6 +68,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     # while the surface goes unverified.
     Letflow.Routers.Entities,
     Letflow.Routers.EntityTypeHooks,
+    Letflow.Routers.RecordTriggerBindings,
     Letflow.Routers.ScheduledJobs,
     # REQ-335/REQ-410 -- the exam-session HTTP surface moved from a direct
     # core-mount (REQ-335/REQ-408) to the D4/D5 gate at
@@ -147,6 +148,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Routers.AdminServices => "/admin/services",
     Letflow.Routers.Entities => "/entities",
     Letflow.Routers.EntityTypeHooks => "/entity-type-hooks",
+    Letflow.Routers.RecordTriggerBindings => "/record-trigger-bindings",
     Letflow.Routers.ScheduledJobs => "/scheduled-jobs",
     Letflow.Modules.Exam.Router => "/modules/exam",
     Letflow.Routers.Help => "/help",
