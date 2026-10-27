@@ -40,6 +40,8 @@ defmodule Letflow.Modules.Exam.Router do
   | authoring_delete | `DELETE /authoring/:entity_type/:record_id` (GH #2680) | `Letflow.Modules.Exam.Authoring.delete/2` | `ExamAuthoringWrite` | 200 / 400 / 403 / 404 / 409 |
   | issue_certificate | `POST /exam-sessions/:id/certificate` | `Letflow.Modules.Exam.Certificate.issue_or_get_for_user/3` (REQ-355) | `ExamCertificateIssue` | 200 / 404 / 409 |
   | download_certificate | `GET /exam-sessions/:id/certificate/download` | `Letflow.Modules.Exam.Certificate.issue_or_get_for_user/3` + `Letflow.Modules.Exam.CertificateDocument.render/2` (REQ-356) | `ExamCertificateIssue` | 200 (`application/pdf`) / 404 / 409 |
+  | list_grading_queue | `GET /grading-queue` (GH #3324) | `Letflow.Modules.Exam.Grading.list_queue/2` | `ExamGradingRead` | 200 / 400 / 403 |
+  | get_grading_answer | `GET /grading-queue/:session_id/:question_id` (GH #3324) | `Letflow.Modules.Exam.Grading.get_answer/4` | `ExamGradingRead` | 200 / 403 / 404 |
 
   REQ-586 parts A and B: a `category`/`question` write carrying `parent_id`, a `question` write that
   touches its lineage, and a delete of either type, can be refused by
@@ -49,11 +51,9 @@ defmodule Letflow.Modules.Exam.Router do
 
   ## Deliberately NOT routed here, and why (REQ-335's own scope fence)
 
-    * **Manual short-text grading queue** (`HandleListGradingQueue`/
-      `HandleGetGradingDetail`/`HandleGradeAnswer`, FR-BB42) -- no admin
-      grading-queue runtime exists; `Letflow.Modules.Exam.Scoring` (REQ-332) marks a
-      short-text answer `pending_manual` and stops there. Building the
-      runtime is not this requirement's job.
+    * **Manual short-text grading, mark half** (`HandleGradeAnswer`, FR-BB42) -- the queue and
+      detail reads are routed (GH #3324, REQ-588 part A); marking an answer and finalising the
+      session are part B and not routed yet.
     * **Adaptive next-question selection** (`GetNextQuestion`, FR-BB72) --
       the stage file names adaptive selection as an unimplemented bucket-C
       behaviour with its own future requirement; no runtime exists to route
@@ -86,6 +86,9 @@ defmodule Letflow.Modules.Exam.Router do
   `ExamAuthoringWrite` (GH #2680) is the exception: it gates the authoring write routes, is declared
   by the exam manifest only and has NO `role_grants`, so it is held through the core rules alone
   (PLATFORM_ADMIN and TENANT_ADMIN). CANDIDATE and PROCESS_OPERATOR do not hold it.
+
+  `ExamGradingRead` (GH #3324) is the same kind: manifest-only, no `role_grants`, PLATFORM_ADMIN and
+  TENANT_ADMIN only; it gates the two grading-queue reads.
 
   ## Ownership and tenant isolation (INV-1, INV-5, INV-8)
 
@@ -148,6 +151,7 @@ defmodule Letflow.Modules.Exam.Router do
   alias Letflow.Modules.Exam.Authoring
   alias Letflow.Modules.Exam.Certificate
   alias Letflow.Modules.Exam.CertificateDocument
+  alias Letflow.Modules.Exam.Grading
   alias Letflow.Modules.Exam.Session
   alias Letflow.Idempotency
   alias Letflow.PublicRead
@@ -261,6 +265,19 @@ defmodule Letflow.Modules.Exam.Router do
 
   authz_delete "/authoring/:entity_type/:record_id", :ExamAuthoringWrite do
     handle_authoring_delete(conn, conn.params["entity_type"], conn.params["record_id"])
+  end
+
+  # ── Examiner grading queue, read half (GH #3324 / REQ-588 part A) ───────
+  #
+  # Gated by the manifest-only `:ExamGradingRead` (no role_grants: PLATFORM_ADMIN and TENANT_ADMIN
+  # through the core rules). No `scope:` option: fail-closed `:tenant_wide`. No tenant parameter.
+
+  authz_get "/grading-queue", :ExamGradingRead do
+    handle_list_grading_queue(conn)
+  end
+
+  authz_get "/grading-queue/:session_id/:question_id", :ExamGradingRead do
+    handle_get_grading_answer(conn, conn.params["session_id"], conn.params["question_id"])
   end
 
   authz_unmatched(:ordinary)
@@ -502,6 +519,62 @@ defmodule Letflow.Modules.Exam.Router do
   defp render_list_available_exams(conn, {:error, reason}, _prefix) do
     Logger.warning("available-exams list failed: #{inspect(reason)}")
     Response.internal_error(conn)
+  end
+
+  # ══ GET /grading-queue, GET /grading-queue/:session_id/:question_id ═════
+  #
+  # Reads only, delegated to `Letflow.Modules.Exam.Grading`. The prefix comes from `scoped_opts`;
+  # every not-found case (malformed id, absent, another tenant's, already graded, not short text)
+  # renders the one `Response.not_found/1` call (INV-5). The optional `locale` query parameter picks
+  # the language of `stem` and `exam_title`.
+
+  defp handle_list_grading_queue(conn) do
+    prefix = prefix!(conn)
+    conn = fetch_query_params(conn)
+    query = conn.query_params
+
+    case Pagination.parse_page_size_param(Map.get(query, "page_size")) do
+      {:ok, page_size} ->
+        opts = [
+          cursor: Map.get(query, "cursor"),
+          page_size: page_size,
+          exam_id: Map.get(query, "exam_id"),
+          locale: Map.get(query, "locale")
+        ]
+
+        render_list_grading_queue(conn, Grading.list_queue(prefix, opts))
+
+      {:error, :invalid_page_size} ->
+        Response.bad_request(conn, "invalid page_size")
+    end
+  end
+
+  defp render_list_grading_queue(conn, {:ok, %{items: items, next_cursor: next_cursor}}),
+    do: Response.ok(conn, %{"items" => items, "next_cursor" => next_cursor})
+
+  defp render_list_grading_queue(conn, {:error, :page_size_too_large}),
+    do: Response.bad_request(conn, Pagination.page_size_error_message())
+
+  defp render_list_grading_queue(conn, {:error, :invalid_cursor}),
+    do: Response.bad_request(conn, "invalid cursor")
+
+  defp render_list_grading_queue(conn, {:error, :invalid_exam_id}),
+    do: Response.bad_request(conn, "invalid exam_id")
+
+  defp render_list_grading_queue(conn, {:error, reason}) do
+    Logger.warning("grading queue list failed: #{inspect(reason)}")
+    Response.internal_error(conn)
+  end
+
+  defp handle_get_grading_answer(conn, session_id, question_id) do
+    conn = fetch_query_params(conn)
+
+    case Grading.get_answer(prefix!(conn), session_id, question_id,
+           locale: Map.get(conn.query_params, "locale")
+         ) do
+      {:ok, detail} -> Response.ok(conn, detail)
+      {:error, :not_found} -> Response.not_found(conn)
+    end
   end
 
   # ══ PUT /exam-sessions/:id/answers/:question_id ═══════════════════════

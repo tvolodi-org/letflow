@@ -114,6 +114,7 @@ defmodule Letflow.Modules.Exam.Session do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Entities.Definitions
   alias Letflow.Entities.FieldPolicy
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Allowlist
@@ -1479,7 +1480,14 @@ defmodule Letflow.Modules.Exam.Session do
            score_questions(questions, answers, threshold) do
       outcome = maybe_override_status(outcome0, status_override)
 
-      with :ok <- persist_scores(session.record_id, scores, fv(session, "user_id"), prefix),
+      with :ok <-
+             persist_scores(
+               session.record_id,
+               fv(session, "exam_id"),
+               scores,
+               fv(session, "user_id"),
+               prefix
+             ),
            :ok <-
              Snapshot.record_late_after_persist(
                provenance,
@@ -1538,15 +1546,20 @@ defmodule Letflow.Modules.Exam.Session do
     end
   end
 
-  defp persist_scores(session_id, scores, actor_id, prefix) do
+  defp persist_scores(session_id, exam_id, scores, actor_id, prefix) do
+    declared = declared_score_fields(prefix)
+
     Enum.reduce_while(scores, :ok, fn score, :ok ->
-      attrs = %{
-        "session_id" => session_id,
-        "question_id" => score.question_id,
-        "score" => to_float(score.score),
-        "max_score" => to_float(score.max_score),
-        "grading_status" => Atom.to_string(score.grading_status)
-      }
+      attrs =
+        %{
+          "session_id" => session_id,
+          "question_id" => score.question_id,
+          "score" => to_float(score.score),
+          "max_score" => to_float(score.max_score),
+          "grading_status" => Atom.to_string(score.grading_status)
+        }
+        |> put_declared("exam_id", exam_id, declared)
+        |> put_correct(score, declared)
 
       case write_record("session_question_score", attrs, actor_id, prefix) do
         {:ok, _result} -> {:cont, :ok}
@@ -1554,6 +1567,35 @@ defmodule Letflow.Modules.Exam.Session do
       end
     end)
   end
+
+  # REQ-594: `exam_id` and `correct` are written only when the tenant's ACTIVE
+  # `session_question_score` definition declares them (record writes are validated against it with
+  # additionalProperties: false). A tenant still on the previous definition, before
+  # `ensure_exam_analytics_definitions/1` ran, keeps today's row shape so submit keeps working.
+  # Read once per scoring call, not per row; any lookup error means "nothing declared" and
+  # `Records` reports its own error if the type is really missing.
+  defp declared_score_fields(prefix) do
+    case Definitions.get_active_definition_by_name("session_question_score", prefix) do
+      {:ok, %{definition_json: %{"fields" => fields}}} when is_list(fields) ->
+        MapSet.new(fields, &Map.get(&1, "name"))
+
+      _ ->
+        MapSet.new()
+    end
+  end
+
+  defp put_declared(attrs, key, value, declared) do
+    if MapSet.member?(declared, key), do: Map.put(attrs, key, value), else: attrs
+  end
+
+  # `correct` compares the unrounded floats that are also written to `score` / `max_score` (the
+  # column rounds to 4 decimals; scoring caps at 1.0, so a rounding collision is not reachable).
+  # A pending_manual row gets no `correct` key at all (never nil).
+  defp put_correct(attrs, %{grading_status: :graded} = score, declared) do
+    put_declared(attrs, "correct", to_float(score.score) == to_float(score.max_score), declared)
+  end
+
+  defp put_correct(attrs, _score, _declared), do: attrs
 
   defp update_session_after_submit(session, outcome, submitted_at, prefix) do
     # Record updates are a FULL replacement of `field_values`, so the new map starts from the
