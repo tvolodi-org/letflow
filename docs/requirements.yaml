@@ -42209,7 +42209,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- blocked-by: REQ-584 -- needs Letflow.Notifications, the notification_deliveries table and Notifier.deliver_message/1 from REQ-584
+    gh: 3363
     # Source: docs/migration/decisions/0022-bilimbaga-vertical.md (the bucket rule; rules 1 and 2) and docs/migration/stage-10-bilimbaga-vertical.md (Bucket-C inventory); docs/migration/bilimbaga-retirement-status.md (criterion 5, "Proposed tasks" T5b; welcome mail is T5c and stays out); REQ-584 (this file, deliver_message/1 on Letflow.LoginDiscovery.Notifier in lib/letflow/login_discovery/notifier.ex, Letflow.Notifications, notification_deliveries, closed status and reason sets); REQ-563 (lib/letflow/notification_templates/registry.ex @entries and placeholders/1, lib/letflow/notification_templates.ex preview/6); REQ-582 (exam_assignment record, priv/modules/exam/entity_definitions/exam_assignment.json: assignee_type, assignee_id, deadline stored only not queried, active); lib/letflow/modules/exam/session.ex (submit/3, finalize_expired/3, score_and_persist/3, outcome_from_session/1, submission_outcome type); priv/modules/exam/entity_definitions/session.json and exam.json; lib/letflow/entities/record/latest.ex (get/3); config/config.exs (record_triggers_enabled flag precedent, read by Letflow.RecordTriggers.enabled?/0); docs/agents/instructions/security-invariants.md (INV-1 Reference, INV-4, INV-5, INV-8, INV-10). Written by the business analyst (T-0710) 2026-10-27. Not yet validated.
     description: >
       REQ-584 sends one message kind (task_assigned) and states that reminders and results are out of scope.
