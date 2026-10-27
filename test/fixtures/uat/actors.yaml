@@ -72,9 +72,9 @@ actors:
 
   actor-swiftroute-lena:
     tenant: swiftroute
-    builtin_roles: [TASK_WORKER]
+    builtin_roles: [TASK_WORKER, PROCESS_OPERATOR]
     routing_roles: []
-    note: "seed_swiftroute_persona_actors.sh: Dispatcher, TASK_WORKER only"
+    note: "seed_swiftroute_persona_actors.sh: Dispatcher, TASK_WORKER implicit plus PROCESS_OPERATOR because she starts the process (InstancesStart; TASK_WORKER cannot): T-0321, GH #3220, GH #3361"
   actor-swiftroute-marco:
     tenant: swiftroute
     builtin_roles: [TASK_WORKER]
