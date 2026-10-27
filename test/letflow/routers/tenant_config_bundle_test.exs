@@ -237,13 +237,11 @@ defmodule Letflow.Routers.TenantConfigBundleTest do
       refute Map.has_key?(bundle, "label_overrides")
     end
 
-    test "E6 a role with TenantSettingsManage only gets neither part through the router" do
+    test "E6 TENANT_ADMIN gets both parts, a role without them gets none" do
       t = tenant!("r599-e6")
       put_override!(t, "a.msg", "en", "A en")
 
-      for roles <- [["TENANT_ADMIN"]] do
-        assert Map.has_key?(json(export(t, roles)), "label_overrides")
-      end
+      assert Map.has_key?(json(export(t, ["TENANT_ADMIN"])), "label_overrides")
 
       denied =
         conn(:get, "/")

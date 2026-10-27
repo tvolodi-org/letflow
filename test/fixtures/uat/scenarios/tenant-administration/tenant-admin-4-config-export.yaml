@@ -91,7 +91,7 @@ expected_outcomes:
     description: The bundle names the format version "bpm/config-bundle/v2", has an export time, and carries nothing at top level except the branding settings, the module settings, and (for an administrator holding both manage permissions) the label overrides and notification templates.
     verification:
       method: system_state
-      detail: The document's top-level entries are the format version, the export time, the branding settings and the module settings, and no other.
+      detail: The document's top-level entries are the format version, the export time, the branding settings, the module settings, the label overrides and the notification templates (each a list, empty when the company has none), and no other. The format version is "bpm/config-bundle/v2".
       evidence: The saved document from step 4.
     on_fail:
       severity: MAJOR
