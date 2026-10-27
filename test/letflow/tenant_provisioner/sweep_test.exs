@@ -243,7 +243,7 @@ defmodule Letflow.TenantProvisioner.SweepTest do
 
       vars = %{
         "LETFLOW_PROVISIONER_DEMO_CAP" => "7",
-        "LETFLOW_PROVISIONER_DEMO_ALARM_THRESHOLD" => "5",
+        "LETFLOW_PROVISIONER_DEMO_ALARM" => "5",
         "LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES" => "15"
       }
 
@@ -254,7 +254,7 @@ defmodule Letflow.TenantProvisioner.SweepTest do
       for {var, bad} <- [
             {"LETFLOW_PROVISIONER_DEMO_CAP", "-1"},
             {"LETFLOW_PROVISIONER_DEMO_CAP", "100001"},
-            {"LETFLOW_PROVISIONER_DEMO_ALARM_THRESHOLD", "x"},
+            {"LETFLOW_PROVISIONER_DEMO_ALARM", "x"},
             {"LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES", "0"},
             {"LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES", "10081"}
           ] do
@@ -281,7 +281,7 @@ defmodule Letflow.TenantProvisioner.SweepTest do
 
       for {var, default} <- [
             {"LETFLOW_PROVISIONER_DEMO_CAP", "30"},
-            {"LETFLOW_PROVISIONER_DEMO_ALARM_THRESHOLD", "25"},
+            {"LETFLOW_PROVISIONER_DEMO_ALARM", "25"},
             {"LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES", "60"}
           ] do
         assert runtime =~ var

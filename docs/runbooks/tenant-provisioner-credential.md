@@ -16,7 +16,7 @@ server; it opens exactly five routes under `/admin/v1` and nothing else.
 | `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | 14 | default `expires_at` of a created tenant |
 | `LETFLOW_PROVISIONER_RETENTION_DAYS` | 30 | days a deactivated tenant's data is kept before it is purged (0..3650; REQ-580) |
 | `LETFLOW_PROVISIONER_DEMO_CAP` | 30 | most demo tenants (tier demo, lifecycle not deleted) at once; a create beyond it answers 409 `conflict` (0..100000; GH 3292) |
-| `LETFLOW_PROVISIONER_DEMO_ALARM_THRESHOLD` | 25 | when a create leaves the demo count at or above it, one warning log line names the count and the cap (0..100000) |
+| `LETFLOW_PROVISIONER_DEMO_ALARM` | 25 | when a create leaves the demo count at or above it, one warning log line names the count and the cap (0..100000) |
 | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | 60 | minutes between scheduled sweeps (1..10080) |
 | `LETFLOW_PUBLIC_BASE_URL` | unset: create answers 500 | the `server_url` of the create answer (the same variable the mail adapter reads) |
 
@@ -69,6 +69,12 @@ every `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` minutes (default 60); the fir
 It never touches an active tenant (other than step 1), a suspended tenant with neither `deletion_requested_at` nor `expires_at`, a production tenant, or a
 purged one. One tenant's failure is logged as `provisioner sweep failed for tenant (tenant_id=..., step=..., reason=...)` (no tenant data) and the run goes on.
 Find a stuck tenant by that line.
+
+The sweep is on by default outside the test env, and it purges data: any deployment that has provisioner-created demo tenants sweeps them without further
+action. There is no environment variable to turn it off; set `config :letflow, start_provisioner_sweep: false` in the deployment's config to stop it.
+
+The cap answers a create beyond `LETFLOW_PROVISIONER_DEMO_CAP` with the same 409 `conflict` body as the exists-conflict (REQ-572 criterion 19; it reveals no
+tenant data). The alarm variable is named `LETFLOW_PROVISIONER_DEMO_ALARM`, as in decision 0072.
 
 The demo cap: a create of a new tenant is refused with 409 `conflict` while the demo count (tier `demo`, lifecycle not `deleted`) is at
 `LETFLOW_PROVISIONER_DEMO_CAP`. The alarm is the warning `provisioner: demo tenant count reached the alarm threshold (count=N, cap=M)`; raise the cap or

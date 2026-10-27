@@ -12,10 +12,7 @@ defmodule Letflow.TenantProvisioner.Config do
   | `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | default `expires_at` offset (1..3650) | 14 |
   | `LETFLOW_PROVISIONER_RETENTION_DAYS` | days a deactivated tenant's data is kept before purge (0..3650) | 30 |
   | `LETFLOW_PROVISIONER_DEMO_CAP` | most demo tenants (lifecycle not deleted) before a create answers 409 (0..100000) | 30 |
-  | `LETFLOW_PROVISIONER_DEMO_ALARM_THRESHOLD` | demo count at which a create logs one warning (0..100000) | 25 |
-  | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | minutes between scheduled sweeps (1..10080) | 60 |
-  | `LETFLOW_PROVISIONER_DEMO_CAP` | most demo tenants (lifecycle not deleted) before a create answers 409 (0..100000) | 30 |
-  | `LETFLOW_PROVISIONER_DEMO_ALARM_THRESHOLD` | demo count at which a create logs one warning (0..100000) | 25 |
+  | `LETFLOW_PROVISIONER_DEMO_ALARM` | demo count at which a create logs one warning (0..100000); name as in decision 0072 | 25 |
   | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | minutes between scheduled sweeps (1..10080) | 60 |
   | `LETFLOW_PUBLIC_BASE_URL` | the `server_url` of the create answer (the REQ-441 variable) | create answers 500 |
 
@@ -33,7 +30,7 @@ defmodule Letflow.TenantProvisioner.Config do
   @retention_var "LETFLOW_PROVISIONER_RETENTION_DAYS"
   @default_retention_days 30
   @demo_cap_var "LETFLOW_PROVISIONER_DEMO_CAP"
-  @alarm_var "LETFLOW_PROVISIONER_DEMO_ALARM_THRESHOLD"
+  @alarm_var "LETFLOW_PROVISIONER_DEMO_ALARM"
   @interval_var "LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES"
   @default_demo_cap 30
   @default_alarm_threshold 25
