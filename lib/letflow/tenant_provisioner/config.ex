@@ -10,6 +10,7 @@ defmodule Letflow.TenantProvisioner.Config do
   | `LETFLOW_PROVISIONER_READONLY_CREDENTIAL_SHA256` | the same, for the read-only class (GET only) | no read class |
   | `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | comma-separated suffixes a tenant hostname must end in | every hostname refused |
   | `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | default `expires_at` offset (1..3650) | 14 |
+  | `LETFLOW_PROVISIONER_RETENTION_DAYS` | days a deactivated tenant's data is kept before purge (0..3650) | 30 |
   | `LETFLOW_PUBLIC_BASE_URL` | the `server_url` of the create answer (the REQ-441 variable) | create answers 500 |
 
   The write and read hashes must differ (otherwise the write class would silently win).
@@ -23,6 +24,8 @@ defmodule Letflow.TenantProvisioner.Config do
   ]
   @suffixes_var "LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES"
   @days_var "LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS"
+  @retention_var "LETFLOW_PROVISIONER_RETENTION_DAYS"
+  @default_retention_days 30
   @url_var "LETFLOW_PUBLIC_BASE_URL"
 
   @type parsed :: %{
@@ -37,10 +40,15 @@ defmodule Letflow.TenantProvisioner.Config do
     with {:ok, auth} <- parse_hashes(env),
          {:ok, suffixes} <- parse_suffixes(env),
          {:ok, days} <- parse_days(env),
+         {:ok, retention} <- parse_retention(env),
          {:ok, url} <- parse_url(env, config_env) do
       provisioner =
         Enum.reject(
-          [allowed_hostname_suffixes: suffixes, demo_lifetime_days: days],
+          [
+            allowed_hostname_suffixes: suffixes,
+            demo_lifetime_days: days,
+            retention_days: retention
+          ],
           fn {_key, value} -> is_nil(value) end
         )
 
@@ -113,6 +121,28 @@ defmodule Letflow.TenantProvisioner.Config do
           _other -> {:error, @days_var}
         end
     end
+  end
+
+  # 0..3650, unlike the demo lifetime (1..3650): 0 means "purge as soon as the tenant is deactivated".
+  defp parse_retention(env) do
+    case blank_to_nil(Map.get(env, @retention_var)) do
+      nil ->
+        {:ok, nil}
+
+      text ->
+        case Integer.parse(text) do
+          {n, ""} when n in 0..3650 -> {:ok, n}
+          _other -> {:error, @retention_var}
+        end
+    end
+  end
+
+  @doc "REQ-580: days a deactivated tenant's data is kept before purge (setting, default 30)."
+  @spec retention_days() :: non_neg_integer()
+  def retention_days do
+    :letflow
+    |> Application.get_env(Letflow.TenantProvisioner, [])
+    |> Keyword.get(:retention_days, @default_retention_days)
   end
 
   defp parse_url(env, config_env) do

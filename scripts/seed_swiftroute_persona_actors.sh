@@ -22,7 +22,9 @@
 #   its token), then re-run this script. Re-running is safe (GH 2345).
 #
 # Persona -> group mapping (§4 of the design doc; TASK_WORKER is implicit for all):
-#   actor-swiftroute-lena   (Dispatcher)  -> TASK_WORKER only
+#   actor-swiftroute-lena   (Dispatcher)  -> TASK_WORKER + PROCESS_OPERATOR (built-in role,
+#       granted by the realm account, not by this script's PERSONAS entry; she starts the
+#       process, InstancesStart, which TASK_WORKER cannot: T-0321, GH #3220, #3361)
 #   actor-swiftroute-tobias (Dispatcher)  -> TASK_WORKER only (timeout scenario dispatcher;
 #       dept-dispatch with lena in test/fixtures/simulation/swiftroute/org_structure.yaml;
 #       no scenario or org file gives him a routing role, so none is granted)
@@ -63,6 +65,7 @@ ROLES=(
   "role-ceo"
   "role-accountant"
 )
+# lena also holds the built-in PROCESS_OPERATOR (see header); no routing role.
 PERSONAS=(
   "actor-swiftroute-lena|"
   "actor-swiftroute-tobias|"
