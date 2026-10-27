@@ -686,6 +686,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
       assert sites.(@exam_authoring) |> Enum.sort() ==
                Enum.sort([
                  {:call, :create_record},
+                 {:call, :create_record},
                  {:call, :update_record},
                  {:call, :delete_record}
                ])

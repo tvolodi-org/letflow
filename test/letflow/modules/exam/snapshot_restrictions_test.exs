@@ -144,6 +144,8 @@ defmodule Letflow.Modules.Exam.SnapshotRestrictionsTest do
         "certificate_enabled" => false
       })
 
+    Fx.assign_all!(schema, exam.record_id)
+
     question =
       Fx.create_record!(schema, "question", %{
         "category_id" => category_id,

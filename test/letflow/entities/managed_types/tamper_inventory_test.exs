@@ -44,6 +44,7 @@ defmodule Letflow.Entities.ManagedTypes.TamperInventoryTest do
   setup do
     %{tenant_id: tenant_id, schema_name: schema} = Fx.full_tenant!("gh2596-inventory")
     content = Fx.build_exam!(schema)
+    Letflow.ExamFixtures.assign_all!(schema, content.exam.record_id)
     candidate = Fx.insert_user!(schema)
     admin = Fx.insert_user!(schema)
 

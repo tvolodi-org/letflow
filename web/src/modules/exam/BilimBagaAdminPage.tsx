@@ -11,11 +11,11 @@
  *  across user/department/none, and no fk_def can express that or reach the
  *  identity subsystem — see
  *  priv/packs/bilimbaga/entity_definitions/README-constraints.md).
- *  lib/letflow/exam/session.ex's own moduledoc FINDING section confirms the
- *  runtime consequence: `check_assigned/3` is a documented no-op — every
- *  candidate is currently treated as assigned. There is no admin screen for
- *  "assign this exam to these candidates" because there is no entity to
- *  build one against; this note is the deliberate way of saying so rather
+ *  Since REQ-582, `Session.check_assigned/3` enforces assignment: an exam
+ *  with no active exam_assignment cannot be started by anyone. There is still
+ *  no admin screen for "assign this exam to these candidates" (assignments
+ *  are written only by the operator seed/release path); this note is the
+ *  deliberate way of saying so rather
  *  than building a client-side polyfill (no fake assignment list backed by
  *  a made-up entity type exists anywhere in this requirement's diff).
  */

@@ -61,11 +61,12 @@ sessions, auto-grading, anti-cheat.
   `exam_sessions_test`, `snapshot_*` and others in `test/letflow/modules/exam/`.
 
 **Missing.**
-1. **Assignments.** `Session.check_assigned/3` is a documented no-op (`session.ex`, `defp
-   check_assigned(_candidate_id, _exam_id, _prefix), do: :ok`). No `exam_assignment` entity exists;
-   BilimBaga's `013_exam_assignments` is only quoted in `README-constraints.md`. Every candidate can
-   start every active exam. Needs a design decision (assignment to user, group or department) first.
-   Size M.
+1. **Assignments (remainder).** The model (REQ-582 part A: `exam_assignment` entity type, `Letflow.Modules.Exam.AssignmentDefinition`)
+   and the enforcement (part B: `Session.check_assigned/3` reads the active assignments of the exam and
+   fails closed) are delivered. Open: the assignment writer route/screen (open question 3; today only
+   the operator seed writes assignments), departments as subtrees (question 2; `org_unit` matches
+   exactly), the deadline (question 5; stored only) and filtering the available list (question 6;
+   `GET .../exam-sessions/available` is unfiltered). Size M.
 2. **Departments.** No department entity in the pack. The org module (`priv/modules/org/`) may be
    the right home (org-scoped grants exist, decision 0051); not verified here whether it covers
    BilimBaga's department semantics. Needs a short design task. Size S-M.
