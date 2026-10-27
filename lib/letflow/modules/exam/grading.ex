@@ -8,9 +8,9 @@ defmodule Letflow.Modules.Exam.Grading do
   ## Tenant isolation (INV-1, INV-5)
 
   Every query runs with the caller's tenant `prefix` (from `conn.assigns.scoped_opts`, never from the
-  request); no function here accepts a tenant identifier. The unscoped scans go through
-  `Letflow.Modules.Exam.Session.scan_records/3`, the single SEC-518-R1 site, valid because the two
-  grading routes are `:tenant_wide`. Every miss of `get_answer/3` (malformed id, absent row, another
+  request); no function here accepts a tenant identifier. Reads are direct
+  `Letflow.Entities.Record.Latest` queries (no `Compiler` call, so no `:all` site), valid because the
+  two grading routes are `:tenant_wide`. Every miss of `get_answer/3` (malformed id, absent row, another
   tenant's row, an already graded answer, a question that is not short text) is the same
   `{:error, :not_found}`.
 
@@ -33,7 +33,6 @@ defmodule Letflow.Modules.Exam.Grading do
 
   alias Letflow.Api.Pagination
   alias Letflow.Entities.Record.Latest
-  alias Letflow.Modules.Exam.Session
   alias Letflow.Repo
 
   @locales ["kk", "ru", "en"]
@@ -110,25 +109,41 @@ defmodule Letflow.Modules.Exam.Grading do
 
   # ── Reads ───────────────────────────────────────────────────────────────
 
+  # The `Latest` projection is read directly (live rows only, caller's prefix): the entity query
+  # compiler does not match an unpromoted enum column, and a direct read keeps this module free of
+  # the unscoped `:all` compile sites that SEC-518-R1 enumerates. The JSON keys are bound parameters.
+  defp latest_rows(entity_type, conditions, prefix) do
+    base =
+      from(r in Latest,
+        where: r.entity_type == ^entity_type and r.deleted == false
+      )
+
+    conditions
+    |> Enum.reduce(base, fn {key, value}, query ->
+      from(r in query, where: fragment("?->>?", r.field_values, ^key) == ^value)
+    end)
+    |> Repo.all(prefix: prefix)
+  end
+
   defp pending_scores(prefix) do
-    Session.scan_records(
-      "session_question_score",
-      [eq("grading_status", "pending_manual")],
-      prefix
-    )
+    {:ok, latest_rows("session_question_score", [{"grading_status", "pending_manual"}], prefix)}
   end
 
   defp pending_score(session_id, question_id, prefix) do
-    with {:ok, rows} <-
-           Session.scan_records(
-             "session_question_score",
-             [eq("session_id", session_id), eq("question_id", question_id)],
-             prefix
-           ) do
-      case Enum.filter(rows, &(fv(&1, "grading_status") == "pending_manual")) do
-        [] -> {:error, :not_found}
-        pending -> {:ok, pending}
-      end
+    rows =
+      latest_rows(
+        "session_question_score",
+        [
+          {"session_id", session_id},
+          {"question_id", question_id},
+          {"grading_status", "pending_manual"}
+        ],
+        prefix
+      )
+
+    case rows do
+      [] -> {:error, :not_found}
+      pending -> {:ok, pending}
     end
   end
 
@@ -223,10 +238,10 @@ defmodule Letflow.Modules.Exam.Grading do
   end
 
   defp text_answer(session_id, question_id, prefix) do
-    with {:ok, [answer | _]} <-
-           Session.scan_records(
+    with [answer | _] <-
+           latest_rows(
              "session_answer",
-             [eq("session_id", session_id), eq("question_id", question_id)],
+             [{"session_id", session_id}, {"question_id", question_id}],
              prefix
            ),
          text when is_binary(text) <- fv(answer, "text_answer") do
@@ -279,8 +294,6 @@ defmodule Letflow.Modules.Exam.Grading do
   # ── Ids, filters, cursor ────────────────────────────────────────────────
 
   defp fv(%{field_values: field_values}, key), do: Map.get(field_values, key)
-
-  defp eq(field, value), do: %{field: field, op: :eq, value: value}
 
   defp cast_id(value) when is_binary(value), do: Ecto.UUID.cast(value)
   defp cast_id(_other), do: :error

@@ -138,7 +138,13 @@ defmodule Letflow.Modules.Exam.GradingQueueTest do
     exam = create_exam!(schema, %{"kk" => "Емтихан", "ru" => "Экзамен", "en" => "Exam"})
     other_exam = create_exam!(schema, %{"en" => "Other exam"})
 
-    short = create_question!(schema, "shorttext", %{"kk" => "Сұрақ", "ru" => "Вопрос", "en" => "Question"})
+    short =
+      create_question!(schema, "shorttext", %{
+        "kk" => "Сұрақ",
+        "ru" => "Вопрос",
+        "en" => "Question"
+      })
+
     short2 = create_question!(schema, "shorttext", %{"en" => "Second"})
     single = create_question!(schema, "single", %{"en" => "Pick"})
 
@@ -146,7 +152,16 @@ defmodule Letflow.Modules.Exam.GradingQueueTest do
     uid = candidate.user_id
     s1 = create_session!(schema, exam.record_id, uid, "grading_pending", t0)
     s2 = create_session!(schema, exam.record_id, uid, "grading_pending", t0)
-    s3 = create_session!(schema, other_exam.record_id, uid, "grading_pending", "2026-10-01T09:55:00Z")
+
+    s3 =
+      create_session!(
+        schema,
+        other_exam.record_id,
+        uid,
+        "grading_pending",
+        "2026-10-01T09:55:00Z"
+      )
+
     s4 = create_session!(schema, exam.record_id, uid, "submitted", "2026-10-01T09:40:00Z")
     s5 = create_session!(schema, exam.record_id, uid, "in_progress", nil)
 
@@ -180,17 +195,18 @@ defmodule Letflow.Modules.Exam.GradingQueueTest do
   # ── G-perm ──────────────────────────────────────────────────────────────
 
   describe "G-perm" do
-    test "admins read both routes, every other role gets the same 403, no token is 401" do
+    test "the admin reads both routes, every other role gets the same 403, no token is 401" do
       tenant = tenant("gh3324-perm")
       seed = seed!(tenant)
       [s1 | _] = seed.pending
       detail = detail_path(s1.record_id, seed.short.record_id)
 
-      for roles <- [["TENANT_ADMIN"], ["PLATFORM_ADMIN"]] do
-        ctx = user_ctx(tenant, roles)
-        assert get(@base, ctx).status == 200, "list for #{inspect(roles)}"
-        assert get(detail, ctx).status == 200, "detail for #{inspect(roles)}"
-      end
+      # PLATFORM_ADMIN is not mintable in an ordinary tenant (INV-10): it is proven through the
+      # core rules and the golden rows below, as T-5 of exam_authoring_test does.
+      assert Letflow.Api.Authorization.role_allows?(:PLATFORM_ADMIN, :ExamGradingRead)
+      ctx = user_ctx(tenant, ["TENANT_ADMIN"])
+      assert get(@base, ctx).status == 200
+      assert get(detail, ctx).status == 200
 
       denied =
         for role <- @denied_roles, path <- [@base, detail] do
@@ -204,7 +220,9 @@ defmodule Letflow.Modules.Exam.GradingQueueTest do
         assert length(bodies) == 1, "403 bodies differ for #{path}: #{inspect(bodies)}"
       end
 
-      assert conn(:get, @base) |> put_req_header("x-tenant-slug", tenant.slug) |> dispatch()
+      assert conn(:get, @base)
+             |> put_req_header("x-tenant-slug", tenant.slug)
+             |> dispatch()
              |> Map.fetch!(:status) == 401
     end
 
@@ -226,7 +244,10 @@ defmodule Letflow.Modules.Exam.GradingQueueTest do
         |> Enum.filter(&String.contains?(&1, "ExamGradingRead"))
 
       assert length(lines) == 8
-      for role <- ~w(TENANT_ADMIN PLATFORM_ADMIN), do: assert(Enum.any?(lines, &(&1 =~ ~r/#{role}\b.*\btrue/)))
+
+      for role <- ~w(TENANT_ADMIN PLATFORM_ADMIN),
+          do: assert(Enum.any?(lines, &(&1 =~ ~r/#{role}\b.*\btrue/)))
+
       assert Enum.count(lines, &String.contains?(&1, "true")) == 2
     end
   end
@@ -380,10 +401,6 @@ defmodule Letflow.Modules.Exam.GradingQueueTest do
 
       [b1 | _] = seed_b.pending
       assert get(detail_path(b1.record_id, seed_b.short.record_id), admin_a).status == 404
-
-      platform = user_ctx(a, ["PLATFORM_ADMIN"])
-      %{"items" => platform_items} = json(get(@base, platform))
-      assert Enum.map(platform_items, & &1["session_id"]) == ids
     end
 
     test "the compiled routes take no tenant parameter" do
