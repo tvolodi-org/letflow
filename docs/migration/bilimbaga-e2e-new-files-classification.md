@@ -73,7 +73,7 @@ below; section 3 lists the 4 extra `origin/main` tests so T3b has them.
 | `exam-start-failure` | refused start (422 EXAM_OUTSIDE_WINDOW) shows an alert, keeps the modal open | DROP | no Start modal: Start navigates directly (T3a, `employee-portal` rows) |
 | `exam-start-failure` | gateway failure (502, non-JSON) shows the generic alert | BLOCKED-BY-1 | no start-error alert found in `ExamListPage.tsx`; confirm in T3b before porting |
 | `exam-start-failure` | successful start navigates to the session page | PORTABLE-NOW | `exam-list-start-*` button navigates to `exam/:examId/session`; may duplicate `exam-taking.e2e.spec.ts`, read it first |
-| `exam-start-failure` | Start is disabled with a reason when the availability window is closed | BLOCKED-BY-1 | availability window and assignments (`Session.check_assigned/3` is a no-op) |
+| `exam-start-failure` | Start is disabled with a reason when the availability window is closed | BLOCKED-BY-1 | availability window (assignments are enforced since REQ-582) |
 | `locale-switcher` | AC1: switcher is visible in the portal header and offers kk/ru/en | BLOCKED-BY-2 | no locale switcher component; locale comes from `resolveUiLocale()` only |
 | `locale-switcher` | AC2: selecting a locale changes visible strings without a reload | BLOCKED-BY-2 | same |
 | `locale-switcher` | AC3: locale is retained when navigating between portal tabs | BLOCKED-BY-2 | same, and there are no portal tabs |

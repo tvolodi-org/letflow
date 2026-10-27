@@ -160,6 +160,7 @@ defmodule Letflow.Modules.Exam.SessionAssignmentTest do
 
     assert {:ok, _} = Session.create(a, exam.record_id, t.schema)
     assert {:error, :not_assigned} = Session.create(b, exam.record_id, t.schema)
+    assert session_count(t.schema, a) == 1
     assert session_count(t.schema, b) == 0
   end
 

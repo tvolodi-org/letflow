@@ -369,5 +369,29 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixturesTest do
 
       assert schema |> assignments() |> Enum.map(& &1.record_id) |> Enum.sort() == before_ids
     end
+
+    test "an inactive exam_assignment definition (pack row) is activated by the seed" do
+      assert :ok = ExamFixtures.run([])
+      schema = schema_name!()
+
+      {1, _} =
+        Repo.delete_all(
+          from(a in Letflow.Repository.Activation,
+            where: a.artifact_kind == :entity and a.artifact_name == "exam_assignment"
+          ),
+          prefix: schema
+        )
+
+      assert {:error, :not_found} =
+               Definitions.get_active_definition_by_name("exam_assignment", schema)
+
+      assert :ok = ExamFixtures.run([])
+
+      assert {:ok, _} = Definitions.get_active_definition_by_name("exam_assignment", schema)
+      rows = assignments(schema)
+      assert length(rows) == 2
+      assert Enum.all?(rows, &(&1.field_values["assignee_type"] == "all"))
+      assert Enum.all?(rows, &(&1.field_values["active"] == true))
+    end
   end
 end
