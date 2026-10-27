@@ -1636,6 +1636,13 @@ defmodule Letflow.Modules.Exam.Session do
     end
   end
 
+  # GH #3324 / REQ-588: the grading-queue reads (`Letflow.Modules.Exam.Grading`) go through
+  # `query_all/3`, so SEC-518-R1 stays at this single literal site. Unscoped (no per-record filter)
+  # inside the caller's tenant prefix; valid only for `:tenant_wide` routes (route_scope_exam_guard_test).
+  @doc false
+  @spec scan_records(String.t(), [map()], String.t()) :: {:ok, [map()]} | {:error, term()}
+  def scan_records(entity_type, filters, prefix), do: query_all(entity_type, filters, prefix)
+
   defp write_record(entity_type, field_values, actor_id, prefix) do
     # scope-all: SEC-518-R1 (exam module, own-record system path)
     Records.create_record(
