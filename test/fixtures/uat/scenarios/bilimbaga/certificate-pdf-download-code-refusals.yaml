@@ -1,0 +1,155 @@
+# Authored by BA-BILIMBAGA for the certificate PDF verify code (BilimBaga study T4c gap 9, GH #3342, PR #3369).
+# Requirement: REQ-592 criterion 5 (one identical refusal, INV-5) and criterion 6 (tenant isolation, INV-1, INV-10);
+# decision 0028 (one refusal for every unsuccessful public lookup).
+---
+id: bilimbaga-certificate-pdf-download-code-refusals
+scope: bilimbaga
+title: The old record-number code, a made-up code and a malformed code all get the same plain refusal, and a download for a session that is not the candidate's creates no code
+version: "1.0"
+tags: [refusal, certificate, public_page, privacy, access_control]
+
+description: >
+  Certificates printed before the fix carry the certificate's internal record
+  number as their code. That number must open nothing; it must get exactly the
+  same plain "not found" answer as a made-up code and as a code that is not even
+  shaped like one, so that nobody can tell from the answer which kind of
+  mistake was made or whether a record exists. The candidate's own working code
+  (from a fresh download) still works afterwards: wrong guesses do not burn it.
+  On the download side, a candidate who asks for the PDF of an exam session
+  that does not exist gets "not found" and no PDF, and no new public code is
+  created by that request.
+  Not exercised in this scenario, with reasons:
+  (a) a code of a certificate whose organisation has been deactivated: the UAT
+  tenant is shared by other scenarios and cannot be deactivated and brought
+  back through the product's own routes; covered by backend test Q-404.
+  (b) asking for the PDF of another candidate's session in the same
+  organisation, and of a session in another organisation (REQ-592 criterion 6):
+  the actor roster has one candidate for bilimbaga and no candidate of another
+  organisation, so the second person needed does not exist; covered by backend
+  tests Q-404 and Q-tenant only. The scenario environment limitation is
+  recorded in the file scenario-env-limitations/bilimbaga-certificate-pdf-download-code-refusals.yaml.
+  (c) the number of codes stored after each refused request: not visible
+  through any screen or route; covered by backend tests Q-404 and Q-tenant.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  verifier: actor-any
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      The candidate has a submitted and graded exam session that they passed
+      and a certificate issued for it
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: Asks for the certificate of the passed exam session and notes the certificate's identifier (the record number shown in the answer)
+    via: api
+    produces:
+      record_id: "the certificate's record identifier from the answer"
+
+  - step: 2
+    actor: candidate
+    action: Downloads the certificate PDF and reads the code at the end of its printed verify line
+    via: api
+    produces:
+      good_code: "the working code printed on the PDF"
+
+  - step: 3
+    actor: verifier
+    action: Looks up a certificate on the public lookup with the certificate's record number from step 1 in place of a code, without signing in
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: verifier
+    action: Looks up a certificate on the public lookup with the made-up code "no-such-code-0000-0000", without signing in
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: verifier
+    action: Looks up a certificate on the public lookup with the text "!!" as the code, which is not shaped like any code, without signing in
+    via: api
+    expect_refusal: true
+
+  - step: 6
+    actor: verifier
+    action: Compares the three refusals from steps 3, 4 and 5 by status, headers and body, one by one
+    via: api
+
+  - step: 7
+    actor: candidate
+    action: Downloads the certificate PDF of an exam session whose identifier does not exist (the text "00000000-0000-0000-0000-000000000000")
+    via: api
+    expect_refusal: true
+
+  - step: 8
+    actor: verifier
+    action: Looks up the certificate on the public lookup with good_code from step 2, without signing in
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The record number, the made-up code and the malformed code are each
+      refused as "not found" and show no certificate fact
+    verification:
+      method: http_status
+      detail: "Steps 3, 4 and 5 each answer 404 with a problem-details body that holds no candidate name, exam title, score or date"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        If the old record number still opened a certificate, or any wrong code
+        showed candidate data, outsiders could harvest personal data by guessing.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The three refusals are identical: nothing tells the old record number, a
+      made-up code and a malformed code apart
+    verification:
+      method: api_response
+      detail: "Status, headers and body of the answers to steps 3, 4 and 5 are byte-for-byte the same"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A different answer per cause lets an outsider learn which numbers
+        exist and narrow a guess.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      A download for an exam session that does not exist is refused as "not
+      found" and no PDF is delivered
+    verification:
+      method: http_status
+      detail: "Step 7 answers 404, the body is not a PDF, and it is the same 404 problem-details answer the public lookup gave in step 3"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A different answer for a missing session than for any other refusal
+        shows whether a session number exists.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      The refused attempts do not affect the candidate's working code
+    verification:
+      method: http_status
+      detail: "Step 8 answers 200 with the certificate facts"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If wrong guesses could burn a genuine code, anyone could disable
+        another person's certificate check by guessing.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    The verifier creates nothing; refused requests create nothing. The
+    working code from step 2 stays as one more valid code of the certificate.

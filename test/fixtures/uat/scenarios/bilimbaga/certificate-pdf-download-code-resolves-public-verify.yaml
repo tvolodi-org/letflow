@@ -1,0 +1,155 @@
+# Authored by BA-BILIMBAGA for the certificate PDF verify code (BilimBaga study T4c gap 9, GH #3342, PR #3369).
+# Requirement: REQ-592 (every download of the certificate PDF carries a fresh, working public code);
+# public lookup and its field set: REQ-357, decision 0028.
+---
+id: bilimbaga-certificate-pdf-download-code-resolves-public-verify
+scope: bilimbaga
+title: The verify code printed on every downloaded certificate PDF opens the public verify result, and a second download gets a new working code
+version: "1.0"
+tags: [certificate, public_page, privacy]
+
+description: >
+  A candidate who passed a certification exam downloads the certificate as a
+  PDF. The PDF prints a verify line with a web address that ends in a code. A
+  verifier who follows that address, without signing in, must be told the
+  certificate is genuine and must see only the certificate facts: the
+  candidate's name, the exam title, the score in percent, the date of issue and
+  the organisation's branding. Before this change the printed code was an
+  internal record number that no public lookup accepted, so a printed
+  certificate could not be verified at all.
+  The candidate downloads the PDF a second time. The second PDF carries a
+  different code, and both codes work; the one-time handle given with the very
+  first certificate issue keeps working as well. Downloading again changes
+  nothing about the certificate itself.
+  PDFs downloaded before this change keep their old, dead code and cannot be
+  fixed; the candidate has to download them again (stated in REQ-592). That
+  case is not exercised, because the UAT environment has no certificate older
+  than the change that can be told apart from a new one.
+  The check of the code is made through the public lookup answer (what the
+  verifier receives), not by scanning the QR picture; the code is read from the
+  printed verify line of the PDF.
+  Not exercised here, covered by the backend tests of REQ-592 (Q-resource,
+  Q-mintfail): the stored form of the handle (only a hash is kept), the absence
+  of the code from logs, and the failure of the download when no code can be
+  created; none of these can be seen or provoked through a screen or a normal
+  request in the UAT environment.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  verifier: actor-any
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      The candidate has a submitted and graded exam session that they passed.
+      The certificate may or may not have been issued before; if it was, the
+      one-time handle from its first issue is taken from the earlier run
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: Asks for the certificate of the passed exam session and, if this is the first issue, keeps the one-time public handle shown in the answer
+    via: api
+    produces:
+      first_handle: "the one-time public handle from the first certificate issue (absent on a repeat issue)"
+
+  - step: 2
+    actor: candidate
+    action: Downloads the certificate PDF of the passed exam session and reads the code at the end of the printed verify line
+    via: api
+    produces:
+      code_one: "the code printed on the first downloaded PDF"
+
+  - step: 3
+    actor: verifier
+    action: Looks up the certificate with code_one from step 2 on the public lookup, without signing in
+    via: api
+
+  - step: 4
+    actor: candidate
+    action: Downloads the certificate PDF of the same exam session a second time and reads the code at the end of its printed verify line
+    via: api
+    produces:
+      code_two: "the code printed on the second downloaded PDF"
+
+  - step: 5
+    actor: verifier
+    action: Looks up the certificate with code_two from step 4 on the public lookup, without signing in
+    via: api
+
+  - step: 6
+    actor: verifier
+    action: Looks up the certificate again with code_one from step 2, and with first_handle from step 1 if one exists, without signing in
+    via: api
+
+  - step: 7
+    actor: candidate
+    action: Looks at the certificate again (asks for it once more) and compares its stored facts with those before the second download
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The code printed on the first downloaded PDF is accepted by the public
+      lookup, and the answer carries exactly the five certificate facts:
+      candidate name, exam title, score in percent, date of issue, branding
+    verification:
+      method: api_response
+      detail: "Step 3 answers 200 and the body has exactly the keys candidate_name, exam_title, score_pct, issued_on and branding_snapshot, with values equal to the certificate the candidate was given; no email, no identifiers"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A printed certificate whose code verifies nothing is worthless to the
+        employer who scans it, and the candidate cannot prove the result.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The two downloads print two different codes
+    verification:
+      method: api_response
+      detail: "code_one from step 2 and code_two from step 4 are different texts"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A repeated code would mean the first download's code is reused, which
+        contradicts how the platform keeps only a one-way copy of each code;
+        either the fix is not in place or a stored plain code exists.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      The code of the second download works, and so do the first download's
+      code and the one-time handle from the first issue; a new download does not
+      cancel an earlier code
+    verification:
+      method: http_status
+      detail: "Steps 5 and 6 each answer 200 with the same five certificate facts as step 3"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        If a new download killed the earlier code, a certificate the candidate
+        already printed or sent to an employer would stop verifying.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      Downloading again leaves the certificate unchanged
+    verification:
+      method: api_response
+      detail: "Step 7 shows the same candidate name, exam title, score, date of issue and certificate identifier as the answer before step 4"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A download that alters the issued certificate (for example its date)
+        would make the paper and the record disagree.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Each download leaves one more working code for the same certificate; no
+    action exists to remove them and none is needed (REQ-592 chooses not to
+    revoke). The issued certificate stays as the record of the candidate's exam.
