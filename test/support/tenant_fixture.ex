@@ -144,6 +144,7 @@ defmodule Letflow.TenantFixture do
     "definition_sequence",
     "dlq_entries",
     "document_external_registrations",
+    "document_print_overrides",
     "document_sequences",
     "document_types",
     "document_versions",
