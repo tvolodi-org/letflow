@@ -2231,6 +2231,8 @@ defmodule Letflow.Api.AuthorizationTest do
         {"PATCH", "/tenant/settings", :TenantSettingsManage},
         {"GET", "/tenant/config-bundle", :TenantSettingsManage},
         {"POST", "/tenant/config-bundle/import", :TenantSettingsManage},
+        {"PUT", "/tenant/logo", :TenantSettingsManage},
+        {"DELETE", "/tenant/logo", :TenantSettingsManage},
         {"POST", "/integration-mappings", :IntegrationMappingsManage},
         {"GET", "/integration-mappings", :IntegrationMappingsManage},
         {"GET", "/integration-mappings/:id", :IntegrationMappingsManage},

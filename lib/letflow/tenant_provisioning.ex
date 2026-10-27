@@ -893,7 +893,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-576 / GH #3258: empty per-tenant table for x_ entity type extensions (decision 0067-tenant-x D2,
     # storage only). No existing row altered.
     {20_261_027_300_001, Letflow.Repo.Migrations.CreateEntityTypeExtensions,
-     "20261027300001_create_entity_type_extensions.exs"}
+     "20261027300001_create_entity_type_extensions.exs"},
+    # REQ-590 / GH #3338: empty per-tenant singleton table for the uploaded tenant logo (part 1,
+    # storage and write path only, behind :tenant_logo_upload_enabled). No existing row altered.
+    {20_261_027_400_001, Letflow.Repo.Migrations.CreateTenantLogos,
+     "20261027400001_create_tenant_logos.exs"}
   ]
 
   @doc """

@@ -100,7 +100,7 @@ defmodule Letflow.Api.TasksRouteClassesTest do
          %{routes: routes, snapshot: snapshot} do
       assert RouteScope.audit_routes(routes, snapshot) == []
       # REQ-565 (GH #3201) added the five integration-mappings lines (123).
-      assert length(snapshot) == 138
+      assert length(snapshot) == 140
 
       for line <- @filter_lines ++ @resolver_lines do
         refute line in snapshot, line
