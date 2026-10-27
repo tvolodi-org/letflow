@@ -42,8 +42,8 @@ preconditions:
   - description: A bilimbaga tenant exists with the exam solution pack installed
     check: process_definition_active
   - description: >
-    check: no_pending_instances
       The candidate has a submitted and graded exam session that they passed and for which no certificate has been asked yet, so that step 1 is the first issue and returns the one-time public handle. If every passed session already has a certificate, this scenario is BLOCKED, not PASS
+    check: no_pending_instances
 
 steps:
   - step: 1

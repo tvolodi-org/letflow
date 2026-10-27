@@ -75,7 +75,7 @@ steps:
 
   - step: 6
     actor: verifier
-    action: Compares the three refusals from steps 3, 4 and 5 by status, headers and body, one by one
+    action: Compares the three refusals from steps 3, 4 and 5 by status, body and every header except date, one by one
     via: api
 
   - step: 7
@@ -110,7 +110,7 @@ expected_outcomes:
       made-up code and a malformed code apart
     verification:
       method: api_response
-      detail: "Status, headers and body of the answers to steps 3, 4 and 5 are byte-for-byte the same"
+      detail: "Status, body and every header except date of the answers to steps 3, 4 and 5 are the same; the date header is added by the HTTP server and differs between seconds, so it is not compared"
     on_fail:
       severity: BLOCKER
       business_impact: >
