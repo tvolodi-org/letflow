@@ -121,6 +121,7 @@ defmodule Letflow.Modules.Exam.SnapshotRolloutTest do
 
   defp start_session(schema) do
     %{exam: exam} = StampFx.build_exam!(schema)
+    Fx.assign_all!(schema, exam.record_id)
     Session.create(Ecto.UUID.generate(), exam.record_id, schema)
   end
 
@@ -216,6 +217,7 @@ defmodule Letflow.Modules.Exam.SnapshotRolloutTest do
 
       # a session written BEFORE the rollout, into the promoted per-type table
       %{exam: exam} = StampFx.build_exam!(schema)
+      Fx.assign_all!(schema, exam.record_id)
       candidate = Ecto.UUID.generate()
       now = DateTime.utc_now()
 

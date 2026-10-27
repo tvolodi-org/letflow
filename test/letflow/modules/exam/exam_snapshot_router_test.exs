@@ -122,6 +122,8 @@ defmodule Letflow.Modules.Exam.ExamSnapshotRouterTest do
         )
       )
 
+    Fx.assign_all!(schema, exam.record_id)
+
     question =
       Fx.create_record!(schema, "question", %{
         "category_id" => category_id,
@@ -372,6 +374,8 @@ defmodule Letflow.Modules.Exam.ExamSnapshotRouterTest do
             "on_tab_switch" => "log",
             "certificate_enabled" => false
           })
+
+        Fx.assign_all!(tenant.schema_name, exam.record_id)
 
         rule =
           Fx.create_record!(tenant.schema_name, "exam_question_rule", %{

@@ -2,13 +2,13 @@
  *
  *  THE ASSIGNMENT-QUESTION AMBIGUITY ESCAPE — OPTION (a) CHOSEN.
  *
- *  lib/letflow/exam/session.ex's own moduledoc "FINDING" section states,
- *  verbatim: "No exam_assignment entity exists anywhere in this tenant's
- *  schema... check_assigned/3 below is a documented no-op -- every candidate
- *  is currently treated as assigned." This screen lists every exam whose
- *  status is `active`, matching that no-op's actual current behaviour
- *  honestly (a candidate "treated as assigned" to everything sees a list
- *  consistent with that), and renders `exam.list.provisionalNotice`
+ *  History: when this screen was written, Session.check_assigned/3 was a
+ *  documented no-op (every candidate treated as assigned), so listing every
+ *  exam whose status is `active` was honest. Since REQ-582 part B the check
+ *  is enforced (an exam without an active assignment for the candidate gives
+ *  403 on start), but the list is still unfiltered by assignment (open
+ *  question 6 of REQ-582, out of scope there). This screen therefore renders
+ *  `exam.list.provisionalNotice`
  *  PROMINENTLY so a later fix to `check_assigned/3` does not silently strand
  *  a stale "shows everything" list screen. Option (b) (report this
  *  requirement BLOCKED) was rejected: the requirement's own text frames (a)

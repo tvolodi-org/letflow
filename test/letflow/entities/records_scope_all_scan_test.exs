@@ -48,7 +48,8 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
   @ledger %{
     "lib/letflow/entities/import_upsert.ex" => 1,
     "lib/letflow/modules/exam/anti_cheat.ex" => 1,
-    "lib/letflow/modules/exam/authoring.ex" => 3,
+    # REQ-582 part B: create_assignment/2 is the exam module's own surface for the seed task
+    "lib/letflow/modules/exam/authoring.ex" => 4,
     "lib/letflow/modules/exam/certificate.ex" => 1,
     "lib/letflow/modules/exam/session.ex" => 3,
     "lib/letflow/modules/exam/snapshot.ex" => 1,

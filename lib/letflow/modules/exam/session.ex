@@ -61,31 +61,27 @@ defmodule Letflow.Modules.Exam.Session do
   `Letflow.Entities.Records.update_record/2` or `create_record/2` -- no
   fast path, no second write mechanism.
 
-  ## FINDING -- the "assignment" eligibility check cannot be truthfully implemented
+  ## Assignment check (REQ-582) -- enforced, fails closed
 
   REQ-332's eligibility pipeline is ported from `service.go`'s
   `CreateSession`, whose first check is that the candidate is *assigned* to
-  the exam. **No `exam_assignment` entity exists anywhere in this tenant's
-  schema.**
-  `priv/packs/bilimbaga/entity_definitions/README-constraints.md`'s "Group
-  (iii)" section records this explicitly as an **open question**, not
-  resolved by any requirement landed to date (REQ-327 declined to author
-  it; three candidate shapes are named -- an unenforced polymorphic
-  reference, a process-definition concern, or something else -- with no
-  decision made). `lib/letflow/design/req330-exam-live-session.md` inherits
-  `:not_assigned` into `eligibility_error()`'s type but specifies no
-  mechanism for it either.
+  the exam. Until REQ-582 part B that check (`check_assigned/3`) was a
+  documented no-op because no `exam_assignment` entity existed (REQ-582
+  part A authored it). It now reads the exam's **active** `exam_assignment`
+  records under the tenant prefix and starts the session only when one
+  matches the candidate:
 
-  Per this requirement's own instruction to STOP and report a genuine
-  blocker rather than invent a workaround: authoring a new entity
-  definition here would be out of `ELIXIR-DEV`'s/this requirement's scope
-  (REQ-ANALYST's job, and it would silently resolve an explicitly-deferred
-  design question), so `check_assigned/3` below is a **documented no-op** --
-  every candidate is currently treated as assigned. `:not_assigned` remains
-  declared in `eligibility_error()` for interface-shape fidelity with the
-  design doc, but is **unreachable** in this implementation. Flagged
-  prominently here and in REQ-332's close-out for ORCH/REQ-ANALYST
-  follow-up before this check can be truthfully enforced.
+    * `all` -- every candidate;
+    * `user` -- `assignee_id` equals the candidate's user id;
+    * `group` -- the candidate is a member of the group `assignee_id`;
+    * `org_unit` -- the candidate has an **active** membership in exactly
+      that unit (child units do not count; no org module installed matches
+      nobody).
+
+  No assignment, only withdrawn (`active: false`) ones, a missing
+  `exam_assignment` definition, a malformed or missing `assignee_id` all
+  answer `{:error, :not_assigned}` (fail closed, no exception). The check
+  stays before the status, window and attempt checks.
 
   ## A second, narrower flagged gap -- `submission_outcome()`'s raw sums on the idempotent-replay path
 
@@ -265,8 +261,8 @@ defmodule Letflow.Modules.Exam.Session do
   availability window, attempt limit, no already-open session), then a
   fresh seed is drawn and the question set is resolved and materialised.
 
-  \\* see this module's moduledoc "FINDING" section -- the assignment check
-  is currently a documented no-op.
+  \\* see this module's moduledoc "Assignment check (REQ-582)" section -- the
+  check is enforced and fails closed.
   """
   @spec create(candidate_id :: String.t(), exam_id :: String.t(), prefix :: String.t()) ::
           {:ok, session_view()} | {:error, eligibility_error() | snapshot_failure()}
@@ -775,8 +771,65 @@ defmodule Letflow.Modules.Exam.Session do
     end
   end
 
-  # See this module's moduledoc "FINDING" section -- documented no-op.
-  defp check_assigned(_candidate_id, _exam_id, _prefix), do: :ok
+  # REQ-582 part B: fail closed. The exam's active `exam_assignment` rows are read under the
+  # tenant prefix only (INV-1/INV-6); one matching row is enough. A tenant with no
+  # `exam_assignment` definition yet answers :not_assigned too, never a different error.
+  defp check_assigned(candidate_id, exam_id, prefix) do
+    # scope-all: SEC-518-R1
+    case query_all("exam_assignment", [eq("exam_id", exam_id), eq("active", true)], prefix) do
+      {:ok, rows} ->
+        if Enum.any?(rows, &assignment_matches?(&1, candidate_id, prefix)),
+          do: :ok,
+          else: {:error, :not_assigned}
+
+      {:error, :entity_type_not_found} ->
+        {:error, :not_assigned}
+
+      {:error, _reason} = other ->
+        other
+    end
+  end
+
+  defp assignment_matches?(row, candidate_id, prefix) do
+    assignee_id = fv(row, "assignee_id")
+
+    case fv(row, "assignee_type") do
+      "all" -> true
+      "user" -> is_binary(assignee_id) and assignee_id == candidate_id
+      "group" -> group_assignment_matches?(assignee_id, candidate_id, prefix)
+      "org_unit" -> org_unit_assignment_matches?(assignee_id, candidate_id, prefix)
+      _other -> false
+    end
+  end
+
+  # `Identity.group_member?/3` raises on a non-UUID id, so the id is cast first (INV-8).
+  defp group_assignment_matches?(assignee_id, candidate_id, prefix) when is_binary(assignee_id) do
+    case Ecto.UUID.cast(assignee_id) do
+      {:ok, group_id} -> Letflow.Identity.group_member?(group_id, candidate_id, prefix)
+      :error -> false
+    end
+  end
+
+  defp group_assignment_matches?(_assignee_id, _candidate_id, _prefix), do: false
+
+  # Exact organisational-unit match (REQ-582 open question 2): an active membership in the
+  # assigned unit itself; child units do not count. No org module installed matches nobody.
+  defp org_unit_assignment_matches?(assignee_id, candidate_id, prefix)
+       when is_binary(assignee_id) do
+    if Letflow.Modules.Installs.installed?("org", prefix: prefix) do
+      # scope-all: SEC-518-R1
+      filters = [eq("user_id", candidate_id), eq("org_unit_id", assignee_id), eq("active", true)]
+
+      case query_all("org_unit_membership", filters, prefix) do
+        {:ok, [_ | _]} -> true
+        _none_or_error -> false
+      end
+    else
+      false
+    end
+  end
+
+  defp org_unit_assignment_matches?(_assignee_id, _candidate_id, _prefix), do: false
 
   defp check_exam_status(exam) do
     case fv(exam, "status") do

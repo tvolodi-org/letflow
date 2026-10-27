@@ -182,7 +182,7 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
     'entities.admin.landing.intro':
       'Manage the question bank and exam configuration used by BilimBaga.',
     'entities.admin.landing.examAssignmentGap':
-      'Known gap: there is no screen here to assign an exam to specific candidates. BilimBaga never modelled an exam_assignment entity type (see priv/packs/bilimbaga/entity_definitions/README-constraints.md), so lib/letflow/exam/session.ex documents check_assigned/3 as a permanent no-op — every candidate is currently treated as assigned — until a decision record resolves this.',
+      'Known gap: there is no screen here to assign an exam to specific candidates. Assignment is enforced (REQ-582): an exam with no active assignment cannot be started by anyone. Assignments are written only by the operator seed/release path until the assignment-management requirement lands.',
   },
   ru: {
     'entities.tag.form.submitError': 'Не удалось сохранить этот тег.',
@@ -287,7 +287,7 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
     'entities.admin.landing.intro':
       'Управляйте банком вопросов и настройками экзаменов BilimBaga.',
     'entities.admin.landing.examAssignmentGap':
-      'Известное ограничение: здесь нет экрана для назначения экзамена конкретным кандидатам. В BilimBaga тип сущности exam_assignment никогда не моделировался (см. priv/packs/bilimbaga/entity_definitions/README-constraints.md), поэтому lib/letflow/exam/session.ex документирует check_assigned/3 как постоянную заглушку — сейчас каждый кандидат считается назначенным — до тех пор, пока это не будет решено отдельной decision record.',
+      'Известное ограничение: здесь нет экрана для назначения экзамена конкретным кандидатам. Назначение проверяется (REQ-582): экзамен без активного назначения не может начать никто. Назначения записываются только оператором через seed/release, пока не будет реализовано требование по управлению назначениями.',
   },
   kk: {
     'entities.tag.form.submitError': 'Бұл тегті сақтау мүмкін болмады.',
@@ -392,6 +392,6 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
     'entities.admin.landing.intro':
       'BilimBaga сұрақтар банкін және емтихан баптауларын осы жерден басқарыңыз.',
     'entities.admin.landing.examAssignmentGap':
-      'Белгілі кемшілік: емтиханды нақты үміткерлерге тағайындайтын экран әлі жоқ. BilimBaga-да exam_assignment нысан түрі ешқашан модельденбеген (қараңыз priv/packs/bilimbaga/entity_definitions/README-constraints.md), сондықтан lib/letflow/exam/session.ex файлында check_assigned/3 функциясы шешім жазбасы қабылданғанға дейін тұрақты бос әрекет ретінде құжатталған — қазіргі уақытта әрбір үміткер тағайындалған болып саналады.',
+      'Белгілі кемшілік: емтиханды нақты үміткерлерге тағайындайтын экран әлі жоқ. Тағайындау тексеріледі (REQ-582): белсенді тағайындауы жоқ емтиханды ешкім бастай алмайды. Тағайындауларды басқару талабы енгізілгенге дейін тек оператор seed/release арқылы жазады.',
   },
 }

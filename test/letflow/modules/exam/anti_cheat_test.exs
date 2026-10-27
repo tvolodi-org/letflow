@@ -39,7 +39,10 @@ defmodule Letflow.Modules.Exam.AntiCheatTest do
       "certificate_enabled" => false
     }
 
-    ExamFixtures.create_record!(schema, "exam", Map.merge(defaults, attrs))
+    exam = ExamFixtures.create_record!(schema, "exam", Map.merge(defaults, attrs))
+    # REQ-582: the start check is enforced, so an exam under test is assigned to everyone.
+    ExamFixtures.assign_all!(schema, exam.record_id)
+    exam
   end
 
   # A directly-materialized session (bypassing Session.create/3) -- gives

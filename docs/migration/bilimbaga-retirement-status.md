@@ -61,11 +61,12 @@ sessions, auto-grading, anti-cheat.
   `exam_sessions_test`, `snapshot_*` and others in `test/letflow/modules/exam/`.
 
 **Missing.**
-1. **Assignments.** `Session.check_assigned/3` is a documented no-op (`session.ex`, `defp
-   check_assigned(_candidate_id, _exam_id, _prefix), do: :ok`). No `exam_assignment` entity exists;
-   BilimBaga's `013_exam_assignments` is only quoted in `README-constraints.md`. Every candidate can
-   start every active exam. Needs a design decision (assignment to user, group or department) first.
-   Size M.
+1. **Assignments (remainder).** The model (REQ-582 part A: `exam_assignment` entity type, `Letflow.Modules.Exam.AssignmentDefinition`)
+   and the enforcement (part B: `Session.check_assigned/3` reads the active assignments of the exam and
+   fails closed) are delivered. Open: the assignment writer route/screen (open question 3; today only
+   the operator seed writes assignments), departments as subtrees (question 2; `org_unit` matches
+   exactly), the deadline (question 5; stored only) and filtering the available list (question 6;
+   `GET .../exam-sessions/available` is unfiltered). Size M.
 2. **Departments.** No department entity in the pack. The org module (`priv/modules/org/`) may be
    the right home (org-scoped grants exist, decision 0051); not verified here whether it covers
    BilimBaga's department semantics. Needs a short design task. Size S-M.
@@ -74,9 +75,13 @@ sessions, auto-grading, anti-cheat.
 4. **Adaptive question selection** and **results history / exam history** routes (BilimBaga
    FR-BB72, FR-BB41/46): named as unimplemented in the router moduledoc. Adaptive: size M and only
    if BilimBaga uses it in production (unverified).
-5. **Category tree and question version lineage** (`parent_id`): REQ-324 lifted the validator
-   rule, but `bilimbagaEntities.ts` still states the fields are not declared. Confirmed in `category.json` and
-   `question.json`: no `parent_id` field is declared (the descriptions still say REQ-324 is pending). Size S.
+5. **Category tree and question version lineage** (`parent_id`): REQ-586 part A (GH #3315) declares
+   `parent_id` on `category.json` and `question.json` (string, queried, optional) with `fk_category_parent_id` /
+   `fk_question_parent_id` and an index each; an install gives a nullable uuid self-FK `ON DELETE RESTRICT`; the
+   authoring surface refuses `parent_cycle`, `parent_not_found` (422) and `category_has_children` /
+   `question_has_children` (409) via `Letflow.Modules.Exam.AuthoringRules`. Remaining: question lineage rules,
+   the session pool test, the tenant rollout and the web tree picker (REQ-586 parts B-D); `bilimbagaEntities.ts`
+   still states the fields are not declared. T1c is in progress (part A done).
 6. **Bulk question import/export** is available generically (`/entities/records/:type/import|export`);
    a BilimBaga-format importer (P6) is not built and is conditional on real data (per doc).
    Data migration is a separate retirement question, not covered by criteria 1-9.

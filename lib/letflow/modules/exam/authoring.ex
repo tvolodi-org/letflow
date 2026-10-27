@@ -17,6 +17,10 @@ defmodule Letflow.Modules.Exam.Authoring do
   definition, restricted fields), so INV-2 parity with the generic route holds. Total and fail
   closed: a denied type, an absent definition or a failed read is the one `:hidden`.
 
+  `create/2`, `update/2` and `delete/2` run `Letflow.Modules.Exam.AuthoringRules` (REQ-586 part A,
+  `parent_id` of `category`/`question`) in front of their one `Records` call and answer a refusal as
+  `{:error, {:authoring_rule, reason}}`.
+
   The type list is a closed allow-list: any other type (a runtime type such as `session`, an
   unknown name) is `:not_authoring`, which the router answers with the constant 404.
   """
@@ -27,6 +31,7 @@ defmodule Letflow.Modules.Exam.Authoring do
   alias Letflow.Entities.Records
   alias Letflow.Entities.TypeAccess
   alias Letflow.Modules.Exam
+  alias Letflow.Modules.Exam.AuthoringRules
 
   @authoring_types [
     "exam",
@@ -71,26 +76,55 @@ defmodule Letflow.Modules.Exam.Authoring do
   defp decide({:ok, :allowed}, {:ok, _definition}, {:ok, restricted}), do: {:open, restricted}
   defp decide(_type_access, _definition, _restrictions), do: :hidden
 
-  @doc "Creates a record of an authoring type; `attrs` as `Records.create_record/3`."
+  @doc """
+  Creates a record of an authoring type; `attrs` as `Records.create_record/3`. For `category` and
+  `question` the `parent_id` tree rules of `AuthoringRules` run first (REQ-586 part A).
+  """
   @spec create(Records.create_attrs(), prefix :: String.t()) ::
-          {:ok, Records.command_result()} | Records.command_error()
-  def create(%{entity_type: entity_type} = attrs, prefix) when entity_type in @authoring_types,
-    # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
-    do: Records.create_record(attrs, prefix, exam_owner())
+          {:ok, Records.command_result()}
+          | Records.command_error()
+          | {:error, {:authoring_rule, AuthoringRules.reason()}}
+  def create(%{entity_type: entity_type} = attrs, prefix) when entity_type in @authoring_types do
+    with :ok <- AuthoringRules.check_write(entity_type, nil, attrs.field_values, prefix) do
+      # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
+      Records.create_record(attrs, prefix, exam_owner())
+    end
+  end
 
   @doc "Replaces the `field_values` of a record of an authoring type (`Records.update_record/3`)."
   @spec update(Records.update_attrs(), prefix :: String.t()) ::
-          {:ok, Records.command_result()} | Records.command_error()
-  def update(%{entity_type: entity_type} = attrs, prefix) when entity_type in @authoring_types,
-    # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
-    do: Records.update_record(attrs, prefix, exam_owner())
+          {:ok, Records.command_result()}
+          | Records.command_error()
+          | {:error, {:authoring_rule, AuthoringRules.reason()}}
+  def update(%{entity_type: entity_type} = attrs, prefix) when entity_type in @authoring_types do
+    with :ok <-
+           AuthoringRules.check_write(entity_type, attrs.record_id, attrs.field_values, prefix) do
+      # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
+      Records.update_record(attrs, prefix, exam_owner())
+    end
+  end
 
   @doc "Soft-deletes a record of an authoring type (`Records.delete_record/3`)."
   @spec delete(Records.delete_attrs(), prefix :: String.t()) ::
+          {:ok, Records.command_result()}
+          | Records.command_error()
+          | {:error, {:authoring_rule, AuthoringRules.reason()}}
+  def delete(%{entity_type: entity_type} = attrs, prefix) when entity_type in @authoring_types do
+    with :ok <- AuthoringRules.check_delete(entity_type, attrs.record_id, prefix) do
+      # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
+      Records.delete_record(attrs, prefix, exam_owner())
+    end
+  end
+
+  @doc """
+  Creates an `exam_assignment` record with the exam module's own authority (REQ-582). The type is
+  not an authoring type and no route writes it yet; this is the system path for the mix seed task.
+  """
+  @spec create_assignment(Records.create_attrs(), prefix :: String.t()) ::
           {:ok, Records.command_result()} | Records.command_error()
-  def delete(%{entity_type: entity_type} = attrs, prefix) when entity_type in @authoring_types,
-    # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
-    do: Records.delete_record(attrs, prefix, exam_owner())
+  def create_assignment(%{entity_type: "exam_assignment"} = attrs, prefix),
+    # scope-all: REQ-582 seed task, own-record system path (no HTTP user)
+    do: Records.create_record(attrs, prefix, exam_owner())
 
   # Built per call, never stored (as `Session.exam_owner/0`).
   @spec exam_owner() :: ManagedTypes.Owner.t()

@@ -334,6 +334,81 @@ defmodule Letflow.ExamFixtures do
     record
   end
 
+  @doc """
+  REQ-582 part B: writes one `exam_assignment` record for `exam_id` with the exam module's
+  authority (the type is managed), after making sure the tenant has an ACTIVE `exam_assignment`
+  definition (`AssignmentDefinition.run_tenant/2`, then activating the pack's inactive row on a
+  really installed tenant). Must run outside a transaction (ExamFixtures tenants run the sandbox
+  in `:auto`). On a tenant without the exam module installed nothing can be written: returns nil.
+  `opts`: `:active` (default true).
+  """
+  @spec assign!(String.t(), String.t(), String.t(), String.t() | nil, keyword()) ::
+          Letflow.Entities.Record.Latest.t() | nil
+  def assign!(schema, exam_id, type \\ "all", assignee_id \\ nil, opts \\ []) do
+    if ensure_assignment_definition_active!(schema) == :exam_not_installed do
+      nil
+    else
+      write_assignment!(schema, exam_id, type, assignee_id, opts)
+    end
+  end
+
+  defp write_assignment!(schema, exam_id, type, assignee_id, opts) do
+    field_values =
+      %{
+        "exam_id" => exam_id,
+        "assignee_type" => type,
+        "assigned_by" => Ecto.UUID.generate(),
+        "active" => Keyword.get(opts, :active, true)
+      }
+      |> then(fn fv -> if assignee_id, do: Map.put(fv, "assignee_id", assignee_id), else: fv end)
+
+    assert {:ok, %{record: record}} =
+             Letflow.Modules.Exam.Authoring.create_assignment(
+               %{
+                 entity_type: "exam_assignment",
+                 field_values: field_values,
+                 actor_id: Ecto.UUID.generate(),
+                 idempotency_key: Ecto.UUID.generate()
+               },
+               schema
+             )
+
+    record
+  end
+
+  @doc "`assign!/5` with an `all` assignment."
+  @spec assign_all!(String.t(), String.t()) :: Letflow.Entities.Record.Latest.t() | nil
+  def assign_all!(schema, exam_id), do: assign!(schema, exam_id, "all")
+
+  @doc "Idempotently gives `schema` an active `exam_assignment` definition (REQ-582)."
+  @spec ensure_assignment_definition_active!(String.t()) :: :ok | :exam_not_installed
+  def ensure_assignment_definition_active!(schema) do
+    report = Letflow.Entities.ManagedTypes.AssignmentDefinition.run_tenant(schema, [])
+    assert report.status in [:created, :nothing_to_do, :exam_not_installed], inspect(report)
+
+    if report.status == :exam_not_installed,
+      do: :exam_not_installed,
+      else: activate_assignment_definition!(schema)
+  end
+
+  defp activate_assignment_definition!(schema) do
+    case Definitions.get_active_definition_by_name("exam_assignment", schema) do
+      {:ok, _} ->
+        :ok
+
+      {:error, :not_found} ->
+        assert {:ok, _} =
+                 Definitions.activate_definition(
+                   "exam_assignment",
+                   Ecto.UUID.generate(),
+                   "REQ-582 test fixture",
+                   schema
+                 )
+
+        :ok
+    end
+  end
+
   # ---------------------------------------------------------------------
   # GH #2682 / REQ-511 snapshot helpers (tests only)
   # ---------------------------------------------------------------------
@@ -554,6 +629,26 @@ defmodule Letflow.ExamFixtures do
       schema_name,
       Map.update!(definition, :fields, fn fields ->
         Enum.reject(fields, &(&1.name == "exam_snapshot"))
+      end)
+    )
+
+    :ok
+  end
+
+  @doc """
+  REQ-586: replaces the tenant's ACTIVE `entity_type` definition with a new version that does NOT
+  declare `parent_id` (and its index): a tenant installed before the column existed.
+  """
+  @spec downgrade_parent_id!(schema_name :: String.t(), entity_type :: String.t()) :: :ok
+  def downgrade_parent_id!(schema_name, entity_type) do
+    definition = load_definition!(entity_type)
+
+    create_active_definition!(
+      schema_name,
+      definition
+      |> Map.update!(:fields, fn fields -> Enum.reject(fields, &(&1.name == "parent_id")) end)
+      |> Map.update!(:indexes, fn indexes ->
+        Enum.reject(indexes, &(&1.fields == ["parent_id"]))
       end)
     )
 

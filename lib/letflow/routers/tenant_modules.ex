@@ -10,8 +10,13 @@ defmodule Letflow.Routers.TenantModules do
   `/api/v1/tenant/modules`), the same forwarding shape as the existing
   `forward("/tenant/settings", to: Letflow.Routers.TenantSettings)` line.
 
-  One route: `POST /` (full path `POST /api/v1/tenant/modules`), gated by
-  `:ModulesManage` (tenant scope: `TENANT_ADMIN`, and the platform tenant's `PLATFORM_ADMIN`, per the roles matrix).
+  Routes, all gated by `:ModulesManage` (tenant scope: `TENANT_ADMIN`, and the platform tenant's
+  `PLATFORM_ADMIN`, per the roles matrix): `POST /` (full path `POST /api/v1/tenant/modules`),
+  `PUT /:module_id/settings`, and (REQ-578) `POST /:module_id/uninstall` and
+  `POST /:module_id/reactivate`. The last two take `{"rationale": "<non-blank text>"}`, answer
+  200 `{module_id, status}`, 404 (not installed / not uninstalled), 409 with a `code`
+  (`dependents_installed`, `upgrade_required`) and 422. While `Installs.uninstall_enabled?/0` is
+  false (default) they answer exactly what the same caller gets on an unknown path of this router.
 
   Request body (decision 0052 D3, GH 2531; BREAKING since then):
   `{"module_id": "<id>", "rationale": "<non-blank text>"}`. `rationale` is
@@ -41,9 +46,11 @@ defmodule Letflow.Routers.TenantModules do
 
   use Letflow.Api.AuthorizedRouter
 
+  alias Letflow.Api.Authorization
   alias Letflow.Api.Response
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
+  alias Letflow.PlatformTenant
 
   authz_post "/", :ModulesManage do
     handle_install(conn)
@@ -53,7 +60,92 @@ defmodule Letflow.Routers.TenantModules do
     handle_put_settings(conn, conn.params["module_id"])
   end
 
+  authz_post "/:module_id/uninstall", :ModulesManage do
+    handle_transition(conn, conn.params["module_id"], :uninstall)
+  end
+
+  authz_post "/:module_id/reactivate", :ModulesManage do
+    handle_transition(conn, conn.params["module_id"], :reactivate)
+  end
+
   authz_unmatched(:ordinary)
+
+  # ── POST /:module_id/uninstall and /reactivate (REQ-578, decision 0066 D8) ─
+
+  @spec handle_transition(Plug.Conn.t(), term(), :uninstall | :reactivate) :: Plug.Conn.t()
+  defp handle_transition(conn, module_id, action) do
+    if Installs.uninstall_enabled?() do
+      run_transition(conn, module_id, action)
+    else
+      flag_off_answer(conn)
+    end
+  end
+
+  # Flag off: answer exactly what the same caller gets on an unknown path of this router, i.e. the
+  # `:UnmatchedRoute` decision of `authz_unmatched(:ordinary)` (platform-tenant PLATFORM_ADMIN: the
+  # router's 404; everyone else: the 403 of `Letflow.Plugs.Authorize`). The context is built as that
+  # plug builds it. `Installs` is not reached. (With scope enforcement `:on`, a matched route may
+  # additionally be refused by `Scope.Enforce` before this point; that is a 403 too.)
+  defp flag_off_answer(conn) do
+    auth_context = conn.assigns.auth_context
+    platform_tenant? = PlatformTenant.platform_tenant?(Map.get(auth_context, :tenant_id))
+
+    ctx = %Authorization.AccessContext{
+      user_id: auth_context.user_id,
+      roles: Authorization.effective_roles(auth_context.roles, platform_tenant?),
+      platform_tenant?: platform_tenant?
+    }
+
+    case Authorization.evaluate_access(ctx, :UnmatchedRoute).kind do
+      :Deny403 -> Response.forbidden(conn, "insufficient permissions")
+      _allowed -> Response.not_found(conn)
+    end
+  end
+
+  # `prefix` comes only from `scoped_opts` (INV-1); no tenant identifier of the request is read.
+  defp run_transition(conn, module_id, action) when is_binary(module_id) do
+    prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+    actor_id = conn.assigns.auth_context.user_id
+
+    rationale =
+      case conn.body_params do
+        %{"rationale" => rationale} -> rationale
+        _no_rationale -> nil
+      end
+
+    opts = [prefix: prefix, rationale: rationale]
+
+    result =
+      case action do
+        :uninstall -> Installs.uninstall(module_id, actor_id, opts)
+        :reactivate -> Installs.reactivate(module_id, actor_id, opts)
+      end
+
+    case result do
+      {:ok, tenant_module} ->
+        Response.ok(conn, %{
+          "module_id" => tenant_module.module_id,
+          "status" => Atom.to_string(tenant_module.status)
+        })
+
+      {:error, :rationale_required} ->
+        Response.unprocessable(conn, "rationale is required")
+
+      {:error, :not_installed} ->
+        Response.not_found(conn)
+
+      {:error, {:dependents_installed, ids}} ->
+        Response.module_dependents_installed(conn, ids)
+
+      {:error, :upgrade_required} ->
+        Response.module_upgrade_required(conn)
+
+      {:error, {:dependency_not_installed, dep_id}} ->
+        Response.unprocessable(conn, "missing dependency: #{dep_id}")
+    end
+  end
+
+  defp run_transition(conn, _module_id, _action), do: Response.not_found(conn)
 
   # ── POST /tenant/modules (design §2.3/§2.4) ─────────────────────────────
 

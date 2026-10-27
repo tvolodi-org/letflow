@@ -53,7 +53,10 @@ defmodule Letflow.Modules.Exam.SessionSnapshotTest do
       "certificate_enabled" => false
     }
 
-    Fx.create_record!(schema, "exam", Map.merge(defaults, attrs))
+    exam = Fx.create_record!(schema, "exam", Map.merge(defaults, attrs))
+    # REQ-582: the start check is enforced, so an exam under test is assigned to everyone.
+    Fx.assign_all!(schema, exam.record_id)
+    exam
   end
 
   defp create_question!(schema, category_id, attrs) do

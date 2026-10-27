@@ -35,7 +35,10 @@ defmodule Letflow.Modules.Exam.SessionTest do
       "certificate_enabled" => false
     }
 
-    ExamFixtures.create_record!(schema, "exam", Map.merge(defaults, attrs))
+    exam = ExamFixtures.create_record!(schema, "exam", Map.merge(defaults, attrs))
+    # REQ-582: the start check is enforced, so an exam under test is assigned to everyone.
+    ExamFixtures.assign_all!(schema, exam.record_id)
+    exam
   end
 
   defp create_question!(schema, category_id, attrs \\ %{}) do
@@ -294,16 +297,26 @@ defmodule Letflow.Modules.Exam.SessionTest do
       assert session_view.candidate_id == candidate_id
     end
 
-    test "FINDING: the :not_assigned check is a documented no-op today (no exam_assignment entity exists)" do
-      %{schema_name: schema} = tenant("req332-elig-not-assigned-finding")
-      %{exam: exam} = build_minimal_exam!(schema)
+    test "REQ-582: an exam with no assignment refuses with :not_assigned" do
+      %{schema_name: schema} = tenant("req332-elig-not-assigned")
 
-      # No assignment of any kind was ever created for this candidate, yet
-      # create/3 succeeds -- proving, rather than merely asserting in prose,
-      # that :not_assigned is currently unreachable. See Letflow.Modules.Exam.Session's
-      # moduledoc "FINDING" section for the full reasoning and REQ-332's
-      # close-out for the escalation to ORCH/REQ-ANALYST this represents.
-      assert {:ok, _session_view} = Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+      # Built directly (not through create_exam!, which assigns): no exam_assignment of any kind.
+      exam =
+        ExamFixtures.create_record!(schema, "exam", %{
+          "title" => %{"en" => "Unassigned"},
+          "status" => "active",
+          "time_limit_minutes" => 30,
+          "passing_score_pct" => 60.0,
+          "max_attempts" => 1,
+          "shuffle_questions" => false,
+          "shuffle_options" => false,
+          "show_answers" => "never",
+          "on_tab_switch" => "log",
+          "certificate_enabled" => false
+        })
+
+      assert {:error, :not_assigned} =
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
     end
   end
 
