@@ -24,7 +24,6 @@ defmodule Letflow.Modules.Exam.ParentRolloutTest do
   alias Letflow.Entities.EventTypes
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
-  alias Letflow.ExamStampFixtures, as: StampFx
   alias Letflow.Modules.Exam
   alias Letflow.Modules.Exam.Authoring
   alias Letflow.Modules.Exam.DefinitionDocument
