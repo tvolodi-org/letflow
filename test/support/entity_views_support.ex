@@ -57,6 +57,14 @@ defmodule Letflow.EntityViewsSupport do
         %{name: "text", type: :string, queried: true},
         %{name: "is_correct", type: :boolean, queried: true},
         %{
+          name: "score",
+          type: :decimal,
+          decimal_strict: true,
+          decimal_precision: 5,
+          decimal_scale: 2,
+          queried: true
+        },
+        %{
           name: "likert_weight",
           type: :decimal,
           decimal_precision: 5,
@@ -154,6 +162,21 @@ defmodule Letflow.EntityViewsSupport do
         "columns" => ["text", "is_correct"],
         "filter" => [%{"field" => "text", "op" => "neq", "value" => "Z"}],
         "sort" => [%{"field" => "text", "dir" => "asc"}]
+      },
+      overrides
+    )
+  end
+
+  @doc "A valid pivot body over `answer_option` (REQ-598): count and max by question_id."
+  def pivot_view(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "entity_type" => "answer_option",
+        "name" => "Options by correctness",
+        "kind" => "pivot",
+        "filter" => [%{"field" => "text", "op" => "neq", "value" => "Z"}],
+        "group_by" => [%{"field" => "question_id"}],
+        "aggregates" => [%{"fn" => "count"}, %{"fn" => "max", "field" => "text"}]
       },
       overrides
     )
