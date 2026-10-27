@@ -14,6 +14,7 @@ defmodule Letflow.Modules.Exam.GradingMarkTest do
   import Plug.Test
   import Plug.Conn
 
+  alias Letflow.Entities.EntityTypeInstance
   alias Letflow.Entities.Record.Latest
   alias Letflow.EventStore.Event
   alias Letflow.ExamFixtures
@@ -256,6 +257,20 @@ defmodule Letflow.Modules.Exam.GradingMarkTest do
       assert row["grading_status"] == "graded"
 
       assert events_by(tenant.schema_name, admin.user_id) == before + 1
+
+      {:ok, score_instance} =
+        EntityTypeInstance.fetch_instance_id("session_question_score", tenant.schema_name)
+
+      mark_events =
+        Repo.aggregate(
+          from(e in Event,
+            where: e.actor_id == ^admin.user_id and e.instance_id == ^score_instance
+          ),
+          :count,
+          prefix: tenant.schema_name
+        )
+
+      assert mark_events == 1
     end
 
     test "G-mark-2: a bad body is 422 and the row is unchanged" do
@@ -392,6 +407,49 @@ defmodule Letflow.Modules.Exam.GradingMarkTest do
 
       row = stored(tenant.schema_name, "session_question_score", seed.row1.record_id)
       assert num(row["score"]) == 1.25
+    end
+
+    test "G-once-4: a re-mark after the session is submitted is still 409" do
+      tenant = tenant("gh3324b-once4")
+      schema = tenant.schema_name
+      seed = seed!(tenant)
+      admin = user_ctx(tenant, ["TENANT_ADMIN"])
+      sid = seed.session.record_id
+
+      assert grade(admin, sid, seed.short1.record_id, %{"score" => 1.0}).status == 200
+      assert grade(admin, sid, seed.short2.record_id, %{"score" => 2.0}).status == 200
+      assert stored(schema, "session", sid)["status"] == "submitted"
+
+      conn = grade(admin, sid, seed.short1.record_id, %{"score" => 0.5})
+      assert conn.status == 409
+      assert json(conn)["detail"] == "this answer has already been graded"
+      refute conn.resp_body =~ "1.0"
+      assert num(stored(schema, "session_question_score", seed.row1.record_id)["score"]) == 1.0
+    end
+
+    test "G-once-5: two concurrent marks on the last pending answer finalise once" do
+      tenant = tenant("gh3324b-race3")
+      schema = tenant.schema_name
+      seed = seed!(tenant)
+      admin = user_ctx(tenant, ["TENANT_ADMIN"])
+      sid = seed.session.record_id
+
+      assert grade(admin, sid, seed.short1.record_id, %{"score" => 1.0}).status == 200
+      before = events_by(schema, admin.user_id)
+
+      free_admission_share(schema)
+
+      statuses =
+        [0.5, 1.5]
+        |> Enum.map(fn s ->
+          Task.async(fn -> grade(admin, sid, seed.short2.record_id, %{"score" => s}).status end)
+        end)
+        |> Task.await_many(30_000)
+
+      assert Enum.sort(statuses) == [200, 409]
+      assert stored(schema, "session", sid)["status"] == "submitted"
+      # one mark write and one session write
+      assert events_by(schema, admin.user_id) == before + 2
     end
 
     test "G-once-2: two concurrent marks on one pending answer leave one mark" do

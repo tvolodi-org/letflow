@@ -1645,8 +1645,9 @@ defmodule Letflow.Modules.Exam.Session do
   Finalisation reads only the session's own verified snapshot (`Snapshot.fetch_verified/1`,
   `Snapshot.threshold/1`): the live `exam` row is never consulted.
 
-  Errors: `:not_found` (malformed id, absent, another tenant's, not short text, not pending, session
-  not `grading_pending`: one outcome, INV-5), `:already_graded`, `:score_out_of_range` (above the
+  Errors: `:not_found` (malformed id, absent, another tenant's, not short text, not pending, pending
+  in a session not `grading_pending`: one outcome, INV-5), `:already_graded` (also after the session
+  is finalised), `:score_out_of_range` (above the
   row's `max_score`), `{:grading_error, _}` (corrupt snapshot at the last mark; the mark is rolled
   back). `grader_id` is the authenticated caller and becomes the actor of both writes.
   """
@@ -1685,11 +1686,12 @@ defmodule Letflow.Modules.Exam.Session do
   defp to_string_id(_value), do: ""
 
   defp grade_txn(prefix, session_id, question_id, score, grader_id) do
-    with {:ok, session} <- lock_graded_session(session_id, prefix),
+    with {:ok, session} <- lock_session_row(session_id, prefix),
          {:ok, [row | _]} <-
            query_all("session_question_score", score_filters(session_id, question_id), prefix),
          :ok <- require_short_text(question_id, prefix),
          :ok <- require_pending_mark(row),
+         :ok <- require_grading_pending(session),
          :ok <- require_score_in_range(score, row),
          :ok <- write_mark(row, score, grader_id, declared_score_fields(prefix), prefix),
          {:ok, session_status} <- finalise_if_complete(session, session_id, grader_id, prefix) do
@@ -1711,12 +1713,10 @@ defmodule Letflow.Modules.Exam.Session do
   defp score_filters(session_id, question_id),
     do: [eq("session_id", session_id), eq("question_id", question_id)]
 
-  defp lock_graded_session(session_id, prefix) do
-    with {:ok, session} <- lock_session_row(session_id, prefix) do
-      if fv(session, "status") == "grading_pending",
-        do: {:ok, session},
-        else: {:error, :not_found}
-    end
+  # Only the path that writes a pending mark needs a `grading_pending` session; an already graded
+  # answer is a 409 whatever the session status (it is `submitted` after the last mark).
+  defp require_grading_pending(session) do
+    if fv(session, "status") == "grading_pending", do: :ok, else: {:error, :not_found}
   end
 
   # Same rule as `Grading.get_answer/4`: only a live short-text question can be marked, checked before
