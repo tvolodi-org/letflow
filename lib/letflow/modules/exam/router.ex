@@ -43,6 +43,10 @@ defmodule Letflow.Modules.Exam.Router do
   | list_grading_queue | `GET /grading-queue` (GH #3324) | `Letflow.Modules.Exam.Grading.list_queue/2` | `ExamGradingRead` | 200 / 400 / 403 |
   | get_grading_answer | `GET /grading-queue/:session_id/:question_id` (GH #3324) | `Letflow.Modules.Exam.Grading.get_answer/4` | `ExamGradingRead` | 200 / 403 / 404 |
 
+  REQ-586 part A: a `category`/`question` write carrying `parent_id`, and a delete of either type, can be
+  refused by `Letflow.Modules.Exam.AuthoringRules` with a 422 (`parent_cycle`, `parent_not_found`) or a
+  409 (`category_has_children`, `question_has_children`); the code is the `reason` extension member.
+
   ## Deliberately NOT routed here, and why (REQ-335's own scope fence)
 
     * **Manual short-text grading, mark half** (`HandleGradeAnswer`, FR-BB42) -- the queue and
@@ -1163,6 +1167,28 @@ defmodule Letflow.Modules.Exam.Router do
     if RecordAccess.names_restricted?(field_values, restricted),
       do: {:refuse, :restricted_field},
       else: {:run, restricted}
+  end
+
+  # REQ-586 part A: a tree rule refusal carries a constant detail and the reason as an extension, so
+  # absent / deleted / other-tenant parents give byte-identical bodies (INV-5).
+  defp render_authoring(conn, {:error, {:authoring_rule, reason}}, _status, _restricted)
+       when reason in [:parent_cycle, :parent_not_found] do
+    problem = %{
+      Letflow.Api.Error.unprocessable("exam authoring rule refused")
+      | extensions: %{"reason" => Atom.to_string(reason)}
+    }
+
+    Response.send_problem(conn, problem)
+  end
+
+  defp render_authoring(conn, {:error, {:authoring_rule, reason}}, _status, _restricted)
+       when reason in [:category_has_children, :question_has_children] do
+    problem = %{
+      Letflow.Api.Error.conflict("exam authoring rule refused")
+      | extensions: %{"reason" => Atom.to_string(reason)}
+    }
+
+    Response.send_problem(conn, problem)
   end
 
   defp render_authoring(conn, result, status, restricted),

@@ -4,7 +4,7 @@
   "entity_definitions": [
     {
       "definition_json": {
-        "description": "FR-BB21 (roadmap section 2.1) -- ports the categories table from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\008_categories_tags.up.sql. name is :localized_text with locales [\"kk\",\"ru\",\"en\"] and search_strategy \"plain\", queried: true, required: true -- the source column is a bare TEXT, but the category tree is user-facing in a trilingual product and the platform now supports per-locale generated columns (REQ-301), so this is a deliberate upgrade over the source rather than a plain transcription. track is :string, queried: true, not required -- the source column is a nullable TEXT with no CHECK; roadmap 2.1 names three built-in tracks (security, safety, loyalty) but since the source enforces no vocabulary, track stays :string rather than being promoted to :enum with a hard-coded vocabulary the source does not enforce. sort_order is :integer, queried: true, required: true, ported directly. Indexes: idx_category_track over track. No constraints -- the source declares no UNIQUE on categories. No id, created_at, updated_at or created_by field is declared: the record subsystem (Letflow.Entities.Records) mints record identity and the event store carries the audit timeline, so declaring these here would duplicate platform-owned state inside tenant content. No parent_id field is declared: the source's categories.parent_id UUID REFERENCES categories(id) (the category tree) is a self-referential foreign key, and Letflow.Entities.Definition.Validator's Rule 9 (self_referential_fk_violations/1) rejects any fk_def whose references_entity equals the definition's own name today. REQ-324 (pending) lifts that restriction; a follow-on requirement will add parent_id plus its fk_def once REQ-324 lands. This is stated as an honest, deliberate gap -- no unenforced string parent_id, no closure-table entity, and no tree nested in a :json field are used as a workaround.",
+        "description": "FR-BB21 (roadmap section 2.1) -- ports the categories table from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\008_categories_tags.up.sql. name is :localized_text with locales [\"kk\",\"ru\",\"en\"] and search_strategy \"plain\", queried: true, required: true -- the source column is a bare TEXT, but the category tree is user-facing in a trilingual product and the platform now supports per-locale generated columns (REQ-301), so this is a deliberate upgrade over the source rather than a plain transcription. track is :string, queried: true, not required -- the source column is a nullable TEXT with no CHECK; roadmap 2.1 names three built-in tracks (security, safety, loyalty) but since the source enforces no vocabulary, track stays :string rather than being promoted to :enum with a hard-coded vocabulary the source does not enforce. sort_order is :integer, queried: true, required: true, ported directly. No constraints -- the source declares no UNIQUE on categories. No id, created_at, updated_at or created_by field is declared: the record subsystem (Letflow.Entities.Records) mints record identity and the event store carries the audit timeline, so declaring these here would duplicate platform-owned state inside tenant content. parent_id is :string, queried: true, not required, holding the parent category's record_id (null = root of the category tree; ports the source's categories.parent_id UUID REFERENCES categories(id)). The foreign_keys entry fk_category_parent_id promotes it to a nullable uuid self-referencing column with ON DELETE RESTRICT (decision 0025; inert on the soft-delete path, where the live rule is Letflow.Modules.Exam.AuthoringRules category_has_children). The database does not prevent cycles (as with decision 0050); the authoring write rule refuses a re-parent that would form one (parent_cycle) and a parent that does not exist (parent_not_found). Indexes: idx_category_track over track and idx_category_parent_id over parent_id.",
         "display_name": "Category",
         "fields": [
           {
@@ -30,6 +30,19 @@
             "queried": true,
             "required": true,
             "type": "integer"
+          },
+          {
+            "name": "parent_id",
+            "queried": true,
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "parent_id",
+            "name": "fk_category_parent_id",
+            "references_entity": "category"
           }
         ],
         "indexes": [
@@ -38,13 +51,19 @@
               "track"
             ],
             "name": "idx_category_track"
+          },
+          {
+            "fields": [
+              "parent_id"
+            ],
+            "name": "idx_category_parent_id"
           }
         ],
         "name": "category"
       },
       "display_name": "Category",
       "entity_definition_id": "3c81a200-d456-00ce-89ac-2e4f71cf773f",
-      "logical_shape_version": "ae9c0686a6a4ed42f2e25cf7f5f0e26fa57cbc985dbd510ef42c37312e7347e4",
+      "logical_shape_version": "203d64bb1eb27832ebb719013472f8dc4a2fab08d4605d2e74aa4c9b42e2ae01",
       "name": "category"
     },
     {
@@ -275,7 +294,7 @@
     },
     {
       "definition_json": {
-        "description": "FR-BB22 (roadmap section 2.2) -- ports the questions AND question_translations tables from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\009_questions.up.sql. The two source tables collapse into this ONE entity type, which is the single most important modelling decision here: BilimBaga used a per-locale row table (question_translations) because its Postgres schema had no other way to hold multilingual text, and REQ-301's :localized_text is exactly that mechanism at the platform layer -- blob-stored with a generated column per locale when queried: true -- so question_translations has no independent existence in this pack. category_id is :string, queried: true, required: true, holding a referenced record_id; the foreign_keys entry below (fk_question_category_id) makes it a real Postgres REFERENCES. difficulty is :enum with enum_values [\"easy\",\"medium\",\"hard\"], queried: true, required: true, ported exactly from the source CHECK. type is :enum with enum_values [\"single\",\"multiple\",\"truefalse\",\"likert\",\"shorttext\"], queried: true, required: true, ported exactly from the source CHECK. default_locale is :string, queried: false, required: true (source default 'kk'). status is :enum with enum_values [\"draft\",\"review\",\"active\",\"archived\"], queried: true, required: true, ported exactly from the source CHECK. version is :integer, queried: true, required: true. stem is :localized_text (source question_translations.stem) with locales [\"kk\",\"ru\",\"en\"], search_strategy \"fulltext\", queried: true, required: true -- fulltext because roadmap 2.3's question list is searchable and 2.5's duplicate detection is trigram similarity over stems; this is the one field in this pack where search strategy is load-bearing rather than incidental, which is why it differs from category.name's \"plain\" strategy. explanation is :localized_text (source question_translations.explanation, nullable) with locales [\"kk\",\"ru\",\"en\"], search_strategy \"plain\", queried: false, required: false. Foreign keys: fk_question_category_id (field \"category_id\", references_entity \"category\"). Indexes: idx_question_status over status and idx_question_category_id over category_id (mirroring the source's idx_questions_status and idx_questions_category_id), plus idx_question_type over type because roadmap 2.3's list endpoint filters on it. No id, created_at, updated_at field is declared: the record subsystem mints record identity and the event store carries the audit timeline, so declaring these here would duplicate platform-owned state inside tenant content. created_by UUID NOT NULL REFERENCES users(id) is DROPPED: an entity definition's fk_def can only reference another entity type in the same tenant's entity subsystem (references_entity is resolved through the promoted-column tables), and identity.users is a different subsystem that no fk_def can span. What replaces it: authorship is already captured by the event store -- every Letflow.Entities.Records write carries actor_id into the ENTITY_RECORD_CREATED event -- so \"who authored this question\" is answerable from the event stream without a duplicated, unenforceable column; no plain :string created_by field holding an unenforced user id is declared. No parent_id field is declared: the source's questions.parent_id UUID REFERENCES questions(id) (version lineage -- \"parent_id links a new version to its predecessor; only the latest version is active\") is a self-referential foreign key, and Letflow.Entities.Definition.Validator's Rule 9 (self_referential_fk_violations/1) rejects any fk_def whose references_entity equals the definition's own name today. REQ-324 (pending) lifts that restriction; a follow-on requirement will add parent_id plus its fk_def once REQ-324 lands. This is stated as an honest, deliberate gap -- no unenforced string parent_id, no closure-table entity, and no tree nested in a :json field are used as a workaround.",
+        "description": "FR-BB22 (roadmap section 2.2) -- ports the questions AND question_translations tables from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\009_questions.up.sql. The two source tables collapse into this ONE entity type, which is the single most important modelling decision here: BilimBaga used a per-locale row table (question_translations) because its Postgres schema had no other way to hold multilingual text, and REQ-301's :localized_text is exactly that mechanism at the platform layer -- blob-stored with a generated column per locale when queried: true -- so question_translations has no independent existence in this pack. category_id is :string, queried: true, required: true, holding a referenced record_id; the foreign_keys entry below (fk_question_category_id) makes it a real Postgres REFERENCES. difficulty is :enum with enum_values [\"easy\",\"medium\",\"hard\"], queried: true, required: true, ported exactly from the source CHECK. type is :enum with enum_values [\"single\",\"multiple\",\"truefalse\",\"likert\",\"shorttext\"], queried: true, required: true, ported exactly from the source CHECK. default_locale is :string, queried: false, required: true (source default 'kk'). status is :enum with enum_values [\"draft\",\"review\",\"active\",\"archived\"], queried: true, required: true, ported exactly from the source CHECK. version is :integer, queried: true, required: true. stem is :localized_text (source question_translations.stem) with locales [\"kk\",\"ru\",\"en\"], search_strategy \"fulltext\", queried: true, required: true -- fulltext because roadmap 2.3's question list is searchable and 2.5's duplicate detection is trigram similarity over stems; this is the one field in this pack where search strategy is load-bearing rather than incidental, which is why it differs from category.name's \"plain\" strategy. explanation is :localized_text (source question_translations.explanation, nullable) with locales [\"kk\",\"ru\",\"en\"], search_strategy \"plain\", queried: false, required: false. Foreign keys: fk_question_category_id (field \"category_id\", references_entity \"category\"). Indexes: idx_question_status over status and idx_question_category_id over category_id (mirroring the source's idx_questions_status and idx_questions_category_id), plus idx_question_type over type because roadmap 2.3's list endpoint filters on it. No id, created_at, updated_at field is declared: the record subsystem mints record identity and the event store carries the audit timeline, so declaring these here would duplicate platform-owned state inside tenant content. created_by UUID NOT NULL REFERENCES users(id) is DROPPED: an entity definition's fk_def can only reference another entity type in the same tenant's entity subsystem (references_entity is resolved through the promoted-column tables), and identity.users is a different subsystem that no fk_def can span. What replaces it: authorship is already captured by the event store -- every Letflow.Entities.Records write carries actor_id into the ENTITY_RECORD_CREATED event -- so \"who authored this question\" is answerable from the event stream without a duplicated, unenforceable column; no plain :string created_by field holding an unenforced user id is declared. parent_id is :string, queried: true, not required, holding the predecessor question's record_id (version lineage, ports the source's questions.parent_id UUID REFERENCES questions(id): \"parent_id links a new version to its predecessor; only the latest version is active\"; null = first version). The foreign_keys entry fk_question_parent_id promotes it to a nullable uuid self-referencing column with ON DELETE RESTRICT (decision 0025; inert on the soft-delete path, where the live rule is Letflow.Modules.Exam.AuthoringRules question_has_children). The authoring surface refuses a parent that does not exist (parent_not_found); the lineage rules (one successor per version, version ordering, one active version per lineage) are REQ-586 part B. Indexes: idx_question_parent_id over parent_id.",
         "display_name": "Question",
         "fields": [
           {
@@ -355,6 +374,12 @@
             "required": false,
             "search_strategy": "plain",
             "type": "localized_text"
+          },
+          {
+            "name": "parent_id",
+            "queried": true,
+            "required": false,
+            "type": "string"
           }
         ],
         "foreign_keys": [
@@ -362,6 +387,11 @@
             "field": "category_id",
             "name": "fk_question_category_id",
             "references_entity": "category"
+          },
+          {
+            "field": "parent_id",
+            "name": "fk_question_parent_id",
+            "references_entity": "question"
           }
         ],
         "indexes": [
@@ -382,13 +412,19 @@
               "type"
             ],
             "name": "idx_question_type"
+          },
+          {
+            "fields": [
+              "parent_id"
+            ],
+            "name": "idx_question_parent_id"
           }
         ],
         "name": "question"
       },
       "display_name": "Question",
       "entity_definition_id": "501fcd25-f326-ff8c-1623-bc0c39d7c745",
-      "logical_shape_version": "eee629bf166b8d4879962d3f8da41319af8558a2e29c3b48ad0865b19b93c148",
+      "logical_shape_version": "4aaa962a64493606384b81a2a4d622eb8d08bea060048224417c7d219d734d83",
       "name": "question"
     },
     {

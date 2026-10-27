@@ -122,6 +122,15 @@ defmodule Letflow.Modules.Exam.ExamDefinitionsTest do
       assert Map.get(doc, :constraints, []) == []
     end
 
+    test "category: one self fk on parent_id; question: fks to category and to itself" do
+      assert fk_pairs(load("category")) == [{"parent_id", "category"}]
+
+      assert fk_pairs(load("question")) == [
+               {"category_id", "category"},
+               {"parent_id", "question"}
+             ]
+    end
+
     test "exam_section: one fk to exam, unique over [exam_id, sort_order]" do
       doc = load("exam_section")
 
