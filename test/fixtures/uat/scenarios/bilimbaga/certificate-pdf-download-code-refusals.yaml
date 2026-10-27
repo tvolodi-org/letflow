@@ -22,12 +22,9 @@ description: >
   (a) a code of a certificate whose organisation has been deactivated: the UAT
   tenant is shared by other scenarios and cannot be deactivated and brought
   back through the product's own routes; covered by backend test Q-404.
-  (b) asking for the PDF of another candidate's session in the same
-  organisation, and of a session in another organisation (REQ-592 criterion 6):
-  the actor roster has one candidate for bilimbaga and no candidate of another
-  organisation, so the second person needed does not exist; covered by backend
-  tests Q-404 and Q-tenant only. The scenario environment limitation is
-  recorded in the file scenario-env-limitations/bilimbaga-certificate-pdf-download-code-refusals.yaml.
+  (b) asking for the PDF of another candidate's session or of a session in
+  another organisation: its own scenario,
+  bilimbaga-certificate-pdf-download-other-candidate-and-tenant-refusals.
   (c) the number of codes stored after each refused request: not visible
   through any screen or route; covered by backend tests Q-404 and Q-tenant.
 
@@ -66,7 +63,7 @@ steps:
 
   - step: 4
     actor: verifier
-    action: Looks up a certificate on the public lookup with the made-up code "no-such-code-0000-0000", without signing in
+    action: Looks up a certificate on the public lookup with a made-up code shaped like a real one (43 characters of the letters and digits a real code uses, never issued), namely the letter A repeated 43 times, without signing in
     via: api
     expect_refusal: true
 
@@ -127,7 +124,7 @@ expected_outcomes:
       found" and no PDF is delivered
     verification:
       method: http_status
-      detail: "Step 7 answers 404, the body is not a PDF, and it is the same 404 problem-details answer the public lookup gave in step 3"
+      detail: "Step 7 answers 404, the body is not a PDF, and status and body (application/problem+json, the same not-found body) equal the public lookup answer of step 3; headers are not compared because the two routes set different headers"
     on_fail:
       severity: MAJOR
       business_impact: >

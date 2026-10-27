@@ -42,18 +42,16 @@ preconditions:
   - description: A bilimbaga tenant exists with the exam solution pack installed
     check: process_definition_active
   - description: >
-      The candidate has a submitted and graded exam session that they passed.
-      The certificate may or may not have been issued before; if it was, the
-      one-time handle from its first issue is taken from the earlier run
     check: no_pending_instances
+      The candidate has a submitted and graded exam session that they passed and for which no certificate has been asked yet, so that step 1 is the first issue and returns the one-time public handle. If every passed session already has a certificate, this scenario is BLOCKED, not PASS
 
 steps:
   - step: 1
     actor: candidate
-    action: Asks for the certificate of the passed exam session and, if this is the first issue, keeps the one-time public handle shown in the answer
+    action: Asks for the certificate of the passed exam session for the first time and keeps the one-time public handle shown in the answer
     via: api
     produces:
-      first_handle: "the one-time public handle from the first certificate issue (absent on a repeat issue)"
+      first_handle: "the one-time public handle from the first certificate issue"
 
   - step: 2
     actor: candidate
@@ -81,7 +79,7 @@ steps:
 
   - step: 6
     actor: verifier
-    action: Looks up the certificate again with code_one from step 2, and with first_handle from step 1 if one exists, without signing in
+    action: Looks up the certificate again with code_one from step 2, and with first_handle from step 1, without signing in
     via: api
 
   - step: 7
@@ -97,7 +95,7 @@ expected_outcomes:
       candidate name, exam title, score in percent, date of issue, branding
     verification:
       method: api_response
-      detail: "Step 3 answers 200 and the body has exactly the keys candidate_name, exam_title, score_pct, issued_on and branding_snapshot, with values equal to the certificate the candidate was given; no email, no identifiers"
+      detail: "Step 3 answers 200; the body has kind certificate, issued_at and data, and data holds exactly the keys candidate_name, exam_title, score_pct, issued_on and branding_snapshot, with values equal to the certificate the candidate was given; no email, no identifiers"
     on_fail:
       severity: BLOCKER
       business_impact: >
@@ -126,7 +124,7 @@ expected_outcomes:
       cancel an earlier code
     verification:
       method: http_status
-      detail: "Steps 5 and 6 each answer 200 with the same five certificate facts as step 3"
+      detail: "Steps 5 and 6 (both lookups in step 6) each answer 200 with the same five certificate facts in data as step 3; issued_at in the envelope belongs to each code and is not compared"
     on_fail:
       severity: BLOCKER
       business_impact: >
