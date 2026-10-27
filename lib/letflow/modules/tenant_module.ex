@@ -34,6 +34,9 @@ defmodule Letflow.Modules.TenantModule do
     # NULL for a module installed before the column existed (OQ-R7: no backfill, no
     # reconstruction). Cast only by `insert_changeset/2`, never by `settings_changeset/2`.
     field(:manifest_hash, :string)
+
+    # REQ-578, decision 0066 D2: soft uninstall keeps the row. Written only by `status_changeset/2`.
+    field(:status, Ecto.Enum, values: [:active, :uninstalled], default: :active)
   end
 
   @type t :: %__MODULE__{
@@ -42,7 +45,8 @@ defmodule Letflow.Modules.TenantModule do
           version: String.t(),
           installed_at: DateTime.t(),
           settings: map(),
-          manifest_hash: String.t() | nil
+          manifest_hash: String.t() | nil,
+          status: :active | :uninstalled
         }
 
   @doc """
@@ -70,5 +74,16 @@ defmodule Letflow.Modules.TenantModule do
     tenant_module
     |> cast(attrs, [:settings])
     |> validate_required([:settings])
+  end
+
+  @doc """
+  Changeset for the uninstall/reactivate transition (REQ-578). Casts and requires `:status`
+  only; the Ecto.Enum cast refuses any other value.
+  """
+  @spec status_changeset(%__MODULE__{}, :active | :uninstalled) :: Ecto.Changeset.t()
+  def status_changeset(tenant_module, status) do
+    tenant_module
+    |> cast(%{status: status}, [:status])
+    |> validate_required([:status])
   end
 end
