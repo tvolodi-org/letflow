@@ -11,8 +11,11 @@
 # company. The second actor is written as actor-any with a precondition and is NOT added to the roster (not invented); a GAP sidecar in
 # test/fixtures/uat/scenario-env-limitations/ records the limitation. The scenario becomes runnable when the owner approves a second SwiftRoute
 # TENANT_ADMIN test account and it is added to the roster. Until then the same outcomes are verified by the backend tests of REQ-579
-# (S2-sod, D5-redact, S2-audit).
+# (S2-sod-1..3, D5-redact-1, S2-audit-1..3 in test/letflow/documents/print_overrides_test.exs).
 # UAT assumption, to be confirmed by the process owner: Q3 of decision 0068 as built is two-person activation (REQ-579 open_questions).
+# Not steps here (their own wording is test setup, not something a user does): criterion 6 direct SQL update setting activated_by equal to created_by,
+# refused by the CHECK (backend test "S1-store" in test/letflow/documents/print_overrides_test.exs), and criterion 7 forced failure of the audit
+# write leaving no change (backend test "S2-audit-4" in the same file).
 # Hidden values: layout literal "SENTINEL-print-9f3a" and the protected field's sample value "SECRET-cost-4471" must not appear in any 422 body,
 # the logs or any audit entry. Approve (the activation is the approval of a company-official layout), pay or release, see-sensitive-data and
 # change-users: the activation refusals of scenarios 29 (creator) and this one (status rule) cover the approve action.
@@ -43,7 +46,7 @@ preconditions:
     detail: The roster has no such actor today; without an approved second SwiftRoute administrator account the whole scenario is BLOCKED, not PASS (see the sidecar). Using the same person for both roles makes steps 6 and 7 fail.
   - description: SwiftRoute has the document type "purchase_order" with fields supplier_name and internal_cost, the field internal_cost is NOT protected at the start, and no print override exists
     check: system_seeded
-    detail: Registered through the service-level harness (module). The harness can read the stored overrides and the SwiftRoute audit trail, and can add a protection on a field and read the service log.
+    detail: Registered through the service-level harness (module). A purchase_order record in SwiftRoute has internal_cost = "SECRET-cost-4471" (seeded through the harness). The harness can read the stored overrides and the SwiftRoute audit trail, and can add a protection on a field and read the service log.
   - description: The layouts used
     check: custom
     detail: >

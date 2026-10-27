@@ -38,7 +38,7 @@ actors:
   platform_operator: actor-platform-admin
 
 preconditions:
-  - description: SwiftRoute, Meridian and Bilimbaga are set up, each of SwiftRoute and Bilimbaga has the document type "purchase_order" with the field supplier_name, and no print override exists in any of them
+  - description: SwiftRoute, Meridian and Bilimbaga are set up, each of SwiftRoute and Bilimbaga has the document type "purchase_order" with the field supplier_name, and no print override exists in any of them or in the platform company
     check: system_seeded
     detail: If the Bilimbaga administrator cannot sign in (no approved test token), steps 2 to 4 and 7 to 9 are BLOCKED and the others run; EO-002, EO-003 and EO-004 are then BLOCKED, not PASS.
   - description: The layout used is a minimal valid layout
@@ -137,8 +137,8 @@ expected_outcomes:
       detail: >
         Every request of steps 3, 4 and 5 answers 403. Within steps 3 and 4 the 403 for the read of draft A and for the read of the identifier
         that exists nowhere have the same status, the same body byte for byte, the same content type and the same headers apart from per-request
-        ones (date, request id). The request of step 6 answers 401.
-      evidence: The twelve refusals of steps 3 and 4, the two of step 5 and the unauthenticated request of step 6.
+        ones (date, request id). For each of the six requests, the auditor's 403 in step 4 equals the task worker's 403 for the same request in step 3: same status, body byte for byte, content type, and headers apart from date and request id. The request of step 6 answers 401.
+      evidence: The twelve refusals of steps 3 and 4 (with the auditor-to-worker comparison), the two of step 5 and the unauthenticated request of step 6.
     on_fail:
       severity: BLOCKER
       business_impact: Any employee or an outside auditor could change or learn about the company's official print layouts.

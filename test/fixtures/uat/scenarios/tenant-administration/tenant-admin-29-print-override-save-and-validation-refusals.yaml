@@ -14,6 +14,7 @@
 # The layout's fingerprint (sha256 of the canonical bytes) is checked by comparison with a value computed by the harness (system_state), because
 # the canonical bytes are not visible to a user.
 # Approve, pay or release, see-sensitive-data and change-users are not in this flow except the activation refusal (the nearest to "approve").
+# Not steps here (test setup by its own wording): criterion 6 direct SQL CHECK activated_by <> created_by (backend test "S1-store") and criterion 7 forced audit failure (backend test "S2-audit-4"), both in test/letflow/documents/print_overrides_test.exs.
 ---
 id: tenant-administration-29-print-override-save-and-validation-refusals
 scope: tenant-administration
