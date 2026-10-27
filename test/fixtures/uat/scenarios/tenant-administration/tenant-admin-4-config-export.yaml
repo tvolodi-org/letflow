@@ -88,7 +88,7 @@ steps:
 
 expected_outcomes:
   - id: EO-001
-    description: The bundle names the format version "bpm/config-bundle/v1", has an export time, and carries nothing at top level except the branding settings and the module settings.
+    description: The bundle names the format version "bpm/config-bundle/v2", has an export time, and carries nothing at top level except the branding settings, the module settings, and (for an administrator holding both manage permissions) the label overrides and notification templates.
     verification:
       method: system_state
       detail: The document's top-level entries are the format version, the export time, the branding settings and the module settings, and no other.

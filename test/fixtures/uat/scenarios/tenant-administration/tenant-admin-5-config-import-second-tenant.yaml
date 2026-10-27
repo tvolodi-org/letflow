@@ -117,7 +117,7 @@ expected_outcomes:
     description: Each import that changed something has exactly one audit entry; the repeated import has none; the entries name the administrator, the format version and the names of what changed, and carry no setting value.
     verification:
       method: system_state
-      detail: The audit trail of company B shows one entry for step 3 and one for step 6 and none for step 8; each entry names tenant_admin_b, "bpm/config-bundle/v1", the changed branding setting names and the changed module names; no branding address, colour, name or module value appears in any entry.
+      detail: The audit trail of company B shows one entry for step 3 and one for step 6 and none for step 8; each entry names tenant_admin_b, the version of the imported bundle ("bpm/config-bundle/v2" when it came from the export in tenant-admin-4), the changed branding setting names and the changed module names; no branding address, colour, name or module value appears in any entry.
       evidence: The audit list of step 9.
     on_fail:
       severity: MAJOR
