@@ -46,7 +46,7 @@ defmodule Letflow.TenantProvisioner.SweepTest do
 
   # A provisioned tenant with a lifecycle row. `:status` is the tenants row status (default
   # :inactive), the rest are lifecycle columns. The row is removed in on_exit.
-  defp tenant!(opts \\ []) do
+  defp tenant!(opts) do
     fixture = TenantFixture.provisioned_tenant!(slug_prefix: "gh3292-v")
     id = fixture.tenant_id
 
