@@ -274,7 +274,7 @@ defmodule Letflow.Modules.Exam.ExamAnalyticsReportsTest do
       }
 
       for role <- ["TENANT_AUDITOR", "TASK_WORKER", "TENANT_ADMIN"], body <- [filter, group] do
-        assert {role, {403, decoded}} =
+        assert {^role, {403, decoded}} =
                  {role, report(mint_token!(t.schema, [role]), t.slug, body)}
 
         refute Map.has_key?(decoded, "results")
