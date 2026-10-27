@@ -42964,7 +42964,7 @@ requirements:
       - "7. Texts: every user-visible string is in examMessages.ts and ExamIntlProvider; exam-i18n-grep.test.ts passes."
       - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
     depends_on: [REQ-510]
-  - id: REQ-609
+  - id: REQ-610
     title: "Solution-pack override effective definition and activation, slice S3: merge of installed definition plus override patch into a new process definition version, running instances stay pinned (decision 0069 D8 S3)"
     owner: ELIXIR-DEV
     status: pending
