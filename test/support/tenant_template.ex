@@ -296,6 +296,7 @@ defmodule Letflow.Test.TenantTemplate do
   # unprovable and the caller rebuilds the schema, the same as any other drift.
   @immutable_document_tables [
     "document_external_registrations",
+    "document_print_overrides",
     "document_sequences",
     "document_types",
     "document_versions",
