@@ -99,6 +99,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.Me, "/me", :post, "/memberships", :probe},
     {Letflow.Routers.ScriptRules, "/script-rules", :post, "/:key/versions", :route},
     {Letflow.Routers.EntityTypeHooks, "/entity-type-hooks", :put, "/:entity_type", :route},
+    {Letflow.Routers.RecordTriggerBindings, "/record-trigger-bindings", :put,
+     "/:entity_type/:event", :route},
     {Letflow.Routers.ScheduledJobs, "/scheduled-jobs", :post, "/", :concealed},
     # REQ-496 (GH #2530): this router's ONLY route is the read-only GET; it requires
     # :UsersGroupsRolesManage (tenant-admin class), which TENANT_AUDITOR does not hold, so the
@@ -721,8 +723,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert length(mounted) == length(Enum.uniq(mounted))
       assert Enum.sort(mounted) == Enum.sort(named)
       # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
-      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews; REQ-563: 34 with Letflow.Routers.NotificationTemplates; REQ-567: 35 with Letflow.Routers.EntityTypeHooks; REQ-561: 36 with Letflow.Routers.ScheduledJobs; REQ-575: 37 with Letflow.Routers.NumberSequences.
-      assert length(named) == 37
+      # Letflow.Routers.TenantRoleScopeGrants; REQ-536: 29 with Letflow.Routers.Documents; REQ-552: 30 with Letflow.Routers.TenantConfigBundle; REQ-551: 31 with Letflow.Routers.Labels; REQ-565: 32 with Letflow.Routers.IntegrationMappings; REQ-555: 33 with Letflow.Routers.EntityViews; REQ-563: 34 with Letflow.Routers.NotificationTemplates; REQ-567: 35 with Letflow.Routers.EntityTypeHooks; REQ-561: 36 with Letflow.Routers.ScheduledJobs; REQ-575: 37 with Letflow.Routers.NumberSequences.; REQ-570: 38 with Letflow.Routers.RecordTriggerBindings.
+      assert length(named) == 38
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do
@@ -774,6 +776,21 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   end
 
   describe "AC2: one named write route per mounted router answers 403, with no row changed" do
+    # REQ-570 part 2: the record-trigger-bindings router answers 404 while its flag is off.
+    setup do
+      previous = Application.fetch_env(:letflow, :record_triggers_enabled)
+      Application.put_env(:letflow, :record_triggers_enabled, true)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, old} -> Application.put_env(:letflow, :record_triggers_enabled, old)
+          :error -> Application.delete_env(:letflow, :record_triggers_enabled)
+        end
+      end)
+
+      :ok
+    end
+
     test "directly into each router (the Modules router is covered through the pipeline below)",
          ctx do
       before = snapshot(ctx)
@@ -793,7 +810,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert_unchanged(before, ctx)
     end
 
-    test "through the full pipeline with a real auditor token, all 37 mounts (and the Modules router with the exam module installed)",
+    test "through the full pipeline with a real auditor token, all 38 mounts (and the Modules router with the exam module installed)",
          ctx do
       {:ok, _tenant_module} =
         Installs.install("exam", Ecto.UUID.generate(),
