@@ -16,14 +16,15 @@ export const PLATFORM_DEFAULT_APP_NAME = 'Letflow'
 
 /**
  * Closed allowlist of settable CSS custom properties, keyed by the `brand_colors`
- * sub-key the server may send. Exactly one entry today, matching REQ-281's response
- * shape exactly (see design doc section 0/3). Extending this table is a change that
- * requires the server-side allowlist to move first — see design doc section 3's
- * closing paragraph.
+ * sub-key the server may send. Two entries: `primary` (REQ-281's response shape) and
+ * `secondary` (REQ-585). Extending this table is a change that requires the
+ * server-side allowlist to move first — see design doc section 3's closing paragraph.
  */
-export const BRAND_COLOR_CSS_PROPERTY: Readonly<Record<'primary', string>> = Object.freeze({
-  primary: '--color-brand-600',
-})
+export const BRAND_COLOR_CSS_PROPERTY: Readonly<Record<'primary' | 'secondary', string>> =
+  Object.freeze({
+    primary: '--color-brand-600',
+    secondary: '--color-brand-secondary',
+  })
 
 /** The shape published via BrandingContext to consumers (e.g. AppShell). */
 export interface BrandingContextValue {
