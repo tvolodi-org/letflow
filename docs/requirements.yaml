@@ -42969,7 +42969,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-601 -- needs the E-2 runner entry Letflow.Scripts.EntityWrite.run/4 and ScriptReads.prefetch_with_fingerprint/3 to exist
+    gh: 3413
     # Source: docs/migration/decisions/0065-entity-pre-write-script-hook.md (D1 steps 1-4, D2 "Lock set and order", "Retry count, then typed failure", "Worked example", D3 locked window and pool, D5 "derived field is system-owned", D7 INV-1 and "Managed types" and "Scope", D8 slice E-3, "Not decided here", "Threat cases" 3, 4, 6); docs/migration/decisions/0061-engine-lock-order-platform-invariant.md (item 5, item 6, rule 5); docs/migration/decisions/0054-process-step-writes-entity.md (D3, D8); docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-8, INV-10); REQ-601 (slice E-2) and REQ-567 (slice E-1) in docs/requirements.yaml; code read: lib/letflow/entities/records.ex (do_create_record, update_record, upsert_record_by_external_ref, append_command, maybe_scope_check, recheck_definition, check_write_authority, interpret_result, classify_step_error), lib/letflow/event_store.ex (lock_instance_sequence/3), lib/letflow/routers/entities/record_writes.ex (render_record_command/3), lib/letflow/engine.ex (@entity_write_set_statement_timeout), lib/letflow/api/response.ex (entity_write_status/1), lib/letflow/entity_type_hooks.ex (E-1 binding module). Written by the business analyst (T-0812) 2026-10-28. Not yet validated.
     description: >
       Slice E-3 of decision 0065 (docs/migration/decisions/0065-entity-pre-write-script-hook.md, D8): the
