@@ -1,0 +1,211 @@
+# T-0777 (BA): REQ-580 platform purge route, scenario 1 of 2 (scenario 2: purge-2-throwaway-purge-happy-path.yaml).
+# QA ONLY (portfolio decision D-019). Production is not approved: no production customer is ever purged.
+# Sources (opened): REQ-580 acceptance criteria 1 (eligibility), 6 (a purged tenant cannot come back), 7 (who may trigger),
+# 8 (cross-tenant negative) and 9 (the purged_at marker) in docs/requirements.yaml; lib/letflow/routers/tenants.ex
+# (handle_purge: 409 "not_eligible", one 404 for unknown slug, platform tenant and tenant without lifecycle row; the route
+# is under the TenantsManage permission); lib/letflow/tenant_purge.ex moduledoc (eligibility); docs/roles.md.
+#
+# THROWAWAY RULE: every customer in this file (X and Z) is made by this run through the front door and has a fresh
+# identifier. The destructive purge is NOT in this file (it is in scenario 2, on a customer made for that run). No shared
+# UAT customer (bilimbaga, swiftroute, meridian, vortex or any seeded company) is named as the target of a purge request.
+# Customer X is switched off by the platform operator and left switched off (a throwaway); customer Z stays active.
+#
+# NOT COVERED (reason): "a PLATFORM_ADMIN whose own tenant is not the platform tenant" (criterion 7d) has no actor in the
+# roster (see provisioning-5-credential-boundaries.yaml header); the product's own tests cover it.
+# STAND-IN (reason): the roster has no actor without any role. actor-bilimbaga-candidate holds only the CANDIDATE role,
+# which carries no administrative right, so it stands in for criterion 7d's "a user with no role".
+# The owner of a front-door customer is that customer's TENANT_ADMIN (actor-any, as in
+# provisioning-2-first-administrator-and-demo-address.yaml), so criterion 7d's "a TENANT_ADMIN of the tenant itself" is
+# covered by step 10 (owner of Z asks to purge Z).
+---
+id: provisioning-purge-1-refusals-and-eligibility
+scope: platform
+title: The platform operator cannot purge a customer that is active or only switched off by hand, and nobody else can purge at all
+version: "1.0"
+tags: [provisioning, purge, not-eligible, refusal, inv-10, qa-only]
+
+description: >
+  Requirement REQ-580 criterion 1 says a customer is purged only when it was made through the front door, is switched
+  off, its lifecycle is suspended or expired, it is not production and its retention has passed, and that "a row with
+  lifecycle active and status :inactive, for example after a platform-route deactivation, is not eligible". Criterion 7
+  says the platform purge call answers "409 {error: "not_eligible"} when criterion 1 fails (it never purges early)" and
+  "404 for an unknown slug, for a tenant without a lifecycle row and for the platform tenant, with byte-identical bodies",
+  and, in full, "Nobody else: negative tests show that a TENANT_ADMIN of the tenant itself, a TENANT_ADMIN or
+  PLATFORM_ADMIN of another tenant (a PLATFORM_ADMIN whose database-resolved tenant is not the platform tenant gets the
+  403 of the existing scope rule), a user with no role and a request with no token cannot reach the route (401 or 403,
+  nothing changes), and that the provisioner credential sent to POST /api/v1/tenants/:slug/purge is refused as in
+  REQ-572 criterion 3". Criterion 8, quoted: "purging A by id through each trigger leaves every row, table and the schema of B
+  unchanged (row counts per table compared before and after), and a purge/2 call whose tenant id is that of the platform
+  tenant, of a tenant created by POST /tenants without a lifecycle row, or of a production tenant leaves everything
+  unchanged". Here the refused calls on X and Z are the triggers shown, and the final step checks that X and Z are
+  unchanged; the other triggers are covered by provisioning-4 and the product's own tests. This scenario shows, on two throwaway customers X and Z
+  made for the run: an active customer is refused as not eligible; a customer switched off by hand (active lifecycle,
+  switched-off state) is refused as not eligible; unknown names and the platform's own workspace get the same plain
+  "not found"; the customer's own administrator, the administrator of another company, a user with only the candidate
+  role (standing in for "no role"), a request with no sign-in and the front door's credential are all refused; and after all of it nothing about X or Z has changed.
+
+actors:
+  front_door: actor-system-front-door
+  realm_provisioner: actor-system-realm-provisioner
+  platform_operator: actor-platform-admin
+  other_company_admin: actor-bilimbaga-admin
+  user_without_role: actor-bilimbaga-candidate
+  owner_z: actor-any
+  anonymous: actor-any
+
+preconditions:
+  - description: Provisioning scenario 1 style set-up is possible in this run (front door credential, realm provisioner and the QA demo domain are available)
+    check: custom
+    detail: If any is missing, report BLOCKED, not PASS.
+  - description: >
+      UAT assumption, to be confirmed by the process owner: the QA retention setting is NOT shortened while this scenario
+      runs (its starting value is 30 days, a whole number of days). Run this scenario before scenario 2 or with the
+      retention at its starting value.
+    check: custom
+    detail: >
+      Nothing in this file waits for the retention. If the retention was set to 0 days by an earlier scenario, the
+      customers here still are not eligible, because eligibility needs a switched-off lifecycle, which X and Z do not have.
+  - description: Each run makes two fresh customer identifiers (X and Z) and two fresh owner e-mail addresses on a mailbox-less test domain
+    check: custom
+    detail: An identifier from an earlier run must not be reused.
+
+steps:
+  - step: 1
+    actor: realm_provisioner
+    action: >
+      TEST-TOOLING STEP (outside the product): the realm provisioner makes one realm each for customers X and Z, named
+      "t-" followed by the first 20 hex digits of the customer's identifier, each with its owner as first administrator.
+    via: api
+  - step: 2
+    actor: front_door
+    action: >
+      The front door creates customers X and Z (tier demo, its own owner e-mail, an expiry date 13 days ahead, its own
+      address under the QA domain, the realm from step 1). The owner of Z signs in and lists the people of Z (control: works).
+    via: api
+  - step: 3
+    actor: platform_operator
+    action: >
+      The platform operator opens the list of customers and notes the workspace name of X, of Z and of the platform's own
+      workspace.
+    via: api
+  - step: 4
+    actor: platform_operator
+    action: The platform operator asks to purge customer X, which is active and has not been switched off.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: platform_operator
+    action: The platform operator switches customer X off by hand (the ordinary switch-off, not the front door's suspend or delete).
+    via: gui
+  - step: 6
+    actor: platform_operator
+    action: >
+      The platform operator asks to purge customer X, which is now switched off by hand but whose lifecycle is still
+      active (no suspension, no deletion request, no expiry reached).
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: front_door
+    action: The front door reads the records of X and Z.
+    via: api
+  - step: 8
+    actor: platform_operator
+    action: The platform operator asks to purge a workspace name that does not exist (a fresh random name made for this run).
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: platform_operator
+    action: The platform operator asks to purge the platform's own workspace (its workspace name from step 3).
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: owner_z
+    action: The owner of Z, who is Z's own administrator, asks to purge customer Z.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: other_company_admin
+    action: The administrator of another company (BilimBaga) asks to purge customer Z.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: user_without_role
+    action: A user of another company who holds only the candidate role (standing in for a user with no role) asks to purge customer Z.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: anonymous
+    action: A request with no sign-in asks to purge customer Z.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: front_door
+    action: The front door sends its own credential to the platform's purge call for customer Z.
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: front_door
+    action: The front door reads the records of X and Z again.
+    via: api
+  - step: 16
+    actor: owner_z
+    action: The owner of Z lists the people of Z again. This still works (nothing of Z was touched).
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: An active customer, and a customer switched off by hand whose lifecycle is still active, are refused as not eligible.
+    verification:
+      method: http_status
+      detail: >
+        Steps 4 and 6 each answer 409 with the error "not_eligible" and nothing else about the customer. Step 7 shows X and Z
+        with no purge marker (purged_at is null) and a lifecycle that is not "deleted".
+      evidence: The status and body of steps 4 and 6 and the records of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A single call could destroy the data of a customer that was never meant to be deleted, with no retention period.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: An unknown name and the platform's own workspace get the same plain "not found" and the platform is untouched.
+    verification:
+      method: http_status
+      detail: >
+        Steps 8 and 9 each answer 404 and the two response bodies are byte for byte equal (neither says that the target is the
+        platform's workspace, nor that a customer exists). The platform workspace is still active (the operator
+        reads the customer list again after step 9 and sees it unchanged).
+      evidence: Status and body of steps 8 and 9, side by side.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The refusal tells a caller which names are real customers or the platform, and a mistake could purge the platform.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Nobody but a platform operator can reach the purge call (not even the customer's own administrator), and the front door credential is refused on it.
+    verification:
+      method: http_status
+      detail: >
+        Steps 10 to 14 are each refused (401 or 403, not 200 and not 409) and none of them changes anything: step 15 shows
+        X and Z as in step 7 and step 16 shows the people of Z as in step 2. The answers to steps 10 to 12 do not tell
+        whether customer Z exists.
+      evidence: The status of steps 10 to 14 and the reads of steps 15 and 16.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Another company, an anonymous caller or the front door could delete a customer's data.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A refused purge leaves every other customer unchanged (cross-tenant negative).
+    verification:
+      method: system_state
+      detail: >
+        Step 15's records of X and Z equal step 7's (state, tier, expiry date, purged_at null); step 16 lists the same
+        people as step 2.
+      evidence: The two reads of each record and the two people counts for Z.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A failed or refused purge on one customer damages another.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    X is left switched off and Z active; both are throwaways with a 13-day expiry and are removed by the expiry and purge
+    path of the provisioning scenarios. No shared UAT customer was touched.
