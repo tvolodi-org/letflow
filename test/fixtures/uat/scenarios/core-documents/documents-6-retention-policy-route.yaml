@@ -1,0 +1,131 @@
+# T-0708 (BA): core-documents scenario 6: the retention policy of a document type, changed by the tenant administrator.
+# Covers REQ-536 criterion 9 (retention period, start and action are set together with a reason code; a body that breaks the tie between
+# the period and the action, or has no reason code, is refused as invalid; the columns stay unchanged and no event is written) and the
+# last sentence of criterion 8 (a refusal writes no audit event). The scoped-grant half of criterion 9 is scenario 7.
+# Sources: docs/requirements.yaml REQ-536 criteria 8 and 9; docs/migration/decisions/0063-versioned-documents-retention-and-hold.md S4, S7;
+# lib/letflow/routers/documents.ex (answer fields type_key, retention_period_days, retention_from, retention_action, changed; 422 texts
+# "invalid reason_code", "invalid retention_period_days", "invalid retention_from", "invalid retention_action", "retention_period_days
+# and retention_action do not match"); lib/letflow/documents/retention.ex validate_policy (period null or a whole number above 0; start
+# "issued" or "superseded_or_cancelled"; action "keep", "archive" or "purge"; a null period goes with "keep" and with nothing else; a
+# number goes with "archive" or "purge"; audit entry "document.retention_policy_changed"); test/fixtures/uat/actors.yaml (actor-swiftroute-alice:
+# TENANT_ADMIN of SwiftRoute); docs/roles.md (DocumentsRetentionManage: TENANT_ADMIN).
+# Not covered, by the task: archive and purge execution (REQ-509).
+---
+id: core-documents-6-retention-policy-route
+scope: core-documents
+title: The administrator sets a document type's retention policy; a period that does not fit the action, or a missing reason code, is refused
+version: "1.0"
+tags: [documents, retention, audit, refusal, validation]
+
+description: >
+  The tenant administrator of SwiftRoute changes how long documents of one type are kept and what happens afterwards. A policy is a period
+  in days (or none, meaning forever), a start point (from issue, or from the time the document was replaced or cancelled), an action (keep,
+  archive or purge) and a reason code. The period and the action must fit: forever goes with keep and with nothing else, and a number of
+  days goes with archive or purge. A policy with a period and the action keep, a policy with no period and the action purge, a policy without a
+  reason code and a policy with a reason code of the wrong form are each refused as invalid, and leave the policy and the audit trail as they
+  were. A correct policy is accepted and is audited once.
+  UAT assumption, to be confirmed by the process owner: the reason code used is "policy_review" (the product checks only its form: lower-case
+  letters, digits and underscores, starting with a letter, because the owner has not yet given the closed list).
+  The document type and the reading of its stored policy and of the audit trail go through the document service harness (no screen
+  exists); without the harness the scenario is BLOCKED, not PASS.
+
+actors:
+  module: actor-system-documents-service
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: A service-level harness can call the document service for SwiftRoute
+    check: custom
+    detail: Without the harness every step is BLOCKED.
+  - description: The SwiftRoute tenant administrator can sign in and holds the retention policy permission across the whole company
+    check: custom
+    detail: The seeded administrator of SwiftRoute (actor-swiftroute-alice) can sign in. Per the role matrix she holds the permission, and her grant is not limited to one part of the company.
+  - description: The harness can read the three retention settings of a document type and the audit trail of SwiftRoute
+    check: custom
+    detail: Without that read access EO-001 and EO-002 are BLOCKED.
+
+steps:
+  - step: 1
+    actor: module
+    action: >
+      Registers a document type "UAT retention contract" in SwiftRoute with the policy it is given on registration, and notes its key, its
+      three retention settings (period, start, action) and the number of "retention policy changed" entries in the SwiftRoute audit trail.
+    via: system
+    produces:
+      type_key: the key of the new document type
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator sets the policy of the type to a period of 365 days, start "issued", action "keep", with the reason code
+      "policy_review".
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator sets the policy of the type to no period (forever), start "issued", action "purge", with the reason code
+      "policy_review".
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator sets the policy of the type to a period of 365 days, start "issued", action "archive", and sends no reason code.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator sets the policy of the type to a period of 365 days, start "issued", action "archive", with the reason code
+      "Policy Review" (capital letters and a space).
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: module
+    action: >
+      Reads the three retention settings of the type and the number of "retention policy changed" entries in the audit trail, and compares
+      them with step 1.
+    via: system
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator sets the policy of the type to a period of 365 days, start "issued", action "archive", with the reason code
+      "policy_review".
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator sets the policy of the type to no period (forever), start "superseded_or_cancelled", action "keep", with the reason
+      code "policy_review".
+    via: api
+  - step: 9
+    actor: module
+    action: >
+      Reads the three retention settings of the type and the "retention policy changed" entries in the audit trail written since step 1.
+    via: system
+
+expected_outcomes:
+  - id: EO-001
+    description: A policy whose period does not fit the action, a policy without a reason code and a policy with a reason code of the wrong form are each refused as invalid and change nothing.
+    verification:
+      method: http_status
+      detail: Steps 2 and 3 answer 422 with the text "retention_period_days and retention_action do not match"; step 4 answers 422 with the text "invalid reason_code"; step 5 answers 422 with the text "invalid reason_code". In step 6 the period, start and action of the type are exactly the values read in step 1, and the number of "retention policy changed" audit entries is the number counted in step 1.
+      evidence: The status and body of steps 2 to 5, and the retention settings and audit entry count of step 1 compared with step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A document type could be left with a retention rule that contradicts itself (for example keep forever and purge), or be changed with no recorded reason, so documents could be destroyed or kept against the company's rules.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A correct policy is accepted and audited, and a second correct policy that sets "forever" with "keep" is accepted too.
+    verification:
+      method: audit_event
+      detail: Step 7 answers 200 with the type key, period 365, start "issued", action "archive" and changed true. Step 8 answers 200 with period none, start "superseded_or_cancelled", action "keep" and changed true. In step 9 the type holds the values of step 8, and exactly two new "document.retention_policy_changed" entries exist since step 1, one per accepted request, each with the reason code "policy_review".
+      evidence: The answers of steps 7 and 8, the retention settings of step 9 and the two new audit entries, read through the harness.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator could not adjust retention when the law changes, or the change would leave no audit entry.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the test document type "UAT retention contract" created in SwiftRoute.

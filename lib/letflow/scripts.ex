@@ -802,7 +802,7 @@ defmodule Letflow.Scripts do
         {:error, :invalid_manifest}
 
       true ->
-        with :ok <- Validation.manifest(manifest),
+        with :ok <- Validation.manifest(manifest, hook_kind),
              :ok <- Validation.test_cases(cases, manifest) do
           {:ok, %{hook_kind: hook_kind, source: source, manifest: manifest, test_cases: cases}}
         end
