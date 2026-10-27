@@ -42966,7 +42966,7 @@ requirements:
     depends_on: [REQ-510]
 
   - id: REQ-609
-    title: "Tenant x_ extension layer slice I2: the write path with the D4 refusals, the :EntitiesExtensionsManage permission, the /entity-type-extensions routes and audit (decision 0067-tenant-x I2)"
+    title: "Tenant x_ extension layer slice I2: the write path with the D4 refusals, the :EntitiesExtensionsManage permission, the type-extension routes and audit (decision 0067-tenant-x I2)"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
