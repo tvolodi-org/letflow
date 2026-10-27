@@ -83,6 +83,11 @@ config :letflow, scripts_test_hooks: true
 # run_claimed/2 directly.
 config :letflow, start_script_task_dispatcher: false
 
+# GH #3292: the provisioner sweep (Letflow.TenantProvisioner.Sweep) is timer-driven and queries
+# Letflow.Repo from a process no test is an ancestor of (the same OwnershipError hazard as the pollers
+# above). Tests call Sweep.run/1 directly or start their own instance.
+config :letflow, start_provisioner_sweep: false
+
 # Same per-workspace host port as config/dev.exs (this repo's config files
 # don't cascade — each env file loads independently). See config/db_port.exs.
 {db_port, _bindings} = Code.eval_file(Path.expand("db_port.exs", __DIR__))
