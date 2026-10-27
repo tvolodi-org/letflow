@@ -1,0 +1,192 @@
+# T-0708 (BA): core-documents scenario 5: the legal hold on a document, set and released by the tenant administrator.
+# Covers REQ-536 criteria 1 (set: reason code and note required, 422 checked before the state check, also on an already-held
+# document; hold columns and audit event of a set), 2 (release: same input rules, hold side kept, clear side filled), 3 (conflicts:
+# set on a held document, release on a never-held and on an already-released document each give 409, change nothing and write no
+# event) and 4 (set after release works; the audit order is hold_set, hold_cleared, hold_set). Refusals write no audit event (criterion 8, last sentence).
+# Sources: docs/requirements.yaml REQ-536 criteria 1-4 and 8; docs/migration/decisions/0063-versioned-documents-retention-and-hold.md S5, S7;
+# lib/letflow/routers/documents.ex (answers: 200 with document_id, on_hold, reason_code and never the note; 409 text "document hold state
+# conflict"; 422 texts "invalid reason_code" and "invalid reason_note"); lib/letflow/documents/hold.ex (reason code format only, a lower-case
+# letter then letters, digits or underscores, at most 64 characters; the closed list of reason codes is the owner's, decision 0063 "Not decided
+# here"); test/fixtures/uat/actors.yaml (actor-swiftroute-alice: TENANT_ADMIN of SwiftRoute); docs/roles.md (DocumentHold: TENANT_ADMIN).
+# Not covered here, by the task: purge and archive execution (REQ-509). Criteria 5 (row lock source scan and forced-overlap test), 6 (golden file
+# and matrix test), 11 (route-count pins) and 12 (reviewer verdicts) exist only in product tests and reviews; the roles part of criterion 6 is
+# exercised in scenario 7.
+---
+id: core-documents-5-hold-set-and-release
+scope: core-documents
+title: A legal hold needs a reason and a note, cannot be set twice or released twice, and every change is audited in order
+version: "1.0"
+tags: [documents, legal-hold, audit, refusal, validation]
+
+description: >
+  The tenant administrator of SwiftRoute puts a legal hold on a document and releases it. Each of the two actions needs a reason
+  code and a note that is not blank; a request without them is refused as invalid whatever the state of the document, including a document
+  that is already on hold. Setting a hold on a held document, and releasing a hold on a document that was never held or was already
+  released, are refused as a conflict and change nothing and write nothing to the audit trail. A document whose hold was released can be put
+  on hold again. After the sequence set, release, set the audit trail shows hold set, hold released, hold set, in that order, and no
+  audit entry carries the note.
+  UAT assumption, to be confirmed by the process owner: the reason code used is "litigation" and the note "UAT legal hold". The product
+  checks only the form of a reason code (lower-case letters, digits and underscores, starting with a letter) because the owner has not yet
+  given the closed list of codes.
+  Documents are created through the document service, which has no screen: the first step runs only in an environment with a service-level
+  harness for a named tenant (as in scenarios 1 to 4). Where there is none the whole scenario is BLOCKED, not PASS.
+
+actors:
+  module: actor-system-documents-service
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: A service-level harness can call the document service for SwiftRoute, and SwiftRoute has an active organisational unit
+    check: custom
+    detail: Without the harness every step is BLOCKED. The unit is named as the issuing unit of the two documents of step 1.
+  - description: The SwiftRoute tenant administrator can sign in, and holds the document hold permission across the whole company
+    check: custom
+    detail: The seeded administrator of SwiftRoute (actor-swiftroute-alice) can sign in. Per the role matrix she holds the permission, and her grant is not limited to one part of the company.
+  - description: The harness can read the hold columns of a document and the audit trail of SwiftRoute
+    check: custom
+    detail: Steps 2 to 15 are judged on the stored hold columns and on the audit entries, read through the harness. Without that read access EO-001 to EO-004 are BLOCKED.
+
+steps:
+  - step: 1
+    actor: module
+    action: >
+      Creates two documents of one document type in SwiftRoute, both issued by the same active organisational unit: document 1 and
+      document 2. Neither has ever been on hold. Notes both ids, the hold columns of both (all empty, not on hold) and the number of audit
+      entries about holds in the SwiftRoute audit trail.
+    via: system
+    produces:
+      document_1_id: the id of document 1
+      document_2_id: the id of document 2
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator asks for a legal hold on document 1 and sends a note "UAT legal hold" but no reason code.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator asks for a legal hold on document 1 and sends the reason code "litigation" but no note.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator asks for a legal hold on document 1 and sends the reason code "litigation" with a note that consists only of
+      spaces.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator asks for a legal hold on document 1 with the reason code "litigation" and the note "UAT legal hold".
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      With document 1 now on hold, the administrator asks again for a legal hold on it and sends no reason code and no note.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator asks for a legal hold on document 1, which is already on hold, with the reason code "litigation" and the note
+      "UAT legal hold again".
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator asks to release the hold on document 1 and sends the note "UAT release" but no reason code.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator asks to release the hold on document 1 and sends the reason code "litigation_closed" with a note that consists
+      only of spaces.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: >
+      The administrator asks to release the hold on document 1 with the reason code "litigation_closed" and the note "UAT release".
+    via: api
+  - step: 11
+    actor: tenant_admin
+    action: >
+      With the hold of document 1 already released, the administrator asks to release it again with the reason code
+      "litigation_closed" and the note "UAT release again".
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin
+    action: >
+      The administrator asks to release a hold on document 2, which has never been on hold, with the reason code "litigation_closed" and the
+      note "UAT release never held".
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: tenant_admin
+    action: >
+      The administrator asks to release a hold on document 2, which has never been on hold, and sends no reason code and no note.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: tenant_admin
+    action: >
+      The administrator asks again for a legal hold on document 1, whose hold was released, with the reason code "litigation" and the note
+      "UAT legal hold renewed".
+    via: api
+  - step: 15
+    actor: module
+    action: >
+      Reads the hold columns of document 1 and document 2, and the audit entries about holds in the SwiftRoute audit trail in the order they
+      were written. Then lifts the hold of document 1 again so the test data is left released.
+    via: system
+
+expected_outcomes:
+  - id: EO-001
+    description: A request without a reason code, without a note or with a blank note is refused as invalid on a document that is not held (steps 2 to 4), on a document that is held (step 6) and when releasing (steps 8, 9 and 13), and the document is unchanged each time.
+    verification:
+      method: http_status
+      detail: Every one of the steps 2, 3, 4, 6, 8, 9 and 13 answers 422. The text names the reason code ("invalid reason_code") for a missing reason code and the note ("invalid reason_note") for a missing or blank note. Step 6 answers 422 and not 409 although document 1 is held, and step 13 answers 422 and not 409 although document 2 was never held. The hold columns of the document are the same before and after each of these requests, and the audit trail gains no entry.
+      evidence: The status and body of each of the seven refused requests, and the hold columns of documents 1 and 2 and the audit entry count read through the harness before and after.
+    on_fail:
+      severity: MAJOR
+      business_impact: A legal hold could be placed or lifted with no stated reason, so nobody could later say why a document was frozen or released; or a caller would learn the state of a document from the kind of refusal.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A valid set puts document 1 on hold with the reason, the note, the time and the person recorded, leaves the release side empty and writes exactly one audit entry "hold set" that names the document, the reason code and the person and does not carry the note.
+    verification:
+      method: audit_event
+      detail: Step 5 answers 200 with the document id, on hold true and the reason code "litigation", and the answer does not contain the note. Afterwards document 1 is on hold with the four set-side columns filled and the four release-side columns empty. Exactly one new audit entry "document.hold_set" exists, with the document id, the reason code "litigation" and the actor, and without the text "UAT legal hold".
+      evidence: The answer of step 5, the hold columns of document 1 after step 5, and the new audit entry, read through the harness.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A legal hold that is not recorded, or whose free-text note leaks into the audit trail, fails the company's duty to prove what was frozen, when and by whom.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A second set, a second release and a release of a never-held document are refused as a conflict, and change nothing and write nothing.
+    verification:
+      method: http_status
+      detail: Steps 7, 11 and 12 answer 409 with the text "document hold state conflict". After each of them the hold columns of the document are exactly as before the request (in step 7 the reason code and note of step 5 are still stored, not "UAT legal hold again"; in step 11 the release side still holds the values of step 10; document 2 stays never held), and the number of audit entries about holds has not changed.
+      evidence: The status and body of steps 7, 11 and 12, the hold columns of documents 1 and 2 before and after, and the audit entry count before and after.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A repeated click or a replayed request could overwrite who froze a document and why, or add false entries to the audit trail.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A valid release clears the hold and keeps the record of the set; a new set after the release works; the audit trail shows hold set, hold released, hold set in that order.
+    verification:
+      method: audit_event
+      detail: Step 10 answers 200 with on hold false and the reason code "litigation_closed"; document 1 then has the four release-side columns filled and keeps the four set-side columns of step 5. Step 14 answers 200 with on hold true; the set side now holds "litigation" and the note "UAT legal hold renewed", and the release side is empty again. The audit entries about hold on document 1, in the order written, are document.hold_set, document.hold_cleared, document.hold_set, with the reason codes "litigation", "litigation_closed", "litigation", and no entry carries a note. Document 2 has no hold entry.
+      evidence: The answers of steps 10 and 14, the hold columns of document 1 after steps 10 and 14, and the three audit entries in order, read through the harness (step 15).
+    on_fail:
+      severity: BLOCKER
+      business_impact: The history of freezing and releasing a document would be wrong or out of order, so the company could not show the sequence of a legal hold to a court or regulator.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Release the hold of document 1 if it is still on hold (step 15), and remove the two test documents and the test document type created in SwiftRoute, so that a later run starts from documents that were never held.
