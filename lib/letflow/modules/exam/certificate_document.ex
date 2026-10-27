@@ -102,11 +102,15 @@ defmodule Letflow.Modules.Exam.CertificateDocument do
   (`verification.code`) rather than reading it off the certificate record --
   decision `0033` section 4 leaves the renderer's own function signature to
   this requirement, and this is the shape chosen so `render/2` needs no
-  change when REQ-357 lands a real handle. Until REQ-357 exists, the ONLY
-  caller (`Letflow.Modules.Exam.Router`'s download route) passes the
-  certificate's own `id` (its `Letflow.Entities.Records` record id) as an
-  interim code -- see that route's own comment for why, and why this is
-  flagged rather than silently treated as the final shape.
+  change when a real handle is available. The ONLY caller
+  (`Letflow.Modules.Exam.Router`'s download route, REQ-592) passes the
+  plaintext of a `Letflow.PublicRead` handle freshly minted for EVERY
+  download, so the QR and the printed "Verify:" line resolve through
+  `GET /api/public/certificate/:handle`. Consequently `render/2` output
+  differs from one download to the next (not byte-identical). A PDF
+  downloaded before REQ-592 carries the certificate's record id, which
+  resolves nothing; the owner downloads again to get a working code, and
+  certificates issued earlier get one on their next download.
   """
 
   alias EQRCode

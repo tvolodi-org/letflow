@@ -1057,9 +1057,11 @@ defmodule Letflow.Modules.Exam.RouterTest do
 
       assert first_download.status == 200
       assert second_download.status == 200
-      # Byte-identical: both downloads render the SAME idempotent
-      # certificate record with no live-branding re-read in between.
-      assert first_download.resp_body == second_download.resp_body
+      # REQ-592: each download mints a fresh verification handle, so the two
+      # PDFs differ by code and are no longer byte-identical; both are real
+      # PDFs of the SAME certificate (the code is the only differing part).
+      assert binary_part(first_download.resp_body, 0, 5) == "%PDF-"
+      assert binary_part(second_download.resp_body, 0, 5) == "%PDF-"
       assert byte_size(first_download.resp_body) > 0
       assert is_binary(issued["candidate_name"])
     end
@@ -1290,6 +1292,269 @@ defmodule Letflow.Modules.Exam.RouterTest do
       assert deleted_conn.status == 404
       assert unknown_conn.status == 404
       assert deleted_conn.resp_body == unknown_conn.resp_body
+    end
+  end
+
+  # ── REQ-592: the downloaded PDF's QR / Verify code is a live public handle ──
+
+  describe "certificate download mints a fresh public-read handle (REQ-592)" do
+    @download "/api/v1/modules/exam/exam-sessions/%s/certificate/download"
+
+    defp download_path(session_id), do: String.replace(@download, "%s", session_id)
+
+    # A passed, submitted session for a fresh candidate of `tenant`.
+    defp passed_session!(tenant, ctx) do
+      %{exam: exam, question_id: question_id, correct_id: correct_id} =
+        build_minimal_exam!(tenant.schema_name, %{"certificate_enabled" => true})
+
+      session_id = start_session!(ctx, exam.record_id)["session"]["id"]
+
+      request(
+        "PUT",
+        "/api/v1/modules/exam/exam-sessions/#{session_id}/answers/#{question_id}",
+        ctx,
+        %{"selected_option_ids" => [correct_id], "time_spent_seconds" => 5}
+      )
+
+      assert %{"passed" => true} =
+               json(
+                 request("POST", "/api/v1/modules/exam/exam-sessions/#{session_id}/submit", ctx)
+               )
+
+      session_id
+    end
+
+    defp pdf_text(bytes) do
+      ~r/stream\r?\n(.*?)endstream/s
+      |> Regex.scan(bytes, capture: :all_but_first)
+      |> Enum.map(fn [stream] ->
+        z = :zlib.open()
+        :ok = :zlib.inflateInit(z)
+
+        out =
+          try do
+            z |> :zlib.inflate(stream) |> IO.iodata_to_binary()
+          rescue
+            _ -> ""
+          end
+
+        :zlib.close(z)
+        out
+      end)
+      |> Enum.join("\n")
+    end
+
+    defp code_from_pdf(bytes) do
+      [_, code] = Regex.run(~r{Verify: \S+/verify/([A-Za-z0-9_-]+)}, pdf_text(bytes))
+      code
+    end
+
+    defp download_code!(ctx, session_id) do
+      conn = request("GET", download_path(session_id), ctx)
+      assert conn.status == 200
+      code_from_pdf(conn.resp_body)
+    end
+
+    defp handle_count(tenant_id) do
+      import Ecto.Query
+
+      Repo.aggregate(
+        from(h in Letflow.PublicRead.Handle, where: h.tenant_id == ^tenant_id),
+        :count
+      )
+    end
+
+    defp cert_latest!(tenant, record_id) do
+      Repo.get_by!(
+        Letflow.Entities.Record.Latest,
+        [record_id: record_id, entity_type: "certificate"],
+        prefix: tenant.schema_name
+      )
+    end
+
+    defp pinned_public(path, trace_id) do
+      conn(:get, path) |> maybe_pin_trace_id(trace_id) |> dispatch()
+    end
+
+    test "Q-resolve: the printed Verify code resolves via the public route with the five projection keys" do
+      tenant = tenant("req592-resolve")
+      ctx = candidate_ctx(tenant)
+      session_id = passed_session!(tenant, ctx)
+
+      code = download_code!(ctx, session_id)
+
+      public_conn = get_public("/api/public/certificate/#{code}")
+      assert public_conn.status == 200
+
+      assert Map.keys(json(public_conn)["data"]) |> Enum.sort() ==
+               Enum.sort(~w(candidate_name exam_title score_pct issued_on branding_snapshot))
+    end
+
+    test "Q-resource: handle row is certificate/tenant/public_read_resource_id, hash only, no plaintext logged" do
+      tenant = tenant("req592-resource")
+      ctx = candidate_ctx(tenant)
+      session_id = passed_session!(tenant, ctx)
+
+      issued =
+        json(request("POST", "/api/v1/modules/exam/exam-sessions/#{session_id}/certificate", ctx))
+
+      before_count = handle_count(tenant.tenant_id)
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :debug], fn ->
+          send(self(), {:code, download_code!(ctx, session_id)})
+        end)
+
+      assert_received {:code, code}
+      refute log =~ code
+
+      assert handle_count(tenant.tenant_id) == before_count + 1
+      hash = :crypto.hash(:sha256, code) |> Base.encode16(case: :lower)
+      row = Repo.get_by!(Letflow.PublicRead.Handle, handle_hash: hash)
+      latest = cert_latest!(tenant, issued["id"])
+
+      assert row.kind == "certificate"
+      assert row.tenant_id == tenant.tenant_id
+      assert row.resource_id == latest.id
+      refute row.resource_id == issued["id"]
+
+      for value <- Map.values(Map.from_struct(row)), is_binary(value) do
+        refute value == code
+      end
+    end
+
+    test "Q-twice: two downloads give two codes that both resolve; first-issuance handle and entity unchanged" do
+      tenant = tenant("req592-twice")
+      ctx = candidate_ctx(tenant)
+      session_id = passed_session!(tenant, ctx)
+
+      issued =
+        json(request("POST", "/api/v1/modules/exam/exam-sessions/#{session_id}/certificate", ctx))
+
+      before = cert_latest!(tenant, issued["id"])
+
+      code1 = download_code!(ctx, session_id)
+      code2 = download_code!(ctx, session_id)
+
+      assert code1 != code2
+      assert get_public("/api/public/certificate/#{code1}").status == 200
+      assert get_public("/api/public/certificate/#{code2}").status == 200
+      assert get_public("/api/public/certificate/#{issued["public_handle"]}").status == 200
+      assert cert_latest!(tenant, issued["id"]) == before
+    end
+
+    test "Q-mintfail: a failing mint answers 500, not a PDF; no handle row, certificate unchanged" do
+      tenant = tenant("req592-mintfail")
+      ctx = candidate_ctx(tenant)
+      session_id = passed_session!(tenant, ctx)
+
+      issued =
+        json(request("POST", "/api/v1/modules/exam/exam-sessions/#{session_id}/certificate", ctx))
+
+      before = cert_latest!(tenant, issued["id"])
+      before_count = handle_count(tenant.tenant_id)
+
+      # The idempotent fetch writes no audit entry, so dropping the tenant's
+      # audit table (rolled back with the sandbox at test exit) fails only the mint.
+      Repo.query!(~s(DROP TABLE "#{tenant.schema_name}".audit_entries))
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          send(self(), {:conn, request("GET", download_path(session_id), ctx)})
+        end)
+
+      assert_received {:conn, conn}
+      assert conn.status == 500
+      assert log =~ "public-read handle mint failed"
+      refute String.starts_with?(conn.resp_body, "%PDF-")
+      assert [content_type] = Plug.Conn.get_resp_header(conn, "content-type")
+      refute content_type =~ "pdf"
+      assert handle_count(tenant.tenant_id) == before_count
+      assert cert_latest!(tenant, issued["id"]) == before
+    end
+
+    test "Q-404: refusals on the public route are byte-identical; bad sessions 404 on download and mint nothing" do
+      tenant = tenant("req592-404")
+      ctx = candidate_ctx(tenant)
+      session_id = passed_session!(tenant, ctx)
+
+      issued =
+        json(request("POST", "/api/v1/modules/exam/exam-sessions/#{session_id}/certificate", ctx))
+
+      live_code = download_code!(ctx, session_id)
+      trace_id = "req592-404-#{Ecto.UUID.generate()}"
+
+      # Deactivate the tenant after minting: the handle must now refuse like an unknown one.
+      Repo.get!(Tenant, tenant.tenant_id)
+      |> Tenant.status_changeset(%{status: :inactive})
+      |> Repo.update!()
+
+      random = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+
+      refusals =
+        for code <- [random, issued["id"], "not a code!", live_code] do
+          pinned_public("/api/public/certificate/#{URI.encode(code)}", trace_id)
+        end
+
+      for conn <- refusals do
+        assert conn.status == 404
+        assert conn.resp_body == hd(refusals).resp_body
+
+        assert Plug.Conn.get_resp_header(conn, "content-type") ==
+                 Plug.Conn.get_resp_header(hd(refusals), "content-type")
+      end
+
+      # Download side, on a second (active) tenant so the request pipeline admits it.
+      tenant2 = tenant("req592-404b")
+      owner = candidate_ctx(tenant2)
+      stranger = candidate_ctx(tenant2)
+      owner_session = passed_session!(tenant2, owner)
+      count = handle_count(tenant2.tenant_id)
+
+      probe =
+        request("GET", download_path(owner_session), stranger, nil, trace_id: trace_id)
+
+      missing =
+        request("GET", download_path(Ecto.UUID.generate()), stranger, nil, trace_id: trace_id)
+
+      assert probe.status == 404
+      assert missing.status == 404
+      assert probe.resp_body == missing.resp_body
+      assert handle_count(tenant2.tenant_id) == count
+    end
+
+    test "Q-tenant: tenant A's token with tenant B's session id is a 404 and mints nothing" do
+      tenant_a = tenant("req592-tenant-a")
+      tenant_b = tenant("req592-tenant-b")
+      ctx_a = candidate_ctx(tenant_a)
+      ctx_b = candidate_ctx(tenant_b)
+      session_b = passed_session!(tenant_b, ctx_b)
+      session_a = passed_session!(tenant_a, ctx_a)
+      count_a = handle_count(tenant_a.tenant_id)
+      count_b = handle_count(tenant_b.tenant_id)
+
+      cross = request("GET", download_path(session_b), ctx_a)
+
+      query_param =
+        request("GET", download_path(session_b) <> "?tenant_id=#{tenant_b.tenant_id}", ctx_a)
+
+      assert cross.status == 404
+      assert query_param.status == 404
+      assert handle_count(tenant_a.tenant_id) == count_a
+      assert handle_count(tenant_b.tenant_id) == count_b
+
+      own = request("GET", download_path(session_a), ctx_a)
+      assert own.status == 200
+      text = pdf_text(own.resp_body)
+      refute text =~ tenant_b.tenant_id
+
+      code = code_from_pdf(own.resp_body)
+      hash = :crypto.hash(:sha256, code) |> Base.encode16(case: :lower)
+
+      assert Repo.get_by!(Letflow.PublicRead.Handle, handle_hash: hash).tenant_id ==
+               tenant_a.tenant_id
+
+      assert get_public("/api/public/certificate/#{code}").status == 200
     end
   end
 
