@@ -1,0 +1,182 @@
+# T-0794 (BA): TENANT ADMIN group, scenario 29: a company administrator takes an installed module out of use and puts it back, with the reason on the audit trail.
+# Covers REQ-578 criterion 5 (uninstall: the module stops being reachable and listed, nothing else is deleted), criterion 6 (reactivate, including upgrade_required),
+# criterion 7 (a module that another active module depends on cannot be uninstalled until the dependent is) and criterion 9 (one audit entry per success, with the reason verbatim).
+# Sources: docs/requirements.yaml REQ-578 criteria 5, 6, 7, 9; lib/letflow/routers/tenant_modules.ex (moduledoc and handle_transition: 200 with module id and status, 404 not installed, 409 code
+# dependents_installed or upgrade_required, 422 missing dependency); lib/letflow/api/error.ex (module_dependents_installed lists the dependent ids; module_upgrade_required); lib/letflow/modules/installs.ex
+# (private transition/7 writes action "module.uninstall" or "module.reactivate", resource_type "tenant_module", before/after status and the rationale); lib/letflow/routers/audit.ex (GET /audit,
+# resource_type filter, TENANT_ADMIN holds AuditRead per docs/roles.md); docs/roles.md matrix (ModulesManage: TENANT_ADMIN and platform administrator).
+# Environment: needs the uninstall feature SWITCHED ON; if step 1 answers like an unknown route, report BLOCKED for the whole scenario.
+# NOT UAT-checkable, left to the product's own tests: the second half of criterion 9 (a failed audit write answers 500 and leaves the status unchanged) needs the audit table to be dropped inside a test
+# transaction; nobody may do that on a real environment. Criterion 5's row counts of definitions, records and secrets are read from the database in EO-005 only where the runner has database access.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals of the flow (a module with dependents, a stale module) are steps 5, 7, 9 and 10.
+---
+id: tenant-administration-29-module-uninstall-and-reactivate
+scope: tenant-administration
+title: The administrator takes an installed module out of use, with a reason, and brings it back; a module others depend on, or one that has changed since, is refused
+version: "1.0"
+tags: [tenant-admin, modules, uninstall, reactivate, audit, dependents, feature-flag]
+
+description: >
+  SwiftRoute has a module M1 installed and active, with no other module depending on it, and a pair of modules where D2 depends on B1 and both are active. The administrator asks to take M1 out of
+  use and gives a reason. M1 disappears from the list of the company's installed modules and its own interface answers exactly as for a module that was never installed, while the company's other
+  settings, definitions, records and secrets are untouched. The administrator brings M1 back with a second reason and everything works as before. The administrator then tries to take B1 out of use
+  while D2 still depends on it and is refused with the list of dependents; once D2 is out of use, B1 can be taken out of use too. A module that has changed since it was installed cannot be brought
+  back by this route and stays out of use. The audit trail shows one entry for each successful change, with the reason word for word.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-marco
+
+preconditions:
+  - description: The module uninstall feature is switched ON in the test environment.
+    check: system_seeded
+    detail: If step 1 answers like a path that does not exist, report BLOCKED for the whole scenario.
+  - description: SwiftRoute has a module M1 installed and active, no other installed module depends on M1, and M1 has at least one request of its own that a task worker may make and that answers 200 while M1 is active. SwiftRoute also holds some data M1 does not own (a process definition, an entity record and a secret reference).
+    check: system_seeded
+    detail: Setup-prepared. The module names are those of the shipped catalog; the runner records which module was used as M1. If M1 has no request of its own to probe, replace the probing in steps 2 and 4 by the list of installed modules and note it.
+  - description: SwiftRoute has two further modules installed and active, B1 and D2, where D2 declares B1 in its dependencies.
+    check: system_seeded
+    detail: The shipped catalog may not contain such a pair. If it does not, report BLOCKED for steps 5 to 8 and EO-003, and say so; the other steps run.
+  - description: SwiftRoute has a module S1 that is out of use (uninstalled) and whose recorded version differs from the version the product now ships, or has no recorded fingerprint.
+    check: system_seeded
+    detail: Setup-prepared by the test environment. If it cannot be prepared, report BLOCKED for steps 10 and 11 and EO-004; the other steps run.
+  - description: The runner can read the audit trail through the administrator's own sign-in (the audit list, filtered by resource type "tenant_module").
+    check: system_seeded
+    detail: If not, report EO-006 BLOCKED.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator notes the list of SwiftRoute's installed modules as list L0 and the number of entries in the audit trail with resource type "tenant_module" as count A0. The administrator
+      then asks to take M1 out of use, giving the reason "UAT - module M1 not needed this quarter" and the exact module name.
+    via: api
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker asks for the list of the modules installed for the company, and makes the module's own request noted in the preconditions. The two answers are noted as list L1 and answer P1.
+      As comparison, the worker makes the same request for a module name that was never installed in any company. The answer is noted as NI.
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the audit trail filtered by resource type "tenant_module". The administrator also checks that SwiftRoute's process definition, entity record and secret reference
+      are still there, unchanged.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator brings M1 back, giving the reason "UAT - module M1 needed again". The worker then asks again for the list of installed modules and makes the module's own request again
+      (answers L2 and P2).
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to take B1 out of use, with the reason "UAT - try to remove the base module", while D2 is active. The answer (status, decoded body without the per-request trace_id
+      member) is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator first asks for the list of installed modules, to see that B1 and D2 are still listed. Then the administrator takes D2 out of use with the reason "UAT - dependent first", and then takes B1 out of use with the reason "UAT - base after dependent". Both are accepted.
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      With B1 and D2 both out of use, the administrator tries to bring D2 back first, with the reason "UAT - wrong order", before B1 is back. The answer (status, decoded body) is noted and the list of installed modules is asked for again.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      Clean-up: the administrator brings B1 back, and then D2 back, each with the reason "UAT - restore", in that order, and asks for the list of installed modules.
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to bring M1 back a second time, with the reason "UAT - already active", although it is active again. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to bring the out-of-use module S1 back, with the reason "UAT - stale module". The answer (status, decoded body) is noted.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of installed modules, and the worker makes the module request of S1 (as noted in the preconditions). Then the administrator reads the audit trail filtered by resource type "tenant_module" again and notes the number as count A1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Taking M1 out of use succeeds, M1 leaves the list of installed modules and its own interface answers as for a module that was never installed.
+    verification:
+      method: api_response
+      detail: Step 1 answers 200 with the module name and the status "uninstalled". List L1 (step 2) does not contain M1 and is list L0 without M1. Answer P1 equals answer NI in status, content-type header and decoded body after removing the per-request trace_id member.
+      evidence: The answer of step 1, lists L0 and L1, answers P1 and NI.
+    on_fail:
+      severity: MAJOR
+      business_impact: A module the company took out of use is still reachable or listed, or reveals that it exists.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-002
+    description: Bringing M1 back succeeds and the module works again as before.
+    verification:
+      method: api_response
+      detail: Step 4 answers 200 with the status "active". List L2 equals list L0 (same entries, same versions). Answer P2 is the answer the module gave before step 1 (status 200).
+      evidence: The answer of step 4, list L2 and answer P2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A module the company took out of use by mistake cannot be put back, and its users are stuck.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-003
+    description: A module that another active module depends on is refused, naming the dependent, and nothing changes; after the dependent is out of use the base module can follow.
+    verification:
+      method: http_status
+      detail: Step 5 answers 409 with the code "dependents_installed" and a list of dependents that contains D2; the list of installed modules still contains B1 and D2. Step 7 answers 422 with a message that reads "missing dependency" followed by a colon and B1, and D2 is still not in the list. In step 6 both requests answer 200. After step 8 the list holds B1, D2 and M1 again.
+      evidence: The answer of step 5, the answers of steps 6 and 7 and the list after step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: Removing a base module can leave dependent modules running without what they rely on.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-004
+    description: A module that is not active cannot be brought back twice, and a module that has changed since it was installed is not brought back by this route and stays out of use.
+    verification:
+      method: http_status
+      detail: Step 9 answers 404 and M1 stays active. Step 10 answers 409 with the code "upgrade_required"; the list of installed modules does not contain S1 and the module's own request for S1 answers like a module that was never installed.
+      evidence: The answers of steps 9 and 10, the list and the probe of S1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A module that no longer matches the shipped version is switched on again without an upgrade, running logic the company never accepted.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-005
+    description: Taking a module out of use deletes nothing else.
+    verification:
+      method: system_state
+      detail: After step 3 the number of rows of the other installed modules, process definitions, entity definitions, entity records, field restrictions and secret references of SwiftRoute is equal to what it was before step 1. The row of M1 still exists, with the same version, fingerprint and settings as before.
+      evidence: Row counts and the row of M1, read from the SwiftRoute data directly before step 1 and after step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Taking a module out of use destroys the company's data.
+      suggested_action: route_to_security_review
+
+  - id: EO-006
+    description: Each successful change wrote exactly one audit entry with the reason word for word, and the refused requests wrote none.
+    verification:
+      method: api_response
+      detail: In the audit trail filtered by resource type "tenant_module", step 3 shows one new entry with action "module.uninstall", before status "active", after status "uninstalled", the administrator as actor and the reason "UAT - module M1 not needed this quarter" verbatim, and no record content. Steps 4, 6 and 8 add one entry each per successful request (the reason verbatim, action "module.reactivate" for those that bring a module back). Count A1 minus count A0 equals the number of successful requests in steps 1, 4, 6 and 8 (6), and steps 5, 7, 9 and 10 added none.
+      evidence: The audit entries and counts A0 and A1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A change to what the company runs cannot be traced to a person and a reason.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Bring M1, B1 and D2 back to active if any is left out of use (steps 4 and 8 do this). S1 stays as prepared by the environment.

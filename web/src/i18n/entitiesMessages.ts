@@ -84,6 +84,9 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
     'entities.widgets.fkReference.searchPlaceholder': 'Search…',
     'entities.widgets.fkReference.loading': 'Loading…',
     'entities.widgets.fkReference.noResults': 'No matches found.',
+    'entities.widgets.categoryTree.label': 'Parent category',
+    'entities.widgets.categoryTree.noParent': 'No parent (top level)',
+    'entities.widgets.categoryTree.loading': 'Loading…',
 
     // --- REQ-343: generic admin-CRUD screen (EntityCrudPage), all nine
     // remaining BilimBaga entity types share these ids rather than
@@ -198,6 +201,9 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
     'entities.widgets.fkReference.searchPlaceholder': 'Поиск…',
     'entities.widgets.fkReference.loading': 'Загрузка…',
     'entities.widgets.fkReference.noResults': 'Совпадений не найдено.',
+    'entities.widgets.categoryTree.label': 'Родительская категория',
+    'entities.widgets.categoryTree.noParent': 'Без родителя (верхний уровень)',
+    'entities.widgets.categoryTree.loading': 'Загрузка…',
 
     'entities.crud.list.createAction': 'Новая запись',
     'entities.crud.list.editAction': 'Изменить',
@@ -303,6 +309,9 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
     'entities.widgets.fkReference.searchPlaceholder': 'Іздеу…',
     'entities.widgets.fkReference.loading': 'Жүктелуде…',
     'entities.widgets.fkReference.noResults': 'Сәйкестік табылмады.',
+    'entities.widgets.categoryTree.label': 'Басты санат',
+    'entities.widgets.categoryTree.noParent': 'Басты санатсыз (жоғарғы деңгей)',
+    'entities.widgets.categoryTree.loading': 'Жүктелуде…',
 
     'entities.crud.list.createAction': 'Жаңа жазба',
     'entities.crud.list.editAction': 'Өзгерту',

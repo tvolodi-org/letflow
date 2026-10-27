@@ -79,9 +79,11 @@ sessions, auto-grading, anti-cheat.
    `parent_id` on `category.json` and `question.json` (string, queried, optional) with `fk_category_parent_id` /
    `fk_question_parent_id` and an index each; an install gives a nullable uuid self-FK `ON DELETE RESTRICT`; the
    authoring surface refuses `parent_cycle`, `parent_not_found` (422) and `category_has_children` /
-   `question_has_children` (409) via `Letflow.Modules.Exam.AuthoringRules`. Remaining: question lineage rules,
-   the session pool test, the tenant rollout and the web tree picker (REQ-586 parts B-D); `bilimbagaEntities.ts`
-   still states the fields are not declared. T1c is in progress (part A done).
+   `question_has_children` (409) via `Letflow.Modules.Exam.AuthoringRules`. Part B (done) adds the question lineage
+   refusals `lineage_branch`, `version_not_increasing` and `lineage_active_conflict` (422) and the session pool test
+   (`session_lineage_test.exs`: the pool and manual pins never return two versions of one lineage). Remaining: the
+   tenant rollout and the web tree picker (REQ-586 parts C-D); `bilimbagaEntities.ts` still states the fields are
+   not declared. T1c is in progress (parts A and B done).
 6. **Bulk question import/export** is available generically (`/entities/records/:type/import|export`);
    a BilimBaga-format importer (P6) is not built and is conditional on real data (per doc).
    Data migration is a separate retirement question, not covered by criteria 1-9.

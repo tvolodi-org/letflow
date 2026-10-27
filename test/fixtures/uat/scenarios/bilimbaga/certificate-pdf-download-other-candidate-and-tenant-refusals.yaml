@@ -1,0 +1,86 @@
+# Authored by BA-BILIMBAGA for the certificate PDF verify code (BilimBaga study T4c gap 9, GH #3342, PR #3369).
+# Requirement: REQ-592 criterion 5 (download of a session that is not the candidate's) and criterion 6
+# (tenant isolation, INV-1, INV-10).
+---
+id: bilimbaga-certificate-pdf-download-other-candidate-and-tenant-refusals
+scope: bilimbaga
+title: A candidate cannot download the certificate PDF of another candidate's session or of a session in another organisation
+version: "1.0"
+tags: [refusal, certificate, privacy, access_control, tenant_isolation]
+
+description: >
+  A candidate may download only the certificate PDF of their own passed exam
+  session. When they ask for the PDF of a passed session that belongs to
+  another candidate of the same organisation, or of a passed session of
+  another organisation, they get the plain "not found" answer and no PDF, and
+  no public code is created for that certificate. The download request names
+  only the exam session; it has no organisation field, so the organisation is
+  always the candidate's own, and a session of another organisation is simply
+  unknown to them.
+  Preconditions: the identifiers of (a) a passed session of another bilimbaga
+  candidate and (b) a passed session of a candidate in another organisation
+  exist and are known to the runner. The actor roster holds one bilimbaga
+  candidate and none in another organisation, so in the present UAT
+  environment this scenario is BLOCKED (recorded as a GAP in
+  scenario-env-limitations); the same refusals are covered by backend tests
+  Q-404 and Q-tenant of REQ-592.
+  Not visible through any route and left to those backend tests: that no
+  public code row was created by the refused request.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      A passed exam session of another bilimbaga candidate exists, and a passed
+      exam session of a candidate in another organisation exists; both
+      identifiers are known to the runner. If either does not exist, this
+      scenario is BLOCKED, not PASS
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: Asks to download the certificate PDF of the passed exam session of another candidate of the same organisation
+    via: api
+    expect_refusal: true
+
+  - step: 2
+    actor: candidate
+    action: Asks to download the certificate PDF of the passed exam session that belongs to a candidate of another organisation
+    via: api
+    expect_refusal: true
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Another candidate's certificate cannot be downloaded
+    verification:
+      method: http_status
+      detail: "Step 1 answers 404 and the body is not a PDF and holds no candidate name, exam title or score"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate who could download a colleague's certificate would see
+        their personal result.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      A certificate of another organisation cannot be downloaded, and the
+      answer does not differ from the one for a session that does not exist
+    verification:
+      method: http_status
+      detail: "Step 2 answers 404 and the body is not a PDF; status and body equal the answer of step 1"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Data of one organisation reaching a candidate of another breaks the
+        platform's separation of organisations.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: Both requests are refused and create nothing; nothing to undo.

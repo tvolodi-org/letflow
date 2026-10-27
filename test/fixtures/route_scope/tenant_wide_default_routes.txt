@@ -31,6 +31,8 @@ GET /integration-mappings/:id IntegrationMappingsManage
 GET /modules/exam/exam-sessions/:id ExamSessionRead
 GET /modules/exam/exam-sessions/:id/certificate/download ExamCertificateIssue
 GET /modules/exam/exam-sessions/available ExamSessionStart
+GET /modules/exam/grading-queue ExamGradingRead
+GET /modules/exam/grading-queue/:session_id/:question_id ExamGradingRead
 GET /modules/fixture/items/:id FixtureRead
 GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage

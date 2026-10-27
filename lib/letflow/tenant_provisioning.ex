@@ -2225,6 +2225,48 @@ defmodule Letflow.TenantProvisioning do
     end)
   end
 
+  @doc """
+  GH #3315 / REQ-586 part C: creates the named declared indexes of an entity type's table in a
+  tenant schema, skipping one that already exists (a parameterised `pg_indexes` check). Indexes
+  are otherwise emitted only on the CREATE TABLE path, so an index added to an existing tenant's
+  definition has no physical index until this runs. The caller holds the schema advisory lock
+  (as `run_column_promotion/1` does). `document` is the atom-keyed definition; only indexes whose
+  name is in `index_names` are considered.
+  """
+  @spec ensure_entity_indexes(
+          schema_name :: String.t(),
+          entity_type :: String.t(),
+          document :: Letflow.Entities.Definition.t(),
+          index_names :: [String.t()]
+        ) :: :ok | {:error, :invalid_entity_type | term()}
+  def ensure_entity_indexes(schema_name, entity_type, document, index_names)
+      when is_binary(schema_name) and is_map(document) and is_list(index_names) do
+    with {:ok, table_name} <- table_name_for_entity_type(entity_type) do
+      missing =
+        document
+        |> Map.get(:indexes, [])
+        |> Enum.filter(&(Map.get(&1, :name) in index_names))
+        |> Enum.reject(&entity_index_exists?(schema_name, Map.get(&1, :name)))
+
+      with {:ok, index_sqls} <-
+             DDL.index_create_statements(Map.put(document, :indexes, missing), table_name) do
+        execute_create_indexes(schema_name, table_name, index_sqls)
+      end
+    end
+  end
+
+  @doc false
+  @spec entity_index_exists?(schema_name :: String.t(), index_name :: String.t()) :: boolean()
+  def entity_index_exists?(schema_name, index_name) do
+    %{rows: rows} =
+      Repo.query!("SELECT 1 FROM pg_indexes WHERE schemaname = $1 AND indexname = $2", [
+        schema_name,
+        index_name
+      ])
+
+    rows != []
+  end
+
   # DDL.index_create_statements/2 is schema-agnostic and returns
   # `CREATE INDEX "<name>" ON "<table_name>" (...)` unqualified -- same
   # convention generate_table_ddl/3 already uses. The `ON "<table_name>"`

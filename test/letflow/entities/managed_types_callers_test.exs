@@ -33,6 +33,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
     * R4: the `Owner` struct is built (`%Owner{}`, `struct/struct!`, a `%{__struct__: Owner}` map
       literal, `Map.put/put_new/replace/replace!` of `:__struct__`) only in `managed_types.ex`.
     * R5: qualified `Definitions.create_definition/3` with a non-`:tenant` owner only in
+      `exam/parent_rollout.ex` (GH #3315) and
       `solution_pack.ex` threading `owner`; `SolutionPack.install/4` with a non-`:tenant` owner
       only in `installs.ex`.
     * R6 (GH #2596): under `lib/letflow/modules/exam/`, no qualified `Records.create_record |
@@ -76,6 +77,18 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
     @exam_snapshot
   ]
   @exam_dir ["lib", "letflow", "modules", "exam"]
+  # GH #3315 / REQ-586 part C: the parent_id rollout creates the new category/question versions under
+  # the exam Owner. It makes no Records call, so it is not an `@exam_writers` (R1) member.
+  @exam_parent_rollout "lib/letflow/modules/exam/parent_rollout.ex"
+  # Path-sorted, the order `owner_for_callers/1` returns.
+  @exam_owner_callers [
+    @exam_anti_cheat,
+    @exam_authoring,
+    @exam_certificate,
+    @exam_parent_rollout,
+    @exam_session,
+    @exam_snapshot
+  ]
 
   # Static allow-list for R1: adding a file here is a reviewed diff (design 7.3). Kept in the
   # sorted order `r1_files/1` returns (the scan set is path-sorted).
@@ -599,11 +612,11 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
       assert owner_builders(files) == @owner_builders
     end
 
-    test "create_definition/3 with a non-:tenant owner only in solution_pack.ex, threading install/4's owner",
+    test "create_definition/3 with a non-:tenant owner only in solution_pack.ex and exam parent_rollout.ex, threading install/4's owner",
          %{files: files} do
       sites = r5_create_definition_sites(files)
 
-      assert sites == [{@solution_pack, "owner"}],
+      assert sites == [{@solution_pack, "owner"}, {@exam_parent_rollout, "owner"}],
              "create_definition/3 called with a non-:tenant owner outside the pack path: " <>
                inspect(sites)
     end
@@ -667,7 +680,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
     } do
       assert r2_violations(files) == []
       # GH #2596: the three exam writers join the fixture (directory rule, alias form).
-      assert owner_for_callers(files) == @exam_writers ++ [@fixture_managed]
+      assert owner_for_callers(files) == @exam_owner_callers ++ [@fixture_managed]
     end
 
     test "GH #2596 T-06: R1 sees the real exam write sites (non-vacuous)", %{files: files} do
