@@ -42964,3 +42964,128 @@ requirements:
       - "7. Texts: every user-visible string is in examMessages.ts and ExamIntlProvider; exam-i18n-grep.test.ts passes."
       - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
     depends_on: [REQ-510]
+
+  - id: REQ-608
+    title: "Tenant x_ extension layer slice I2: the write path with the D4 refusals, the :EntitiesExtensionsManage permission, the /entity-type-extensions routes and audit (decision 0067-tenant-x I2)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-550 -- REQ-550 is still pending in this register; its slice I1 (REQ-576) is merged
+    # Source: docs/migration/decisions/0067-tenant-x-extension-layer-over-module-entity-types.md section D4 (the two refusals, the DB check and identifier format, INV-5 uniform 404), D5 (permission, TENANT_ADMIN, audit entry with actor, type, name, before and after), D3 ("Remove": retire keeps the row and reserves the key; "Retype": not allowed in place), D1 (which types), "Expected implementation requirements" I2 ("security review mandatory; INV-10 cross-tenant negative test"), "Threat cases for SECURITY-REVIEWER" 1, 2, 3, 6, 7, open points OP-4 and OP-5; the note of REQ-576 (open_questions: the cap per type is stated at the write path of I2); the delivered I1 files lib/letflow/entities/entity_type_extension.ex, priv/repo/migrations/20261027300001_create_entity_type_extensions.exs and test/letflow/entities/entity_type_extension_test.exs; the neighbouring permission and route slice REQ-575 (lib/letflow/routers/number_sequences.ex, lib/letflow/number_sequences.ex create_definition_audited/3, test/letflow/api/number_sequences_route_classes_test.exs); lib/letflow/api/authorization.ex (endpoint_policy_key/2, required_permission/1); lib/letflow/entities/definitions.ex get_active_definition_by_name/2; lib/letflow/entities/type_access.ex authorized?/3; lib/letflow/entities/definition/ddl.ex valid_identifier?/1; docs/migration/decisions/0006 D2; docs/agents/instructions/security-invariants.md INV-1, INV-2, INV-5, INV-7, INV-10. Written by the business analyst (T-0814) 2026-10-28. Not yet validated.
+    description: >
+      Slice I2 of decision 0067-tenant-x (its "Expected implementation requirements": "the layer's write path
+      with the D4 refusals, :EntitiesExtensionsManage, the route and audit (security review mandatory; INV-10
+      cross-tenant negative test)"). Slice I1 (REQ-576, merged) created the table entity_type_extensions in
+      every tenant schema and its schema module Letflow.Entities.EntityTypeExtension
+      (lib/letflow/entities/entity_type_extension.ex), which today has no changeset and no Repo call. This
+      requirement adds the only writer of that table and the HTTP surface for it. NOT in this slice: the merge of
+      extension fields into write validation (I3), any read of extensions by record writes, the definition
+      response and query allow-list (I4), the upgrade-plan check (I5), the catalog rule (I6), promoted columns
+      (I7, OP-3), and any change under web/ or apps/. Until I3 lands an extension row does not yet change what a
+      record write accepts; this slice stores, lists and retires the rows.
+
+      THE CONTEXT MODULE. A new module Letflow.Entities.TypeExtensions in lib/letflow/entities/type_extensions.ex
+      (the schema module keeps its name; its moduledoc is updated to say the table now has a writer) with, all
+      taking the tenant schema prefix as the last argument and reading the tenant only through it:
+      create_extension_audited(attrs, actor, prefix), retire_extension_audited(id, actor, prefix) and
+      list_extensions(entity_type, prefix). attrs carries only entity_type, name and spec.
+
+      THE D4 REFUSALS (checked in this order, nothing written on any of them): (1) the type must be visible and
+      extensible, else the one uniform {:error, :not_found}: the type has no active definition
+      (Letflow.Entities.Definitions.get_active_definition_by_name/2 returns {:error, :not_found}), the active
+      definition has no managed_by stamp (tenant-owned types are out, D1), the definition is append_only, or
+      TypeAccess.authorized?(actor user id, entity_type, prefix) returns {:ok, :denied}; (2) name without the x_
+      prefix, or an entity_type or name that fails the identifier format (Letflow.Entities.Definition.Ddl
+      valid_identifier?/1, the ISS-0777 rule, lowercase letters, digits and underscore, at most 64 characters,
+      starting with a letter) answers {:error, {:extension_key_invalid, name}}; (3) name equal to the "name" of an
+      entry in the "fields" list of the ACTIVE module definition document answers
+      {:error, {:extension_key_reserved, name}}; (4) a row for (entity_type, name) already exists, active or
+      retired, answers {:error, :extension_key_taken} (the unique index of I1 is the backstop; a retired key stays
+      reserved, D3); (5) spec invalid, see below; (6) the per-type cap below. The router maps (2) to 422
+      "invalid_extension_key", (3) to 422 "extension_key_reserved", (4) to 422 "extension_key_taken", (5) to 422
+      "invalid_extension_spec", (6) to 422 "extension_limit_reached", and (1) to the same 404 body that an unknown
+      route id answers, so a type that exists but is not extensible, one the caller is restricted from, and one
+      that does not exist cannot be told apart (INV-5). No reply echoes a submitted value other than the code.
+
+      THE SPEC. spec is the field_def shape of Letflow.Entities.Definition (its field_def type) WITHOUT the
+      "name" key (the name is the row's name): allowed keys type, required, default, enum_values, min, max,
+      non_negative; type is one of string, integer, boolean, date, datetime, enum (decision 0067 D1 excludes json,
+      localized_text and decimal in slice 1). Any other key or type is invalid_extension_spec. An enum needs a
+      non-empty enum_values list of strings; required: true needs a default (D3, "Required"). The default is
+      only stored here; it is applied at write time by slice I3.
+
+      THE CAP (deferred from REQ-576). At most 50 rows per (tenant, entity_type), counting active AND retired rows
+      (retired rows are never deleted, so counting only active rows would let create-retire cycles grow the table
+      without bound, threat case 7). The count and the insert run in one transaction that first takes
+      pg_advisory_xact_lock(hashtext($1)) with $1 = prefix <> ":entity_type_extensions:" <> entity_type passed as a
+      bound parameter (the form of lib/letflow/definitions/activated_by.ex), so two concurrent creates cannot both
+      pass the count. The 51st create is refused. The number 50 is a module attribute in the context module.
+
+      THE PERMISSION AND THE ROUTES. A new tenant-scope core permission :EntitiesExtensionsManage in
+      Letflow.Api.Authorization (lib/letflow/api/authorization.ex: the permission type, the permission list,
+      endpoint_policy_key/2 clauses and a required_permission/1 clause, in the manner of :NumberSequencesManage),
+      granted to TENANT_ADMIN, and to PLATFORM_ADMIN only through its unconditional clause; it is not granted to
+      PROCESS_DESIGNER, TASK_WORKER or TENANT_AUDITOR (decision 0067 D5, OP-5). It is a core atom, not a module
+      manifest atom, so no module manifest route_policies entry declares it; its routes are mapped only in
+      endpoint_policy_key/2, and mix letflow.permission_matrix --check is the check that it is routed. A new
+      router Letflow.Routers.EntityTypeExtensions (lib/letflow/routers/entity_type_extensions.ex, moduledoc with
+      the route table in the form of lib/letflow/routers/number_sequences.ex) is mounted by
+      forward("/entity-type-extensions", ...) in lib/letflow/plugs/api_pipeline.ex, every route :tenant_wide:
+      POST / (body entity_type, name, spec) answers 201 with the row (id, entity_type, kind, name, spec, position,
+      status); GET /?entity_type=<name> answers 200 {"items": [...]} ordered by position, active and retired rows
+      with their status (an unknown or invisible type answers the uniform 404 above, a missing entity_type query
+      parameter 422); DELETE /:id retires the row (status retired, row kept) and answers 200 with the row; an id
+      that does not exist, or whose type fails check (1), answers 404; retiring an already retired row answers 200
+      with the row unchanged and writes no second audit entry. position of a new row is one more than the largest
+      position of that type (1 for the first). There is NO update route and no retype: a type or constraint change
+      is retire plus a new x_ name (D3, OP-4). No route takes a tenant identifier; the tenant comes only from the
+      DB-resolved auth_context and conn.assigns.scoped_opts and a tenant_id in the body, query or header is never
+      read (INV-1, INV-10). The permission is checked at Letflow.Plugs.Authorize before the body is looked at.
+
+      AUDIT. Create and retire each write one audit entry in the SAME transaction as the row change, through
+      Letflow.Audit.append_multi/4 (as create_definition_audited/3 in lib/letflow/number_sequences.ex does), with
+      actions "entity_type_extension.create" and "entity_type_extension.retire", resource_type
+      "entity_type_extension", resource_id the row id, actor_id the caller, before_state nil on create and the row
+      before on retire, after_state the row (entity_type, name, kind, spec, position, status; no tenant_id). A
+      refusal writes no row and no audit entry. Audit.append_multi raises on a database failure, so the router
+      answers the detail-free 500 (Response.internal_error/1, INV-8) for any {:error, other}.
+
+      PINS THIS CHANGE MOVES (each by +1 from the value on origin/main at implement time; the numbers in
+      parentheses are examples only and sibling merges make them stale): the permission count, the number-word
+      tables and the effective permission list in test/letflow/api/authorization_test.exs; the tenant-auditor
+      refused core set literal and its count in test/letflow/api/authorization_tenant_auditor_test.exs; the
+      permission lists in test/letflow/api/platform_scope_authorization_test.exs; priv/permission_matrix/effective.golden
+      (regenerated with mix letflow.permission_matrix --write, never hand-merged; the diff shows the new permission
+      for TENANT_ADMIN only); the @named_routes list and length(named) pin in
+      test/letflow/api/tenant_auditor_routes_test.exs (a new forward); docs/roles.md (permission table row and the
+      prose list of core permissions, which must name TENANT_ADMIN as the only tenant holder). Expected NOT to
+      move, shown by a test in the manner of test/letflow/api/number_sequences_route_classes_test.exs: the
+      length(snapshot) pins and test/fixtures/route_scope/tenant_wide_default_routes.txt, because every route is
+      declared :tenant_wide and none is default-sourced; if a pin does move, the new value is quoted. The
+      implementer runs grep -rn "__authz_routes__\|length(snapshot)\|NumberSequencesManage\|length(named)" test/ priv/
+      and lists every hit. The source-scan test test/letflow/entities/entity_type_extension_test.exs asserts that no
+      file under lib/ other than the schema module and the provisioning manifest references the table name; its
+      allow-list is extended by exactly the new context module (the scan stays for every other file), and the
+      schema moduledoc sentence "Deliberately no changeset and no Repo call here" is brought in step with the
+      change. Existing tenants: no migration and no seed change, the table already exists from I1 and starts
+      empty, so nothing is altered for installed tenants.
+
+      SECURITY-REVIEWER is a mandatory gate (new route, new permission, tenant-data write; INV-1, INV-2 (no
+      field-value read here), INV-5, INV-7, INV-8, INV-10, threat cases 1, 2, 3, 6 and 7 of the record) and so is
+      REVIEWER.
+    acceptance_criteria:
+      - "1. D4 key refusals at the context: create_extension_audited for an extensible module type refuses, writing no row and no audit entry, each of: name \"foo\" (no x_ prefix) with {:error, {:extension_key_invalid, \"foo\"}}; name \"x_Bad\", \"x_a-b\", \"x_\\\"; drop\" and a 65-character name starting x_ with {:error, {:extension_key_invalid, name}}; a name equal to a field name of the active module definition document answers {:error, {:extension_key_reserved, name}} (decision 0067 R0 forbids module x_ keys only from slice I6 on, so the test installs a module definition whose fields list contains \"x_reserved_probe\" and asserts the refusal for that name); and a repeat of an existing (entity_type, name) pair, active or retired, with {:error, :extension_key_taken}. Valid names x_amount, x_a1_b2 and a 64-character x_ name are accepted."
+      - "2. Type visibility refusals are one uniform 404 (INV-5): through the router, POST with an entity_type that has no active definition, one whose active definition has no managed_by stamp (a tenant-owned type), one that is append_only, and one the caller is denied by TypeAccess.authorized?/3 (a restriction row and no grant for that user) each answer 404 with a status, body and content-type header identical to each other and identical to DELETE of an id that does not exist; none writes a row or an audit entry. The same four inputs through GET /?entity_type= also answer that 404."
+      - "3. Spec rules: a spec with type string, integer, boolean, date, datetime or enum (with a non-empty enum_values) is accepted; a spec with type json, localized_text or decimal, an unknown type, an unknown key (for example unique or promoted), an enum without enum_values, required true without a default, or a non-object spec is refused with 422 invalid_extension_spec, no row written. The refusal body contains no submitted value."
+      - "4. Cap: 50 rows can be created for one entity_type in one tenant; the 51st create answers 422 extension_limit_reached; after retiring one of the 50 the create is STILL refused (retired rows count); another entity_type in the same tenant and the same entity_type in another tenant are unaffected (accepted); the cap constant is a module attribute of the context module and the test reads it rather than repeating 50 where it can. A test with two concurrent creates at count 49 (two tasks in the Ecto sandbox in shared mode, or two connections) leaves exactly 50 rows and exactly one {:ok, _} and one extension_limit_reached."
+      - "5. Routes and permission: with a TENANT_ADMIN token POST /entity-type-extensions with a valid body answers 201 with id, entity_type, kind \"field\", name, spec, position and status \"active\", position 1 for the first row of a type and 2 for the next; GET /entity-type-extensions?entity_type=T answers 200 with the items ordered by position including retired rows with status \"retired\"; DELETE /entity-type-extensions/:id answers 200 with status \"retired\" and the row still exists with its name unchanged; a second DELETE of the same id answers 200 with the same row and adds no audit entry. No response contains tenant_id. There is no PUT or PATCH route (a request with either answers the router's unmatched response, not 200). The error mapping of the description (invalid_extension_key, extension_key_reserved, extension_key_taken, invalid_extension_spec, extension_limit_reached, all 422, and a 500 with no detail for an unexpected {:error, _}) is asserted once per code through the router."
+      - "6. Role matrix: :EntitiesExtensionsManage is in Letflow.Api.Authorization, mapped by endpoint_policy_key/2 for all three routes and granted to TENANT_ADMIN only, and to PLATFORM_ADMIN only through its unconditional clause; PROCESS_DESIGNER, TASK_WORKER and TENANT_AUDITOR get 403 on all three routes, with identical status, body and content-type header for a POST that would be valid and for one that would be refused with 422 (the permission is checked before the body, INV-5). No test or fixture grants PLATFORM_ADMIN to a tenant user. mix letflow.permission_matrix --check passes and no module manifest route_policies entry names the atom (a grep over lib/letflow/modules/ returns nothing)."
+      - "7. Audit: after one successful create the audit log of the tenant holds exactly one entry with action \"entity_type_extension.create\", actor_id the TENANT_ADMIN user, resource_id the row id, before_state nil and after_state holding entity_type, name, kind, spec, position and status and no tenant_id; after one retire exactly one more entry with action \"entity_type_extension.retire\" whose before_state status is \"active\" and after_state status is \"retired\"; every refusal of criteria 1 to 4 leaves the audit entry count unchanged; and a test that drops the audit table inside the sandbox transaction (or otherwise makes Audit.append_multi raise) shows the row insert is rolled back and the router answers 500 with no detail (the pattern of the REQ-575 audit test)."
+      - "8. INV-1 and INV-10 cross-tenant negative tests through the router with two provisioned tenants A and B, each with its own TENANT_ADMIN token: (a) a POST by A with a body or query tenant_id (and a tenant header) naming tenant B writes the row in A's schema and none in B's; (b) B lists the same entity_type and sees zero of A's rows; (c) B sending DELETE with the id of A's row answers the uniform 404 and A's row is still active with its audit trail unchanged; (d) the same name x_amount created by B for the same entity_type is accepted independently of A's (no unique conflict across tenants) and the two cap counts are independent; (e) a PLATFORM_ADMIN token of the platform tenant gets only the platform tenant's own rows (zero rows of A or B), a no-data-leak check and not a refusal."
+      - "9. Pins and no stray writer: the pins named in the description move by +1 from origin/main at implement time and the implementer quotes the real new values and the grep output; mix letflow.permission_matrix --write was used for the golden; docs/roles.md names :EntitiesExtensionsManage under TENANT_ADMIN only; the route-class test shows all three routes :tenant_wide and not default-sourced, so length(snapshot) and tenant_wide_default_routes.txt are unchanged; the source-scan test in test/letflow/entities/entity_type_extension_test.exs passes with exactly one added allow-listed file, lib/letflow/entities/type_extensions.ex, and fails if another lib file references the table name (the test proves this on a temporary copy or by listing the matched files); no file under web/, apps/ or priv/repo/migrations/ changes."
+      - "10. Gates: SECURITY-REVIEWER verdict recorded (new routes, new permission, tenant-data write, INV-1, INV-5, INV-7, INV-8, INV-10) and REVIEWER verdict recorded in the PR Gates block, and the PR says Refs, not Closes, while slices I3 to I7 remain; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static, mix letflow.check_requirements_registration, test/letflow/ci_backend_path_filter_test.exs, the new test files and every pin file named in criterion 9 pass, real output quoted."
+    open_questions:
+      - "Decision 0067 D1 step 1 also excludes a type \"whose write class is not tenant-writable\" (ProcessWritable.classes/0), but lib/letflow/entities/process_writable.ex says a module-stamped type is assigned write_class \"managed\", so a class test would exclude every module type. This requirement therefore excludes only the four cases of criterion 2 and leaves the write-class rule to the owner of decision 0067 (not settled by the source); slice I3 may need it where a record write is refused for the class."
+      - "OP-1 (opt-OUT catalog flag extensible: false) is slice I6, not built here: until it lands every module type that passes criterion 2 is extensible. OP-5 (new permission) is built as the record recommends and remains open to an owner veto."
+      - "UAT assumption, to be confirmed by the process owner: the cap of 50 rows per type counts retired rows (the record says \"for example 50\" and does not say whether retired rows count); a read-only list for PROCESS_DESIGNER or TENANT_AUDITOR is not granted here and is left to I4."
+    depends_on: [REQ-576, REQ-550]
