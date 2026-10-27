@@ -1297,6 +1297,92 @@ defmodule Letflow.Modules.Exam.SessionTest do
 
       assert [%{field_values: %{"status" => "submitted"}}] = session_rows
     end
+
+    # REQ-594 part B: persist_scores writes exam_id on every score row and `correct` on graded rows.
+    defp score_rows!(schema, session_id) do
+      import Ecto.Query
+
+      Repo.all(
+        from(r in Letflow.Entities.Record.Latest,
+          where:
+            r.entity_type == "session_question_score" and
+              fragment("?->>?", r.field_values, "session_id") == ^session_id
+        ),
+        prefix: schema
+      )
+    end
+
+    test "A-write-1: a correct graded answer writes exam_id and correct == true" do
+      %{schema_name: schema} = tenant("req594-write-correct")
+      %{exam: exam, questions: [{question_id, correct_id, _wrong}]} = build_minimal_exam!(schema)
+      candidate_id = Ecto.UUID.generate()
+      assert {:ok, view} = Session.create(candidate_id, exam.record_id, schema)
+
+      assert {:ok, _} =
+               Session.autosave_answer(
+                 view.id,
+                 candidate_id,
+                 %{
+                   question_id: question_id,
+                   selected_option_ids: [correct_id],
+                   time_spent_seconds: 1
+                 },
+                 schema
+               )
+
+      assert {:ok, _} = Session.submit(view.id, candidate_id, schema)
+      assert [%{field_values: fv}] = score_rows!(schema, view.id)
+      assert fv["exam_id"] == exam.record_id
+      assert fv["grading_status"] == "graded"
+      assert fv["correct"] == true
+    end
+
+    test "A-write-2: a wrong graded answer writes exam_id and correct == false" do
+      %{schema_name: schema} = tenant("req594-write-wrong")
+      %{exam: exam, questions: [{question_id, _correct, wrong_id}]} = build_minimal_exam!(schema)
+      candidate_id = Ecto.UUID.generate()
+      assert {:ok, view} = Session.create(candidate_id, exam.record_id, schema)
+
+      assert {:ok, _} =
+               Session.autosave_answer(
+                 view.id,
+                 candidate_id,
+                 %{
+                   question_id: question_id,
+                   selected_option_ids: [wrong_id],
+                   time_spent_seconds: 1
+                 },
+                 schema
+               )
+
+      assert {:ok, _} = Session.submit(view.id, candidate_id, schema)
+      assert [%{field_values: fv}] = score_rows!(schema, view.id)
+      assert fv["exam_id"] == exam.record_id
+      assert fv["grading_status"] == "graded"
+      assert fv["correct"] == false
+    end
+
+    test "A-write-3: a pending_manual row carries exam_id and no correct key" do
+      %{schema_name: schema} = tenant("req594-write-pending")
+      %{exam: exam} = build_minimal_exam!(schema, exam_attrs: %{"max_attempts" => 5})
+      category_id = Ecto.UUID.generate()
+      create_question!(schema, category_id, %{"type" => "shorttext"})
+      create_rule!(schema, exam.record_id, category_id, 1, 1)
+      candidate_id = Ecto.UUID.generate()
+      assert {:ok, view} = Session.create(candidate_id, exam.record_id, schema)
+
+      assert {:ok, %{status: :grading_pending}} = Session.submit(view.id, candidate_id, schema)
+
+      pending =
+        schema
+        |> score_rows!(view.id)
+        |> Enum.map(& &1.field_values)
+        |> Enum.filter(&(&1["grading_status"] == "pending_manual"))
+
+      assert [fv] = pending
+      assert fv["exam_id"] == exam.record_id
+      refute Map.has_key?(fv, "correct")
+    end
   end
 
   # ---------------------------------------------------------------------
