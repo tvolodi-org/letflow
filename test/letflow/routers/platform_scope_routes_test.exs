@@ -38,6 +38,7 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
     {Letflow.Routers.Tenants, :patch, "/:slug", "/no-such-slug", %{}, :TenantsManage},
     {Letflow.Routers.Tenants, :post, "/:slug/deactivate", "/no-such-slug/deactivate", nil,
      :TenantsManage},
+    {Letflow.Routers.Tenants, :post, "/:slug/purge", "/no-such-slug/purge", nil, :TenantsManage},
     {Letflow.Routers.Tenants, :post, "/:slug/reactivate", "/no-such-slug/reactivate", nil,
      :TenantsManage},
     {Letflow.Routers.Onboarding, :post, "/", "/", %{}, :TenantsManage},
@@ -117,8 +118,8 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
   end
 
   describe "declared routes" do
-    test "the 24 snapshot rows declare the expected policy keys" do
-      assert length(@routes) == 24
+    test "the 25 snapshot rows declare the expected policy keys" do
+      assert length(@routes) == 25
 
       for {router, method, pattern, _path, _body, key} <- @routes do
         verb = method |> Atom.to_string() |> String.upcase()
