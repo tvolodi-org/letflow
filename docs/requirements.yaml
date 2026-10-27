@@ -42449,7 +42449,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- blocked-by: REQ-510 -- its register status still reads pending (its authoring code is on main); also waits for the owner check on BilimBaga AI usage
+    gh: 3375
     description: |
       Source: docs/migration/bilimbaga-study-t6a-ai.md (sections 1, 2, 4, 5) and docs/migration/bilimbaga-retirement-status.md
       section 6 and task T6b (retirement criterion 6); BilimBaga requirement FR-BB71 (POST /api/v1/admin/ai/generate-questions,
