@@ -196,6 +196,23 @@ defmodule Letflow.Routers.TenantConfigBundleTest do
       assert tenant_settings(t) == %{"app_name" => "Keep"}
     end
 
+    test "I2b REQ-585 a valid brand_colors.secondary is accepted and stored" do
+      t = tenant!("r585-i2b")
+
+      conn =
+        import_(
+          t,
+          bundle(%{"brand_colors" => %{"primary" => "#1a3c8e", "secondary" => "#1971C2"}})
+        )
+
+      assert conn.status == 200
+
+      assert tenant_settings(t)["brand_colors"] == %{
+               "primary" => "#1a3c8e",
+               "secondary" => "#1971C2"
+             }
+    end
+
     test "I3 unknown keys are refused (PATCH only drops them)" do
       t = tenant!("r552-i3")
       conn = import_(t, bundle(%{"app_name" => "X", "theme" => "dark"}))
@@ -205,11 +222,11 @@ defmodule Letflow.Routers.TenantConfigBundleTest do
       conn =
         import_(
           t,
-          bundle(%{"brand_colors" => %{"primary" => "#1a3c8e", "secondary" => "#000000"}})
+          bundle(%{"brand_colors" => %{"primary" => "#1a3c8e", "tertiary" => "#000000"}})
         )
 
       assert conn.status == 422
-      assert json(conn)["detail"] =~ "secondary"
+      assert json(conn)["detail"] =~ "tertiary"
       assert tenant_settings(t) in [nil, %{}]
 
       patch =

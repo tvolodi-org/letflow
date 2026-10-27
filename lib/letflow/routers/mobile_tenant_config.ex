@@ -119,6 +119,12 @@ defmodule Letflow.Routers.MobileTenantConfig do
 
   ## locales / default_locale / branding are per-tenant; environment_kind remains global
 
+  REQ-585: `branding` carries one optional extra key, `secondary_color`, read
+  by name from the stored `brand_colors.secondary`. It is present only when
+  the resolved tenant stored one; the unknown-slug, missing-`?slug=` and
+  lookup-failure bodies are the unchanged `@default_branding` and never
+  carry it (INV-5).
+
   `Letflow.Identity.Tenant`'s `:settings` column (`Letflow.Identity.TenantSettings`,
   REQ-280) stores a tenant's own `app_name`, `logo_url`, `brand_colors`,
   `locales` and `default_locale`, written through
@@ -283,11 +289,17 @@ defmodule Letflow.Routers.MobileTenantConfig do
           required(String.t()) => String.t() | nil | map()
         }
   defp branding_from_settings(settings) when is_map(settings) do
-    %{
+    base = %{
       "app_name" => Map.get(settings, "app_name", @default_branding["app_name"]),
       "logo_url" => Map.get(settings, "logo_url", @default_branding["logo_url"]),
       "primary_color" => primary_color_from_settings(settings)
     }
+
+    # REQ-585: optional; present only when the tenant stored a secondary.
+    case secondary_color_from_settings(settings) do
+      nil -> base
+      secondary -> Map.put(base, "secondary_color", secondary)
+    end
   end
 
   defp branding_from_settings(_nil_or_other), do: @default_branding
@@ -303,6 +315,13 @@ defmodule Letflow.Routers.MobileTenantConfig do
     case Map.get(settings, "brand_colors") do
       %{"primary" => primary} when is_binary(primary) -> primary
       _absent_or_incomplete -> @default_branding["primary_color"]
+    end
+  end
+
+  defp secondary_color_from_settings(settings) do
+    case Map.get(settings, "brand_colors") do
+      %{"secondary" => secondary} when is_binary(secondary) -> secondary
+      _absent_or_incomplete -> nil
     end
   end
 
