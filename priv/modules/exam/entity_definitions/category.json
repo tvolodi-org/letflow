@@ -1,7 +1,7 @@
 {
   "name": "category",
   "display_name": "Category",
-  "description": "FR-BB21 (roadmap section 2.1) -- ports the categories table from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\008_categories_tags.up.sql. name is :localized_text with locales [\"kk\",\"ru\",\"en\"] and search_strategy \"plain\", queried: true, required: true -- the source column is a bare TEXT, but the category tree is user-facing in a trilingual product and the platform now supports per-locale generated columns (REQ-301), so this is a deliberate upgrade over the source rather than a plain transcription. track is :string, queried: true, not required -- the source column is a nullable TEXT with no CHECK; roadmap 2.1 names three built-in tracks (security, safety, loyalty) but since the source enforces no vocabulary, track stays :string rather than being promoted to :enum with a hard-coded vocabulary the source does not enforce. sort_order is :integer, queried: true, required: true, ported directly. Indexes: idx_category_track over track. No constraints -- the source declares no UNIQUE on categories. No id, created_at, updated_at or created_by field is declared: the record subsystem (Letflow.Entities.Records) mints record identity and the event store carries the audit timeline, so declaring these here would duplicate platform-owned state inside tenant content. No parent_id field is declared: the source's categories.parent_id UUID REFERENCES categories(id) (the category tree) is a self-referential foreign key, and Letflow.Entities.Definition.Validator's Rule 9 (self_referential_fk_violations/1) rejects any fk_def whose references_entity equals the definition's own name today. REQ-324 (pending) lifts that restriction; a follow-on requirement will add parent_id plus its fk_def once REQ-324 lands. This is stated as an honest, deliberate gap -- no unenforced string parent_id, no closure-table entity, and no tree nested in a :json field are used as a workaround.",
+  "description": "FR-BB21 (roadmap section 2.1) -- ports the categories table from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\008_categories_tags.up.sql. name is :localized_text with locales [\"kk\",\"ru\",\"en\"] and search_strategy \"plain\", queried: true, required: true -- the source column is a bare TEXT, but the category tree is user-facing in a trilingual product and the platform now supports per-locale generated columns (REQ-301), so this is a deliberate upgrade over the source rather than a plain transcription. track is :string, queried: true, not required -- the source column is a nullable TEXT with no CHECK; roadmap 2.1 names three built-in tracks (security, safety, loyalty) but since the source enforces no vocabulary, track stays :string rather than being promoted to :enum with a hard-coded vocabulary the source does not enforce. sort_order is :integer, queried: true, required: true, ported directly. No constraints -- the source declares no UNIQUE on categories. No id, created_at, updated_at or created_by field is declared: the record subsystem (Letflow.Entities.Records) mints record identity and the event store carries the audit timeline, so declaring these here would duplicate platform-owned state inside tenant content. parent_id is :string, queried: true, not required, holding the parent category's record_id (null = root of the category tree; ports the source's categories.parent_id UUID REFERENCES categories(id)). The foreign_keys entry fk_category_parent_id promotes it to a nullable uuid self-referencing column with ON DELETE RESTRICT (decision 0025; inert on the soft-delete path, where the live rule is Letflow.Modules.Exam.AuthoringRules category_has_children). The database does not prevent cycles (as with decision 0050); the authoring write rule refuses a re-parent that would form one (parent_cycle) and a parent that does not exist (parent_not_found). Indexes: idx_category_track over track and idx_category_parent_id over parent_id.",
   "fields": [
     {
       "name": "name",
@@ -22,12 +22,29 @@
       "type": "integer",
       "queried": true,
       "required": true
+    },
+    {
+      "name": "parent_id",
+      "type": "string",
+      "queried": true,
+      "required": false
+    }
+  ],
+  "foreign_keys": [
+    {
+      "name": "fk_category_parent_id",
+      "field": "parent_id",
+      "references_entity": "category"
     }
   ],
   "indexes": [
     {
       "name": "idx_category_track",
       "fields": ["track"]
+    },
+    {
+      "name": "idx_category_parent_id",
+      "fields": ["parent_id"]
     }
   ]
 }

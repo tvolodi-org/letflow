@@ -636,6 +636,26 @@ defmodule Letflow.ExamFixtures do
   end
 
   @doc """
+  REQ-586: replaces the tenant's ACTIVE `entity_type` definition with a new version that does NOT
+  declare `parent_id` (and its index): a tenant installed before the column existed.
+  """
+  @spec downgrade_parent_id!(schema_name :: String.t(), entity_type :: String.t()) :: :ok
+  def downgrade_parent_id!(schema_name, entity_type) do
+    definition = load_definition!(entity_type)
+
+    create_active_definition!(
+      schema_name,
+      definition
+      |> Map.update!(:fields, fn fields -> Enum.reject(fields, &(&1.name == "parent_id")) end)
+      |> Map.update!(:indexes, fn indexes ->
+        Enum.reject(indexes, &(&1.fields == ["parent_id"]))
+      end)
+    )
+
+    :ok
+  end
+
+  @doc """
   Like `downgrade_session_definition!/1`, but the new version carries NO nil-valued optional field
   keys (`search_strategy`, `enum_values`, `locales`, `decimal_*` are left out instead of being
   stored as JSON null): the shape of a definition posted as a plain JSON document rather than
