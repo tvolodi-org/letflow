@@ -56,7 +56,8 @@ defmodule Letflow.Modules.Exam do
       :ExamSessionReportEvent,
       :ExamCertificateIssue,
       :ExamAuthoringWrite,
-      :ExamGradingRead
+      :ExamGradingRead,
+      :ExamGradingWrite
     ],
     role_grants: %{
       CANDIDATE: [
@@ -105,7 +106,8 @@ defmodule Letflow.Modules.Exam do
       {"PUT", "/authoring/:entity_type/:record_id", :ExamAuthoringWrite},
       {"DELETE", "/authoring/:entity_type/:record_id", :ExamAuthoringWrite},
       {"GET", "/grading-queue", :ExamGradingRead},
-      {"GET", "/grading-queue/:session_id/:question_id", :ExamGradingRead}
+      {"GET", "/grading-queue/:session_id/:question_id", :ExamGradingRead},
+      {"POST", "/grading-queue/:session_id/:question_id/grade", :ExamGradingWrite}
     ]
   )
 

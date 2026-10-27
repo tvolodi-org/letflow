@@ -110,6 +110,12 @@ defmodule Letflow.Modules.Exam.Session do
   `query_all/3`/`fv/2`/`question_type_atom/1` helpers and adds no new
   eligibility rule, write path, or state transition. See that function's own
   `@doc` for the redaction decision it implements.
+
+  ## Manual grading (GH #3324 / REQ-588 part B)
+
+  `grade_answer/5` stores an examiner's mark and finalises the session once no short-text answer is
+  pending, under the same session row lock as `finalize_expired/3`, against the threshold frozen in
+  the session's own snapshot.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -1623,6 +1629,189 @@ defmodule Letflow.Modules.Exam.Session do
         exam_owner()
       )
     )
+  end
+
+  # =======================================================================
+  # Manual grading (GH #3324 / REQ-588 part B)
+  # =======================================================================
+
+  @doc """
+  Stores an examiner's mark for one pending short-text answer and, when that leaves no pending
+  answer in the session, finalises the session (GH #3324 / REQ-588 part B).
+
+  One transaction. The session row is locked first (`FOR UPDATE`, as `finalize_txn/3` does) and the
+  score row is re-read after the lock, so two marks on one answer serialise (the second sees
+  `graded` and gets `:already_graded`) and two marks on the last two answers finalise exactly once.
+  Finalisation reads only the session's own verified snapshot (`Snapshot.fetch_verified/1`,
+  `Snapshot.threshold/1`): the live `exam` row is never consulted.
+
+  Errors: `:not_found` (malformed id, absent, another tenant's, not short text, not pending, session
+  not `grading_pending`: one outcome, INV-5), `:already_graded`, `:score_out_of_range` (above the
+  row's `max_score`), `{:grading_error, _}` (corrupt snapshot at the last mark; the mark is rolled
+  back). `grader_id` is the authenticated caller and becomes the actor of both writes.
+  """
+  @spec grade_answer(
+          prefix :: String.t(),
+          session_id :: term(),
+          question_id :: term(),
+          score :: number(),
+          grader_id :: String.t()
+        ) ::
+          {:ok,
+           %{
+             session_id: String.t(),
+             question_id: String.t(),
+             score: float(),
+             max_score: float(),
+             session_status: String.t()
+           }}
+          | {:error, :not_found | :already_graded | :score_out_of_range | term()}
+  def grade_answer(prefix, raw_session_id, raw_question_id, score, grader_id)
+      when is_binary(prefix) and is_number(score) do
+    with {:ok, session_id} <- Ecto.UUID.cast(raw_session_id |> to_string_id()),
+         {:ok, question_id} <- Ecto.UUID.cast(raw_question_id |> to_string_id()) do
+      Repo.transaction(fn ->
+        case grade_txn(prefix, session_id, question_id, to_float(score), grader_id) do
+          {:ok, view} -> view
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp to_string_id(value) when is_binary(value), do: value
+  defp to_string_id(_value), do: ""
+
+  defp grade_txn(prefix, session_id, question_id, score, grader_id) do
+    with {:ok, session} <- lock_graded_session(session_id, prefix),
+         {:ok, [row | _]} <-
+           query_all("session_question_score", score_filters(session_id, question_id), prefix),
+         :ok <- require_short_text(question_id, prefix),
+         :ok <- require_pending_mark(row),
+         :ok <- require_score_in_range(score, row),
+         :ok <- write_mark(row, score, grader_id, declared_score_fields(prefix), prefix),
+         {:ok, session_status} <- finalise_if_complete(session, session_id, grader_id, prefix) do
+      {:ok,
+       %{
+         session_id: session_id,
+         question_id: question_id,
+         score: score,
+         max_score: to_float(fv(row, "max_score")),
+         session_status: session_status
+       }}
+    else
+      {:ok, []} -> {:error, :not_found}
+      {:error, :session_not_found} -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp score_filters(session_id, question_id),
+    do: [eq("session_id", session_id), eq("question_id", question_id)]
+
+  defp lock_graded_session(session_id, prefix) do
+    with {:ok, session} <- lock_session_row(session_id, prefix) do
+      if fv(session, "status") == "grading_pending",
+        do: {:ok, session},
+        else: {:error, :not_found}
+    end
+  end
+
+  # Same rule as `Grading.get_answer/4`: only a live short-text question can be marked, checked before
+  # the graded test so a graded single-choice row is a 404, not a 409.
+  defp require_short_text(question_id, prefix) do
+    with {:ok, question} <- Latest.get_live(question_id, "question", prefix),
+         "shorttext" <- fv(question, "type") do
+      :ok
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp require_pending_mark(row) do
+    case fv(row, "grading_status") do
+      "pending_manual" -> :ok
+      "graded" -> {:error, :already_graded}
+      _other -> {:error, :not_found}
+    end
+  end
+
+  defp require_score_in_range(score, row) do
+    if score <= to_float(fv(row, "max_score")), do: :ok, else: {:error, :score_out_of_range}
+  end
+
+  # Full replacement of `field_values`: start from the stored row, set the mark. `max_score` is
+  # untouched; `correct` only where the tenant's active definition declares it (as `put_correct/3`).
+  defp write_mark(row, score, grader_id, declared, prefix) do
+    attrs =
+      row.field_values
+      |> Map.put("score", score)
+      |> Map.put("grading_status", "graded")
+      |> put_declared("correct", score == to_float(fv(row, "max_score")), declared)
+
+    ok_or_error(
+      # scope-all: SEC-518-R1 (exam module, own-record system path)
+      Records.update_record(
+        %{
+          entity_type: "session_question_score",
+          record_id: normalize_record_id(row.record_id),
+          field_values: attrs,
+          actor_id: grader_id,
+          idempotency_key: Ecto.UUID.generate()
+        },
+        prefix,
+        exam_owner()
+      )
+    )
+  end
+
+  # Sees the mark just written (same transaction). The session row is left alone while any answer
+  # is still pending, so the stored `passed` placeholder stays and the state read keeps `null`.
+  defp finalise_if_complete(session, session_id, grader_id, prefix) do
+    with {:ok, rows} <-
+           query_all("session_question_score", [eq("session_id", session_id)], prefix) do
+      if Enum.any?(rows, &(fv(&1, "grading_status") == "pending_manual")) do
+        {:ok, "grading_pending"}
+      else
+        finalise_session(session, rows, grader_id, prefix)
+      end
+    end
+  end
+
+  defp finalise_session(session, rows, grader_id, prefix) do
+    with {:ok, snapshot} <- Snapshot.fetch_verified(session.field_values),
+         {:ok, threshold} <- Snapshot.threshold(snapshot) do
+      total = rows |> Enum.map(&to_float(fv(&1, "score"))) |> Enum.sum()
+      max = rows |> Enum.map(&to_float(fv(&1, "max_score"))) |> Enum.sum()
+      score_pct = if max > 0.0, do: total / max * 100.0, else: 0.0
+
+      attrs =
+        Map.merge(session.field_values, %{
+          "status" => "submitted",
+          "score_pct" => score_pct,
+          "passed" => score_pct >= threshold
+        })
+
+      with :ok <-
+             ok_or_error(
+               # scope-all: SEC-518-R1 (exam module, own-record system path)
+               Records.update_record(
+                 %{
+                   entity_type: "session",
+                   record_id: session.record_id,
+                   field_values: attrs,
+                   actor_id: grader_id,
+                   idempotency_key: Ecto.UUID.generate()
+                 },
+                 prefix,
+                 exam_owner()
+               )
+             ) do
+        {:ok, "submitted"}
+      end
+    end
   end
 
   # See this module's moduledoc's second flagged gap: the raw sums are
