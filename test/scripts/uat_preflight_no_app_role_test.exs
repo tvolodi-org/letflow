@@ -16,15 +16,15 @@ defmodule Letflow.Scripts.UatPreflightNoAppRoleTest do
 
   defp launcher, do: System.get_env("UAT_PF_BASH") || System.find_executable("bash")
 
-  defp run_preflight(tmp, status) do
+  defp run_preflight(tmp, status, company \\ "swiftroute", actor \\ @actor) do
     base_url = start_stub(status)
-    File.mkdir_p!(Path.join(tmp, "scenarios/swiftroute"))
+    File.mkdir_p!(Path.join(tmp, "scenarios/#{company}"))
 
-    File.write!(Path.join(tmp, "scenarios/swiftroute/t.yaml"), """
+    File.write!(Path.join(tmp, "scenarios/#{company}/t.yaml"), """
     id: t
-    company_id: swiftroute
+    company_id: #{company}
     actors:
-      dispatcher: #{@actor}
+      dispatcher: #{actor}
     """)
 
     cred = Path.join(tmp, "cred.sh")
@@ -130,5 +130,14 @@ defmodule Letflow.Scripts.UatPreflightNoAppRoleTest do
     assert out =~ "#{@actor}@swiftroute=OK"
     refute out =~ "NO_APP_ROLE"
     refute out =~ "BAD_CRED"
+  end
+
+  test "N4: platform group names the actor realm", %{
+    tmp_dir: tmp
+  } do
+    out = run_preflight(tmp, 403, "platform", "actor-swiftroute-auditor")
+    assert out =~ "actor-swiftroute-auditor@swiftroute(NO_APP_ROLE)"
+    assert out =~ "no role for this user in tenant swiftroute;"
+    refute out =~ "in tenant platform"
   end
 end
