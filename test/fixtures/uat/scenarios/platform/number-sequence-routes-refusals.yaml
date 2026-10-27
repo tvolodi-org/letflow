@@ -1,0 +1,193 @@
+# REQ-575 (BA-PLATFORM): refusal scenario for the numbering-rule routes. Authored new; not a port.
+# Sensitive actions and where covered:
+#   - changing the numbering setup of a company (create a rule): steps 3, 4 (roles without the right); step 7 (a company cannot write into another)
+#   - seeing another company's rules (sensitive data): steps 2, 4 (no right), 6, 9 (no leak)
+#   - approving, paying or releasing: numbering rules have none of their own.
+# Criteria of the requirement covered here: 4 (permission, same answer for a valid and an invalid request), 6 (other company), 7 (platform operator).
+# Steps 2, 3 and 4 are expected to be REFUSED ("no right"). Steps 6, 7 and 9 are NOT refusals: the routes take the company from the
+# sign-in and have no company identifier in the address, so another company's rule cannot be named, and the other company simply
+# sees its own (empty) list. This is a no-data-leak check, not a refusal.
+# Criteria 8 (audit) is covered here only for the 403-writes-no-audit part (EO-002); the other parts of criterion 8 are checked by the implementer's tests.
+# Not applicable to the request "not found indistinguishable from absent": a rule of another company cannot be addressed at all.
+# Preconditions: the Bilimbaga administrator is the roster's only other-company TENANT_ADMIN; if a token for that account is not available to the run,
+# steps 6 to 8 are BLOCKED, not PASS.
+---
+id: platform-number-sequence-routes-refusals
+scope: platform
+title: Only a customer administrator manages numbering rules; other roles are refused, and no company sees another company's rules
+version: "1.0"
+tags: [numbering, isolation, access, refusal, regression]
+
+description: >
+  SwiftRoute's administrator has created one numbering rule (key "orders", record type "order", prefix ORD, width 6, period year).
+  A SwiftRoute dispatcher and the read-only auditor try to list the rules and to create one; both are refused with the same answer
+  whether their request is a good one or a bad one. The administrator of another company (Bilimbaga) lists rules and sees none of SwiftRoute's,
+  creates a rule with the same key and record type name which works independently of SwiftRoute's, and tries to name SwiftRoute
+  as the owner of the rule in the request; the rule is created in Bilimbaga and nothing in SwiftRoute. Finally the platform
+  operator lists rules and sees only the platform's own, never a customer's.
+
+actors:
+  swiftroute_admin: actor-swiftroute-alice
+  swiftroute_dispatcher: actor-swiftroute-lena
+  swiftroute_auditor: actor-swiftroute-auditor
+  other_admin: actor-bilimbaga-admin
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: SwiftRoute and Bilimbaga are set up with their own users and workspaces
+    check: system_seeded
+  - description: >
+      SwiftRoute has one numbering rule: key "orders", record type "order", prefix ORD, width 6, period year, created by its administrator,
+      and a second ordinary record type with no rule (the "second type"). Bilimbaga has no numbering rule and has an ordinary record type with the same name "order"
+    check: custom
+    detail: >
+      Set up by the platform team (or by running the first steps of number-sequence-routes-admin). If Bilimbaga cannot be given a record type called "order",
+      step 7 cannot show that the same key and record type name work independently, and that part is BLOCKED.
+  - description: The platform tenant has no numbering rule at the start
+    check: custom
+    detail: If it has one, step 9 compares against it instead of an empty list.
+  - description: A token for the Bilimbaga administrator is available to the run
+    check: custom
+    detail: The roster notes that minting it is UAT-class and not yet approved; without it steps 6 to 8 are BLOCKED.
+
+steps:
+  - step: 1
+    actor: swiftroute_admin
+    action: Asks for the list of rules and notes the answer, to compare with the later steps.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: swiftroute_dispatcher
+    action: >
+      Tries to list the numbering rules of SwiftRoute.
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: swiftroute_dispatcher
+    action: >
+      Tries to create a rule (key "dispatch-rule", the second type, prefix "DP", width 6, period "year"). Then, as a second request, tries
+      to create a rule with an invalid width (key "dispatch-bad", the second type, prefix "DP", width 0).
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: swiftroute_auditor
+    action: >
+      Tries to list the numbering rules of SwiftRoute, and tries to create a rule (key "audit-rule", the second type, prefix "AU", width 6, period "year").
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: swiftroute_admin
+    action: Asks for the list of rules again and notes it.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: other_admin
+    action: Asks for the list of numbering rules of Bilimbaga and notes the answer and any text in it.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 7
+    actor: other_admin
+    action: >
+      Creates a rule in Bilimbaga with key "orders", record type "order", prefix "ORD", width 6 and period "year" (the same key and record type name as SwiftRoute's),
+      writing into the request SwiftRoute's customer identifier, in the body and in the address as a query value. Then asks for the list.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 8
+    actor: swiftroute_admin
+    action: Asks for the list of rules of SwiftRoute again and notes it.
+    via: api
+    sla_context:
+      expected_within_hours: null
+  - step: 9
+    actor: platform_operator
+    action: Asks for the list of numbering rules through the same route and notes it.
+    via: api
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The dispatcher (steps 2 and 3) and the auditor (step 4) are refused as lacking the right, for the list and for the creation. For the creation the
+      answer to the good request and to the bad request has the same status, the same body and the same content type: the right is checked before the request is looked at.
+    verification:
+      method: api_response
+      detail: >
+        The refusals of steps 2, 3 and 4 are all "forbidden"; the two refusals of step 3 are identical in status, body and content type.
+        Neither shows the rule of step 1 nor any part of it.
+      evidence: The refusal answers, the two of step 3 compared directly.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person who may not manage numbering could change it, or could learn from the wording of a refusal whether a request would have been valid.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      The refused requests changed nothing: the list in step 5 is exactly the list of step 1, and no audit entry for number rules was written for the refused requests.
+    verification:
+      method: api_response
+      detail: The rule of step 1, same values, is the only one; no dispatcher or auditor rule is in the list.
+      evidence: The lists of steps 1 and 5 compared; the audit trail of SwiftRoute read for number rules since step 1 (system read).
+    on_fail:
+      severity: BLOCKER
+      business_impact: Someone without the right could have switched numbering on for a record type.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      Bilimbaga's list in step 6 is empty, and no key, record type name or prefix of SwiftRoute appears anywhere in the answer.
+    verification:
+      method: api_response
+      detail: A successful answer with an empty list; the text of the answer holds nothing of SwiftRoute.
+      evidence: The answer of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could see how another company numbers its documents.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      Step 7 is accepted although the key and the record type name equal SwiftRoute's, the rule is created in Bilimbaga, and Bilimbaga's list holds it alone.
+      The customer identifier of SwiftRoute written in the request is ignored.
+    verification:
+      method: api_response
+      detail: A "created" answer without any customer identifier; the following list holds one rule.
+      evidence: The answer of step 7 and the list after it.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Companies would be unable to choose their own numbering because of another company's, or a request could write into another company.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      Nothing was stored in SwiftRoute by step 7: the list in step 8 is exactly the list of step 1, and SwiftRoute's rule is unchanged.
+    verification:
+      method: api_response
+      detail: The same one rule as in steps 1 and 5.
+      evidence: The lists of steps 1 and 8 compared.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Another company's administrator could change a customer's numbering by naming it.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: >
+      The platform operator receives a successful answer holding only the platform's own rules (none, unless it created some); no rule of SwiftRoute or Bilimbaga is in it.
+      This is not a refusal: the route gives the operator its own company's data.
+    verification:
+      method: api_response
+      detail: A successful answer; no key "orders" from a customer.
+      evidence: The answer of step 9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The platform operator's list would show customers' numbering rules, breaking the separation of companies.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: The numbering rules cannot be deleted through the product (no delete route yet); the platform team removes the rule created in Bilimbaga in step 7 before the next run.
