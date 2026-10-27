@@ -1,0 +1,155 @@
+# T-0771 (BA): TENANT ADMIN group, scenario 26: what the second brand colour refuses, who may not set it, and that an unknown company learns nothing.
+# Covers REQ-585 (GH #3313; BilimBaga retirement criterion 9): the hex rule and the readability (contrast) rule for "secondary", and the
+# anti-enumeration rule (INV-5) of the mobile configuration read.
+# Sources: docs/requirements.yaml REQ-585; lib/letflow/identity/tenant.ex (validate_brand_colors/2: the error texts are
+# "brand_colors.<key> must be a 6-digit hex color (#RRGGBB)" and "brand_colors.<key> (<value>) does not meet the WCAG AA contrast minimum (4.5:1)
+# against the page/card background; computed contrast ratio is ..."); lib/letflow/routers/tenant_settings.ex (a value that fails validation is a
+# whole-request 422 and writes nothing; the route is the administrator's, permission TenantSettingsManage); lib/letflow/routers/mobile_tenant_config.ex
+# (an unknown or missing slug gets the platform default body, status 200, no secondary_color); docs/roles.md; test/fixtures/uat/actors.yaml.
+# Step 8 is not a refusal: the mobile read answers 200 for an unknown slug by design, so it is a no-leak check, not expect_refusal.
+# The accepted boundary case (#1971C2 passes) is in scenario 25, not here; no refusal step contains an accepted request.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusal of the candidate in
+# step 5 covers the one change that is: changing the company's settings.
+---
+id: tenant-administration-26-secondary-brand-colour-refusals
+scope: tenant-administration
+title: The second brand colour refuses malformed and unreadable values, only the administrator may set it, and an unknown company gets no colour
+version: "1.0"
+tags: [tenant-admin, branding, brand-colours, refusal, access, privacy]
+
+description: >
+  The administrator of BilimBaga first stores a valid secondary colour #1971C2. Saves with a secondary colour that is not a 6-digit #RRGGBB value
+  ("red", "#FFF", "#GG0000", the number 123) are refused, each with a message that names the secondary colour and the 6-digit rule. Saves with a
+  well-formed secondary colour whose text would be hard to read on the light page and card backgrounds (#FFFF00, #FFFFFF) are refused with the same
+  readability message the primary colour gets, naming the secondary colour. Every refusal changes nothing: the stored secondary colour is still
+  #1971C2. A BilimBaga candidate cannot save company colours. Last, anyone calling the mobile configuration read with a company name that does not
+  exist, or with no name, gets the platform default answer with no secondary colour, the same as a company with no stored secondary colour, so the
+  read does not reveal which companies exist or what they chose.
+
+actors:
+  tenant_admin: actor-bilimbaga-admin
+  candidate: actor-bilimbaga-candidate
+  visitor: actor-any
+
+preconditions:
+  - description: BilimBaga is set up with its administrator and a candidate, and has a realm bound so the public configuration reads resolve it by its own slug
+    check: system_seeded
+  - description: No company with the name "no-such-company-0000" exists
+    check: system_seeded
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator saves the brand colours with primary "#1864AB" and secondary "#1971C2", after noting the colours the company had (read
+      without signing in through the web configuration read). The answer is noted.
+    via: api
+    input:
+      brand_colors: primary "#1864AB", secondary "#1971C2"
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the brand colours with primary "#1864AB" and a secondary colour that is not a 6-digit hex value, one request
+      for each of these: the text "red"; "#FFF"; "#GG0000"; the number 123 (a number, not text). Each answer and its message are noted.
+    expect_refusal: true
+    via: api
+    input:
+      secondary_values: '"red", "#FFF", "#GG0000", 123'
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the brand colours with primary "#1864AB" and a well-formed secondary colour that is too pale to read, one
+      request for each of these: "#FFFF00" and "#FFFFFF". Each answer and its message are noted.
+    expect_refusal: true
+    via: api
+    input:
+      secondary_values: '"#FFFF00", "#FFFFFF"'
+  - step: 4
+    actor: visitor
+    action: >
+      Without signing in, reads the web configuration and the mobile configuration by naming the company, and notes the colours of each answer.
+    via: api
+  - step: 5
+    actor: candidate
+    action: >
+      The candidate tries to save the brand colours with primary "#1864AB" and secondary "#2B6CB0", and notes the answer. The candidate does not
+      repeat the request with other values.
+    expect_refusal: true
+    via: api
+    input:
+      brand_colors: primary "#1864AB", secondary "#2B6CB0"
+  - step: 6
+    actor: visitor
+    action: >
+      Without signing in, reads the mobile configuration by naming the company again and notes the secondary colour in the answer.
+    via: api
+  - step: 7
+    actor: visitor
+    action: >
+      Without signing in, reads the mobile configuration by naming the company "no-such-company-0000", and then reads it once more with no company
+      name at all. Both answers are noted in full, with their status.
+    via: api
+    input:
+      company_names: '"no-such-company-0000", none'
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator puts back the colours noted in step 1 (the primary colour only, if the company had no secondary colour before).
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A secondary colour that is not a 6-digit #RRGGBB value is refused with a message that names the secondary colour and the 6-digit rule.
+    verification:
+      method: http_status
+      detail: All four requests of step 2 answer 422, and the message of each names brand_colors.secondary and states that it must be a 6-digit hex colour (#RRGGBB).
+      evidence: The four answers of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A malformed value would be stored and published on two public endpoints, and the web or mobile application would meet text it cannot use as a colour.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A well-formed secondary colour that fails the readability minimum against the light page or card background is refused with the same message the primary colour gets, naming the secondary colour.
+    verification:
+      method: http_status
+      detail: Both requests of step 3 answer 422, and the message of each names brand_colors.secondary and its value, states the 4.5:1 minimum, and gives the computed ratios against #F8F9FA (page) and #FFFFFF (card), in the wording used for the primary colour.
+      evidence: The two answers of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company could choose a second colour that staff with weaker eyesight cannot read on any screen that later uses it, and the accessibility minimum the platform promises would depend on the primary colour only.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: Every refusal of steps 2, 3 and 5 changes nothing; the stored secondary colour is still #1971C2 and the primary colour is still #1864AB.
+    verification:
+      method: api_response
+      detail: In step 4 the web configuration read carries brand colours primary "#1864AB" and secondary "#1971C2", and the mobile configuration read carries primary colour "#1864AB" and secondary colour "#1971C2"; step 6 still shows secondary colour "#1971C2".
+      evidence: The reads of steps 4 and 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A refused request that still changes the company's colours is a silent change nobody approved.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A candidate cannot save the company's brand colours.
+    verification:
+      method: http_status
+      detail: The single request of step 5 answers 403; the colours read in step 6 are unchanged, with no secondary colour "#2B6CB0" anywhere.
+      evidence: The answer of step 5 and the read of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone with an account in the company could restyle the public pages that every visitor and every mobile device of the company loads.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: For a company name that does not exist, and for no company name, the mobile read answers 200 with the platform default body and carries no secondary colour, so it reveals nothing about any company's colours.
+    verification:
+      method: api_response
+      detail: Both answers of step 7 are 200; neither has a secondary colour key; their branding primary colour is the platform default "#228be6"; the two bodies are identical to each other, and neither carries the secondary colour "#1971C2" that BilimBaga stores in step 1.
+      evidence: The two answers of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A caller who cannot sign in could tell which company names exist, or read another company's colours, by comparing answers.
+      suggested_action: route_to_security_review
+
+cleanup:
+  description: >
+    Step 8 puts back the colours the company had before the scenario. If the company had no stored colours, the nearest state is its primary colour
+    only; the report notes the value left.
