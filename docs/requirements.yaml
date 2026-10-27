@@ -41331,6 +41331,215 @@ requirements:
       - "10. SECURITY-REVIEWER verdict is recorded (mandatory: INV-1, INV-2, INV-5, INV-10, template content in audit payloads, trigger completeness) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests (S1-store, S2-immutable, S2-save, D5-redact, C3-manage, S2-sod, S2-audit and the permission tests) pass with real output quoted."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571]
 
+  - id: REQ-584
+    title: "Outbound notification delivery with a per-tenant delivery log: send the task_assigned template through the REQ-441 mail adapter boundary on task assignment, and record each attempt"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3310
+    # Source: docs/migration/bilimbaga-retirement-status.md section 5 ("Missing" item 1, "Proposed tasks" T5a, T5c); REQ-441 (lib/letflow/login_discovery/notifier.ex, notifier/smtp.ex, notifier/smtp/config.ex, notifier/smtp/transport.ex, notifier/smtp/message.ex, notifier/noop.ex, dispatch.ex; decision docs/migration/decisions/0045-mail-library-choice.md); REQ-563 (lib/letflow/notification_templates.ex, notification_templates/registry.ex, routers/notification_templates.ex); lib/letflow/tasks.ex (assign_task/3, reassign_task/3); lib/letflow/identity/tenant_settings.ex (default_locale); priv/repo/migrations/20261026200001_create_notification_templates.exs (PLACEMENT header: per-tenant, tenant_id uuid NOT NULL); docs/agents/instructions/security-invariants.md (INV-1 Reference, INV-4, INV-8). Written by the business analyst (T-0659) 2026-10-26. Not yet validated.
+    description: >
+      Today the platform can send exactly one message: the login-discovery tenant list (REQ-441). The
+      tenant templates of REQ-563 are stored and previewable but nothing renders them for a real
+      recipient, and no send attempt is recorded anywhere (the SMTP adapter is deliberately
+      fire-and-forget and returns only :ok or {:error, :failed}). This slice sends one message kind
+      and keeps a log of attempts. Name of the new module: Letflow.Notifications
+      (lib/letflow/notifications.ex).
+
+      Adapter boundary (one choice). The REQ-441 boundary is reused, no second mail adapter and no new
+      mail dependency: Letflow.LoginDiscovery.Notifier (lib/letflow/login_discovery/notifier.ex)
+      gains one callback, deliver_message(message) where message is a map with to, subject and body
+      (strings), returning :ok or {:error, term}. The adapters selected by the existing configuration
+      (Notifier.Smtp, Notifier.Noop, and the test double test/support/login_discovery_notifier_double.ex)
+      implement it. Notifier.Smtp validates with its own Smtp.Message (valid_address?/1,
+      sanitize_text/2), reads the connection through Smtp.Config.runtime/0 and sends through
+      Smtp.Transport.send_message/4, the only module that calls the mail library. The sender address is
+      the platform sender already configured for REQ-441 (the environment references LETFLOW_SMTP_*); a
+      per-tenant sender is out of scope. deliver_tenant_list/2 and its message stay unchanged.
+
+      Trigger wiring and where delivery runs (one shape). When Letflow.Tasks.assign_task/3 or
+      reassign_task/3 (lib/letflow/tasks.ex) succeeds and the new assignee is a user, Letflow.Notifications
+      starts one delivery after the assignment transaction has committed. Delivery runs in a task
+      started with Task.Supervisor.start_child on a Letflow.Notifications.TaskSupervisor (a new
+      supervisor in the application tree, the same shape as Letflow.LoginDiscovery.TaskSupervisor), and the
+      adapter call inside it runs under a hard timeout of timeout_ms, read from the existing config key
+      `config :letflow, Letflow.LoginDiscovery.Notifier, timeout_ms:` (default 5_000, read the way
+      Letflow.LoginDiscovery.Dispatch.timeout_ms/0 reads it), killed with Task.shutdown(task, :brutal_kill)
+      on expiry. The request that assigned the task never waits for the adapter. Whatever the outcome, the
+      delivery task writes exactly one log row at its end.
+
+      Template and locale. The locale is the tenant's default_locale setting (lib/letflow/identity/tenant_settings.ex);
+      when it is unset the locale is "en", and that value is the one written in the log row. Subject and
+      body come from Letflow.NotificationTemplates.preview/6 (lib/letflow/notification_templates.ex)
+      called with template key "task_assigned", that locale, nil for both request texts and the
+      allow-listed values task_name, process_name, assignee_name, due_date, tenant_name: the stored row of
+      that locale, else the platform default (Letflow.NotificationTemplates.Registry.default/2). Users
+      have no locale of their own and none is added. Other trigger points (reminders, results,
+      welcome) are out of scope.
+
+      Template values (every value is a string; preview/6 requires a binary of at most 500 codepoints,
+      so each is cut to 500 codepoints and a missing or empty source gives ""; tasks.node_name, users.display_name
+      and users.email are NOT NULL columns, see priv/repo/migrations/20260818110003_create_tasks.exs and
+      priv/repo/migrations/20260819000003_create_users_tenant_scoped.exs, so "missing" for them means the empty
+      string, and a missing snapshot row is possible because that table is separate): task_name = node_name of the
+      task row (lib/letflow/engine/task.ex), "" when it is ""; process_name = definition_name of the
+      instance_definition_snapshots row whose instance_id equals the task's instance_id
+      (lib/letflow/definitions/instance_definition_snapshot.ex), else ""; assignee_name = display_name of
+      the assignee's user row (lib/letflow/identity/user.ex), its username when display_name is ""; due_date = "" always,
+      because tasks have no due date column and none is added; tenant_name = display_name of the
+      caller's tenant row (lib/letflow/identity/tenant.ex, table tenants), else "".
+
+      Unusable outcomes before the adapter. If the assignee user id resolves to no user row in the
+      tenant schema, or the user's email is the empty string "" (the no-email case; the column is NOT NULL,
+      so a test sets it with a direct update because the changeset requires an email), the row is
+      "skipped"/"no_email" and no adapter is called. If preview/6 returns {:error, _} (for example :invalid_locale for a default_locale that
+      does not match the locale pattern, or {:invalid_values, _}), the row is "failed"/"adapter_error"
+      (no new reason is added) and no adapter is called.
+
+      Delivery log. One tenant-schema table, notification_deliveries, created through the same
+      tenant-schema migration mechanism and with the same placement as priv/repo/migrations/20261026200001_create_notification_templates.exs
+      (per-tenant via the :prefix, and tenant_id uuid NOT NULL kept in the row, as that migration's
+      PLACEMENT header and the INV-1 Reference in security-invariants.md state). Columns: id,
+      tenant_id, template_key, locale, recipient_user_id, status, reason, trigger_ref (the task id),
+      inserted_at. The closed sets are: status one of "sent", "failed", "skipped"; reason one of
+      "no_email", "adapter_noop", "adapter_error", or null when status is "sent". Mapping: an assignee
+      whose email is "" or who has no user row writes "skipped"/"no_email" and calls no adapter; a
+      preview/6 error writes "failed"/"adapter_error" and calls no adapter; the Noop adapter selected
+      writes "skipped"/"adapter_noop"; every {:error, _} from the adapter (including the Smtp reasons
+      :not_configured, :invalid_recipient, :invalid_message and :failed), every raise, exit and the
+      timeout writes "failed"/"adapter_error"; :ok writes "sent"/null. A value outside these sets is
+      refused by the changeset and by a database CHECK. The log never stores the subject, the body, the
+      recipient email address, the adapter's error term, a connection setting or any credential (INV-4);
+      the recipient is the user id only.
+
+      Read route. Letflow.Routers.NotificationDeliveries (lib/letflow/routers/notification_deliveries.ex),
+      mounted with forward("/notification-deliveries", to: Letflow.Routers.NotificationDeliveries) in
+      lib/letflow/plugs/api_pipeline.ex next to the notification-templates forward, declares
+      authz_get "/", :NotificationTemplatesManage, scope: :tenant_wide (the permission of the neighbouring REQ-563
+      routes; no new permission atom, so no permission-matrix change), and
+      lib/letflow/api/authorization.ex gains the clause endpoint_policy_key("GET", "/notification-deliveries"),
+      returning :NotificationTemplatesManage. GET /api/v1/notification-deliveries returns the caller tenant's rows newest first
+      (inserted_at descending, id descending), at most 100 rows, with an optional status filter; there is no
+      pagination in this slice. The tenant comes from the auth context only.
+
+      Retries, queueing, bounce handling and a tenant-level sender are the other parts of the BilimBaga
+      "general outbound mail service" and are NOT in this slice: one attempt, one row.
+
+      OPEN QUESTION, named and not decided here (study T5c): whether reset and welcome mail is sent by
+      Keycloak (realm SMTP and templates in the realm template, REQ-572 item) or by Letflow through this
+      service. This requirement builds no reset or welcome mail and its design does not depend on the answer.
+    acceptance_criteria:
+      - "1. Port reuse: Letflow.LoginDiscovery.Notifier declares the callback deliver_message/1; Notifier.Smtp, Notifier.Noop and the test double implement it; grep -rn \":gen_smtp_client\\|:mimemail\" lib/ --include=*.ex matches only lib/letflow/login_discovery/notifier/smtp/transport.ex, and mix.exs and mix.lock gain no dependency. deliver_tenant_list/2 and its tests are unchanged."
+      - "2. Send path: with the capturing test adapter and a tenant whose default_locale is \"fr\", assigning a task to a user with an email makes the adapter receive one message whose to is that address and whose subject and body are the stored task_assigned template of locale \"fr\" with the values inserted; with no stored row of \"fr\", the platform default text; with default_locale unset, the stored or default text for \"en\" and the log row's locale is \"en\". A test covers the three cases. Values: with the task node_name \"Review\", the snapshot definition_name \"Leave\", the user display_name \"Ann\" and the tenant display_name \"Acme\", the message contains those four texts; with node_name \"\" and user display_name \"\" (both written directly in test setup) and no snapshot row, a message is still sent and one \"sent\" row is written, with \"\" in place of task_name and process_name and the username in place of assignee_name; due_date is \"\" in every case."
+      - "3. Assignment unaffected (INV-8): if the adapter returns {:error, :failed}, raises, or sleeps past timeout_ms (the test sets Letflow.LoginDiscovery.Notifier timeout_ms to a small value), assign_task/3 returns the same success result without waiting for the adapter, and the task is assigned; after waiting for the delivery task with a bounded poll of the log (at most 2 seconds), exactly one row exists for each of the three cases, with status \"failed\" and reason \"adapter_error\". The same holds for reassign_task/3 in one case."
+      - "4. Log rows: a successful send writes one row with status \"sent\" and a null reason; an assignee whose email is \"\" (set by a direct update in test setup) writes status \"skipped\" and reason \"no_email\" and calls no adapter; with the Noop adapter the row is \"skipped\" with reason \"adapter_noop\". Each row carries template_key \"task_assigned\", locale, recipient_user_id and trigger_ref equal to the task id."
+      - "5. Closed sets: inserting a row with a status outside \"sent\"/\"failed\"/\"skipped\", a reason outside \"no_email\"/\"adapter_noop\"/\"adapter_error\", or status \"sent\" with a non-null reason, is refused by the changeset, and a direct SQL insert of the same is refused by the CHECK; each of the Smtp reasons :not_configured, :invalid_recipient, :invalid_message and :failed, returned by the test double, writes \"failed\"/\"adapter_error\". A default_locale not matching the locale pattern, written directly in test setup (preview/6 returns {:error, :invalid_locale}), writes \"failed\"/\"adapter_error\" and calls no adapter; an assignee user id with no user row writes \"skipped\"/\"no_email\" and calls no adapter."
+      - "6. No secrets or content in the log (INV-4): a test drives all outcomes and asserts that the table has no column holding subject, body, recipient address or error text, and that a row, the GET response and the application log output of a failed delivery (captured with ExUnit.CaptureLog) contain none of: the recipient address, the template text, the SMTP password or username values set in the test environment."
+      - "7. Per-tenant scoping (INV-1, INV-10): rows written for an assignment in tenant A are in tenant A's schema only; the table of tenant B has no row and GET by a TENANT_ADMIN of tenant B returns an empty list; the route has no tenant parameter in path, query or body; a cross-tenant negative test shows tenant B cannot read, filter to or count tenant A's rows. A PLATFORM_ADMIN token gets only its own tenant's rows."
+      - "8. Read route: GET /api/v1/notification-deliveries answers 200 with newest-first rows (at most 100) for a caller holding :NotificationTemplatesManage; status=failed returns only failed rows; an unknown status value answers 422; a caller without the permission gets the uniform 403 identical in status, body and content-type for a tenant with rows and one without (INV-5)."
+      - "9. Route and table pins moved and listed in the PR summary: the router is Letflow.Routers.NotificationDeliveries with scope: :tenant_wide and its forward line in lib/letflow/plugs/api_pipeline.ex; from grep -rn \"__authz_routes__\\|length(snapshot)\\|length(named)\\|@named_routes\\|mounted_routers\" test/ every pin and the forward list parsed in test/letflow/routers/tenant_auditor_routes_test.exs are checked and moved (+1 forward, +1 route from the values on origin/main at implement time; test/fixtures/route_scope/tenant_wide_default_routes.txt as its rule requires); the new tenant table moves @expected_tenant_tables in test/support/tenant_fixture.ex and its count in tenant_fixture_test.exs by +1 from origin/main at implement time; the migration takes the next free version at implement time."
+      - "10. Scope: the PR touches no reset or welcome mail path, adds no retry or queue, adds no user locale column, and records the Keycloak-versus-Letflow question (T5c) as undecided in the PR body; SECURITY-REVIEWER (INV-1, INV-4, INV-5, INV-8, INV-10) and REVIEWER verdicts are recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the new test files pass with real output quoted."
+    open_questions:
+      - "Open for the process owner and infra, not decided here (study T5c): Keycloak or Letflow sends reset and welcome mail."
+      - "UAT assumption, to be confirmed by the process owner: the first trigger is task assignment with the template task_assigned (the only registered key), the locale is the tenant's default_locale with \"en\" as fallback, the log keeps no message content, and the read permission is :NotificationTemplatesManage."
+    depends_on: [REQ-441, REQ-563]
+  - id: REQ-587
+    title: "Candidate my-results list: GET /modules/exam/exam-sessions/mine (own sessions with result and certificate flag) and the My results screen with certificate download (FR-BB41/FR-BB46, BilimBaga certificates)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    gh: 3321
+    # Source: docs/migration/decisions/0031-candidate-results-list-scope.md (Revisitability trigger 1, section 3 one surface for FR-BB41 and FR-BB46, section 4 queried:false constraint, section 5 admin view out of scope); lib/letflow/modules/exam/router.ex moduledoc ("Deliberately NOT routed here", "Permission vocabulary", "Ownership and tenant isolation"); lib/letflow/modules/exam/exam.ex (defmanifest permissions, role_grants, route_policies); lib/letflow/modules/exam/session.ex (list_available_exams/2, get_session_for_user/3, check_owner/2); lib/letflow/modules/exam/certificate.ex (issue_or_get_for_user/3); priv/modules/exam/entity_definitions/session.json and certificate.json; web/src/modules/exam/examRoutes.tsx, exam.api.ts, ExamListPage.tsx, ExamSessionResultPage.tsx; web/src/api/client.ts (getBlob); test/fixtures/route_scope/tenant_wide_default_routes.txt; docs/roles.md (CANDIDATE). Task source: T-0627 study task T4b, T-0666. Written by the business analyst 2026-10-26. Not yet validated.
+    description: >
+      Source: BilimBaga criterion 4 (certificates). A signed-in candidate has no way to list their own past
+      sessions or find their certificates: lib/letflow/modules/exam/router.ex lists GetExamHistory and
+      HandleGetMyResults (FR-BB41, FR-BB46) under "Deliberately NOT routed here", CANDIDATE holds six Exam*
+      permissions and none lists records, and the certificate record has no user field (it names its owner only
+      through session_id, then session.user_id). Decision 0031 section 1 recorded "not today" and named the
+      reopening trigger (Revisitability 1: a direct product request naming a results list); the BilimBaga
+      certificates criterion is that request. Decision 0031 section 2 preferred the generic POST /entities/query
+      route, but CANDIDATE does not hold the permission for it (web/src/modules/exam/exam.api.ts, comment on
+      listAvailableExams: ISS-0718), so this entry follows the precedent that ISS-0718 set for the exam list: one
+      exam-module route. That departure is an open owner question (below); the entry records it, it does not
+      settle it silently.
+      ROUTE. A new route in lib/letflow/modules/exam/router.ex: GET /exam-sessions/mine, full path
+      GET /api/v1/modules/exam/exam-sessions/mine, declared with authz_get next to GET /exam-sessions/available
+      and above GET /exam-sessions/:id (a literal segment wins over :id in Plug.Router, as for "available").
+      It serves FR-BB41 and FR-BB46 as one surface (decision 0031 section 3) with an optional exam_id query
+      parameter (cast with cast_uuid/1; a malformed value gives 400). Query parameters: cursor, page_size
+      (parsed with Pagination.parse_page_size_param/1 as handle_list_available_exams does; invalid gives 400),
+      exam_id. No other parameter is read, and none names a candidate or a tenant.
+      PERMISSION. :ExamSessionRead, which CANDIDATE already holds (lib/letflow/modules/exam/exam.ex role_grants)
+      and TENANT_ADMIN and PLATFORM_ADMIN hold through the core rules. No new permission is minted, so no
+      permission pin moves (authorization_test.exs permission lists, the tenant-auditor refused set,
+      priv/permission_matrix/effective.golden stay as they are). docs/roles.md needs no new row; the CANDIDATE
+      prose gains one sentence naming the list route. TENANT_AUDITOR does not hold :ExamSessionRead and gets the
+      same 403 as today on every exam route.
+      OWNERSHIP FILTER. The read is built in a new function Letflow.Modules.Exam.Session.list_own_sessions/2
+      beside list_available_exams/2, through Compiler.compile/3, Allowlist.load/2 and Cursor.paginate/5 with the
+      request entity_type "session" and the hardcoded filters user_id eq <auth_context.user_id> (the field
+      session.user_id is queried: true, the same field check_owner/2 compares), status in [submitted,
+      auto_submitted, grading_pending] (an in_progress session has no result and is not listed), and, only when
+      exam_id was supplied, exam_id eq <exam_id>. The candidate id comes only from conn.assigns.auth_context,
+      never from the request. Sort: expires_at desc, because expires_at is queried: true while submitted_at,
+      score_pct and passed are queried: false (decision 0031 section 4); this entry flips no queried flag and sorts
+      nothing in memory. UAT assumption, to be confirmed by the process owner: ordering by expires_at (the
+      session deadline) is an acceptable stand-in for "most recent first".
+      RESPONSE. 200 with {items, next_cursor}. Each item is hand-assembled (the answer-key rule of the router
+      moduledoc; session.exam_snapshot is on the restricted list in exam.ex and is never read or returned) with
+      exactly: session_id, exam_id, exam_title (the localized map of the live exam record found by exam_id in the
+      same prefix, null when that record is missing or deleted), status, started_at, submitted_at, score_pct,
+      passed (null for grading_pending), certificate_issued (true when a certificate record exists for that
+      session_id; one prefix-scoped query on entity type "certificate" with session_id in <ids of the page>, not
+      one query per row) and certificate_id (the certificate record id, or null). It carries no user_id, no
+      seed, no snapshot and no answer data. The route never issues a certificate; issuing stays with
+      POST /exam-sessions/:id/certificate and the download route.
+      WEB. Route exam/results in web/src/modules/exam/examRoutes.tsx, a new screen ExamMyResultsPage.tsx wrapped
+      in ExamIntlProvider, a new examApi.listMySessions in exam.api.ts, and a link from ExamListPage.tsx. Per
+      row: exam title (falls back to a neutral localized "Exam" text when exam_title is null), status, score,
+      passed or failed (none for grading_pending), submitted date, a link to the existing
+      sessions/:sessionId/result screen, and, when passed is true, a "Download certificate" action that calls
+      GET /exam-sessions/:id/certificate/download (existing route, permission ExamCertificateIssue) through
+      client.getBlob and saves the PDF. States: loading, a list, an empty state (no sessions), a list-failure
+      state, and a download-failure state that shows a localized message and keeps the list (409 and 404 give
+      the "certificate is not available for this exam" text, any other failure the generic text; the row can be
+      retried). Next page by next_cursor. All strings come from examMessages (ExamIntlProvider), in every locale
+      that file carries, so exam-i18n-grep.test.ts stays green.
+      PINS AND DOCS (state the new values at implement time as "+1 from the value on origin/main"). The route has
+      no scope: option, so it is tenant_wide by default and enters the default-class snapshot:
+      test/fixtures/route_scope/tenant_wide_default_routes.txt gains the line
+      "GET /modules/exam/exam-sessions/mine ExamSessionRead" (sorted as its neighbours), and the three
+      length(snapshot) pins (route_scope_resolver_test.exs, route_scope_self_service_test.exs,
+      tasks_route_classes_test.exs, now 132) move +1. exam.ex route_policies gains {"GET", "/exam-sessions/mine",
+      :ExamSessionRead}; the expected-route list in test/letflow/api/authorization_test.exs (near the row for
+      "/modules/exam/exam-sessions/available") gains the same row. No forward(...) is added, so the
+      length(named) pin does not move. The router moduledoc route table gains the row list_my_sessions, and the
+      bullet "Cross-session history / results-list views (GetExamHistory/HandleGetMyResults, FR-BB41/FR-BB46)"
+      under "Deliberately NOT routed here" is rewritten to say the list is routed by this entry (GetSessionResult
+      stays not routed; the by-id result is the state read). Decision 0031 gets a dated addendum: section 1 is
+      reversed on Revisitability trigger 1, the route is exam-module rather than the generic query (section 2),
+      and section 4 option 2 is not used (no in-memory sort). The sentence in ExamSessionResultPage.tsx that calls
+      the result URL provisional is updated to say the list links to it unchanged.
+      NOT IN THIS ENTRY: an admin or auditor view of other candidates' results (decision 0031 section 5); sorting
+      or filtering by score, pass state or submit date (needs the queried flags, decision 0031 section 4 option 1);
+      issuing a certificate from the list route; a candidate-side verify-by-handle page (exists, REQ-357 and the
+      public verify page); a mobile screen.
+    open_questions:
+      - "Decision 0031 section 2 preferred the generic POST /entities/query route for a results list; this entry uses one exam-module route because CANDIDATE does not hold the entity-query permission. Does the owner accept that departure, or widen CANDIDATE instead?"
+      - "Is ordering by session deadline (expires_at) acceptable as 'most recent first', or does the owner want the queried flags on submitted_at flipped (a pack schema change with DDL, decision 0031 section 4 option 1)?"
+      - "Should a certificate download be offered for every passed session, or only when the exam's certificate is enabled? The list route cannot tell without reading the snapshot; this entry offers it for every passed session and relies on the download route's 409 for the rest."
+    acceptance_criteria:
+      - "1. Route and permission: GET /api/v1/modules/exam/exam-sessions/mine is declared with authz_get in lib/letflow/modules/exam/router.ex and gated by :ExamSessionRead; test: a CANDIDATE token gets 200, a token with no role that holds :ExamSessionRead gets 403, a TENANT_AUDITOR token gets 403 with the same body as for any role without the permission, and an unauthenticated call gets 401. exam.ex route_policies and the authorization_test.exs expected-route list each gain the row, and no permission pin, golden file or docs/roles.md matrix row changes."
+      - "2. Ownership filter (test M-own): with candidate A holding two submitted sessions and one in_progress session and candidate B (same tenant) holding one submitted session, a call by A returns exactly A's two sessions, a call by B returns exactly B's one, and neither response contains a session of the other; an in_progress session is never listed. The test also asserts that the compiled request carries the filter user_id eq the caller's auth_context user id and that a query parameter named user_id, candidate_id or tenant_id is ignored (a call by A with user_id=<B's id> returns A's sessions)."
+      - "3. INV-5 (test M-inv5): another candidate's session and certificate are indistinguishable from not-found. Because the list has no id path, the test proves it on the two routes the list links to: with candidate B's session id and B's certificate id, A's GET /exam-sessions/:id, POST /exam-sessions/:id/certificate and GET /exam-sessions/:id/certificate/download each return a response identical in status, headers and body to the response for a random UUID that exists nowhere; and A's list response never contains a certificate_id or session_id of B. A malformed exam_id gives 400 and a well-formed exam_id of an exam A never sat gives 200 with an empty items list (not 404)."
+      - "4. INV-10 cross-tenant negative (test M-tenant): with sessions and certificates in tenant B's schema and a CANDIDATE token of tenant A, GET .../exam-sessions/mine returns none of B's rows (items empty when A has none); the compiled route path and the accepted query parameters contain no tenant identifier; a PLATFORM_ADMIN token calling the route gets only its own tenant's sessions (200, a no-data-leak check, not a refusal) and never another tenant's."
+      - "5. Response shape (test M-shape): each item holds exactly the keys session_id, exam_id, exam_title, status, started_at, submitted_at, score_pct, passed, certificate_issued, certificate_id; no item holds user_id, seed, exam_snapshot or any answer or option data (checked by comparing the key set); a sentinel string stored in session.exam_snapshot is absent from the response body. A grading_pending session has passed null (its score_pct is present, as in the session view); a session whose exam record is deleted or missing has exam_title null."
+      - "6. Certificate flag (test M-cert): for a passed session with an issued certificate the item has certificate_issued true and certificate_id equal to that record's id; for a passed session with no certificate, and for a failed session, certificate_issued is false and certificate_id is null; the route itself writes no certificate record and no audit row (record counts before and after are equal). The certificate lookup is one query for the whole page, asserted by counting queries on entity type certificate for a page of 5 sessions."
+      - "7. Pagination, filter and order (test M-page): page_size follows Pagination.parse_page_size_param/1 (an invalid value gives 400 with the router's existing 'invalid page_size' text), next_cursor walks the whole set without repeats or gaps for 7 sessions at page_size 3, the optional exam_id restricts items to that exam, and items are ordered by expires_at descending. The entity definitions priv/modules/exam/entity_definitions/session.json are unchanged (no queried flag flipped, no migration)."
+      - "8. Pins and docs (implement step quotes the output): tenant_wide_default_routes.txt gains the line 'GET /modules/exam/exam-sessions/mine ExamSessionRead' and the three length(snapshot) pins move +1 from the value on origin/main at implement time (now 132); the length(named) pin is unchanged; the PR summary lists, from grep -rn \"__authz_routes__\\|length(snapshot)\\|tenant_wide_default_routes\\|exam-sessions/available\" test/, every test file checked and the new value of each pin. The router moduledoc route table gains the list_my_sessions row, the 'Deliberately NOT routed here' bullet for FR-BB41/FR-BB46 is rewritten as described, decision 0031 gets the dated addendum, and grep -rn 'Cross-session history' lib/ docs/ finds no remaining text that says the list is not routed."
+      - "9. Web screen states (Vitest, web/src/modules/exam/__tests__/ExamMyResultsPage.test.tsx): with examApi.listMySessions mocked, the page renders (a) the loading state, (b) one row per item with title, status, score, passed or failed and a link to sessions/<id>/result, (c) the empty state when items is empty, (d) the list-failure state with a retry on a rejected call, (e) a Download certificate action only on rows with passed true, and (f) the next-page control only when next_cursor is non-null. examApi.listMySessions calls GET /api/v1/modules/exam/exam-sessions/mine with cursor, page_size and exam_id only (exam.api.test.ts). ExamListPage.tsx links to exam/results and examRoutes.tsx registers it."
+      - "10. Web download and i18n (Vitest): activating Download certificate calls client.getBlob with /api/v1/modules/exam/exam-sessions/<id>/certificate/download exactly once and saves the returned PDF blob; when getBlob rejects with status 409, 404 or 500 the page shows the localized download-failure message, keeps the list rendered and lets the same row be retried; every new string exists in every locale of examMessages, and exam-i18n-grep.test.ts and the web boundary-lint test pass. npm run check passes with real output quoted. SECURITY-REVIEWER (tenant-data path, INV-1, INV-5, INV-10, answer-key redaction) and REVIEWER verdicts are recorded."
+    depends_on: [REQ-332, REQ-335, REQ-351, REQ-355, REQ-356, REQ-357]
   - id: REQ-586
     title: Exam pack parent_id on category (tree) and question (version lineage), with write rules, upgrade rollout for installed tenants and a category tree picker (follow-on of REQ-324, REQ-326 and REQ-343; BilimBaga study T1c)
     owner: ELIXIR-DEV
@@ -41767,6 +41976,66 @@ requirements:
       - "6. npm run check (type-check, lint, unit tests, guards) passes with real output quoted; no change under web/src outside web/src/modules/exam/ except the minimal navigation registration the shell requires, which the PR names; the existing candidate and admin screen tests still pass."
     depends_on: [REQ-588]
 
+  - id: REQ-592
+    title: "Certificate PDF QR code resolves to the public verify page: mint a fresh public-read handle on every download (BilimBaga study T4c gap 9)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    gh: 3342
+    # Source: docs/migration/bilimbaga-study-t4c-certificates.md row 9 (the defect) and its "Notes for the planner"; lib/letflow/modules/exam/router.ex (render_download_certificate, the line `verification = %{base_url: certificate_verify_base_url(), code: certificate.id}` and its "interim stand-in" comment; render_issue_certificate, the first-issuance mint through PublicRead.issue_handle/4 with certificate.public_read_resource_id); lib/letflow/modules/exam/certificate.ex (certificate_view: `id: record.record_id` versus `public_read_resource_id: record.id`); lib/letflow/modules/exam/certificate_document.ex (moduledoc "Verification code", render/2 takes verification.code from the caller); lib/letflow/public_read.ex (issue_handle/4 mints 32 random bytes and stores the SHA-256 only; resolve/2) and lib/letflow/routers/public_read.ex (GET /api/public/certificate/:handle, rate limit first); docs/migration/decisions/0028-unauthenticated-read-boundary.md (decision point 3 "stored as SHA-256 only", point 4 "one refusal", standing prohibitions); docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10). Written by the business analyst (T-0705) 2026-10-26. Not yet validated.
+    description: >
+      The defect. The certificate PDF carries a QR code that must open the public verify page. Today
+      render_download_certificate in lib/letflow/modules/exam/router.ex builds the verification argument with
+      `code: certificate.id`, where certificate.id is the entity record id (certificate_view sets it from
+      record.record_id). The QR therefore encodes <CERTIFICATE_VERIFY_BASE_URL>/verify/<record id>. No route
+      resolves a record id: the only unauthenticated read is GET /api/public/certificate/:handle, and a handle
+      is a capability minted by PublicRead.issue_handle/4, returned once as public_handle on the first issuance
+      (render_issue_certificate) and stored as a SHA-256 hash only, so the plaintext cannot be read back when the
+      candidate downloads the PDF later. A printed QR cannot verify anything.
+      The choice, between two ways to give a re-downloaded PDF a resolvable code. (A) A persisted verification
+      code: a new column on the certificate entity holding the code in plaintext, rendered into every PDF. It
+      needs a storage change (a field on the certificate definition and a backfill for certificates already
+      issued), and it contradicts decision 0028 point 3 (handles are stored as SHA-256 only, so that a read of
+      the table yields no usable credential); it would be a second, plaintext credential store next to
+      public_read_handles, which the decision's "one resolution mechanism" (point 2) does not allow without
+      reopening the record. (B) A re-mintable handle: every successful download calls PublicRead.issue_handle/4
+      once more for the same certificate and puts the new plaintext into that PDF's QR code. It needs no change
+      to the certificate entity, no backfill and no change to decision 0028: the table, the hash-only storage,
+      the single refusal, the rate limit and the projection stay as they are. The costs: one extra
+      public_read_handles row (and one audit entry, written by issue_handle/4) per download, and several live
+      handles for one certificate, all of which resolve to the same projection. This entry chooses (B) because
+      it is the only choice that leaves decision 0028 untouched and needs no data migration.
+      The change. In render_download_certificate, for the {:ok, certificate} case, call
+      PublicRead.issue_handle(tenant_id, "certificate", certificate.public_read_resource_id) with tenant_id
+      from conn.assigns.auth_context.tenant_id (never from the request), and pass the returned plaintext as
+      `code` to CertificateDocument.render/2. The resource id is certificate.public_read_resource_id (the Ecto
+      primary key the projection matches), never certificate.id. If the mint returns {:error, _}, the route does
+      not send a PDF with a dead QR: it logs a warning that names no handle and answers through
+      Response.internal_error/1 (same as a render failure). The "interim stand-in" comment and the
+      CertificateDocument moduledoc section "Verification code" are updated to describe the new behaviour.
+      The first-issuance mint in render_issue_certificate and its public_handle response field stay as they are.
+      Already-issued certificates and already-downloaded PDFs. No data change is made to either: certificate
+      entities are not touched, there is no backfill and no migration. A certificate issued before this change
+      gets a working code the next time its owner downloads the PDF. A PDF downloaded before this change keeps
+      its record-id QR, which still resolves nothing; a file already printed or saved cannot be corrected, and
+      the owner must download it again. The handle returned once on first issuance stays valid and is not
+      revoked. This is stated in the PR summary and in the moduledoc of CertificateDocument.
+      The SPA verify page /verify/:code does not exist in web/ (study row 10) and is a separate change that
+      follows this one; this entry does not add it and does not add or change any route.
+    open_questions:
+      - "Should the number of live handles per certificate be capped, or should old ones be revoked on a new download? The source does not settle it; this is decision 0028 open question OQ-3 (handle rotation, from the req323 design), which stays open: this entry issues and never revokes. Default of this entry: no cap and no revocation, because a revoked handle would break a PDF the candidate has already printed; the growth is one row per download by an authenticated owner. The process owner may ask for a cap later."
+      - "Should a revoked or expired certificate refuse the download? Out of scope: BilimBaga has neither (study rows 13 and 14) and the exam module never calls revoke."
+    acceptance_criteria:
+      - "1. Test Q-resolve (the defect, red proof): a candidate who owns a passed session calls the download route (the one handled by render_download_certificate) with a real token through the real router; the code is taken from the downloaded PDF's printed verify line \"Verify: <CERTIFICATE_VERIFY_BASE_URL>/verify/<code>\" (the same text-op extraction as pdf_text_ops in test/letflow/modules/exam/certificate_document_test.exs; the QR is not decoded) and resolves through GET /api/public/certificate/<code> with 200 and the projection of that certificate, the five keys of CertificatePublicProjection (lib/letflow/modules/exam/certificate_public_projection.ex): candidate_name, exam_title, score_pct, issued_on, branding_snapshot. On the unmodified code the same test fails because the code is the record id and the public route answers 404."
+      - "2. Test Q-resource: the handle row minted by the download has kind \"certificate\", the tenant id of the caller's token and resource_id equal to the certificate's public_read_resource_id (the entity's Ecto primary key), not its record_id; the plaintext is not stored (only handle_hash is in the row) and is not present in the log output captured during the request."
+      - "3. Test Q-twice: two downloads of the same certificate produce two different codes, both resolve with 200, and the handle returned by the first issuance (public_handle) still resolves; no certificate entity field changed between the calls (the stored fields are identical before and after)."
+      - "4. Test Q-mintfail: with the mint forced to fail by dropping the tenant's audit table first (Repo.query!(~s(DROP TABLE \"#{schema_name}\".audit_entries)), the fault-injection idiom of test/letflow/audit_dispositions_test.exs; PublicRead.issue_handle/4 runs Audit.append_multi in the caller's tenant prefix and rescues the exception into {:error, {:transaction_failed, _}}; no existing test covers this path), the download answers 500 through Response.internal_error/1, the body is not a PDF, the certificate row is unchanged and no new public_read_handles row exists."
+      - "5. INV-5, Test Q-404: on the public route, a random well-formed code, the certificate's record id (the old QR value), a malformed code, and a handle of a certificate whose tenant is deactivated each return the identical status, headers and body (404 application/problem+json, byte-identical to Letflow.Api.Response.not_found/1); the download route answers a session that does not exist and a session of another candidate in the same tenant with the same 404, and neither request mints a handle (the handle row count is unchanged)."
+      - "6. INV-1 and INV-10 cross-tenant negative, Test Q-tenant: with a passed session in tenant B, a CANDIDATE token of tenant A calling the download route with tenant B's session id gets 404 and no handle row is created for tenant B or for tenant A; the route has no tenant parameter in path, query or body (checked on the compiled route path); a code minted by tenant A's download resolves only tenant A's certificate and the response contains nothing of tenant B."
+      - "7. Decision 0028 stays untouched: no change under docs/migration/decisions/, no new route under /api/public, no new field in CertificatePublicProjection, no column added to the certificate entity or to public_read_handles, no migration in priv/repo/migrations/; the PR lists these as checked with the diff stat."
+      - "8. Pin sweep: the PR lists the output of grep -rn \"render_download_certificate\\|certificate/download\\|interim stand-in\\|certificate.id\" test/ lib/ docs/ and states which hits changed; the route-inventory pins (test/fixtures/route_scope/tenant_wide_default_routes.txt and the length(snapshot) pins) do not move because no route is added; the comments and moduledoc text naming the interim stand-in are replaced."
+      - "9. SECURITY-REVIEWER verdict is recorded (mandatory: this touches the unauthenticated read boundary of decision 0028, INV-1, INV-4 handle plaintext in no log, INV-5, INV-10) and REVIEWER verdict is recorded; mix letflow.check.static and the new tests Q-resolve, Q-resource, Q-twice, Q-mintfail, Q-404 and Q-tenant pass with real output quoted."
+    depends_on: [REQ-357]
   - id: REQ-590
     title: "Tenant logo upload, part 1 of 2: per-tenant storage, default-off flag, and authorised PUT/DELETE with type, size and scanner limits (BilimBaga retirement criterion 9, T9a)"
     owner: ELIXIR-DEV
@@ -41968,3 +42237,48 @@ requirements:
       - "2. Q4 of decision 0069 (assumed answer, not confirmed by the owner): the permissions of update-review (:DefinitionsRead) and update-apply (:DefinitionsCreate) stay as they are. Requiring SolutionOverridesManage when an apply resolves an override conflict belongs to S4, not here."
       - "3. Q5 of decision 0069: the final closed property path list for process_definition and the variable_schema list are the S2 design's and are reviewed by SECURITY-REVIEWER; the source names no overridable variable_schema property, so if the design finds none that is safe, variable_schema rows are refused entirely and the owner is told."
       - "4. Conflict between decision 0069 D6 (tenant_id kept in each override row) and decision 0006 D2 (no tenant_id where the Postgres schema is the isolation boundary): this entry follows 0006 D2 and has no tenant_id column. REVIEWER confirms, or 0069 D6 is amended and criterion 1 gains the column."
+  - id: REQ-593
+    title: "Tenant realm template v2: forgot-password switch, reset link lifetime and en/ru/kk locales, with a drift test (BilimBaga study T5c, gaps G1 and G3; G2 Letflow part)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3348
+    # Source: docs/migration/bilimbaga-reset-welcome-mail.md (section 3 "What Letflow and the realm template provide", section 4 gap rows G1, G2, G3, G4, G5, G7); docs/migration/decisions/0072-tenant-provisioner-realm-per-tenant-on-qa.md (section 3 D2, the sentence 'A future change of the template is a new directory `v2`, never an edit of `v1` in place', and the row 'SMTP settings are an argument of the call (the shared QA relay), never part of the template and never in git'); priv/keycloak/provisioner/v1/tenant-realm.json and README.md (the files copied, read in full); test/letflow/keycloak_tenant_realm_template_test.exs (the v1 drift test, which must not change; its violations/1, secret_key?/1 and mutation rows are the model); docs/runbooks/onboarding-new-tenant-realm.md (Realm checklist); docs/agents/instructions/security-invariants.md (INV-4). Written by the business analyst (T-0717) 2026-10-26. Not yet validated.
+    description: >
+      BilimBaga's users reset a forgotten password themselves; the v1 tenant realm template
+      (priv/keycloak/provisioner/v1/tenant-realm.json) does not allow it: it has no resetPasswordAllowed
+      field, so Keycloak leaves the 'Forgot password' link off, and it has no locale settings, so reset
+      mail pages are English only (docs/migration/bilimbaga-reset-welcome-mail.md section 3 and gaps G1
+      and G3). Decision 0072 section 3 says 'A future change of the template is a new directory `v2`, never
+      an edit of `v1` in place'. This is therefore a new entry and not an amendment of REQ-572: REQ-572
+      delivered v1 and its drift test, and v1 stays frozen. This entry adds the directory
+      priv/keycloak/provisioner/v2/ holding tenant-realm.json and README.md, and a new drift test file
+      test/letflow/keycloak_tenant_realm_template_v2_test.exs. The v1 files and the v1 drift-test rows
+      (test/letflow/keycloak_tenant_realm_template_test.exs) are not edited, and neither is
+      docs/runbooks/onboarding-new-tenant-realm.md. tenant-realm.json of v2 is the v1 file with exactly
+      these changes: attributes.templateVersion is '2'; resetPasswordAllowed true; actionTokenGeneratedByUserLifespan
+      3600 (seconds, equal to BilimBaga's 60 minute reset token, recovery_service.go resetTokenTTL as the study
+      records it); internationalizationEnabled true; supportedLocales ['en', 'ru', 'kk']; defaultLocale 'en'.
+      The placeholders stay __REALM_ID__ and __TENANT_HOST__. The G2 part that belongs to Letflow: smtpServer
+      stays out of the template (decision 0072 D2, INV-4), and the v2 README states that a v2 realm is only
+      useful with an smtpServer, so smtpServer is mandatory for a v2 realm and the provisioner must refuse to
+      create a realm without it. Whether the provisioner enforces this lives in infra's
+      services/tenant-provisioner and is an infra dependency, not an acceptance criterion of this entry; the
+      choice of the SMTP relay stays the owner's. Out of scope: emailTheme, loginTheme and every mail or page
+      text (infra ships the theme; BA-BILIMBAGA reviews the texts), the welcome mail, any Letflow outbound
+      mail, any route, any status flip, any production claim (QA only, D-019).
+    open_questions:
+      - "G4 (open owner decision, not decided here): who sends a welcome mail and how the one-time initial_password reaches the person; if Letflow, it belongs to the outbound notification requirement (study T5a) and the welcome mail carries a sign-in link and never the password."
+      - "G5 (open owner decision, not decided here): users added later by a TENANT_ADMIN have no Keycloak account creation and no invitation mail from Letflow; whether to build one needs a security design (new credential, tenant-bound realm access) and is decided with the admin client question of decision 0072."
+      - "G7 (open owner decision, not decided here): Keycloak's own mail has no delivery log like BilimBaga's email_log; accept that it is visible only in Keycloak events, or add an event listener."
+      - "defaultLocale 'en' is a UAT assumption, to be confirmed by the process owner: the study lists the three locales but not the default; en is Keycloak's own fallback."
+    acceptance_criteria:
+      - "1. Test V2-dir: the files priv/keycloak/provisioner/v2/tenant-realm.json and priv/keycloak/provisioner/v2/README.md exist, the JSON parses, Path.basename of the directory is 'v2' and attributes.templateVersion is the string '2'."
+      - "2. Test V2-reset (G1): resetPasswordAllowed is the JSON boolean true and actionTokenGeneratedByUserLifespan is the integer 3600 in v2/tenant-realm.json; a mutated copy with resetPasswordAllowed removed, and one with the lifespan 300, are each flagged by the v2 rules in the test."
+      - "3. Test V2-locale (G3): internationalizationEnabled is true and supportedLocales equals ['en', 'ru', 'kk'] (as a set, three entries, no other); a mutated copy with 'kk' removed is flagged. The test also asserts the file has none of the keys emailTheme, loginTheme or localizationTexts, so no text is carried by the template."
+      - "4. Test V2-same: removing the keys resetPasswordAllowed, actionTokenGeneratedByUserLifespan, internationalizationEnabled, supportedLocales and defaultLocale and attributes.templateVersion from the v2 map gives a map equal to the v1 map without attributes.templateVersion, read from priv/keycloak/provisioner/v1/tenant-realm.json, so v2 differs from v1 in nothing else; the only __NAME__ placeholders found in the v2 text are __REALM_ID__ and __TENANT_HOST__."
+      - "5. Test V2-smtp (G2, Letflow part): the v2 map has no key smtpServer, credentials, secret or password at any depth and no users entry, shown to bite by a mutated copy that adds smtpServer with a host (flagged); the text of priv/keycloak/provisioner/v2/tenant-realm.json contains no substring 'smtp' in any case."
+      - "6. Test V2-readme: v2/README.md contains the strings __REALM_ID__, __TENANT_HOST__, templateVersion, resetPasswordAllowed, supportedLocales, smtpServer, and states in words that smtpServer is mandatory for a v2 realm and that the provisioner must refuse to create a realm without it; it also states that v1 is frozen and names emailTheme and the texts as outside the template."
+      - "7. Reader check on the implementing change's git diff main...HEAD: no line under priv/keycloak/provisioner/v1/, in test/letflow/keycloak_tenant_realm_template_test.exs, in docs/runbooks/, in docs/migration/decisions/ or in docs/requirements.yaml is changed; nothing in the diff claims production use."
+      - "8. mix test test/letflow/keycloak_tenant_realm_template_v2_test.exs and mix test test/letflow/keycloak_tenant_realm_template_test.exs both pass with real output quoted, and lf.sh lint passes; the PR text names the infra dependency (smtpServer validation in services/tenant-provisioner, and shipping the v2 template and the email theme with the ru and kk texts) as outside this change."
+    depends_on: [REQ-572]

@@ -7,7 +7,7 @@ defmodule Letflow.RecordTriggers do
   refuses a bad pin at bind time. No record write, step write or handler write reads the table yet
   (later slices), and the routes are part 2. `enabled?/0` is the single reader of the
   `:record_triggers_enabled` flag; `bind/5`, `rebind/5`, `unbind/4` and `list/1` do not call it, the
-  routes of part 2 act on it.
+  router of part 2 (`Letflow.Routers.RecordTriggerBindings`) acts on it.
 
   `bind/5`, `rebind/5` and `unbind/4` each run one `Ecto.Multi`: the checks first, the row change
   second, `Letflow.Audit.append_multi/4` last, so the audit entry and the row change commit or roll
