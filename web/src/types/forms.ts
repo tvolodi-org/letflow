@@ -74,6 +74,14 @@ export interface TaskFormField {
    * like.
    */
   referencesEntity?: string
+
+  /**
+   * REQ-586 part D — set only when an existing record is being edited:
+   * its own `record_id`. Consumed only by the `entity-category-tree`
+   * widget, which leaves this record and its descendants out of the
+   * parent choices.
+   */
+  editingRecordId?: string
 }
 
 export interface ValidationError {
