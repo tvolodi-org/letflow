@@ -18,6 +18,10 @@ that installed the pack before it existed gets the definition (created owner-sta
 from `Letflow.Release.ManagedTypes.ensure_assignment_definition/1`, run once per deploy. A tenant that
 installs the pack afterwards carries it inactive like the other sixteen and activates it with them.
 
+Tenants that installed the pack before REQ-594 get `session.score_pct`/`passed` queried and the optional
+queried `session_question_score.exam_id`/`correct` from
+`Letflow.Release.ManagedTypes.ensure_exam_analytics_definitions/1`, run once per deploy (no column is promoted).
+
 ## Convention: one file per entity type
 
 `entity_definitions/` holds one JSON file per entity type, named after the
