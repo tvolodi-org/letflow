@@ -58,8 +58,8 @@ describe('REQ-343 AC1/AC5 — all ten entity types reachable from this landing p
   })
 })
 
-describe('REQ-343 AC3 — no exam_assignment or parent_id workaround on this page', () => {
-  it('never renders a parent_id field or a fabricated exam_assignment list', () => {
+describe('REQ-343 AC3 (REQ-586 part D) — exam_assignment never rendered; parent_id only inside category/question forms', () => {
+  it('this landing page renders no parent_id field and no exam_assignment list', () => {
     render(
       <MemoryRouter>
         <BilimBagaAdminPage />
