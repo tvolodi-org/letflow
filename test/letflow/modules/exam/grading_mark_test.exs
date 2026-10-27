@@ -43,6 +43,17 @@ defmodule Letflow.Modules.Exam.GradingMarkTest do
 
   defp json(conn), do: Jason.decode!(conn.resp_body)
 
+  # The admission plug caps a tenant at global_cap / tracked tenants, and earlier tests in the VM leave
+  # their tenants tracked: with enough of them two parallel requests of one tenant would be a 503.
+  # Forget every other tenant so the race tests see the full budget.
+  defp free_admission_share(keep_schema) do
+    for schema <- Map.keys(:sys.get_state(Letflow.Admission).tenants), schema != keep_schema do
+      Letflow.Admission.forget_tenant(schema)
+    end
+
+    :ok
+  end
+
   defp tenant(slug_prefix) do
     %{tenant_id: tenant_id, schema_name: schema_name} =
       ExamFixtures.provisioned_tenant_with_exam_definitions(slug_prefix)
@@ -390,6 +401,8 @@ defmodule Letflow.Modules.Exam.GradingMarkTest do
       sid = seed.session.record_id
       qid = seed.short1.record_id
 
+      free_admission_share(tenant.schema_name)
+
       statuses =
         [0.5, 1.5]
         |> Enum.map(fn s ->
@@ -411,6 +424,8 @@ defmodule Letflow.Modules.Exam.GradingMarkTest do
       admin = user_ctx(tenant, ["TENANT_ADMIN"])
       sid = seed.session.record_id
       before = events_by(schema, admin.user_id)
+
+      free_admission_share(schema)
 
       statuses =
         [{seed.short1, 1.0}, {seed.short2, 2.0}]
