@@ -154,6 +154,7 @@ defmodule Letflow.TenantFixture do
     "entity_field_restrictions",
     "entity_record_attachments",
     "entity_record_latest",
+    "entity_type_extensions",
     "entity_type_hook_bindings",
     "entity_type_instances",
     "entity_type_restrictions",
