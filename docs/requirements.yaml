@@ -42964,3 +42964,40 @@ requirements:
       - "7. Texts: every user-visible string is in examMessages.ts and ExamIntlProvider; exam-i18n-grep.test.ts passes."
       - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
     depends_on: [REQ-510]
+
+  - id: REQ-608
+    title: "AppShell skip-link and main-content landmark (BilimBaga retirement criterion 3, accessibility.spec.ts)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S10
+    # impl_order: UNREGISTERED -- no pending dependency; a self-contained web/ change (S1 staleness may flag it if S10 is active)
+    description: >-
+      Source: docs/migration/bilimbaga-e2e-remeasure.md section 3, row accessibility.spec.ts (7 tests, 0
+      portable now, 7 blocked: "BLOCKED-BY skip-link and #main-content landmark in AppShell"); it serves
+      BilimBaga retirement criterion 3 (e2e parity). Today web/src/components/layout/AppShell.tsx renders a
+      sidebar (aside) followed by a main element with no id, and no skip-link, so a keyboard user must tab
+      through the whole sidebar navigation before reaching the page content. This requirement adds both
+      pieces in AppShell.tsx only: (a) a skip-link, an anchor with the visible-on-focus text "Skip to main
+      content", rendered as the first child of the shell root so it is the first focusable element in the
+      document; it is visually hidden until it receives focus. (b) The existing main element gets
+      id="main-content" and tabIndex={-1} so it can receive programmatic focus. Activating the skip-link
+      (click, or Enter while it is focused) calls preventDefault on the event and then focus() on the main
+      element, so the behaviour does not depend on the router's handling of hash URLs. The text is a
+      literal in AppShell.tsx, like the existing "Sign out" text in the same file; AppShell has no message
+      catalogue today and this change does not introduce one. The shell is the only layout that renders the
+      authenticated screens (web/src/components/layout/AuthenticatedShellRoot.tsx); LoginPage keeps its own
+      main element and is not changed.
+      The BilimBaga corpus file accessibility.spec.ts (BilimBaga/frontend/e2e/) is not in this repository, so
+      its 7 test names cannot be listed here; this requirement is the prerequisite that the remeasure
+      document names for all 7 of them. Porting them as Playwright specs is a later batch and is not part of
+      this change; with this change the row's BLOCKED-BY condition no longer holds. Any of the 7 cases that
+      asserts something beyond the skip-link and the landmark (for example colour contrast or ARIA labels
+      on other screens) is not settled here: the porting batch decides it after reading the corpus file.
+    acceptance_criteria:
+      - "1. Landmark: the main element rendered by AppShell has id main-content and tabIndex -1, and there is exactly one element with id main-content in the rendered shell. Vitest component test web/src/components/layout/__tests__/AppShell.skip-link.test.tsx (mocking useAuth and useQuery the way AppShell.branding.test.tsx does) asserts document.getElementById('main-content') is the main element."
+      - "2. First focusable: in the same test, pressing Tab once from the document body (userEvent.tab()) puts focus on the skip-link, whose accessible name is 'Skip to main content'; the skip-link precedes the sidebar's first navigation link in document order."
+      - "3. Activation: with the skip-link focused, pressing Enter and, in a second case, clicking it, moves document.activeElement to the main-content element, and the router location is unchanged. The same test asserts both cases."
+      - "4. Not a dead stop: after the skip-link has moved focus to main-content, pressing Tab moves focus to the first focusable element inside main when the test route renders a button as its page content; the Outlet content and the two banners render inside the main element as before."
+      - "5. Existing behaviour: AppShell.branding.test.tsx, AppShell.module-nav.test.tsx, AppShell.candidate-nav.test.tsx, AppShell.bilimbaga.test.tsx and AuthenticatedShellRoot.test.tsx pass without edits."
+      - "6. Scope and gate: git diff --stat shows only web/src/components/layout/AppShell.tsx and the new test file inside web/no file under lib/, priv/ or test/, and no Playwright spec; cd web && npm run check passes with the real output quoted. The PR states that the 7 accessibility.spec.ts cases are unblocked and that porting them is a later batch."
+    depends_on: []
