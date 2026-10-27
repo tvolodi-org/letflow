@@ -66,13 +66,32 @@ created from the definition gets a nullable `uuid` column with
   The database does not prevent cycles.
 - `question`: the version lineage, `null` is a first version. Part A checks
   that the parent exists (`parent_not_found`) and refuses the delete of a
-  question that has a live successor (`question_has_children`). The lineage
-  rules (one successor, version order, one active version) are REQ-586 part B.
+  question that has a live successor (`question_has_children`). Part B refuses a
+  second child (`lineage_branch`), a version not above its parent or not below its child's (`version_not_increasing`) and a
+  second active version in one lineage (`lineage_active_conflict`).
 - A tenant installed before this change keeps the old definitions until the
-  upgrade (REQ-586 part C, `Letflow.Release.ExamParentId.rollout/1`; the
-  command line is added by part C). Such a tenant rejects a write carrying
-  `parent_id` with the undeclared-field 422 (`additionalProperties` on
-  `/parent_id`).
+  upgrade (REQ-586 part C, `Letflow.Release.ExamParentId.rollout/1`). Such a
+  tenant rejects a write carrying `parent_id` with the undeclared-field 422
+  (`additionalProperties` on `/parent_id`). Run the upgrade once per
+  environment, dry run first:
+
+  ```
+  bin/letflow rpc "IO.inspect(Letflow.Release.ExamParentId.rollout(dry_run: true))"
+  bin/letflow rpc "IO.inspect(Letflow.Release.ExamParentId.rollout(dry_run: false))"
+  bin/letflow rpc "IO.inspect(Letflow.Release.ExamParentId.verify())"
+  ```
+
+  It adds `parent_id`, `fk_<type>_parent_id` and `idx_<type>_parent_id` to the
+  active `category` and `question` definitions (a new version each, under the
+  exam module's ownership), adds the nullable self-referencing column
+  (`ON DELETE RESTRICT`) and creates the index, in one transaction per tenant.
+  Existing rows keep a null parent. A second run changes nothing, and `verify()`
+  answers `ready: true` once every exam tenant is done. Per-tenant statuses:
+  `upgraded`, `already_current`, `exam_not_installed`, `failed` (an error tag,
+  the tenant is left as it was; the sweep goes on), `managed_name_taken` (the
+  `category` or `question` name exists unstamped) and `conflict` (managed by
+  another module, or a different `parent_id`); for the last two nothing is
+  written for that tenant.
 
 ## Open item: starter category records
 

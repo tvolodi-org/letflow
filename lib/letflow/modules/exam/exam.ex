@@ -21,6 +21,7 @@ defmodule Letflow.Modules.Exam do
 
   import Letflow.Modules.Module, only: [defmanifest: 1]
 
+  alias Letflow.Modules.Exam.ParentRollout
   alias Letflow.Modules.Exam.Snapshot.Rollout
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
@@ -180,6 +181,18 @@ defmodule Letflow.Modules.Exam do
   @doc "The read-only rollout readiness check (`Letflow.Modules.Exam.Snapshot.Rollout.verify/0`)."
   @spec snapshot_verify() :: %{ready: boolean(), tenants: [Rollout.tenant_check()]}
   def snapshot_verify, do: Rollout.verify()
+
+  @doc """
+  GH #3315 / REQ-586 part C: runs the `parent_id` rollout for tenants that installed the pack before
+  part A (`Letflow.Modules.Exam.ParentRollout.run/1`); reached from outside this directory only
+  through `Letflow.Modules.Catalog`, as `Letflow.Release.ExamParentId` does.
+  """
+  @spec parent_rollout(opts :: keyword()) :: {:ok, ParentRollout.report()}
+  def parent_rollout(opts) when is_list(opts), do: ParentRollout.run(opts)
+
+  @doc "The read-only readiness check of the `parent_id` rollout (`ParentRollout.verify/0`)."
+  @spec parent_rollout_verify() :: %{ready: boolean(), tenants: [ParentRollout.tenant_check()]}
+  def parent_rollout_verify, do: ParentRollout.verify()
 
   @doc "The `(entity_type, field_name)` pairs this module restricts — exposed for tests."
   @spec answer_key_fields() :: [{String.t(), String.t()}]
