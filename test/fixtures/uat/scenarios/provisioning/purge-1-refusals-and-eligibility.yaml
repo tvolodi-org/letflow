@@ -11,9 +11,12 @@
 # Customer X is switched off by the platform operator and left switched off (a throwaway); customer Z stays active.
 #
 # NOT COVERED (reason): "a PLATFORM_ADMIN whose own tenant is not the platform tenant" (criterion 7d) has no actor in the
-# roster (see provisioning-5-credential-boundaries.yaml header); the product's own tests cover it. "A TENANT_ADMIN of the
-# tenant itself" is not in the roster for a front-door-made customer; step 8 uses the administrator of another customer,
-# which is also a cross-tenant negative.
+# roster (see provisioning-5-credential-boundaries.yaml header); the product's own tests cover it.
+# STAND-IN (reason): the roster has no actor without any role. actor-bilimbaga-candidate holds only the CANDIDATE role,
+# which carries no administrative right, so it stands in for criterion 7d's "a user with no role".
+# The owner of a front-door customer is that customer's TENANT_ADMIN (actor-any, as in
+# provisioning-2-first-administrator-and-demo-address.yaml), so criterion 7d's "a TENANT_ADMIN of the tenant itself" is
+# covered by step 10 (owner of Z asks to purge Z).
 ---
 id: provisioning-purge-1-refusals-and-eligibility
 scope: platform
@@ -27,13 +30,16 @@ description: >
   lifecycle active and status :inactive, for example after a platform-route deactivation, is not eligible". Criterion 7
   says the platform purge call answers "409 {error: "not_eligible"} when criterion 1 fails (it never purges early)" and
   "404 for an unknown slug, for a tenant without a lifecycle row and for the platform tenant, with byte-identical bodies",
-  and that "a TENANT_ADMIN ... of another tenant, a user with no role and a request with no token cannot reach the route
-  (401 or 403, nothing changes)" and that the front door credential sent to this call "is refused". Criterion 8 says a
+  and, in full, "Nobody else: negative tests show that a TENANT_ADMIN of the tenant itself, a TENANT_ADMIN or
+  PLATFORM_ADMIN of another tenant (a PLATFORM_ADMIN whose database-resolved tenant is not the platform tenant gets the
+  403 of the existing scope rule), a user with no role and a request with no token cannot reach the route (401 or 403,
+  nothing changes), and that the provisioner credential sent to POST /api/v1/tenants/:slug/purge is refused as in
+  REQ-572 criterion 3". Criterion 8 says a
   refused or failed purge leaves every other customer unchanged. This scenario shows, on two throwaway customers X and Z
   made for the run: an active customer is refused as not eligible; a customer switched off by hand (active lifecycle,
   switched-off state) is refused as not eligible; unknown names and the platform's own workspace get the same plain
-  "not found"; the administrator of another company, a user with no role, a request with no sign-in and the front door's
-  credential are all refused; and after all of it nothing about X or Z has changed.
+  "not found"; the customer's own administrator, the administrator of another company, a user with only the candidate
+  role (standing in for "no role"), a request with no sign-in and the front door's credential are all refused; and after all of it nothing about X or Z has changed.
 
 actors:
   front_door: actor-system-front-door
@@ -50,10 +56,11 @@ preconditions:
     detail: If any is missing, report BLOCKED, not PASS.
   - description: >
       UAT assumption, to be confirmed by the process owner: the QA retention setting is NOT shortened while this scenario
-      runs (its starting value is 30 days). Run this scenario before scenario 2 or with the retention at its starting value.
+      runs (its starting value is 30 days, a whole number of days). Run this scenario before scenario 2 or with the
+      retention at its starting value.
     check: custom
     detail: >
-      Nothing in this file waits for the retention. If the retention was set to minutes by an earlier scenario, the
+      Nothing in this file waits for the retention. If the retention was set to 0 days by an earlier scenario, the
       customers here still are not eligible, because eligibility needs a switched-off lifecycle, which X and Z do not have.
   - description: Each run makes two fresh customer identifiers (X and Z) and two fresh owner e-mail addresses on a mailbox-less test domain
     check: custom
@@ -109,30 +116,35 @@ steps:
     expect_refusal: true
     via: api
   - step: 10
+    actor: owner_z
+    action: The owner of Z, who is Z's own administrator, asks to purge customer Z.
+    expect_refusal: true
+    via: api
+  - step: 11
     actor: other_company_admin
     action: The administrator of another company (BilimBaga) asks to purge customer Z.
     expect_refusal: true
     via: api
-  - step: 11
+  - step: 12
     actor: user_without_role
-    action: A user of another company who holds no administrative role asks to purge customer Z.
+    action: A user of another company who holds only the candidate role (standing in for a user with no role) asks to purge customer Z.
     expect_refusal: true
     via: api
-  - step: 12
+  - step: 13
     actor: anonymous
     action: A request with no sign-in asks to purge customer Z.
     expect_refusal: true
     via: api
-  - step: 13
+  - step: 14
     actor: front_door
     action: The front door sends its own credential to the platform's purge call for customer Z.
     expect_refusal: true
     via: api
-  - step: 14
+  - step: 15
     actor: front_door
     action: The front door reads the records of X and Z again.
     via: api
-  - step: 15
+  - step: 16
     actor: owner_z
     action: The owner of Z lists the people of Z again. This still works (nothing of Z was touched).
     via: api
@@ -164,14 +176,14 @@ expected_outcomes:
       business_impact: The refusal tells a caller which names are real customers or the platform, and a mistake could purge the platform.
       suggested_action: route_to_security_review
   - id: EO-003
-    description: Nobody but a platform operator can reach the purge call, and the front door credential is refused on it.
+    description: Nobody but a platform operator can reach the purge call (not even the customer's own administrator), and the front door credential is refused on it.
     verification:
       method: http_status
       detail: >
-        Steps 10 to 13 are each refused (401 or 403, not 200 and not 409) and none of them changes anything: step 14 shows
-        X and Z as in step 7 and step 15 shows the people of Z as in step 2. The answers to steps 10 and 11 do not tell
+        Steps 10 to 14 are each refused (401 or 403, not 200 and not 409) and none of them changes anything: step 15 shows
+        X and Z as in step 7 and step 16 shows the people of Z as in step 2. The answers to steps 10 to 12 do not tell
         whether customer Z exists.
-      evidence: The status of steps 10 to 13 and the reads of steps 14 and 15.
+      evidence: The status of steps 10 to 14 and the reads of steps 15 and 16.
     on_fail:
       severity: BLOCKER
       business_impact: Another company, an anonymous caller or the front door could delete a customer's data.
@@ -181,7 +193,7 @@ expected_outcomes:
     verification:
       method: system_state
       detail: >
-        Step 14's records of X and Z equal step 7's (state, tier, expiry date, purged_at null); step 15 lists the same
+        Step 15's records of X and Z equal step 7's (state, tier, expiry date, purged_at null); step 16 lists the same
         people as step 2.
       evidence: The two reads of each record and the two people counts for Z.
     on_fail:

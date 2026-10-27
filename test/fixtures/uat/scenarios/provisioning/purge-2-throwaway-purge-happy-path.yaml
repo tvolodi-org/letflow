@@ -11,9 +11,11 @@
 # (bilimbaga, swiftroute, meridian, vortex, the platform workspace). If W's identifier or name is not the one made in step 2,
 # the run stops: report BLOCKED.
 #
-# UAT ASSUMPTION, to be confirmed by the process owner (QA only, not a rule): the retention (starting value 30 days) cannot
-# be waited for. For this run infra sets the retention setting to minutes (for example 10) and sets it back afterwards. If it
-# is not set short, steps 7 to 14 are BLOCKED, not PASS; steps 1 to 6 can still be reported.
+# UAT ASSUMPTION, to be confirmed by the process owner (QA only, not a rule): the retention (starting value 30 days, a whole
+# number of days read when the application starts) cannot be waited for. It stays at its starting value for steps 1 to 6, so
+# that step 4 (a purge inside the retention) is refused. In step 7 infra sets the retention setting to 0 days and restarts the
+# QA application; afterwards it sets it back to 30 days and restarts again. Without step 7, steps 8 to 15 are BLOCKED, not
+# PASS; steps 1 to 6 can still be reported.
 ---
 id: provisioning-purge-2-throwaway-purge-happy-path
 scope: platform
@@ -44,9 +46,11 @@ preconditions:
   - description: Customers W and V are created fresh in this run (not reused from an earlier run, not a shared UAT customer)
     check: custom
     detail: If W or V already existed before this run, report BLOCKED, not PASS.
-  - description: UAT assumption, to be confirmed by the process owner - the QA retention setting is set to minutes for this run
+  - description: UAT assumption, to be confirmed by the process owner - the QA retention setting is at its starting value (30 days) when the run begins
     check: custom
-    detail: Without it steps 7 to 14 are BLOCKED. No request may carry a shorter retention; it is a setting only.
+    detail: >
+      If it is already 0 days, step 4 would purge W early; report BLOCKED. Infra shortens it to 0 days only in step 7 and
+      restarts the QA application. No request may carry a retention; it is a setting only. Without step 7, steps 8 to 15 are BLOCKED.
 
 steps:
   - step: 1
@@ -81,16 +85,19 @@ steps:
     via: api
   - step: 7
     actor: platform_scheduler
-    action: The retention of W passes (counted from the deletion request of step 3) and no other call is made.
+    action: >
+      TEST-TOOLING STEP (outside the product): infra sets the retention setting (LETFLOW_PROVISIONER_RETENTION_DAYS) to 0 days
+      and restarts the QA application, because the setting is read only at start-up. No other call is made. The time of this
+      step is noted as the time of step 7.
     via: system
   - step: 8
     actor: other_company_admin
-    action: After the retention, the administrator of another company (BilimBaga) asks to purge customer W.
+    action: With the shortened retention, the administrator of another company (BilimBaga) asks to purge customer W.
     expect_refusal: true
     via: api
   - step: 9
     actor: platform_operator
-    action: The platform operator asks to purge customer W after its retention.
+    action: The platform operator asks to purge customer W, whose retention has now passed. The time of the request is noted.
     via: api
   - step: 10
     actor: platform_operator
@@ -111,8 +118,10 @@ steps:
     expect_refusal: true
     via: api
   - step: 14
-    actor: front_door
-    action: The front door tries to create a new customer with the workspace name (slug) of W.
+    actor: platform_operator
+    action: >
+      The platform operator tries to create a new customer through the platform's own create-customer call with the workspace
+      name (slug) of W, which the operator reads from the customer list.
     expect_refusal: true
     via: api
   - step: 15
@@ -137,8 +146,8 @@ expected_outcomes:
     description: Only a platform operator purges, and the other company's administrator is refused even after the retention.
     verification:
       method: http_status
-      detail: Step 8 is refused (401 or 403); the record of W read in step 11 shows one purge, made by step 9 only.
-      evidence: The status of step 8 and the first purge's time in step 9.
+      detail: Step 8 is refused (401 or 403). W's purged_at is null in step 5, and after step 9 it is set and is later than the time of step 7, which is before step 8.
+      evidence: The status of step 8, purged_at of W in steps 5 and 11, and the time of steps 7 and 9.
     on_fail:
       severity: BLOCKER
       business_impact: Another company could erase a customer's data.
@@ -174,7 +183,7 @@ expected_outcomes:
       method: http_status
       detail: >
         Step 12 answers 409 (the customer was purged) and W is still deleted afterwards; step 13 is refused as 403
-        "tenant_inactive"; step 14 is refused as the existing name conflict (409).
+        "tenant_inactive"; step 14 is refused with 409 "slug already exists".
       evidence: The status and error text of steps 12 to 14.
     on_fail:
       severity: MAJOR
@@ -195,4 +204,4 @@ cleanup:
   cancel_open_instances: false
   description: >
     W is left purged (its record stays, as designed); V is left active as a throwaway with a 13-day expiry. Infra sets the
-    QA retention back to its starting value (30 days). The realm reaper deletes W's realm later; that is not part of this run.
+    QA retention back to its starting value (30 days) and restarts the QA application. The realm reaper deletes W's realm later; that is not part of this run.
