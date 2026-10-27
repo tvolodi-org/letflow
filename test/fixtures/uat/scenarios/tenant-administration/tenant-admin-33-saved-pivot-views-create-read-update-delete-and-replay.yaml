@@ -161,7 +161,7 @@ expected_outcomes:
     description: A user with the query permission only (the task worker) sees the pivot view, and the answer is the same as the administrator's.
     verification:
       method: api_response
-      detail: In step 5 both answers are 200 and the view is shown with the content of step 4 (if the answer is empty because the worker may not read the record type, the report says so, since the type is then hidden from that worker by design).
+      detail: In step 5 both answers are 200 and the view is shown with the content of step 4. The record type "UAT pivot ticket" is created in step 1 without any restriction, so an empty list or a 404 for the task worker is a failure of this outcome.
       evidence: The two answers of step 5.
     on_fail:
       severity: MAJOR
