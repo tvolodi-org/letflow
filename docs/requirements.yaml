@@ -42970,7 +42970,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- no pending dependency; a self-contained web/ change (S1 staleness may flag it if S10 is active)
+    gh: 3415
     description: >-
       Source: docs/migration/bilimbaga-e2e-remeasure.md section 3, row accessibility.spec.ts (7 tests, 0
       portable now, 7 blocked: "BLOCKED-BY skip-link and #main-content landmark in AppShell"); it serves
