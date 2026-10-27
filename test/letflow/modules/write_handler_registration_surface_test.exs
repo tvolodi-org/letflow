@@ -64,7 +64,11 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
     # `Catalog.call_write_handler/4` (scan H3 in `handler_writes_callers_test.exs` pins the
     # same set); `ManagedTypes.owner_for_handler/2` re-resolves the registration to build the
     # narrowed Owner (scan H1). Nothing else outside the Catalog may.
-    "lib/letflow/entities/handler_writes.ex"
+    "lib/letflow/entities/handler_writes.ex",
+    # REQ-578 (deliberate edit): `Installs.reactivate/3` reads the compiled hash through
+    # `Catalog.manifest_hash/1` to refuse `upgrade_required` when it differs from the hash the
+    # row was installed with. A read only; it never resolves or calls a handler.
+    "lib/letflow/modules/installs.ex"
   ]
 
   @api_names [:write_handler, :write_handler_in, :call_write_handler, :manifest_hash]

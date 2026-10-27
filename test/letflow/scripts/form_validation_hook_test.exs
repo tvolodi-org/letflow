@@ -13,7 +13,50 @@ defmodule Letflow.Scripts.FormValidationHookTest do
   alias Letflow.Support.ScriptTaskFixture, as: F
   alias Letflow.TenantFixture
 
+  # The first sandbox call in a fresh VM is slow; warm it so the publish test case of S2 does not
+  # time out on a cold runner.
+  setup_all do
+    opts = [
+      tenant: "tenant_warmup",
+      timeout_ms: 5_000,
+      ctx: %{instance_id: "i", node_id: "n", token_id: "t", now: ~U[2026-01-01 00:00:00Z]}
+    ]
+
+    {:ok, _} = Letflow.Engine.Lua.ScriptRunner.run("return { ok = true }", %{}, opts)
+    :ok
+  end
+
   defp actor, do: %{user_id: Ecto.UUID.generate(), credential: :oidc, trace_id: "req569-trace"}
+
+  defp body("form_validation" = kind) do
+    manifest = %{
+      "input_schema" => %{
+        "type" => "object",
+        "properties" => %{"amount" => %{"type" => "integer"}}
+      },
+      "output_schema" => %{
+        "type" => "object",
+        "properties" => %{
+          "ok" => %{"type" => "boolean"},
+          "code" => %{"type" => "string"},
+          "fields" => %{"type" => "array"}
+        },
+        "additionalProperties" => false
+      },
+      "fail_codes" => [],
+      "refusal_codes" => ["too_small"],
+      "fields" => ["amount"]
+    }
+
+    %{
+      "hook_kind" => kind,
+      "source" => "return { ok = true }",
+      "manifest" => manifest,
+      "test_cases" => [
+        %{"name" => "c1", "input" => %{"amount" => 2}, "expect" => %{"output" => %{"ok" => true}}}
+      ]
+    }
+  end
 
   defp body(kind) do
     %{
@@ -76,6 +119,26 @@ defmodule Letflow.Scripts.FormValidationHookTest do
 
       assert published.status == :published
       assert published.hook_kind == "form_validation"
+    end
+
+    test "M15 the F-2 manifest keys are stored; a service_task with them is refused",
+         %{schema: schema} do
+      assert {:ok, draft} =
+               Scripts.create_draft(schema, "fv_keys", body("form_validation"), actor())
+
+      assert {:ok, stored} = Scripts.get(schema, "fv_keys", draft.version)
+      assert stored.manifest["refusal_codes"] == ["too_small"]
+      assert stored.manifest["fields"] == ["amount"]
+
+      mixed = put_in(body("service_task"), ["manifest", "fields"], ["amount"])
+
+      assert Scripts.create_draft(schema, "svc_fields", mixed, actor()) ==
+               {:error, :invalid_manifest}
+
+      no_keys = put_in(body("form_validation"), ["manifest"], F.closed_manifest())
+
+      assert Scripts.create_draft(schema, "fv_no_keys", no_keys, actor()) ==
+               {:error, :invalid_manifest}
     end
 
     test "S3 any other kind is still invalid_hook_kind", %{schema: schema} do
