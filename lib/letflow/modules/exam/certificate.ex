@@ -333,13 +333,30 @@ defmodule Letflow.Modules.Exam.Certificate do
              exam_owner()
            ) do
         {:ok, %{record: record, is_duplicate: is_duplicate}} ->
-          {:ok, record, not is_duplicate}
+          {:ok, with_primary_key(record, prefix), not is_duplicate}
 
         {:error, reason} ->
           {:error, reason}
       end
     end
   end
+
+  # REQ-592: an idempotent replay returns a record rebuilt from the original event, which
+  # carries no Ecto primary key (`id`), yet `public_read_resource_id` must be that key on every
+  # download. Re-read it from the tenant's own latest row (same prefix, keyed by the record id
+  # the replay returned); a fresh insert already has it.
+  defp with_primary_key(%{id: nil, record_id: record_id} = record, prefix) do
+    case Repo.get_by(
+           Letflow.Entities.Record.Latest,
+           [record_id: record_id, entity_type: "certificate"],
+           prefix: prefix
+         ) do
+      %{id: id} -> %{record | id: id}
+      nil -> record
+    end
+  end
+
+  defp with_primary_key(record, _prefix), do: record
 
   # GH #2596: the exam module's own Owner for the certificate write; built per call.
   @spec exam_owner() :: ManagedTypes.Owner.t()
