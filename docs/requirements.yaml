@@ -42913,7 +42913,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- every dependency below is done; the master does not wait on REQ-544 or REQ-558
+    gh: 3407
     # Source: docs/migration/decisions/0057-wms-customer-draft-reconciliation.md D1 (the module owns items, suppliers, purchase orders and stock; masters carry a nullable external_ref {system, id}; no inbound master sync) and D12 (the pilot is seeded with test data through the generic idempotent import, REQ-505); docs/migration/decisions/0050 section "NOT built in slice 0" (counterparty in catalog_items, slice 2, no entity definition until a requirement consumes it) and the architect note (reference by immutable record id, retire = active false, no hard delete, referencing documents store a snapshot of the name); docs/WMS/WMS_Procurement_Requirements_Draft.md PR-04 (supplier or contractor reference), IN-01 and IN-06 (suppliers mapped across systems); docs/migration/core-roadmap-20261014.md "WMS slice 5 (stock ledger)" (hard ordering blocker); docs/requirements.yaml REQ-474 (the item and unit-of-measure master this one copies in shape; its description point 5 "Counterparty is NOT built") and REQ-558 (description: "a supplier and purchase-order master ... later slices"). Written by the business analyst (T-0773) 2026-10-27. Not yet validated.
     description: >
       Adds the supplier master that decision 0057 D1 gives to the module and that REQ-474 point 5 and REQ-558 left
