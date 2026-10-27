@@ -42970,7 +42970,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- no pending dependency (REQ-338 and REQ-346 are done); the engine files the issue after the gate
+    gh: 3421
     description: >-
       Source: docs/migration/bilimbaga-e2e-remeasure.md section 3, row exam-taking.spec.ts ("flag/unflag: BLOCKED-BY flag
       control; submit-confirm modal: DROP"), and the header of web/tests/e2e/exam-taking.e2e.spec.ts, which records case
