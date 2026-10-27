@@ -15,6 +15,7 @@ defmodule Letflow.Routers.AdminV1Test do
 
   import Ecto.Query, only: [from: 2]
   import Plug.Conn
+  import ExUnit.CaptureLog
   import Plug.Test
 
   alias Letflow.Audit.Entry
@@ -262,6 +263,102 @@ defmodule Letflow.Routers.AdminV1Test do
   end
 
   # --- C / GT: create and get ------------------------------------------------
+
+  # GH #3292 / REQ-572 criterion 19: the demo cap and the alarm threshold, both settings. The test DB may
+  # hold demo rows of other tests, so every limit is set relative to the live count.
+  describe "CAP demo cap and alarm" do
+    defp live_demos,
+      do:
+        Repo.aggregate(
+          from(l in Lifecycle, where: l.tier == "demo" and l.lifecycle != "deleted"),
+          :count
+        )
+
+    defp put_settings(extra) do
+      current = Application.get_env(:letflow, Letflow.TenantProvisioner, [])
+      Application.put_env(:letflow, Letflow.TenantProvisioner, Keyword.merge(current, extra))
+    end
+
+    test "CAP1 a create beyond the cap is 409 conflict and creates nothing; a higher cap lets it in" do
+      put_settings(demo_cap: live_demos() + 1)
+      {first, _answer} = create!()
+
+      second = create_body()
+      track(second["tenant_id"])
+      before = counts()
+      conn = call(:post, "/admin/v1/tenants", @write_token, second)
+      assert conn.status == 409 and json(conn)["error"] == "conflict"
+      assert counts() == before
+      assert Repo.get(Tenant, second["tenant_id"]) == nil
+
+      # A replay of an existing tenant is never refused by the cap.
+      assert call(:post, "/admin/v1/tenants", @write_token, first).status == 200
+
+      put_settings(demo_cap: live_demos() + 1)
+      assert call(:post, "/admin/v1/tenants", @write_token, second).status == 201
+    end
+
+    test "CAP1 a deleted demo no longer counts against the cap" do
+      put_settings(demo_cap: live_demos() + 1)
+      {first, _answer} = create!()
+      id = first["tenant_id"]
+
+      blocked = create_body()
+      track(blocked["tenant_id"])
+      assert call(:post, "/admin/v1/tenants", @write_token, blocked).status == 409
+
+      Repo.update_all(from(l in Lifecycle, where: l.tenant_id == ^id),
+        set: [lifecycle: "deleted", purged_at: DateTime.utc_now()]
+      )
+
+      assert call(:post, "/admin/v1/tenants", @write_token, blocked).status == 201
+    end
+
+    test "CAP2 the create that reaches the threshold logs one warning with counts only" do
+      put_settings(demo_cap: live_demos() + 100, demo_alarm_threshold: live_demos() + 2)
+      body = create_body(%{"name" => "Alarm Secret Name"})
+      track(body["tenant_id"])
+
+      quiet =
+        capture_log([level: :warning], fn ->
+          assert call(:post, "/admin/v1/tenants", @write_token, body).status == 201
+        end)
+
+      refute quiet =~ "alarm threshold"
+
+      put_settings(demo_alarm_threshold: live_demos() + 1)
+      loud = create_body(%{"name" => "Alarm Secret Name"})
+      track(loud["tenant_id"])
+
+      log =
+        capture_log([level: :warning], fn ->
+          assert call(:post, "/admin/v1/tenants", @write_token, loud).status == 201
+        end)
+
+      lines = log |> String.split("\n") |> Enum.filter(&(&1 =~ "alarm threshold"))
+      assert length(lines) == 1
+      assert hd(lines) =~ ~r/count=\d+, cap=\d+/
+      refute log =~ "Alarm Secret Name"
+      refute log =~ loud["owner_email"]
+      refute log =~ loud["hostname"]
+      refute log =~ loud["tenant_id"]
+    end
+
+    test "CAP3 two creates racing for the last place: exactly one is 201" do
+      put_settings(demo_cap: live_demos() + 1)
+      bodies = for _ <- 1..2, do: create_body()
+      Enum.each(bodies, &track(&1["tenant_id"]))
+
+      statuses =
+        bodies
+        |> Enum.map(
+          &Task.async(fn -> call(:post, "/admin/v1/tenants", @write_token, &1).status end)
+        )
+        |> Enum.map(&Task.await(&1, 60_000))
+
+      assert Enum.sort(statuses) == [201, 409]
+    end
+  end
 
   describe "C1 create" do
     test "happy path writes the tenant, lifecycle, onboarding record, grant and realm", ctx do

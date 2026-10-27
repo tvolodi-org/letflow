@@ -739,7 +739,8 @@ defmodule Letflow.Modules.Exam.Router do
   # ══ GET /exam-sessions/:id/certificate/download ════════════════════════
   #
   # REQ-356. Issues-or-fetches (idempotent, same as the POST route above),
-  # then renders PDF bytes FRESH on every request via
+  # then renders PDF bytes FRESH on every request (with a freshly minted
+  # verification handle, REQ-592) via
   # `Letflow.Modules.Exam.CertificateDocument.render/2` -- nothing is read from or
   # written to any attachment store; see that module's own moduledoc
   # "Storage" section for the full regenerate-vs-persist statement.
@@ -761,28 +762,26 @@ defmodule Letflow.Modules.Exam.Router do
   end
 
   defp render_download_certificate(conn, {:ok, certificate}) do
-    # `verification.code` -- REQ-357 not landed yet (see
-    # `CertificateDocument`'s own moduledoc "Verification code" section):
-    # the certificate entity carries no `verification_code` field, so this
-    # route passes the certificate's OWN record id as an interim stand-in.
-    # This is flagged, not silently treated as final -- REQ-357's real,
-    # non-guessable capability handle (decision 0028) supersedes it without
-    # requiring any change to `CertificateDocument.render/2`'s own
-    # signature, by design.
-    verification = %{base_url: certificate_verify_base_url(), code: certificate.id}
+    # `verification.code` (REQ-592): a fresh `PublicRead` handle (decision
+    # 0028) is minted on EVERY download, because only the hash is stored and
+    # the plaintext exists solely at mint time. The resource id is
+    # `public_read_resource_id` (the Ecto PK that `CertificatePublicProjection`
+    # matches), never `certificate.id` (the entity record id). The tenant comes
+    # from the token context only. A mint failure is a 500: a PDF with a dead QR
+    # is worse than no PDF. Earlier PDFs and the first-issuance `public_handle`
+    # stay valid (no revocation; 0028 OQ-3 stays open). Nothing here is logged
+    # with a handle.
+    tenant_id = conn.assigns.auth_context.tenant_id
 
-    case CertificateDocument.render(certificate, verification) do
-      {:ok, bytes} ->
-        conn
-        |> put_resp_content_type("application/pdf", nil)
-        |> put_resp_header(
-          "content-disposition",
-          "attachment; filename=\"certificate-#{certificate.id}.pdf\""
-        )
-        |> send_resp(200, bytes)
+    case PublicRead.issue_handle(tenant_id, "certificate", certificate.public_read_resource_id) do
+      {:ok, %{handle: code}} ->
+        send_certificate_pdf(conn, certificate, code)
 
       {:error, reason} ->
-        Logger.warning("exam certificate document render failed: #{inspect(reason)}")
+        Logger.warning(
+          "exam certificate download: public-read handle mint failed: #{inspect(reason)}"
+        )
+
         Response.internal_error(conn)
     end
   end
@@ -818,6 +817,25 @@ defmodule Letflow.Modules.Exam.Router do
   defp render_download_certificate(conn, {:error, reason}) do
     Logger.warning("exam certificate download failed: #{inspect(reason)}")
     Response.internal_error(conn)
+  end
+
+  defp send_certificate_pdf(conn, certificate, code) do
+    verification = %{base_url: certificate_verify_base_url(), code: code}
+
+    case CertificateDocument.render(certificate, verification) do
+      {:ok, bytes} ->
+        conn
+        |> put_resp_content_type("application/pdf", nil)
+        |> put_resp_header(
+          "content-disposition",
+          "attachment; filename=\"certificate-#{certificate.id}.pdf\""
+        )
+        |> send_resp(200, bytes)
+
+      {:error, reason} ->
+        Logger.warning("exam certificate document render failed: #{inspect(reason)}")
+        Response.internal_error(conn)
+    end
   end
 
   # Read at the point of use via `System.get_env/1`, matching

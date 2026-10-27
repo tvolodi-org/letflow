@@ -103,6 +103,26 @@ defmodule Letflow.Supervisor.PollersTest do
     refute Letflow.Engine.ScriptTaskDispatcher.Poller in Enum.map(children, & &1.id)
   end
 
+  test "GH 3292: the provisioner sweep is a fourth, independently gated child (pure init/1)" do
+    keys = [
+      :start_scheduler,
+      :start_service_task_dispatcher,
+      :start_script_task_dispatcher,
+      :start_provisioner_sweep
+    ]
+
+    originals = Map.new(keys, &{&1, Application.get_env(:letflow, &1, true)})
+    on_exit(fn -> Enum.each(originals, fn {k, v} -> Application.put_env(:letflow, k, v) end) end)
+
+    Enum.each(keys, &Application.put_env(:letflow, &1, true))
+    {:ok, {_flags, children}} = Letflow.Supervisor.Pollers.init(nil)
+    assert List.last(Enum.map(children, & &1.id)) == Letflow.TenantProvisioner.Sweep
+
+    Application.put_env(:letflow, :start_provisioner_sweep, false)
+    {:ok, {_flags, children}} = Letflow.Supervisor.Pollers.init(nil)
+    refute Letflow.TenantProvisioner.Sweep in Enum.map(children, & &1.id)
+  end
+
   describe "AC4: crash-loop isolation" do
     test "a Poller crash-looping past Pollers' own restart intensity restarts only Letflow.Supervisor.Pollers" do
       repo_pid_before = Process.whereis(Letflow.Repo)
