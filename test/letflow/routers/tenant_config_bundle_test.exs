@@ -17,6 +17,7 @@ defmodule Letflow.Routers.TenantConfigBundleTest do
   alias Letflow.Identity.Tenant
   alias Letflow.Modules.Installs
   alias Letflow.Routers.TenantConfigBundle, as: Router
+  alias Letflow.TenantConfigBundle
   alias Letflow.TenantFixture
 
   @opts Router.init([])
@@ -113,9 +114,16 @@ defmodule Letflow.Routers.TenantConfigBundleTest do
       body = json(conn)
 
       assert Enum.sort(Map.keys(body)) ==
-               ["bundle_schema_version", "exported_at", "module_settings", "tenant_settings"]
+               [
+                 "bundle_schema_version",
+                 "exported_at",
+                 "label_overrides",
+                 "module_settings",
+                 "notification_templates",
+                 "tenant_settings"
+               ]
 
-      assert body["bundle_schema_version"] == "bpm/config-bundle/v1"
+      assert body["bundle_schema_version"] == "bpm/config-bundle/v2"
       assert {:ok, _, _} = DateTime.from_iso8601(body["exported_at"])
       assert body["tenant_settings"] == @settings
 
@@ -132,6 +140,167 @@ defmodule Letflow.Routers.TenantConfigBundleTest do
     test "E2 tenant without settings exports {}" do
       t = tenant!("r552-e2")
       assert json(export(t))["tenant_settings"] == %{}
+    end
+  end
+
+  describe "REQ-599 part 1 -- v2 export of labels and notification templates" do
+    alias Letflow.Labels.Override
+    alias Letflow.NotificationTemplates.Template
+
+    defp put_override!(t, id, locale, text),
+      do:
+        Repo.insert!(
+          %Override{tenant_id: t.tenant_id, message_id: id, locale: locale, text: text},
+          prefix: t.schema_name
+        )
+
+    defp put_template!(t, key, locale, subject, body),
+      do:
+        Repo.insert!(
+          %Template{
+            tenant_id: t.tenant_id,
+            template_key: key,
+            locale: locale,
+            subject: subject,
+            body: body
+          },
+          prefix: t.schema_name
+        )
+
+    test "E3 both lists sorted, only the documented keys, values round-trip" do
+      t = tenant!("r599-e3")
+      put_override!(t, "b.msg", "en", "B en")
+      put_override!(t, "a.msg", "ru", "A ru")
+      put_override!(t, "a.msg", "en", "A en")
+      put_template!(t, "z.key", "en", "Z subject", "Z body")
+      put_template!(t, "a.key", "ru", "A ru subject", "A ru body")
+      put_template!(t, "a.key", "en", "A en subject", "A en body")
+
+      body = json(export(t))
+
+      assert body["label_overrides"] == [
+               %{"message_id" => "a.msg", "locale" => "en", "text" => "A en"},
+               %{"message_id" => "a.msg", "locale" => "ru", "text" => "A ru"},
+               %{"message_id" => "b.msg", "locale" => "en", "text" => "B en"}
+             ]
+
+      assert body["notification_templates"] == [
+               %{
+                 "template_key" => "a.key",
+                 "locale" => "en",
+                 "subject" => "A en subject",
+                 "body" => "A en body"
+               },
+               %{
+                 "template_key" => "a.key",
+                 "locale" => "ru",
+                 "subject" => "A ru subject",
+                 "body" => "A ru body"
+               },
+               %{
+                 "template_key" => "z.key",
+                 "locale" => "en",
+                 "subject" => "Z subject",
+                 "body" => "Z body"
+               }
+             ]
+    end
+
+    test "E4 a tenant with none exports empty lists, not null" do
+      t = tenant!("r599-e4")
+      body = json(export(t))
+      assert body["label_overrides"] == []
+      assert body["notification_templates"] == []
+    end
+
+    test "E5 each part follows its own permission" do
+      t = tenant!("r599-e5")
+      conn = conn(:get, "/") |> assign(:auth_context, %{tenant_id: t.tenant_id, roles: []})
+      deny = fn denied -> fn p -> p not in denied end end
+
+      assert Router.export_parts(conn, deny.([:LabelsManage])) == [:notification_templates]
+
+      assert Router.export_parts(conn, deny.([:NotificationTemplatesManage])) == [
+               :label_overrides
+             ]
+
+      assert Router.export_parts(conn, deny.([:LabelsManage, :NotificationTemplatesManage])) == []
+      assert Router.export_parts(conn, deny.([])) == [:label_overrides, :notification_templates]
+
+      {:ok, bundle} = TenantConfigBundle.export(t.tenant_id, t.schema_name, parts: [])
+      assert bundle["bundle_schema_version"] == "bpm/config-bundle/v2"
+
+      assert Enum.sort(Map.keys(bundle)) ==
+               ["bundle_schema_version", "exported_at", "module_settings", "tenant_settings"]
+
+      {:ok, bundle} = TenantConfigBundle.export(t.tenant_id, t.schema_name)
+      refute Map.has_key?(bundle, "label_overrides")
+    end
+
+    test "E6 TENANT_ADMIN gets both parts, a role without them gets none" do
+      t = tenant!("r599-e6")
+      put_override!(t, "a.msg", "en", "A en")
+
+      assert Map.has_key?(json(export(t, ["TENANT_ADMIN"])), "label_overrides")
+
+      denied =
+        conn(:get, "/")
+        |> assign(:auth_context, %{tenant_id: t.tenant_id, roles: ["TASK_WORKER"]})
+
+      assert Router.export_parts(denied) == []
+    end
+
+    test "E7 rows of another tenant are absent" do
+      a = tenant!("r599-e7a")
+      b = tenant!("r599-e7b")
+      put_override!(a, "a.msg", "en", "only A")
+      put_template!(b, "b.key", "en", "only B", "only B body")
+
+      ja = json(export(a))
+      jb = json(export(b))
+      assert [%{"text" => "only A"}] = ja["label_overrides"]
+      assert ja["notification_templates"] == []
+      assert jb["label_overrides"] == []
+      assert [%{"subject" => "only B"}] = jb["notification_templates"]
+    end
+
+    test "V1 v1 and v2 documents are both accepted; the new parts are not applied" do
+      t = tenant!("r599-v1")
+      assert import_(t, bundle(%{"app_name" => "One"})).status == 200
+
+      v2 =
+        bundle(%{"app_name" => "Two"})
+        |> Map.put("bundle_schema_version", "bpm/config-bundle/v2")
+        |> Map.put("label_overrides", [
+          %{"message_id" => "a.msg", "locale" => "en", "text" => "x"}
+        ])
+        |> Map.put("notification_templates", [])
+
+      assert import_(t, v2).status == 200
+      assert Letflow.Labels.list_overrides(t.schema_name, t.tenant_id) == []
+      assert tenant_settings(t)["app_name"] == "Two"
+    end
+
+    test "V2 the audit entry records the version of the imported document" do
+      t = tenant!("r599-v2")
+      assert import_(t, bundle(%{"app_name" => "One"})).status == 200
+
+      v2 =
+        bundle(%{"app_name" => "Two"}) |> Map.put("bundle_schema_version", "bpm/config-bundle/v2")
+
+      assert import_(t, v2).status == 200
+
+      versions =
+        t |> audit_entries() |> Enum.map(& &1.after_state["bundle_schema_version"]) |> Enum.sort()
+
+      assert versions == ["bpm/config-bundle/v1", "bpm/config-bundle/v2"]
+    end
+
+    test "R1 the runbook states the v1/v2 rule" do
+      text = File.read!("docs/runbooks/tenant-config-bundle.md")
+
+      for word <- ["bpm/config-bundle/v2", "v1", "LabelsManage", "NotificationTemplatesManage"],
+          do: assert(text =~ word)
     end
   end
 
