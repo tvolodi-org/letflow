@@ -12,19 +12,15 @@
  *  screen ten times. A single dynamic route (`/admin/bilimbaga/:entityType`
  *  in web/src/router.tsx) renders it.
  *
- *  GAP NOTE — self-referential parent_id (see this requirement's own
- *  close-out for the full statement). category.parent_id and
- *  question.parent_id do NOT exist on either entity definition today
- *  (priv/packs/bilimbaga/entity_definitions/category.json and question.json
- *  — see each definition document's own description field, and
- *  priv/packs/bilimbaga/entity_definitions/README-constraints.md). Because
- *  neither field is declared, `EntityCrudPage` — which renders exactly the
- *  fields `GET /entities/definitions/active/:name` returns — cannot and
- *  does not render a parent/tree field for either entity. No client-side
- *  tree-picker, no fake `parent_id` field, no workaround of any kind is
- *  added here or anywhere else in this requirement's diff. The category
- *  tree / question-version-lineage UI is blocked on REQ-324's follow-on
- *  definition change, not on anything this requirement controls.
+ *  NOTE — self-referential parent_id (REQ-586). category.parent_id and
+ *  question.parent_id are declared on the exam module's entity definitions
+ *  now, and EntityCrudPage renders them from the active definition like any
+ *  other field: category.parent_id through the indented category tree picker
+ *  (`entity-category-tree`, components/forms/widgets/categoryTreeSelect.tsx),
+ *  question.parent_id through the generic fk reference lookup. parent_id is
+ *  handled for those two entity types only. exam_assignment is still never
+ *  rendered, listed or mocked here: it is not an admin-managed type and no
+ *  entry for it exists below.
  */
 
 export interface BilimBagaEntityConfig {

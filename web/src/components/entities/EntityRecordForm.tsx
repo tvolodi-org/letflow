@@ -41,6 +41,9 @@ export interface EntityRecordFormProps {
    *  of its own besides the two button labels, both passed in as props). */
   fieldTitles: Record<string, string>
   initialValues?: Record<string, unknown>
+  /** The record being edited, if any (REQ-586 part D: the category tree
+   *  picker hides it and its descendants). */
+  editingRecordId?: string
   onSubmit: (fieldValues: Record<string, unknown>) => Promise<void> | void
   onCancel: () => void
   isSubmitting?: boolean
@@ -88,6 +91,7 @@ export function EntityRecordForm(props: EntityRecordFormProps) {
     definition,
     fieldTitles,
     initialValues,
+    editingRecordId,
     onSubmit,
     onCancel,
     isSubmitting = false,
@@ -146,7 +150,7 @@ export function EntityRecordForm(props: EntityRecordFormProps) {
       {fields.map((field) => {
         const fkDef = definition.definition.foreign_keys?.find((fk) => fk.field === field.name)
         const taskFormField = {
-          ...entityFieldToFormField(field, fkDef),
+          ...entityFieldToFormField(field, fkDef, { entityType: definition.name, editingRecordId }),
           title: fieldTitles[field.name] ?? field.name,
         }
         const registerReturn = form.register(field.name, { required: taskFormField.required })
