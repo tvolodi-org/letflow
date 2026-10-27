@@ -1,0 +1,201 @@
+# T-0822 (BA): TENANT ADMIN group, scenario 35: saved pivot views, who may write them, who sees them, how a replay is treated for a caller who
+# may not read the type, and that one company never sees or changes another's.
+# Covers REQ-598 criteria 3 (a pivot is shown to readers who may read the type and not to others), 4 (a caller without the view permission is
+# refused on create, change and delete, with the same 403 for an existing and an absent id; reading needs only the query permission),
+# 5 (the replay of a stored pivot is treated like the hand-typed aggregate query for a caller who may not read the type), 6 (a pivot of a type
+# the caller may not read, a pivot of another company and an absent id give the same 404) and 7 (cross-company negative: read, change and
+# delete by another company's administrator give the absent-id answer, the pivot is unchanged).
+# Sources: docs/requirements.yaml REQ-598 (criteria 3 to 7); docs/roles.md (EntitiesViewsManage: TENANT_ADMIN and PLATFORM_ADMIN only;
+# EntitiesQuery and EntitiesAggregate: PLATFORM_ADMIN, PROCESS_DESIGNER, PROCESS_OPERATOR, TASK_WORKER, TENANT_ADMIN, TENANT_AUDITOR);
+# test/fixtures/uat/actors.yaml (alice, lena, auditor of SwiftRoute; ben of Meridian; actor-bilimbaga-admin of Bilimbaga, whose token needs a
+# qa-login mapping that is not yet approved); the pattern of scenario 13 for the restricted record type.
+# Not UAT-observable by an outside user, so not covered by any scenario (REQ-598 criteria 1 and 8 in part, 4 in part, 9): the migration and the
+# fact that an existing list view row is unchanged after it, and that a pivot view is absent from another company's tenant schema as a table
+# row (the visible effect, no view in the other company's list, is checked here); the audit event being written in the same transaction as the
+# change (scenario 33 checks only that the entries exist); the unchanged permission matrix golden, the absence of a new permission, and the
+# route-count and route-scope pins; the reviewer verdicts and build commands. A field-level grant on a field a pivot names (criterion 5, second
+# sentence) needs a record type with a restricted field and a user without the grant; it is the setup of the restricted-fields scenarios, which
+# check the ordinary aggregate query, and this scenario checks the type-level case only.
+# The four sensitive actions: "change users" and "approve, pay or release" are not in this flow; "see sensitive data" is steps 8 to 10.
+---
+id: tenant-administration-35-saved-pivot-views-access-and-other-company
+scope: tenant-administration
+title: Only the administrator may write saved pivots, with one refusal for a missing or existing pivot, a pivot over a hidden type is not found, and another company never sees or changes a pivot
+version: "1.0"
+tags: [tenant-admin, saved-views, pivot, access, cross-tenant, refusal, isolation]
+
+description: >
+  The administrator of SwiftRoute saves the pivot view "UAT private pivot" over the record type "UAT pivot ticket". A task worker and the
+  read-only auditor of SwiftRoute can read the pivot but are refused when they create, change or delete one; the refusal is the same for the
+  existing pivot and for an identifier that no view has. A Meridian user and the administrator of Bilimbaga do not see the pivot. The Bilimbaga
+  administrator tries to read, change and delete it by its id, and to save a pivot over a record type that exists only in SwiftRoute: every
+  answer is the answer for a view that does not exist, and SwiftRoute's pivot is unchanged. A request that names SwiftRoute as the company is
+  ignored. Finally the administrator of SwiftRoute saves a pivot over a separate record type "UAT pivot restricted ticket" and restricts that
+  type so that only the administrator keeps access (the API can add a restriction but not remove one). The task worker then no longer sees
+  that pivot, reading it gives the same answer as for an identifier no view has, and the worker's aggregate query over that type, typed by
+  hand and built from the stored pivot, is refused in the same way both times.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+  auditor_a: actor-swiftroute-auditor
+  reader_b: actor-meridian-ben
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute, Meridian and Bilimbaga are set up; the record type "UAT pivot ticket" is active in SwiftRoute with the fields title, status, region and amount, carries no access restriction, and does not exist in Meridian or in Bilimbaga; no saved view exists in any of the three companies
+    check: system_seeded
+    detail: The record type "UAT pivot restricted ticket" may already exist in SwiftRoute, restricted with the administrator's grant, from an earlier run; step 8 then uses it as it is. If the Bilimbaga administrator cannot sign in (no approved test token), report BLOCKED for steps 5 and 6 and run the others; EO-003 and EO-004 are then BLOCKED and EO-002 is judged on step 4 (the Meridian user) alone. If the worker or the auditor may not read the record type "UAT pivot ticket", the list in their step is empty and the report says so; their refusals are still judged.
+  - description: The tenant administrator of SwiftRoute holds the view permission and no other SwiftRoute actor of this scenario does
+    check: system_seeded
+    detail: Per the role matrix, only the tenant administrator (and the platform operator) holds it.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute saves the pivot "UAT private pivot" over "UAT pivot ticket" with the filter "status equals open", the
+      grouping by region and the aggregate "count of records", and notes its id and a second identifier that no view has (a well-formed one made
+      up for the test).
+    via: api
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker lists the views and reads the pivot of step 1. Then the task worker tries to create a pivot, to change the pivot of step
+      1 and to delete it, and tries to change and delete the made-up identifier. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor_a
+    action: >
+      The read-only auditor lists the views and reads the pivot of step 1. Then the auditor tries to create a pivot, to change the pivot of
+      step 1 and to delete it, and tries to change and delete the made-up identifier. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: reader_b
+    action: >
+      A Meridian user lists the views, searches the answer for "SwiftRoute", and reads the pivot of step 1 by its id. The answers are noted.
+    via: api
+  - step: 5
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator lists the views, searches the answer for "SwiftRoute", and reads, changes (new name "UAT taken over") and
+      deletes the pivot of step 1 by its id. Then the administrator reads, changes and deletes the made-up identifier of step 1. All answers are
+      noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to save a pivot over the record type "UAT pivot ticket", which exists only in SwiftRoute, and notes the
+      answer. The administrator then repeats a read, with the company SwiftRoute named in the address and in the body of a change, and notes
+      whose view the answer is about.
+    expect_refusal: true
+    via: api
+    input:
+      company_named_in_request: SwiftRoute
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute reads the pivot of step 1 and lists the views, and compares them with step 1.
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute creates the record type "UAT pivot restricted ticket" with the fields title (text) and amount (whole
+      number) (if it already exists restricted from an earlier run, it is used as it is), saves the pivot "UAT restricted pivot" over it with the
+      aggregate "count of records", and notes the pivot's id. The administrator then sends one restriction import that restricts "UAT pivot
+      restricted ticket" and grants access to it to the administrator's own user only, and notes the answer.
+    via: api
+  - step: 9
+    actor: worker_a
+    action: >
+      The task worker lists the views, reads the pivot of step 8 by its id, and reads the made-up identifier of step 1. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: worker_a
+    action: >
+      The task worker sends the aggregate query over "UAT pivot restricted ticket" built by hand (the aggregate "count of records", no
+      grouping, no filter). The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute, who holds the access grant, reads the pivot of step 8 to confirm it is unchanged, and sends the same
+      aggregate query over "UAT pivot restricted ticket" built from the stored pivot, to confirm that it is answered for a caller who holds the
+      grant. Then the administrator deletes the pivot of step 8.
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute deletes the pivot of step 1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker and the read-only auditor can read pivots but are refused when they create, change or delete, with one refusal for an existing and for a missing view.
+    verification:
+      method: http_status
+      detail: In steps 2 and 3 the lists and the reading are 200; every create, change and delete is 403; for each caller the 403 for the existing pivot and for the made-up identifier have the same status, the same body byte for byte, and the same headers apart from per-request ones (date, request id).
+      evidence: The reads and the five refusals of each of steps 2 and 3, and the pivot read in step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee, or an outside auditor, could rewrite or delete the saved pivots of the company, or learn which pivots exist.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Another company sees no pivot of SwiftRoute, in a list or by id.
+    verification:
+      method: api_response
+      detail: The lists of steps 4 and 5 are empty and contain no part of the name or the word "SwiftRoute"; the reading by id in steps 4 and 5 is 404.
+      evidence: The lists and readings of steps 4 and 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer's pivot definitions, which name its record types and fields, show in another customer's system.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Another company's administrator cannot change or delete SwiftRoute's pivot, and every answer equals the answer for a view that does not exist.
+    verification:
+      method: http_status
+      detail: In step 5 the read, change and delete of the real id and of the made-up id are all 404 with the same body byte for byte and the same headers apart from per-request ones (date, request id); in step 7 the pivot of SwiftRoute has its original name, filter, grouping, aggregates and times.
+      evidence: The six answers of step 5 compared byte for byte, and the pivot of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer could delete or rewrite another customer's saved pivots, or find out which pivots exist.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A record type that exists only in another company is answered as not found, and a company named in the request is ignored.
+    verification:
+      method: http_status
+      detail: In step 6 the creation over the SwiftRoute-only type is 404 with the same body as the absent views of step 5; the read with SwiftRoute named answers as for a missing view of Bilimbaga, and the change names nothing of SwiftRoute; the pivot of SwiftRoute is unchanged in step 7.
+      evidence: The answers of step 6 and the pivot of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be pointed at another customer's data by naming the customer, or reveal which record types it has.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A pivot over a record type the caller may not read is not listed and is answered as not found, the same as a view that does not exist.
+    verification:
+      method: http_status
+      detail: In step 9 the task worker's list does not contain the pivot of step 8; the reading of the real id and of the made-up id are both 404 with the same status, the same body byte for byte and the same headers apart from per-request ones (date, request id). In step 11 the administrator, who holds the grant, still reads the pivot with its original content.
+      evidence: The three answers of step 9 and the reading of step 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A user who may not see a kind of record can still see that pivots over it exist and what they group and total.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: The aggregate query built from a stored pivot is refused for a caller who may not read the type exactly as the hand-typed query is, and answered for the caller who holds the grant.
+    verification:
+      method: http_status
+      detail: The answer of step 10 is a refusal with a fixed status and body; the replay of the stored pivot by the worker is not possible through any view answer, because the worker cannot read the pivot (EO-005), so the worker has no stored definition to send, and the refusal of step 10 is the answer for the query that definition would have made; in step 11 the administrator's replay is 200 with a count, and equals the administrator's hand-typed query if the administrator sends that too.
+      evidence: The answer of step 10 and the two answers of step 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A saved pivot could become a way to total up records that a user is not allowed to see.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the pivot "UAT private pivot" in SwiftRoute and any pivot created in Bilimbaga, if they still exist. The record types "UAT pivot ticket" (retire it if retirement is possible, otherwise it stays for the test customer's retirement) and "UAT pivot restricted ticket" stay, because the API cannot remove a restriction; they are retired with the test customer and a later run reuses them as they are.
