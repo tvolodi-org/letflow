@@ -17,6 +17,7 @@
   --color-brand-500: #339af0;
   --color-brand-600: #228be6;
   --color-brand-700: #1971c2;
+  --color-brand-secondary: #1971c2;  /* tenant secondary brand colour (REQ-585); platform default */
 
   /* Semantic */
   --color-success-light: #d3f9d8;
