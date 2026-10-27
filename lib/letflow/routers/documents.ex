@@ -1,13 +1,23 @@
 defmodule Letflow.Routers.Documents do
   @moduledoc """
-  The document retention and legal-hold routes, mounted at `/documents` by
-  `Letflow.Plugs.ApiPipeline` (REQ-536, GH #3106, decision 0063 S4, S5, S7).
+  The document retention, legal-hold and print-template override routes, mounted at `/documents` by
+  `Letflow.Plugs.ApiPipeline` (REQ-536, GH #3106, decision 0063 S4, S5, S7; REQ-579, GH #3289).
 
   | Route | Policy key -> permission | Scope class |
   |---|---|---|
   | `PUT /types/:key/retention` | `:DocumentsRetentionManage` | `:tenant_wide` |
   | `POST /:document_id/hold` | `:DocumentHold` | resolver `Letflow.Documents.ScopeResolver.document_scope/1` |
   | `POST /:document_id/hold/release` | `:DocumentHold` | same resolver |
+  | `GET /print-overrides` | `:DocumentPrintTemplatesManage` | `:tenant_wide` |
+  | `GET /print-overrides/:id` | `:DocumentPrintTemplatesManage` | `:tenant_wide` |
+  | `POST /print-overrides` | `:DocumentPrintTemplatesManage` | `:tenant_wide` |
+  | `POST /print-overrides/:id/activate` | `:DocumentPrintTemplatesManage` | `:tenant_wide` |
+  | `POST /print-overrides/:id/retire` | `:DocumentPrintTemplatesManage` | `:tenant_wide` |
+
+  The print-override routes wrap `Letflow.Documents.PrintOverrides`: a save is 201, a 409 carries
+  the context's fixed text (`PrintOverrides.conflict_reason/1`), a layout failure is a 422 whose
+  `errors` hold only a rule and a layout path (never a value), and no route takes a tenant
+  parameter. Server-owned body fields (`tenant_id`, `version_no`, `status`, `created_by`) are ignored.
 
   Order of checks (0063 S7): the permission at `Letflow.Plugs.Authorize` first (the same 403 for
   an existing and an absent id, since the plug does not look at the id), then body validation
@@ -26,9 +36,11 @@ defmodule Letflow.Routers.Documents do
 
   use Letflow.Api.AuthorizedRouter
 
+  alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.ScopeGate
   alias Letflow.Documents.Hold
+  alias Letflow.Documents.PrintOverrides
   alias Letflow.Documents.Retention
   alias Letflow.Documents.ScopeResolver
 
@@ -44,6 +56,27 @@ defmodule Letflow.Routers.Documents do
   authz_post "/:document_id/hold/release", :DocumentHold,
     scope: {:resolver, {ScopeResolver, :document_scope}} do
     handle_hold(conn, :release, conn.params["document_id"])
+  end
+
+  authz_get "/print-overrides", :DocumentPrintTemplatesManage, scope: :tenant_wide do
+    handle_override_list(conn)
+  end
+
+  authz_get "/print-overrides/:id", :DocumentPrintTemplatesManage, scope: :tenant_wide do
+    handle_override_get(conn, conn.params["id"])
+  end
+
+  authz_post "/print-overrides", :DocumentPrintTemplatesManage, scope: :tenant_wide do
+    handle_override_save(conn)
+  end
+
+  authz_post "/print-overrides/:id/activate", :DocumentPrintTemplatesManage,
+    scope: :tenant_wide do
+    handle_override_transition(conn, :activate, conn.params["id"])
+  end
+
+  authz_post "/print-overrides/:id/retire", :DocumentPrintTemplatesManage, scope: :tenant_wide do
+    handle_override_transition(conn, :retire, conn.params["id"])
   end
 
   authz_unmatched(:ordinary)
@@ -114,6 +147,90 @@ defmodule Letflow.Routers.Documents do
     end
   end
 
+  # ── /print-overrides (REQ-579, GH #3289) ────────────────────────────────────
+
+  @override_meta_keys ~w(id type_key locale version_no status layout_hash layout_schema_version
+                         created_by activated_by activated_at retired_at reason_code inserted_at
+                         updated_at)a
+
+  defp handle_override_list(conn) do
+    conn = fetch_query_params(conn)
+    filters = %{type_key: conn.query_params["type_key"], locale: conn.query_params["locale"]}
+
+    case PrintOverrides.list(prefix(conn), filters) do
+      {:ok, rows} -> Response.ok(conn, %{"overrides" => Enum.map(rows, &render_meta/1)})
+      other -> reply_error(conn, other)
+    end
+  end
+
+  defp handle_override_get(conn, id) do
+    case PrintOverrides.get(prefix(conn), id) do
+      {:ok, row} -> Response.ok(conn, render_full(row))
+      other -> reply_error(conn, other)
+    end
+  end
+
+  # Only `type_key`, `locale` and `layout` are read from the body, by name: any server-owned
+  # field a caller sends (tenant_id, version_no, status, created_by) is ignored by construction.
+  defp handle_override_save(conn) do
+    body = body(conn)
+
+    result =
+      case Map.get(body, "layout") do
+        %{} = layout ->
+          PrintOverrides.save_draft(
+            prefix(conn),
+            %{
+              type_key: Map.get(body, "type_key"),
+              locale: Map.get(body, "locale"),
+              layout: layout
+            },
+            actor_id(conn)
+          )
+
+        _ ->
+          {:error, {:unprocessable, :invalid_layout}}
+      end
+
+    case result do
+      {:ok, row} -> Response.created(conn, render_full(row))
+      other -> reply_error(conn, other)
+    end
+  end
+
+  defp handle_override_transition(conn, action, id) do
+    attrs = %{reason_code: Map.get(body(conn), "reason_code")}
+
+    result =
+      case action do
+        :activate -> PrintOverrides.activate(prefix(conn), id, attrs, actor_id(conn))
+        :retire -> PrintOverrides.retire(prefix(conn), id, attrs, actor_id(conn))
+      end
+
+    case result do
+      {:ok, row} -> Response.ok(conn, render_full(row))
+      other -> reply_error(conn, other)
+    end
+  end
+
+  # Allowlist render: no tenant_id, no layout (INV-2).
+  defp render_meta(row), do: Map.new(@override_meta_keys, &{Atom.to_string(&1), Map.get(row, &1)})
+
+  defp render_full(row), do: row |> render_meta() |> Map.put("layout", row.layout)
+
+  # Only the rule and the layout path are emitted, never a value. A caller-chosen unknown key name
+  # has no stable index, so an :unknown_key violation replaces a trailing key name by "_key".
+  defp violation_map(%{rule: :unknown_key, path: path}) do
+    path =
+      if match?([_ | _], path) and is_binary(List.last(path)),
+        do: Enum.drop(path, -1) ++ ["_key"],
+        else: path
+
+    %{"rule" => "unknown_key", "path" => path}
+  end
+
+  defp violation_map(%{rule: rule, path: path}), do: %{"rule" => to_string(rule), "path" => path}
+
   # ── replies ─────────────────────────────────────────────────────────────────
 
   defp reply_error(conn, {:error, {:unprocessable, reason}}),
@@ -123,6 +240,16 @@ defmodule Letflow.Routers.Documents do
 
   defp reply_error(conn, {:error, :conflict}),
     do: Response.conflict(conn, "document hold state conflict")
+
+  defp reply_error(conn, {:error, {:conflict, reason}}),
+    do: Response.conflict(conn, PrintOverrides.conflict_reason(reason))
+
+  defp reply_error(conn, {:error, {:invalid_layout, violations}}) do
+    Response.send_problem(conn, %{
+      Error.unprocessable("layout failed validation")
+      | errors: Enum.map(violations, &violation_map/1)
+    })
+  end
 
   # Anything else (audit failure, bad schema name): the detail-free 500 (INV-8).
   defp reply_error(conn, _other), do: Response.internal_error(conn)
@@ -136,6 +263,10 @@ defmodule Letflow.Routers.Documents do
 
   defp unprocessable_detail(:period_action_mismatch),
     do: "retention_period_days and retention_action do not match"
+
+  defp unprocessable_detail(:unknown_type_key), do: "unknown type_key"
+  defp unprocessable_detail(:invalid_locale), do: "invalid locale"
+  defp unprocessable_detail(:invalid_layout), do: "invalid layout"
 
   defp unprocessable_detail(_other), do: "invalid request"
 
