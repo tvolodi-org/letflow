@@ -68,6 +68,9 @@ vi.mock('../OidcManager', () => ({
 
 vi.mock('../tenantOidcRegistry', () => ({
   attemptSilentSwitch: mockAttemptSilentSwitch,
+  getOrCreateManagerForTenant: vi.fn(async () => ({
+    events: { addAccessTokenExpiring: vi.fn(), removeAccessTokenExpiring: vi.fn() },
+  })),
 }))
 
 // /me/access decides platform authority (the token's role claims are never read).

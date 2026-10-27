@@ -122,7 +122,7 @@ defmodule Letflow.Plugs.AuthPipelineScopeOnTest do
   # --- T-O3 ------------------------------------------------------------------------------------
 
   describe "T-O3 query counts are identical under off, shadow and on" do
-    test "API token: the pipeline issues the pinned three statements in every mode, scope_grants is :token" do
+    test "API token: the pipeline issues the pinned four statements in every mode, scope_grants is :token" do
       fx = oidc_tenant!("r517-o3-token")
       plaintext = admin_token!(fx)
 
@@ -144,7 +144,8 @@ defmodule Letflow.Plugs.AuthPipelineScopeOnTest do
         end
 
       for {mode, queries} <- measured do
-        assert queries == ["tenants", "api_tokens", "api_tokens"], "mode #{mode}"
+        assert queries == ["tenants", "tenant_lifecycles", "api_tokens", "api_tokens"],
+               "mode #{mode}"
       end
     end
 
