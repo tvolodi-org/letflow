@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 /**
  * REQ-343 AC4 — the exam-admin landing page carries a visible, one-line
- * note about the exam_assignment gap, pointing at
- * lib/letflow/exam/session.ex's FINDING section and REQ-327's
- * README-constraints.md by path. Also covers: all ten entity types are
+ * note about the exam_assignment gap (no assignment screen; assignment is
+ * enforced since REQ-582, the old session.ex FINDING no-op is gone). Also covers: all ten entity types are
  * reachable from the landing page's own nav cards, and no exam_assignment
  * or parent_id workaround renders anywhere on this page.
  *
@@ -24,7 +23,7 @@ import { BILIMBAGA_ENTITY_TYPES } from '@/config/bilimbagaEntities'
 afterEach(() => cleanup())
 
 describe('REQ-343 AC4 — exam_assignment gap note', () => {
-  it('renders a visible note citing lib/letflow/exam/session.ex and REQ-327/README-constraints.md by path', () => {
+  it('renders a visible note that there is no assignment screen and that assignment is enforced (REQ-582)', () => {
     render(
       <MemoryRouter>
         <BilimBagaAdminPage />
@@ -33,8 +32,11 @@ describe('REQ-343 AC4 — exam_assignment gap note', () => {
 
     const note = screen.getByTestId('bilimbaga-exam-assignment-gap-note')
     expect(note).toBeInTheDocument()
-    expect(note.textContent).toContain('lib/letflow/exam/session.ex')
-    expect(note.textContent).toContain('priv/packs/bilimbaga/entity_definitions/README-constraints.md')
+    // REQ-582 part B replaced the no-op check_assigned/3: the copy no longer
+    // cites the old FINDING section, it says assignment is enforced.
+    expect(note.textContent).toContain('no screen here to assign')
+    expect(note.textContent).toContain('REQ-582')
+    expect(note.textContent).toContain('cannot be started')
   })
 })
 
