@@ -35,6 +35,14 @@ function readPlatformDefaultBrand600(): string {
   return match[1].trim()
 }
 
+function readPlatformDefaultSecondary(): string {
+  const match = tokensCssContent.match(/--color-brand-secondary:\s*([^;]+);/)
+  if (!match) {
+    throw new Error('tokens.css does not define --color-brand-secondary')
+  }
+  return match[1].trim()
+}
+
 let styleEl: HTMLStyleElement
 
 beforeEach(() => {
@@ -96,6 +104,33 @@ describe('applyBrandingColors', () => {
       .getPropertyValue('--color-brand-600')
       .trim()
     expect(primary).toBe('cadetblue')
+  })
+
+  it('REQ-585: brand_colors {primary, secondary} sets both custom properties on the document root', () => {
+    applyBrandingColors({ primary: 'rebeccapurple', secondary: 'darkorange' })
+
+    const style = getComputedStyle(document.documentElement)
+    expect(style.getPropertyValue('--color-brand-600').trim()).toBe('rebeccapurple')
+    expect(style.getPropertyValue('--color-brand-secondary').trim()).toBe('darkorange')
+  })
+
+  it('REQ-585: a missing secondary leaves the tokens.css default in place', () => {
+    applyBrandingColors({ primary: 'rebeccapurple' })
+
+    const resolved = getComputedStyle(document.documentElement)
+      .getPropertyValue('--color-brand-secondary')
+      .trim()
+    expect(resolved).toBe(readPlatformDefaultSecondary())
+    expect(resolved).not.toBe('')
+  })
+
+  it('REQ-585: only allowlisted keys apply — an unknown key beside secondary is ignored', () => {
+    applyBrandingColors({ secondary: 'darkorange', tertiary: 'tomato' })
+
+    const style = getComputedStyle(document.documentElement)
+    expect(style.getPropertyValue('--color-brand-secondary').trim()).toBe('darkorange')
+    expect(style.getPropertyValue('--color-brand-tertiary').trim()).toBe('')
+    expect(style.getPropertyValue('--tertiary').trim()).toBe('')
   })
 
   it('AC3: applyBrandingColors only ever iterates the allowlist\'s own keys, never Object.keys(brandColors)', () => {
