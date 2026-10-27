@@ -42970,7 +42970,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S10
-    # impl_order: UNREGISTERED -- every dependency is already on origin/main (authoring routes of REQ-510 slice 2, GH #2680; question lineage of REQ-586); S1 staleness may flag it
+    gh: 3423
     description: |
       Source: docs/migration/bilimbaga-e2e-remeasure.md section 3 (rows question-editor.spec.ts, 7 tests, and
       question-bank.spec.ts, 5 rows, both BLOCKED-BY the question editor page and search) and
