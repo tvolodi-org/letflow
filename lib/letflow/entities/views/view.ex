@@ -5,6 +5,11 @@ defmodule Letflow.Entities.Views.View do
   A saved list view: a name, one entity type, ordered `columns` (field names), and a `filter` and
   `sort` stored in the wire shape of `POST /entities/query` (`{"field","op","value"}`,
   `{"field","dir"}`). It holds no record value. The writer is `Letflow.Entities.Views`.
+
+  `kind` is `"list"` or `"pivot"` (REQ-598). A pivot view stores a `filter` plus `group_by`
+  (`{"field"}`) and `aggregates` (`{"fn"}` or `{"fn","field"}`) in the wire shape of
+  `POST /entities/query/aggregate`; its `columns` and `sort` are `[]`. A list view keeps
+  `group_by` and `aggregates` empty (a table CHECK enforces it).
   """
 
   use Ecto.Schema
@@ -17,6 +22,9 @@ defmodule Letflow.Entities.Views.View do
     field(:columns, {:array, :string})
     field(:filter, {:array, :map})
     field(:sort, {:array, :map})
+    field(:kind, :string, default: "list")
+    field(:group_by, {:array, :map}, default: [])
+    field(:aggregates, {:array, :map}, default: [])
     field(:created_by, :binary_id)
     field(:updated_by, :binary_id)
 
