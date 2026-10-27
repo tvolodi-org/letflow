@@ -363,15 +363,14 @@ defmodule Letflow.ExamFixtures do
       |> then(fn fv -> if assignee_id, do: Map.put(fv, "assignee_id", assignee_id), else: fv end)
 
     assert {:ok, %{record: record}} =
-             Records.create_record(
+             Letflow.Modules.Exam.Authoring.create_assignment(
                %{
                  entity_type: "exam_assignment",
                  field_values: field_values,
                  actor_id: Ecto.UUID.generate(),
                  idempotency_key: Ecto.UUID.generate()
                },
-               schema,
-               Letflow.Entities.ManagedTypes.owner_for!(Exam)
+               schema
              )
 
     record
