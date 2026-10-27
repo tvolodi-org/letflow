@@ -508,9 +508,9 @@ defmodule Letflow.Entities.HandlerWrites do
   end
 
   # The install row and both hashes, re-read with NO lock at execution time (TOCTOU defence).
-  # `tenant_modules` has no status column in this build (a row IS an installed module; there is
-  # no disabled/uninstalled state), so row existence is the whole "installed and enabled" check.
-  # Uninstall (decision 0055) must delete the row or add a status this function then checks.
+  # Row existence is not the whole check (REQ-578): `Installs.installed_manifest_hash/2` returns
+  # `{:error, :not_installed}` for a row with status `uninstalled`, so an uninstalled module falls
+  # through to `:hash_mismatch` here.
   defp owner_recheck(module_id, prefix, stamp_hash)
        when is_binary(module_id) and is_binary(stamp_hash) do
     with {:ok, installed} <- Installs.installed_manifest_hash(module_id, prefix: prefix),
