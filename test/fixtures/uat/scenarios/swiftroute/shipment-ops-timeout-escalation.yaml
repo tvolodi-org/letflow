@@ -28,11 +28,12 @@ description: >
   without waiting for the ops manager. This is a critical safety mechanism
   that prevents time-sensitive deliveries from being stuck indefinitely.
 
-  WHO ADVANCES THE TIMER (BA decision T-0321, point 5): advancing the clock is test control, not a
-  business act, so it is not a persona's step. UAT-RUNNER does it with a swiftroute tooling account
-  that holds the Process Operator responsibility. That account is not in the actor roster yet and
-  none is invented here: until infrastructure provides it, step 2 is BLOCKED (or SKIP if the
-  advance-timer endpoint is unavailable) and the scenario must not be reported PASS.
+  WHO ADVANCES THE TIMER (BA decision 3221, replacing T-0321 point 5): advancing the clock is test
+  control, not a business act, so it is not a persona's step. UAT-RUNNER does it with the tooling
+  account swiftroute-admin-user, for the timer advance only: never for a persona's business step and
+  never as the actor of a refusal check. It is a tooling account, not in the actor roster. The run
+  report names the account used for the advance. If the advance-timer endpoint is unavailable, step
+  2 is SKIP and the scenario must not be reported PASS.
 
 actors:
   dispatcher: actor-swiftroute-lena
@@ -48,10 +49,10 @@ preconditions:
     check: custom
     detail: Step 1 returns a created instance; a refusal at step 1 means BLOCKED.
   - description: >
-      A swiftroute tooling account holding the Process Operator responsibility is available to
-      UAT-RUNNER for step 2 (UAT assumption, to be confirmed by the process owner).
+      The tooling account swiftroute-admin-user is available to UAT-RUNNER for the timer advance of
+      step 2 only (BA decision 3221; UAT assumption, to be confirmed by the process owner).
     check: custom
-    detail: If no such account is available, step 2 is BLOCKED.
+    detail: The run report names the account used for the advance.
 
 steps:
   - step: 1
@@ -74,7 +75,7 @@ steps:
     actor: system
     action: >
       The 2-hour operations manager review timer fires. UAT-RUNNER, using the swiftroute
-      tooling account described above (not a persona), advances the timer by injecting a
+      tooling account swiftroute-admin-user (not a persona), advances the timer by injecting a
       timer-fire event rather than waiting the 2 real hours.
     via: api
     input:

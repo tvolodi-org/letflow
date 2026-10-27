@@ -4,8 +4,8 @@
 # notice, which rejoins the join without marking the incident costed. Sensitive action covered:
 # approving/costing (step 5 refusal).
 #
-# Timer step: test control by a swiftroute tooling account holding the Process Operator
-# responsibility (BA decision T-0321, point 5); not in the roster, none is invented here.
+# Timer step: test control by the tooling account swiftroute-admin-user, timer advance only
+# (BA decision 3221, replacing T-0321 point 5); it is not in the roster.
 ---
 id: swiftroute-driver-incident-finance-estimate-lapses
 company_id: swiftroute
@@ -20,11 +20,11 @@ description: >
   day either. The estimate then ends with a notice that it timed out, and the case is closed
   without the incident ever being recorded as costed.
 
-  PRECONDITIONS (BA decision T-0321): the dispatcher holds the Process Operator responsibility in
-  the swiftroute realm (a refusal at step 1 means BLOCKED); a swiftroute tooling account with the
-  Process Operator responsibility is available for the timer steps (UAT assumption, to be
-  confirmed by the process owner). Without it steps 3 and 4 are BLOCKED (SKIP if the advance-timer
-  endpoint is unavailable), never PASS.
+  PRECONDITIONS (BA decisions T-0321, 3221): the dispatcher holds the Process Operator responsibility in
+  the swiftroute realm (a refusal at step 1 means BLOCKED); the tooling account swiftroute-admin-user
+  is available for the timer advances of steps 3 and 4 only, never for a business step or a refusal check (UAT assumption, to be
+  confirmed by the process owner). The run report names it. If the advance-timer
+  endpoint is unavailable, steps 3 and 4 are SKIP, never PASS.
 
 actors:
   dispatcher:  actor-swiftroute-lena
@@ -37,9 +37,9 @@ preconditions:
   - description: No open incident instances for SwiftRoute
     check: no_pending_instances
   - description: >
-      The dispatcher can start an incident, and a tooling account that may advance timers exists.
+      The dispatcher can start an incident, and the tooling account swiftroute-admin-user may advance timers (timer steps only).
     check: custom
-    detail: Step 1 returns a created instance; no timer account means steps 3 and 4 are BLOCKED.
+    detail: Step 1 returns a created instance; the run report names the account used for each timer advance.
 
 steps:
   - step: 1
@@ -66,7 +66,7 @@ steps:
     actor: system
     action: >
       The one-day timer of the finance estimate fires (advanced by UAT-RUNNER with the tooling
-      account, not waited for).
+      account swiftroute-admin-user, not waited for).
     via: api
     input:
       timer_node_id: finance-estimate

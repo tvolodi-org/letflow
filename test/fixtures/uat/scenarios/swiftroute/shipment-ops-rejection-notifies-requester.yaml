@@ -89,8 +89,9 @@ expected_outcomes:
       method: task_assigned
       detail: >
         After step 2: no ceo-approval task exists for the instance and release-shipment did not
-        run. The step 3 attempt is refused because there is nothing open to sign, and it records
-        no approval.
+        run. The step 3 attempt is refused, either because there is nothing open to sign or because
+        the caller does not hold the assigned role (403 'caller does not hold the assigned role';
+        either reason is accepted), and it records no approval.
     on_fail:
       severity: BLOCKER
       business_impact: >
