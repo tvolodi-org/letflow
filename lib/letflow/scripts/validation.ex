@@ -19,6 +19,7 @@ defmodule Letflow.Scripts.Validation do
 
   @manifest_keys ~w(input_schema output_schema fail_codes limits reads restricted_inputs writes)
   @required_manifest_keys ~w(input_schema output_schema fail_codes)
+  @form_keys ~w(refusal_codes fields)
   @limit_keys %{
     "instructions" => :max_instructions,
     "timeout_ms" => :max_timeout_ms,
@@ -57,14 +58,33 @@ defmodule Letflow.Scripts.Validation do
   violation is `:invalid_manifest`).
   """
   @spec manifest(term()) :: :ok | {:error, atom()}
-  def manifest(manifest) when is_map(manifest) do
-    keys = Map.keys(manifest)
+  def manifest(manifest), do: manifest(manifest, "service_task")
+
+  @doc """
+  `manifest/1` for a hook kind (REQ-581, decision 0067 D9). The keys `refusal_codes` and
+  `fields` exist for `form_validation` only (both required there; unique code lists like
+  `fail_codes`); a `form_validation` manifest has `fail_codes == []` and no `reads` key.
+  Every other kind validates as before.
+  """
+  @spec manifest(term(), String.t()) :: :ok | {:error, atom()}
+  def manifest(manifest, hook_kind) when is_map(manifest) do
+    form? = hook_kind == "form_validation"
+    allowed = if form?, do: @manifest_keys ++ @form_keys, else: @manifest_keys
+    required = if form?, do: @required_manifest_keys ++ @form_keys, else: @required_manifest_keys
 
     cond do
-      not Enum.all?(keys, &(&1 in @manifest_keys)) ->
+      not Enum.all?(Map.keys(manifest), &(&1 in allowed)) ->
         {:error, :invalid_manifest}
 
-      not Enum.all?(@required_manifest_keys, &Map.has_key?(manifest, &1)) ->
+      not Enum.all?(required, &Map.has_key?(manifest, &1)) ->
+        {:error, :invalid_manifest}
+
+      form? and (Map.has_key?(manifest, "reads") or manifest["fail_codes"] != []) ->
+        {:error, :invalid_manifest}
+
+      form? and
+          (codes(manifest["refusal_codes"], @max_fail_codes) != :ok or
+             codes(manifest["fields"], @max_fail_codes) != :ok) ->
         {:error, :invalid_manifest}
 
       true ->
@@ -72,7 +92,7 @@ defmodule Letflow.Scripts.Validation do
     end
   end
 
-  def manifest(_other), do: {:error, :invalid_manifest}
+  def manifest(_other, _hook_kind), do: {:error, :invalid_manifest}
 
   defp manifest_parts(manifest) do
     with :ok <- schema(manifest["input_schema"]),

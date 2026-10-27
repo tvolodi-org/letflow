@@ -443,6 +443,8 @@ defmodule Letflow.Api.Authorization do
           | :ScriptRulesConfirm
           | :EntityTypeHooksList
           | :EntityTypeHooksManage
+          | :RecordTriggerBindingsList
+          | :RecordTriggerBindingsManage
           | :UnmatchedPlatformPath
           | :UnmatchedRoute
           | :Unknown
@@ -1206,6 +1208,15 @@ defmodule Letflow.Api.Authorization do
       when method in ["PUT", "DELETE"],
       do: :EntityTypeHooksManage
 
+  # REQ-570 part 2 (GH #3248, decision 0067 D9): record trigger bindings
+  # (Letflow.Routers.RecordTriggerBindings). List needs :ScriptsWrite; bind, rebind and
+  # unbind need :ScriptsPublish.
+  def endpoint_policy_key("GET", "/record-trigger-bindings"), do: :RecordTriggerBindingsList
+
+  def endpoint_policy_key(method, "/record-trigger-bindings/:entity_type/:event")
+      when method in ["PUT", "DELETE"],
+      do: :RecordTriggerBindingsManage
+
   # GH 2534 PR 7b-2a (decision 0053 D5, D7): the tenant's script policy
   # (Letflow.Routers.ScriptPolicy, mounted at /script-policy). Distinct route keys over
   # existing permissions (design P3): reads -> :ScriptsWrite, writes -> :ScriptsPublish. 0051
@@ -1560,6 +1571,8 @@ defmodule Letflow.Api.Authorization do
   # REQ-567 part 2: entity pre-write hook binding routes over the script permissions.
   def required_permission(:EntityTypeHooksList), do: :ScriptsWrite
   def required_permission(:EntityTypeHooksManage), do: :ScriptsPublish
+  def required_permission(:RecordTriggerBindingsList), do: :ScriptsWrite
+  def required_permission(:RecordTriggerBindingsManage), do: :ScriptsPublish
   def required_permission(:MyModulesRead), do: :MyModulesRead
   def required_permission(:MyAccessRead), do: :MyAccessRead
 
