@@ -1,0 +1,166 @@
+# Authored by BA-BILIMBAGA for T-0796 (REQ-582 criteria 3, 4, 5, 6: assignment to one user, a group,
+# a department; no assignment, a withdrawn one, a malformed one, and one matching among several).
+# Source: docs/requirements.yaml REQ-582 description (ENFORCEMENT) and criteria 3-6.
+# Not runnable on QA today: nobody can write an assignment (REQ-582 builds no route or screen, open question 3),
+# the roster has one candidate, and there is no second candidate, group or department. See the sidecar in
+# test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-assignment-2-targeted-assignments.yaml.
+# Left out on purpose: the case "organisation module not installed in the tenant" (criterion 5). It needs a
+# tenant without the module, while this scenario needs the module installed; it is tenant setup, not a step
+# of the same run.
+---
+id: bilimbaga-exam-assignment-2-targeted-assignments
+scope: bilimbaga
+title: An exam assigned to one person, one group or one department can be started only by those people, and an unassigned, withdrawn or malformed assignment reaches nobody
+version: "2.0"
+tags: [access_control, refusal]
+
+description: >
+  Exams are assigned to a named person, to a group, to a department, or to everyone. A candidate can start an
+  exam only if one active assignment of that exam reaches them. A department assignment reaches only people
+  who are active members of that very department, not people who belong only to a unit below it. Preconditions
+  are set up by the test environment before the run, because no screen exists yet to assign an exam.
+  Candidate A is the roster's candidate; candidate B is a second candidate of the same company who is not in
+  A's group or department. Each case below is its own step, and no refusal step contains an accepted request.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed and the organisation module installed
+    check: process_definition_active
+  - description: >
+      Exams exist with these assignments, written by the environment. (a) One active assignment to candidate
+      A by name. (b) One active assignment to a group of which A is a member. (c) One active assignment to a
+      department in which A has an active membership. (d) Three assignments on one exam: one to candidate B by
+      name, one to a group A does not belong to, and one to A by name. (e) One assignment to candidate B by name. (f) No assignment at all. (g) Only an assignment
+      that was withdrawn. (h) Only an assignment to a named person with no person given. (i) Only an
+      assignment to a group A has never belonged to. (j) An assignment to a group of which A is a member, later
+      followed by A's removal from that group. (k) An assignment to a department in which A's membership has
+      ended. (l) An assignment to a department where A is a member only of a unit directly below it. (m) An
+      assignment to a department where A has no membership of any kind. A second candidate account (B) exists
+      in the same company. The environment cannot provide these today
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: Candidate A starts the exam assigned to A by name
+    via: gui
+
+  - step: 2
+    actor: candidate
+    action: Candidate A starts the exam assigned to A's group
+    via: gui
+
+  - step: 3
+    actor: candidate
+    action: Candidate A starts the exam assigned to A's department
+    via: gui
+
+  - step: 4
+    actor: candidate
+    action: Candidate A starts the exam that has three assignments, of which only one reaches A and two reach other people
+    via: gui
+
+  - step: 5
+    actor: candidate
+    action: Candidate A tries to start the exam assigned only to candidate B by name
+    via: gui
+    expect_refusal: true
+
+  - step: 6
+    actor: candidate
+    action: Candidate A tries to start the exam that has no assignment at all
+    via: gui
+    expect_refusal: true
+
+  - step: 7
+    actor: candidate
+    action: Candidate A tries to start the exam whose only assignment was withdrawn
+    via: gui
+    expect_refusal: true
+
+  - step: 8
+    actor: candidate
+    action: Candidate A tries to start the exam whose only assignment is to a named person but names no person
+    via: gui
+    expect_refusal: true
+
+  - step: 9
+    actor: candidate
+    action: Candidate A tries to start the exam assigned only to a group that A has never belonged to
+    via: gui
+    expect_refusal: true
+
+  - step: 10
+    actor: candidate
+    action: After the environment removes A from the group, candidate A tries to start the exam that was assigned to that group
+    via: gui
+    expect_refusal: true
+
+  - step: 11
+    actor: candidate
+    action: After the environment marks A's department membership as ended, candidate A tries to start the exam assigned to that department
+    via: gui
+    expect_refusal: true
+
+  - step: 12
+    actor: candidate
+    action: Candidate A, who is a member only of a unit directly below the department, tries to start the exam assigned to the department above
+    via: gui
+    expect_refusal: true
+
+  - step: 13
+    actor: candidate
+    action: Candidate A, who has no membership in the department at all, tries to start the exam assigned to that department
+    via: gui
+    expect_refusal: true
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Candidate A is able to start the exam assigned by name, the exam assigned to A's group, the exam
+      assigned to A's department, and the exam where one of several assignments reaches A
+    verification:
+      method: page_state
+      detail: "Steps 1 to 4 each open the exam-taking screen with questions and a countdown"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        People who were assigned an exam could not sit it, so a targeted certification could not be run.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      In steps 5 to 13 the candidate is told that they are not assigned to this exam, in the language of the
+      screen, and no exam opens; the message names no assignment, group, department or other exam
+    verification:
+      method: page_state
+      detail: >
+        Each refused step shows the localised not-assigned message and nothing about who the exam is assigned
+        to: English 'You are not assigned to this exam.', Russian 'Вам не назначен этот экзамен.', Kazakh
+        'Сізге бұл емтихан тағайындалмаған.'
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate could sit an exam meant for someone else, or learn who an exam was assigned to.
+        Certificates would be issued on exams the candidate was never entitled to take.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      No exam session exists for the candidate on any exam refused in steps 5 to 13
+    verification:
+      method: instance_state
+      detail: "After the run, the candidate has sessions only for the exams started in steps 1 to 4"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A refused start that still leaves a session would use up the candidate's attempts.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Cancel the exam sessions opened in steps 1 to 4 if the run did not complete them, and let the
+    environment restore the group and department membership changed in steps 10 and 11.
