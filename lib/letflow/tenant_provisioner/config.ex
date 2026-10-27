@@ -11,6 +11,12 @@ defmodule Letflow.TenantProvisioner.Config do
   | `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | comma-separated suffixes a tenant hostname must end in | every hostname refused |
   | `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | default `expires_at` offset (1..3650) | 14 |
   | `LETFLOW_PROVISIONER_RETENTION_DAYS` | days a deactivated tenant's data is kept before purge (0..3650) | 30 |
+  | `LETFLOW_PROVISIONER_DEMO_CAP` | most demo tenants (lifecycle not deleted) before a create answers 409 (0..100000) | 30 |
+  | `LETFLOW_PROVISIONER_DEMO_ALARM_THRESHOLD` | demo count at which a create logs one warning (0..100000) | 25 |
+  | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | minutes between scheduled sweeps (1..10080) | 60 |
+  | `LETFLOW_PROVISIONER_DEMO_CAP` | most demo tenants (lifecycle not deleted) before a create answers 409 (0..100000) | 30 |
+  | `LETFLOW_PROVISIONER_DEMO_ALARM_THRESHOLD` | demo count at which a create logs one warning (0..100000) | 25 |
+  | `LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES` | minutes between scheduled sweeps (1..10080) | 60 |
   | `LETFLOW_PUBLIC_BASE_URL` | the `server_url` of the create answer (the REQ-441 variable) | create answers 500 |
 
   The write and read hashes must differ (otherwise the write class would silently win).
@@ -26,6 +32,12 @@ defmodule Letflow.TenantProvisioner.Config do
   @days_var "LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS"
   @retention_var "LETFLOW_PROVISIONER_RETENTION_DAYS"
   @default_retention_days 30
+  @demo_cap_var "LETFLOW_PROVISIONER_DEMO_CAP"
+  @alarm_var "LETFLOW_PROVISIONER_DEMO_ALARM_THRESHOLD"
+  @interval_var "LETFLOW_PROVISIONER_SWEEP_INTERVAL_MINUTES"
+  @default_demo_cap 30
+  @default_alarm_threshold 25
+  @default_sweep_interval_minutes 60
   @url_var "LETFLOW_PUBLIC_BASE_URL"
 
   @type parsed :: %{
@@ -41,13 +53,19 @@ defmodule Letflow.TenantProvisioner.Config do
          {:ok, suffixes} <- parse_suffixes(env),
          {:ok, days} <- parse_days(env),
          {:ok, retention} <- parse_retention(env),
+         {:ok, demo_cap} <- parse_int(env, @demo_cap_var, 0..100_000),
+         {:ok, alarm} <- parse_int(env, @alarm_var, 0..100_000),
+         {:ok, interval} <- parse_int(env, @interval_var, 1..10_080),
          {:ok, url} <- parse_url(env, config_env) do
       provisioner =
         Enum.reject(
           [
             allowed_hostname_suffixes: suffixes,
             demo_lifetime_days: days,
-            retention_days: retention
+            retention_days: retention,
+            demo_cap: demo_cap,
+            demo_alarm_threshold: alarm,
+            sweep_interval_minutes: interval
           ],
           fn {_key, value} -> is_nil(value) end
         )
@@ -143,6 +161,38 @@ defmodule Letflow.TenantProvisioner.Config do
     :letflow
     |> Application.get_env(Letflow.TenantProvisioner, [])
     |> Keyword.get(:retention_days, @default_retention_days)
+  end
+
+  defp parse_int(env, var, range) do
+    case blank_to_nil(Map.get(env, var)) do
+      nil ->
+        {:ok, nil}
+
+      text ->
+        case Integer.parse(text) do
+          {n, ""} -> if n in range, do: {:ok, n}, else: {:error, var}
+          _other -> {:error, var}
+        end
+    end
+  end
+
+  @doc "REQ-572 criterion 19: most demo tenants (lifecycle not `deleted`) before a create answers 409 (default 30)."
+  @spec demo_cap() :: non_neg_integer()
+  def demo_cap, do: setting(:demo_cap, @default_demo_cap)
+
+  @doc "REQ-572 criterion 19: demo count at which a create logs one warning (default 25)."
+  @spec demo_alarm_threshold() :: non_neg_integer()
+  def demo_alarm_threshold, do: setting(:demo_alarm_threshold, @default_alarm_threshold)
+
+  @doc "REQ-572 criterion 19: minutes between scheduled sweeps (default 60)."
+  @spec sweep_interval_minutes() :: pos_integer()
+  def sweep_interval_minutes,
+    do: setting(:sweep_interval_minutes, @default_sweep_interval_minutes)
+
+  defp setting(key, default) do
+    :letflow
+    |> Application.get_env(Letflow.TenantProvisioner, [])
+    |> Keyword.get(key, default)
   end
 
   defp parse_url(env, config_env) do
