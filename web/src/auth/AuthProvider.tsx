@@ -1,6 +1,6 @@
 /** Auth provider — OIDC-based login via Keycloak, in-memory session, role-aware navigation */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { clearToken, setToken, tryRestoreE2eSession } from '@/api/client'
@@ -8,7 +8,8 @@ import { decodeTokenPayload, resolveDisplayName, resolveTenantSlug } from './tok
 import type { UserSession } from '@/types/api'
 import { AuthContext, type AuthContextValue, type SwitchTenantOutcome } from './AuthContext'
 import { getOidcManager } from './OidcManager'
-import { attemptSilentSwitch } from './tenantOidcRegistry'
+import type { UserManager } from 'oidc-client-ts'
+import { attemptSilentSwitch, getOrCreateManagerForTenant } from './tenantOidcRegistry'
 import { tenantRoot } from '@/api/queryKeys'
 import { tenantsApi } from '@/api/tenants'
 import { meApi } from '@/api/me'
@@ -112,51 +113,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Renew the access token before it expires. oidc-client-ts raises
   // accessTokenExpiring (60 s before expiry) for the user the callback stored in
-  // this same manager; we renew in that handler: refresh token first (signinSilent
-  // uses it when the user has one), hidden iframe as fallback. We deliberately do
-  // not call startSilentRenew(): its own service also renews on that event, which
-  // would send two refresh requests per expiry. A renewal that fails here is left
-  // alone: the next API 401 raises 'auth:session-expired', the only redirect path.
-  useEffect(() => {
-    let cancelled = false
-    let cleanup: (() => void) | undefined
+  // the manager that issued the session's token; we renew in that handler:
+  // refresh token first (signinSilent uses it when the user has one), hidden
+  // iframe as fallback. We deliberately do not call startSilentRenew(): its own
+  // service also renews on that event, which would send two refresh requests per
+  // expiry. A renewal that fails here is left alone: the next API 401 raises
+  // 'auth:session-expired', the only redirect path.
+  //
+  // Tenant isolation: exactly one manager is "active" (the one that issued the
+  // current session's token). attachRenewal moves the handler to a new manager on
+  // a tenant switch, and a handler of a manager that is no longer active never
+  // writes its token into the API client or the session.
+  const renewalRef = useRef<{ manager: UserManager; off: () => void } | null>(null)
+  const attachRenewal = useCallback((manager: UserManager) => {
+    if (renewalRef.current?.manager === manager) return
+    renewalRef.current?.off()
+    const isActive = () => renewalRef.current?.manager === manager
     const applyUser = (newToken: string | undefined) => {
-      if (!newToken) return
+      if (!newToken || !isActive()) return
       setToken(newToken)
       setSessionState(prev => (prev ? { ...prev, token: newToken } : null))
     }
-    const handler = async () => {
-      const m = await getOidcManager()
+    const renew = async () => {
       try {
-        applyUser((await m.signinSilent())?.access_token)
+        applyUser((await manager.signinSilent())?.access_token)
         return
       } catch {
         // refresh-token grant failed: fall through to the iframe flow
       }
       try {
-        const stored = await m.getUser()
+        const stored = await manager.getUser()
         if (stored?.refresh_token) {
+          // Intended: the store is in memory only; if the iframe also fails the
+          // user keeps no refresh token and the next 401 re-authenticates.
           stored.refresh_token = undefined
-          await m.storeUser(stored)
-          applyUser((await m.signinSilent())?.access_token)
+          await manager.storeUser(stored)
+          applyUser((await manager.signinSilent())?.access_token)
         }
       } catch {
         // renewal failed; the next 401 raises session-expired
       }
     }
+    const onExpiring = () => {
+      void renew().catch(() => {})
+    }
+    manager.events.addAccessTokenExpiring(onExpiring)
+    renewalRef.current = { manager, off: () => manager.events.removeAccessTokenExpiring(onExpiring) }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
     void getOidcManager().then(m => {
-      if (cancelled) return
-      const onExpiring = () => {
-        void handler().catch(() => {})
-      }
-      m.events.addAccessTokenExpiring(onExpiring)
-      cleanup = () => m.events.removeAccessTokenExpiring(onExpiring)
+      if (!cancelled && !renewalRef.current) attachRenewal(m)
     })
     return () => {
       cancelled = true
-      if (cleanup) cleanup()
+      renewalRef.current?.off()
+      renewalRef.current = null
     }
-  }, [])
+  }, [attachRenewal])
 
   const login = useCallback(async (token: string) => {
     const newSession = await buildSessionFromToken(token)
@@ -229,6 +244,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setToken(newToken)
         setSessionState(newSession)
+        // The new token belongs to the target tenant's manager: renew that one.
+        attachRenewal(await getOrCreateManagerForTenant(targetSlug))
         return 'ok'
       } finally {
         setSwitchingToTenantSlug(null)
@@ -236,7 +253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       return 'error'
     }
-  }, [qc, session?.tenant_id])
+  }, [qc, session?.tenant_id, attachRenewal])
 
   const value: AuthContextValue = useMemo(
     () => ({
