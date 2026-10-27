@@ -10,9 +10,10 @@ defmodule Letflow.Routers.AdminV1 do
   | `POST /tenants` | write | 201 first time, 200 replay: `{tenant_id, status, server_url, handover}` |
   | `GET /tenants/:id` | write or read | 200 `{tenant_id, status, tier, created_at, expires_at, purged_at}` |
   | `POST /tenants/:id/suspend`, `/resume`, `/expire` | write | 200 `{tenant_id, status}` |
-  | anything else | any | 404 `not_found`; `DELETE /tenants/:id` of a provisioned id is 409 `conflict` |
+  | `DELETE /tenants/:id` | write | 202 `{tenant_id, status}` (deactivated, waiting for retention), 200 `{tenant_id, status: "deleted"}` (purged), 409 `conflict` (production) |
+  | anything else | any | 404 `not_found` |
 
-  There is no list, no credential, user or token route here, and no `DELETE`/purge in this slice.
+  There is no list, no credential, user or token route here. `DELETE` calls `Letflow.TenantPurge` (REQ-580).
 
   ## Errors
 
@@ -100,16 +101,16 @@ defmodule Letflow.Routers.AdminV1 do
     transition(conn, id, :expire)
   end
 
-  match _ do
-    case {conn.method, conn.path_info} do
-      {"DELETE", ["tenants", id]} ->
-        if TenantProvisioner.provisioned?(id),
-          do: send_failure(conn, :conflict),
-          else: send_failure(conn, :not_found)
-
-      _other ->
-        send_failure(conn, :not_found)
+  delete "/tenants/:id" do
+    case TenantProvisioner.delete(id) do
+      {:ok, :accepted, answer} -> Response.send_json(conn, 202, answer)
+      {:ok, :deleted, answer} -> Response.send_json(conn, 200, answer)
+      {:error, reason} -> send_failure(conn, reason)
     end
+  end
+
+  match _ do
+    send_failure(conn, :not_found)
   end
 
   defp transition(conn, id, action) do
