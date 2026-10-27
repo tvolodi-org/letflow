@@ -42210,12 +42210,22 @@ requirements:
     status: pending
     stage: S10
     # impl_order: UNREGISTERED -- blocked-by: REQ-584 -- needs Letflow.Notifications, the notification_deliveries table and Notifier.deliver_message/1 from REQ-584
-    # Source: docs/migration/bilimbaga-retirement-status.md (criterion 5, "Proposed tasks" T5b; welcome mail is T5c and stays out); REQ-584 (this file, deliver_message/1 on Letflow.LoginDiscovery.Notifier in lib/letflow/login_discovery/notifier.ex, Letflow.Notifications, notification_deliveries, closed status and reason sets); REQ-563 (lib/letflow/notification_templates/registry.ex @entries and placeholders/1, lib/letflow/notification_templates.ex preview/6); REQ-582 (exam_assignment record, priv/modules/exam/entity_definitions/exam_assignment.json: assignee_type, assignee_id, deadline stored only not queried, active); lib/letflow/modules/exam/session.ex (submit/3, finalize_expired/3, score_and_persist/3, outcome_from_session/1, submission_outcome type); priv/modules/exam/entity_definitions/session.json and exam.json; lib/letflow/entities/record/latest.ex (get/3); config/config.exs (record_triggers_enabled flag precedent, read by Letflow.RecordTriggers.enabled?/0); docs/agents/instructions/security-invariants.md (INV-1 Reference, INV-4, INV-5, INV-8, INV-10). Written by the business analyst (T-0710) 2026-10-27. Not yet validated.
+    # Source: docs/migration/decisions/0022-bilimbaga-vertical.md (the bucket rule; rules 1 and 2) and docs/migration/stage-10-bilimbaga-vertical.md (Bucket-C inventory); docs/migration/bilimbaga-retirement-status.md (criterion 5, "Proposed tasks" T5b; welcome mail is T5c and stays out); REQ-584 (this file, deliver_message/1 on Letflow.LoginDiscovery.Notifier in lib/letflow/login_discovery/notifier.ex, Letflow.Notifications, notification_deliveries, closed status and reason sets); REQ-563 (lib/letflow/notification_templates/registry.ex @entries and placeholders/1, lib/letflow/notification_templates.ex preview/6); REQ-582 (exam_assignment record, priv/modules/exam/entity_definitions/exam_assignment.json: assignee_type, assignee_id, deadline stored only not queried, active); lib/letflow/modules/exam/session.ex (submit/3, finalize_expired/3, score_and_persist/3, outcome_from_session/1, submission_outcome type); priv/modules/exam/entity_definitions/session.json and exam.json; lib/letflow/entities/record/latest.ex (get/3); config/config.exs (record_triggers_enabled flag precedent, read by Letflow.RecordTriggers.enabled?/0); docs/agents/instructions/security-invariants.md (INV-1 Reference, INV-4, INV-5, INV-8, INV-10). Written by the business analyst (T-0710) 2026-10-27. Not yet validated.
     description: >
       REQ-584 sends one message kind (task_assigned) and states that reminders and results are out of scope.
       BilimBaga (retirement criterion 5) notifies candidates when an exam is assigned, shortly before it is
       due, and when the result is known. This slice registers three exam template keys and wires one trigger
-      for each through the delivery path REQ-584 builds. It adds no mail adapter, no mail dependency and no
+      for each through the delivery path REQ-584 builds.
+
+      Bucket (decision 0022, "The bucket rule"): C. The exam trigger glue is one new module,
+      Letflow.Modules.Exam.Notifications (lib/letflow/modules/exam/notifications.ex, beside session.ex). It
+      holds every exam-named function and the flag reader. The platform module Letflow.Notifications
+      (lib/letflow/notifications.ex, REQ-584) names no exam: this slice only makes its generic delivery
+      entry (start the supervised delivery task, render with the given template key, write the log row)
+      callable by the exam module, if REQ-584's build does not already expose it, with no exam word in it.
+      The exception is the three keys in the platform registry, see open question 5.
+
+      It adds no mail adapter, no mail dependency and no
       sender: every message goes through Letflow.Notifications and the Letflow.LoginDiscovery.Notifier
       deliver_message/1 callback of REQ-584, with the same timeout, the same Task.Supervisor delivery and the
       same one-row-per-attempt log in notification_deliveries (columns, closed status and reason sets and
@@ -42238,7 +42248,7 @@ requirements:
       one decimal place, as text. tenant_name = display_name of the tenant row.
 
       Flag and default (one choice). A new application setting config :letflow, :exam_notifications_enabled,
-      false in config/config.exs, read only by Letflow.Notifications.exam_enabled?/0 (same shape as
+      false in config/config.exs, read only by Letflow.Modules.Exam.Notifications.enabled?/0 (same shape as
       Letflow.RecordTriggers.enabled?/0, true only when the value is exactly true). Reason for the flag: the
       three sends reach real candidates, so they are opt-in, and a tenant-level switch needs a settings key
       (the closed vocabulary of lib/letflow/identity/tenant_settings.ex) that this slice does not open; that is
@@ -42247,7 +42257,7 @@ requirements:
 
       Triggers (one per key, each starts one delivery after the originating transaction has committed, never
       waits for the adapter, and writes exactly one log row; recipient is the user id only):
-      1. exam_assigned. Public function Letflow.Notifications.exam_assigned(prefix, assignment_record), called
+      1. exam_assigned. Public function Letflow.Modules.Exam.Notifications.assigned(prefix, assignment_record), called
          with an exam_assignment record whose assignee_type is "user" and active is true; the recipient is the
          user named by assignee_id; trigger_ref is the assignment record id. Assignee types all, group and
          org_unit send nothing in this slice (no expansion of a group into users). WIRING GAP, stated: no
@@ -42256,7 +42266,7 @@ requirements:
          not call it from product code; the requirement that adds the assignment write path calls it. The
          PR says so.
       2. exam_result. Letflow.Modules.Exam.Session.submit/3 and finalize_expired/3 (lib/letflow/modules/exam/session.ex)
-         call Letflow.Notifications.exam_result(prefix, session_id, outcome) after their transaction
+         call Letflow.Modules.Exam.Notifications.result(prefix, session_id, outcome) after their transaction
          commits, only when that call scored the session (the score_and_persist/3 branch, so the
          "already submitted" return through outcome_from_session/1 sends nothing and a double submit sends
          one message), the outcome status is :submitted or :auto_submitted and passed is true or false. A
@@ -42264,7 +42274,7 @@ requirements:
          out of scope). Recipient is the session's user_id; trigger_ref is the session id. submit_txn and
          finalize_txn return whether they scored, and the public functions strip that marker, so their
          public return values are unchanged.
-      3. exam_reminder. Public function Letflow.Notifications.send_exam_reminders(prefix, now) where now is
+      3. exam_reminder. Public function Letflow.Modules.Exam.Notifications.send_reminders(prefix, now) where now is
          a DateTime. It reads the tenant's exam_assignment records with active true and assignee_type
          "user" (both queried fields) and keeps those whose deadline is later than now and at most 24 hours
          after it (deadline is a stored-only field, so this comparison is made in code, not in the query). It
@@ -42272,8 +42282,10 @@ requirements:
          auto_submitted or grading_pending, and skips it when notification_deliveries already holds any row
          with template_key "exam_reminder" and trigger_ref equal to the assignment id (one attempt, one row, as in REQ-584;
          this is also what keeps a repeated call from mailing twice). trigger_ref is the assignment record
-         id. Nothing calls it on a schedule in this slice: the schedule is an open question (below), and the
-         function is the unit a later scheduled job (lib/letflow/scheduled_jobs.ex) would call. The 24-hour
+         id. Nothing calls it in this slice. What calls it is open: Letflow.ScheduledJobs
+         (lib/letflow/scheduled_jobs.ex) only starts a published process definition through
+         Letflow.Engine.create/2, so it cannot call this function as it stands; a poller tick (as REQ-331's
+         deadline sweep on Letflow.Scheduler.Poller) or a process step are the candidates. The 24-hour
          window is a starting value, a UAT assumption.
 
       Log content (INV-4). Rows for these keys carry template_key, locale, recipient_user_id, status, reason and trigger_ref
@@ -42290,19 +42302,21 @@ requirements:
       examiners or managers, group or department expansion, calling exam_assigned from product code, a
       schedule for reminders, a notice when manual grading finishes.
     open_questions:
-      - "Reminder schedule, for the process owner: how long before the deadline, how many reminders (this entry sends at most one, inside a 24-hour window), and what runs send_exam_reminders/2 (a scheduled job of lib/letflow/scheduled_jobs.ex, and at what interval). Not decided here."
+      - "Reminder schedule, for the process owner: how long before the deadline, how many reminders (this entry sends at most one, inside a 24-hour window), and what calls Letflow.Modules.Exam.Notifications.send_reminders/2 and at what interval: Letflow.ScheduledJobs (lib/letflow/scheduled_jobs.ex) only starts a published process definition through Letflow.Engine.create/2, so it cannot call this function as it stands; a poller tick (as REQ-331's deadline sweep on Letflow.Scheduler.Poller) or a process step are the candidates. Not decided here."
       - "Who receives result notices, for the process owner: this entry sends to the candidate only. Whether the examiner, the assigning manager or a department head also receive it is not decided; it would need a recipient model that REQ-582 and the roles do not define yet."
       - "Whether the opt-in is per tenant (a new key in the closed tenant settings vocabulary) rather than the platform flag of this entry, and whether a candidate may opt out. Not decided here."
       - "UAT assumption, to be confirmed by the process owner: the three keys, their English defaults, the 24-hour reminder window and the candidate as the only recipient."
+      - "Question 5, REVIEWER sign-off needed: the task requires the three exam keys in the platform registry Letflow.NotificationTemplates.Registry (lib/letflow/notification_templates/registry.ex), the only place template keys live. That puts exam-named data in a platform file and departs from decision 0022 rule 1; it needs REVIEWER rule-2 sign-off. Why notify is not a process definition on Letflow.Engine (the 0022 table row for the exam lifecycle): the result send must fire inside Session.submit/3 and finalize_expired/3 only when that call scored the session, and a process step cannot see that, so the glue is bucket C. Not decided here."
     acceptance_criteria:
-      - "1. Keys and allow-lists: Letflow.NotificationTemplates.Registry.keys() returns task_assigned, exam_assigned, exam_reminder and exam_result (sorted); placeholders/1 of each new key returns exactly the lists in the description; the registry test that pins that no placeholder name looks like a secret, token, credential or reference passes with the new names; PUT of a tenant template for each new key with a placeholder outside its list is refused as REQ-563 refuses it, and a stored row with all allowed placeholders is accepted."
+      - "1. Keys and allow-lists: Letflow.NotificationTemplates.Registry.keys() == [\"exam_assigned\", \"exam_reminder\", \"exam_result\", \"task_assigned\"], and test R1 of test/letflow/notification_templates/registry_test.exs, which pins Registry.keys() == [\"task_assigned\"], changes to that value; placeholders/1 of each new key returns exactly the lists in the description; the registry test that pins that no placeholder name looks like a secret, token, credential or reference passes with the new names; PUT of a tenant template for each new key with a placeholder outside its list is refused as REQ-563 refuses it, and a stored row with all allowed placeholders is accepted."
       - "2. No new sender: grep -rn \":gen_smtp_client\\|:mimemail\" lib/ --include=*.ex matches only lib/letflow/login_discovery/notifier/smtp/transport.ex; mix.exs and mix.lock gain no dependency; the three sends call the same delivery function REQ-584 uses (one test with the capturing test adapter receives each message through deliver_message/1); the notification_deliveries columns and CHECK are unchanged."
-      - "3. Default off: with :exam_notifications_enabled unset or false, submit/3, finalize_expired/3, exam_assigned/2 and send_exam_reminders/2 start no delivery, write no notification_deliveries row and call no adapter, and Session.submit/3 returns the same value as before; config/config.exs sets the flag to false; a value other than the atom true (for example the string \"true\") counts as off."
+      - "3. Default off: with :exam_notifications_enabled unset or false, submit/3, finalize_expired/3, Letflow.Modules.Exam.Notifications.assigned/2 and send_reminders/2 start no delivery, write no notification_deliveries row and call no adapter, and Session.submit/3 returns the same value as before; config/config.exs sets the flag to false; a value other than the atom true (for example the string \"true\") counts as off."
       - "4. exam_result trigger: with the flag on, submitting an in-progress session whose candidate has an email makes the adapter receive one message to that address, with result_status \"passed\" or \"failed\" as scored, score_percent with one decimal and the exam title; finalize_expired/3 on an in-progress session does the same; a second submit/3 of the same session sends nothing and writes no second row; a :grading_pending outcome sends nothing; the log row has template_key \"exam_result\", the session id as trigger_ref and recipient_user_id equal to the session's user_id."
-      - "5. exam_assigned trigger: with the flag on, exam_assigned/2 for an active assignment of type \"user\" sends one message and writes one row with trigger_ref equal to the assignment id; for types all, group and org_unit, and for active false, it sends nothing and writes no row; the message carries the deadline as ISO 8601 UTC, and \"\" when the assignment has none. The PR states that no product code calls exam_assigned/2 yet."
-      - "6. exam_reminder trigger: with the flag on, send_exam_reminders(prefix, now) sends one message for an active user assignment with a deadline 23 hours after now, and none for a deadline 25 hours after now, a deadline in the past, no deadline, active false, or an assignee with a session of that exam in status submitted, auto_submitted or grading_pending; calling it a second time with the same arguments sends nothing and leaves one row; the row has template_key \"exam_reminder\" and trigger_ref equal to the assignment id."
+      - "5. exam_assigned trigger: with the flag on, Letflow.Modules.Exam.Notifications.assigned/2 for an active assignment of type \"user\" sends one message and writes one row with trigger_ref equal to the assignment id; for types all, group and org_unit, and for active false, it sends nothing and writes no row; the message carries the deadline as ISO 8601 UTC, and \"\" when the assignment has none. The PR states that no product code calls assigned/2 yet."
+      - "6. exam_reminder trigger: with the flag on, send_reminders(prefix, now) sends one message for an active user assignment with a deadline 23 hours after now, and none for a deadline 25 hours after now, a deadline in the past, no deadline, active false, or an assignee with a session of that exam in status submitted, auto_submitted or grading_pending; calling it a second time with the same arguments sends nothing and leaves one row; the row has template_key \"exam_reminder\" and trigger_ref equal to the assignment id."
       - "7. Failure never reaches the exam path (INV-8): when the adapter returns {:error, :failed}, raises or sleeps past the REQ-584 timeout, submit/3 still returns {:ok, outcome} with the session scored, after waiting for the delivery task with a bounded poll of the log (at most 2 seconds) exactly one row exists with status \"failed\" and reason \"adapter_error\"; a candidate with an empty email gets \"skipped\"/\"no_email\" and no adapter call."
       - "8. Log holds ids only (INV-4): a test drives sent, failed and skipped outcomes of all three keys and asserts that no notification_deliveries column or row, and no ExUnit.CaptureLog output of a failed delivery, contains the candidate's name or email, the exam title, the score text, the deadline text, the template text, or the SMTP username or password set in the test environment."
       - "9. Tenant isolation (INV-1, INV-10): a session submitted in tenant A writes its row in tenant A's schema only; tenant B's notification_deliveries has no row and GET /api/v1/notification-deliveries by a TENANT_ADMIN of tenant B returns an empty list; a user id of tenant A passed with the prefix of tenant B resolves to no user row and writes \"skipped\"/\"no_email\" in tenant B only; no function added by this entry takes a tenant identifier from a request and no route is added."
       - "10. Scope: the PR adds no route, permission, migration or tenant table, so no route-count pin and no @expected_tenant_tables pin moves (stated in the PR summary after grepping test/ for the registry key list literals and for the config key); it touches no welcome or reset mail path and adds no retry or schedule; the open questions above are copied into the PR body as undecided; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the new test files pass with real output quoted; SECURITY-REVIEWER (INV-1, INV-4, INV-8, INV-10) and REVIEWER verdicts are recorded."
+      - "11. Bucket C (decision 0022): grep -n \"exam\" lib/letflow/notifications.ex prints nothing (Letflow.Notifications names no exam); every exam-named function and the flag reader are in lib/letflow/modules/exam/notifications.ex; the Bucket-C inventory section of docs/migration/stage-10-bilimbaga-vertical.md gains a row for Letflow.Modules.Exam.Notifications, and the REVIEWER rule-2 verdict on the three keys in the platform registry (open question 5) is recorded in that row."
     depends_on: [REQ-563, REQ-582, REQ-584]
