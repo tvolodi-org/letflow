@@ -110,30 +110,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('auth:session-expired', handle)
   }, [])
 
-  // Start OIDC silent renew if OIDC authority is configured.
-  // On token-expiring event, perform silent renew and update the in-memory token.
+  // Renew the access token before it expires. oidc-client-ts raises
+  // accessTokenExpiring (60 s before expiry) for the user the callback stored in
+  // this same manager; we renew in that handler: refresh token first (signinSilent
+  // uses it when the user has one), hidden iframe as fallback. We deliberately do
+  // not call startSilentRenew(): its own service also renews on that event, which
+  // would send two refresh requests per expiry. A renewal that fails here is left
+  // alone: the next API 401 raises 'auth:session-expired', the only redirect path.
   useEffect(() => {
-    if (!import.meta.env.VITE_OIDC_AUTHORITY) return
+    let cancelled = false
+    let cleanup: (() => void) | undefined
+    const applyUser = (newToken: string | undefined) => {
+      if (!newToken) return
+      setToken(newToken)
+      setSessionState(prev => (prev ? { ...prev, token: newToken } : null))
+    }
     const handler = async () => {
+      const m = await getOidcManager()
       try {
-        const m = await getOidcManager()
-        const newUser = await m.signinSilent()
-        if (newUser?.access_token) {
-          const newToken = newUser.access_token
-          setToken(newToken)
-          setSessionState(prev => (prev ? { ...prev, token: newToken } : null))
+        applyUser((await m.signinSilent())?.access_token)
+        return
+      } catch {
+        // refresh-token grant failed: fall through to the iframe flow
+      }
+      try {
+        const stored = await m.getUser()
+        if (stored?.refresh_token) {
+          stored.refresh_token = undefined
+          await m.storeUser(stored)
+          applyUser((await m.signinSilent())?.access_token)
         }
       } catch {
-        // silent renew failed; session-expired event will handle logout
+        // renewal failed; the next 401 raises session-expired
       }
     }
-    let cleanup: (() => void) | undefined
     void getOidcManager().then(m => {
-      m.events.addAccessTokenExpiring(handler)
-      m.startSilentRenew()
-      cleanup = () => m.events.removeAccessTokenExpiring(handler)
+      if (cancelled) return
+      const onExpiring = () => {
+        void handler().catch(() => {})
+      }
+      m.events.addAccessTokenExpiring(onExpiring)
+      cleanup = () => m.events.removeAccessTokenExpiring(onExpiring)
     })
     return () => {
+      cancelled = true
       if (cleanup) cleanup()
     }
   }, [])
