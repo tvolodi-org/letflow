@@ -1,0 +1,198 @@
+# T-0777 (BA): REQ-580 platform purge route, scenario 2 of 2 (scenario 1: purge-1-refusals-and-eligibility.yaml).
+# QA ONLY (portfolio decision D-019). Production is not approved.
+# Sources (opened): REQ-580 acceptance criteria 1 (eligibility, the retention), 6 (a purged tenant cannot come back),
+# 7b (the platform purge call: 200 {tenant_id, status "deleted", purged_at}, 200 with the same body on a repeat, 409
+# "not_eligible"), 8 (cross-tenant negative) and 9 (purged_at on the front door's get call) in docs/requirements.yaml;
+# lib/letflow/routers/tenants.ex (handle_purge, handle_reactivate: 409 "tenant was purged"); lib/letflow/plugs/tenant_status.ex
+# (403 tenant_inactive).
+#
+# DESTRUCTIVE: this scenario really erases the data of customer W. It runs ONLY on customer W, made fresh for this run through
+# the front door with a fresh identifier, and on the QA environment. It must never be pointed at a shared UAT customer
+# (bilimbaga, swiftroute, meridian, vortex, the platform workspace). If W's identifier or name is not the one made in step 2,
+# the run stops: report BLOCKED.
+#
+# UAT ASSUMPTION, to be confirmed by the process owner (QA only, not a rule): the retention (starting value 30 days) cannot
+# be waited for. For this run infra sets the retention setting to minutes (for example 10) and sets it back afterwards. If it
+# is not set short, steps 7 to 14 are BLOCKED, not PASS; steps 1 to 6 can still be reported.
+---
+id: provisioning-purge-2-throwaway-purge-happy-path
+scope: platform
+title: A throwaway customer is purged by the platform operator only after its retention, once, and cannot come back
+version: "1.0"
+tags: [provisioning, purge, destructive, throwaway, retention, refusal, inv-10, qa-only]
+
+description: >
+  A throwaway customer W is created, then deleted through the front door (which only switches it off and starts the
+  retention). Requirement REQ-580 criterion 1 says a customer inside its retention is not eligible; criterion 7b says the
+  platform operator's purge call answers "409 {error: "not_eligible"}" then and, after the retention, "200 {tenant_id,
+  status: "deleted", purged_at}" and "200 with the same body on a repeat". Criterion 9 says the front door's read of a
+  purged customer "answers 200 ... not 404" with status deleted and an ISO-8601 UTC purged_at, and that two reads give
+  byte-identical bodies. Criterion 6 says a purged customer cannot be switched on again (409), its former users get
+  "403 tenant_inactive", and its name stays reserved. Criterion 8 says purging W leaves another customer (V, made for the
+  run and left untouched) unchanged.
+
+actors:
+  front_door: actor-system-front-door
+  realm_provisioner: actor-system-realm-provisioner
+  platform_scheduler: actor-system-scheduler
+  platform_operator: actor-platform-admin
+  other_company_admin: actor-bilimbaga-admin
+  owner_w: actor-any
+  owner_v: actor-any
+
+preconditions:
+  - description: Customers W and V are created fresh in this run (not reused from an earlier run, not a shared UAT customer)
+    check: custom
+    detail: If W or V already existed before this run, report BLOCKED, not PASS.
+  - description: UAT assumption, to be confirmed by the process owner - the QA retention setting is set to minutes for this run
+    check: custom
+    detail: Without it steps 7 to 14 are BLOCKED. No request may carry a shorter retention; it is a setting only.
+
+steps:
+  - step: 1
+    actor: realm_provisioner
+    action: >
+      TEST-TOOLING STEP (outside the product): the realm provisioner makes one realm each for customers W and V (named
+      "t-" plus the first 20 hex digits of the identifier), each with its owner as first administrator.
+    via: api
+  - step: 2
+    actor: front_door
+    action: >
+      The front door creates customer W and customer V (tier demo, own owner e-mail, expiry date 13 days ahead, own address
+      under the QA domain, own realm). The owners of W and V each sign in and list the people of their customer (control: works).
+    via: api
+  - step: 3
+    actor: front_door
+    action: The front door asks to delete customer W, which is active. It is switched off and the retention starts.
+    via: api
+  - step: 4
+    actor: platform_operator
+    action: The platform operator asks to purge customer W straight away, inside its retention.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: front_door
+    action: The front door reads the records of W and V.
+    via: api
+  - step: 6
+    actor: owner_w
+    action: The owner of W tries to list the people of W while W is switched off and not purged.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: platform_scheduler
+    action: The retention of W passes (counted from the deletion request of step 3) and no other call is made.
+    via: system
+  - step: 8
+    actor: other_company_admin
+    action: After the retention, the administrator of another company (BilimBaga) asks to purge customer W.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: platform_operator
+    action: The platform operator asks to purge customer W after its retention.
+    via: api
+  - step: 10
+    actor: platform_operator
+    action: The platform operator asks to purge customer W a second time.
+    via: api
+  - step: 11
+    actor: front_door
+    action: The front door reads the record of W twice and the record of V once.
+    via: api
+  - step: 12
+    actor: platform_operator
+    action: The platform operator tries to switch customer W on again.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: owner_w
+    action: The former owner of W, with a sign-in obtained before the purge, tries to list the people of W.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: front_door
+    action: The front door tries to create a new customer with the workspace name (slug) of W.
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: owner_v
+    action: The owner of V lists the people of V. This still works with the same people as in step 2.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A customer inside its retention is not purged.
+    verification:
+      method: http_status
+      detail: >
+        Step 4 answers 409 with the error "not_eligible"; step 5 reads W as switched off (suspended) with purged_at null,
+        and step 6 is refused because W is switched off, not because its data is gone.
+      evidence: Status and body of step 4, the record of W in step 5, the refusal of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Customer data is destroyed before the agreed retention.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Only a platform operator purges, and the other company's administrator is refused even after the retention.
+    verification:
+      method: http_status
+      detail: Step 8 is refused (401 or 403); the record of W read in step 11 shows one purge, made by step 9 only.
+      evidence: The status of step 8 and the first purge's time in step 9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Another company could erase a customer's data.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: After the retention the platform operator's purge succeeds once, and a repeat gives the same answer.
+    verification:
+      method: api_response
+      detail: >
+        Step 9 answers 200 with exactly three keys: the customer identifier, the status "deleted" and a purged_at that is
+        an ISO-8601 UTC timestamp. Step 10 answers 200 with a body equal to step 9's (the same purged_at, not a new time).
+      evidence: The bodies of steps 9 and 10, side by side.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The purge either never happens after the retention or a repeat changes the marker the realm reaper depends on.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The front door sees a purged customer as deleted, with the marker, and nothing about the customer's content.
+    verification:
+      method: api_response
+      detail: >
+        Both reads of W in step 11 answer 200 (not 404) with status "deleted" and a non-null purged_at equal to step 9's;
+        the two bodies are byte for byte equal and carry no display name, slug, realm identifier, e-mail address or count.
+        The read of V shows purged_at null.
+      evidence: The two bodies of W and the body of V.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The realm reaper would delete a realm too early, never, or learn customer content from the marker.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A purged customer cannot come back and its name stays reserved.
+    verification:
+      method: http_status
+      detail: >
+        Step 12 answers 409 (the customer was purged) and W is still deleted afterwards; step 13 is refused as 403
+        "tenant_inactive"; step 14 is refused as the existing name conflict (409).
+      evidence: The status and error text of steps 12 to 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: A purged customer is revived without its data, or its name is reused for a different customer.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: Purging W leaves another customer unchanged (cross-tenant negative).
+    verification:
+      method: system_state
+      detail: Step 15 lists the same people of V as step 2, and the record of V in step 11 is as in step 5.
+      evidence: The people counts of V at steps 2 and 15 and the two records.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A purge of one customer damages another customer's data.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    W is left purged (its record stays, as designed); V is left active as a throwaway with a 13-day expiry. Infra sets the
+    QA retention back to its starting value (30 days). The realm reaper deletes W's realm later; that is not part of this run.
