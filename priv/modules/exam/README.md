@@ -67,7 +67,7 @@ created from the definition gets a nullable `uuid` column with
 - `question`: the version lineage, `null` is a first version. Part A checks
   that the parent exists (`parent_not_found`) and refuses the delete of a
   question that has a live successor (`question_has_children`). Part B refuses a
-  second child (`lineage_branch`), a version not above its parent (`version_not_increasing`) and a
+  second child (`lineage_branch`), a version not above its parent or not below its child's (`version_not_increasing`) and a
   second active version in one lineage (`lineage_active_conflict`).
 - A tenant installed before this change keeps the old definitions until the
   upgrade (REQ-586 part C, `Letflow.Release.ExamParentId.rollout/1`; the

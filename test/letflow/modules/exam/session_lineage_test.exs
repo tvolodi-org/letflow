@@ -97,6 +97,13 @@ defmodule Letflow.Modules.Exam.SessionLineageTest do
 
     assert {:ok, view} = Session.create(Ecto.UUID.generate(), exam.record_id, schema)
     assert drawn(schema, view.id) == [v3]
+
+    # count 2 over the same lineage underflows only if the pool holds exactly one version
+    exam2 = exam!(schema)
+    rule!(schema, exam2.record_id, category_id, 2, "random")
+
+    assert {:error, :pool_underflow} =
+             Session.create(Ecto.UUID.generate(), exam2.record_id, schema)
   end
 
   test "S2 a manual pin of an archived version is not drawn, the active one is" do
