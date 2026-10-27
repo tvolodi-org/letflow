@@ -51,9 +51,7 @@ defmodule Letflow.Modules.Exam.Certificate do
      scope fence is "an authenticated route by which a candidate requests
      issuance for their own session," not an admin route, so there is no
      caller today that could ever pass `is_admin: true`. Rather than carry
-     an unreachable parameter no route calls (the shape
-     `Letflow.Modules.Exam.Session`'s own `:not_assigned` no-op takes for a
-     genuinely-blocked check), this function's ownership check is simply
+     an unreachable parameter no route calls, this function's ownership check is simply
      unconditional -- `Session.get_session_for_user/3`'s own
      `:not_owner`/`:session_not_found` pair, already indistinguishable per
      INV-5 (that function's own `@doc`/the session router's moduledoc).

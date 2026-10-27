@@ -92,6 +92,16 @@ defmodule Letflow.Modules.Exam.Authoring do
     # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
     do: Records.delete_record(attrs, prefix, exam_owner())
 
+  @doc """
+  Creates an `exam_assignment` record with the exam module's own authority (REQ-582). The type is
+  not an authoring type and no route writes it yet; this is the system path for the mix seed task.
+  """
+  @spec create_assignment(Records.create_attrs(), prefix :: String.t()) ::
+          {:ok, Records.command_result()} | Records.command_error()
+  def create_assignment(%{entity_type: "exam_assignment"} = attrs, prefix),
+    # scope-all: REQ-582 seed task, own-record system path (no HTTP user)
+    do: Records.create_record(attrs, prefix, exam_owner())
+
   # Built per call, never stored (as `Session.exam_owner/0`).
   @spec exam_owner() :: ManagedTypes.Owner.t()
   defp exam_owner, do: ManagedTypes.owner_for!(Exam)

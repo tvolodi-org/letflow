@@ -66,6 +66,8 @@ defmodule Letflow.Idempotency.SquatRemediationTest do
         "certificate_enabled" => true
       })
 
+    ExamFixtures.assign_all!(schema, exam.record_id)
+
     question =
       ExamFixtures.create_record!(schema, "question", %{
         "category_id" => category_id,

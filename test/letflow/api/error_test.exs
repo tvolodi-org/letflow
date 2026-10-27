@@ -161,6 +161,19 @@ defmodule Letflow.Api.ErrorTest do
     end
   end
 
+  describe "module transition problems (REQ-578)" do
+    test "E1: dependents_installed and upgrade_required are 409 with a constant code" do
+      dependents = decode(Error.module_dependents_installed(["b", "a"]))
+      assert dependents["status"] == 409
+      assert dependents["code"] == "dependents_installed"
+      assert dependents["dependents"] == ["a", "b"]
+
+      upgrade = decode(Error.module_upgrade_required())
+      assert upgrade["status"] == 409
+      assert upgrade["code"] == "upgrade_required"
+    end
+  end
+
   describe "serialisation contract" do
     # REQ-066 — spec §2 case 11. errors.zig's ProblemDetails carries a "" default for
     # trace_id and the requirement text calls it out explicitly. The ten constructor

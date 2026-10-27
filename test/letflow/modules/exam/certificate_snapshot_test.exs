@@ -70,6 +70,8 @@ defmodule Letflow.Modules.Exam.CertificateSnapshotTest do
         )
       )
 
+    Fx.assign_all!(schema, exam.record_id)
+
     question =
       Fx.create_record!(schema, "question", %{
         "category_id" => category_id,

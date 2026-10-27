@@ -513,6 +513,11 @@ settings — `exam`'s is `nil`, so it has no live worked example in this
 codebase yet; follow `Letflow.Modules.Installs.put_settings/3`'s validation
 rules below regardless).
 
+`POST /api/v1/tenant/modules/:module_id/uninstall` and `.../reactivate` (REQ-578, gated by
+`:ModulesManage`, body `{"rationale": "..."}`) soft-uninstall and reactivate a module through
+`Installs.uninstall/3` and `reactivate/3`. They answer like an unknown route while
+`config :letflow, :modules_uninstall_enabled` (`Installs.uninstall_enabled?/0`) is false, the default.
+
 `PUT /api/v1/tenant/modules/:module_id/settings` (`authz_put "/:module_id/settings"`,
 `lib/letflow/routers/tenant_modules.ex:44-46`, gated by `:ModulesManage`)
 delegates to `Letflow.Modules.Installs.put_settings/3`

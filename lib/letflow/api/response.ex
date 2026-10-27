@@ -261,6 +261,15 @@ defmodule Letflow.Api.Response do
   @spec module_owned_pack(Plug.Conn.t()) :: Plug.Conn.t()
   def module_owned_pack(conn), do: send_problem(conn, Error.module_owned_pack())
 
+  @doc "HTTP 409 — Module Has Installed Dependents (REQ-578). See `Error.module_dependents_installed/1`."
+  @spec module_dependents_installed(Plug.Conn.t(), [String.t()]) :: Plug.Conn.t()
+  def module_dependents_installed(conn, ids),
+    do: send_problem(conn, Error.module_dependents_installed(ids))
+
+  @doc "HTTP 409 — Module Upgrade Required (REQ-578). See `Error.module_upgrade_required/0`."
+  @spec module_upgrade_required(Plug.Conn.t()) :: Plug.Conn.t()
+  def module_upgrade_required(conn), do: send_problem(conn, Error.module_upgrade_required())
+
   @doc "HTTP 422 — Module Install DDL Failed (GH #2540). See `Letflow.Api.Error.module_install_ddl_failed/0`."
   @spec module_install_ddl_failed(Plug.Conn.t()) :: Plug.Conn.t()
   def module_install_ddl_failed(conn), do: send_problem(conn, Error.module_install_ddl_failed())
