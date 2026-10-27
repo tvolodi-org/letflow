@@ -42732,7 +42732,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-509 -- build slice; the decision record of REQ-509 must be ratified first
+    gh: 3389
     # Source: GH #2677 (filed by letflow-2), the REQ-VALIDATOR round 2 split of 2026-10-16, and the decision record produced by REQ-509 (not yet written). Written by the business analyst (T-0774) 2026-10-27 as the build half of the REQ-509 split. Not yet validated.
     description: >
       Build slice of the split of GH #2677; the design half is REQ-509. This requirement implements
