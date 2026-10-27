@@ -1,0 +1,210 @@
+# T-0795 (BA): TENANT ADMIN group, scenario 30: who may manage print-layout overrides, and that one company never sees or changes another's.
+# Covers REQ-579 criterion 5 (C3-manage: another company's administrator reading, activating or retiring a draft of company B gets the same
+# answer as for an identifier that exists nowhere; the list shows nothing of company B; a named company in path, query or body is ignored;
+# the platform operator on these routes gets only its own company's data) and criterion 8 (only TENANT_ADMIN and PLATFORM_ADMIN hold the
+# permission: task worker, tenant auditor and a worker of another company get the same 403, also for an identifier that exists; no sign-in 401).
+# Sources: docs/requirements.yaml REQ-579 criteria 5 and 8; docs/roles.md (DocumentPrintTemplatesManage: TENANT_ADMIN and PLATFORM_ADMIN
+# only); docs/migration/decisions/0068-per-tenant-print-template-overrides.md (C3-manage test text); lib/letflow/routers/documents.ex moduledoc
+# (order of checks: permission first, so the 403 is the same for an existing and an absent identifier); test/fixtures/uat/actors.yaml
+# (alice: SwiftRoute TENANT_ADMIN; lena: SwiftRoute task worker; auditor: SwiftRoute TENANT_AUDITOR; ben: Meridian task worker; actor-bilimbaga-admin:
+# Bilimbaga TENANT_ADMIN, whose token needs a qa-login mapping that is not yet approved; actor-platform-admin).
+# "The route has no company parameter" is a property of the compiled route table, not of the running system; it is covered by the backend
+# test of criterion 5 and is not a step here.
+# The platform operator holds the permission and these routes take the company from the sign-in: its requests are answered with the
+# platform company's own (empty) data, so they are a no-data-leak check, not a refusal.
+# Preconditions: SwiftRoute and Bilimbaga each hold the document type "purchase_order" with field supplier_name (registered through the
+# service-level harness). Approve, pay or release, see-sensitive-data and change-users are not in this flow.
+---
+id: tenant-administration-30-print-override-access-and-other-company
+scope: tenant-administration
+title: Only the company administrator manages print-layout overrides, and another company's administrator or an outsider gets the same answer as for nothing
+version: "1.0"
+tags: [tenant-admin, documents, print-override, access, cross-tenant, refusal, isolation]
+
+description: >
+  The Bilimbaga administrator saves a draft print layout for "purchase_order" (ru). A task worker, the read-only auditor and a Meridian worker
+  are refused on every print-override action, with one 403 whether the identifier exists or not; a request with no sign-in is refused. The
+  SwiftRoute administrator, who has a draft of their own, cannot read, activate or retire the Bilimbaga draft: each answer is byte for byte the
+  answer for an identifier that exists nowhere (404). Naming Bilimbaga's company in the request changes nothing. The SwiftRoute list shows
+  nothing of Bilimbaga. The platform operator, who holds the permission, sees only the platform company's own (empty) list and is not a route to
+  Bilimbaga's drafts.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+  auditor_a: actor-swiftroute-auditor
+  worker_b: actor-meridian-ben
+  tenant_admin_b: actor-bilimbaga-admin
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: SwiftRoute, Meridian and Bilimbaga are set up, each of SwiftRoute and Bilimbaga has the document type "purchase_order" with the field supplier_name, and no print override exists in any of them
+    check: system_seeded
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token), steps 2 to 4 and 7 to 9 are BLOCKED and the others run; EO-002, EO-003 and EO-004 are then BLOCKED, not PASS.
+  - description: The layout used is a minimal valid layout
+    check: custom
+    detail: >
+      MIN-LAYOUT has layout_schema_version 1 and blocks: page (size A4, margin_mm 15, font dejavu-sans), text (text "test sample"), field
+      (entity_type purchase_order, field_name supplier_name, label "Supplier").
+  - description: Only the SwiftRoute administrator holds the print-override permission among the SwiftRoute actors of this scenario
+    check: system_seeded
+    detail: Per the role matrix only TENANT_ADMIN (and the platform operator) holds it.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: The SwiftRoute administrator saves MIN-LAYOUT for purchase_order, ru, and notes the identifier and the answer (draft A).
+    via: api
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: MIN-LAYOUT
+  - step: 2
+    actor: tenant_admin_b
+    action: The Bilimbaga administrator saves MIN-LAYOUT for purchase_order, ru, and notes the identifier and the answer (draft B).
+    via: api
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: MIN-LAYOUT
+  - step: 3
+    actor: worker_a
+    action: >
+      The SwiftRoute task worker tries to list the overrides, to read draft A, to save MIN-LAYOUT for ru, to activate draft A, to retire draft A,
+      and to read an identifier that exists nowhere, each in its own request. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: auditor_a
+    action: >
+      The read-only auditor tries to list the overrides, to read draft A, to save MIN-LAYOUT for ru, to activate draft A, to retire draft A, and
+      to read an identifier that exists nowhere, each in its own request. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: worker_b
+    action: A Meridian task worker tries to list the overrides and to read draft A. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: worker_a
+    action: The request to list the overrides is sent with no sign-in at all (no token attached). The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator tries to read draft B, to activate draft B, and to retire draft B, each in its own request, and then does
+      the same three with an identifier that exists nowhere. The answers are noted.
+    expect_refusal: true
+    via: api
+    input:
+      reason_code: go_live
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator lists the overrides and searches the answer for draft B's identifier and for the word "Bilimbaga"; they also
+      list with Bilimbaga's company identifier added in the address. Both requests are answered normally; the answers are noted.
+    via: api
+    input:
+      tenant_id: Bilimbaga's company identifier
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator tries to retire draft B with Bilimbaga's company identifier added in the address and in the body. The
+      answer is noted.
+    expect_refusal: true
+    via: api
+    input:
+      tenant_id: Bilimbaga's company identifier
+      reason_code: go_live
+  - step: 10
+    actor: platform_operator
+    action: >
+      The platform operator lists the overrides and reads draft B, noting the answers. This is a check that nothing of SwiftRoute or
+      Bilimbaga is shown to the operator through these routes.
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: The Bilimbaga administrator lists the overrides and reads draft B, and compares them with step 2. The list is noted.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker, the read-only auditor and a worker of another company are refused every print-override action, with one refusal whether the identifier exists or not; with no sign-in the request is refused.
+    verification:
+      method: http_status
+      detail: >
+        Every request of steps 3, 4 and 5 answers 403. Within steps 3 and 4 the 403 for the read of draft A and for the read of the identifier
+        that exists nowhere have the same status, the same body byte for byte, the same content type and the same headers apart from per-request
+        ones (date, request id). The request of step 6 answers 401.
+      evidence: The twelve refusals of steps 3 and 4, the two of step 5 and the unauthenticated request of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee or an outside auditor could change or learn about the company's official print layouts.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Another company's administrator cannot read, activate or retire a draft of Bilimbaga, and the answer equals the answer for an identifier that exists nowhere.
+    verification:
+      method: http_status
+      detail: >
+        In step 7 the read, the activation and the retirement of draft B each answer 404; for each action the answer equals, byte for byte (status,
+        body, content type, headers apart from date and request id), the answer for the identifier that exists nowhere. Draft B is still a draft
+        with its original layout in step 11.
+      evidence: The six answers of step 7 compared pairwise, and draft B read in step 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer could activate, retire or read another customer's official print layouts, or learn which exist.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: The SwiftRoute list shows nothing of Bilimbaga, and a company named in the request is ignored.
+    verification:
+      method: api_response
+      detail: >
+        The list of step 8 answers 200 and holds exactly draft A; it does not contain draft B's identifier or the word "Bilimbaga"; with
+        Bilimbaga's company identifier in the address the list is the same. The retirement of step 9 answers 404, equal to the answers of step 7 for
+        an identifier that exists nowhere, and draft B is unchanged in step 11.
+      evidence: The two lists of step 8, the answer of step 9 and step 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be pointed at another customer's data by naming the customer.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: The platform operator sees only the platform company's own data through these routes, not any customer's drafts.
+    verification:
+      method: api_response
+      detail: >
+        Step 10 answers the list with 200 and an empty list (the platform company has no overrides); the read of draft B answers 404 like the
+        answer for an identifier that exists nowhere; neither contains an identifier, layout or wording of SwiftRoute or Bilimbaga.
+      evidence: The two answers of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The platform operator could read a customer's print layouts through a customer-facing route.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Each administrator's own draft is unaffected by the others' attempts.
+    verification:
+      method: api_response
+      detail: Step 11 lists exactly draft B with status draft; step 8 listed exactly draft A with status draft.
+      evidence: The lists of steps 8 and 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A refused request changed a company's stored layouts.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: Refused requests write no audit entry.
+    verification:
+      method: audit_event
+      detail: >
+        The SwiftRoute audit trail holds exactly one print-override entry (the save of draft A, step 1) and the Bilimbaga audit trail exactly one
+        (the save of draft B, step 2), read after step 11 by the harness; steps 3 to 7 and 9 left none. If the environment has no harness to read the
+        audit trail, this outcome is BLOCKED.
+      evidence: The audit entries of both companies after step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: Refused attempts clutter the audit trail, or a refused change is recorded as if it happened.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The two drafts cannot be deleted (stored rows are permanent); they remain unused. Re-running needs fresh test companies or a different type_key.
