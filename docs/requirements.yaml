@@ -42739,3 +42739,59 @@ requirements:
       - "9. Tenant isolation (INV-1, INV-5, INV-10): in a two-tenant test, a TENANT_ADMIN of tenant B sending tenant A's category_id gets the same 404 body as a random unknown id and the fake provider receives no request; tenant A exhausting its tenant_calls_per_day does not change tenant B's answer (200); a tenant_id field in the body (tenant A's id sent by tenant B) is ignored and the call is counted against tenant B; a PLATFORM_ADMIN token of the platform tenant gets a 200 for its own tenant's category only and a 404 for a category of another tenant."
       - "10. Scope and gates: the PR adds no migration, tenant table, seed, entity definition or permission, and states the new route-pin values as +1 from the value on origin/main at implement time (grep -rn \"__authz_routes__\\|length(snapshot)\" test/ and test/fixtures/route_scope/tenant_wide_default_routes.txt, the exam router route list in test/ and the module manifest route_policies pin; the child count in the moduledoc of lib/letflow/supervisor/infrastructure.ex and the ordered child list pinned in test/letflow/supervisor/infrastructure_test.exs, each +1 from origin/main at implement time); the moduledoc of lib/letflow/modules/exam/router.ex route table gains one row; the PR names FR-BB73, FR-BB74 and FR-BB75 as not built; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the new test files pass with real output quoted; the SECURITY-REVIEWER verdict (INV-1, INV-4, INV-5, INV-8, INV-9, INV-10) and the REVIEWER verdict are recorded; the open questions above are copied into the PR body as undecided."
     depends_on: [REQ-510, REQ-190, REQ-204]
+
+  - id: REQ-604
+    title: "WMS foundation: supplier master (catalog_counterparty) in the catalog_items module, with external_ref, active flag and lookup (decision 0057 D1, D12; the D1 master that REQ-558 defers)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- every dependency below is done; the master does not wait on REQ-544 or REQ-558
+    # Source: docs/migration/decisions/0057-wms-customer-draft-reconciliation.md D1 (the module owns items, suppliers, purchase orders and stock; masters carry a nullable external_ref {system, id}; no inbound master sync) and D12 (the pilot is seeded with test data through the generic idempotent import, REQ-505); docs/migration/decisions/0050 section "NOT built in slice 0" (counterparty in catalog_items, slice 2, no entity definition until a requirement consumes it) and the architect note (reference by immutable record id, retire = active false, no hard delete, referencing documents store a snapshot of the name); docs/WMS/WMS_Procurement_Requirements_Draft.md PR-04 (supplier or contractor reference), IN-01 and IN-06 (suppliers mapped across systems); docs/migration/core-roadmap-20261014.md "WMS slice 5 (stock ledger)" (hard ordering blocker); docs/requirements.yaml REQ-474 (the item and unit-of-measure master this one copies in shape; its description point 5 "Counterparty is NOT built") and REQ-558 (description: "a supplier and purchase-order master ... later slices"). Written by the business analyst (T-0773) 2026-10-27. Not yet validated.
+    description: >
+      Adds the supplier master that decision 0057 D1 gives to the module and that REQ-474 point 5 and REQ-558 left
+      unbuilt. It is a third entity type of the existing module catalog_items (lib/letflow/modules/catalog_items/catalog_items.ex,
+      pack priv/modules/catalog_items/), named catalog_counterparty after the name decision 0050 reserved
+      ("counterparty (catalog_items, slice 2)"); the draft's word "supplier or contractor" (PR-04) is carried by a kind field.
+      The shape is the shape of catalog_uom and catalog_item (REQ-474): a definition file under
+      priv/modules/catalog_items/entity_definitions/, managed by the module (manages_entity_types, owner path only),
+      an `active` flag, and the nullable pair external_ref_system and external_ref_id with a unique constraint over the pair
+      (0057 D1). Retirement is active false, never a hard delete (0050 reference contract).
+
+      Fields of catalog_counterparty. code (string, queried, required, unique); name (string, required); kind (enum supplier |
+      contractor, queried, required; UAT assumption, to be confirmed by the process owner: the draft names "supplier/contractor"
+      but defines no further partner classes, and carriers are not covered here); tax_id (string, optional, queried; the
+      national business identification number printed on supplier documents; format not validated in this slice, UAT assumption
+      to be confirmed by the process owner); active (boolean, queried, required); external_ref_system, external_ref_id.
+      The module's read API (lookup/2 and active?/2 of Letflow.Modules.CatalogItems, today bound to the types catalog_item and
+      catalog_uom) also resolves this type. The module has no write functions today, so none are added and the both-or-neither rule for
+      external_ref stays unenforced, as for the two existing types (criterion 4). Seed data is not part of this change (D12: the BA loads
+      the test supplier set through the generic import, REQ-505, after this merges); no seed, fixture data set or QA script is
+      written here.
+
+      Not in this change, and not built by it. (1) The link from a purchase request line to this master: REQ-558 stores the
+      supplier as source system, identifier and display name, as text; validating that reference against this master and
+      switching to the record id is a later slice, which must also state how existing text references are handled. This entry
+      adds no field, event or check to REQ-544 or REQ-558 and no file of the procurement module (T-0745, T-0746, T-0763, T-0764
+      own those). (2) The purchase-order master of 0057 D1: a separate later slice. (3) The stock ledger (slice 5). Its four hard
+      blockers in docs/migration/core-roadmap-20261014.md are named here as ordering facts, not as prerequisites of a supplier
+      master: REQ-499 (process step writes entity) and REQ-501 (module write handlers) are done and listed in depends_on, GH
+      #2583 (Records callers bypass the managed_by route guard) is closed, and the fourth blocker (the ledger type declares
+      managed_by and posts only in a module write handler) belongs to the ledger slice. This change creates no ledger type and
+      no posting.
+
+      Existing tenants. catalog_items is already installable; a tenant that installed it before this change does not get the new
+      type until the module is upgraded or reinstalled. The implementer states in the module runbook section which of the two
+      applies, reading how REQ-474 and the module upgrade path handle a pack that gains an entity type, and records it as a
+      finding if no upgrade path exists. All file and line references are re-read on main by the implementer.
+    acceptance_criteria:
+      - "1. Definition: priv/modules/catalog_items/entity_definitions/catalog_counterparty.json exists with exactly the fields code, name, kind, tax_id, active, external_ref_system, external_ref_id, the queried flags and requireds listed in the description, a unique constraint over [code] and a unique constraint over the external_ref pair; a test that reads the file asserts each (as entity_definitions_test.exs does for the two existing types), and the pack drift test (pack_drift_test.exs) passes with the regenerated pack.json."
+      - "2. Managed: the manifest's manages_entity_types contains exactly catalog_item, catalog_uom and catalog_counterparty; Catalog.validate/1 accepts the module; the literal assertions in the module's registration test are updated; a generic POST /entities/records/catalog_counterparty is 403 with the entity_type_managed error that criterion 5 of REQ-474 asserts for catalog_item."
+      - "3. Install: on real Postgres, installing the module as TENANT_ADMIN with a rationale activates the third type and creates one promotion row per promoted column of it, including the two external_ref columns (the install test of REQ-474 criterion 3 extended). A tenant-created type already named catalog_counterparty makes the install fail and roll back completely, with the error shape the REQ-474 name-conflict test asserts."
+      - "4. Definition-level rules, written through the owner path the existing fixture uses (Letflow.CatalogItemsFixture.create/3 in test/letflow/modules/catalog_items/catalog_items_fixture.exs): a second supplier with a code already used is refused; a kind outside supplier and contractor is refused; a missing code, name, kind or active is refused naming the field; two suppliers with the same non-null external_ref pair are refused while any number of suppliers with no pair are accepted. The module ships no write functions (catalog_items.ex moduledoc), so this slice adds none and does not add the both-or-neither external_ref rule; a test records that a supplier with only external_ref_system is accepted by the definition today, and the runbook (criterion 10) says the rule is not enforced, as for the two existing types."
+      - "5. Retire: a supplier record updated with active false through the same owner path stays readable; lookup/2 returns it with active false and active?/2 returns false. The slice adds no delete operation; a delete through the generic route is refused as for the two existing types."
+      - "6. Read API: lookup/2 of Letflow.Modules.CatalogItems given the record id of a supplier returns a map whose entity_type is catalog_counterparty, with code, name, kind and active; active?/2 is true for an active supplier and false for a retired one, for an unknown id and for the id of an item or a unit of measure; lookup of a catalog_item or catalog_uom still returns what read_api_test.exs asserts today (unchanged). The caller must check entity_type, because the lookup searches several types, and the runbook section says so."
+      - "7. Seeding path (decision 0057 D12): the implementer reads how a managed type (generic routes answer 403 entity_type_managed) can receive the BA's test data by the idempotent import of REQ-505 (lib/letflow/entities/csv_import.ex, route POST /entities/records/:entity_type/import), and states the result in the runbook and in findings. If the import cannot write a managed type, that is reported as a finding for a separate requirement and nothing is changed in the import code here; no test in this slice may pass by making the type unmanaged."
+      - "8. Tenancy (INV-1, INV-5, INV-10): suppliers live in the tenant schema; in a two-tenant test a supplier of tenant A is not returned by lookup/2 with tenant B's prefix and gives the same not-found answer as an absent id; the read API has no caller permission check (its caller owns it, per the moduledoc), so none is added. The change adds no route, no permission and no role grant (permissions stays []), and the permission-matrix golden is unchanged, shown by mix letflow.permission_matrix --check."
+      - "9. Scope: git diff shows no change under lib/letflow/modules/procurement/, no change to REQ-544 or REQ-558 entries or their tests, no ledger entity type, no seed data and no QA script. mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/modules/catalog_items/ and mix letflow.check_requirements_registration pass, real output quoted."
+      - "10. Runbook: the module's runbook section (the one the runbook_test.exs of catalog_items reads) states the new type, its kind values, that the lookup returns several types, the retire rule and how an already installed tenant receives the type; the runbook test passes."
+    depends_on: [REQ-474, REQ-505, REQ-507, REQ-499, REQ-501]
