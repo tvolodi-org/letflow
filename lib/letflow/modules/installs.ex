@@ -68,6 +68,9 @@ defmodule Letflow.Modules.Installs do
   `put_settings/3` and the dependency check of `install/3` see an uninstalled row as not installed;
   `install/3` of it stays `{:error, :already_installed}` (reactivate, not reinstall).
   `list_all/1` reads rows of any status (scope declarations keep their pre-uninstall filters, D3).
+
+  The HTTP routes for both transitions are gated by `uninstall_enabled?/0` (default off); the two
+  functions themselves do not read the flag.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -125,6 +128,14 @@ defmodule Letflow.Modules.Installs do
 
     Repo.all(from(m in TenantModule, order_by: [asc: m.installed_at]), prefix: prefix)
   end
+
+  @doc """
+  The `:modules_uninstall_enabled` flag of `:letflow` (REQ-578), default false. Off, the uninstall
+  and reactivate routes answer like an unknown route and `uninstall/3` is not reached from HTTP.
+  """
+  @spec uninstall_enabled?() :: boolean()
+  def uninstall_enabled?,
+    do: Application.get_env(:letflow, :modules_uninstall_enabled, false) == true
 
   @type transition_error ::
           {:error, :rationale_required}

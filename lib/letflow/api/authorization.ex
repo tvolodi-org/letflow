@@ -1290,6 +1290,10 @@ defmodule Letflow.Api.Authorization do
   # REQ-414 — settings write for an installed module.
   def endpoint_policy_key("PUT", "/tenant/modules/:module_id/settings"), do: :ModulesManage
 
+  # REQ-578 — soft uninstall and reactivate (behind :modules_uninstall_enabled).
+  def endpoint_policy_key("POST", "/tenant/modules/:module_id/uninstall"), do: :ModulesManage
+  def endpoint_policy_key("POST", "/tenant/modules/:module_id/reactivate"), do: :ModulesManage
+
   # REQ-415 — solution install: one atomic call installs a bundle of modules
   # in dependency order. Same :ModulesManage gate as the per-module install
   # route above (PLATFORM_ADMIN-only, per REQ-401/D5).

@@ -114,6 +114,8 @@ POST /solution-packs/export DefinitionsRead
 POST /solution-packs/install DefinitionsCreate
 POST /tenant/config-bundle/import TenantSettingsManage
 POST /tenant/modules ModulesManage
+POST /tenant/modules/:module_id/reactivate ModulesManage
+POST /tenant/modules/:module_id/uninstall ModulesManage
 POST /tenant/solutions ModulesManage
 POST /tenants TenantsManage
 POST /tenants/:slug/deactivate TenantsManage
