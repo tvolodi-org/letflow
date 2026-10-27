@@ -1,0 +1,175 @@
+# T-0771 (BA): TENANT ADMIN group, scenario 25: the second brand colour is stored, shown on both public configuration reads, and unknown colour slots are ignored.
+# Covers REQ-585 (GH #3313; BilimBaga retirement criterion 9): accepting "secondary" (alone and with "primary"), the ignored unknown slot "tertiary"
+# with its audit entry, the web configuration read, and the mobile configuration read with and without a stored secondary colour.
+# Sources: docs/requirements.yaml REQ-585; lib/letflow/routers/tenant_settings.ex (the write: one top-level replacement of brand_colors, so a
+# write that names only secondary drops a stored primary; the scenario always sends both when it wants both); lib/letflow/routers/tenant_config.ex
+# (brand_colors_from_settings: default %{"primary" => "#228be6"} when nothing usable is stored); lib/letflow/routers/mobile_tenant_config.ex
+# (secondary_color present only when stored); docs/roles.md (TENANT_ADMIN holds the tenant settings permission); test/fixtures/uat/actors.yaml.
+# The two reads are public (no sign-in), keyed by the company's own slug; they never report whether a slug exists.
+# Not covered here: the unknown-slug case is scenario 26 (refusal group). The web screen does not consume the secondary colour yet (REQ-585 says
+# so), so nothing is checked by looking at a screen; every check is on the answers of the two reads.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the company-settings write itself is
+# the only change and is limited to the administrator.
+---
+id: tenant-administration-25-secondary-brand-colour-set-and-read
+scope: tenant-administration
+title: The administrator stores a second brand colour, both public configuration reads show it, and an unknown colour slot is ignored and recorded
+version: "1.0"
+tags: [tenant-admin, branding, brand-colours, audit, public-config]
+
+description: >
+  The administrator of BilimBaga sets the company's primary colour and a secondary colour #1971C2 together, and then the secondary colour alone
+  with the primary colour repeated. Both are accepted. The web configuration read and the mobile configuration read, which anyone can call
+  without signing in by naming the company, show the secondary colour. The administrator then sends a secondary colour together with a colour
+  slot the platform does not have ("tertiary"): the request is accepted, the secondary colour is stored, "tertiary" is not stored, and one audit
+  record notes the ignored slot. Finally the administrator clears the stored colours; the web configuration read then shows only the platform
+  default primary colour, and the mobile read shows no secondary colour while its primary colour is still the platform default.
+
+actors:
+  tenant_admin: actor-bilimbaga-admin
+  visitor: actor-any
+
+preconditions:
+  - description: BilimBaga is set up with its administrator and has a realm bound, so the public configuration reads resolve it by its own slug
+    check: system_seeded
+  - description: The company's own slug is known to the scenario runner (the same slug the administrator signs in under)
+    check: system_seeded
+
+steps:
+  - step: 1
+    actor: visitor
+    action: >
+      Without signing in, reads the company's current colours through the web configuration read and notes the colours returned, so
+      they can be put back at the end. If the company has never stored colours the read shows only the platform default primary colour "#228be6";
+      that state cannot be put back to "absent", only to an empty colour set, and the report notes the value left.
+    via: api
+    produces:
+      colours_before: the brand colours returned before any change
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator saves the company's brand colours with primary "#1864AB" and secondary "#1971C2" in one request. The answer is noted.
+    via: api
+    input:
+      brand_colors: primary "#1864AB", secondary "#1971C2"
+    produces:
+      settings_answer: the stored settings returned by the save
+  - step: 3
+    actor: visitor
+    action: >
+      Without signing in, reads the web configuration by naming the company, and reads the mobile configuration by naming the company. Both
+      answers are noted in full.
+    via: api
+    produces:
+      web_config: the web configuration answer
+      mobile_config: the mobile configuration answer
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator saves the brand colours again, this time with primary "#1864AB" and secondary "#0B7285" (each on its own meets the
+      readability rule), then saves them once more with secondary "#1971C2" and primary "#1864AB" given in the opposite order in the request.
+      Both answers are noted.
+    via: api
+    input:
+      brand_colors: primary "#1864AB", secondary "#0B7285"; then secondary "#1971C2", primary "#1864AB"
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator saves the brand colours with secondary "#1971C2" and an extra colour slot "tertiary" with the value "#000000" in the
+      same request. The answer and its status are noted, and the administrator reads the audit records of the company for settings changes.
+    via: api
+    input:
+      brand_colors: secondary "#1971C2", tertiary "#000000"
+    produces:
+      settings_answer: the answer of the save
+      audit_records: the audit records of the company for the ignored-slot action
+  - step: 6
+    actor: visitor
+    action: >
+      Without signing in, reads the web configuration and the mobile configuration by naming the company, and notes which colour slots each
+      answer carries.
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator saves the brand colours as an empty set, which clears the stored colours. The answer is noted.
+    via: api
+    input:
+      brand_colors: an empty set
+  - step: 8
+    actor: visitor
+    action: >
+      Without signing in, reads the web configuration and the mobile configuration by naming the company, and notes the colours in each answer.
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator puts back the colours noted in step 1 (the primary colour only, if the company had no secondary colour before).
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A secondary colour #1971C2 is accepted, alone with the primary colour and together with it, and is stored without an error.
+    verification:
+      method: http_status
+      detail: The saves of steps 2 and 4 each answer 200 and the returned settings carry the colours that were sent, including secondary "#1971C2" in the first and last of them and "#0B7285" in the middle one.
+      evidence: The three save answers of steps 2 and 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: BilimBaga cannot give its public pages a second brand colour, which keeps one of the retirement criteria for the previous system open.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The web configuration read returns both stored colours, primary and secondary, under the brand colours of the company.
+    verification:
+      method: api_response
+      detail: After step 2 the web configuration read of step 3 shows brand colours primary "#1864AB" and secondary "#1971C2" and nothing else under them.
+      evidence: The web configuration answer of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The web application never learns the second colour, so it cannot be used on any screen later.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The mobile configuration read shows the stored secondary colour as its secondary colour and keeps the primary colour as before.
+    verification:
+      method: api_response
+      detail: After step 2 the mobile configuration read of step 3 carries branding with primary colour "#1864AB" and secondary colour "#1971C2"; the other branding values (name and logo address) are the ones the company stored or the platform defaults, unchanged by this step.
+      evidence: The mobile configuration answer of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The mobile application cannot show the second brand colour, and a changed primary colour would be a regression for the apps that exist.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A request that carries a valid secondary colour and an unknown colour slot is accepted, stores the secondary colour, does not store the unknown slot, and leaves one audit record.
+    verification:
+      method: http_status
+      detail: Step 5 answers 200 (not an error of any kind); the returned settings carry secondary "#1971C2" and no "tertiary"; the audit records of step 5 hold exactly one new record for the ignored-slot action, naming the administrator and the ignored slot "tertiary" with its value "#000000", and holding nothing of another company.
+      evidence: The save answer and the audit records of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: An unknown slot either breaks the save for the administrator (an error page on a harmless request) or is silently stored, and the operator cannot see that someone tried to set colours the platform does not allow.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: After the unknown-slot save, neither public read shows the unknown slot, and both still show the secondary colour.
+    verification:
+      method: api_response
+      detail: In step 6 the web configuration read carries brand colours with secondary "#1971C2" and no "tertiary" key; the mobile configuration read carries secondary colour "#1971C2" and no key that mentions "tertiary".
+      evidence: The two answers of step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A value the platform meant to ignore would be published on two endpoints that anyone can read without signing in.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: With no colour stored, the web read shows exactly the platform default primary colour, and the mobile read shows no secondary colour at all while its primary colour is the platform default.
+    verification:
+      method: api_response
+      detail: In step 8 the web configuration read carries brand colours equal to primary "#228be6" and nothing else; the mobile configuration read carries primary colour "#228be6" (the platform default) and has no secondary colour key, not even an empty or null one.
+      evidence: The two answers of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company that never chose a second colour would be shown one by default, or the mobile application would meet an empty value where it expects a colour.
+      suggested_action: route_to_wf03
+
+cleanup:
+  description: >
+    Step 9 puts back the colours the company had before the scenario. If the company had no stored colours, the empty set of step 7 is the nearest
+    state; the report notes that. The audit record of step 5 stays (the audit trail is not removed).
