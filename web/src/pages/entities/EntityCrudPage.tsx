@@ -399,6 +399,7 @@ function EntityCrudPageInner({ entityType, writes = DEFAULT_ENTITY_WRITES }: Ent
                 definition={definition}
                 fieldTitles={fieldTitles}
                 initialValues={modal.kind === 'edit' ? modal.record.field_values : undefined}
+                editingRecordId={modal.kind === 'edit' ? modal.record.record_id : undefined}
                 onSubmit={(values) => handleSubmit(values)}
                 onCancel={closeModal}
                 isSubmitting={createMutation.isPending || updateMutation.isPending}

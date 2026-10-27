@@ -27,6 +27,7 @@ const SRC_ROOT = path.resolve(__dirname, '..', '..', '..', '..')
 const JSX_FILES_TO_CHECK = [
   'components/forms/widgets/localizedText.tsx',
   'components/forms/widgets/searchableSelect.tsx',
+  'components/forms/widgets/categoryTreeSelect.tsx',
 ]
 
 const JSX_TEXT_NODE = />[A-Za-z][A-Za-z '.-]{2,}</g

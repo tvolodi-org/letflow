@@ -40,6 +40,7 @@
 import type { EntityFieldDef, EntityFkDef } from '@/types/api'
 import type { TaskFormField } from '@/types/forms'
 import {
+  ENTITY_CATEGORY_TREE_WIDGET,
   ENTITY_FK_REFERENCE_WIDGET,
   ENTITY_LOCALIZED_TEXT_WIDGET,
 } from '@/components/entities/entityWidgetRegistry'
@@ -86,7 +87,11 @@ function mapFieldType(type: EntityFieldDef['type']): TaskFormField['type'] {
  *  humanising the field's raw `name` into an English label; the composing
  *  component supplies `title` itself, from `entitiesMessages`, after this
  *  mapping runs. */
-export function entityFieldToFormField(field: EntityFieldDef, fkDef?: EntityFkDef): TaskFormField {
+export function entityFieldToFormField(
+  field: EntityFieldDef,
+  fkDef?: EntityFkDef,
+  context?: { entityType?: string; editingRecordId?: string },
+): TaskFormField {
   const base: TaskFormField = {
     name: field.name,
     type: mapFieldType(field.type),
@@ -98,6 +103,17 @@ export function entityFieldToFormField(field: EntityFieldDef, fkDef?: EntityFkDe
   // fk-bearing field always renders as a reference lookup, regardless of
   // whether its underlying column type is `:string` (every fk field in the
   // nine remaining BilimBaga entity types) or otherwise.
+  // REQ-586 part D: only category.parent_id gets the tree picker;
+  // question.parent_id (and every other fk) stays a reference lookup.
+  if (fkDef && context?.entityType === 'category' && field.name === 'parent_id') {
+    return {
+      ...base,
+      xUiWidget: ENTITY_CATEGORY_TREE_WIDGET,
+      referencesEntity: fkDef.references_entity,
+      editingRecordId: context.editingRecordId,
+    }
+  }
+
   if (fkDef) {
     return { ...base, xUiWidget: ENTITY_FK_REFERENCE_WIDGET, referencesEntity: fkDef.references_entity }
   }

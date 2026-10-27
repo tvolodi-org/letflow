@@ -27,9 +27,12 @@
 import { fieldRegistry } from '@/components/forms/fieldRegistry'
 import { localizedTextRenderer } from '@/components/forms/widgets/localizedText'
 import { entityReferenceSelectRenderer } from '@/components/forms/widgets/searchableSelect'
+import { categoryTreeSelectRenderer } from '@/components/forms/widgets/categoryTreeSelect'
 
 export const ENTITY_LOCALIZED_TEXT_WIDGET = 'entity-localized-text'
 export const ENTITY_FK_REFERENCE_WIDGET = 'entity-fk-reference'
+/** REQ-586 part D: the indented tree picker for `category.parent_id` only. */
+export const ENTITY_CATEGORY_TREE_WIDGET = 'entity-category-tree'
 
 let registered = false
 
@@ -37,6 +40,7 @@ export function registerEntityWidgets(): void {
   if (registered) return
   fieldRegistry.set(ENTITY_LOCALIZED_TEXT_WIDGET, localizedTextRenderer)
   fieldRegistry.set(ENTITY_FK_REFERENCE_WIDGET, entityReferenceSelectRenderer)
+  fieldRegistry.set(ENTITY_CATEGORY_TREE_WIDGET, categoryTreeSelectRenderer)
   registered = true
 }
 
