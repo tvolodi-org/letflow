@@ -42333,7 +42333,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-552 -- extends the slice-1 bundle module and routes; file the issue after the gate
+    gh: 3370
     # Source: docs/migration/core-roadmap-20261014.md line 108 (configuration export/import from test to production); REQ-552 (slice 1, its out-of-scope text names configuration that did not exist yet as the next slice); code read: lib/letflow/tenant_config_bundle.ex (export/2, import/5, required_permissions/1, check_shape), lib/letflow/routers/tenant_config_bundle.ex (modules_permitted?/3), lib/letflow/labels.ex (check_id, check_locale, check_text, put_override/8, tenant_locales/1), lib/letflow/labels/override.ex, lib/letflow/notification_templates.ex (list/2, put/7, validate_subject/2, validate_body/2), lib/letflow/integration_mappings.ex and lib/letflow/integration_mappings/mapping.ex (moduledoc "Slice 2: webhook link"), lib/letflow/webhooks/subscription.ex (outbound_mapping_id); decisions 0029 section 2 and 0053 (Record P). Written by the business analyst (T-0709) 2026-10-27. Not yet validated.
     description: >
       WHAT EXISTS NOW (read from main, 2026-10-27). Slice 1 (REQ-552, GET /tenant/config-bundle and POST
