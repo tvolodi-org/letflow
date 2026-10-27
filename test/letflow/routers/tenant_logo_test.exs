@@ -126,7 +126,7 @@ defmodule Letflow.Routers.TenantLogoTest do
                  ~s|INSERT INTO "#{ctx.tenant.schema_name}".tenant_logos (id, content_type, byte_size, content_hash, data, updated_at) VALUES (2, 'image/png', 1, 'h', 'x', now())|
                )
 
-      assert {20_261_027_400_001, Letflow.Repo.Migrations.CreateTenantLogos} in Letflow.TenantProvisioning.tenant_scoped_migrations()
+      assert {20_261_027_500_001, Letflow.Repo.Migrations.CreateTenantLogos} in Letflow.TenantProvisioning.tenant_scoped_migrations()
     end
   end
 

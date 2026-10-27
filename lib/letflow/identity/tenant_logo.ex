@@ -76,9 +76,15 @@ defmodule Letflow.Identity.TenantLogo do
     scanner = Application.get_env(:letflow, :attachment_scanner, @default_scanner)
 
     case scanner.scan(bytes, type) do
-      {:ok, :clean} -> :ok
-      {:ok, :infected, verdict} -> {:error, {:infected, verdict}}
-      _other -> {:error, :scan_unavailable}
+      {:ok, :clean} ->
+        :ok
+
+      {:ok, :infected, verdict} ->
+        Logger.warning("tenant_logo upload refused as infected (verdict #{inspect(verdict)})")
+        {:error, {:infected, verdict}}
+
+      _other ->
+        {:error, :scan_unavailable}
     end
   rescue
     _exception -> {:error, :scan_unavailable}
@@ -182,7 +188,7 @@ defmodule Letflow.Identity.TenantLogo do
 
       {:error, step, reason, _changes} ->
         Logger.error(
-          "tenant_logo write failed (tenant #{tenant_id}, step #{inspect(step)}): #{inspect(reason)}"
+          "tenant_logo write failed (tenant #{tenant_id}, step #{inspect(step)}): #{failure_detail(reason)}"
         )
 
         {:error, :audit_failed}
@@ -190,6 +196,10 @@ defmodule Letflow.Identity.TenantLogo do
   rescue
     exception -> audit_failure(tenant_id, exception)
   end
+
+  # Never inspect a changeset: it holds the uploaded bytes (`data`). Log its errors only.
+  defp failure_detail(%Ecto.Changeset{errors: errors}), do: inspect(errors)
+  defp failure_detail(_reason), do: "error"
 
   defp audit_failure(tenant_id, exception) do
     Logger.error(
