@@ -381,6 +381,77 @@ defmodule Letflow.Modules.Installs do
   end
 
   @doc """
+  Creates the next (inactive) version of the pack's entity definition `name` from `definition_json`,
+  a string-keyed map the caller derived from the tenant's own ACTIVE definition (REQ-594: the exam
+  analytics release step; a tenant's stripped foreign keys and extra fields must survive, so the
+  pack file is not the source). `owner_kind` is `:module` (stamped with the module's `managed_by`)
+  or `:tenant` (an unstamped tenant type). Never activates. Nil-valued keys are dropped first: the
+  stored JSON holds `search_strategy: null` and the like, which the pack parser would refuse or keep.
+  This is the only other caller of `ManagedTypes.module_owner/1` besides `install/3`. Schema source:
+  `opts[:prefix]` only (INV-1); the caller owns the surrounding transaction.
+  """
+  @spec upgrade_entity_definition_version(
+          module_id :: String.t(),
+          name :: String.t(),
+          definition_json :: map(),
+          owner_kind :: :module | :tenant,
+          actor_id :: Ecto.UUID.t(),
+          opts()
+        ) :: {:ok, Letflow.Entities.EntityDefinition.t()} | {:error, term()}
+  def upgrade_entity_definition_version(
+        module_id,
+        name,
+        definition_json,
+        owner_kind,
+        actor_id,
+        opts
+      )
+      when owner_kind in [:module, :tenant] and is_map(definition_json) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    with {:ok, entry_module} <- fetch_module(module_id),
+         true <- module_installed?(module_id, prefix) or {:error, :module_not_installed},
+         manifest = entry_module.manifest(),
+         true <- name in manifest.manages_entity_types or {:error, :not_a_managed_type},
+         pack_path when is_binary(pack_path) <- manifest.pack || {:error, :not_a_managed_type},
+         {:ok, document} <- read_pack_document(pack_path),
+         {:ok, document} <- replace_entity_json(document, name, strip_nils(definition_json)),
+         owner =
+           if(owner_kind == :module, do: ManagedTypes.module_owner(entry_module), else: :tenant),
+         {:ok, [created]} <-
+           SolutionPack.install_entity_definitions(document, [name], actor_id, opts, owner) do
+      {:ok, created}
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp replace_entity_json(%{"entity_definitions" => entries} = document, name, definition_json)
+       when is_list(entries) do
+    if Enum.any?(entries, &(is_map(&1) and &1["name"] == name)) do
+      replaced =
+        Enum.map(entries, fn
+          %{"name" => ^name} = entry -> Map.put(entry, "definition_json", definition_json)
+          other -> other
+        end)
+
+      {:ok, %{document | "entity_definitions" => replaced}}
+    else
+      {:error, :not_a_managed_type}
+    end
+  end
+
+  defp replace_entity_json(_document, _name, _definition_json),
+    do: {:error, :invalid_pack_document}
+
+  defp strip_nils(%{} = map) when not is_struct(map) do
+    for {key, value} <- map, value != nil, into: %{}, do: {key, strip_nils(value)}
+  end
+
+  defp strip_nils(list) when is_list(list), do: Enum.map(list, &strip_nils/1)
+  defp strip_nils(other), do: other
+
+  @doc """
   Updates the `settings` of the installed module identified by `module_id`
   in the tenant identified by `opts[:prefix]` (REQ-414).
 

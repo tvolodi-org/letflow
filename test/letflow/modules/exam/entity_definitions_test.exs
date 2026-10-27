@@ -415,4 +415,35 @@ defmodule Letflow.Modules.Exam.EntityDefinitionsTest do
       assert f.enum_values == ["tab_switch", "blur", "fullscreen_exit"]
     end
   end
+
+  describe "analytics fields (REQ-594, test A-def)" do
+    test "session queries score_pct and passed" do
+      definition = load_definition!("session.json")
+      assert field(definition, "score_pct").queried == true
+      assert field(definition, "passed").queried == true
+    end
+
+    test "session_question_score declares optional queried exam_id and correct" do
+      definition = load_definition!("session_question_score.json")
+
+      assert %{type: :string, queried: true, required: false} = field(definition, "exam_id")
+      assert %{type: :boolean, queried: true, required: false} = field(definition, "correct")
+      assert Validator.validate(definition) == :ok
+      assert Validator.validate(load_definition!("session.json")) == :ok
+    end
+
+    test "the release step's analytics field table equals the definition files" do
+      for {type, expected} <-
+            Letflow.Entities.ManagedTypes.AnalyticsDefinitions.analytics_fields() do
+        definition = load_definition!("#{type}.json")
+
+        actual =
+          for name <- Map.keys(expected), into: %{} do
+            {name, definition |> field(name) |> Map.fetch!(:type) |> Atom.to_string()}
+          end
+
+        assert actual == expected
+      end
+    end
+  end
 end
