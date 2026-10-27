@@ -1,10 +1,10 @@
 # letflow effective permission matrix
 # format: 1
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
-# modules: catalog_items@0.1.0,exam@0.1.0,org@0.1.0
+# modules: catalog_items@0.1.0,exam@0.1.0,org@0.1.0,procurement@0.1.0
 # roles: 8
-# permissions: 59
-# rows: 472
+# permissions: 61
+# rows: 488
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -50,6 +50,8 @@ AGENT_RUNNER MyModulesRead true core core
 AGENT_RUNNER NotificationTemplatesManage false core -
 AGENT_RUNNER NumberSequencesManage false core -
 AGENT_RUNNER PlatformServicesManage false core -
+AGENT_RUNNER ProcurementRequestRead false module:procurement -
+AGENT_RUNNER ProcurementRequestWrite false module:procurement -
 AGENT_RUNNER PromotionsManage false core -
 AGENT_RUNNER PromotionsRead false core -
 AGENT_RUNNER PublicReadHandlesIssue false core -
@@ -109,6 +111,8 @@ CANDIDATE MyModulesRead true core core
 CANDIDATE NotificationTemplatesManage false core -
 CANDIDATE NumberSequencesManage false core -
 CANDIDATE PlatformServicesManage false core -
+CANDIDATE ProcurementRequestRead false module:procurement -
+CANDIDATE ProcurementRequestWrite false module:procurement -
 CANDIDATE PromotionsManage false core -
 CANDIDATE PromotionsRead false core -
 CANDIDATE PublicReadHandlesIssue false core -
@@ -168,6 +172,8 @@ PLATFORM_ADMIN MyModulesRead true core core
 PLATFORM_ADMIN NotificationTemplatesManage true core core
 PLATFORM_ADMIN NumberSequencesManage true core core
 PLATFORM_ADMIN PlatformServicesManage true core core
+PLATFORM_ADMIN ProcurementRequestRead true module:procurement core
+PLATFORM_ADMIN ProcurementRequestWrite true module:procurement core
 PLATFORM_ADMIN PromotionsManage true core core
 PLATFORM_ADMIN PromotionsRead true core core
 PLATFORM_ADMIN PublicReadHandlesIssue true core core
@@ -227,6 +233,8 @@ PROCESS_DESIGNER MyModulesRead true core core
 PROCESS_DESIGNER NotificationTemplatesManage false core -
 PROCESS_DESIGNER NumberSequencesManage false core -
 PROCESS_DESIGNER PlatformServicesManage false core -
+PROCESS_DESIGNER ProcurementRequestRead false module:procurement -
+PROCESS_DESIGNER ProcurementRequestWrite false module:procurement -
 PROCESS_DESIGNER PromotionsManage false core -
 PROCESS_DESIGNER PromotionsRead false core -
 PROCESS_DESIGNER PublicReadHandlesIssue false core -
@@ -286,6 +294,8 @@ PROCESS_OPERATOR MyModulesRead true core core
 PROCESS_OPERATOR NotificationTemplatesManage false core -
 PROCESS_OPERATOR NumberSequencesManage false core -
 PROCESS_OPERATOR PlatformServicesManage false core -
+PROCESS_OPERATOR ProcurementRequestRead false module:procurement -
+PROCESS_OPERATOR ProcurementRequestWrite false module:procurement -
 PROCESS_OPERATOR PromotionsManage false core -
 PROCESS_OPERATOR PromotionsRead false core -
 PROCESS_OPERATOR PublicReadHandlesIssue false core -
@@ -345,6 +355,8 @@ TASK_WORKER MyModulesRead true core core
 TASK_WORKER NotificationTemplatesManage false core -
 TASK_WORKER NumberSequencesManage false core -
 TASK_WORKER PlatformServicesManage false core -
+TASK_WORKER ProcurementRequestRead false module:procurement -
+TASK_WORKER ProcurementRequestWrite false module:procurement -
 TASK_WORKER PromotionsManage false core -
 TASK_WORKER PromotionsRead false core -
 TASK_WORKER PublicReadHandlesIssue false core -
@@ -404,6 +416,8 @@ TENANT_ADMIN MyModulesRead true core core
 TENANT_ADMIN NotificationTemplatesManage true core core
 TENANT_ADMIN NumberSequencesManage true core core
 TENANT_ADMIN PlatformServicesManage false core -
+TENANT_ADMIN ProcurementRequestRead true module:procurement core
+TENANT_ADMIN ProcurementRequestWrite true module:procurement core
 TENANT_ADMIN PromotionsManage true core core
 TENANT_ADMIN PromotionsRead true core core
 TENANT_ADMIN PublicReadHandlesIssue true core core
@@ -463,6 +477,8 @@ TENANT_AUDITOR MyModulesRead true core core
 TENANT_AUDITOR NotificationTemplatesManage false core -
 TENANT_AUDITOR NumberSequencesManage false core -
 TENANT_AUDITOR PlatformServicesManage false core -
+TENANT_AUDITOR ProcurementRequestRead false module:procurement -
+TENANT_AUDITOR ProcurementRequestWrite false module:procurement -
 TENANT_AUDITOR PromotionsManage false core -
 TENANT_AUDITOR PromotionsRead true core core
 TENANT_AUDITOR PublicReadHandlesIssue false core -
