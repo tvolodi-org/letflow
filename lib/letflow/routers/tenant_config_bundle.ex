@@ -6,7 +6,9 @@ defmodule Letflow.Routers.TenantConfigBundle do
 
   Two routes, both gated by `:TenantSettingsManage`:
 
-    * `GET /` -- the bundle (`Letflow.TenantConfigBundle.export/2`).
+    * `GET /` -- the bundle (`Letflow.TenantConfigBundle.export/3`, format v2, REQ-599). The
+      `label_overrides` part needs `:LabelsManage` and `notification_templates` needs
+      `:NotificationTemplatesManage`; a part the caller may not read is left out of the bundle.
     * `POST /import` -- applies a bundle. When it carries module settings the caller also needs
       `:ModulesManage`; a caller without it gets the same 403 body as the route-level check (INV-5).
 
@@ -33,7 +35,7 @@ defmodule Letflow.Routers.TenantConfigBundle do
   authz_unmatched(:ordinary)
 
   defp handle_export(conn) do
-    case TenantConfigBundle.export(tenant_id(conn), prefix(conn)) do
+    case TenantConfigBundle.export(tenant_id(conn), prefix(conn), parts: export_parts(conn)) do
       {:ok, bundle} -> Response.ok(conn, bundle)
       {:error, :not_found} -> Response.internal_error(conn)
     end
@@ -65,7 +67,7 @@ defmodule Letflow.Routers.TenantConfigBundle do
       {:error, {:unknown_schema_version, _v}} ->
         Response.unprocessable(
           conn,
-          "unknown_bundle_schema_version: supported #{inspect(TenantConfigBundle.schema_version())}"
+          "unknown_bundle_schema_version: supported #{Enum.join(TenantConfigBundle.accepted_versions(), ", ")}"
         )
 
       {:error, {:invalid, violations}} ->
@@ -86,6 +88,23 @@ defmodule Letflow.Routers.TenantConfigBundle do
     body
     |> TenantConfigBundle.required_permissions()
     |> Enum.all?(holds?)
+  end
+
+  @doc false
+  # The optional export parts the caller may read: each needs its own manage permission, and a
+  # part the caller lacks is left out of the bundle (no key, no 403). Same seam shape as
+  # `modules_permitted?/3`.
+  @spec export_parts(Plug.Conn.t(), (atom() -> boolean())) :: [atom()]
+  def export_parts(conn, holds? \\ nil) do
+    holds? = holds? || default_holds(conn)
+
+    Enum.filter(
+      [label_overrides: :LabelsManage, notification_templates: :NotificationTemplatesManage],
+      fn {_part, permission} ->
+        holds?.(permission)
+      end
+    )
+    |> Enum.map(&elem(&1, 0))
   end
 
   defp default_holds(conn) do

@@ -198,13 +198,13 @@ defmodule Letflow.Modules.Exam.RouterTest do
       end
     end
 
-    test "eleven routes are declared, matching the moduledoc's route table" do
+    test "thirteen routes are declared, matching the moduledoc's route table" do
       routes = Letflow.Modules.Exam.Router.__authz_routes__()
-      assert length(routes) == 11
+      assert length(routes) == 13
 
       # All routes are mounted under /modules/exam (the module id), so
       # the local patterns start with the exam-sessions sub-segment.
-      # Verified by checking: (a) count is 11, (b) every route resolves
+      # Verified by checking: (a) count is 13, (b) every route resolves
       # to the expected permission atom, (c) the manifest's route_policies
       # matches 1-to-1 (done by the first test in this describe block).
       policy_keys = routes |> Enum.map(fn {_, _, key} -> key end) |> Enum.sort()
@@ -221,11 +221,13 @@ defmodule Letflow.Modules.Exam.RouterTest do
           :ExamCertificateIssue,
           :ExamAuthoringWrite,
           :ExamAuthoringWrite,
-          :ExamAuthoringWrite
+          :ExamAuthoringWrite,
+          :ExamGradingRead,
+          :ExamGradingRead
         ])
 
       assert policy_keys == expected_keys,
-             "expected eleven routes with the listed policy keys; got: #{inspect(routes)}"
+             "expected thirteen routes with the listed policy keys; got: #{inspect(routes)}"
     end
   end
 
