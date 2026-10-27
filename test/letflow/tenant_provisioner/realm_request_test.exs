@@ -6,7 +6,12 @@ defmodule Letflow.TenantProvisioner.RealmRequestTest do
   @tid "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
   @realm "t-0a1b2c3d4e5f4a6b8c7d"
   @sentinel "SMTP-SENTINEL-9f3a"
-  @smtp %{"host" => "smtp.example.test", "user" => "mailer", "password" => @sentinel}
+  @smtp %{
+    "host" => "smtp.example.test",
+    "user" => "mailer",
+    "password" => "${vault.smtp-password}"
+  }
+  @plain_smtp %{"host" => "smtp.example.test", "password" => @sentinel}
 
   defp build(overrides \\ []) do
     RealmRequest.build(
@@ -64,12 +69,24 @@ defmodule Letflow.TenantProvisioner.RealmRequestTest do
     end
   end
 
-  test "smtpServer equals the argument and the secret appears nowhere else" do
-    assert {:ok, body} = build()
-    assert body["smtpServer"] == @smtp
-    rest = body |> Map.delete("smtpServer") |> Jason.encode!()
-    refute rest =~ @sentinel
-    assert {:error, :invalid_smtp} == build(smtp: "x")
+  test "an SMTP map with a plaintext password is refused without echoing it" do
+    for bad <- [
+          @plain_smtp,
+          %{"secret" => @sentinel},
+          %{"auth" => %{"apiToken" => @sentinel}},
+          "x"
+        ] do
+      assert {:error, :invalid_smtp} = r = build(smtp: bad)
+      refute inspect(r) =~ @sentinel
+    end
+  end
+
+  test "an SMTP password given as a vault reference builds and passes the full scan" do
+    smtp = %{"host" => "smtp.example.test", "password" => "${vault.smtp-password}"}
+    assert {:ok, body} = build(smtp: smtp)
+    assert body["smtpServer"] == smtp
+    refute Jason.encode!(body) =~ ~r/__[A-Z_]+__/
+    assert plain_secret_keys(body) == []
   end
 
   test "error tuples carry no secret" do
@@ -78,24 +95,31 @@ defmodule Letflow.TenantProvisioner.RealmRequestTest do
   end
 
   test "the template and the builder output hold no secret material" do
-    forbidden = ~w(password secret credentials privateKey initial_password clientSecret)
-    keys = fn data -> data |> collect_keys() |> Enum.filter(&(&1 in forbidden)) end
-
-    assert {:ok, body} = build()
-    assert keys.(RealmRequest.template()) == []
-    assert keys.(Map.delete(body, "smtpServer")) == []
+    smtp = %{"host" => "smtp.example.test", "password" => "${vault.smtp-password}"}
+    assert {:ok, body} = build(smtp: smtp)
+    assert plain_secret_keys(RealmRequest.template()) == []
+    assert plain_secret_keys(body) == []
+    refute Jason.encode!(body) =~ @sentinel
 
     paths = Path.wildcard("priv/keycloak/provisioner/*/tenant-realm.json")
     assert paths != []
 
     for path <- paths do
-      assert keys.(path |> File.read!() |> Jason.decode!()) == []
+      assert plain_secret_keys(path |> File.read!() |> Jason.decode!()) == []
     end
   end
 
-  defp collect_keys(%{} = map),
-    do: Enum.flat_map(map, fn {k, v} -> [k | collect_keys(v)] end)
+  # Forbidden keys whose value is not a Keycloak vault reference.
+  @forbidden ~w(password secret credentials privateKey initial_password clientSecret)
 
-  defp collect_keys(list) when is_list(list), do: Enum.flat_map(list, &collect_keys/1)
-  defp collect_keys(_other), do: []
+  defp plain_secret_keys(%{} = map) do
+    Enum.flat_map(map, fn {k, v} ->
+      if k in @forbidden and not (is_binary(v) and v =~ ~r/\A\$\{vault\.[\w.-]+\}\z/),
+        do: [k],
+        else: plain_secret_keys(v)
+    end)
+  end
+
+  defp plain_secret_keys(list) when is_list(list), do: Enum.flat_map(list, &plain_secret_keys/1)
+  defp plain_secret_keys(_other), do: []
 end

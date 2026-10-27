@@ -16,7 +16,10 @@ defmodule Letflow.TenantProvisioner.RealmRequest do
     * the tenant host in the client redirect URIs and web origins. `hostname` must already
       be validated against the suffix allow-list (`Request.hostname/2` at the route); the
       builder only refuses an empty value, a wildcard and anything that is not a host name;
-    * `smtpServer`, an argument (INV-4: it carries a secret and is never part of the template);
+    * `smtpServer`, an argument and never part of the template. INV-4 / P11: the output holds
+      no plaintext secret, so a secret-named SMTP key (password, secret, key, token,
+      credential) is accepted only with a Keycloak vault reference `${vault.<name>}` as its
+      value; anything else gives `{:error, :invalid_smtp}` without echoing the value;
     * one inline first administrator (D2): `owner_email` trimmed and lower-cased, enabled,
       `emailVerified`, `realmRoles` `["default-roles-<realm>"]`, and no admin role, group,
       client role or credential (P7, P11). The initial password is the provisioner's.
@@ -35,6 +38,8 @@ defmodule Letflow.TenantProvisioner.RealmRequest do
   @canonical_uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
   @host_regex ~r/\A[a-z0-9]([a-z0-9.-]*[a-z0-9])?\z/
   @placeholder ~r/__[A-Z_]+__/
+  @vault_ref ~r/\A\$\{vault\.[A-Za-z0-9_.-]+\}\z/
+  @secret_key_parts ["pass", "secret", "key", "token", "credential"]
 
   @type error :: :invalid_realm_id | :invalid_owner_email | :invalid_hostname | :invalid_smtp
 
@@ -84,8 +89,25 @@ defmodule Letflow.TenantProvisioner.RealmRequest do
 
   defp host(_other), do: {:error, :invalid_hostname}
 
-  defp smtp(%{} = smtp), do: {:ok, smtp}
+  defp smtp(%{} = smtp),
+    do: if(plain_secret?(smtp), do: {:error, :invalid_smtp}, else: {:ok, smtp})
+
   defp smtp(_other), do: {:error, :invalid_smtp}
+
+  # A secret-named key is accepted only with a Keycloak vault reference as its value.
+  defp plain_secret?(%{} = map) do
+    Enum.any?(map, fn {k, v} ->
+      if secret_key?(k), do: not vault_ref?(v), else: plain_secret?(v)
+    end)
+  end
+
+  defp plain_secret?(list) when is_list(list), do: Enum.any?(list, &plain_secret?/1)
+  defp plain_secret?(_other), do: false
+
+  defp secret_key?(key),
+    do: key |> to_string() |> String.downcase() |> String.contains?(@secret_key_parts)
+
+  defp vault_ref?(value), do: is_binary(value) and Regex.match?(@vault_ref, value)
 
   defp admin(realm, email) do
     %{
@@ -104,8 +126,5 @@ defmodule Letflow.TenantProvisioner.RealmRequest do
   defp fill(list, subs) when is_list(list), do: Enum.map(list, &fill(&1, subs))
   defp fill(other, _subs), do: other
 
-  # Only the template part is scanned: the SMTP argument is the caller's own data.
-  defp leftover?(body) do
-    body |> Map.delete("smtpServer") |> Jason.encode!() |> then(&Regex.match?(@placeholder, &1))
-  end
+  defp leftover?(body), do: body |> Jason.encode!() |> then(&Regex.match?(@placeholder, &1))
 end
