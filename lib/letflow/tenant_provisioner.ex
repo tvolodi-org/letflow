@@ -21,11 +21,10 @@ defmodule Letflow.TenantProvisioner do
 
   No `auth_context` is built, no tenant data is read, no role or credential is created (P4, P5, P7).
   Every raise or exit is rescued at the boundary, logged as exception class plus tenant id only
-  (INV-4, INV-8), and answers `{:error, :internal}`. DELETE and purge are a later slice: the
-  `purged_at` column exists and is only READ here.
+  (INV-4, INV-8), and answers `{:error, :internal}`. `delete/1` records the deletion request and,
+  once the retention has run out, hands over to `Letflow.TenantPurge` (REQ-580), the only code that
+  writes `purged_at`.
   """
-
-  import Ecto.Query, only: [from: 2]
 
   require Logger
 
@@ -41,6 +40,7 @@ defmodule Letflow.TenantProvisioner do
   alias Letflow.TenantProvisioner.Lifecycle
   alias Letflow.TenantProvisioner.Request
   alias Letflow.TenantProvisioning
+  alias Letflow.TenantPurge
 
   @type create_result ::
           {:ok, :created | :existing, map()}
@@ -105,13 +105,114 @@ defmodule Letflow.TenantProvisioner do
     end
   end
 
-  @doc "True when `raw_id` is a provisioned tenant (has a lifecycle row). Used for DELETE's 409."
-  @spec provisioned?(term()) :: boolean()
-  def provisioned?(raw_id) do
-    case cast_id(raw_id) do
-      {:ok, id} -> Repo.exists?(from(l in Lifecycle, where: l.tenant_id == ^id))
-      :error -> false
+  @doc """
+  REQ-572 criterion 18 / REQ-580 criterion 7a: `DELETE /admin/v1/tenants/:id`. One outcome per
+  starting state; first match wins, all under the per-tenant lock:
+
+  1. unknown id, non-UUID, no lifecycle row: `{:error, :not_found}`;
+  2. already purged: `{:ok, :deleted, body}` and nothing is written;
+  3. production tier or `tenant_type`: `{:error, :conflict}` (checked BEFORE the active row, so an
+     active production tenant is not deactivated);
+  4. `active`: suspend (a conflict for the platform tenant), then store `deletion_requested_at`:
+     `{:ok, :accepted, %{tenant_id, status: "suspended"}}`;
+  5. `suspended`/`expired`: store `deletion_requested_at` if unset, then `Letflow.TenantPurge.purge/2`:
+     `{:ok, :deleted, body}` after a purge, otherwise `{:ok, :accepted, body}` (retention has not run out).
+
+  Storing `deletion_requested_at` writes one `platform.tenant.deletion_requested` audit entry in the
+  same transaction, and only when the column was unset; an outcome that changes nothing writes none.
+  If the suspend of step 4 commits and the column write fails, a repeat DELETE lands in step 5 and
+  stores it (idempotent recovery).
+  """
+  @spec delete(term()) ::
+          {:ok, :accepted | :deleted, map()} | {:error, :not_found | :conflict | :internal}
+  def delete(raw_id) do
+    with {:ok, id} <- cast_id(raw_id),
+         {:ok, platform_prefix} <- platform_prefix() do
+      with_lock(id, fn -> do_delete(id, platform_prefix) end)
+    else
+      :error -> {:error, :not_found}
+      {:error, _} = error -> error
     end
+  end
+
+  defp do_delete(id, platform_prefix) do
+    case Repo.get(Lifecycle, id) do
+      nil ->
+        {:error, :not_found}
+
+      %Lifecycle{purged_at: %DateTime{}} ->
+        {:ok, :deleted, %{tenant_id: id, status: "deleted"}}
+
+      %Lifecycle{} = row ->
+        tenant = Repo.get!(Tenant, id)
+
+        cond do
+          row.tier == "production" or tenant.tenant_type == "production" ->
+            {:error, :conflict}
+
+          row.lifecycle == "active" ->
+            with {:ok, _moved} <- do_transition(id, :suspend, platform_prefix),
+                 :ok <- request_deletion(id, platform_prefix) do
+              {:ok, :accepted, %{tenant_id: id, status: "suspended"}}
+            end
+
+          true ->
+            with :ok <- request_deletion(id, platform_prefix) do
+              purge_after_request(id, row.lifecycle)
+            end
+        end
+    end
+  end
+
+  defp purge_after_request(id, lifecycle) do
+    case TenantPurge.purge(id, :provisioner) do
+      {:ok, _purged} -> {:ok, :deleted, %{tenant_id: id, status: "deleted"}}
+      {:error, :not_eligible} -> {:ok, :accepted, %{tenant_id: id, status: lifecycle}}
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, :purge_failed} -> {:error, :internal}
+    end
+  end
+
+  defp request_deletion(id, platform_prefix) do
+    case Repo.get!(Lifecycle, id) do
+      %Lifecycle{deletion_requested_at: %DateTime{}} ->
+        :ok
+
+      %Lifecycle{} = row ->
+        at = DateTime.utc_now()
+
+        result =
+          Repo.transaction(fn ->
+            with {:ok, _row} <-
+                   row |> Ecto.Changeset.change(deletion_requested_at: at) |> Repo.update(),
+                 {:ok, _entry} <- audit_deletion_requested(id, at, platform_prefix) do
+              :ok
+            else
+              _failure -> Repo.rollback(:internal)
+            end
+          end)
+
+        case result do
+          {:ok, :ok} -> :ok
+          {:error, _reason} -> {:error, :internal}
+        end
+    end
+  end
+
+  defp audit_deletion_requested(id, at, platform_prefix) do
+    Letflow.Audit.insert_entry(
+      Repo,
+      %{
+        actor_id: nil,
+        action: "platform.tenant.deletion_requested",
+        resource_type: "tenant",
+        resource_id: id,
+        trace_id: nil,
+        before_state: nil,
+        after_state: %{"tenant_id" => id, "deletion_requested_at" => DateTime.to_iso8601(at)}
+      },
+      platform_prefix
+    )
   end
 
   # ── create ──────────────────────────────────────────────────────────────
@@ -297,6 +398,11 @@ defmodule Letflow.TenantProvisioner do
       nil ->
         {:error, :not_found}
 
+      # REQ-572 criterion 18(c): once deletion is requested a tenant is never resumed (also after
+      # the purge). Expire stays allowed; retention then counts from expires_at.
+      %Lifecycle{deletion_requested_at: %DateTime{}} when action == :resume ->
+        {:error, :conflict}
+
       %Lifecycle{lifecycle: from, purged_at: purged_at} = row ->
         case {purged_at, @transitions |> Map.fetch!(action) |> Map.get(from)} do
           {nil, :noop} -> {:ok, %{tenant_id: id, status: from}}
@@ -389,7 +495,9 @@ defmodule Letflow.TenantProvisioner do
 
   # The whole call runs under a per-tenant session advisory lock. Any raise or exit is rescued here
   # (fixed log line: exception class and tenant id only) and answers :internal.
-  defp with_lock(tenant_id, fun) do
+  @doc false
+  @spec with_lock(term(), (-> result)) :: result | {:error, :internal} when result: term()
+  def with_lock(tenant_id, fun) do
     Repo.checkout(fn ->
       Repo.query!("SELECT pg_advisory_lock(hashtextextended($1, 0))", [tenant_id])
 

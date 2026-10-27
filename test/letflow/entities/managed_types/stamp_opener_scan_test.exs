@@ -81,6 +81,8 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
     "lib/letflow/sandbox_pool/fixture_loader.ex",
     "lib/letflow/scope_node_paths.ex",
     "lib/letflow/tenant_provisioning.ex",
+    # REQ-580: the one `DROP SCHEMA` whose name is the registered "tenant_" <> 32 hex (INV-7).
+    "lib/letflow/tenant_purge.ex",
     "priv/repo/migrations/20260926010001_backfill_exam_tenant_modules.exs",
     "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
     # REQ-517 2a: the FK migration interpolates only the schema name from `prefix()` (same shape as
