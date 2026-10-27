@@ -42327,6 +42327,48 @@ requirements:
       - "7. Reader check on the implementing change's git diff main...HEAD: no line under priv/keycloak/provisioner/v1/, in test/letflow/keycloak_tenant_realm_template_test.exs, in docs/runbooks/, in docs/migration/decisions/ or in docs/requirements.yaml is changed; nothing in the diff claims production use."
       - "8. mix test test/letflow/keycloak_tenant_realm_template_v2_test.exs and mix test test/letflow/keycloak_tenant_realm_template_test.exs both pass with real output quoted, and lf.sh lint passes; the PR text names the infra dependency (smtpServer validation in services/tenant-provisioner, and shipping the v2 template and the email theme with the ru and kk texts) as outside this change."
     depends_on: [REQ-572]
+
+  - id: REQ-598
+    title: "Saved pivot view definitions over the aggregate query route: storage, validation on the existing view routes and replay through the aggregate route (generic views, slice 2, backend)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3367
+    # Source: docs/migration/decisions/0066-generic-saved-views-over-records.md, "Deferred slices": "Slice 2: pivot view over `POST /entities/query/aggregate` (REQ-315)."; core roadmap Wave 3 (docs/migration/core-roadmap-20261014.md). Written by the business analyst (T-0690) 2026-10-26.
+    description: >
+      Backend of slice 2 of generic views (decision 0066, "Deferred slices": "Slice 2: pivot view
+      over POST /entities/query/aggregate (REQ-315)"). A saved pivot view is a named definition
+      over exactly one entity type holding a filter (stored under the key `filter` like list views, the clause list of the aggregate route),
+      zero or more group_by clauses (each an object with a `field`; an absent or empty group_by is accepted as on the aggregate route) and one or more aggregates (each an object with `fn` count, sum, avg,
+      min or max, with a field except for count), stored as a second kind of row in the same
+      tenant-schema table as list views (priv/repo/migrations/20261025500001_create_entity_views.exs,
+      schema lib/letflow/entities/views/view.ex, writer lib/letflow/entities/views.ex) and served
+      by the existing view routes mounted at /entity-views (lib/letflow/routers/entity_views.ex,
+      forward in lib/letflow/plugs/api_pipeline.ex). This slice adds no route: create, update,
+      read, list and delete of a pivot view reuse the five routes of REQ-555, so the route-scope
+      and route-count pins do not move. A pivot view is not a read path: no view route returns
+      aggregate or record data. The pivot is computed only when a client replays the stored
+      definition as an ordinary POST /entities/query/aggregate (lib/letflow/routers/entities.ex,
+      route query_aggregate, permission EntitiesAggregate of REQ-315, Letflow.Entities.RequestAccess.check/4
+      with kind :aggregate, Letflow.Entities.Query.Compiler.run_aggregate/3), so the type gate, the
+      restricted-field walker and per-user redaction apply exactly as for a hand-built aggregate
+      request (decision 0066 D3, INV-2). Decisions kept unchanged: D1 tenant-wide sharing, D2 one
+      entity type (a stored pivot has no join), D3 replay without a second read path, D4 reading
+      needs EntitiesQuery and writing needs EntitiesViewsManage (TENANT_ADMIN only, platform admin
+      by the unconditional platform clause). Out of scope: the web pivot screen (a later web
+      requirement), the graph view (slice 3), the report builder (slice 4), per-user views, views
+      over joined types (REQ-300) and view versioning.
+    acceptance_criteria:
+      - "1. Storage and write shape: a tenant-schema migration in priv/repo/migrations/ adds to the existing entity views table a view kind (list or pivot; every existing row becomes list) and the stored group_by and aggregates of a pivot, with no new tenant table. The write body gains one optional key `kind` with the values `list` and `pivot` (default `list`, so every REQ-555 body keeps working) and, for `kind` pivot only, the keys `group_by` and `aggregates` (stored and returned under those names, shapes as on the aggregate route: `{\"field\": ...}` and `{\"fn\": ..., \"field\": ...}`). A pivot body that carries `columns` or `sort`, and a list body that carries `group_by` or `aggregates`, returns 422 `unknown_key` and stores nothing; the view response gains `kind`, `group_by` and `aggregates`. Tenant_id stays inside the schema (decision 0006 D2). A test asserts that an existing list view row is unchanged after the migration and that a pivot view created in tenant A is absent from the tenant B schema (INV-1, INV-6)."
+      - "2. Validation on write: create and update of a pivot view validate the filter and the group_by and aggregates with the same clause rules POST /entities/query/aggregate uses (operators, field names on the type, aggregate function list count, sum, avg, min, max). A field not on the type, an unknown operator, an unknown aggregate function, a missing or empty aggregates list, a malformed group_by or a body that carries a `join` key returns 422 and stores nothing, with the short code of the view routes (the vocabulary of Letflow.Entities.Views.Clauses, not the 400 prose of the aggregate route): for a filter error the same code a list view gets for the same filter (`filter_invalid`, `unknown_operator`, `field_not_allowed`, `value_arity_mismatch`, `invalid_in_value`, `invalid_decimal_value`, `operator_not_valid_for_type`); `field_not_allowed` for a group_by or aggregate field that is not on the type; `unknown_key` for `join`; the new code `aggregates_invalid` for a missing, empty or malformed aggregates list or an unknown aggregate function; the new code `group_by_invalid` for a malformed group_by (not a list, or an element without a string `field`). An absent or empty group_by is accepted, as on the aggregate route. An input the aggregate route accepts is accepted and one it refuses is refused. One test per case."
+      - "3. D2 and D1: a pivot view names exactly one entity type; the name is unique per entity type within a tenant across both kinds (a pivot cannot reuse the name of a list view of the same type; 409 as in REQ-555). A pivot view created by one TENANT_ADMIN is returned by the list route to every caller who holds EntitiesQuery and may read that type, and is not returned to a caller who may not read the type."
+      - "4. D4 permissions: reading pivot views needs EntitiesQuery and creating, updating and deleting needs EntitiesViewsManage; no new permission atom is added, and the permission matrix golden (priv/permission_matrix/effective.golden) is unchanged. A test shows a caller without EntitiesViewsManage gets 403 on create, update and delete of a pivot view, the same 403 for an existing and an absent id."
+      - "5. D3 replay and INV-2: a test stores a pivot view and sends its stored group_by and aggregates under the same names and its stored `filter` as the request key `filters` (the aggregate route reads `filters`, and an absent `filters` means no filter) to POST /entities/query/aggregate, using a non-empty filter so that a dropped filter shows; the response equals the response of the same hand-built request. For a caller who has no grant on a field the view names, the replay is refused or redacted exactly as the hand-built request is. No view route response contains an aggregate result or a record value."
+      - "6. INV-5 not-found: a pivot view of an entity type the caller may not read, a pivot view of another tenant and an absent view id return the same 404 with identical headers and body."
+      - "7. INV-10 cross-tenant negative test: with a pivot view id and entity type key that exist only in tenant A, a TENANT_ADMIN of tenant B calling read, update and delete receives the same 404 as for an absent id with a byte-identical body, and the tenant A pivot row is unchanged afterwards. No view route takes a tenant identifier from the request."
+      - "8. Audit and pins: create, update and delete of a pivot view each write an audit event in the same transaction as REQ-555 does; refusals write none. No route is added, so the __authz_routes__ tests, the route_scope snapshots and the route-count pins pass unchanged; the implement step greps test/ for the entity views table name and the view column list and updates any exact-set pin it finds."
+      - "9. SECURITY-REVIEWER verdict recorded (mandatory: tenant-data path) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the view tests, the aggregate route tests and the authorization and route pin tests pass, real output quoted."
+    depends_on: [REQ-315, REQ-555]
   - id: REQ-597
     title: "Exam assignment, reminder and result notification templates registered and sent through the REQ-584 delivery log, behind a default-off flag"
     owner: ELIXIR-DEV
