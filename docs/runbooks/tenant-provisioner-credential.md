@@ -14,6 +14,7 @@ server; it opens exactly five routes under `/admin/v1` and nothing else.
 | `LETFLOW_PROVISIONER_READONLY_CREDENTIAL_SHA256` | unset: no read class | SHA-256 of the read-only credential; it may call `GET /admin/v1/tenants/:id` only (the realm reaper) |
 | `LETFLOW_PROVISIONER_ALLOWED_HOSTNAME_SUFFIXES` | empty: every hostname refused | comma-separated suffixes; a tenant hostname is one label plus one of them |
 | `LETFLOW_PROVISIONER_DEMO_LIFETIME_DAYS` | 14 | default `expires_at` of a created tenant |
+| `LETFLOW_PROVISIONER_RETENTION_DAYS` | 30 | days a deactivated tenant's data is kept before it is purged (0..3650; REQ-580) |
 | `LETFLOW_PUBLIC_BASE_URL` | unset: create answers 500 | the `server_url` of the create answer (the same variable the mail adapter reads) |
 
 Boot stops, naming the variable and never its value, when a hash is not exactly 64 lowercase hex or when the write and read
@@ -32,10 +33,11 @@ them separately.
 
 ## What the credential can and cannot do
 
-- Can: create (idempotent by the caller's `tenant_id`), get, suspend, resume, expire. Each answers `{ error, message }` on failure with the
+- Can: create (idempotent by the caller's `tenant_id`), get, suspend, resume, expire, delete (`DELETE /admin/v1/tenants/:id`: 202 while the
+  tenant is deactivated and waiting for its retention, 200 `status: "deleted"` once purged, 409 for a production tenant; QA only). Each answers `{ error, message }` on failure with the
   codes `invalid_request`, `unauthorized`, `rate_limited`, `not_found`, `conflict`, `internal_error`.
-- Cannot: call any `/api/v1` route, read tenant data, act as an administrator, create or list credentials, users or tenants, delete or purge
-  (a later slice). A read-only credential gets 403 on every route but GET.
+- Cannot: call any `/api/v1` route, read tenant data, act as an administrator, create or list credentials, users or tenants, purge before the retention has run out
+  (the purge refuses it, 409 `not_eligible`). A read-only credential gets 403 on every route but GET.
 - Rate limit: 60 accepted requests per credential class per minute; over it, 429 with `Retry-After`. Bad credentials do not consume the budget.
 
 ## Retry after a failed create
@@ -45,7 +47,9 @@ A create for a suspended or expired tenant answers 409: resume it, then repeat.
 
 ## The reaper's rule
 
-A realm may be deleted only when `GET /admin/v1/tenants/:id` shows `status` other than `active` **and** a non-null `purged_at`. Until the purge slice is built,
-`purged_at` is always null, so the reaper deletes nothing.
+A realm may be deleted only when `GET /admin/v1/tenants/:id` shows `status: "deleted"` **and** a non-null `purged_at`. A purged tenant still answers
+that route (200, never 404); `purged_at` is the purge marker and holds no personal data. A purge runs when the tenant is deactivated, its deletion was requested
+(`DELETE`) and the retention has run out (`DELETE` on a deactivated tenant, or `POST /api/v1/tenants/:slug/purge` by a PLATFORM_ADMIN of the platform tenant); the
+scheduled sweep is not built yet. A purge does not erase backups or replicas, and a purged tenant is never reactivated.
 
 The lifecycle runtime release (admission eviction and the realm key provider stop) is node-local; the QA deployment is one node.

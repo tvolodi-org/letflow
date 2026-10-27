@@ -135,6 +135,7 @@ defmodule Letflow.Plugs.AuthPipeline do
          {:ok, realm} <- extract_realm(claims),
          {:ok, tenant} <- resolve_tenant(realm),
          :ok <- guard_realm_ownership(tenant.id, realm),
+         :ok <- guard_not_purged(tenant),
          {:ok, identity_context} <- map_claims(realm, claims),
          {:ok, provisioned} <-
            provision_user(identity_context, tenant.id, realm, conn.assigns[:trace_id]),
@@ -158,6 +159,7 @@ defmodule Letflow.Plugs.AuthPipeline do
   defp authenticate_api_token(conn, raw_token) do
     with {:ok, slug} <- extract_tenant_slug_header(conn),
          {:ok, tenant} <- resolve_tenant_by_slug(slug),
+         :ok <- guard_not_purged(tenant),
          {:ok, schema_name} <- resolve_schema_name(tenant.id),
          {:ok, verified} <- verify_token_credential(raw_token, schema_name) do
       # REQ-497 PR 1b (design section 2): a token principal has no grant rows (0051 D1), so
@@ -168,8 +170,17 @@ defmodule Letflow.Plugs.AuthPipeline do
     end
   end
 
+  # REQ-580: a purged tenant's schema is dropped, so the schema-scoped lookups below would raise
+  # (INV-8). Answer as TenantStatus does for any inactive tenant, before touching the schema.
+  defp guard_not_purged(%Tenant{id: id}) do
+    if Identity.tenant_purged?(id), do: {:error, {:tenant_purged, id}}, else: :ok
+  end
+
   defp handle_auth_error(conn, error) do
     case error do
+      {:error, {:tenant_purged, _id}} ->
+        reject(conn, 403, "tenant_inactive", "tenant is deactivated")
+
       {:error, {:header, _reason}} ->
         reject(conn, 401, "unauthorized", "missing or malformed Authorization header")
 
