@@ -15,10 +15,11 @@ description: >
   does not act within 4 hours. There is nobody above the CEO to escalate to, so the shipment must
   fail closed: it ends as rejected and is never released.
 
-  WHO ADVANCES THE TIMER (BA decision T-0321, point 5): test control, not a persona's step.
-  UAT-RUNNER uses a swiftroute tooling account holding the Process Operator responsibility. That
-  account is not in the actor roster and none is invented here: until infrastructure provides it,
-  step 3 is BLOCKED (or SKIP if the advance-timer endpoint is unavailable), never PASS.
+  WHO ADVANCES THE TIMER (BA decision 3221, replacing T-0321 point 5): test control, not a
+  persona's step. UAT-RUNNER uses the tooling account swiftroute-admin-user for the timer advance
+  only: never for a persona's business step and never as the actor of a refusal check. It is a
+  tooling account, not in the actor roster. The run report names the account used. If the
+  advance-timer endpoint is unavailable, step 3 is SKIP, never PASS.
 
   PRECONDITION (BA decision T-0321): the dispatcher holds the Process Operator responsibility in
   the swiftroute realm. If step 1 is refused for lack of that right, the scenario is BLOCKED.
@@ -38,10 +39,10 @@ preconditions:
     check: custom
     detail: Step 1 returns a created instance; a refusal at step 1 means BLOCKED.
   - description: >
-      A swiftroute tooling account holding the Process Operator responsibility is available to
-      UAT-RUNNER for step 3 (UAT assumption, to be confirmed by the process owner).
+      The tooling account swiftroute-admin-user is available to UAT-RUNNER for the timer advance of
+      step 3 only (BA decision 3221; UAT assumption, to be confirmed by the process owner).
     check: custom
-    detail: If no such account is available, step 3 is BLOCKED.
+    detail: The run report names the account used for the advance.
 
 steps:
   - step: 1
@@ -70,7 +71,7 @@ steps:
     actor: system
     action: >
       The 4-hour CEO co-signature timer fires. UAT-RUNNER, using the swiftroute tooling account
-      described above (not a persona), advances the timer instead of waiting 4 real hours.
+      swiftroute-admin-user (not a persona), advances the timer instead of waiting 4 real hours.
     via: api
     input:
       timer_node_id: ceo-approval
@@ -108,8 +109,9 @@ expected_outcomes:
     verification:
       method: audit_event
       detail: >
-        After step 4: the attempt was refused because no co-signature is open for this
-        shipment, and the history contains no approval in place of the CEO.
+        After step 4: the attempt was refused, either because no co-signature is open for this
+        shipment or because the caller does not hold the assigned role (403 'caller does not
+        hold the assigned role'; either reason is accepted), nothing was recorded, and the history contains no approval in place of the CEO.
     on_fail:
       severity: MAJOR
       business_impact: >
