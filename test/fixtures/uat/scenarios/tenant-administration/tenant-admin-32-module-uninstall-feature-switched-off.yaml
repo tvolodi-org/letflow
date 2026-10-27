@@ -1,0 +1,83 @@
+# T-0794 (BA): TENANT ADMIN group, scenario 32: while the platform operator has not switched the module uninstall feature on, its two routes answer as if they did not exist.
+# Covers REQ-578 criterion 10, flag-off half (both routes answer as an unknown route of that router, and the row is unchanged).
+# Sources: docs/requirements.yaml REQ-578 criterion 10; lib/letflow/routers/tenant_modules.ex (handle_transition and flag_off_answer: with the flag off the answer is that of the router's unknown route
+# for the same caller, and Installs is not reached); lib/letflow/api/authorization.ex (the :UnmatchedRoute decision: a platform administrator of the platform tenant reaches the router's 404, every
+# other caller gets 403, as on any unknown path).
+# BA note on the requirement text: criterion 10 says "404 identical to an unknown route". The code gives a tenant administrator the 403 of an unknown path, and 404 only to the platform operator, so this
+# scenario compares each answer with the answer for an unknown path (NR) for the same caller, and does not state 404 for the administrator. Reported in findings.
+# This scenario needs an environment in which the feature is OFF, the opposite of scenarios 29 to 31. The feature is a platform setting that no company administrator can change and the roster has no
+# actor that may change it, so the runner reports this scenario BLOCKED in a run where the feature is on. It is not a permanent exclusion (no sidecar): run it in its own pass with the feature off.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the feature-off refusals.
+---
+id: tenant-administration-32-module-uninstall-feature-switched-off
+scope: tenant-administration
+title: With the module uninstall feature switched off, taking a module out of use or bringing it back answers like a route that does not exist
+version: "1.0"
+tags: [tenant-admin, modules, uninstall, refusal, feature-flag]
+
+description: >
+  The feature is switched off for the platform. The administrator of SwiftRoute, who holds the right to manage modules, tries to take the installed module M1 out of use and to bring the out-of-use
+  module X1 back, with complete requests and proper reasons, and gets for each the same answer as for a path that was never part of the product. Nothing changes and nothing is written to the audit trail.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The module uninstall feature is switched OFF in the test environment.
+    check: system_seeded
+    detail: If the feature is on (the answer in step 1 is not equal to the answer in step 3), report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute has a module M1 installed and active, and a module X1 installed and out of use.
+    check: system_seeded
+    detail: Setup-prepared. If X1 cannot be prepared, the answers must be the same, since the feature check comes before any look at the module; note it and run the rest.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to take M1 out of use with the reason "UAT - switched off". The answer (status, content-type header and decoded body without the per-request trace_id member) is noted.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to bring X1 back with the reason "UAT - switched off". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      For comparison, the administrator makes a request to the name "never-existed" in the same place as the two module routes, a path that is not part of the product. The answer is noted as NR.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the list of the company's installed modules and the audit trail filtered by resource type "tenant_module".
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Both routes answer exactly as a path that does not exist does for the same caller, although the administrator holds the right and the requests are valid.
+    verification:
+      method: http_status
+      detail: The answers of steps 1 and 2 each equal NR (step 3), in status, content-type header and decoded body after removing the per-request trace_id member. The answer is whatever an unknown path gives that administrator (not a message about modules or reasons); the product gives the platform operator a 404 there.
+      evidence: The answers of steps 1 to 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A feature the platform operator has not opted into is reachable, or its existence is revealed.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-002
+    description: Nothing changed and nothing was written.
+    verification:
+      method: api_response
+      detail: In step 4, M1 is listed as installed and X1 is not listed. The audit trail has no entry for a module uninstall or reactivate since step 1.
+      evidence: The list of installed modules and the audit entries read in step 4, and the rows of M1 and X1 read directly where the runner has database access.
+    on_fail:
+      severity: MAJOR
+      business_impact: A switched-off feature still changes which modules the company runs.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing was created.

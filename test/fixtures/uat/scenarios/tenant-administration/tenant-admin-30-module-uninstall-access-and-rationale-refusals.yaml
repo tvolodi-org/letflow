@@ -1,0 +1,185 @@
+# T-0794 (BA): TENANT ADMIN group, scenario 30: who may take a module out of use or bring it back, and that a reason is always required.
+# Covers REQ-578 criterion 8 (403 for a caller without the module-management right, 200 for the administrator, 422 "rationale is required" for a missing, non-string or blank reason, status unchanged,
+# the same table for both requests) and the not-installed refusals of criterion 6.
+# Sources: docs/requirements.yaml REQ-578 criterion 8; lib/letflow/routers/tenant_modules.ex (authz_post ... :ModulesManage; run_transition: 422 "rationale is required" for :rationale_required,
+# 404 for :not_installed); lib/letflow/modules/installs.ex (fetch_rationale/1: missing, non-string or blank); docs/roles.md matrix (ModulesManage: TENANT_ADMIN and platform administrator only;
+# the task worker, the auditor and the process designer hold it not).
+# NOT COVERED - missing actor: no PROCESS_DESIGNER or PROCESS_OPERATOR account exists in test/fixtures/uat/actors.yaml, so the 403 table is shown for the task worker and the read-only auditor only.
+# A platform operator on this route would act on the platform's own company (the company comes from the sign-in), so no platform step is written.
+# Environment: needs the uninstall feature SWITCHED ON; if step 1 answers like an unknown route, report BLOCKED. Every blocked request below must leave the module as it was, which the runner reads at the end.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the access and reason refusals of the flow (change what the company runs).
+---
+id: tenant-administration-30-module-uninstall-access-and-rationale-refusals
+scope: tenant-administration
+title: Only the administrator may take a module out of use or bring it back, and every such request needs a written reason
+version: "1.0"
+tags: [tenant-admin, modules, uninstall, reactivate, refusal, access, validation]
+
+description: >
+  SwiftRoute has an installed active module M1 and a module X1 that is out of use. The task worker and the read-only auditor try to take M1 out of use and to bring X1 back and are refused.
+  The administrator tries the same two requests with the reason missing, empty, only blanks, a number and a list, and each is refused with the message that a reason is required; M1 stays active
+  and X1 stays out of use. The administrator then tries to take out of use a module that was never installed and to bring back one that is active; both answer not-found. Finally the administrator
+  takes M1 out of use with a proper reason and brings it back, to show that the requests themselves are accepted.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-marco
+  auditor_a: actor-swiftroute-auditor
+
+preconditions:
+  - description: The module uninstall feature is switched ON in the test environment.
+    check: system_seeded
+    detail: If step 1 answers like a path that does not exist, report BLOCKED for the whole scenario.
+  - description: SwiftRoute has a module M1 installed and active, no other module depends on M1, and a module X1 installed and out of use (uninstalled), whose recorded version matches the shipped one. A third module name N1 exists in the catalog and is not installed in SwiftRoute.
+    check: system_seeded
+    detail: Setup-prepared. If X1 cannot be prepared, report BLOCKED for the reactivate requests (steps 3 and 5 as far as they concern X1); the uninstall requests run.
+
+steps:
+  - step: 1
+    actor: worker_a
+    action: >
+      The task worker tries to take M1 out of use with the reason "UAT - worker tries". The answer (status, content-type header and decoded body without the per-request trace_id member) is noted.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker tries to bring X1 back with the reason "UAT - worker tries". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor_a
+    action: >
+      The read-only auditor tries to take M1 out of use with the reason "UAT - auditor tries". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: auditor_a
+    action: >
+      The read-only auditor tries to bring X1 back with the reason "UAT - auditor tries". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to take M1 out of use with no reason in the request at all. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to take M1 out of use with the reason as an empty text. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to take M1 out of use with the reason as three spaces. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to take M1 out of use with the reason given as the number 42 instead of text. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to bring X1 back with no reason in the request at all. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to bring X1 back with the reason as three spaces. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to bring X1 back with the reason given as the number 42 instead of text. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to take the never-installed module N1 out of use with the reason "UAT - not installed". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to bring the active module M1 back with the reason "UAT - already active". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the list of the company's installed modules and the audit trail filtered by resource type "tenant_module", and notes both.
+    via: api
+  - step: 15
+    actor: tenant_admin_a
+    action: >
+      The administrator takes M1 out of use with the reason "UAT - accepted with a reason", and then brings M1 back with the reason "UAT - accepted again".
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker and the read-only auditor are refused on both requests.
+    verification:
+      method: http_status
+      detail: Steps 1 to 4 each answer 403. The reason given is a proper one, so the refusal is for the missing right.
+      evidence: The four answers of steps 1 to 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Staff without the right could switch the company's modules off, stopping its work, or on.
+      suggested_action: route_to_security_review
+
+  - id: EO-002
+    description: A missing, blank or non-text reason is refused for both requests, with the same message.
+    verification:
+      method: http_status
+      detail: Steps 5 to 11 each answer 422 with the message "rationale is required".
+      evidence: The seven answers of steps 5 to 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A change to what the company runs can be made with no stated reason.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-003
+    description: Asking for a module that is not in the required state answers not-found.
+    verification:
+      method: http_status
+      detail: Steps 12 and 13 each answer 404.
+      evidence: The answers of steps 12 and 13.
+    on_fail:
+      severity: MINOR
+      business_impact: The administrator gets a misleading answer when the module is not in the state the request needs.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-004
+    description: None of the refused requests changed any module or wrote an audit entry.
+    verification:
+      method: api_response
+      detail: In step 14, M1 is listed as installed, X1 is not listed, N1 is not listed, and the audit trail has no entry for any request of steps 1 to 13.
+      evidence: The list of installed modules and the audit entries read in step 14.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused request still changed what the company runs or was recorded as a change.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-005
+    description: The administrator's own requests with a proper reason are accepted.
+    verification:
+      method: http_status
+      detail: Both requests in step 15 answer 200, the first with the status "uninstalled" and the second with the status "active" for M1.
+      evidence: The two answers of step 15.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot manage the company's modules.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: M1 is active again after step 15; X1 stays out of use as prepared by the environment.
