@@ -2462,10 +2462,36 @@ defmodule Letflow.Identity do
   @doc """
   Sets a tenant's `status` to `:active`, via `Tenant.status_changeset/2`.
   Idempotent, same reasoning as `deactivate_tenant/1`.
+
+  REQ-580: a purged tenant (its `tenant_lifecycles.purged_at` is set) is never reactivated; the call
+  returns `{:error, :tenant_purged}` before any write.
   """
   @spec reactivate_tenant(slug :: String.t()) ::
-          {:ok, Tenant.t()} | {:error, :not_found | Ecto.Changeset.t()}
-  def reactivate_tenant(slug), do: set_tenant_status(slug, :active)
+          {:ok, Tenant.t()} | {:error, :not_found | :tenant_purged | Ecto.Changeset.t()}
+  def reactivate_tenant(slug) do
+    case Repo.get_by(Tenant, slug: slug) do
+      nil ->
+        {:error, :not_found}
+
+      %Tenant{id: id} ->
+        if tenant_purged?(id),
+          do: {:error, :tenant_purged},
+          else: set_tenant_status(slug, :active)
+    end
+  end
+
+  @doc """
+  True when the tenant's `tenant_lifecycles.purged_at` is set (REQ-580): its schema is gone, so
+  no code may query the tenant schema.
+  """
+  @spec tenant_purged?(Ecto.UUID.t()) :: boolean()
+  def tenant_purged?(tenant_id) do
+    Repo.exists?(
+      from(l in Letflow.TenantProvisioner.Lifecycle,
+        where: l.tenant_id == ^tenant_id and not is_nil(l.purged_at)
+      )
+    )
+  end
 
   @doc """
   Partial-update of a tenant's `settings` only, via

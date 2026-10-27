@@ -245,7 +245,8 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants"},
       {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/suspend"},
       {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/resume"},
-      {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/expire"}
+      {"lib/letflow/routers/admin_v1.ex", "POST", "/tenants/:id/expire"},
+      {"lib/letflow/routers/admin_v1.ex", "DELETE", "/tenants/:id"}
     ]
 
     defp scanned_files do
@@ -334,7 +335,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       end
 
       assert length(@public_allowlist) == 6
-      assert length(@credential_allowlist) == 5
+      assert length(@credential_allowlist) == 6
     end
 
     test "CS1 the credential routes sit behind ProvisionerAuth and the mount is in Letflow.Router" do
@@ -509,6 +510,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
     {"PATCH", "/tenants/:slug"},
     {"POST", "/tenants/:slug/deactivate"},
     {"POST", "/tenants/:slug/reactivate"},
+    {"POST", "/tenants/:slug/purge"},
     # GH 2534 7b-2a (decision 0053 D7): the operator's script policy view and platform latch.
     {"GET", "/tenants/:slug/script-policy"},
     {"PUT", "/tenants/:slug/script-policy/kill-switch"},
@@ -535,13 +537,13 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   ]
 
   describe "G3: platform pinning" do
-    test "the routes whose permission is platform scope are exactly the 27 snapshot rows" do
+    test "the routes whose permission is platform scope are exactly the 28 snapshot rows" do
       actual =
         for {_router, method, path, key} <- all_routes(),
             Authorization.permission_scope(Authorization.required_permission(key)) == :platform,
             do: {method, path}
 
-      assert length(@platform_routes) == 27
+      assert length(@platform_routes) == 28
       assert Enum.sort(actual) == Enum.sort(@platform_routes)
     end
 
@@ -551,7 +553,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
 
       # GH 2534 7b-2a added GET /:slug/script-policy and PUT /:slug/script-policy/kill-switch;
       # 7b-2b added PUT /:slug/script-policy/solo-audited.
-      assert length(tenants_routes) == 10
+      assert length(tenants_routes) == 11
 
       non_platform =
         for {method, path, key} <- tenants_routes,

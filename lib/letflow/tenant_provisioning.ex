@@ -885,7 +885,11 @@ defmodule Letflow.TenantProvisioning do
      "20261027000002_widen_grants_created_via_chk.exs"},
     # REQ-578 / GH #3267: tenant_modules.status (active|uninstalled), default active; no row altered.
     {20_261_027_100_001, Letflow.Repo.Migrations.AddStatusToTenantModules,
-     "20261027100001_add_status_to_tenant_modules.exs"}
+     "20261027100001_add_status_to_tenant_modules.exs"},
+    # REQ-579 / GH #3289: per-tenant print-layout overrides (draft/active/retired) with the immutability
+    # trigger. Empty table for existing tenants; no row altered.
+    {20_261_027_200_001, Letflow.Repo.Migrations.CreateDocumentPrintOverrides,
+     "20261027200001_create_document_print_overrides.exs"}
   ]
 
   @doc """
