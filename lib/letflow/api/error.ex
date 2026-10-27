@@ -259,6 +259,38 @@ defmodule Letflow.Api.Error do
   end
 
   @doc """
+  HTTP 409 — Module Has Installed Dependents (REQ-578). An uninstall was refused because active
+  modules depend on the module. The body carries the constant `code` `"dependents_installed"` and
+  the sorted module ids of the dependents (catalog ids of the caller's own tenant).
+  """
+  @spec module_dependents_installed([String.t()]) :: t()
+  def module_dependents_installed(ids) when is_list(ids) do
+    %__MODULE__{
+      type: @problems_base <> "module-dependents-installed",
+      title: "Module Has Installed Dependents",
+      status: 409,
+      detail: "other installed modules depend on this module; uninstall them first",
+      extensions: %{"code" => "dependents_installed", "dependents" => Enum.sort(ids)}
+    }
+  end
+
+  @doc """
+  HTTP 409 — Module Upgrade Required (REQ-578). A reactivate was refused because the stored
+  manifest hash is missing or differs from the compiled module. Constant `code`
+  `"upgrade_required"`.
+  """
+  @spec module_upgrade_required() :: t()
+  def module_upgrade_required do
+    %__MODULE__{
+      type: @problems_base <> "module-upgrade-required",
+      title: "Module Upgrade Required",
+      status: 409,
+      detail: "the installed module differs from the current version; upgrade it instead",
+      extensions: %{"code" => "upgrade_required"}
+    }
+  end
+
+  @doc """
   HTTP 422 — Module Install DDL Failed (GH #2540).
 
   Returned by `POST /tenant/modules` and `POST /tenant/solutions` when a database

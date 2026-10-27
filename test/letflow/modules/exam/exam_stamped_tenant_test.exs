@@ -48,6 +48,9 @@ defmodule Letflow.Modules.Exam.StampedTenantTest do
     # (exam_section, exam_question_rule_tag, question_tag, tag) have no row here, so are not stamped.
     assert %{status: :stamped, rows_stamped: 12, error: nil} = Stamp.run_tenant(schema, [])
 
+    # REQ-582: the start check is enforced; the assignment is written after the stamp.
+    Letflow.ExamFixtures.assign_all!(schema, content.exam.record_id)
+
     built_authoring =
       ~w(answer_option category exam exam_manual_question exam_question_rule question)
 

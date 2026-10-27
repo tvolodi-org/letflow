@@ -1,0 +1,172 @@
+# T-0765 (BA): TENANT ADMIN group, scenario 25: the administrator attaches a published after-save script to a record type and event, replaces it, removes it, and lists the attachments.
+# Covers REQ-570 criteria 4 (bind a published, not revoked after-save version with key, version and fingerprint to a non-managed record type and an event; the answer and the list),
+# 6 (replace, remove, remove of an unbound pair answers like an unknown record type; a type may carry several events) and 8 (list ordered, no script text).
+# Sources: docs/requirements.yaml REQ-570 criteria 4, 6, 8; lib/letflow/routers/record_trigger_bindings.ex (moduledoc: PUT bind answers 201, PUT with rebind true answers 200, DELETE answers 204,
+# GET lists; an absent type, another company's type and an unbind or replace of an unbound pair answer the same plain 404; the answer is an allowlist: record type, event, script key, version,
+# fingerprint, status, bound-at, updated-at, bound-by); lib/letflow/record_triggers.ex (check order, events created, updated, deleted); docs/roles.md (ScriptsPublish: tenant administrator;
+# ScriptsWrite adds the process designer); test/fixtures/uat/actors.yaml.
+# Environment: this scenario needs the record-trigger feature SWITCHED ON (a platform setting). If step 1 answers 404, the runner reports the scenario BLOCKED, not failed; scenario 28 covers the switched-off case.
+# Scope of the slice (REQ-570 criterion 11): the attachment is only stored. The script does NOT run when a record is saved and nothing is queued, so no step saves a record.
+# The audit trail of a bind, replace and remove (criteria 4 and 6) is read from the database, not through a route; it is judged in EO-007 as system_state.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow.
+---
+id: tenant-administration-25-record-trigger-bind-rebind-unbind-list
+scope: tenant-administration
+title: The administrator attaches a published after-save script to a record type and event, replaces it, removes it, and lists the attachments
+version: "1.0"
+tags: [tenant-admin, record-triggers, bind, rebind, unbind, list]
+
+description: >
+  The administrator of SwiftRoute has two record types of their own, "trig_order" and "trig_note", and published after-save scripts (kind "record event"). They attach
+  trigger_check version 1 to "trig_order" for the event "created" and see the answer and the list. They attach the same version to "trig_order" for "deleted" and trigger_note
+  version 1 to "trig_note" for "updated", and see that the list is ordered by record type and then event. They replace the attachment of "trig_order" "created" with trigger_check
+  version 2. They remove the attachment of "trig_order" "deleted"; removing it again, replacing an attachment that is not there, and removing the attachment of a record type that does
+  not exist all give the same not-found answer. Saving a record is not part of this scenario: in this release the attached script does not run.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The record-trigger feature is switched on in the test environment.
+    check: system_seeded
+    detail: If step 1 does not answer 200 but 404, report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute has two record types of its own named "trig_order" and "trig_note". No process in SwiftRoute writes records of these types and neither type is managed by a module. Neither type has an attachment.
+    check: system_seeded
+    detail: Setup-prepared. If an attachment exists, remove it first and note that in the report.
+  - description: SwiftRoute has published, not revoked after-save scripts (kind "record event") - trigger_check version 1, trigger_check version 2 and trigger_note version 1 - none of which declares a line that writes a record. The administrator knows the content fingerprint (sha256) of each, noted as FP-C1, FP-C2 and FP-N1.
+    check: system_seeded
+    detail: Setup-prepared (script source and test cases are test fixtures). If the fingerprints cannot be read from the script registry by the administrator, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of after-save attachments.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator attaches trigger_check version 1 (with fingerprint FP-C1) to the record type "trig_order" for the event "created". The answer (status and body) is noted.
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of attachments and notes every field of the entry for "trig_order" "created".
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator attaches trigger_check version 1 (with fingerprint FP-C1) to "trig_order" for the event "deleted", then attaches trigger_note version 1 (with
+      fingerprint FP-N1) to "trig_note" for the event "updated", then asks for the list.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator replaces the attachment of "trig_order" "created" with trigger_check version 2 (with fingerprint FP-C2), stating that this is a replacement.
+      Then asks for the list.
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to replace the attachment of "trig_order" "updated", which has no attachment, with trigger_check version 2 (with fingerprint FP-C2), stating that this is a replacement.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator removes the attachment of "trig_order" "deleted", then asks for the list.
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to remove the attachment of "trig_order" "deleted" a second time. The answer (status, content-type header and decoded body without the per-request trace_id member) is noted.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to remove the attachment of a record type named "trig_nowhere" for the event "deleted"; no company has defined that type. The answer (status, body and
+      content-type header and decoded body without the per-request trace_id member) is noted.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      Clean-up: the administrator removes the attachments of "trig_order" "created" and "trig_note" "updated" and asks for the list.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Before any attachment the list is empty.
+    verification:
+      method: api_response
+      detail: In step 1 the answer is 200 with an empty list of entries.
+      evidence: The answer of step 1.
+    on_fail:
+      severity: MINOR
+      business_impact: The precondition was not met or another attachment is visible; the rest of the scenario cannot be judged cleanly.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The administrator can attach a published, not revoked after-save script to a record type and event of their own.
+    verification:
+      method: api_response
+      detail: Step 2 answers 201. The body names the record type "trig_order", the event "created", the script key "trigger_check", version 1, the fingerprint FP-C1 and the status "active". Step 3 lists exactly one entry with the same values, a time of attaching, a time of last change and the user who attached it (the administrator).
+      evidence: The answers of steps 2 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The company cannot choose which script belongs to which record event.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: One record type may carry several events at once, and the list is ordered by record type then event and carries no script text.
+    verification:
+      method: api_response
+      detail: After step 4 the list has three entries in this order - "trig_note" "updated", "trig_order" "created", "trig_order" "deleted". No entry contains the script source, the manifest or test cases; each entry has only record type, event, script key, version, fingerprint, status, time attached, time updated and user who attached.
+      evidence: The list of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Script content could be read by a user through the attachment list, or the list is unstable.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Replacing an attachment swaps the version and keeps one entry per record type and event; replacing an attachment that is not there is refused.
+    verification:
+      method: http_status
+      detail: Step 5 answers 200 with trigger_check version 2 and fingerprint FP-C2; the list after it still has three entries, the "trig_order" "created" entry shows version 2 and the other two are unchanged. Step 6 answers 404 and the list in step 7 has no entry for "trig_order" "updated".
+      evidence: The answers and lists of steps 5 to 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company cannot move a record event to a corrected script, or a replacement creates an attachment nobody asked for.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Removing an attachment works once; a second removal and a removal for a type that does not exist give the same not-found answer.
+    verification:
+      method: http_status
+      detail: Step 7 answers 204 and the list no longer has "trig_order" "deleted" while the other two entries remain. Steps 8 and 9 both answer 404 and the two answers are equal in status, content-type header and decoded body after removing the per-request trace_id member.
+      evidence: The answers of steps 7 to 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: The answer reveals whether a record type name exists, or a removal is reported as done when it was not.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: Attaching, replacing and removing change only the list of attachments; no record is written and nothing runs.
+    verification:
+      method: system_state
+      detail: After step 10 SwiftRoute has no new record of "trig_order" or "trig_note" and no queued after-save work (UAT assumption, to be confirmed by the process owner - this release has no table or route for queued work, so the check is that no record of these types was created or changed during the scenario).
+      evidence: The record counts of both types before step 1 and after step 10, read from the database.
+    on_fail:
+      severity: MAJOR
+      business_impact: Scripts would run before the release that is meant to run them.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: Each attaching, replacing and removing is recorded in the audit trail, and a refused request records nothing.
+    verification:
+      method: system_state
+      detail: The audit trail of SwiftRoute has one entry for each of the successful changes in steps 2, 4 (two entries), 5, 7 and 10 (two entries) - seven entries - with the administrator as the actor, and no entry for the refused steps 6, 8 and 9. The entries are read from the database (UAT assumption, to be confirmed by the process owner - no tenant-user route is relied on to list them).
+      evidence: The audit entries of the company between step 1 and the end.
+    on_fail:
+      severity: MAJOR
+      business_impact: Changes to which script belongs to a record event cannot be traced to a person.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove any attachment on "trig_order" and "trig_note" in SwiftRoute if left. The scripts stay.

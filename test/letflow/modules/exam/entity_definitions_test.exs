@@ -175,9 +175,33 @@ defmodule Letflow.Modules.Exam.EntityDefinitionsTest do
   # ---------------------------------------------------------------------------
 
   describe "relational shape" do
-    test "question declares exactly one foreign_keys entry: category_id -> category" do
+    test "question declares exactly two foreign_keys entries: category_id -> category, parent_id -> question" do
       definition = load_definition!("question.json")
-      assert [%{field: "category_id", references_entity: "category"}] = definition.foreign_keys
+
+      assert [
+               %{field: "category_id", references_entity: "category"},
+               %{name: "fk_question_parent_id", field: "parent_id", references_entity: "question"}
+             ] = definition.foreign_keys
+    end
+
+    test "category declares exactly one foreign_keys entry: parent_id -> category" do
+      definition = load_definition!("category.json")
+
+      assert [
+               %{name: "fk_category_parent_id", field: "parent_id", references_entity: "category"}
+             ] = definition.foreign_keys
+    end
+
+    for {name, file} <- [{"category", "category.json"}, {"question", "question.json"}] do
+      test "#{name} declares parent_id (string, queried, optional) with idx_#{name}_parent_id" do
+        definition = load_definition!(unquote(file))
+        field = Enum.find(definition.fields, &(&1.name == "parent_id"))
+
+        assert %{type: :string, queried: true, required: false} = field
+        assert Enum.any?(definition.indexes, &(&1.name == "idx_#{unquote(name)}_parent_id"))
+        refute definition.description =~ "REQ-324 (pending)"
+        refute definition.description =~ "deliberate gap"
+      end
     end
 
     test "answer_option declares exactly one foreign_keys entry: question_id -> question" do

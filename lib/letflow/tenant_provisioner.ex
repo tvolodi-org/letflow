@@ -17,6 +17,14 @@ defmodule Letflow.TenantProvisioner do
   migrations, which cannot sit inside one outer transaction, and a row lock held across DDL is not
   an option. The lock is per tenant, so other tenants are not blocked.
 
+  ## Demo cap and alarm (REQ-572 criterion 19)
+
+  A create of a NEW tenant counts the `tenant_lifecycles` rows with tier `demo` and lifecycle not
+  `deleted`, under a transaction advisory lock; at `Config.demo_cap/0` it answers `{:error, :conflict}`
+  (409). A create that leaves the count at or above `Config.demo_alarm_threshold/0` logs one warning with
+  the two integers. A replay of an existing tenant is never refused. The scheduled expire-and-purge is
+  `Letflow.TenantProvisioner.Sweep`.
+
   ## What is never done
 
   No `auth_context` is built, no tenant data is read, no role or credential is created (P4, P5, P7).
@@ -25,6 +33,8 @@ defmodule Letflow.TenantProvisioner do
   once the retention has run out, hands over to `Letflow.TenantPurge` (REQ-580), the only code that
   writes `purged_at`.
   """
+
+  import Ecto.Query, only: [from: 2]
 
   require Logger
 
@@ -37,6 +47,7 @@ defmodule Letflow.TenantProvisioner do
   alias Letflow.Repo
   alias Letflow.TenantLifecycle
   alias Letflow.TenantOnboarding
+  alias Letflow.TenantProvisioner.Config
   alias Letflow.TenantProvisioner.Lifecycle
   alias Letflow.TenantProvisioner.Request
   alias Letflow.TenantProvisioning
@@ -247,17 +258,29 @@ defmodule Letflow.TenantProvisioner do
       }
 
       case insert_tenant_and_lifecycle(attrs, request) do
-        {:ok, tenant, lifecycle} ->
+        {:ok, tenant, lifecycle, demo_count} ->
+          alarm_if_reached(demo_count)
           complete(request, tenant, lifecycle, platform_prefix, server_url, :created)
 
-        {:error, :exists} ->
+        {:error, reason} when reason in [:exists, :cap] ->
           {:error, :conflict}
       end
     end
   end
 
+  # REQ-572 criterion 19: the demo cap. The advisory transaction lock serialises creates of different
+  # tenant ids (the per-tenant session lock of with_lock/2 uses another key, so the two cannot
+  # deadlock), so the count cannot be overshot by a race. Only a NEW tenant is checked; a replay of an
+  # existing one never reaches this function.
   defp insert_tenant_and_lifecycle(attrs, request) do
     Repo.transaction(fn ->
+      Repo.query!(
+        "SELECT pg_advisory_xact_lock(hashtextextended('letflow.provisioner.demo_cap', 0))"
+      )
+
+      demo_count = demo_count()
+      if demo_count >= Config.demo_cap(), do: Repo.rollback(:cap)
+
       with {:ok, tenant} <- Identity.create_provisioned_tenant(attrs),
            {:ok, lifecycle} <-
              Repo.insert(
@@ -269,15 +292,31 @@ defmodule Letflow.TenantProvisioner do
                  expires_at: request.expires_at
                })
              ) do
-        {tenant, lifecycle}
+        {tenant, lifecycle, demo_count + 1}
       else
         {:error, :exists} -> Repo.rollback(:exists)
         {:error, _changeset} -> Repo.rollback(:exists)
       end
     end)
     |> case do
-      {:ok, {tenant, lifecycle}} -> {:ok, tenant, lifecycle}
-      {:error, :exists} -> {:error, :exists}
+      {:ok, {tenant, lifecycle, count}} -> {:ok, tenant, lifecycle, count}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp demo_count do
+    Repo.aggregate(
+      from(l in Lifecycle, where: l.tier == "demo" and l.lifecycle != "deleted"),
+      :count
+    )
+  end
+
+  # Counts only (no tenant data): one warning per create that leaves the count at or above the threshold.
+  defp alarm_if_reached(count) do
+    if count >= Config.demo_alarm_threshold() do
+      Logger.warning(
+        "provisioner: demo tenant count reached the alarm threshold (count=#{count}, cap=#{Config.demo_cap()})"
+      )
     end
   end
 

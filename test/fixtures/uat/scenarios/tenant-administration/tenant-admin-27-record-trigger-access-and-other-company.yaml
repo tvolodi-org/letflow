@@ -1,0 +1,203 @@
+# T-0765 (BA): TENANT ADMIN group, scenario 27: who may list and change the after-save attachments of record types, and that one company never sees or changes another's.
+# Covers REQ-570 criterion 7 (an API token on attach, replace and remove; staff without the right), criterion 8 (the list shows only the calling company's attachments, no script text) and
+# criterion 9 (another company's record type gets the same not-found as a type that exists nowhere; the other company's list; the same type name and event in two companies).
+# Sources: docs/requirements.yaml REQ-570 criteria 7, 8, 9; lib/letflow/routers/record_trigger_bindings.ex (moduledoc: list needs ScriptsWrite, attach/replace/remove need ScriptsPublish, writes
+# need an interactive sign-in and give 403 api_token_not_allowed to an API token; an absent type, another company's type and an unbound pair answer the same plain 404; the company comes only from
+# the sign-in); docs/roles.md matrix (ScriptsWrite: platform administrator, process designer, tenant administrator; ScriptsPublish: platform administrator and tenant administrator; the task worker
+# and the auditor hold neither); lib/letflow/record_triggers.ex (a valid body is checked before existence is answered, so every cross-company request carries a complete, valid body of the
+# caller's OWN script - otherwise it would be answered 422 and prove nothing).
+# NOT COVERED - missing actor: REQ-570 criterion 7 also says a process designer can list but cannot attach, replace or remove. test/fixtures/uat/actors.yaml has no PROCESS_DESIGNER account in any
+# company, and an actor must not be invented. That part is BLOCKED until the roster has such an actor; the BA reports it in findings.
+# A platform operator on this route would get its own company's data, not a refusal (the company comes from the sign-in), so no platform step is written here.
+# Environment: needs the record-trigger feature SWITCHED ON; if step 1 answers 404, report BLOCKED. The script never runs in this release; no step saves a record.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the access refusals of the flow.
+---
+id: tenant-administration-27-record-trigger-access-and-other-company
+scope: tenant-administration
+title: Only the administrator may change which after-save script belongs to a record event, an API token may not, and one company never sees or changes another's attachment
+version: "1.0"
+tags: [tenant-admin, record-triggers, refusal, access, cross-tenant, isolation, api-token]
+
+description: >
+  SwiftRoute's administrator attaches an after-save script to the record type "trig_order_a" for the event "created". A task worker and the read-only auditor try to list, attach, replace
+  and remove and are refused. The administrator using an API token instead of a signed-in session is refused for attach, replace and remove, and the attachment stays. The Bilimbaga
+  administrator, with their own complete and valid request, tries to attach to, replace and remove the attachment of "trig_order_a" and gets the same not-found answer as for "trig_nowhere",
+  a type that exists in no company; SwiftRoute's attachment is unchanged and does not appear in Bilimbaga's list. Both companies have a record type named "trig_shared"; each attaches its
+  own script to the event "created", and each sees only its own. The lists carry no script text.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-marco
+  auditor_a: actor-swiftroute-auditor
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: The record-trigger feature is switched on in the test environment.
+    check: system_seeded
+    detail: If step 1 answers 404, report BLOCKED for the whole scenario.
+  - description: SwiftRoute has record types of its own "trig_order_a", "trig_note_a" and "trig_shared", all unmanaged and written by no process, with no attachment, and a published after-save script of kind "record event", trigger_check version 1 (fingerprint FP-C1).
+    check: system_seeded
+    detail: Setup-prepared. If an attachment exists, remove it first and note that in the report.
+  - description: Bilimbaga has a record type of its own "trig_shared" (unmanaged, written by no process, no attachment), no record type named "trig_order_a" or "trig_nowhere", and a published after-save script of kind "record event", bilim_trigger version 1 (fingerprint FP-B1).
+    check: system_seeded
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note of actor-bilimbaga-admin), report BLOCKED for steps 6 to 13 and 15 and for EO-003 to EO-005; steps 1 to 5, 14, 16 and 17 run.
+  - description: An API token issued to the SwiftRoute administrator exists (the administrator's role, not a signed-in session).
+    check: system_seeded
+    detail: If the environment cannot issue an API token for the administrator, report BLOCKED for step 4 and EO-002; the other steps run.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator attaches trigger_check version 1 (fingerprint FP-C1) to "trig_order_a" for the event "created" and asks for the list of attachments.
+    via: api
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker tries to list the attachments, tries to attach trigger_check version 1 (fingerprint FP-C1) to "trig_note_a" for the event "created", tries to replace the attachment of
+      "trig_order_a" "created" with trigger_check version 1 (fingerprint FP-C1) stating that it is a replacement, and tries to remove the attachment of "trig_order_a" "created". Each answer
+      (status, content-type header and decoded body without the per-request trace_id member) is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor_a
+    action: >
+      The read-only auditor tries the same four requests as the task worker in step 2. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      Using an API token, not a signed-in session, the administrator tries to attach trigger_check version 1 (fingerprint FP-C1) to "trig_note_a" for the event "created", tries to replace the
+      attachment of "trig_order_a" "created" with trigger_check version 1 (fingerprint FP-C1) stating that it is a replacement, and tries to remove the attachment of "trig_order_a" "created".
+      Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator, signed in, asks for the list of attachments and notes it as list LA.
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to attach bilim_trigger version 1 (fingerprint FP-B1) to "trig_order_a" for the event "created", the record type of SwiftRoute. The answer (status, body and
+      content-type header and decoded body without the per-request trace_id member) is noted as AB1.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to attach bilim_trigger version 1 (fingerprint FP-B1) to "trig_nowhere" for the event "created", a type that exists in no company. The answer is noted as AN1.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to replace the attachment of "trig_order_a" "created" with bilim_trigger version 1 (fingerprint FP-B1) stating that it is a replacement. The answer is noted as RB1.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to replace the attachment of "trig_nowhere" "created" with bilim_trigger version 1 (fingerprint FP-B1) stating that it is a replacement. The answer is noted as RN1.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to remove the attachment of "trig_order_a" "created". The answer is noted as DB1.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to remove the attachment of "trig_nowhere" "created". The answer is noted as DN1.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for the list of attachments, with the query parameter tenant=swiftroute added to the request, and notes it as list LB.
+    via: api
+  - step: 13
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator attaches bilim_trigger version 1 (fingerprint FP-B1) to their own "trig_shared" for the event "created" and asks for the list.
+    via: api
+  - step: 14
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator attaches trigger_check version 1 (fingerprint FP-C1) to their own "trig_shared" for the event "created" and asks for the list, then compares with list LA.
+    via: api
+  - step: 15
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator asks for the list again and then removes the attachment of their "trig_shared" "created".
+    via: api
+  - step: 16
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator asks for the list and notes whether "trig_shared" and "trig_order_a" are still attached.
+    via: api
+  - step: 17
+    actor: tenant_admin_a
+    action: >
+      Clean-up: the SwiftRoute administrator removes the attachments of "trig_order_a" "created" and "trig_shared" "created" and asks for the list.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker and the read-only auditor are refused on all four requests, and nothing changes.
+    verification:
+      method: http_status
+      detail: Each of the four requests in steps 2 and 3 answers 403. List LA (step 5) is the list of step 1 unchanged.
+      evidence: The eight answers of steps 2 and 3 and list LA.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Staff without the right could change which script runs after a record is saved, or read which script is attached.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: An API token cannot attach, replace or remove.
+    verification:
+      method: http_status
+      detail: Each of the three requests in step 4 answers 403 with the reason "api_token_not_allowed". List LA shows "trig_order_a" "created" still attached to version 1 and no entry for "trig_note_a".
+      evidence: The three answers of step 4 and list LA.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A stolen or automated token could change the scripts that react to a company's records.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: For the administrator of another company, SwiftRoute's record type gets the same not-found answer as a type that exists nowhere, for attach, replace and remove.
+    verification:
+      method: http_status
+      detail: Steps 6 to 11 all answer 404, and AB1 equals AN1, RB1 equals RN1 and DB1 equals DN1 in status, content-type header and decoded body after removing the per-request trace_id member (three pairs).
+      evidence: The answers AB1, AN1, RB1, RN1, DB1 and DN1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company can find out which record types another company has, or change the other company's attachment.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: The other company's attachment is unchanged and invisible, and the lists carry only the calling company's entries and no script text.
+    verification:
+      method: api_response
+      detail: List LB (step 12) answers 200 and has no entry for "trig_order_a"; the query parameter tenant=swiftroute is ignored. The list of SwiftRoute in step 14 starts with list LA's entries, and "trig_order_a" "created" is still attached to trigger_check version 1. No entry in any list contains script source, manifest or test cases.
+      evidence: List LB, list LA and the list of step 14.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could read, or change by its own tries, another company's attachments, or script content leaks through the list.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: Two companies may each have a record type of the same name and event with an attachment, and neither sees the other's.
+    verification:
+      method: api_response
+      detail: Step 13 answers 201 and Bilimbaga's list holds only "trig_shared" "created" with bilim_trigger. Step 14 answers 201 and SwiftRoute's list holds "trig_order_a" and "trig_shared" with trigger_check, none with bilim_trigger. Step 15 shows Bilimbaga's own entry and its removal answers 204. Step 16 shows SwiftRoute's "trig_shared" and "trig_order_a" still attached.
+      evidence: The lists of steps 13 to 16.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A type name used by one company blocks or exposes another company's attachment.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Remove the attachments of "trig_order_a", "trig_note_a" and "trig_shared" in SwiftRoute, and of "trig_shared" in Bilimbaga, if they are left.

@@ -55,10 +55,10 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
       because of Q5). Persisted/returned outcome: status "grading_pending",
       score_pct 0.0, passed nil.
 
-    NOT SEEDED, DELIBERATELY: no exam_assignment record — none exists in this
-    tenant's schema (open question, see lib/letflow/exam/session.ex:595's
-    documented check_assigned/3 no-op) — every candidate is already treated as
-    assigned. Seeding a workaround record would misrepresent a gap as solved.
+    ASSIGNED (REQ-582): Session.check_assigned/3 is enforced, so the seed
+    ensures the exam_assignment definition is active and writes one active
+    "all" assignment per fixture exam (idempotent keys) before the session
+    is started.
 
     ASSERTABLE ONLY OVER RAW HTTP. The seeded session can be asserted via
     GET /modules/exam/exam-sessions/:id only. web/src/pages/exam/ExamSessionPage.tsx:112-127's
@@ -133,6 +133,8 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
   import Plug.Test
   import Plug.Conn
 
+  alias Letflow.Entities.Definitions
+  alias Letflow.Entities.ManagedTypes.AssignmentDefinition
   alias Letflow.Entities.Query.Compiler
   alias Letflow.Identity
   alias Letflow.Identity.User
@@ -200,6 +202,12 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
           "mix letflow.seed.exam_fixtures: FAILED -- install exam module: #{inspect(reason)}"
         )
     end
+
+    # REQ-582 part B: the start route enforces assignment (fail closed), so every fixture exam
+    # gets one active "all" assignment. Idempotent keys make a re-run write nothing new.
+    ensure_assignment_definition_active!(prefix, candidate.id)
+    assign_all!(prefix, candidate.id, mixed_exam_id, "req582-seed-assign-mixed")
+    assign_all!(prefix, candidate.id, scoreable_exam_id, "req582-seed-assign-scoreable")
 
     {session_id, submit_body} =
       seed_session!(prefix, candidate.id, mixed_exam_id, token_plaintext)
@@ -599,6 +607,58 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
       {:error, reason} ->
         Mix.raise(
           "mix letflow.seed.exam_fixtures: FAILED -- create_record/2(#{entity_type}, #{idempotency_key}): #{inspect(reason)}"
+        )
+    end
+  end
+
+  # `run_tenant/2` returns :nothing_to_do for ANY existing `exam_assignment` row, including the
+  # pack's inactive one on a tenant that installed the pack after part A, so activate it here.
+  defp ensure_assignment_definition_active!(prefix, actor_id) do
+    _report = AssignmentDefinition.run_tenant(prefix, [])
+
+    case Definitions.get_active_definition_by_name("exam_assignment", prefix) do
+      {:ok, _definition} ->
+        :ok
+
+      {:error, :not_found} ->
+        case Definitions.activate_definition("exam_assignment", actor_id, "REQ-582 seed", prefix) do
+          {:ok, _} ->
+            :ok
+
+          {:error, _reason} ->
+            Mix.raise(
+              "mix letflow.seed.exam_fixtures: FAILED -- exam_assignment definition exists but cannot be activated: activate it, then re-run"
+            )
+        end
+
+      {:error, reason} ->
+        Mix.raise(
+          "mix letflow.seed.exam_fixtures: FAILED -- exam_assignment definition lookup: #{inspect(reason)}"
+        )
+    end
+  end
+
+  # exam_assignment is written through the exam module's own surface (its owner), not the generic path.
+  defp assign_all!(prefix, actor_id, exam_id, idempotency_key) do
+    attrs = %{
+      entity_type: "exam_assignment",
+      field_values: %{
+        "exam_id" => exam_id,
+        "assignee_type" => "all",
+        "active" => true,
+        "assigned_by" => actor_id
+      },
+      actor_id: actor_id,
+      idempotency_key: idempotency_key
+    }
+
+    case Letflow.Modules.Catalog.create_via_module_surface(attrs, prefix) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Mix.raise(
+          "mix letflow.seed.exam_fixtures: FAILED -- assign exam #{exam_id} (#{idempotency_key}): #{inspect(reason)}"
         )
     end
   end

@@ -42199,6 +42199,84 @@ requirements:
       - "8. Existing logo_url values: a tenant with settings logo_url \"https://example.com/l.png\" and no upload returns that string from both endpoints exactly as before; with an upload both return the path while settings[\"logo_url\"] in the database is unchanged; after DELETE /api/v1/tenant/logo or after turning the flag off both return the stored string again; Letflow.Routers.TenantConfig.branding_from_settings/1 still returns the stored string (test of Letflow.Modules.Exam.Certificate branding unchanged)."
       - "9. Gates: SECURITY-REVIEWER verdict recorded (mandatory: INV-1, INV-2, INV-5, INV-8; public unauthenticated read); REVIEWER verdict recorded; route and named-route pins move as the route table requires (grep -rn \"__authz_routes__\\|length(snapshot)\\|length(named)\" test/), stated as +N from the values on origin/main at implement time; mix letflow.check.static and the changed and new test files pass with real output quoted; the PR states the flag is off in QA after auto-CD and that no existing row is changed."
     depends_on: [REQ-590, REQ-585, REQ-280]
+
+  - id: REQ-596
+    title: "Per-tenant solution-pack override storage and management API, slice S2: tenant-schema table, closed property list, create/new-version/retire/list routes, permission, audit (decision 0069 D8 S2)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3353
+    # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D2 (what an override is, closed property list), D3 (override_version, made_against, history never deleted), D5 (permission, audit, INV-2), D6 (tenant-schema table, cross-tenant negative), D7 (existing tenants), D8 slice S2, Open points Q3, Q4, Q5, "Threats for SECURITY-REVIEWER"; docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-4, INV-5, INV-10); code read: lib/letflow/routers/solution_packs.ex (authz_post routes /export, /install, /:pack_id/update-review, /:pack_id/update-apply, with :DefinitionsRead and :DefinitionsCreate), lib/letflow/definitions/solution_pack_install.ex and solution_pack_artefact_base.ex (artefact_type and artefact_id are strings, GLOBAL tables), lib/letflow/audit.ex (append_multi/4), lib/letflow/tenant_provisioning.ex (the ordered migration list), test/support/tenant_fixture.ex (@expected_tenant_tables) and test/letflow/support/tenant_fixture_test.exs (length == 72 on this branch), test/fixtures/route_scope/tenant_wide_default_routes.txt. Written by the business analyst (T-0726) 2026-10-26. Not yet validated.
+    description: >
+      Slice S2 of decision 0069 D8 (core roadmap Wave 3, "Solution versioning and per-tenant overrides"). S1 is
+      REQ-573. Decision 0069 is PROPOSED; this slice is implemented only once REQ-562 records its sign-off.
+      What main does today. A tenant that wants to deviate from an installed pack edits the installed definition
+      and the update machinery diffs it against the base row (solution_pack_artefact_bases, GLOBAL, no :prefix).
+      There is no stored override layer, no permission for one and no route to manage one.
+      What this slice builds, and nothing else. (1) STORAGE. A new table solution_pack_overrides in the TENANT
+      schema (Ecto :prefix, INV-1; no tenant_id column, the tenant comes from the :prefix only (decision 0006 D2: tenant_id is dropped where the schema is the isolation boundary; decision 0069 D6 says tenant_id is kept in each row, see open question 4),
+      added to the ordered migration list in lib/letflow/tenant_provisioning.ex so new tenants
+      get it. One row per override VERSION, append-only: columns override_id (stable across versions of one
+      override), override_version (monotone per override_id), pack_id, artefact_type (process_definition or
+      variable_schema only), artefact_id (string, as in solution_pack_artefact_bases), made_against (the pack
+      version, a string), patch (a map of overridable property paths to values, not a copy of the definition),
+      patch_hash, status (active or retired), reason, created_by, inserted_at. Orphaned status is S4's and is not
+      written here. At most one override_id is non-retired per (pack_id, artefact_type, artefact_id). Nothing in
+      the three global pack tables is read for a patch value or written by this slice; a join to a global
+      install row is by (tenant from the auth context, pack_id) only (D6).
+      (2) CLOSED PROPERTY LIST. A module attribute in the new override module lists the overridable property
+      paths per artefact_type; a path not on it is refused with a 422 and the stable detail text
+      property_not_overridable, and the whole request is refused (no partial patch). For process_definition the
+      categories are those of D2: step assignment (assignee role or rule reference), numeric thresholds, step and
+      form labels, deadlines and timer durations. Refused always: graph structure (nodes, edges, node ids),
+      gateway condition expressions, variable names and types, anything another artefact references by id, any
+      script. For variable_schema the source names no overridable property (D2 says only that variable names and
+      types may not be overridden); the S2 design proposes the list and SECURITY-REVIEWER reviews it (Q5), see open
+      question 3. The exact path list is the S2 design's by name (Q5); this entry fixes the categories and the
+      refusals, not the paths.
+      (3) ROUTES, under the existing /solution-packs router, tenant from the auth context only (never path,
+      query or body): GET /solution-packs/:pack_id/overrides lists the latest version of each override of that
+      pack; POST /solution-packs/:pack_id/overrides creates version 1 (body: artefact_type, artefact_id, patch,
+      reason); POST /solution-packs/:pack_id/overrides/:override_id/versions writes the next version; POST
+      /solution-packs/:pack_id/overrides/:override_id/retire writes a retiring version (status retired, empty
+      patch). No PATCH, PUT or DELETE route exists: history is never changed or deleted (D3). The patch must
+      validate against the closed list; the artefact must be one the tenant's active install of pack_id covers;
+      otherwise 404 with the not-found reply of INV-5. Reads return property paths and values only to a caller
+      who may read the artefact; a restricted or secret-reference value is returned as the reference or redacted
+      (INV-2, INV-4); the design states per route the fields a read returns.
+      (4) PERMISSION. One new tenant-scope permission, atom SolutionOverridesManage (chosen here; D5 proposes it),
+      classified TENANT-scope (INV-10, 0046), granted to TENANT_ADMIN only and to no other role, no new role;
+      docs/roles.md is updated. The three POST routes need it; the GET list needs :DefinitionsRead. The two
+      existing update routes keep :DefinitionsRead and :DefinitionsCreate, unchanged (Q4, assumed).
+      (5) AUDIT. Every create, new version and retire writes a hash-chain entry in the same transaction as the row
+      (Audit.append_multi/4): pack_id, artefact_type, artefact_id, override_id, override_version, patch_hash,
+      actor, reason (mandatory); never a patch value.
+      NOT IN THIS SLICE (later entries, decision 0069 D8; none is registered yet): S3 effective definition and
+      activation (merging patch over the installed definition into a new process definition version); S4
+      compute_pack_update_plan/5 and apply_pack_update/6 read overrides (override_conflict, kept, advance,
+      orphan); S5 the web screen; S6 adopt-local-edit (optional). Also not here: pack rollback (Q2), entity_definition
+      overrides, client scripts. An override stored by this slice changes no running or future definition until S3.
+      Existing tenants (D7): no row of solution_pack_installs, solution_pack_artefact_bases or
+      pack_update_resolutions is read for patch values, changed, deleted or backfilled; the new table is empty for
+      every existing tenant and the update-review and update-apply routes answer exactly as before.
+      Assumed answers to the open points of 0069, to be confirmed by the owner (see open questions): Q3(a), Q4,
+      and Q5 left to the S2 design.
+    acceptance_criteria:
+      - "1. Storage: a migration creates solution_pack_overrides in the tenant schema with the columns of the description and a unique key on (override_id, override_version); it is added to the ordered migration list in lib/letflow/tenant_provisioning.ex; a test provisions a new tenant and finds the table, and a test replays the migration on an existing tenant schema and finds it empty. Test S2-storage: after the whole slice, no row of solution_pack_installs, solution_pack_artefact_bases or pack_update_resolutions differs from before (count and content compared), and update-review and update-apply replies for an install with no override are byte-identical to before."
+      - "2. Routes: the four routes of the description exist with the stated permissions; a TENANT_ADMIN creates version 1, writes version 2 and retires it, and the list shows only the latest version per override_id with its status; a second non-retired override for the same (pack_id, artefact_type, artefact_id) is refused with 422 and the detail text override_exists; a version or retire for an unknown override_id, or for a pack with no active install of the tenant, answers the not-found reply; no PATCH, PUT or DELETE method on these paths is routed (a test requests each and receives the router's unmatched reply)."
+      - "3. Test S2-closed-list: for process_definition, a patch that names graph structure (a node or edge or node id), a gateway condition expression, a variable name or type, a script, or any path not on the closed list is refused with 422 property_not_overridable and no row is written; a patch of only listed paths is accepted; a patch mixing a listed and an unlisted path is refused whole. The same three cases for variable_schema against its own list. Threshold rule (assumed Q3(a)): a threshold is expressed as a patch key of the form settings.<key>, where <key> must be a key of the settings_schema of the Letflow.Modules.Module whose pack document (the file at priv/<:pack>, read as Letflow.Modules.Catalog.module_pack_ids/0 reads it, lib/letflow/modules/catalog.ex; :pack is a path, lib/letflow/modules/module.ex) has a pack_id key equal to the pack_id of the request; a graph-level threshold path is never accepted. Test cases: (a) settings.<declared key> is accepted; (b) settings.<key not in settings_schema> is refused with 422 property_not_overridable; (c) a pack that no module wraps (installed directly) refuses every settings.* key with the same 422, and its other listed paths are still accepted. An artefact_type other than process_definition or variable_schema (for example entity_definition) is refused with 422. The closed lists are in one module attribute whose content is pinned by a test, so a later change to it fails a test."
+      - "4. Test S2-immutable-history: after versions 1, 2 and 3 and a retire, four rows exist for the override_id with override_version 1 to 4 and every earlier row byte-identical to when it was written (compared by patch_hash and all columns); the code path of this slice contains no Repo.update, Repo.delete or update_all/delete_all on the table (a source-scanning test); two concurrent requests that both write version 2 of one override_id leave exactly one version 2 row; the loser is refused with 422 and the stable detail text override_version_taken (defined by this slice). made_against is stored as the string of the pack version of the tenant's active install at write time."
+      - "5. Test S2-audit-no-values: each of create, new version and retire writes exactly one audit entry in the same transaction as the row, carrying pack_id, artefact_type, artefact_id, override_id, override_version, patch_hash, actor and reason; a request without a reason is refused 422 and writes neither row nor entry; a test patches a distinctive value (for example the number 987654.321) and asserts it appears in no audit entry payload, no log line captured during the request, and no row of the three global pack tables; a DROP TABLE audit_entries test shows the failure is rescued, answers a non-500 error and leaves no override row."
+      - "6. Test C-manage (INV-10, INV-5): a TENANT_ADMIN of tenant B cannot list, create a version of, or retire tenant A's override: each answers the same not-found reply as for an override_id that does not exist, compared in one test for status, headers and body; a request carrying another tenant's id in the path, query or body ignores it and uses the token's tenant; no new Repo call in the slice is without a :prefix (source-scanning test); a PLATFORM_ADMIN token on these routes receives its own tenant's data, never another tenant's."
+      - "7. Permission: SolutionOverridesManage is classified TENANT-scope; priv/permission_matrix/effective.golden is regenerated with mix letflow.permission_matrix --write (never hand-merged); the matrix grants it to TENANT_ADMIN and to no other role except the unconditional PLATFORM_ADMIN clause of Authorization; the tenant-auditor refused-set literal and the number-word tables in test/letflow/api/authorization_test.exs are re-taken from origin/main; a user with a tenant role other than TENANT_ADMIN, and a TENANT_AUDITOR, receive 403 on the three POST routes and a caller holding :DefinitionsRead gets 200 on GET /solution-packs/:pack_id/overrides and a caller without it gets 403; docs/roles.md lists the permission."
+      - "8. Pins re-derived, stated as +N from the values on origin/main at implement time and not as the numbers quoted here: __authz_routes__ of Letflow.Routers.SolutionPacks (4 today, +4) and every length(snapshot) == N pin (grep -rn \"__authz_routes__\\|length(snapshot)\\|@ledger\" test/); the route_scope snapshot and test/fixtures/route_scope/tenant_wide_default_routes.txt (all four new routes are added, +4, because SolutionOverridesManage is not in @admin_plane_keys of lib/letflow/api/route_scope.ex and :DefinitionsRead is not admin-plane; unless the S2 design declares a scope: or adds the key to @admin_plane_keys; the three length(snapshot) == N pins in route_scope_resolver_test.exs, route_scope_self_service_test.exs and tasks_route_classes_test.exs move by the same +N, the design states N); @expected_tenant_tables in test/support/tenant_fixture.ex and its length == 72 pin in test/letflow/support/tenant_fixture_test.exs move +1 (grep the previous migration's table name across test/); the migration version is the next free one after merging origin/main."
+      - "9. Gates: SECURITY-REVIEWER verdict recorded and mandatory (adds a route and a tenant table; threats listed in decision 0069: cross-tenant read, structure change by override, values in audit or responses, privilege) and REVIEWER verdict recorded; mix letflow.check.static and every changed and new test file pass with real output quoted; the PR states the table is empty for existing QA tenants after auto-CD and that no existing row is changed."
+    depends_on: [REQ-562, REQ-573, REQ-380, REQ-041]
+    open_questions:
+      - "1. Q3 of decision 0069 (assumed answer (a), not confirmed by the owner): a threshold override is allowed only where the module declares a setting in its settings_schema, not for any threshold property on the closed list. If the owner chooses (b), criterion 3 loosens and the declared-setting check is dropped."
+      - "2. Q4 of decision 0069 (assumed answer, not confirmed by the owner): the permissions of update-review (:DefinitionsRead) and update-apply (:DefinitionsCreate) stay as they are. Requiring SolutionOverridesManage when an apply resolves an override conflict belongs to S4, not here."
+      - "3. Q5 of decision 0069: the final closed property path list for process_definition and the variable_schema list are the S2 design's and are reviewed by SECURITY-REVIEWER; the source names no overridable variable_schema property, so if the design finds none that is safe, variable_schema rows are refused entirely and the owner is told."
+      - "4. Conflict between decision 0069 D6 (tenant_id kept in each override row) and decision 0006 D2 (no tenant_id where the Postgres schema is the isolation boundary): this entry follows 0006 D2 and has no tenant_id column. REVIEWER confirms, or 0069 D6 is amended and criterion 1 gains the column."
   - id: REQ-595
     title: "Tenant signatory name and title settings, snapshotted on the issued certificate and printed in the PDF signatory block (BilimBaga retirement criterion 4, T4c gap 4)"
     owner: ELIXIR-DEV
@@ -42662,6 +42740,96 @@ requirements:
       - "11. Bucket C (decision 0022): grep -n \"exam\" lib/letflow/notifications.ex prints nothing (Letflow.Notifications names no exam); every exam-named function and the flag reader are in lib/letflow/modules/exam/notifications.ex; the Bucket-C inventory section of docs/migration/stage-10-bilimbaga-vertical.md gains a row for Letflow.Modules.Exam.Notifications, and the REVIEWER rule-2 verdict on the three keys in the platform registry (open question 5) is recorded in that row."
     depends_on: [REQ-563, REQ-582, REQ-584]
 
+  - id: REQ-601
+    title: "Record E slice E-2: pre-write script runner entry, derived_fields manifest, read phase with fingerprint, redaction, restriction predicate and executor-outcome conversion (no write integration)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3380
+    # Source: docs/migration/decisions/0065-entity-pre-write-script-hook.md (D1 read phase, D2 "Fingerprint", "Read order" and "Absent counter", D3, D5, D6 table, D7, D8 slice E-2, "Not decided here"); docs/migration/decisions/0062-restriction-carrying-variables.md (R4, R5, R6); docs/migration/decisions/0053-tenant-scripted-rules.md (D5, D7); docs/agents/instructions/security-invariants.md (INV-1, INV-3, INV-5, INV-8, INV-10); REQ-567 (slice E-1, GH #3217) and REQ-581 (slice F-2, GH #3298) in docs/requirements.yaml; code read: lib/letflow/scripts/form_validation.ex (run/4, the model of the runner entry and of the outcome conversion), lib/letflow/scripts/validation.ex (manifest/2, @form_keys, codes/2, reads/2), lib/letflow/entities/script_reads.ex (prefetch/3), lib/letflow/entities/entity_type_instance.ex (fetch_instance_id/2), lib/letflow/event_store/instance_sequence.ex (next_seq default 1), lib/letflow/event_store.ex (lock_instance_sequence/3), lib/letflow/engine/script_input.ex (build/4, read_taint/1), lib/letflow/engine/variable_labels.ex (write_allowed?/3), lib/letflow/entities/hidden_labels.ex (load_platform_hidden_labels/1), lib/letflow/scripts/runtime.ex (check_output/2, closed_output_schema?/1, manifest_taint/1), lib/letflow/entity_type_hooks.ex (E-1 binding module), lib/letflow/engine/lua/script_runner.ex (run/3). Written by the business analyst (T-0729) 2026-10-27. Not yet validated.
+    description: >
+      Slice E-2 of decision 0065 (docs/migration/decisions/0065-entity-pre-write-script-hook.md, D8),
+      after the delivered E-1 (REQ-567, GH #3217), which lets a tenant administrator bind one published
+      entity_write script version to one record type (lib/letflow/entity_type_hooks.ex, table
+      entity_type_hook_bindings). E-2 builds the part that can run such a script and read for it, and
+      nothing that calls it. No write integration: no change to lib/letflow/entities/records.ex,
+      lib/letflow/entities/step_writes.ex or lib/letflow/entities/handler_writes.ex, no lock set, no
+      fingerprint compare, no retry loop and no derived_value_conflict (all E-3, a separate later
+      requirement); no audit row, no kill-switch check and no one-test-per-row failure suite (E-4); no
+      dry-run (E-5). It adds no route, no permission, no migration and no tenant table. Nothing outside
+      the new modules and the tests calls the new functions, so no record write can reach a script. Four
+      parts. (1) Manifest. Letflow.Scripts.Validation.manifest/2 (lib/letflow/scripts/validation.ex)
+      takes, for hook_kind "entity_write", one more key: derived_fields, required, a non-empty list of
+      unique field names of the code shape and the length bound that the module already applies to
+      fail_codes (the private codes/2). For every other hook kind derived_fields stays an unknown key
+      (:invalid_manifest). The existing reads, restricted_inputs, limits and fail_codes keys keep their
+      meaning for entity_write, and the reads entries keep the shape checks of reads/2 (a read type
+      appears once; the reserved names are unchanged). (2) Read phase. A new public function
+      Letflow.Entities.ScriptReads.prefetch_with_fingerprint(prefix, reads, input_vars) in
+      lib/letflow/entities/script_reads.ex runs the same phase 1 refusals and the same one-query-per-read
+      rows as prefetch/3, inside one Repo.transaction on its own connection that is read-only and READ
+      COMMITTED, and returns {:ok, rows, fingerprint} or {:error, :reads_not_allowed}. fingerprint is a
+      map from every read entity type to the value of that type's sequence counter. The order inside the
+      transaction is the D2 order: the counters of ALL read types first (types in ascending byte order),
+      then the rows of ALL reads; the reverse order is forbidden. A type's counter is the next_seq of the
+      instance_sequence row of the type's synthetic instance (Letflow.Entities.EntityTypeInstance
+      .fetch_instance_id/2, which never inserts); a type with no registry row or no sequence row has as
+      counter the default of the next_seq field of Letflow.EventStore.InstanceSequence, read from the
+      struct default and not written as a literal. The read phase inserts nothing, and the transaction is
+      over, and its connection returned, before the function returns. (3) Runner entry. A new module
+      Letflow.Scripts.EntityWrite (lib/letflow/scripts/entity_write.ex), in the manner of
+      Letflow.Scripts.FormValidation, has run(prefix, pin, facts, opts) where pin is %{script_key,
+      script_version, script_sha256} (the fields E-1 stores) and facts is %{entity_type, candidate, now}
+      (candidate is the map of field name to value of the record about to be written; now is a %DateTime{} the caller passes, the same value on every retry of one write; the function reads
+      no tenant value from facts). The ScriptRunner ctx is built from facts only: %{instance_id: the synthetic instance id of the written type when fetch_instance_id/2 finds one, else the fixed constant \"entity-write\"; node_id: the entity type name; token_id: the fixed constant \"entity-write\"; now: facts.now}, so ctx.now, ctx.uuid() and math.random are the same on every retry of one write. It loads the pinned row under the tenant prefix (published and retired
+      rows run; absent, draft, discarded, revoked, another hook kind, a sha256 mismatch, an open output
+      schema or a malformed pin is ONE rejection), re-checks the manifest with
+      Letflow.Scripts.Policy.check_reads/2 (reads and restricted_inputs against the CURRENT policy, on
+      every run), checks the restriction predicate of part 4, runs the read phase of part 2 with the
+      manifest reads, builds the input and runs Letflow.Engine.Lua.ScriptRunner.run/3 with the manifest
+      fail_codes. The input is the restriction-filtered candidate plus the pre-fetched rows under
+      input["reads"] (Letflow.Engine.ScriptInput.build/4 and put_reads/2 as hook 1 uses them): each field
+      of the candidate that currently has an entity_field_restrictions row is labelled
+      "<entity_type>.<field>" as a variable label, so it enters the input only through a restricted_inputs
+      entry whose from list covers its label (decision 0062 R6) and only when opts[:publisher_may_restricted?]
+      is true (default false, absent means omitted; the caller computes it in E-3). The sandbox opens no
+      connection. On success the result is {:ok, %{derived: map, fingerprint: map, stats: map}} where
+      derived holds values for declared derived_fields only. (4) Restriction predicate and outcome
+      conversion. Before the read phase, the decision 0062 R5 predicate is applied to every derived
+      field: with taint = Letflow.Scripts.Runtime.manifest_taint(manifest) and target
+      "<entity_type>.<field>", Letflow.Engine.VariableLabels.write_allowed?(taint, target, restricted) must
+      hold, restricted being the set from Letflow.Entities.HiddenLabels.load_platform_hidden_labels(prefix)
+      (a load error is a violation); a violation is {:error, :script_output_restriction_widened, stats}
+      and the sandbox is not started. A derived field that is not a field of the type's active definition,
+      or is scope-bearing there (Letflow.Entities.ScopeBearingField.scope_bearing?/3), is
+      {:error, :script_rejected, stats}. The output is checked with Letflow.Scripts.Runtime.check_output/2
+      and then: only declared derived_fields keys, each at most once; any other key is :output_invalid.
+      Every ScriptRunner.run/3 result becomes a stable tuple without raising (decision 0065 D6, E-4 owns
+      the audit and the full suite). stats is always %{duration_us, instructions_used, heap_words_at_end}
+      and nothing else. Wall clock: the platform limits of ScriptRunner.limits/0 apply (decision 0065 D3
+      keeps 0053 D7: default 1000 ms, maximum 5000 ms), unchanged. SECURITY-REVIEWER is mandatory
+      (tenant-data path: script resolution and reads under the tenant prefix, restricted fields,
+      sandbox). Nothing under web/ or apps/ changes. Left open on purpose, each under "Not decided here"
+      in 0065: numeric read caps (rows per read, reads per hook; this slice keeps the existing manifest
+      caps of reads/2 and the 50-row cap of ScriptReads), the locked-window budget, the HTTP status
+      numbers, a row-level fingerprint, derived fields of managed types.
+    acceptance_criteria:
+      - "1. Manifest: with hook_kind \"entity_write\", Letflow.Scripts.Validation.manifest/2 returns :ok for a manifest with input_schema, output_schema, fail_codes and a derived_fields list of unique strings of the code shape of fail_codes (at most the same length bound), and {:error, :invalid_manifest} when derived_fields is missing, empty, not a list, has a duplicate, or has a malformed or over-long entry (one test each). A manifest with valid reads is still :ok for entity_write. With hook kinds \"service_task\" and \"form_validation\" a manifest carrying derived_fields is {:error, :invalid_manifest}. Validation.manifest/1 and the existing tests of lib/letflow/scripts/validation.ex pass unchanged (real output quoted). Creating an entity_write version through Letflow.Scripts stores derived_fields."
+      - "2. Read order (decision 0065 D2): a test records the Repo query events (telemetry) of one prefetch_with_fingerprint call with two read types and shows that every instance_sequence query comes before the first record query, with the types in ascending byte order. A second test injects a commit by another connection between the counter queries and the record queries (a hook in the test, not production code) and shows the returned fingerprint holds the counter value read before the commit while the rows may hold the new record, and so a later comparison would mismatch (never the reverse)."
+      - "3. Fingerprint values: for a read type with a sequence row the fingerprint is that row's next_seq; for a type with no registry row, and for one with a registry row but no sequence row, it equals the next_seq default of Letflow.EventStore.InstanceSequence (the test builds %InstanceSequence{} and compares) and no row is inserted (a count of the instance_sequence and entity_type_instances rows before and after is equal). After one committed write of the type the fingerprint taken next differs (one test). A read type named twice appears once. After the call returns, the calling process is not inside a transaction (Repo.in_transaction?/0 is false) and the call issued no INSERT, UPDATE or DELETE (the telemetry events of criterion 2 show SELECT statements only)."
+      - "4. Read refusals and rows: prefetch_with_fingerprint returns {:error, :reads_not_allowed} and no fingerprint for each case that prefetch/3 refuses (an unflagged type, a type without an active definition, a type with an entity_type_restrictions row, an unknown field, a match on a restricted field), and the rows it returns for the accepted cases equal those of prefetch/3 on the same data (one comparison test). Restricted fields are omitted from read rows unless the read names them in restricted_fields."
+      - "5. Runner gate and rejections: Letflow.Scripts.EntityWrite.run/4 returns {:error, :script_rejected, %{duration_us: 0, instructions_used: nil, heap_words_at_end: nil}} and starts no sandbox (a runner stub or counter shows zero runs) for each of: a prefetch_with_fingerprint refusal after check_reads passed (the flag cleared or a restriction added in between; the single rejection, as FormValidation uses for a failed manifest check), an absent row, a draft, a discarded row, a revoked row, a row of hook kind service_task, a sha256 that differs from the pin, a manifest whose output schema is open, a malformed pin, a derived field that is not a field of the type's active definition, a scope-bearing derived field, and a manifest whose reads or restricted_inputs fail Letflow.Scripts.Policy.check_reads/2 at run time (one test per case). A published and a retired row both run."
+      - "6. Redaction (decision 0062 R6): for a type with fields amount and note, note restricted (entity_field_restrictions row), and a manifest whose input_schema declares both: (a) no restricted_inputs entry for note: note is absent from the input the script receives, whatever opts[:publisher_may_restricted?] is; (b) an entry whose from list covers note's label and publisher_may_restricted? true: note is present; (c) the same entry and the option false or not passed: note is absent; (d) an entry whose from list names another field of the type, or another type's note, but not the label of note: note is absent. If an absent note is required by input_schema the result is {:error, :input_invalid, stats} and the script does not run. A test records the input through a runner stub and shows no returned term holds a restricted value."
+      - "7. R5 predicate: with a manifest whose restricted_inputs from pair is customer.salary and a derived field of type customer, the result is {:ok, ...} when the target customer.<field> is the restricted field customer.salary itself (restricted set contains it), and {:error, :script_output_restriction_widened, stats} with zero sandbox starts when the target is a field with no restriction (a read of restricted_fields likewise taints). A manifest without taint is unaffected. A failure of HiddenLabels.load_platform_hidden_labels/1 is the same violation. The checks use VariableLabels.write_allowed?/3 and not a copy of its rule."
+      - "8. Output and outcome conversion, no raise: with a runner stub returning each ScriptRunner.run/3 result, run/4 returns exactly: {:error, :script_error, stats} for script_error, for a worker crash or exit, for a stub that raises and for an unexpected term; {:error, :budget_exceeded, _}, {:error, :memory_limit_exceeded, _}, {:error, :timeout, _}, {:error, :script_busy, _} for those codes; {:error, :output_invalid, _} for output_invalid and for an output with a key that is not a declared derived field (one test each); {:error, {:script_failed, code}, stats} when the script calls fail with a code in the manifest fail_codes, and {:error, :script_error, stats} when the fail code is not one of them. A derived_fields value in the output is returned in derived as given. stats is always exactly the three keys: duration 0 and the two others nil when the sandbox did not start, duration measured and the others nil for a runner error, all three from the runner on success. run/4 never retries and never raises for a script outcome, and no source text, key, version, sha256, author text or fail details are in any returned term (one test asserts this on the whole term). Real scripts that loop forever and that allocate without bound end as :timeout or :budget_exceeded and :memory_limit_exceeded (two tests). ctx: a runner stub records the ctx of one run/4 call and shows it holds binary instance_id, node_id equal to the entity type and binary token_id with now equal to facts.now (a test with and one without a registry row for the type); two calls with the same facts give a script the same ctx.now and ctx.uuid() output (one test with a real script); a facts map without a %DateTime{} now is {:error, :script_rejected, stats} and does not raise (one test)."
+      - "9. INV-1 and INV-10 cross-tenant negative test: tenants A and B, a published entity_write version \"derive_total\" exists only in A's script_rules and a read type exists only in A. run/4 with B's prefix and a pin naming that key, version and sha256 returns a result equal to the one for a key that exists in no tenant, and the sandbox is not started; the call with A's prefix succeeds. A prefetch_with_fingerprint call with B's prefix naming A's read type is {:error, :reads_not_allowed}, and the fingerprint never holds a counter of A's data. The prefix is the only tenant selector (a facts map with a foreign tenant string in every field does not change the load). Every Repo call added by the change passes the prefix option; the PR quotes grep -n \"Repo\\.\" over the two new files. No SQL string interpolation (INV-7): the read-only setting and every query use bound parameters or constants."
+      - "10. Scope, no write integration, gate: the diff changes no function of lib/letflow/entities/records.ex, lib/letflow/entities/step_writes.ex, lib/letflow/entities/handler_writes.ex or lib/letflow/engine.ex, and no module outside lib/letflow/scripts/entity_write.ex, lib/letflow/scripts/validation.ex, lib/letflow/scripts.ex (the manifest call) and lib/letflow/entities/script_reads.ex calls the new functions (grep -rn \"EntityWrite\\.run\\|prefetch_with_fingerprint\" lib/ quoted); it adds no route (the __authz_routes__ and length(snapshot) pins in test/ are unchanged), no permission (priv/permission_matrix/effective.golden unchanged), no migration, no tenant table, no config key, and the existing tests of lib/letflow/entities/script_reads.ex, the records tests and the E-1 tests (test/letflow/entity_type_hooks*) pass unchanged. The PR records a SECURITY-REVIEWER verdict in its Gates block before merge (tenant-prefix resolution, redaction, R5 predicate, fail-closed paths, no raw error text). mix format, mix compile --warnings-as-errors and mix letflow.check.static pass, and mix letflow.check_requirements_registration and test/letflow/ci_backend_path_filter_test.exs pass, real output quoted."
+    open_questions:
+      - "Decision 0065 D5 says that a hook cannot write scope-bearing fields, managed_by or system fields, and that this is 'refused at bind', and D5 applies the R5 predicate 'at bind and at run time'. D8 gives the bind side to no slice: E-1 (REQ-567) is merged without derived_fields, and E-2 lists runtime only. This entry enforces the field rules and R5 at run time (criteria 5 and 7) and does not add them to the bind routes; the owner or the reviewer of REQ-539 decides which later slice adds the bind-time refusal, and no later slice may rely on it before it is assigned."
+      - "The ScriptRunner ctx for a record write (instance_id, node_id, token_id, now) is a rule of this entry (part 3), because a record write has no instance, node or token; confirm the constants and the caller-supplied now before E-3 wires the retry loop."
+      - "Mapping a fail code outside the manifest fail_codes to :script_error and returning {:error, {:script_failed, code}, stats} for a declared one is a rule of this entry (decision 0065 D6 names 'script_failed + manifest-declared code' but not the tuple shape or the undeclared case); confirm or change it before E-4 writes the per-row suite."
+      - "Decision 0065 'Not decided here' stays open and is neither set nor implied: numeric read caps, the locked-window budget, the HTTP status numbers of derived_value_conflict and entity_type_hooked, a row-level fingerprint, derived fields of managed types."
+    depends_on: [REQ-567]
   - id: REQ-600
     title: "AI-assisted exam question drafting: one route returns up to 10 draft questions, off by default, nothing is saved (BilimBaga study T6b, FR-BB71)"
     owner: ELIXIR-DEV
@@ -42825,3 +42993,60 @@ requirements:
     open_questions:
       - "Open until the REQ-509 record is ratified: the approval time-to-live value, the closed reason_code list for purge, whether archive exists, and whether discarded drafts are purged. This requirement does not decide them; if the record leaves one to the owner, the implementer treats it as a setting or a blocker and says so in the PR."
     depends_on: [REQ-509, REQ-508, REQ-536]
+
+  - id: REQ-602
+    title: "Exam builder screen: one view that edits an exam, its sections and its question rules, through the exam authoring write routes (BilimBaga retirement criterion 2, T2c)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S10
+    gh: 3355
+    description: >-
+      Source: docs/migration/bilimbaga-retirement-status.md section 2 item 3 ("Admin screens are generic
+      CRUD ... no exam builder with sections and rules in one view") and task T2b-T2d. Today an
+      administrator builds an exam through three separate generic pages reached from
+      web/src/modules/exam/BilimBagaAdminPage.tsx (one entity type at a time, rendered by
+      web/src/modules/exam/BilimBagaEntityRoute.tsx with the writes in
+      web/src/modules/exam/bilimbagaWrites.ts). This requirement adds one screen under
+      web/src/modules/exam/ (new file ExamBuilderPage.tsx, its API helpers in the existing
+      web/src/modules/exam/exam.api.ts, messages in web/src/modules/exam/examMessages.ts) that shows one exam
+      with its sections and its question rules together. Route: two new children of the existing
+      admin/bilimbaga route object in web/src/modules/exam/examRoutes.tsx, placed before ':entityType':
+      'exam-builder' (list of exams with a create action) and 'exam-builder/:examId' (the builder). The
+      words 'exam-builder' are not an entity type, so the generic route is not shadowed. No backend change:
+      the screen uses POST /modules/exam/authoring/:entity_type, PUT and DELETE
+      /modules/exam/authoring/:entity_type/:record_id (lib/letflow/modules/exam/router.ex, route table
+      and authz_post/authz_put/authz_delete; the permission is declared in lib/letflow/modules/exam/exam.ex
+      route_policies), through the existing examAuthoringApi in exam.api.ts, for the entity types exam,
+      exam_section and exam_question_rule (Letflow.Modules.Exam.Authoring.authoring_types in
+      lib/letflow/modules/exam/authoring.ex); records are read through the existing
+      entitiesApi.queryRecords (web/src/api/entities.ts, POST /api/v1/entities/query, the only record-read
+      route; fetching one exam is a filter on record_id, and an unknown id yields an empty page, not a 404),
+      filtered by exam_id for sections and rules.
+      Fields come from priv/modules/exam/entity_definitions/exam.json, exam_section.json and
+      exam_question_rule.json: an exam has title, description, status, time_limit_minutes, passing_score_pct,
+      max_attempts, available_from, available_until, shuffle flags, show_answers, on_tab_switch,
+      certificate_enabled; a section has exam_id, title, sort_order (unique per exam); a rule has exam_id,
+      optional section_id, mode (manual or random), optional category_id, difficulty, count, sort_order
+      (unique per exam). Gating: ExamAuthoringWrite, held by TENANT_ADMIN and PLATFORM_ADMIN and no other
+      built-in role (priv/permission_matrix/effective.golden), so PROCESS_DESIGNER and TENANT_AUDITOR do
+      not get the screen. The screen and its nav entry are shown only when the user holds
+      ExamAuthoringWrite, checked the way EntityCrudPage checks writes.permission for the same string
+      (EXAM_AUTHORING_WRITE in bilimbagaWrites.ts); the server remains the authority (403 before any lookup).
+      The existing BilimBagaAdminPage and the ten generic entity routes stay unchanged and keep working.
+      Out of scope: porting the BilimBaga corpus file exam-wizard.spec.ts (BilimBaga/frontend/e2e/, per
+      docs/migration/bilimbaga-e2e-remeasure.md section 2; it is not in this repository). That file has 9
+      tests, all marked BLOCKED-BY exam builder screen in that document; they become portable
+      once this screen exists, and porting them is a later batch (study T3c), not part of this change.
+      Also out of scope: exam_question_rule_tag and exam_manual_question editing, exam assignment, the
+      examiner and manager screens. Open question for the process owner, not settled here: whether an
+      "exam author" role below TENANT_ADMIN is needed (retirement-status section 2 item 4).
+    acceptance_criteria:
+      - "1. Load: opening exam-builder/:examId issues one query per entity type (exam, exam_section, exam_question_rule), the latter two filtered by exam_id, and renders the exam fields, the sections ordered by sort_order, and the rules grouped under their section (rules with no section_id in an 'unsectioned' group). Vitest (ExamBuilderPage.load.test.tsx) with a mocked client asserts the three requests and the rendered grouping."
+      - "2. Edit and save: changing an exam field, adding a section, adding a rule and editing a rule, then pressing Save, sends PUT for the exam, POST for each new section, then POST or PUT for each rule (sections first, so a new rule can name the new section's id). Each body is {field_values: <full map>} and nothing else; for a section and for a rule field_values includes exam_id, and for a rule in a section also section_id (the exam's own body has no exam_id). Deletes are sent last, rules before the section they name (fk_exam_question_rule_section_id in priv/modules/exam/entity_definitions/exam_question_rule.json), as DELETE on the record path. Vitest asserts the method, path and body of each call in that order."
+      - "3. Validation before send: a rule with count below 1, a missing required field (title, time_limit_minutes, passing_score_pct, max_attempts, mode, count, sort_order), a duplicate sort_order among the sections or among the rules of one exam, shows a field error next to the control and sends no request. Vitest asserts the message and that the mocked client was not called."
+      - "4. Server errors: a 422 from the server shows its field errors against the matching controls; a 409 shows the message 'the record was changed or removed elsewhere' with a Reload action that repeats the load (the save sends no expected_last_event_global_seq, so the 409s possible are the record already deleted and the definition changed during the write, lib/letflow/routers/entities/record_writes.ex); a 403 shows a 'you may not edit exams' message; any other failure shows a generic message. After the first failed call in a save the remaining calls are not sent and the screen lists which changes were saved and which were not. Vitest covers the 422, 409 and 403 paths and the stop-after-first-failure behaviour."
+      - "5. Gating and 404: a user without ExamAuthoringWrite sees neither the nav entry nor the screen's edit controls (the route shows the forbidden state); the exam module not being installed renders the existing NotFoundPage through ModuleGuard; an :examId that is not a UUID renders the not-found state without sending any request; a UUID for which the exam query returns no record renders the same not-found state, not an empty form. Vitest covers all four cases; the nav item is added in web/src/modules/exam/index.ts with permission 'ExamAuthoringWrite', and examModule.nav.test.tsx is updated for it."
+      - "6. Navigation: BilimBagaAdminPage gets one extra link to exam-builder and is otherwise unchanged; BilimBagaAdminPage.test.tsx, BilimBagaEntityRoute.test.tsx and BilimBagaEntityWrites.test.tsx pass unchanged apart from the added link."
+      - "7. Texts: every user-visible string is in examMessages.ts and ExamIntlProvider; exam-i18n-grep.test.ts passes."
+      - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
+    depends_on: [REQ-510]

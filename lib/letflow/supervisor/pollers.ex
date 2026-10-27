@@ -1,7 +1,8 @@
 defmodule Letflow.Supervisor.Pollers do
   @moduledoc """
-  REQ-219 (design `req219-supervision-layering.md` §1.2/§3): owns the two
-  independently-gated poller `GenServer`s -- `Letflow.Scheduler.Poller`
+  REQ-219 (design `req219-supervision-layering.md` §1.2/§3): owns the
+  independently-gated poller `GenServer`s (a fourth, GH 3292, is the provisioner sweep
+  `Letflow.TenantProvisioner.Sweep`, gated `:start_provisioner_sweep`) -- `Letflow.Scheduler.Poller`
   (REQ-186, gated `:start_scheduler`) and
   `Letflow.Engine.ServiceTaskDispatcher.Poller` (REQ-214, gated
   `:start_service_task_dispatcher`) -- each still individually gated by its
@@ -101,7 +102,8 @@ defmodule Letflow.Supervisor.Pollers do
 
     children =
       scheduler_children() ++
-        service_task_dispatcher_children() ++ script_task_dispatcher_children()
+        service_task_dispatcher_children() ++
+        script_task_dispatcher_children() ++ provisioner_sweep_children()
 
     Supervisor.init(children, strategy: :one_for_one, max_restarts: 5, max_seconds: 60)
   end
@@ -170,6 +172,18 @@ defmodule Letflow.Supervisor.Pollers do
   defp script_task_dispatcher_children do
     if Application.get_env(:letflow, :start_script_task_dispatcher, true) do
       [{Letflow.Engine.ScriptTaskDispatcher.Poller, []}]
+    else
+      []
+    end
+  end
+
+  # GH 3292 (REQ-572 criterion 19, REQ-580 criterion 7c): the provisioner's expire-and-purge sweep, one
+  # singleton timer process (not one per tenant or workflow instance). Its own key,
+  # :start_provisioner_sweep (false in config/test.exs: the same OwnershipError hazard as the pollers
+  # above). Without provisioned tenants a tick is a no-op, so no further gate is needed.
+  defp provisioner_sweep_children do
+    if Application.get_env(:letflow, :start_provisioner_sweep, true) do
+      [{Letflow.TenantProvisioner.Sweep, []}]
     else
       []
     end

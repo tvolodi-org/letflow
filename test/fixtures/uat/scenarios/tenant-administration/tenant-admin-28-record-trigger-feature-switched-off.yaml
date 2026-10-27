@@ -1,0 +1,96 @@
+# T-0765 (BA): TENANT ADMIN group, scenario 28: while the platform operator has not switched the record-trigger feature on, its routes answer as if they did not exist.
+# Covers REQ-570 criterion 2 (flag false: the three routes behave as an unknown route for a tenant administrator and every other caller).
+# Sources: docs/requirements.yaml REQ-570 criterion 2; lib/letflow/routers/record_trigger_bindings.ex (moduledoc "Feature flag": with the flag false every caller gets the pipeline's own not-found,
+# as for an unregistered path, before any permission is looked at); config/config.exs (the flag record_triggers_enabled, default false).
+# This scenario needs an environment in which the feature is OFF, the opposite of scenarios 25 to 27. The feature is a platform setting, not something a company administrator can change, and the
+# roster has no actor that may change it. The runner therefore reports this scenario BLOCKED in a run where the feature is on. It is not a permanent exclusion (no sidecar): run it in its own pass
+# with the feature off. The "on" half of criterion 2 is covered by scenarios 25 to 27.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the feature-off refusals.
+---
+id: tenant-administration-28-record-trigger-feature-switched-off
+scope: tenant-administration
+title: With the record-trigger feature switched off, every attachment route answers not-found like a route that does not exist
+version: "1.0"
+tags: [tenant-admin, record-triggers, refusal, feature-flag]
+
+description: >
+  The feature is switched off for the platform. The administrator of SwiftRoute, who holds the right to attach scripts, tries to list the attachments, attach a script to a record type and
+  event, replace it and remove it, and gets the plain not-found answer to each, equal to the answer for a path that was never part of the product. The task worker gets the same answer.
+  Nothing is stored.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-marco
+
+preconditions:
+  - description: The record-trigger feature is switched OFF in the test environment.
+    check: system_seeded
+    detail: If the feature is on (a request in step 1 does not answer 404), report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute has a record type of its own "trig_flag" (unmanaged, written by no process) and a published after-save script of kind "record event", trigger_check version 1 (fingerprint FP-C1).
+    check: system_seeded
+    detail: Setup-prepared. If they cannot be prepared, use any names; the answers must be the same because the feature check comes before any look at the request.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to list the attachments. The answer (status, content-type header and decoded body without the per-request trace_id member) is noted.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to attach trigger_check version 1 (fingerprint FP-C1) to "trig_flag" for the event "created", with a complete and valid request. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to replace the attachment of "trig_flag" "created" with trigger_check version 1 (fingerprint FP-C1) stating that it is a replacement. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to remove the attachment of "trig_flag" "created". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: worker_a
+    action: >
+      The task worker tries to list the attachments. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      For comparison, the administrator tries to read the path "record-trigger-bindings-never-existed" in the same place as the attachment routes, a path that is not part of the product. The answer is noted as NR.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Every attachment route answers not-found, the same as a route that does not exist, for the administrator and for the worker, and nothing is stored.
+    verification:
+      method: http_status
+      detail: All five requests in steps 1 to 5 answer 404, and each equals NR (step 6) in status, content-type header and decoded body after removing the per-request trace_id member. This holds although the administrator holds the right and the attach request is valid. The worker, who would otherwise be refused with 403, also gets 404.
+      evidence: The five answers of steps 1 to 5 and NR.
+    on_fail:
+      severity: MAJOR
+      business_impact: A feature the platform operator has not opted into is reachable, or its existence is revealed.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-002
+    description: Nothing is stored by the refused requests.
+    verification:
+      method: system_state
+      detail: Read from the database after step 6. SwiftRoute has no attachment for "trig_flag" and no audit entry for an attach, replace or remove of an attachment was written since step 1.
+      evidence: The SwiftRoute attachment table and the audit trail, read directly.
+    on_fail:
+      severity: MAJOR
+      business_impact: A switched-off feature still changes which scripts run after a record is saved.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing was created.

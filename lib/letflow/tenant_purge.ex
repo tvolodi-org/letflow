@@ -32,8 +32,8 @@ defmodule Letflow.TenantPurge do
   ## Not designed here
 
   Backups and replicas (a purge does not erase from them), multi-node, early erasure, production
-  tenants, and the scheduled sweep (`trigger: :sweep` and the injected clock `now:` are accepted so
-  the sweep only has to call this function). QA only.
+  tenants. The scheduled sweep is `Letflow.TenantProvisioner.Sweep`, which calls this function with
+  `trigger: :sweep` and an injected clock `now:`. QA only.
   """
 
   import Ecto.Query, only: [from: 2, where: 3]

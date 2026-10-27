@@ -145,7 +145,9 @@ constrain is not authored at all.
 **Update (REQ-582):** shape 1 below was taken. `entity_definitions/exam_assignment.json` exists, with
 an unenforced string `assignee_id` and `assignee_type` over `all|user|group|org_unit`; the
 conditional-requiredness rule is not expressible, so a consumer treats a violating record as matching
-nobody. The text below is the original analysis, kept as history.
+nobody. REQ-582 part B enforces it: `Letflow.Modules.Exam.Session.check_assigned/3` reads the exam's active
+`exam_assignment` records at exam start and refuses with `:not_assigned` when none matches (fail closed).
+The text below is the original analysis, kept as history.
 
 FR-BB33, source table `exam_assignments` in
 `013_exam_assignments.up.sql`, roadmap section 3.3.

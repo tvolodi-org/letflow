@@ -141,6 +141,15 @@ defmodule Letflow.Modules.InstallsTest do
     end
   end
 
+  describe "R8 -- uninstall never deletes (REQ-578 criterion 10)" do
+    test "installs.ex contains no Repo.delete or delete_all" do
+      source = File.read!(Path.join([File.cwd!(), "lib", "letflow", "modules", "installs.ex"]))
+
+      refute source =~ "Repo.delete"
+      refute source =~ "delete_all"
+    end
+  end
+
   describe "AC7 -- prefix-only tenant identification (grep contract)" do
     test "install/3 and list_installed/1 take no tenant_id or schema parameter" do
       source = File.read!(Path.join([File.cwd!(), "lib", "letflow", "modules", "installs.ex"]))

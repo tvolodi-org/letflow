@@ -50,18 +50,29 @@ FR-BB22 for `question`, `answer_option` and `question_tag` (source:
 `009_questions.up.sql`, roadmap sections 2.2/2.3). This lets a later reader
 trace any field back to the port source without leaving the document.
 
-## Deferred: parent_id on category and question
+## parent_id on category and question
 
-Two source columns are self-referential foreign keys that Letflow rejects
-today: `categories.parent_id` (the category tree) and `questions.parent_id`
-(version lineage). `Letflow.Entities.Definition.Validator`'s Rule 9
-rejects any `fk_def` whose `references_entity` equals the definition's own
-name. REQ-324 (pending) lifts that restriction. Both `category.json` and
-`question.json` state this gap in their own `description` fields. A
-follow-on requirement should add `parent_id` plus its `fk_def` to both
-documents once REQ-324 lands -- do not work around the gap with an
-unenforced string field, a closure table, or a JSON-nested tree in the
-meantime.
+REQ-586 part A (GH #3315) declares `parent_id` (string, queried, optional) on
+both documents, each with a self-referencing foreign key
+(`fk_category_parent_id`, `fk_question_parent_id`) and an index. A table
+created from the definition gets a nullable `uuid` column with
+`ON DELETE RESTRICT` (decision 0025; inert on the soft-delete path).
+
+- `category`: the category tree, `null` is a root.
+  `Letflow.Modules.Exam.AuthoringRules` refuses a parent that is absent,
+  deleted or malformed (`parent_not_found`, 422, one identical body for every
+  case), a re-parent that would form a cycle (`parent_cycle`, 422), and the
+  delete of a category that has live children (`category_has_children`, 409).
+  The database does not prevent cycles.
+- `question`: the version lineage, `null` is a first version. Part A checks
+  that the parent exists (`parent_not_found`) and refuses the delete of a
+  question that has a live successor (`question_has_children`). The lineage
+  rules (one successor, version order, one active version) are REQ-586 part B.
+- A tenant installed before this change keeps the old definitions until the
+  upgrade (REQ-586 part C, `Letflow.Release.ExamParentId.rollout/1`; the
+  command line is added by part C). Such a tenant rejects a write carrying
+  `parent_id` with the undeclared-field 422 (`additionalProperties` on
+  `/parent_id`).
 
 ## Open item: starter category records
 
