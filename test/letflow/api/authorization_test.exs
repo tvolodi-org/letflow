@@ -118,6 +118,8 @@ defmodule Letflow.Api.AuthorizationTest do
       assert Authorization.endpoint_policy_key("POST", "/tenants/:slug/deactivate") ==
                :TenantsManage
 
+      assert Authorization.endpoint_policy_key("POST", "/tenants/:slug/purge") == :TenantsManage
+
       assert Authorization.endpoint_policy_key("POST", "/tenants/:slug/reactivate") ==
                :TenantsManage
     end

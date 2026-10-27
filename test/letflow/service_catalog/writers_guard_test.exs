@@ -35,6 +35,9 @@ defmodule Letflow.ServiceCatalog.WritersGuardTest do
     },
     # Historic one-shot backfill (`SET published_at = created_at`); never touches endpoint_url and
     # ran before the CHECKs existed.
+    # REQ-580 tenant purge: removes the purged tenant's own service_catalog rows (delete_all by tenant_id,
+    # no endpoint_url written) and the lifecycle/tenant markers.
+    "lib/letflow/tenant_purge.ex" => %{delete_all: 1, update_all: 2},
     "priv/repo/migrations/20260921000004_add_service_catalog_versioning.exs" => %{raw_sql: 1}
   }
 
