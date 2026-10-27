@@ -91,8 +91,10 @@ expected_outcomes:
     verification:
       method: instance_state
       detail: >
-        release-shipment never ran; after step 4 the attempt was refused because no
-        co-signature is open for this shipment, the end node is still 'end-rejected', and no
+        release-shipment never ran; after step 4 the attempt was refused, either because no
+        co-signature is open for this shipment or because the caller does not hold the assigned
+        role (403 'caller does not hold the assigned role'; either reason is accepted), nothing
+        was recorded, the end node is still 'end-rejected', and no
         approval from the Operations Manager appears as a co-signature in the history.
     on_fail:
       severity: BLOCKER

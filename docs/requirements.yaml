@@ -42159,63 +42159,89 @@ requirements:
       - "8. Existing logo_url values: a tenant with settings logo_url \"https://example.com/l.png\" and no upload returns that string from both endpoints exactly as before; with an upload both return the path while settings[\"logo_url\"] in the database is unchanged; after DELETE /api/v1/tenant/logo or after turning the flag off both return the stored string again; Letflow.Routers.TenantConfig.branding_from_settings/1 still returns the stored string (test of Letflow.Modules.Exam.Certificate branding unchanged)."
       - "9. Gates: SECURITY-REVIEWER verdict recorded (mandatory: INV-1, INV-2, INV-5, INV-8; public unauthenticated read); REVIEWER verdict recorded; route and named-route pins move as the route table requires (grep -rn \"__authz_routes__\\|length(snapshot)\\|length(named)\" test/), stated as +N from the values on origin/main at implement time; mix letflow.check.static and the changed and new test files pass with real output quoted; the PR states the flag is off in QA after auto-CD and that no existing row is changed."
     depends_on: [REQ-590, REQ-585, REQ-280]
-
   - id: REQ-595
-    title: "Exam builder screen: one view that edits an exam, its sections and its question rules, through the exam authoring write routes (BilimBaga retirement criterion 2, T2c)"
-    owner: FRONTEND-DEV
+    title: "Tenant signatory name and title settings, snapshotted on the issued certificate and printed in the PDF signatory block (BilimBaga retirement criterion 4, T4c gap 4)"
+    owner: ELIXIR-DEV
     status: pending
     stage: S10
     gh: 3355
-    description: >-
-      Source: docs/migration/bilimbaga-retirement-status.md section 2 item 3 ("Admin screens are generic
-      CRUD ... no exam builder with sections and rules in one view") and task T2b-T2d. Today an
-      administrator builds an exam through three separate generic pages reached from
-      web/src/modules/exam/BilimBagaAdminPage.tsx (one entity type at a time, rendered by
-      web/src/modules/exam/BilimBagaEntityRoute.tsx with the writes in
-      web/src/modules/exam/bilimbagaWrites.ts). This requirement adds one screen under
-      web/src/modules/exam/ (new file ExamBuilderPage.tsx, its API helpers in the existing
-      web/src/modules/exam/exam.api.ts, messages in web/src/modules/exam/examMessages.ts) that shows one exam
-      with its sections and its question rules together. Route: two new children of the existing
-      admin/bilimbaga route object in web/src/modules/exam/examRoutes.tsx, placed before ':entityType':
-      'exam-builder' (list of exams with a create action) and 'exam-builder/:examId' (the builder). The
-      words 'exam-builder' are not an entity type, so the generic route is not shadowed. No backend change:
-      the screen uses POST /modules/exam/authoring/:entity_type, PUT and DELETE
-      /modules/exam/authoring/:entity_type/:record_id (lib/letflow/modules/exam/router.ex, route table
-      and authz_post/authz_put/authz_delete; the permission is declared in lib/letflow/modules/exam/exam.ex
-      route_policies), through the existing examAuthoringApi in exam.api.ts, for the entity types exam,
-      exam_section and exam_question_rule (Letflow.Modules.Exam.Authoring.authoring_types in
-      lib/letflow/modules/exam/authoring.ex); records are read through the existing
-      entitiesApi.queryRecords (web/src/api/entities.ts, POST /api/v1/entities/query, the only record-read
-      route; fetching one exam is a filter on record_id, and an unknown id yields an empty page, not a 404),
-      filtered by exam_id for sections and rules.
-      Fields come from priv/modules/exam/entity_definitions/exam.json, exam_section.json and
-      exam_question_rule.json: an exam has title, description, status, time_limit_minutes, passing_score_pct,
-      max_attempts, available_from, available_until, shuffle flags, show_answers, on_tab_switch,
-      certificate_enabled; a section has exam_id, title, sort_order (unique per exam); a rule has exam_id,
-      optional section_id, mode (manual or random), optional category_id, difficulty, count, sort_order
-      (unique per exam). Gating: ExamAuthoringWrite, held by TENANT_ADMIN and PLATFORM_ADMIN and no other
-      built-in role (priv/permission_matrix/effective.golden), so PROCESS_DESIGNER and TENANT_AUDITOR do
-      not get the screen. The screen and its nav entry are shown only when the user holds
-      ExamAuthoringWrite, checked the way EntityCrudPage checks writes.permission for the same string
-      (EXAM_AUTHORING_WRITE in bilimbagaWrites.ts); the server remains the authority (403 before any lookup).
-      The existing BilimBagaAdminPage and the ten generic entity routes stay unchanged and keep working.
-      Out of scope: porting the BilimBaga corpus file exam-wizard.spec.ts (BilimBaga/frontend/e2e/, per
-      docs/migration/bilimbaga-e2e-remeasure.md section 2; it is not in this repository). That file has 9
-      tests, all marked BLOCKED-BY exam builder screen in that document; they become portable
-      once this screen exists, and porting them is a later batch (study T3c), not part of this change.
-      Also out of scope: exam_question_rule_tag and exam_manual_question editing, exam assignment, the
-      examiner and manager screens. Open question for the process owner, not settled here: whether an
-      "exam author" role below TENANT_ADMIN is needed (retirement-status section 2 item 4).
+    # Source: docs/migration/bilimbaga-study-t4c-certificates.md row 4 (gap: "Template field signatory_name / signatory_title", size S, next step: requirement); lib/letflow/identity/tenant_settings.ex (@allowed_keys, allowed_keys/0, the closed top-level vocabulary enforced by the Ecto type); lib/letflow/identity/tenant.ex (settings_changeset/2, validate_settings_value/2, validate_app_name/2 as the pattern for a string setting); lib/letflow/routers/tenant_settings.ex (partition_top_level/1, patch_tenant_settings/3: the server-side allowlist, unknown top-level keys dropped and audited); lib/letflow/routers/tenant_config.ex (branding_from_settings/1: three named reads, public, pre-auth); lib/letflow/modules/exam/certificate.ex (capture_branding_snapshot/1, issue_or_fetch/4); lib/letflow/modules/exam/certificate_document.ex (draw_signatory/2, signatory/1, branding_app_name/1); lib/letflow/modules/exam/certificate_public_projection.ex (returns the whole branding_snapshot); lib/letflow/tenant_config_bundle.ex (import check against TenantSettings.allowed_keys() and write through Identity.update_tenant_settings, so export and import carry the two keys; its moduledoc says "the five closed keys"); tests today: test/letflow/modules/exam/certificate_test.exs (branding snapshot and branding-mutation tests), certificate_document_test.exs, certificate_public_projection_test.exs; docs/migration/decisions/0006-identity-tables-schema-per-tenant.md D2; docs/agents/instructions/security-invariants.md (INV-2, INV-8). Written by the business analyst (T-0706) 2026-10-26. Not yet validated.
+    description: >
+      Today the certificate PDF prints a fixed placeholder signatory block: draw_signatory/2 in
+      lib/letflow/modules/exam/certificate_document.ex takes the text from signatory/1, which returns
+      "<app name> Certification Authority" and "Automated Issuance". The tenant has no way to name a real
+      signatory, because the closed top-level settings vocabulary in lib/letflow/identity/tenant_settings.ex is
+      ~w(app_name logo_url brand_colors locales default_locale). BilimBaga's template carries signatory_name and
+      signatory_title (study T4c row 4). This requirement adds exactly two tenant settings and carries them to
+      the PDF through the certificate's own snapshot. Size: S to M, one change.
+      SETTINGS AND SERVER ALLOWLIST. Two new TOP-LEVEL keys, "signatory_name" and "signatory_title", are added to
+      @allowed_keys in lib/letflow/identity/tenant_settings.ex (which is also what
+      Letflow.Routers.TenantSettings.partition_top_level/1 reads through TenantSettings.allowed_keys/0, so the
+      allowlist moves in one place). They are NOT sub-keys of brand_colors and are not part of the branding map.
+      PATCH /api/v1/tenant/settings (the existing route, existing permission, existing shallow merge) is the only
+      write path; no route, permission or migration is added. A key outside the list is still dropped and audited
+      by the existing "tenant_settings.reject_unrecognized_keys" entry; the PATCH response shape (tenant_id,
+      settings) is unchanged, and the two keys appear inside settings when stored. VALIDATION in
+      Letflow.Identity.Tenant.settings_changeset/2, one new private validator per key in the style of
+      validate_app_name/2: the value is nil (stored as a null by the existing shallow merge; it reads as unset) or a string that is non-empty after
+      String.trim/1, at most 100 characters (String.length/1), containing no control character (no code point
+      below 0x20 and not 0x7F). The stored value is the string as sent (not trimmed or altered), so a value of
+      only spaces is refused. Error text names the key, for example "signatory_name must be a non-empty string of
+      at most 100 characters without control characters". The two keys are independent: either may be set alone.
+      TENANT-CONFIG RESPONSES. GET /api/tenant-config and GET /api/mobile/tenant-config are public and pre-auth
+      and are NOT changed: Letflow.Routers.TenantConfig.branding_from_settings/1 keeps its three named reads
+      (app_name, logo_url, brand_colors) and its return shape, and neither response gains a signatory field
+      (INV-2: a signatory is not needed to log in). Consequently the snapshot below must not be built by adding
+      keys to branding_from_settings/1.
+      SNAPSHOT. Letflow.Modules.Exam.Certificate.capture_branding_snapshot/1 keeps calling
+      branding_from_settings/1 and then adds the keys "signatory_name" and "signatory_title" to the returned map,
+      each by an explicit named Map.get over the same tenant settings it already loaded, and only when that
+      setting is a non-empty string; an unset setting adds no key (so a certificate issued with nothing set has a
+      branding_snapshot byte-identical to today's). The snapshot is written once, at first issuance, into the
+      certificate record's existing branding_snapshot field, and is never re-read, so a later change or removal
+      of the settings does not change an issued certificate or its re-downloaded PDF. Certificates issued before
+      this change have no signatory keys and keep printing the placeholder. No data migration.
+      PDF. In lib/letflow/modules/exam/certificate_document.ex signatory/1 reads
+      certificate.branding_snapshot "signatory_name" and "signatory_title" independently: a present non-empty
+      value is printed in its line of the existing signatory block, and an absent one falls back to today's
+      placeholder for that line ("<app name> Certification Authority" for the name, "Automated Issuance" for the
+      title), so unset keeps today's output exactly. Text goes through the module's existing safe_text_at/3
+      path, so characters outside Latin-1 degrade to "?" as the module's moduledoc already states for every other
+      field; Cyrillic support is a separate, not-yet-written requirement and is not changed here. No layout
+      change.
+      PUBLIC VERIFY. certificate_public_projection.ex returns the whole branding_snapshot to the public
+      verification endpoint, so the signatory name and title become visible there for certificates issued after
+      this change. That is deliberate (the same two lines are printed on the paper the holder shows to third
+      parties) and is stated in the projection's moduledoc; it needs the SECURITY-REVIEWER note below.
+      RELATION TO SIBLING REQUIREMENTS (shared branding allowlist). REQ-585 (secondary brand colour) widens the
+      brand_colors SUB-key list @brand_colors_allowed_keys in lib/letflow/identity/tenant.ex and changes
+      branding_from_settings consumers; the logo upload requirements (REQ-590 storage and flag, REQ-591 public
+      read and logo_url replacement) add a separate table and change what branding.logo_url holds in the two
+      public responses. This entry follows them and does not repeat any of it: it touches the TOP-LEVEL list in
+      tenant_settings.ex (which none of the three edits), adds its own validators next to the existing ones in
+      tenant.ex, and does not touch branding_from_settings/1, brand_colors, logo_url or the tenant-config routers.
+      Merge order: REQ-585, then REQ-590 and REQ-591, then this one; if it must merge earlier the only textual
+      overlap is the settings_changeset/2 moduledoc in tenant.ex (the list of per-key rules), which the later
+      merger rebases. Pins that move are stated as "+2 from the value on origin/main at implement time" (the
+      @allowed_keys count and any test pinning its exact list: grep -rn "default_locale" test/).
+      OUT OF SCOPE. A signature image, a logo in the PDF, Cyrillic text, a web admin screen field for the two
+      settings (they are set through PATCH /api/v1/tenant/settings), per-exam signatories, localisation of the
+      placeholder, and rewriting already issued certificates.
     acceptance_criteria:
-      - "1. Load: opening exam-builder/:examId issues one query per entity type (exam, exam_section, exam_question_rule), the latter two filtered by exam_id, and renders the exam fields, the sections ordered by sort_order, and the rules grouped under their section (rules with no section_id in an 'unsectioned' group). Vitest (ExamBuilderPage.load.test.tsx) with a mocked client asserts the three requests and the rendered grouping."
-      - "2. Edit and save: changing an exam field, adding a section, adding a rule and editing a rule, then pressing Save, sends PUT for the exam, POST for each new section, then POST or PUT for each rule (sections first, so a new rule can name the new section's id). Each body is {field_values: <full map>} and nothing else; for a section and for a rule field_values includes exam_id, and for a rule in a section also section_id (the exam's own body has no exam_id). Deletes are sent last, rules before the section they name (fk_exam_question_rule_section_id in priv/modules/exam/entity_definitions/exam_question_rule.json), as DELETE on the record path. Vitest asserts the method, path and body of each call in that order."
-      - "3. Validation before send: a rule with count below 1, a missing required field (title, time_limit_minutes, passing_score_pct, max_attempts, mode, count, sort_order), a duplicate sort_order among the sections or among the rules of one exam, shows a field error next to the control and sends no request. Vitest asserts the message and that the mocked client was not called."
-      - "4. Server errors: a 422 from the server shows its field errors against the matching controls; a 409 shows the message 'the record was changed or removed elsewhere' with a Reload action that repeats the load (the save sends no expected_last_event_global_seq, so the 409s possible are the record already deleted and the definition changed during the write, lib/letflow/routers/entities/record_writes.ex); a 403 shows a 'you may not edit exams' message; any other failure shows a generic message. After the first failed call in a save the remaining calls are not sent and the screen lists which changes were saved and which were not. Vitest covers the 422, 409 and 403 paths and the stop-after-first-failure behaviour."
-      - "5. Gating and 404: a user without ExamAuthoringWrite sees neither the nav entry nor the screen's edit controls (the route shows the forbidden state); the exam module not being installed renders the existing NotFoundPage through ModuleGuard; an :examId that is not a UUID renders the not-found state without sending any request; a UUID for which the exam query returns no record renders the same not-found state, not an empty form. Vitest covers all four cases; the nav item is added in web/src/modules/exam/index.ts with permission 'ExamAuthoringWrite', and examModule.nav.test.tsx is updated for it."
-      - "6. Navigation: BilimBagaAdminPage gets one extra link to exam-builder and is otherwise unchanged; BilimBagaAdminPage.test.tsx, BilimBagaEntityRoute.test.tsx and BilimBagaEntityWrites.test.tsx pass unchanged apart from the added link."
-      - "7. Texts: every user-visible string is in examMessages.ts and ExamIntlProvider; exam-i18n-grep.test.ts passes."
-      - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
-    depends_on: [REQ-510]
+      - "1. Allowlist: Letflow.Identity.TenantSettings.allowed_keys/0 returns the five existing keys plus \"signatory_name\" and \"signatory_title\" and nothing else; a unit test in test/letflow/identity/tenant_test.exs pins the full seven-key list; lib/letflow/tenant_config_bundle.ex moduledoc changes from \"the five closed keys\" to \"the seven closed keys\" in the same change, and test/letflow/routers/tenant_config_bundle_test.exs still passes, with an export-then-import round trip of both keys added there."
+      - "2. Validation accepted: settings_changeset/2 accepts signatory_name \"Aigul Nurpeisova\" and signatory_title \"Director of Certification\" (each alone and together), a 100-character value for each, and nil for each (clearing); a unit test in test/letflow/identity/tenant_test.exs pins these."
+      - "3. Validation refused: settings_changeset/2 refuses, for each of the two keys, the empty string, a string of only spaces, a 101-character string, a string containing a newline, a string containing a tab, and a number, with an error text naming the key; the same unit test file pins each input."
+      - "4. Route: PATCH /api/v1/tenant/settings with signatory_name and signatory_title answers 200, the response settings hold both stored values and the body keys are still tenant_id and settings; a second PATCH with signatory_title null answers 200 and the response settings hold signatory_title => null (the existing shallow Map.merge in patch_tenant_settings/3 stores the null; the key is not removed) with signatory_name unchanged, and a certificate issued afterwards has no signatory_title key in branding_snapshot; an invalid value answers 422 with the plain-language message and stores nothing; a route test in test/letflow/routers/tenant_settings_test.exs asserts all three."
+      - "5. Unknown key still dropped: PATCH with {\"signatory_name\": valid, \"signatory_role\": \"x\"} answers 200, stores signatory_name, does not store signatory_role, and writes one audit entry with action \"tenant_settings.reject_unrecognized_keys\" whose after_state holds signatory_role."
+      - "6. Public config unchanged: for a tenant that stored both signatory settings, GET /api/tenant-config and GET /api/mobile/tenant-config return bodies whose branding maps contain no key containing the text \"signatory\" and are equal to the bodies for the same tenant without the settings; Letflow.Routers.TenantConfig.branding_from_settings/1 returns the same three keys as before; a test in test/letflow/routers/tenant_config_test.exs and one in test/letflow/routers/mobile_tenant_config_test.exs assert these."
+      - "7. Snapshot set: a certificate issued while both settings are stored has branding_snapshot[\"signatory_name\"] and branding_snapshot[\"signatory_title\"] equal to the stored values; a certificate issued with only the name stored has the name key and no title key; a test in test/letflow/modules/exam/certificate_test.exs asserts both."
+      - "8. Snapshot unset: a certificate issued with neither setting stored has a branding_snapshot equal to branding_from_settings/1 of that tenant's settings, with no signatory key; the existing branding tests in certificate_test.exs still pass unchanged."
+      - "9. Reprint never changes: after issuing a certificate with signatory settings stored, changing both settings by PATCH (and separately setting them to nil) leaves the certificate record's branding_snapshot unchanged and the rendered PDF block identical to the first render; a test in test/letflow/modules/exam/certificate_test.exs asserts this next to the existing test named a branding change after issuance does not alter the already-issued certificate."
+      - "10. PDF: Letflow.Modules.Exam.CertificateDocument.render/2 on a certificate whose branding_snapshot holds both keys produces a PDF whose text contains the name and the title and does not contain \"Certification Authority\" or \"Automated Issuance\"; with neither key the PDF text contains \"<app name> Certification Authority\" and \"Automated Issuance\" exactly as today; with only the name, the name is printed and the title line is \"Automated Issuance\"; a test in test/letflow/modules/exam/certificate_document_test.exs asserts the three cases."
+      - "11. Legacy and Latin-1: a certificate record whose branding_snapshot has no signatory keys (as issued before this change) renders the placeholder; a signatory_name with a character outside Latin-1 renders with \"?\" in its place and does not crash render/2; both asserted in certificate_document_test.exs."
+      - "12. Public verify: the public certificate projection for a certificate issued with signatory settings returns them inside branding_snapshot, and for a certificate issued without them returns a branding_snapshot with no signatory key; a test in test/letflow/modules/exam/certificate_public_projection_test.exs asserts both, and the moduledoc of certificate_public_projection.ex names the two fields."
+      - "13. Gates: SECURITY-REVIEWER verdict recorded (public unauthenticated projection now exposes two tenant-set strings; the two public tenant-config endpoints stay unchanged, INV-2; INV-8: no crash on non-string stored values, a snapshot or settings value of another type falls back to the placeholder); REVIEWER verdict recorded; no migration, route, permission or tenant table is added (git diff --stat shows no path under priv/repo/migrations/ and no change to route-count pins); mix letflow.check.static and the changed test files pass with the output quoted."
+    depends_on: [REQ-355, REQ-357, REQ-382, REQ-585, REQ-591]
   - id: REQ-594
     title: "Exam analytics reports over the aggregate API: per-exam summary, score distribution and per-question difficulty, with the classification of every BilimBaga report (BilimBaga study T6c)"
     owner: ELIXIR-DEV
@@ -42384,6 +42410,48 @@ requirements:
       - "7. Reader check on the implementing change's git diff main...HEAD: no line under priv/keycloak/provisioner/v1/, in test/letflow/keycloak_tenant_realm_template_test.exs, in docs/runbooks/, in docs/migration/decisions/ or in docs/requirements.yaml is changed; nothing in the diff claims production use."
       - "8. mix test test/letflow/keycloak_tenant_realm_template_v2_test.exs and mix test test/letflow/keycloak_tenant_realm_template_test.exs both pass with real output quoted, and lf.sh lint passes; the PR text names the infra dependency (smtpServer validation in services/tenant-provisioner, and shipping the v2 template and the email theme with the ru and kk texts) as outside this change."
     depends_on: [REQ-572]
+
+  - id: REQ-598
+    title: "Saved pivot view definitions over the aggregate query route: storage, validation on the existing view routes and replay through the aggregate route (generic views, slice 2, backend)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3367
+    # Source: docs/migration/decisions/0066-generic-saved-views-over-records.md, "Deferred slices": "Slice 2: pivot view over `POST /entities/query/aggregate` (REQ-315)."; core roadmap Wave 3 (docs/migration/core-roadmap-20261014.md). Written by the business analyst (T-0690) 2026-10-26.
+    description: >
+      Backend of slice 2 of generic views (decision 0066, "Deferred slices": "Slice 2: pivot view
+      over POST /entities/query/aggregate (REQ-315)"). A saved pivot view is a named definition
+      over exactly one entity type holding a filter (stored under the key `filter` like list views, the clause list of the aggregate route),
+      zero or more group_by clauses (each an object with a `field`; an absent or empty group_by is accepted as on the aggregate route) and one or more aggregates (each an object with `fn` count, sum, avg,
+      min or max, with a field except for count), stored as a second kind of row in the same
+      tenant-schema table as list views (priv/repo/migrations/20261025500001_create_entity_views.exs,
+      schema lib/letflow/entities/views/view.ex, writer lib/letflow/entities/views.ex) and served
+      by the existing view routes mounted at /entity-views (lib/letflow/routers/entity_views.ex,
+      forward in lib/letflow/plugs/api_pipeline.ex). This slice adds no route: create, update,
+      read, list and delete of a pivot view reuse the five routes of REQ-555, so the route-scope
+      and route-count pins do not move. A pivot view is not a read path: no view route returns
+      aggregate or record data. The pivot is computed only when a client replays the stored
+      definition as an ordinary POST /entities/query/aggregate (lib/letflow/routers/entities.ex,
+      route query_aggregate, permission EntitiesAggregate of REQ-315, Letflow.Entities.RequestAccess.check/4
+      with kind :aggregate, Letflow.Entities.Query.Compiler.run_aggregate/3), so the type gate, the
+      restricted-field walker and per-user redaction apply exactly as for a hand-built aggregate
+      request (decision 0066 D3, INV-2). Decisions kept unchanged: D1 tenant-wide sharing, D2 one
+      entity type (a stored pivot has no join), D3 replay without a second read path, D4 reading
+      needs EntitiesQuery and writing needs EntitiesViewsManage (TENANT_ADMIN only, platform admin
+      by the unconditional platform clause). Out of scope: the web pivot screen (a later web
+      requirement), the graph view (slice 3), the report builder (slice 4), per-user views, views
+      over joined types (REQ-300) and view versioning.
+    acceptance_criteria:
+      - "1. Storage and write shape: a tenant-schema migration in priv/repo/migrations/ adds to the existing entity views table a view kind (list or pivot; every existing row becomes list) and the stored group_by and aggregates of a pivot, with no new tenant table. The write body gains one optional key `kind` with the values `list` and `pivot` (default `list`, so every REQ-555 body keeps working) and, for `kind` pivot only, the keys `group_by` and `aggregates` (stored and returned under those names, shapes as on the aggregate route: `{\"field\": ...}` and `{\"fn\": ..., \"field\": ...}`). A pivot body that carries `columns` or `sort`, and a list body that carries `group_by` or `aggregates`, returns 422 `unknown_key` and stores nothing; the view response gains `kind`, `group_by` and `aggregates`. Tenant_id stays inside the schema (decision 0006 D2). A test asserts that an existing list view row is unchanged after the migration and that a pivot view created in tenant A is absent from the tenant B schema (INV-1, INV-6)."
+      - "2. Validation on write: create and update of a pivot view validate the filter and the group_by and aggregates with the same clause rules POST /entities/query/aggregate uses (operators, field names on the type, aggregate function list count, sum, avg, min, max). A field not on the type, an unknown operator, an unknown aggregate function, a missing or empty aggregates list, a malformed group_by or a body that carries a `join` key returns 422 and stores nothing, with the short code of the view routes (the vocabulary of Letflow.Entities.Views.Clauses, not the 400 prose of the aggregate route): for a filter error the same code a list view gets for the same filter (`filter_invalid`, `unknown_operator`, `field_not_allowed`, `value_arity_mismatch`, `invalid_in_value`, `invalid_decimal_value`, `operator_not_valid_for_type`); `field_not_allowed` for a group_by or aggregate field that is not on the type; `unknown_key` for `join`; the new code `aggregates_invalid` for a missing, empty or malformed aggregates list or an unknown aggregate function; the new code `group_by_invalid` for a malformed group_by (not a list, or an element without a string `field`). An absent or empty group_by is accepted, as on the aggregate route. An input the aggregate route accepts is accepted and one it refuses is refused. One test per case."
+      - "3. D2 and D1: a pivot view names exactly one entity type; the name is unique per entity type within a tenant across both kinds (a pivot cannot reuse the name of a list view of the same type; 409 as in REQ-555). A pivot view created by one TENANT_ADMIN is returned by the list route to every caller who holds EntitiesQuery and may read that type, and is not returned to a caller who may not read the type."
+      - "4. D4 permissions: reading pivot views needs EntitiesQuery and creating, updating and deleting needs EntitiesViewsManage; no new permission atom is added, and the permission matrix golden (priv/permission_matrix/effective.golden) is unchanged. A test shows a caller without EntitiesViewsManage gets 403 on create, update and delete of a pivot view, the same 403 for an existing and an absent id."
+      - "5. D3 replay and INV-2: a test stores a pivot view and sends its stored group_by and aggregates under the same names and its stored `filter` as the request key `filters` (the aggregate route reads `filters`, and an absent `filters` means no filter) to POST /entities/query/aggregate, using a non-empty filter so that a dropped filter shows; the response equals the response of the same hand-built request. For a caller who has no grant on a field the view names, the replay is refused or redacted exactly as the hand-built request is. No view route response contains an aggregate result or a record value."
+      - "6. INV-5 not-found: a pivot view of an entity type the caller may not read, a pivot view of another tenant and an absent view id return the same 404 with identical headers and body."
+      - "7. INV-10 cross-tenant negative test: with a pivot view id and entity type key that exist only in tenant A, a TENANT_ADMIN of tenant B calling read, update and delete receives the same 404 as for an absent id with a byte-identical body, and the tenant A pivot row is unchanged afterwards. No view route takes a tenant identifier from the request."
+      - "8. Audit and pins: create, update and delete of a pivot view each write an audit event in the same transaction as REQ-555 does; refusals write none. No route is added, so the __authz_routes__ tests, the route_scope snapshots and the route-count pins pass unchanged; the implement step greps test/ for the entity views table name and the view column list and updates any exact-set pin it finds."
+      - "9. SECURITY-REVIEWER verdict recorded (mandatory: tenant-data path) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the view tests, the aggregate route tests and the authorization and route pin tests pass, real output quoted."
+    depends_on: [REQ-315, REQ-555]
   - id: REQ-597
     title: "Exam assignment, reminder and result notification templates registered and sent through the REQ-584 delivery log, behind a default-off flag"
     owner: ELIXIR-DEV
@@ -42500,3 +42568,178 @@ requirements:
       - "10. Scope: the PR adds no route, permission, migration or tenant table, so no route-count pin and no @expected_tenant_tables pin moves (stated in the PR summary after grepping test/ for the registry key list literals and for the config key); it touches no welcome or reset mail path and adds no retry or schedule; the open questions above are copied into the PR body as undecided; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the new test files pass with real output quoted; SECURITY-REVIEWER (INV-1, INV-4, INV-8, INV-10) and REVIEWER verdicts are recorded."
       - "11. Bucket C (decision 0022): grep -n \"exam\" lib/letflow/notifications.ex prints nothing (Letflow.Notifications names no exam); every exam-named function and the flag reader are in lib/letflow/modules/exam/notifications.ex; the Bucket-C inventory section of docs/migration/stage-10-bilimbaga-vertical.md gains a row for Letflow.Modules.Exam.Notifications, and the REVIEWER rule-2 verdict on the three keys in the platform registry (open question 5) is recorded in that row."
     depends_on: [REQ-563, REQ-582, REQ-584]
+
+  - id: REQ-600
+    title: "AI-assisted exam question drafting: one route returns up to 10 draft questions, off by default, nothing is saved (BilimBaga study T6b, FR-BB71)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S10
+    gh: 3375
+    description: |
+      Source: docs/migration/bilimbaga-study-t6a-ai.md (sections 1, 2, 4, 5) and docs/migration/bilimbaga-retirement-status.md
+      section 6 and task T6b (retirement criterion 6); BilimBaga requirement FR-BB71 (POST /api/v1/admin/ai/generate-questions,
+      handler backend/internal/ai/handler.go, drafts returned and never inserted). Written by the business analyst (T-0715)
+      2026-10-27. Not yet validated.
+
+      PRECONDITION, owner check (not a code task, not decided here). Study T6a could not read the BilimBaga demo
+      (bilimbaga-test.ai-dala.com). Before any feature task for this entry starts, the owner or infra records, read-only, on
+      the BilimBaga demo: (a) SELECT count(*), max(created_at) FROM ai_usage_log, and (b) whether ANTHROPIC_API_KEY, AI_API_KEY
+      or XAI_API_KEY is set in /opt/apps/bilimbaga-test/.env (presence only, never the value). If the count is 0 and no key is
+      set, the owner drops this requirement and records retirement criterion 6 as "not used in production" in
+      docs/migration/bilimbaga-retirement-status.md; no feature task is queued. Until the owner answers, this entry stays
+      pending and is not implemented.
+
+      What is built (one change). One route on the exam module, POST /api/v1/modules/exam/ai/draft-questions, added to
+      lib/letflow/modules/exam/router.ex (an authz_post beside the authoring routes) and to the route_policies list in
+      lib/letflow/modules/exam/exam.ex. Body: category_id (string, a category record id of the caller's tenant), difficulty
+      ("easy", "medium" or "hard", the enum of priv/modules/exam/entity_definitions/question.json), context (text, 1 to 8000
+      codepoints), count (integer 1 to 10, default 10), locale ("kk", "ru" or "en", default "en"). Answer 200: {"drafts": [...]}
+      with at most count items, each {stem, type, explanation, options: [{text, is_correct}]} where type is "single",
+      "multiple" or "truefalse" (the question.type values that carry fixed options; "likert" and "shorttext" are not
+      drafted). The route inserts nothing: it calls no Letflow.Entities.Records function and writes no record. A person saves a
+      draft they accept through the existing POST /api/v1/modules/exam/authoring/:entity_type route, served by
+      Letflow.Modules.Exam.Authoring.create/2 (lib/letflow/modules/exam/authoring.ex), as question and answer_option records,
+      where the normal validation and ExamAuthoringWrite check apply (INV-3: model output is untrusted text). New logic lives
+      in a new module Letflow.Modules.Exam.AiAuthoring (lib/letflow/modules/exam/ai_authoring.ex).
+
+      Permission (one choice): the existing ExamAuthoringWrite (declared in lib/letflow/modules/exam/exam.ex, no role_grants).
+      Reason: drafting is authoring work, the roles that may author may draft, and no new permission means
+      priv/permission_matrix/effective.golden and the tenant-auditor refused-set literal do not move. Holders today
+      (golden lines "PLATFORM_ADMIN ExamAuthoringWrite true" and "TENANT_ADMIN ExamAuthoringWrite true"): PLATFORM_ADMIN and
+      TENANT_ADMIN; every other role is refused. The route takes the tenant from the token (prefix from
+      conn.assigns.scoped_opts), never from the body, so a PLATFORM_ADMIN gets its own tenant's behaviour, not another
+      company's. The route needs a route-scope decision as the neighbouring authoring routes (no scope: option, tenant_wide
+      default).
+
+      Feature flag, off by default. config :letflow, :exam_ai_authoring_enabled, false in config/config.exs; only the atom
+      true turns it on. Reason for a flag: the route sends tenant text to a third-party provider, the study could not show
+      that the pilot uses AI, and a fresh install must send nothing out and cost nothing until the platform operator
+      chooses. A value other than the atom true (for example the string "true") counts as off.
+
+      Unavailable code. With the flag off, or with no usable provider key or base URL, the route answers HTTP 503 whose
+      problem detail is exactly "ai_unavailable" (Letflow.Api.Response.service_unavailable/2, lib/letflow/api/response.ex),
+      makes no outbound request, resolves no secret and changes no state. The same answer for each cause, so a caller cannot
+      tell which one it is. Authorization is checked first: a caller without ExamAuthoringWrite gets the route's normal
+      refusal, never "ai_unavailable".
+
+      Provider, key and URL (INV-4, INV-9). One provider shape, OpenAI-compatible chat completions: POST {base_url}/chat/completions,
+      header Authorization: Bearer <key>, sent with :httpc (already in use in lib/letflow/webhooks.ex; no new dependency),
+      timeout 60 seconds (a setting, see below), response body cut to 64 KB before parsing. The Anthropic adapter of BilimBaga is not
+      ported. The key is one platform key (the platform pays; the per-tenant cost cap below limits the spend). It is stored as
+      a Letflow.Secrets secret (lib/letflow/secrets.ex) and named only by reference: config :letflow,
+      Letflow.Modules.Exam.AiAuthoring, key_reference: "sec://tenant/<platform tenant slug>/ai/provider-key" (an
+      operator setting in runtime config, unset by default). It is resolved with Letflow.Secrets.resolve/2 using
+      tenant_id: Letflow.EventStore.platform_tenant_id() and the default :generic consumer, without platform: true (the "platform" namespace is reserved by decision 0053 D9 and test/letflow/scripts/hmac_secret_test.exs pins its two users; a key under a non-reserved namespace of the platform tenant needs no widening), at call time,
+      never cached, never in a tenant's data. The operator creates the secret with Letflow.Secrets.put/2 with purpose :generic (there is no HTTP
+      route to create a secret, and this entry adds none). The plaintext never appears in a log line, a response, an error
+      term, a telemetry event, the prompt or git; a failed provider call is logged without the response body, and any
+      logged text has the key replaced and is cut to 500 characters (BilimBaga's logUpstreamFailure habit). Tests and agents
+      use a fake provider (a local test server or injected function), never a real key. Base URL: config :letflow,
+      Letflow.Modules.Exam.AiAuthoring, base_url: "..." (operator setting, unset by default). No tenant, request body or
+      stored tenant data can influence it, so it is operator config and not a tenant-controlled URL (INV-9). It is still
+      validated before every request: Letflow.Webhooks.UrlValidator.validate/2 (lib/letflow/webhooks/url_validator.ex; https
+      only, private, loopback, link-local and metadata addresses refused), with the DNS resolver read from the setting dns_resolver of the same config (default &Letflow.Webhooks.UrlValidator.default_resolver/1) so a test can replace it; redirects are not followed
+      ({:autoredirect, false}); a refusal gives "ai_unavailable". A test-only setting
+      :exam_ai_authoring_url_validation_enabled (default true), the same pattern as :webhook_ssrf_validation_enabled in
+      lib/letflow/webhooks.ex, lets the fake provider run on 127.0.0.1.
+
+      Rate limit and cost cap (settings with defaults). config :letflow, Letflow.Modules.Exam.AiAuthoring, user_calls_per_hour: 20
+      (BilimBaga's rateLimit in ai/service.go), tenant_calls_per_day: 200 (UAT assumption, to be confirmed by the process
+      owner), provider_timeout_ms: 60_000. Counters are per node in a new ETS table owned by a small supervised GenServer,
+      Letflow.Modules.Exam.AiAuthoring.Usage, modelled on Letflow.Plugs.PublicReadRateLimit.Bucket
+      (lib/letflow/plugs/public_read_rate_limit/bucket.ex) and added to the children of Letflow.Supervisor.Infrastructure.init/1 (lib/letflow/supervisor/infrastructure.ex, where the Bucket is a child; not lib/letflow/application.ex); keys are
+      {tenant_id, user_id} with a one-hour window and {tenant_id} with a UTC-day window. A call that passes the checks is
+      counted once, before the provider is called, whether or not the provider succeeds. Over a limit the answer is HTTP 429
+      (Letflow.Api.Response.rate_limited/2) with a Retry-After header, and no provider call is made. Decision 0040
+      (docs/migration/decisions/0040-authenticated-route-rate-limiting.md) defers a general per-actor limiter; this is a
+      route-local limit and does not discharge that deferral. Known limit: counters reset when the node restarts and are not
+      shared between nodes, so a cost cap is an approximation (calls, not currency or tokens); stated, not hidden.
+      The usage counters hold ids and counts only. The prompt, the context text and the model answer are written to no log,
+      no table and no event.
+
+      INV-1 and INV-10. The tenant is the token's tenant; the body has no tenant field and a tenant field in the body is
+      ignored. category_id is looked up under the caller's prefix (lib/letflow/entities/records.ex read path used by
+      Authoring); an id from another tenant is not found and answers 404 with the same body as a missing id (INV-5).
+      Counters are keyed by the token's tenant, so tenant A's calls never use tenant B's allowance.
+
+      NOT BUILT, explicitly out of this entry: AI grading of short text answers (BilimBaga FR-BB73; it sends employees' free
+      text, which is personal data, to a third party and decides scores, so it needs its own decision), exam insight
+      summaries and their cache (FR-BB74), the loyalty-session narrative (FR-BB75; the loyalty track is outside the Letflow
+      roadmap), machine translation (BilimBaga has none, the study found it is a manual per-locale store), a per-tenant
+      provider key, a tenant-chosen provider or URL, a web screen for drafting (a later frontend task), the ai_usage_log table,
+      and any change to seeds, entity definitions or migrations.
+    open_questions:
+      - "Owner check, blocks the feature task: ai_usage_log row count and key presence on the BilimBaga demo (see PRECONDITION). If AI is unused there, the owner drops this requirement. Not decided here."
+      - "Platform key or per-tenant key, for the process owner: this entry takes one platform key with a per-tenant call cap, because Letflow has no route to store a tenant's own secret. Whether a tenant should pay with its own key is a separate requirement. Not decided here."
+      - "UAT assumption, to be confirmed by the process owner: 20 calls per user per hour, 200 calls per tenant per day, 60 second provider timeout, count 10 as the maximum, context limit 8000 codepoints."
+      - "Whether a per-node in-memory counter is acceptable for the cost cap or the cap must survive restarts and be shared between nodes (a tenant table, with migration and pin moves). Not decided here."
+      - "Whether tenant text may be sent to the chosen provider at all (data-processing terms, the pilot customer's consent). A process-owner decision before the flag is turned on in any environment; this entry only ships it off."
+    acceptance_criteria:
+      - "1. Route and permission: POST /api/v1/modules/exam/ai/draft-questions exists, is gated by ExamAuthoringWrite and is listed in route_policies of lib/letflow/modules/exam/exam.ex; with the flag on and a fake provider, a TENANT_ADMIN gets 200 with a drafts list; a TENANT_ADMIN of the same tenant is the only tenant role tested as allowed, and a CANDIDATE, PROCESS_OPERATOR, PROCESS_DESIGNER and TENANT_AUDITOR token each get the route's 403 refusal and the fake provider receives no request; the golden priv/permission_matrix/effective.golden is unchanged (git diff shows no change to it)."
+      - "2. Default off: config/config.exs sets :exam_ai_authoring_enabled to false; with the flag unset, false or the string \"true\", an authorized TENANT_ADMIN gets HTTP 503 with detail exactly \"ai_unavailable\", the fake provider receives no request, Letflow.Secrets.resolve/2 is not called (a test counts calls) and no counter changes."
+      - "3. No key, no URL: with the flag on and key_reference unset, or the secret not found, disabled or deleted, or base_url unset, the answer is the same 503 \"ai_unavailable\" with no outbound request; the other routes of the exam module answer as before (one existing authoring create request in the same test returns 201)."
+      - "4. Draft shape and bounds: the fake provider returns 12 well-formed items; the route returns at most count (default 10) drafts, each with stem, type in single, multiple or truefalse, explanation and options with text and is_correct; items with an unknown type, an empty stem, no option, or no is_correct true option for single and truefalse are dropped; when no valid item remains the answer is HTTP 503 (Letflow.Api.Response.service_unavailable/2; the error module has no 502 constructor) with detail exactly \"ai_provider_failed\" and no provider text; count 0, 11, a non-integer, difficulty \"expert\", an empty context, a context of 8001 codepoints and a locale other than kk, ru, en each answer 422 and make no provider call."
+      - "5. Nothing is saved: after a successful call, the count of records of the ten authoring types under the tenant prefix (question, answer_option, tag, category and the other six) equals the count before; grep -n \"Records\\.\" lib/letflow/modules/exam/ai_authoring.ex prints nothing; a draft from the response posted to POST /api/v1/modules/exam/authoring/question as a TENANT_ADMIN is accepted or refused by the existing validation exactly as a hand-typed question would be."
+      - "6. Key by reference (INV-4): the key is resolved by Letflow.Secrets.resolve/2 with tenant_id equal to Letflow.EventStore.platform_tenant_id() and without platform: true (grep -n \"platform: true\" lib/letflow/modules/exam/ai_authoring.ex prints nothing; test/letflow/scripts/hmac_secret_test.exs stays unchanged), once per provider call; a test with a distinctive key plaintext asserts the plaintext appears in no HTTP response body, no ExUnit.CaptureLog output of a successful, a failed (provider 500 whose body echoes the key) and a timed-out call, no inspect of the config or error term, and no telemetry metadata, and appears only in the Authorization header the fake provider received; a logged failure text is at most 500 characters and holds no provider response body; mix.exs and mix.lock gain no dependency."
+      - "7. Provider URL (INV-9): base_url comes only from application config; a test shows a body field named base_url, url or provider is ignored; with validation on, base_url values http://example.com, https://127.0.0.1, https://169.254.169.254, https://10.0.0.1 and a hostname whose resolver, set through the dns_resolver setting, returns a private address each give 503 \"ai_unavailable\" with no request sent; a provider reply with a 302 redirect is not followed (the fake redirect target receives no request) and gives 503 with detail exactly \"ai_provider_failed\"; a reply body over 64 KB answers 503 \"ai_provider_failed\" without a crash; a provider timeout, a closed connection and a non-JSON body each return the 503 \"ai_provider_failed\" answer of criterion 4 and never raise (INV-8)."
+      - "8. Limits: with user_calls_per_hour set to 2 in the test, the third call by the same user within the hour gets 429 with a Retry-After header and the fake provider received exactly 2 requests; a second user of the same tenant still gets 200; with tenant_calls_per_day set to 3 the fourth call by any user of that tenant gets 429; defaults are 20 and 200 when the settings are unset (read by a test of the settings function); a call whose provider reply is an error is still counted; a call refused by criteria 1, 2, 3 or 4 (validation) is not counted, and neither is a call refused by the base_url validation of criterion 7 (503 \"ai_unavailable\")."
+      - "9. Tenant isolation (INV-1, INV-5, INV-10): in a two-tenant test, a TENANT_ADMIN of tenant B sending tenant A's category_id gets the same 404 body as a random unknown id and the fake provider receives no request; tenant A exhausting its tenant_calls_per_day does not change tenant B's answer (200); a tenant_id field in the body (tenant A's id sent by tenant B) is ignored and the call is counted against tenant B; a PLATFORM_ADMIN token of the platform tenant gets a 200 for its own tenant's category only and a 404 for a category of another tenant."
+      - "10. Scope and gates: the PR adds no migration, tenant table, seed, entity definition or permission, and states the new route-pin values as +1 from the value on origin/main at implement time (grep -rn \"__authz_routes__\\|length(snapshot)\" test/ and test/fixtures/route_scope/tenant_wide_default_routes.txt, the exam router route list in test/ and the module manifest route_policies pin; the child count in the moduledoc of lib/letflow/supervisor/infrastructure.ex and the ordered child list pinned in test/letflow/supervisor/infrastructure_test.exs, each +1 from origin/main at implement time); the moduledoc of lib/letflow/modules/exam/router.ex route table gains one row; the PR names FR-BB73, FR-BB74 and FR-BB75 as not built; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the new test files pass with real output quoted; the SECURITY-REVIEWER verdict (INV-1, INV-4, INV-5, INV-8, INV-9, INV-10) and the REVIEWER verdict are recorded; the open questions above are copied into the PR body as undecided."
+    depends_on: [REQ-510, REQ-190, REQ-204]
+
+  - id: REQ-602
+    title: "Exam builder screen: one view that edits an exam, its sections and its question rules, through the exam authoring write routes (BilimBaga retirement criterion 2, T2c)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S10
+    gh: 3355
+    description: >-
+      Source: docs/migration/bilimbaga-retirement-status.md section 2 item 3 ("Admin screens are generic
+      CRUD ... no exam builder with sections and rules in one view") and task T2b-T2d. Today an
+      administrator builds an exam through three separate generic pages reached from
+      web/src/modules/exam/BilimBagaAdminPage.tsx (one entity type at a time, rendered by
+      web/src/modules/exam/BilimBagaEntityRoute.tsx with the writes in
+      web/src/modules/exam/bilimbagaWrites.ts). This requirement adds one screen under
+      web/src/modules/exam/ (new file ExamBuilderPage.tsx, its API helpers in the existing
+      web/src/modules/exam/exam.api.ts, messages in web/src/modules/exam/examMessages.ts) that shows one exam
+      with its sections and its question rules together. Route: two new children of the existing
+      admin/bilimbaga route object in web/src/modules/exam/examRoutes.tsx, placed before ':entityType':
+      'exam-builder' (list of exams with a create action) and 'exam-builder/:examId' (the builder). The
+      words 'exam-builder' are not an entity type, so the generic route is not shadowed. No backend change:
+      the screen uses POST /modules/exam/authoring/:entity_type, PUT and DELETE
+      /modules/exam/authoring/:entity_type/:record_id (lib/letflow/modules/exam/router.ex, route table
+      and authz_post/authz_put/authz_delete; the permission is declared in lib/letflow/modules/exam/exam.ex
+      route_policies), through the existing examAuthoringApi in exam.api.ts, for the entity types exam,
+      exam_section and exam_question_rule (Letflow.Modules.Exam.Authoring.authoring_types in
+      lib/letflow/modules/exam/authoring.ex); records are read through the existing
+      entitiesApi.queryRecords (web/src/api/entities.ts, POST /api/v1/entities/query, the only record-read
+      route; fetching one exam is a filter on record_id, and an unknown id yields an empty page, not a 404),
+      filtered by exam_id for sections and rules.
+      Fields come from priv/modules/exam/entity_definitions/exam.json, exam_section.json and
+      exam_question_rule.json: an exam has title, description, status, time_limit_minutes, passing_score_pct,
+      max_attempts, available_from, available_until, shuffle flags, show_answers, on_tab_switch,
+      certificate_enabled; a section has exam_id, title, sort_order (unique per exam); a rule has exam_id,
+      optional section_id, mode (manual or random), optional category_id, difficulty, count, sort_order
+      (unique per exam). Gating: ExamAuthoringWrite, held by TENANT_ADMIN and PLATFORM_ADMIN and no other
+      built-in role (priv/permission_matrix/effective.golden), so PROCESS_DESIGNER and TENANT_AUDITOR do
+      not get the screen. The screen and its nav entry are shown only when the user holds
+      ExamAuthoringWrite, checked the way EntityCrudPage checks writes.permission for the same string
+      (EXAM_AUTHORING_WRITE in bilimbagaWrites.ts); the server remains the authority (403 before any lookup).
+      The existing BilimBagaAdminPage and the ten generic entity routes stay unchanged and keep working.
+      Out of scope: porting the BilimBaga corpus file exam-wizard.spec.ts (BilimBaga/frontend/e2e/, per
+      docs/migration/bilimbaga-e2e-remeasure.md section 2; it is not in this repository). That file has 9
+      tests, all marked BLOCKED-BY exam builder screen in that document; they become portable
+      once this screen exists, and porting them is a later batch (study T3c), not part of this change.
+      Also out of scope: exam_question_rule_tag and exam_manual_question editing, exam assignment, the
+      examiner and manager screens. Open question for the process owner, not settled here: whether an
+      "exam author" role below TENANT_ADMIN is needed (retirement-status section 2 item 4).
+    acceptance_criteria:
+      - "1. Load: opening exam-builder/:examId issues one query per entity type (exam, exam_section, exam_question_rule), the latter two filtered by exam_id, and renders the exam fields, the sections ordered by sort_order, and the rules grouped under their section (rules with no section_id in an 'unsectioned' group). Vitest (ExamBuilderPage.load.test.tsx) with a mocked client asserts the three requests and the rendered grouping."
+      - "2. Edit and save: changing an exam field, adding a section, adding a rule and editing a rule, then pressing Save, sends PUT for the exam, POST for each new section, then POST or PUT for each rule (sections first, so a new rule can name the new section's id). Each body is {field_values: <full map>} and nothing else; for a section and for a rule field_values includes exam_id, and for a rule in a section also section_id (the exam's own body has no exam_id). Deletes are sent last, rules before the section they name (fk_exam_question_rule_section_id in priv/modules/exam/entity_definitions/exam_question_rule.json), as DELETE on the record path. Vitest asserts the method, path and body of each call in that order."
+      - "3. Validation before send: a rule with count below 1, a missing required field (title, time_limit_minutes, passing_score_pct, max_attempts, mode, count, sort_order), a duplicate sort_order among the sections or among the rules of one exam, shows a field error next to the control and sends no request. Vitest asserts the message and that the mocked client was not called."
+      - "4. Server errors: a 422 from the server shows its field errors against the matching controls; a 409 shows the message 'the record was changed or removed elsewhere' with a Reload action that repeats the load (the save sends no expected_last_event_global_seq, so the 409s possible are the record already deleted and the definition changed during the write, lib/letflow/routers/entities/record_writes.ex); a 403 shows a 'you may not edit exams' message; any other failure shows a generic message. After the first failed call in a save the remaining calls are not sent and the screen lists which changes were saved and which were not. Vitest covers the 422, 409 and 403 paths and the stop-after-first-failure behaviour."
+      - "5. Gating and 404: a user without ExamAuthoringWrite sees neither the nav entry nor the screen's edit controls (the route shows the forbidden state); the exam module not being installed renders the existing NotFoundPage through ModuleGuard; an :examId that is not a UUID renders the not-found state without sending any request; a UUID for which the exam query returns no record renders the same not-found state, not an empty form. Vitest covers all four cases; the nav item is added in web/src/modules/exam/index.ts with permission 'ExamAuthoringWrite', and examModule.nav.test.tsx is updated for it."
+      - "6. Navigation: BilimBagaAdminPage gets one extra link to exam-builder and is otherwise unchanged; BilimBagaAdminPage.test.tsx, BilimBagaEntityRoute.test.tsx and BilimBagaEntityWrites.test.tsx pass unchanged apart from the added link."
+      - "7. Texts: every user-visible string is in examMessages.ts and ExamIntlProvider; exam-i18n-grep.test.ts passes."
+      - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
+    depends_on: [REQ-510]
