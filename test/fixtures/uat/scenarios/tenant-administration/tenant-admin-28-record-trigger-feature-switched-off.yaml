@@ -20,7 +20,7 @@ description: >
 
 actors:
   tenant_admin_a: actor-swiftroute-alice
-  worker_a: actor-swiftroute-lena
+  worker_a: actor-swiftroute-marco
 
 preconditions:
   - description: The record-trigger feature is switched OFF in the test environment.
@@ -34,7 +34,7 @@ steps:
   - step: 1
     actor: tenant_admin_a
     action: >
-      The administrator tries to list the attachments. The answer (status, body and content type) is noted.
+      The administrator tries to list the attachments. The answer (status, content-type header and decoded body without the per-request trace_id member) is noted.
     expect_refusal: true
     via: api
   - step: 2
@@ -73,11 +73,22 @@ expected_outcomes:
     description: Every attachment route answers not-found, the same as a route that does not exist, for the administrator and for the worker, and nothing is stored.
     verification:
       method: http_status
-      detail: All five requests in steps 1 to 5 answer 404, and each equals NR (step 6) in status, body and content type. This holds although the administrator holds the right and the attach request is valid. The worker, who would otherwise be refused with 403, also gets 404.
+      detail: All five requests in steps 1 to 5 answer 404, and each equals NR (step 6) in status, content-type header and decoded body after removing the per-request trace_id member. This holds although the administrator holds the right and the attach request is valid. The worker, who would otherwise be refused with 403, also gets 404.
       evidence: The five answers of steps 1 to 5 and NR.
     on_fail:
       severity: MAJOR
       business_impact: A feature the platform operator has not opted into is reachable, or its existence is revealed.
+      suggested_action: route_to_elixir_dev
+
+  - id: EO-002
+    description: Nothing is stored by the refused requests.
+    verification:
+      method: system_state
+      detail: Read from the database after step 6. SwiftRoute has no attachment for "trig_flag" and no audit entry for an attach, replace or remove of an attachment was written since step 1.
+      evidence: The SwiftRoute attachment table and the audit trail, read directly.
+    on_fail:
+      severity: MAJOR
+      business_impact: A switched-off feature still changes which scripts run after a record is saved.
       suggested_action: route_to_elixir_dev
 
 cleanup:

@@ -79,14 +79,14 @@ steps:
   - step: 8
     actor: tenant_admin_a
     action: >
-      The administrator tries to remove the attachment of "trig_order" "deleted" a second time. The answer (status, body and content type) is noted.
+      The administrator tries to remove the attachment of "trig_order" "deleted" a second time. The answer (status, content-type header and decoded body without the per-request trace_id member) is noted.
     expect_refusal: true
     via: api
   - step: 9
     actor: tenant_admin_a
     action: >
       The administrator tries to remove the attachment of a record type named "trig_nowhere" for the event "deleted"; no company has defined that type. The answer (status, body and
-      content type) is noted.
+      content-type header and decoded body without the per-request trace_id member) is noted.
     expect_refusal: true
     via: api
   - step: 10
@@ -140,7 +140,7 @@ expected_outcomes:
     description: Removing an attachment works once; a second removal and a removal for a type that does not exist give the same not-found answer.
     verification:
       method: http_status
-      detail: Step 7 answers 204 and the list no longer has "trig_order" "deleted" while the other two entries remain. Steps 8 and 9 both answer 404 and the two answers are equal in status, body and content-type header.
+      detail: Step 7 answers 204 and the list no longer has "trig_order" "deleted" while the other two entries remain. Steps 8 and 9 both answer 404 and the two answers are equal in status, content-type header and decoded body after removing the per-request trace_id member.
       evidence: The answers of steps 7 to 9.
     on_fail:
       severity: MAJOR

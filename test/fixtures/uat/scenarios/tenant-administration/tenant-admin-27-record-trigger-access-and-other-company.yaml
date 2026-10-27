@@ -27,7 +27,7 @@ description: >
 
 actors:
   tenant_admin_a: actor-swiftroute-alice
-  worker_a: actor-swiftroute-lena
+  worker_a: actor-swiftroute-marco
   auditor_a: actor-swiftroute-auditor
   tenant_admin_b: actor-bilimbaga-admin
 
@@ -40,7 +40,7 @@ preconditions:
     detail: Setup-prepared. If an attachment exists, remove it first and note that in the report.
   - description: Bilimbaga has a record type of its own "trig_shared" (unmanaged, written by no process, no attachment), no record type named "trig_order_a" or "trig_nowhere", and a published after-save script of kind "record event", bilim_trigger version 1 (fingerprint FP-B1).
     check: system_seeded
-    detail: If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note of actor-bilimbaga-admin), report BLOCKED for steps 6 to 9 and 11 and for EO-003 to EO-005; steps 1 to 5, 10, 12 and 13 run.
+    detail: If the Bilimbaga administrator cannot sign in (no approved test token, see the roster note of actor-bilimbaga-admin), report BLOCKED for steps 6 to 13 and 15 and for EO-003 to EO-005; steps 1 to 5, 14, 16 and 17 run.
   - description: An API token issued to the SwiftRoute administrator exists (the administrator's role, not a signed-in session).
     check: system_seeded
     detail: If the environment cannot issue an API token for the administrator, report BLOCKED for step 4 and EO-002; the other steps run.
@@ -56,7 +56,7 @@ steps:
     action: >
       The task worker tries to list the attachments, tries to attach trigger_check version 1 (fingerprint FP-C1) to "trig_note_a" for the event "created", tries to replace the attachment of
       "trig_order_a" "created" with trigger_check version 1 (fingerprint FP-C1) stating that it is a replacement, and tries to remove the attachment of "trig_order_a" "created". Each answer
-      (status, body and content type) is noted.
+      (status, content-type header and decoded body without the per-request trace_id member) is noted.
     expect_refusal: true
     via: api
   - step: 3
@@ -82,7 +82,7 @@ steps:
     actor: tenant_admin_b
     action: >
       The Bilimbaga administrator tries to attach bilim_trigger version 1 (fingerprint FP-B1) to "trig_order_a" for the event "created", the record type of SwiftRoute. The answer (status, body and
-      content type) is noted as AB1.
+      content-type header and decoded body without the per-request trace_id member) is noted as AB1.
     expect_refusal: true
     via: api
   - step: 7
@@ -171,7 +171,7 @@ expected_outcomes:
     description: For the administrator of another company, SwiftRoute's record type gets the same not-found answer as a type that exists nowhere, for attach, replace and remove.
     verification:
       method: http_status
-      detail: Steps 6 to 11 all answer 404, and AB1 equals AN1, RB1 equals RN1 and DB1 equals DN1 in status, body and content-type header (three pairs).
+      detail: Steps 6 to 11 all answer 404, and AB1 equals AN1, RB1 equals RN1 and DB1 equals DN1 in status, content-type header and decoded body after removing the per-request trace_id member (three pairs).
       evidence: The answers AB1, AN1, RB1, RN1, DB1 and DN1.
     on_fail:
       severity: BLOCKER
