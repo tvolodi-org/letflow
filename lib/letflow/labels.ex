@@ -109,6 +109,23 @@ defmodule Letflow.Labels do
   end
 
   @doc """
+  Every stored override of the tenant as `%{message_id, locale, text}`, sorted by
+  `{message_id, locale}` (binary order, independent of the database collation). Reads only;
+  used by the configuration bundle export (REQ-599).
+  """
+  @spec list_overrides(String.t(), String.t()) :: [
+          %{message_id: String.t(), locale: String.t(), text: String.t()}
+        ]
+  def list_overrides(prefix, tenant_id) do
+    from(o in Override,
+      where: o.tenant_id == ^tenant_id,
+      select: %{message_id: o.message_id, locale: o.locale, text: o.text}
+    )
+    |> Repo.all(prefix: prefix)
+    |> Enum.sort_by(&{&1.message_id, &1.locale})
+  end
+
+  @doc """
   Creates or replaces one override. `opts[:defaults]` replaces the default catalog used for the
   placeholder check (a test fixture; production uses the file).
   """

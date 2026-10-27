@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: catalog_items@0.1.0,exam@0.1.0,org@0.1.0
 # roles: 8
-# permissions: 60
-# rows: 480
+# permissions: 61
+# rows: 488
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -31,6 +31,7 @@ AGENT_RUNNER EntitiesRestrictionsManage false core -
 AGENT_RUNNER EntitiesViewsManage false core -
 AGENT_RUNNER ExamAuthoringWrite false module:exam -
 AGENT_RUNNER ExamCertificateIssue false module:exam -
+AGENT_RUNNER ExamGradingRead false module:exam -
 AGENT_RUNNER ExamSessionRead false module:exam -
 AGENT_RUNNER ExamSessionReportEvent false module:exam -
 AGENT_RUNNER ExamSessionSave false module:exam -
@@ -91,6 +92,7 @@ CANDIDATE EntitiesRestrictionsManage false core -
 CANDIDATE EntitiesViewsManage false core -
 CANDIDATE ExamAuthoringWrite false module:exam -
 CANDIDATE ExamCertificateIssue true module:exam grant
+CANDIDATE ExamGradingRead false module:exam -
 CANDIDATE ExamSessionRead true module:exam grant
 CANDIDATE ExamSessionReportEvent true module:exam grant
 CANDIDATE ExamSessionSave true module:exam grant
@@ -151,6 +153,7 @@ PLATFORM_ADMIN EntitiesRestrictionsManage true core core
 PLATFORM_ADMIN EntitiesViewsManage true core core
 PLATFORM_ADMIN ExamAuthoringWrite true module:exam core
 PLATFORM_ADMIN ExamCertificateIssue true module:exam core
+PLATFORM_ADMIN ExamGradingRead true module:exam core
 PLATFORM_ADMIN ExamSessionRead true module:exam core
 PLATFORM_ADMIN ExamSessionReportEvent true module:exam core
 PLATFORM_ADMIN ExamSessionSave true module:exam core
@@ -211,6 +214,7 @@ PROCESS_DESIGNER EntitiesRestrictionsManage false core -
 PROCESS_DESIGNER EntitiesViewsManage false core -
 PROCESS_DESIGNER ExamAuthoringWrite false module:exam -
 PROCESS_DESIGNER ExamCertificateIssue false module:exam -
+PROCESS_DESIGNER ExamGradingRead false module:exam -
 PROCESS_DESIGNER ExamSessionRead false module:exam -
 PROCESS_DESIGNER ExamSessionReportEvent false module:exam -
 PROCESS_DESIGNER ExamSessionSave false module:exam -
@@ -271,6 +275,7 @@ PROCESS_OPERATOR EntitiesRestrictionsManage false core -
 PROCESS_OPERATOR EntitiesViewsManage false core -
 PROCESS_OPERATOR ExamAuthoringWrite false module:exam -
 PROCESS_OPERATOR ExamCertificateIssue false module:exam -
+PROCESS_OPERATOR ExamGradingRead false module:exam -
 PROCESS_OPERATOR ExamSessionRead false module:exam -
 PROCESS_OPERATOR ExamSessionReportEvent false module:exam -
 PROCESS_OPERATOR ExamSessionSave false module:exam -
@@ -331,6 +336,7 @@ TASK_WORKER EntitiesRestrictionsManage false core -
 TASK_WORKER EntitiesViewsManage false core -
 TASK_WORKER ExamAuthoringWrite false module:exam -
 TASK_WORKER ExamCertificateIssue false module:exam -
+TASK_WORKER ExamGradingRead false module:exam -
 TASK_WORKER ExamSessionRead false module:exam -
 TASK_WORKER ExamSessionReportEvent false module:exam -
 TASK_WORKER ExamSessionSave false module:exam -
@@ -391,6 +397,7 @@ TENANT_ADMIN EntitiesRestrictionsManage true core core
 TENANT_ADMIN EntitiesViewsManage true core core
 TENANT_ADMIN ExamAuthoringWrite true module:exam core
 TENANT_ADMIN ExamCertificateIssue true module:exam core
+TENANT_ADMIN ExamGradingRead true module:exam core
 TENANT_ADMIN ExamSessionRead true module:exam core
 TENANT_ADMIN ExamSessionReportEvent true module:exam core
 TENANT_ADMIN ExamSessionSave true module:exam core
@@ -451,6 +458,7 @@ TENANT_AUDITOR EntitiesRestrictionsManage false core -
 TENANT_AUDITOR EntitiesViewsManage false core -
 TENANT_AUDITOR ExamAuthoringWrite false module:exam -
 TENANT_AUDITOR ExamCertificateIssue false module:exam -
+TENANT_AUDITOR ExamGradingRead false module:exam -
 TENANT_AUDITOR ExamSessionRead false module:exam -
 TENANT_AUDITOR ExamSessionReportEvent false module:exam -
 TENANT_AUDITOR ExamSessionSave false module:exam -

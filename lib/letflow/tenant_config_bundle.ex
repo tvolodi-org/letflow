@@ -19,6 +19,16 @@ defmodule Letflow.TenantConfigBundle do
   violation rolls the whole import back. Unknown tenant-settings keys (and `brand_colors`
   sub-keys) are refused, which is stricter than `PATCH /tenant/settings`, which drops them.
 
+  ## Format v2 (REQ-599, GH #3370)
+
+  The export is `bpm/config-bundle/v2`: v1 plus the optional parts `label_overrides`
+  (`message_id`, `locale`, `text`; sorted by message_id, locale) and `notification_templates`
+  (`template_key`, `locale`, `subject`, `body`; sorted by template_key, locale). Each part is
+  exported only for a caller who holds its manage permission (`:LabelsManage`,
+  `:NotificationTemplatesManage`); the router decides and passes `parts:`. Import accepts v1 and
+  v2; until part 2 of REQ-599 the two new parts in a v2 document are not read or applied. The
+  import audit entry records the version of the imported document.
+
   A re-import of identical content changes nothing and writes no audit entry. A change writes
   exactly one entry carrying key names and module ids, never values.
 
@@ -34,11 +44,14 @@ defmodule Letflow.TenantConfigBundle do
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
   alias Letflow.Identity.TenantSettings
+  alias Letflow.Labels
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
+  alias Letflow.NotificationTemplates
   alias Letflow.Repo
 
-  @schema_version "bpm/config-bundle/v1"
+  @schema_version "bpm/config-bundle/v2"
+  @accepted_versions ["bpm/config-bundle/v1", "bpm/config-bundle/v2"]
 
   @type counts :: %{
           tenant_settings_changed: non_neg_integer(),
@@ -46,15 +59,26 @@ defmodule Letflow.TenantConfigBundle do
           modules_unchanged: non_neg_integer()
         }
 
-  @doc "The bundle schema version this module reads and writes."
+  @doc "The bundle schema version this module writes (export)."
   @spec schema_version() :: String.t()
   def schema_version, do: @schema_version
 
+  @doc "The bundle schema versions an import accepts."
+  @spec accepted_versions() :: [String.t()]
+  def accepted_versions, do: @accepted_versions
+
   @doc """
   The bundle of `tenant_id` (installed modules read from `prefix`). Reads only.
+
+  `opts[:parts]` lists the optional parts the caller may read (`:label_overrides`,
+  `:notification_templates`); the router passes only those the caller's manage permission covers.
+  A listed part adds its key with a list (`[]` when the tenant has none); an unlisted part adds no
+  key. Default `[]`.
   """
-  @spec export(Ecto.UUID.t(), String.t()) :: {:ok, map()} | {:error, :not_found}
-  def export(tenant_id, prefix) do
+  @spec export(Ecto.UUID.t(), String.t(), keyword()) :: {:ok, map()} | {:error, :not_found}
+  def export(tenant_id, prefix, opts \\ []) do
+    parts = Keyword.get(opts, :parts, [])
+
     with {:ok, tenant} <- Identity.get_tenant(tenant_id) do
       modules =
         [prefix: prefix]
@@ -68,15 +92,42 @@ defmodule Letflow.TenantConfigBundle do
           }
         end)
 
-      {:ok,
-       %{
-         "bundle_schema_version" => @schema_version,
-         "exported_at" =>
-           DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
-         "tenant_settings" => tenant.settings || %{},
-         "module_settings" => modules
-       }}
+      bundle = %{
+        "bundle_schema_version" => @schema_version,
+        "exported_at" =>
+          DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+        "tenant_settings" => tenant.settings || %{},
+        "module_settings" => modules
+      }
+
+      {:ok, Enum.reduce(parts, bundle, &add_part(&2, &1, tenant_id, prefix))}
     end
+  end
+
+  defp add_part(bundle, :label_overrides, tenant_id, prefix) do
+    rows =
+      prefix
+      |> Labels.list_overrides(tenant_id)
+      |> Enum.map(&%{"message_id" => &1.message_id, "locale" => &1.locale, "text" => &1.text})
+
+    Map.put(bundle, "label_overrides", rows)
+  end
+
+  defp add_part(bundle, :notification_templates, tenant_id, prefix) do
+    rows =
+      prefix
+      |> NotificationTemplates.list(tenant_id)
+      |> Enum.map(
+        &%{
+          "template_key" => &1.template_key,
+          "locale" => &1.locale,
+          "subject" => &1.subject,
+          "body" => &1.body
+        }
+      )
+      |> Enum.sort_by(&{&1["template_key"], &1["locale"]})
+
+    Map.put(bundle, "notification_templates", rows)
   end
 
   @doc """
@@ -99,6 +150,7 @@ defmodule Letflow.TenantConfigBundle do
           | {:error, :internal}
   def import(tenant_id, prefix, actor_id, body, opts \\ []) do
     with {:ok, ts, modules} <- check_shape(body) do
+      opts = Keyword.put(opts, :bundle_version, body["bundle_schema_version"])
       run_import(tenant_id, prefix, actor_id, ts, modules, opts)
     end
   end
@@ -107,7 +159,7 @@ defmodule Letflow.TenantConfigBundle do
 
   defp check_shape(body) when is_map(body) do
     case Map.get(body, "bundle_schema_version") do
-      @schema_version ->
+      v when v in @accepted_versions ->
         shape_rest(body)
 
       v when is_binary(v) ->
@@ -271,7 +323,7 @@ defmodule Letflow.TenantConfigBundle do
       resource_id: tenant.id,
       before_state: nil,
       after_state: %{
-        "bundle_schema_version" => @schema_version,
+        "bundle_schema_version" => Keyword.fetch!(opts, :bundle_version),
         "tenant_settings_keys_changed" => Enum.sort(keys),
         "module_ids_changed" => ids
       },

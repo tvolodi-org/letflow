@@ -1,0 +1,241 @@
+# T-0795 (BA): TENANT ADMIN group, scenario 29: a company administrator saves a print-layout override as a draft; invalid drafts are refused.
+# Covers REQ-579 criterion 3 (save: 201, draft, version 1 then 2, caller recorded, fingerprint of the layout, server-owned fields ignored;
+# unknown document type, language outside ru/kk/default and invalid layout each 422 and nothing stored), the second sentence of criterion 4
+# (a layout naming a field outside the document type's fields, or a protected field, is refused at save without echoing any value or text),
+# the creator-cannot-activate half of criterion 6 (409 "activation needs a second administrator", draft stays a draft), the status rule
+# "a draft is never retired" (409) of criterion 6, and the saved-event and no-audit-on-refusal parts of criterion 7.
+# Sources: docs/requirements.yaml REQ-579 criteria 3, 4, 6, 7; docs/migration/decisions/0068-per-tenant-print-template-overrides.md (D5, D7);
+# lib/letflow/routers/documents.ex (fixed 422 texts "unknown type_key", "invalid locale", "layout failed validation"; fixed 409 texts come from
+# Letflow.Documents.PrintOverrides.conflict_reason/1); docs/roles.md (DocumentPrintTemplatesManage: TENANT_ADMIN and PLATFORM_ADMIN only);
+# test/fixtures/uat/actors.yaml (alice: SwiftRoute TENANT_ADMIN; actor-system-documents-service: service-level harness, as in core-documents-5).
+# UAT assumption, to be confirmed by the process owner: Q3 of decision 0068 is built as two-person activation (REQ-579 open_questions); a company
+# with one administrator cannot activate a draft it saved. This scenario checks only the refusal; the second-administrator success is scenario 31.
+# Hidden values: the sentinel text "SENTINEL-print-9f3a" is placed in a layout literal; it must not appear in any 422 body or audit entry.
+# The layout's fingerprint (sha256 of the canonical bytes) is checked by comparison with a value computed by the harness (system_state), because
+# the canonical bytes are not visible to a user.
+# Approve, pay or release, see-sensitive-data and change-users are not in this flow except the activation refusal (the nearest to "approve").
+# Not steps here (test setup by its own wording): criterion 6 direct SQL CHECK activated_by <> created_by (backend test "S1-store") and criterion 7 forced audit failure (backend test "S2-audit-4"), both in test/letflow/documents/print_overrides_test.exs.
+---
+id: tenant-administration-29-print-override-save-and-validation-refusals
+scope: tenant-administration
+title: The company administrator saves print-layout drafts with the next version number; invalid drafts are refused and nothing is stored or audited
+version: "1.0"
+tags: [tenant-admin, documents, print-override, validation, refusal, audit, separation-of-duties]
+
+description: >
+  The administrator of SwiftRoute saves a print layout for the document type "purchase_order" in Russian (ru). The first draft is version 1 with
+  status draft, the administrator as its creator and a fingerprint of the layout; a second draft for the same type and language is version 2; a
+  draft for kk is version 1. Fields the request tries to set itself (company, version, status) are ignored. A layout is refused (422) when the
+  document type is unknown, the language is not ru, kk or default, the layout is malformed, or it names a field the document type does not
+  have, or a field the company has protected; a refusal stores nothing, writes no audit entry and shows no field value or layout text. The
+  administrator cannot activate a draft saved by themself (409 "activation needs a second administrator"), and cannot retire a draft (409
+  "override is not in a status that allows this action"). Neutral sample wording only ("test sample"); no official Kazakhstan wording is used.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  module: actor-system-documents-service
+
+preconditions:
+  - description: SwiftRoute has a document type "purchase_order" whose fields are supplier_name, total_amount and internal_cost (entity type purchase_order), and the company has protected the field internal_cost
+    check: system_seeded
+    detail: Registered and protected through the service-level harness before step 1 (the module actor). If the harness cannot do it, the whole scenario is BLOCKED, not PASS.
+  - description: The SwiftRoute administrator holds the print-override permission across the whole company and no print override exists in SwiftRoute
+    check: system_seeded
+    detail: Per the role matrix only TENANT_ADMIN (and the platform operator) holds it. The harness can read the SwiftRoute audit trail and the stored override rows.
+  - description: The layouts below are the exact request layouts
+    check: custom
+    detail: >
+      VALID-1 (all block types) is the layout with layout_schema_version 1 and blocks: page (size A4, margin_mm 15, font dejavu-sans), text
+      (text "test sample header"), field (entity_type purchase_order, field_name supplier_name, label "Supplier"), table (entity_type
+      purchase_order, columns one: field_name total_amount, header "Total", width 40), spacer (height_mm 5). VALID-2 is VALID-1 with the text
+      "test sample header v2". BAD-FIELD is VALID-1 with an extra field block naming purchase_order field cost_center (not a field of the
+      type) and the text block's text changed to "SENTINEL-print-9f3a". BAD-PROTECTED is VALID-1 with an extra field block naming purchase_order
+      field internal_cost and the text "SENTINEL-print-9f3a". BAD-SHAPE is VALID-1 with an extra key "script" on the first text block.
+
+steps:
+  - step: 1
+    actor: module
+    action: >
+      Reads and notes the number of audit entries of SwiftRoute whose action is document.print_override_saved, document.print_override_activated or
+      document.print_override_retired (expected 0), and the number of stored overrides (expected 0).
+    via: system
+    produces:
+      audit_baseline: the counts noted
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator saves VALID-1 for type purchase_order, language ru, and also sends in the same request the extra values company
+      identifier = Meridian's company identifier, version number = 7 and status = active. The answer is noted.
+    via: api
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: VALID-1
+  - step: 3
+    actor: tenant_admin
+    action: The administrator saves VALID-2 for purchase_order, ru. The answer is noted.
+    via: api
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: VALID-2
+  - step: 4
+    actor: tenant_admin
+    action: The administrator saves VALID-1 for purchase_order, language kk. The answer is noted.
+    via: api
+    input:
+      type_key: purchase_order
+      locale: kk
+      layout: VALID-1
+  - step: 5
+    actor: module
+    action: >
+      Reads the stored override of step 2 and computes the sha256 of the canonical bytes of VALID-1 with the document service's canonical
+      encoder; notes whether it equals the stored fingerprint. Notes the audit entries now present.
+    via: system
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator tries to save VALID-1 for the document type "no_such_type" (ru). The answer is noted.
+    expect_refusal: true
+    via: api
+    input:
+      type_key: no_such_type
+      locale: ru
+      layout: VALID-1
+  - step: 7
+    actor: tenant_admin
+    action: The administrator tries to save VALID-1 for purchase_order with the language "en". The answer is noted.
+    expect_refusal: true
+    via: api
+    input:
+      type_key: purchase_order
+      locale: en
+      layout: VALID-1
+  - step: 8
+    actor: tenant_admin
+    action: The administrator tries to save BAD-SHAPE for purchase_order, ru. The answer is noted.
+    expect_refusal: true
+    via: api
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: BAD-SHAPE
+  - step: 9
+    actor: tenant_admin
+    action: The administrator tries to save BAD-FIELD for purchase_order, ru. The answer is noted.
+    expect_refusal: true
+    via: api
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: BAD-FIELD
+  - step: 10
+    actor: tenant_admin
+    action: The administrator tries to save BAD-PROTECTED for purchase_order, ru. The answer is noted.
+    expect_refusal: true
+    via: api
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: BAD-PROTECTED
+  - step: 11
+    actor: tenant_admin
+    action: The administrator tries to activate the version 1 draft of step 2 (ru), which they saved themself. The answer is noted.
+    expect_refusal: true
+    via: api
+    input:
+      reason_code: go_live
+  - step: 12
+    actor: tenant_admin
+    action: The administrator tries to retire the version 2 draft of step 3 (a draft, not an active override). The answer is noted.
+    expect_refusal: true
+    via: api
+    input:
+      reason_code: not_needed
+  - step: 13
+    actor: module
+    action: >
+      Reads the stored overrides and the SwiftRoute audit trail again and compares them with step 5: three overrides (ru v1, ru v2, kk v1), all
+      draft, and exactly three new audit entries, all document.print_override_saved.
+    via: system
+
+expected_outcomes:
+  - id: EO-001
+    description: A valid layout is saved as a draft with the next version number and the administrator as creator.
+    verification:
+      method: api_response
+      detail: >
+        Step 2 answers 201 with status draft, version_no 1, type_key purchase_order, locale ru, created_by equal to the administrator and a
+        layout_hash. Step 3 answers 201 with version_no 2. Step 4 answers 201 with version_no 1 for kk. The company identifier, version number 7 and
+        status active sent in step 2 are not used: version_no is 1, status is draft, and the stored row (step 5) belongs to SwiftRoute.
+      evidence: The three answers of steps 2 to 4 and the stored row read in step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot keep company print layouts, or a request could choose its own version, status or company.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The fingerprint stored with a draft is the sha256 of the layout's canonical bytes.
+    verification:
+      method: system_state
+      detail: The layout_hash of step 2's row equals the sha256 hex the harness computes in step 5 for VALID-1.
+      evidence: The stored hash and the computed hash noted in step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: A later change to an active layout cannot be detected from its fingerprint.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: An unknown document type, a language outside ru, kk and default, and a malformed layout are each refused with 422 and nothing is stored.
+    verification:
+      method: http_status
+      detail: >
+        Step 6 answers 422 with the detail "unknown type_key"; step 7 answers 422 with the detail "invalid locale"; step 8 answers 422 with the
+        detail "layout failed validation" and an error whose rule is unknown_key and whose path ends with "_key". No new override exists after
+        these steps (step 13).
+      evidence: The answers of steps 6 to 8 and the stored overrides of step 13.
+    on_fail:
+      severity: MAJOR
+      business_impact: Layouts that cannot be rendered, or that contain unknown content, are accepted into the company's print settings.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A layout naming a field the document type does not have, or a field the company protects, is refused and the answer shows no value or layout text.
+    verification:
+      method: api_response
+      detail: >
+        Steps 9 and 10 answer 422 with detail "layout failed validation"; the errors hold only a rule (field_not_projected for step 9,
+        field_restricted for step 10) and a path of block positions; the bodies contain neither the text "SENTINEL-print-9f3a" nor any value of
+        the protected field. Nothing is stored (step 13).
+      evidence: The two answers of steps 9 and 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A print layout could pull protected data into documents, or the refusal could leak protected data or layout text.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: The administrator cannot activate their own draft, and cannot retire a draft.
+    verification:
+      method: http_status
+      detail: >
+        Step 11 answers 409 with the reason "activation needs a second administrator". Step 12 answers 409 with the reason "override is not in a
+        status that allows this action". Both drafts are still draft in step 13.
+      evidence: The answers of steps 11 and 12 and the statuses of step 13.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One person can both write and put into force a company's official print layout, or a draft can be removed without trace.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: Each save writes exactly one audit entry without layout text; every refusal writes none.
+    verification:
+      method: audit_event
+      detail: >
+        Between step 1 and step 13 exactly three new audit entries exist, all document.print_override_saved, one for each of steps 2, 3 and 4, with the
+        override id, type_key, locale, version_no, layout_hash, the administrator and a reason code field (empty for a save), and no layout text ("test sample" wording
+        and "SENTINEL-print-9f3a" are absent). Steps 6 to 12 left no entry.
+      evidence: The audit entries read in steps 1, 5 and 13.
+    on_fail:
+      severity: MAJOR
+      business_impact: Changes to print layouts are not traceable, or the audit trail carries layout wording or records refused attempts as changes.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The three drafts cannot be deleted (stored rows are permanent); they remain unused. Re-running needs a fresh test company or a different type_key.
