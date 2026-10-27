@@ -1,0 +1,71 @@
+# Authored by BA-BILIMBAGA for T-0796 (REQ-582 criterion 2, assignment of type "all").
+# Source: docs/requirements.yaml REQ-582 criteria 2 and 7 (last sentence); the QA fixture exams each carry
+# one "all" assignment written by the exam fixture seed (lib/mix/tasks/letflow.seed.exam_fixtures.ex).
+---
+id: bilimbaga-exam-assignment-1-open-assignment-candidate-starts
+scope: bilimbaga
+title: A candidate starts an exam that is assigned to everyone, with no group or department needed
+version: "1.0"
+tags: [happy_path]
+
+description: >
+  An exam that is assigned to all candidates can be started by any candidate of the company, even one who
+  belongs to no group and no department. The candidate sees the exam begin exactly as before the
+  assignment rule existed.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      UAT assumption, to be confirmed by the process owner: the exam used here is one of the QA fixture
+      exams, each assigned to all candidates by the fixture seed; the candidate's account belongs to no
+      group and no department (the roster gives it no routing role)
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: Signs in and opens the list of exams available to them
+    via: gui
+
+  - step: 2
+    actor: candidate
+    action: Starts the exam that is assigned to all candidates
+    via: gui
+    produces:
+      instance_id: "the exam session's own identifier"
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The exam starts: the candidate sees the first question and the countdown, and is not told that
+      the exam is not assigned to them
+    verification:
+      method: page_state
+      detail: "The exam-taking screen opens with the questions and a running countdown; no 'you are not assigned to this exam' message appears"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Candidates could not sit any exam that was meant for everyone. Every monthly certification
+        run would stop at the start.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      One exam session now exists for the candidate on that exam
+    verification:
+      method: instance_state
+      detail: "Exactly one open session of the signed-in candidate exists for the exam"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A started exam that leaves no session means the candidate's answers would not be saved.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Cancel the exam session opened in step 2 if the run did not complete it, so a re-run starts clean.

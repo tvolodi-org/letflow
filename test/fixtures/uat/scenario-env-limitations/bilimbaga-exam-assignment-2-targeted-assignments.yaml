@@ -1,0 +1,16 @@
+scenario_id: bilimbaga-exam-assignment-2-targeted-assignments
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: >
+  The scenario needs exams assigned to a named person, a group and a department, an unassigned exam, a
+  withdrawn assignment, a second candidate, and group and department membership changes mid-run. REQ-582
+  builds no route or screen to write assignments (its open question 3); the QA fixture seed writes only one
+  assignment of type all per fixture exam; the actor roster has one candidate. Nothing a UAT actor can do
+  provides these preconditions, so the run is BLOCKED, not PASS. The same cases are covered by the backend
+  tests of REQ-582 (criteria 3 to 6).
+recorded_by: BA
+recorded_at: "2026-10-28"
+issue_ref: "GH #3307"
+review: >
+  Revisit when a route or screen to assign exams exists (REQ-582 open question 3) and the roster has a
+  second bilimbaga candidate.

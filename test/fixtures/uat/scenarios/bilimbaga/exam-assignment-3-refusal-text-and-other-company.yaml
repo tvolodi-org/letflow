@@ -1,0 +1,94 @@
+# Authored by BA-BILIMBAGA for T-0796 (REQ-582 criteria 7 and 8: the refusal text of the start request,
+# and company isolation).
+# Source: docs/requirements.yaml REQ-582 criteria 7 and 8 (INV-5: an exam of another company and an exam
+# that exists nowhere give the same answer). Steps 1 and 3 need an exam the candidate is not assigned to
+# and an exam in another company; see the sidecar in test/fixtures/uat/scenario-env-limitations/.
+---
+id: bilimbaga-exam-assignment-3-refusal-text-and-other-company
+scope: bilimbaga
+title: A start request for an exam the candidate is not assigned to, or that belongs to another company, is turned away without revealing anything
+version: "1.0"
+tags: [refusal, access_control, tenant_isolation]
+
+description: >
+  A candidate whose request to start an exam is turned away gets one fixed sentence and no detail about the
+  exam setup. An exam that exists only in another company gets the same answer as an exam that exists
+  nowhere, so the candidate cannot learn what other companies have. Exam identifiers used in steps 2 and 3
+  are given by the environment before the run.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      One exam of this company exists that is active but has no assignment reaching the candidate. A second
+      company exists with the exam module installed, and has an exam with an assignment to all candidates
+      there. The environment cannot provide these today
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: Asks, through the exam start request, to start the active exam of their own company that is not assigned to them
+    via: api
+    expect_refusal: true
+
+  - step: 2
+    actor: candidate
+    action: Asks, through the exam start request, to start an exam whose identifier exists in no company at all
+    via: api
+    expect_refusal: true
+
+  - step: 3
+    actor: candidate
+    action: Asks, through the exam start request, to start the exam whose identifier exists only in the second company
+    via: api
+    expect_refusal: true
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The answer to step 1 is a refusal with exactly the text "you are not assigned to this exam"; it names
+      no assignment, group, department or other exam
+    verification:
+      method: api_response
+      detail: "The response is a refusal with status 403 and the body text 'you are not assigned to this exam', and no other exam, group or department name"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Either an unassigned candidate could start the exam, or the refusal leaks how exams are assigned.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The answer to step 3 is identical in status and text to the answer to step 2, so the candidate cannot
+      tell an exam of another company from an exam that does not exist
+    verification:
+      method: api_response
+      detail: "Steps 2 and 3 return the same status and the same body"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate could discover which exams another company runs, breaking the promise that
+        companies cannot see each other.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      No exam session exists for the candidate after any of the three attempts
+    verification:
+      method: instance_state
+      detail: "The candidate has no session on the exams used in steps 1 to 3"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A refused start that leaves a session would use up an attempt and could expose another company's
+        exam content.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Cancel any exam session found for the candidate on the exams used here, so a re-run starts clean.

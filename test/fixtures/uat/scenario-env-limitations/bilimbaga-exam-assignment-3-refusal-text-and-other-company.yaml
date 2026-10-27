@@ -1,0 +1,14 @@
+scenario_id: bilimbaga-exam-assignment-3-refusal-text-and-other-company
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: >
+  Steps 1 and 3 need an active exam of the bilimbaga company with no assignment reaching the candidate (the
+  QA fixture seed assigns every fixture exam to all candidates) and an exam in a second company with the exam
+  module installed (no other QA tenant has it). Nothing a UAT actor can do provides either, so the run is
+  BLOCKED, not PASS. The same cases are covered by the backend tests of REQ-582 (criteria 7 and 8).
+recorded_by: BA
+recorded_at: "2026-10-28"
+issue_ref: "GH #3307"
+review: >
+  Revisit when a route or screen to assign exams exists (REQ-582 open question 3) or a second QA tenant
+  with the exam module is provisioned.
