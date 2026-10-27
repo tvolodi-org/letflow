@@ -74,14 +74,14 @@ defmodule Letflow.Modules.Exam.AuthoringParentTest do
     if parent_id, do: Map.put(base, "parent_id", parent_id), else: base
   end
 
-  defp question_fv(parent_id \\ nil) do
+  defp question_fv(parent_id \\ nil, version \\ 1) do
     base = %{
       "category_id" => Ecto.UUID.generate(),
       "difficulty" => "easy",
       "type" => "single",
       "default_locale" => "en",
       "status" => "draft",
-      "version" => 1,
+      "version" => version,
       "stem" => %{"en" => "What is 2 + 2?"}
     }
 
@@ -232,7 +232,7 @@ defmodule Letflow.Modules.Exam.AuthoringParentTest do
     test "D2 a question with a live successor is not deleted" do
       ctx = admin("gh3315-d2")
       q1 = create!(ctx, "question", question_fv())
-      _q2 = create!(ctx, "question", question_fv(q1))
+      _q2 = create!(ctx, "question", question_fv(q1, 2))
       refusal(request("DELETE", "#{@base}/question/#{q1}", ctx), 409, "question_has_children")
     end
 
@@ -245,7 +245,7 @@ defmodule Letflow.Modules.Exam.AuthoringParentTest do
     test "D4 the newest question version deletes" do
       ctx = admin("gh3315-d4")
       q1 = create!(ctx, "question", question_fv())
-      q2 = create!(ctx, "question", question_fv(q1))
+      q2 = create!(ctx, "question", question_fv(q1, 2))
       assert request("DELETE", "#{@base}/question/#{q2}", ctx).status == 200
     end
 

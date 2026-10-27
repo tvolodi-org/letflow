@@ -98,7 +98,13 @@ defmodule Letflow.Modules.Exam.Authoring do
           | {:error, {:authoring_rule, AuthoringRules.reason()}}
   def update(%{entity_type: entity_type} = attrs, prefix) when entity_type in @authoring_types do
     with :ok <-
-           AuthoringRules.check_write(entity_type, attrs.record_id, attrs.field_values, prefix) do
+           AuthoringRules.check_write(
+             entity_type,
+             attrs.record_id,
+             attrs.field_values,
+             prefix,
+             Map.get(attrs, :preserve_keys) || MapSet.new()
+           ) do
       # scope-all: SEC-518-R1 (exam module, tenant-wide route; own-record system path)
       Records.update_record(attrs, prefix, exam_owner())
     end
