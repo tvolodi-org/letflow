@@ -308,7 +308,7 @@ defmodule Letflow.Entities.ScopeAllScanTest do
       assert offenders == []
     end
 
-    test "the ledger of non-router literal sites is exactly the six reviewed ones, each with its rule" do
+    test "the ledger of non-router literal sites is exactly the seven reviewed ones, each with its rule" do
       ledger =
         real_sites()
         |> Enum.reject(&(&1.file == @router_file))
@@ -319,6 +319,8 @@ defmodule Letflow.Entities.ScopeAllScanTest do
                {"lib/letflow/entities/script_reads.ex", :compile,
                 "scope-all: script principal is tenant-wide, 0051 D1/F6"},
                {"lib/letflow/entities/views/clauses.ex", :compile,
+                "scope-all: write-time validation only, no rows are read (the compiled query is discarded)"},
+               {"lib/letflow/entities/views/clauses.ex", :compile_aggregate,
                 "scope-all: write-time validation only, no rows are read (the compiled query is discarded)"},
                {"lib/letflow/modules/exam/anti_cheat.ex", :compile, "scope-all: SEC-518-R1"},
                {"lib/letflow/modules/exam/session.ex", :compile, "scope-all: SEC-518-R1"},
@@ -361,11 +363,11 @@ defmodule Letflow.Entities.ScopeAllScanTest do
       found
     end
 
-    test "the scan sees the sites at all: the six ledger sites exist; the router derives its set (no literal since 2c-i-b)" do
+    test "the scan sees the sites at all: the seven ledger sites exist; the router derives its set (no literal since 2c-i-b)" do
       sites = real_sites()
 
       assert Enum.count(sites, &(&1.file == @router_file)) == 0
-      assert length(sites) == 6
+      assert length(sites) == 7
     end
   end
 

@@ -366,6 +366,12 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"PUT", "/types/:key/retention", :tenant_wide},
                  {"POST", "/:document_id/hold", document_resolver},
                  {"POST", "/:document_id/hold/release", document_resolver},
+                 # REQ-579: the five print-override routes are all tenant-wide
+                 {"GET", "/print-overrides", :tenant_wide},
+                 {"GET", "/print-overrides/:id", :tenant_wide},
+                 {"POST", "/print-overrides", :tenant_wide},
+                 {"POST", "/print-overrides/:id/activate", :tenant_wide},
+                 {"POST", "/print-overrides/:id/retire", :tenant_wide},
                  # REQ-555: the five saved-view routes are all tenant-wide
                  {"GET", "/", :tenant_wide},
                  {"GET", "/:id", :tenant_wide},
