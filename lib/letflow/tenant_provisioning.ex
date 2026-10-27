@@ -893,7 +893,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-576 / GH #3258: empty per-tenant table for x_ entity type extensions (decision 0067-tenant-x D2,
     # storage only). No existing row altered.
     {20_261_027_300_001, Letflow.Repo.Migrations.CreateEntityTypeExtensions,
-     "20261027300001_create_entity_type_extensions.exs"}
+     "20261027300001_create_entity_type_extensions.exs"},
+    # REQ-598 / GH #3367: kind, group_by and aggregates on entity_views (saved pivot views). Existing
+    # rows become `list` through the column defaults; no row altered.
+    {20_261_027_400_001, Letflow.Repo.Migrations.AddPivotToEntityViews,
+     "20261027400001_add_pivot_to_entity_views.exs"}
   ]
 
   @doc """
