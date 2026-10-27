@@ -15,6 +15,7 @@ defmodule Letflow.Modules.Exam.SessionScoreFieldsTest do
 
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.Record.Latest
+  alias Letflow.ExamFixtures
   alias Letflow.ExamStampFixtures, as: Fx
   alias Letflow.Modules.Exam.Session
 
@@ -30,6 +31,10 @@ defmodule Letflow.Modules.Exam.SessionScoreFieldsTest do
     %{schema_name: schema} = Fx.legacy_tenant!("req594-oldshape")
     %{exam: exam, question_id: question_id, correct_id: correct_id} = Fx.build_exam!(schema)
     candidate = Fx.insert_user!(schema)
+
+    # REQ-582: the start check is enforced, so the exam is assigned to everyone.
+    ExamFixtures.ensure_assignment_definition_active!(schema)
+    ExamFixtures.assign_all!(schema, exam.record_id)
 
     Fx.create_definition!(schema, previous_score_definition())
     :ok = Fx.activate!(schema, "session_question_score")
