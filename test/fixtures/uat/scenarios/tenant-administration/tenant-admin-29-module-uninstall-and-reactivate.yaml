@@ -8,7 +8,7 @@
 # Environment: needs the uninstall feature SWITCHED ON; if step 1 answers like an unknown route, report BLOCKED for the whole scenario.
 # NOT UAT-checkable, left to the product's own tests: the second half of criterion 9 (a failed audit write answers 500 and leaves the status unchanged) needs the audit table to be dropped inside a test
 # transaction; nobody may do that on a real environment. Criterion 5's row counts of definitions, records and secrets are read from the database in EO-005 only where the runner has database access.
-# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals of the flow (a module with dependents, a stale module) are steps 5 and 9.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals of the flow (a module with dependents, a stale module) are steps 5, 7, 9 and 10.
 ---
 id: tenant-administration-29-module-uninstall-and-reactivate
 scope: tenant-administration
@@ -36,10 +36,10 @@ preconditions:
     detail: Setup-prepared. The module names are those of the shipped catalog; the runner records which module was used as M1. If M1 has no request of its own to probe, replace the probing in steps 2 and 4 by the list of installed modules and note it.
   - description: SwiftRoute has two further modules installed and active, B1 and D2, where D2 declares B1 in its dependencies.
     check: system_seeded
-    detail: The shipped catalog may not contain such a pair. If it does not, report BLOCKED for steps 5 to 7 and EO-003, and say so; the other steps run.
+    detail: The shipped catalog may not contain such a pair. If it does not, report BLOCKED for steps 5 to 8 and EO-003, and say so; the other steps run.
   - description: SwiftRoute has a module S1 that is out of use (uninstalled) and whose recorded version differs from the version the product now ships, or has no recorded fingerprint.
     check: system_seeded
-    detail: Setup-prepared by the test environment. If it cannot be prepared, report BLOCKED for steps 9 and 10 and EO-004; the other steps run.
+    detail: Setup-prepared by the test environment. If it cannot be prepared, report BLOCKED for steps 10 and 11 and EO-004; the other steps run.
   - description: The runner can read the audit trail through the administrator's own sign-in (the audit list, filtered by resource type "tenant_module").
     check: system_seeded
     detail: If not, report EO-006 BLOCKED.
@@ -84,21 +84,27 @@ steps:
   - step: 7
     actor: tenant_admin_a
     action: >
-      Clean-up: the administrator brings B1 back, and then D2 back, each with the reason "UAT - restore", in that order, and asks for the list of installed modules.
+      With B1 and D2 both out of use, the administrator tries to bring D2 back first, with the reason "UAT - wrong order", before B1 is back. The answer (status, decoded body) is noted and the list of installed modules is asked for again.
+    expect_refusal: true
     via: api
   - step: 8
     actor: tenant_admin_a
     action: >
-      The administrator tries to bring M1 back a second time, although it is active again. The answer is noted.
-    expect_refusal: true
+      Clean-up: the administrator brings B1 back, and then D2 back, each with the reason "UAT - restore", in that order, and asks for the list of installed modules.
     via: api
   - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to bring M1 back a second time, with the reason "UAT - already active", although it is active again. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 10
     actor: tenant_admin_a
     action: >
       The administrator tries to bring the out-of-use module S1 back, with the reason "UAT - stale module". The answer (status, decoded body) is noted.
     expect_refusal: true
     via: api
-  - step: 10
+  - step: 11
     actor: tenant_admin_a
     action: >
       The administrator asks for the list of installed modules, and the worker makes the module request of S1 (as noted in the preconditions). Then the administrator reads the audit trail filtered by resource type "tenant_module" again and notes the number as count A1.
@@ -131,8 +137,8 @@ expected_outcomes:
     description: A module that another active module depends on is refused, naming the dependent, and nothing changes; after the dependent is out of use the base module can follow.
     verification:
       method: http_status
-      detail: Step 5 answers 409 with the code "dependents_installed" and a list of dependents that contains D2; the list of installed modules still contains B1 and D2. In step 6 both requests answer 200. After step 7 the list holds B1, D2 and M1 again.
-      evidence: The answer of step 5, the answers of step 6 and the list after step 7.
+      detail: Step 5 answers 409 with the code "dependents_installed" and a list of dependents that contains D2; the list of installed modules still contains B1 and D2. Step 7 answers 422 with a message that reads "missing dependency" followed by a colon and B1, and D2 is still not in the list. In step 6 both requests answer 200. After step 8 the list holds B1, D2 and M1 again.
+      evidence: The answer of step 5, the answers of steps 6 and 7 and the list after step 8.
     on_fail:
       severity: MAJOR
       business_impact: Removing a base module can leave dependent modules running without what they rely on.
@@ -142,8 +148,8 @@ expected_outcomes:
     description: A module that is not active cannot be brought back twice, and a module that has changed since it was installed is not brought back by this route and stays out of use.
     verification:
       method: http_status
-      detail: Step 8 answers 404 and M1 stays active. Step 9 answers 409 with the code "upgrade_required"; the list of installed modules does not contain S1 and the module's own request for S1 answers like a module that was never installed.
-      evidence: The answers of steps 8 and 9, the list and the probe of S1.
+      detail: Step 9 answers 404 and M1 stays active. Step 10 answers 409 with the code "upgrade_required"; the list of installed modules does not contain S1 and the module's own request for S1 answers like a module that was never installed.
+      evidence: The answers of steps 9 and 10, the list and the probe of S1.
     on_fail:
       severity: MAJOR
       business_impact: A module that no longer matches the shipped version is switched on again without an upgrade, running logic the company never accepted.
@@ -164,7 +170,7 @@ expected_outcomes:
     description: Each successful change wrote exactly one audit entry with the reason word for word, and the refused requests wrote none.
     verification:
       method: api_response
-      detail: In the audit trail filtered by resource type "tenant_module", step 3 shows one new entry with action "module.uninstall", before status "active", after status "uninstalled", the administrator as actor and the reason "UAT - module M1 not needed this quarter" verbatim, and no record content. Steps 4, 6 and 7 add one entry each per successful request (the reason verbatim, action "module.reactivate" for those that bring a module back). Count A1 minus count A0 equals the number of successful requests in steps 1, 4, 6 and 7 (6), and steps 5, 8 and 9 added none.
+      detail: In the audit trail filtered by resource type "tenant_module", step 3 shows one new entry with action "module.uninstall", before status "active", after status "uninstalled", the administrator as actor and the reason "UAT - module M1 not needed this quarter" verbatim, and no record content. Steps 4, 6 and 8 add one entry each per successful request (the reason verbatim, action "module.reactivate" for those that bring a module back). Count A1 minus count A0 equals the number of successful requests in steps 1, 4, 6 and 8 (6), and steps 5, 7, 9 and 10 added none.
       evidence: The audit entries and counts A0 and A1.
     on_fail:
       severity: MAJOR
@@ -173,4 +179,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: Bring M1, B1 and D2 back to active if any is left out of use (steps 4 and 7 do this). S1 stays as prepared by the environment.
+  description: Bring M1, B1 and D2 back to active if any is left out of use (steps 4 and 8 do this). S1 stays as prepared by the environment.

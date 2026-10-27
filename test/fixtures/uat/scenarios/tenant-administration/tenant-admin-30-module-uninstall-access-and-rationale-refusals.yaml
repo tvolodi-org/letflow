@@ -3,8 +3,8 @@
 # the same table for both requests) and the not-installed refusals of criterion 6.
 # Sources: docs/requirements.yaml REQ-578 criterion 8; lib/letflow/routers/tenant_modules.ex (authz_post ... :ModulesManage; run_transition: 422 "rationale is required" for :rationale_required,
 # 404 for :not_installed); lib/letflow/modules/installs.ex (fetch_rationale/1: missing, non-string or blank); docs/roles.md matrix (ModulesManage: TENANT_ADMIN and platform administrator only;
-# the task worker, the auditor and the process designer hold it not).
-# NOT COVERED - missing actor: no PROCESS_DESIGNER or PROCESS_OPERATOR account exists in test/fixtures/uat/actors.yaml, so the 403 table is shown for the task worker and the read-only auditor only.
+# the task worker, the auditor, the process operator and the process designer hold it not).
+# NOT COVERED - missing actor: no PROCESS_DESIGNER account exists in test/fixtures/uat/actors.yaml, so the 403 table is shown for the task worker, the process operator and the read-only auditor.
 # A platform operator on this route would act on the platform's own company (the company comes from the sign-in), so no platform step is written.
 # Environment: needs the uninstall feature SWITCHED ON; if step 1 answers like an unknown route, report BLOCKED. Every blocked request below must leave the module as it was, which the runner reads at the end.
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the access and reason refusals of the flow (change what the company runs).
@@ -16,8 +16,8 @@ version: "1.0"
 tags: [tenant-admin, modules, uninstall, reactivate, refusal, access, validation]
 
 description: >
-  SwiftRoute has an installed active module M1 and a module X1 that is out of use. The task worker and the read-only auditor try to take M1 out of use and to bring X1 back and are refused.
-  The administrator tries the same two requests with the reason missing, empty, only blanks, a number and a list, and each is refused with the message that a reason is required; M1 stays active
+  SwiftRoute has an installed active module M1 and a module X1 that is out of use. The task worker, the process operator and the read-only auditor try to take M1 out of use and to bring X1 back and are refused.
+  The administrator tries the same two requests with the reason missing, empty, only blanks, and a number, and each is refused with the message that a reason is required; M1 stays active
   and X1 stays out of use. The administrator then tries to take out of use a module that was never installed and to bring back one that is active; both answer not-found. Finally the administrator
   takes M1 out of use with a proper reason and brings it back, to show that the requests themselves are accepted.
 
@@ -25,6 +25,7 @@ actors:
   tenant_admin_a: actor-swiftroute-alice
   worker_a: actor-swiftroute-marco
   auditor_a: actor-swiftroute-auditor
+  operator_a: actor-swiftroute-lena
 
 preconditions:
   - description: The module uninstall feature is switched ON in the test environment.
@@ -114,11 +115,23 @@ steps:
     expect_refusal: true
     via: api
   - step: 14
+    actor: operator_a
+    action: >
+      The process operator tries to take M1 out of use with the reason "UAT - operator tries". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: operator_a
+    action: >
+      The process operator tries to bring X1 back with the reason "UAT - operator tries". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 16
     actor: tenant_admin_a
     action: >
       The administrator reads the list of the company's installed modules and the audit trail filtered by resource type "tenant_module", and notes both.
     via: api
-  - step: 15
+  - step: 17
     actor: tenant_admin_a
     action: >
       The administrator takes M1 out of use with the reason "UAT - accepted with a reason", and then brings M1 back with the reason "UAT - accepted again".
@@ -126,11 +139,11 @@ steps:
 
 expected_outcomes:
   - id: EO-001
-    description: A task worker and the read-only auditor are refused on both requests.
+    description: A task worker, the process operator and the read-only auditor are refused on both requests.
     verification:
       method: http_status
-      detail: Steps 1 to 4 each answer 403. The reason given is a proper one, so the refusal is for the missing right.
-      evidence: The four answers of steps 1 to 4.
+      detail: Steps 1 to 4, 14 and 15 each answer 403. The reason given is a proper one, so the refusal is for the missing right.
+      evidence: The six answers of steps 1 to 4, 14 and 15.
     on_fail:
       severity: BLOCKER
       business_impact: Staff without the right could switch the company's modules off, stopping its work, or on.
@@ -162,8 +175,8 @@ expected_outcomes:
     description: None of the refused requests changed any module or wrote an audit entry.
     verification:
       method: api_response
-      detail: In step 14, M1 is listed as installed, X1 is not listed, N1 is not listed, and the audit trail has no entry for any request of steps 1 to 13.
-      evidence: The list of installed modules and the audit entries read in step 14.
+      detail: In step 16, M1 is listed as installed, X1 is not listed, N1 is not listed, and the audit trail has no entry for any request of steps 1 to 15.
+      evidence: The list of installed modules and the audit entries read in step 16.
     on_fail:
       severity: BLOCKER
       business_impact: A refused request still changed what the company runs or was recorded as a change.
@@ -173,8 +186,8 @@ expected_outcomes:
     description: The administrator's own requests with a proper reason are accepted.
     verification:
       method: http_status
-      detail: Both requests in step 15 answer 200, the first with the status "uninstalled" and the second with the status "active" for M1.
-      evidence: The two answers of step 15.
+      detail: Both requests in step 17 answer 200, the first with the status "uninstalled" and the second with the status "active" for M1.
+      evidence: The two answers of step 17.
     on_fail:
       severity: MAJOR
       business_impact: The administrator cannot manage the company's modules.

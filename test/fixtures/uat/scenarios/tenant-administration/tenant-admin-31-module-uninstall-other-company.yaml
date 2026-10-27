@@ -6,7 +6,7 @@
 # The route takes the company from the sign-in, so a platform operator would act on the platform's own company, not on SwiftRoute: no platform step is written (a no-data-leak check is
 # the same as this scenario's own-company steps).
 # Environment: needs the uninstall feature SWITCHED ON; if step 1 answers like an unknown route, report BLOCKED. Needs the Bilimbaga administrator: if that account cannot sign in (see the roster note
-# of actor-bilimbaga-admin), report BLOCKED for steps 1 and 7 and EO-002 and run the rest.
+# of actor-bilimbaga-admin), report BLOCKED for steps 1, 8, 11 and EO-002 and run the rest.
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the cross-company refusals of the flow.
 ---
 id: tenant-administration-31-module-uninstall-other-company
@@ -16,8 +16,8 @@ version: "1.0"
 tags: [tenant-admin, modules, uninstall, refusal, cross-tenant, isolation]
 
 description: >
-  SwiftRoute and Bilimbaga both have the same module M1 installed and active, and Bilimbaga also has a module K1 that SwiftRoute has not. The Bilimbaga administrator tries to take K1 out of use
-  in SwiftRoute's name, and SwiftRoute's administrator tries to take K1 out of use, which SwiftRoute never installed, and both get the same not-found answer as for a module that exists nowhere.
+  SwiftRoute and Bilimbaga both have the same module M1 installed and active, and Bilimbaga also has a module K1 that SwiftRoute has not. SwiftRoute's administrator tries to take K1, which only Bilimbaga has installed, out of use
+  and to bring it back, and gets the same not-found answer as for a module that exists nowhere.
   SwiftRoute's administrator takes M1 out of use while naming Bilimbaga as the company in the request; the change lands in SwiftRoute and Bilimbaga's M1 is untouched.
 
 actors:
@@ -30,54 +30,69 @@ preconditions:
     detail: If step 1 answers like a path that does not exist, report BLOCKED for the whole scenario.
   - description: SwiftRoute and Bilimbaga both have module M1 installed and active; Bilimbaga alone has module K1 installed and active, and the catalog has no module named Z1.
     check: system_seeded
-    detail: Setup-prepared. If no module is installed in Bilimbaga but not in SwiftRoute, report BLOCKED for steps 2 and 4 and the K1 part of EO-001; the others run.
+    detail: Setup-prepared. If no module is installed in Bilimbaga but not in SwiftRoute, report BLOCKED for steps 3 and 5 and the K1 part of EO-001; the others run.
 
 steps:
   - step: 1
     actor: tenant_admin_b
     action: >
-      The Bilimbaga administrator notes the list of Bilimbaga's installed modules as list B0.
+      The Bilimbaga administrator notes the list of Bilimbaga's installed modules as list B0 and the number of entries in Bilimbaga's audit trail with resource type "tenant_module" as count BA0.
     via: api
   - step: 2
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator notes the list of SwiftRoute's installed modules as list S0 and the number of entries in SwiftRoute's audit trail with resource type "tenant_module" as count SA0.
+    via: api
+  - step: 3
     actor: tenant_admin_a
     action: >
       The SwiftRoute administrator tries to take K1, which only Bilimbaga has installed, out of use, with the reason "UAT - other company module". The answer (status, content-type header and decoded
       body without the per-request trace_id member) is noted as AK.
     expect_refusal: true
     via: api
-  - step: 3
+  - step: 4
     actor: tenant_admin_a
     action: >
       The SwiftRoute administrator tries to take the module Z1, which exists in no company, out of use, with the reason "UAT - nowhere". The answer is noted as AZ.
     expect_refusal: true
     via: api
-  - step: 4
+  - step: 5
     actor: tenant_admin_a
     action: >
       The SwiftRoute administrator tries to bring K1 back, with the reason "UAT - other company module". The answer is noted as RK.
     expect_refusal: true
     via: api
-  - step: 5
+  - step: 6
     actor: tenant_admin_a
     action: >
       The SwiftRoute administrator tries to bring Z1 back, with the reason "UAT - nowhere". The answer is noted as RZ.
     expect_refusal: true
     via: api
-  - step: 6
+  - step: 7
     actor: tenant_admin_a
     action: >
-      The SwiftRoute administrator takes M1 out of use with the reason "UAT - own company only", adding to the request the company name "bilimbaga" as a body field and as a request header, and a body
-      field "prefix" naming Bilimbaga's data area. The answer is noted.
+      The SwiftRoute administrator takes M1 out of use with the reason "UAT - own company only", adding to the request three body fields named exactly "tenant_id" (Bilimbaga's company id), "tenant" (the company name "bilimbaga") and
+      "prefix" (Bilimbaga's data area name), and a request header named "x-tenant-id" carrying Bilimbaga's company id. The answer is noted.
     via: api
-  - step: 7
+  - step: 8
     actor: tenant_admin_b
     action: >
       The Bilimbaga administrator asks for the list of Bilimbaga's installed modules (list B1), and a worker request of M1's own interface in Bilimbaga is made by the administrator (answer PB).
     via: api
-  - step: 8
+  - step: 9
     actor: tenant_admin_a
     action: >
       The SwiftRoute administrator asks for the list of SwiftRoute's installed modules (list S1) and then brings M1 back with the reason "UAT - restore".
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator reads the list of SwiftRoute's installed modules again (list S2) and the number of entries in SwiftRoute's audit trail with resource type "tenant_module" (count SA1).
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator reads the number of entries in Bilimbaga's audit trail with resource type "tenant_module" (count BA1).
     via: api
 
 expected_outcomes:
@@ -85,7 +100,7 @@ expected_outcomes:
     description: A module only another company has installed gets the same not-found answer as a module that exists nowhere, for taking out of use and for bringing back.
     verification:
       method: http_status
-      detail: Steps 2 to 5 all answer 404, and AK equals AZ and RK equals RZ in status, content-type header and decoded body after removing the per-request trace_id member.
+      detail: Steps 3 to 6 all answer 404, and AK equals AZ and RK equals RZ in status, content-type header and decoded body after removing the per-request trace_id member.
       evidence: The answers AK, AZ, RK and RZ.
     on_fail:
       severity: BLOCKER
@@ -96,7 +111,7 @@ expected_outcomes:
     description: Bilimbaga's modules are untouched by the SwiftRoute administrator's requests.
     verification:
       method: api_response
-      detail: List B1 (step 7) equals list B0 (step 1), the same modules, including K1 and M1, at the same versions. Answer PB shows M1's interface in Bilimbaga answering 200 as before.
+      detail: List B1 (step 8) equals list B0 (step 1), the same modules, including K1 and M1, at the same versions. Answer PB shows M1's interface in Bilimbaga answering 200 as before.
       evidence: Lists B0 and B1 and answer PB.
     on_fail:
       severity: BLOCKER
@@ -107,19 +122,19 @@ expected_outcomes:
     description: A company name, header or data-area name in the request is ignored; the change lands in the caller's own company.
     verification:
       method: api_response
-      detail: Step 6 answers 200 with module M1 and the status "uninstalled". List S1 (step 8, read before the restore) does not contain M1 and otherwise holds the same modules as at the start of the scenario. Bilimbaga's M1 is still active (EO-002).
-      evidence: The answer of step 6 and list S1.
+      detail: Step 7 answers 200 with module M1 and the status "uninstalled". List S1 (step 9, read before the restore) does not contain M1 and otherwise holds the same modules as list S0. Bilimbaga's M1 is still active (EO-002).
+      evidence: The answer of step 7 and list S1.
     on_fail:
       severity: BLOCKER
       business_impact: A request that names another company can aim a change at that company's data.
       suggested_action: route_to_security_review
 
   - id: EO-004
-    description: The refused requests wrote nothing and the restore in step 8 returns SwiftRoute to its start.
+    description: The refused requests wrote nothing and the restore in step 9 returns SwiftRoute to its start.
     verification:
       method: http_status
-      detail: Steps 2 to 5 added no entry to the audit trail of either company. The restore in step 8 answers 200 with the status "active".
-      evidence: The audit trails of both companies read by their own administrators before step 2 and after step 8, and the answer of the restore.
+      detail: Steps 3 to 6 added no entry to either audit trail. SwiftRoute's trail gains exactly two entries, from step 7 (uninstall of M1) and from the restore in step 9 (reactivate of M1), so count SA1 equals SA0 + 2, and list S2 equals list S0. Bilimbaga's trail gains none, so count BA1 equals BA0.
+      evidence: The audit trails of both companies counts SA0, SA1, BA0 and BA1, list S2 and the answer of the restore.
     on_fail:
       severity: MAJOR
       business_impact: A refused cross-company request still leaves a trace, or SwiftRoute is left without its module.
@@ -127,4 +142,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: SwiftRoute's M1 is brought back in step 8 if it is not already active. Bilimbaga is never changed.
+  description: SwiftRoute's M1 is brought back in step 9 if it is not already active. Bilimbaga is never changed.

@@ -46,7 +46,7 @@ steps:
   - step: 3
     actor: tenant_admin_a
     action: >
-      For comparison, the administrator makes a request to the name "never-existed" in the same place as the two module routes, a path that is not part of the product. The answer is noted as NR.
+      For comparison, the administrator sends a POST with the same body to a path under the tenant modules area that matches no route (the last path segment "no-such-route"). The answer is noted as NR.
     expect_refusal: true
     via: api
   - step: 4
