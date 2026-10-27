@@ -882,7 +882,10 @@ defmodule Letflow.TenantProvisioning do
      "20261026400001_create_record_trigger_bindings.exs"},
     # REQ-572 / GH #3252: the pending-grant created_via CHECK also allows 'provisioning'. No row altered.
     {20_261_027_000_002, Letflow.Repo.Migrations.WidenGrantsCreatedViaChk,
-     "20261027000002_widen_grants_created_via_chk.exs"}
+     "20261027000002_widen_grants_created_via_chk.exs"},
+    # REQ-578 / GH #3267: tenant_modules.status (active|uninstalled), default active; no row altered.
+    {20_261_027_100_001, Letflow.Repo.Migrations.AddStatusToTenantModules,
+     "20261027100001_add_status_to_tenant_modules.exs"}
   ]
 
   @doc """
