@@ -1,20 +1,21 @@
 # Authored by BA-BILIMBAGA for T-0796 (REQ-582 criteria 7 and 8: the refusal text of the start request,
-# and company isolation).
+# an archived exam, and company isolation of memberships).
 # Source: docs/requirements.yaml REQ-582 criteria 7 and 8 (INV-5: an exam of another company and an exam
-# that exists nowhere give the same answer). Steps 1 and 3 need an exam the candidate is not assigned to
-# and an exam in another company; see the sidecar in test/fixtures/uat/scenario-env-limitations/.
+# that exists nowhere give the same answer). Steps 1, 3, 4 and 5 need exams the environment prepares; see the
+# sidecar in test/fixtures/uat/scenario-env-limitations/.
 ---
 id: bilimbaga-exam-assignment-3-refusal-text-and-other-company
 scope: bilimbaga
 title: A start request for an exam the candidate is not assigned to, or that belongs to another company, is turned away without revealing anything
-version: "1.0"
+version: "2.0"
 tags: [refusal, access_control, tenant_isolation]
 
 description: >
   A candidate whose request to start an exam is turned away gets one fixed sentence and no detail about the
-  exam setup. An exam that exists only in another company gets the same answer as an exam that exists
-  nowhere, so the candidate cannot learn what other companies have. Exam identifiers used in steps 2 and 3
-  are given by the environment before the run.
+  exam setup. An archived exam the candidate is not assigned to gets the same not-assigned sentence, not the
+  archived-exam sentence. An exam that exists only in another company gets the same answer as an exam that
+  exists nowhere, and a group or department the candidate belongs to only in another company gives no access
+  in this company. Exam identifiers used in the steps are given by the environment before the run.
 
 actors:
   candidate: actor-bilimbaga-candidate
@@ -23,9 +24,11 @@ preconditions:
   - description: A bilimbaga tenant exists with the exam solution pack installed
     check: process_definition_active
   - description: >
-      One exam of this company exists that is active but has no assignment reaching the candidate. A second
-      company exists with the exam module installed, and has an exam with an assignment to all candidates
-      there. The environment cannot provide these today
+      One exam of this company exists that is active but has no assignment reaching the candidate. One exam
+      of this company is archived and has no assignment reaching the candidate. One exam of this company is
+      assigned only to a group and a department that the candidate belongs to only in the second company (in
+      this company the candidate belongs to neither). A second company exists with the exam module installed,
+      and has an exam with an assignment to all candidates there. The environment cannot provide these today
     check: no_pending_instances
 
 steps:
@@ -44,6 +47,18 @@ steps:
   - step: 3
     actor: candidate
     action: Asks, through the exam start request, to start the exam whose identifier exists only in the second company
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: candidate
+    action: Asks, through the exam start request, to start the archived exam of their own company that is not assigned to them
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: candidate
+    action: Asks, through the exam start request, to start the exam of their own company that is assigned only to a group and a department they belong to in the second company
     via: api
     expect_refusal: true
 
@@ -77,10 +92,38 @@ expected_outcomes:
 
   - id: EO-003
     description: >
-      No exam session exists for the candidate after any of the three attempts
+      The answer to step 4 is the not-assigned refusal of step 1, with status 403 and the text "you are not
+      assigned to this exam", and not the archived-exam sentence "this exam has been archived and is no
+      longer available"
+    verification:
+      method: api_response
+      detail: "The response has status 403 and the body text 'you are not assigned to this exam'; it does not say the exam is archived"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An unassigned candidate would learn that an exam exists and is archived, which tells them about
+        exams they have no right to know of.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      The answer to step 5 is the same not-assigned refusal as step 1: belonging to a group or department in
+      another company gives no access in this company
+    verification:
+      method: api_response
+      detail: "The response has status 403 and the body text 'you are not assigned to this exam'"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Membership in one company would open exams of another company, breaking company separation.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-005
+    description: >
+      No exam session exists for the candidate after any of the five attempts
     verification:
       method: instance_state
-      detail: "The candidate has no session on the exams used in steps 1 to 3"
+      detail: "The candidate has no session on the exams used in steps 1 to 5"
     on_fail:
       severity: MAJOR
       business_impact: >
