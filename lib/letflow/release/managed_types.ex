@@ -10,6 +10,7 @@ defmodule Letflow.Release.ManagedTypes do
       bin/letflow rpc "IO.inspect(Letflow.Release.ManagedTypes.stamp(dry_run: true))"
       bin/letflow rpc "IO.inspect(Letflow.Release.ManagedTypes.tamper_inventory([]))"
       bin/letflow rpc "IO.inspect(Letflow.Release.ManagedTypes.ensure_assignment_definition([]))"
+      bin/letflow rpc "IO.inspect(Letflow.Release.ManagedTypes.ensure_exam_analytics_definitions([]))"
 
   Only `module` and `dry_run` (stamp) or `module` and `scope` (inventory) are forwarded; every other
   key is dropped, so no test seam or tuning option can be passed from a release call. Per the
@@ -21,10 +22,12 @@ defmodule Letflow.Release.ManagedTypes do
   it still stamps only tenants that passed the exam snapshot rollout (per-tenant status
   `:snapshot_prerequisite_missing` otherwise); `dry_run: true` always runs.
 
+  `ensure_exam_analytics_definitions/1` (REQ-594 part A) upgrades `session` and `session_question_score`; run it once per deploy.
   `ensure_assignment_definition/1` (REQ-582 part A) gives tenants that installed the exam module before
   `exam_assignment` joined its pack that definition; run it once per deploy after part A merges.
   """
 
+  alias Letflow.Entities.ManagedTypes.AnalyticsDefinitions
   alias Letflow.Entities.ManagedTypes.AssignmentDefinition
   alias Letflow.Entities.ManagedTypes.Stamp
   alias Letflow.Entities.ManagedTypes.TamperInventory
@@ -42,6 +45,15 @@ defmodule Letflow.Release.ManagedTypes do
   @spec ensure_assignment_definition(opts :: keyword()) ::
           {:ok, AssignmentDefinition.report()}
   def ensure_assignment_definition(opts) when is_list(opts), do: AssignmentDefinition.run([])
+
+  @doc """
+  Gives every tenant with the exam module installed the analytics-ready `session` and
+  `session_question_score` definition versions (REQ-594 part A; run once per deploy). Idempotent,
+  promotes no column. No option is forwarded: a release call cannot pass a seam.
+  """
+  @spec ensure_exam_analytics_definitions(opts :: keyword()) ::
+          {:ok, AnalyticsDefinitions.report()}
+  def ensure_exam_analytics_definitions(opts) when is_list(opts), do: AnalyticsDefinitions.run([])
 
   @doc "The read-only tamper inventory (default scope `:runtime`)."
   @spec tamper_inventory(opts :: [module: String.t(), scope: TamperInventory.scope()]) ::
