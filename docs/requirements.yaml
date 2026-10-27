@@ -42210,7 +42210,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- both dependencies (REQ-315, REQ-555) are merged on main; no pending blocker
+    gh: 3367
     # Source: docs/migration/decisions/0066-generic-saved-views-over-records.md, "Deferred slices": "Slice 2: pivot view over `POST /entities/query/aggregate` (REQ-315)."; core roadmap Wave 3 (docs/migration/core-roadmap-20261014.md). Written by the business analyst (T-0690) 2026-10-26.
     description: >
       Backend of slice 2 of generic views (decision 0066, "Deferred slices": "Slice 2: pivot view
