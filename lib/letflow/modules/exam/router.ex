@@ -41,8 +41,10 @@ defmodule Letflow.Modules.Exam.Router do
   | issue_certificate | `POST /exam-sessions/:id/certificate` | `Letflow.Modules.Exam.Certificate.issue_or_get_for_user/3` (REQ-355) | `ExamCertificateIssue` | 200 / 404 / 409 |
   | download_certificate | `GET /exam-sessions/:id/certificate/download` | `Letflow.Modules.Exam.Certificate.issue_or_get_for_user/3` + `Letflow.Modules.Exam.CertificateDocument.render/2` (REQ-356) | `ExamCertificateIssue` | 200 (`application/pdf`) / 404 / 409 |
 
-  REQ-586 part A: a `category`/`question` write carrying `parent_id`, and a delete of either type, can be
-  refused by `Letflow.Modules.Exam.AuthoringRules` with a 422 (`parent_cycle`, `parent_not_found`) or a
+  REQ-586 parts A and B: a `category`/`question` write carrying `parent_id`, a `question` write that
+  touches its lineage, and a delete of either type, can be refused by
+  `Letflow.Modules.Exam.AuthoringRules` with a 422 (`parent_cycle`, `parent_not_found`, `lineage_branch`,
+  `version_not_increasing`, `lineage_active_conflict`) or a
   409 (`category_has_children`, `question_has_children`); the code is the `reason` extension member.
 
   ## Deliberately NOT routed here, and why (REQ-335's own scope fence)
@@ -1099,7 +1101,13 @@ defmodule Letflow.Modules.Exam.Router do
   # REQ-586 part A: a tree rule refusal carries a constant detail and the reason as an extension, so
   # absent / deleted / other-tenant parents give byte-identical bodies (INV-5).
   defp render_authoring(conn, {:error, {:authoring_rule, reason}}, _status, _restricted)
-       when reason in [:parent_cycle, :parent_not_found] do
+       when reason in [
+              :parent_cycle,
+              :parent_not_found,
+              :lineage_branch,
+              :version_not_increasing,
+              :lineage_active_conflict
+            ] do
     problem = %{
       Letflow.Api.Error.unprocessable("exam authoring rule refused")
       | extensions: %{"reason" => Atom.to_string(reason)}
