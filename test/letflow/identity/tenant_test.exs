@@ -408,6 +408,45 @@ defmodule Letflow.Identity.TenantTest do
       assert %{settings: [_]} = errors_on(changeset)
     end
 
+    test "REQ-595 A1: the closed vocabulary is exactly the seven keys" do
+      assert Enum.sort(Letflow.Identity.TenantSettings.allowed_keys()) ==
+               Enum.sort(
+                 ~w(app_name logo_url brand_colors locales default_locale signatory_name signatory_title)
+               )
+    end
+
+    test "REQ-595 V1: valid signatory values are accepted, nil clears" do
+      tenant = insert_tenant!()
+      max = String.duplicate("я", 100)
+
+      for settings <- [
+            %{"signatory_name" => "Aigul Nurpeisova"},
+            %{"signatory_title" => "Director of Certification"},
+            %{
+              "signatory_name" => "Aigul Nurpeisova",
+              "signatory_title" => "Director of Certification"
+            },
+            %{"signatory_name" => max, "signatory_title" => max},
+            %{"signatory_name" => nil},
+            %{"signatory_title" => nil}
+          ] do
+        changeset = Tenant.settings_changeset(tenant, %{"settings" => settings})
+        assert changeset.valid?, "expected valid: #{inspect(settings)}"
+      end
+    end
+
+    test "REQ-595 V2: invalid signatory values are refused naming the key" do
+      tenant = insert_tenant!()
+
+      for key <- ["signatory_name", "signatory_title"],
+          value <- ["", "   ", String.duplicate("a", 101), "a\nb", "a\tb", "a\x7Fb", 42, <<255>>] do
+        changeset = Tenant.settings_changeset(tenant, %{"settings" => %{key => value}})
+        refute changeset.valid?, "expected invalid: #{key}=#{inspect(value)}"
+        assert %{settings: [msg]} = errors_on(changeset)
+        assert msg =~ key
+      end
+    end
+
     defp insert_tenant! do
       {:ok, tenant} =
         Repo.insert(%Tenant{slug: unique_slug(), display_name: "Original"})

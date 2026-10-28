@@ -418,6 +418,17 @@ defmodule Letflow.Routers.TenantConfigTest do
                "brand_colors"
              ] == %{"primary" => "#228be6"}
     end
+
+    test "REQ-595 P3: branding_from_settings returns the same three keys with signatory settings" do
+      branding =
+        Letflow.Routers.TenantConfig.branding_from_settings(%{
+          "app_name" => "A",
+          "signatory_name" => "N",
+          "signatory_title" => "T"
+        })
+
+      assert Map.keys(branding) |> Enum.sort() == ["app_name", "brand_colors", "logo_url"]
+    end
   end
 
   # ═══════════════════════════════════════════════════════════════════════════
