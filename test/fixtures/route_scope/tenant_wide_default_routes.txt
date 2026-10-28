@@ -35,6 +35,7 @@ GET /modules/exam/exam-sessions/mine ExamSessionRead
 GET /modules/exam/grading-queue ExamGradingRead
 GET /modules/exam/grading-queue/:session_id/:question_id ExamGradingRead
 GET /modules/fixture/items/:id FixtureRead
+GET /modules/procurement/purchase-requests/:id ProcurementRequestRead
 GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage
@@ -92,6 +93,10 @@ POST /modules/exam/exam-sessions/:id/certificate ExamCertificateIssue
 POST /modules/exam/exam-sessions/:id/events ExamSessionReportEvent
 POST /modules/exam/exam-sessions/:id/submit ExamSessionSubmit
 POST /modules/exam/grading-queue/:session_id/:question_id/grade ExamGradingWrite
+POST /modules/procurement/purchase-requests ProcurementRequestWrite
+POST /modules/procurement/purchase-requests/:id/decisions ProcurementRequestDecide
+POST /modules/procurement/purchase-requests/:id/revise ProcurementRequestWrite
+POST /modules/procurement/purchase-requests/:id/submit ProcurementRequestWrite
 POST /onboarding TenantsManage
 POST /onboarding/:id/bind-realm TenantsManage
 POST /platform-migrations/rollouts TenantsManage

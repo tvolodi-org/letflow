@@ -372,6 +372,88 @@ defmodule Letflow.Routers.TenantSettingsTest do
     end
   end
 
+  describe "REQ-595 part A: signatory settings over PATCH" do
+    test "R1/R2: both keys stored, a null title clears the value but keeps the key" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req595-r1")
+
+      resp =
+        patch_settings(tenant,
+          body: %{"signatory_name" => "Aigerim S.", "signatory_title" => "Director"}
+        )
+
+      assert resp.status == 200
+      body = Jason.decode!(resp.resp_body)
+      assert Map.keys(body) |> Enum.sort() == ["settings", "tenant_id"]
+      assert body["settings"]["signatory_name"] == "Aigerim S."
+      assert body["settings"]["signatory_title"] == "Director"
+
+      resp2 = patch_settings(tenant, body: %{"signatory_title" => nil})
+      assert resp2.status == 200
+      settings = Jason.decode!(resp2.resp_body)["settings"]
+      assert Map.has_key?(settings, "signatory_title")
+      assert settings["signatory_title"] == nil
+      assert settings["signatory_name"] == "Aigerim S."
+    end
+
+    test "R3: an invalid value is refused 422 and nothing is stored" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req595-r3")
+
+      resp = patch_settings(tenant, body: %{"signatory_name" => "  "})
+
+      assert resp.status == 422
+      assert resp.resp_body =~ "signatory_name must be a non-empty string"
+      assert Repo.get!(Tenant, tenant.tenant_id).settings in [nil, %{}]
+    end
+
+    test "U1: an unknown sibling key is dropped with one audit entry" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req595-u1")
+
+      resp =
+        patch_settings(tenant,
+          body: %{"signatory_name" => "Aigerim S.", "signatory_role" => "x"}
+        )
+
+      assert resp.status == 200
+      settings = Jason.decode!(resp.resp_body)["settings"]
+      assert settings["signatory_name"] == "Aigerim S."
+      refute Map.has_key?(settings, "signatory_role")
+
+      audit_body =
+        get_audit(tenant, query_string: "resource_type=tenant_settings").resp_body
+        |> Jason.decode!()
+
+      assert audit_body["count"] == 1
+      assert [item] = audit_body["items"]
+      assert item["action"] == "tenant_settings.reject_unrecognized_keys"
+      assert item["after_state"]["rejected_top_level_keys"] == %{"signatory_role" => "x"}
+    end
+
+    test "P1: the public tenant-config body is unchanged by the signatory settings" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req595-p1")
+
+      {1, nil} =
+        Repo.update_all(
+          from(t in Tenant, where: t.id == ^tenant.tenant_id),
+          set: [idp_realm_id: "req595-p1-realm-#{tenant.tenant_id}"]
+        )
+
+      assert patch_settings(tenant, body: %{"app_name" => "Acme"}).status == 200
+      {conn_before, before} = get_tenant_config(tenant.tenant.slug)
+      assert conn_before.status == 200
+
+      resp =
+        patch_settings(tenant,
+          body: %{"signatory_name" => "Aigerim S.", "signatory_title" => "Director"}
+        )
+
+      assert resp.status == 200
+      {conn_after, after_body} = get_tenant_config(tenant.tenant.slug)
+      assert conn_after.status == 200
+      assert after_body == before
+      refute Jason.encode!(after_body) =~ "signatory"
+    end
+  end
+
   # ═══════════════════════════════════════════════════════════════════════
   # AC5 — settings_changeset/2's cast list stays [:settings] only;
   # TenantSettings' closed vocabulary unchanged; this endpoint cannot touch

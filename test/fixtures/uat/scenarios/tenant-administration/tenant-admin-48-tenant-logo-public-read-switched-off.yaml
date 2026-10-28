@@ -1,0 +1,110 @@
+# T-0895 (BA): TENANT ADMIN group, scenario 48: with the logo-upload switch off (the product default), the public logo read answers not-found like an unknown company, and the web and mobile company configuration are exactly what they were with no logo.
+# Covers REQ-591 criterion 1 (quoted): "Flag off: with :tenant_logo_upload_enabled false, GET /api/tenant-config/logo answers the same 404 as the seven miss cases, and GET /api/tenant-config and GET /api/mobile/tenant-config for a tenant that has a tenant_logos row are byte-identical to the responses for the same tenant with no row."
+# Not covered here: criterion 9 of REQ-591 (gates: security and code review verdicts, route and named-route pin moves, static checks and test runs, the PR statement about the QA switch): process and code-review matters, not reachable by a user step.
+# Sources: docs/requirements.yaml REQ-591 criterion 1 and the description (seven miss cases plus the switch off), REQ-590 (the row is kept when the switch is turned off); lib/letflow/routers/tenant_config.ex (serve_logo/1, put_logo/3); test/fixtures/uat/actors.yaml.
+# Environment (precondition for the runner): the QA switch for logo upload must be OFF at the start (the product default, as in scenario 43), and the runner reports BLOCKED if the environment has it on (step 2 would then answer 200 only after an upload, so the baseline of step 1 cannot be taken in the off state).
+# The scenario turns the switch on in step 3 only to store a logo (the upload route does not exist while it is off), turns it off in step 5 and judges steps 6 to 8 in the off state. Run it in its own pass, like scenario 43. The "on" half of the criterion is scenarios 44 to 47.
+# Bytes (exact, hex): PNG-OK = 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082 (67 bytes), declared image/png.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusal step is the switched-off public read (step 6), refused with the same answer as an unknown company.
+---
+id: tenant-administration-48-tenant-logo-public-read-switched-off
+scope: tenant-administration
+title: With the logo-upload switch off, the public logo read answers not-found even for a company that holds a stored logo, and the web and mobile configuration are unchanged
+version: "1.0"
+tags: [tenant-admin, tenant-logo, public-read, feature-flag, refusal]
+
+description: >
+  The switch starts off. The web and mobile configuration for SwiftRoute and the not-found answer for an unknown company are noted. The environment turns the switch on, the SwiftRoute administrator stores a logo, and
+  the environment turns the switch off again; the stored picture stays. A caller who is not signed in asks for the SwiftRoute logo and gets the same not-found answer as for an unknown company, and the web and mobile
+  configuration for SwiftRoute are byte for byte what they were before the picture was stored.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  visitor: actor-any
+
+preconditions:
+  - description: The logo-upload switch is OFF in the test environment at the start (the product default).
+    check: system_seeded
+    detail: If the environment has it on, report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute has no stored logo at the start.
+    check: system_seeded
+    detail: Setup-prepared. If one exists, delete it first (turning the switch on and off again around that) and note that in the report.
+  - description: The runner knows the address name S-SR of SwiftRoute from the seeded company records and can read the SwiftRoute logo table from the database.
+    check: system_seeded
+    detail: If the logo table cannot be read, report BLOCKED for EO-003 only.
+
+steps:
+  - step: 1
+    actor: visitor
+    action: >
+      Baselines with no stored logo and the switch off. A caller who is not signed in reads the web company configuration with the realm value S-SR (W0), the mobile configuration with the address name S-SR (M0), and the
+      public logo with the address name "no-such-company-0000" (N0). The full bodies, the status and the header names are noted.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute tries to upload PNG-OK declared image/png while the switch is still off. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: actor-system-qa-setup
+    action: >
+      The QA environment turns the company-logo upload switch on and restarts the service if the environment requires it.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute uploads PNG-OK declared image/png as the company logo. The answer is noted, including the fingerprint H-SR.
+    via: api
+  - step: 5
+    actor: actor-system-qa-setup
+    action: >
+      The QA environment turns the company-logo upload switch off again and restarts the service if the environment requires it.
+    via: api
+  - step: 6
+    actor: visitor
+    action: >
+      A caller who is not signed in reads the public logo with the address name S-SR. The status, body and header names are noted as N1.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: visitor
+    action: >
+      The same caller reads the web configuration with the realm value S-SR (W1) and the mobile configuration with the address name S-SR (M1). The full bodies are noted.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: With the switch off nothing can be uploaded.
+    verification:
+      method: http_status
+      detail: Step 2 answers 404, with the ordinary not-found answer. Nothing is stored by it.
+      evidence: The answer of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A feature the platform operator has not switched on is reachable.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The switched-off public read is not distinguishable from an unknown company.
+    verification:
+      method: http_status
+      detail: Step 6 answers 404. N1 equals N0 in status, in the body (byte for byte, after removing a per-request trace_id member if one is present) and in the set of response header names. No picture bytes are returned and the answer is not 500.
+      evidence: N0 and N1 side by side.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A switched-off feature still serves a stored picture, or reveals by a different answer that SwiftRoute holds a picture.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: The configuration answers are byte-identical to those before any picture was stored, and the picture is kept.
+    verification:
+      method: system_state
+      detail: W1 equals W0 and M1 equals M0 byte for byte, and neither contains "/api/tenant-config/logo?slug=". Read from the SwiftRoute logo table after step 7, the logo row stored in step 4 still exists with fingerprint H-SR.
+      evidence: W0 against W1, M0 against M1, and the SwiftRoute logo table read directly.
+    on_fail:
+      severity: MAJOR
+      business_impact: Turning the feature off leaves login screens pointing at a logo address that answers not-found, or throws away the company's picture.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Turn the switch on, delete the SwiftRoute logo, and turn the switch off again (it is off by default).

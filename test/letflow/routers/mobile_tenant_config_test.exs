@@ -531,6 +531,39 @@ defmodule Letflow.Routers.MobileTenantConfigTest do
     end
   end
 
+  describe "REQ-595 part A: signatory settings do not reach the mobile config" do
+    test "P2: the body is unchanged after storing both signatory settings" do
+      tenant =
+        insert_tenant!(%{
+          slug: unique_slug("req595-p2"),
+          display_name: "REQ-595 Signatory Tenant",
+          idp_realm_id: unique_realm("req595-p2")
+        })
+
+      assert {:ok, _} =
+               Identity.update_tenant_settings(tenant.slug, %{
+                 "settings" => %{"app_name" => "Acme"}
+               })
+
+      {conn_before, before} = get_mobile_config(tenant.slug)
+      assert conn_before.status == 200
+
+      assert {:ok, _} =
+               Identity.update_tenant_settings(tenant.slug, %{
+                 "settings" => %{
+                   "app_name" => "Acme",
+                   "signatory_name" => "Aigul Nurpeisova",
+                   "signatory_title" => "Director of Certification"
+                 }
+               })
+
+      {conn_after, after_body} = get_mobile_config(tenant.slug)
+      assert conn_after.status == 200
+      assert after_body == before
+      refute Jason.encode!(after_body["branding"]) =~ "signatory"
+    end
+  end
+
   # ═══════════════════════════════════════════════════════════════════════════
   # REQ-282 AC3 -- a tenant WITH stored branding/locales gets its own values
   # (per-sub-key fallback), a tenant WITHOUT gets platform defaults

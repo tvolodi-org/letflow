@@ -6,15 +6,19 @@ defmodule Letflow.Modules.Procurement do
   Part 1 ships the scaffold and the request itself: the manifest, the document type
   `purchase_request` (registered by `on_install/3` through `Letflow.Documents.register_type/3`),
   validation with exact decimal totals (`Letflow.Modules.Procurement.PurchaseRequest`) and the
-  create, submit and revise operations (`Letflow.Modules.Procurement.PurchaseRequests`). It has no
-  router, no BPM handler, no pack, no entity type and no tenant table; the reference data (units,
-  departments) stays in `catalog_items` and `org`. Part 2 adds the routes, the decisions and the
-  approval permission.
+  create, submit and revise operations (`Letflow.Modules.Procurement.PurchaseRequests`). Part 2
+  adds the BPM operations (`PurchaseRequests.submit_for_bpm/3`, `Letflow.Modules.Procurement.Decisions`:
+  approve, reject, return bound to one issued version), the decision table `procurement_decisions`,
+  the router and the approval permission `ProcurementRequestDecide`. There is no pack and no entity
+  type; the reference data (units, departments) stays in `catalog_items` and `org`. The module has
+  no approval route, threshold, assignee or delegation: a process definition owns those.
 
-  The two permissions are declared with their route policies (the routes arrive with part 2: the
-  permission-matrix classification pre-approves a new module atom only when the owner's own route
-  policies name it) and with no `role_grants`: in this slice only TENANT_ADMIN and PLATFORM_ADMIN
-  hold them. Giving requesters write access is a widening that needs per-tenant grant snapshots.
+  The three permissions are declared with their route policies (the permission-matrix
+  classification pre-approves a new module atom only when the owner's own route policies name it)
+  and with no `role_grants`: in this slice only TENANT_ADMIN and PLATFORM_ADMIN hold them, so the
+  requester/approver split rests on the permission gate and the self-decision check (a requester
+  never decides their own request). Giving requesters write access or approvers the decide
+  permission is a widening that needs per-tenant grant snapshots.
   """
 
   @behaviour Letflow.Modules.Module
@@ -40,15 +44,21 @@ defmodule Letflow.Modules.Procurement do
     version: "0.1.0",
     depends_on: ["org", "catalog_items"],
     pack: nil,
-    permissions: [:ProcurementRequestWrite, :ProcurementRequestRead],
+    permissions: [:ProcurementRequestWrite, :ProcurementRequestRead, :ProcurementRequestDecide],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
     route_policies: [
       {"POST", "/purchase-requests", :ProcurementRequestWrite},
-      {"GET", "/purchase-requests/:id", :ProcurementRequestRead}
+      {"GET", "/purchase-requests/:id", :ProcurementRequestRead},
+      {"POST", "/purchase-requests/:id/submit", :ProcurementRequestWrite},
+      {"POST", "/purchase-requests/:id/revise", :ProcurementRequestWrite},
+      {"POST", "/purchase-requests/:id/decisions", :ProcurementRequestDecide}
     ]
   )
+
+  @impl true
+  def router, do: Letflow.Modules.Procurement.Router
 
   @impl true
   def on_install(prefix, _settings, ctx) do

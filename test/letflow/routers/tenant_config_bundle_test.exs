@@ -461,6 +461,18 @@ defmodule Letflow.Routers.TenantConfigBundleTest do
 
       for {path, _k} <- route_paths_and_keys(), do: refute(path =~ ":")
     end
+
+    test "REQ-595 A2 signatory settings round-trip through export and import" do
+      a = tenant!("r595-a2a")
+      b = tenant!("r595-a2b")
+      sig = %{"signatory_name" => "Aigerim S.", "signatory_title" => "Director"}
+      set_settings!(a, sig)
+
+      doc = json(export(a))
+      assert doc["tenant_settings"] == sig
+      assert import_(b, doc).status == 200
+      assert tenant_settings(b) == sig
+    end
   end
 
   describe "AC5 -- schema version and all-or-nothing" do

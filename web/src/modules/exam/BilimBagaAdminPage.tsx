@@ -25,6 +25,7 @@ import { Link } from 'react-router-dom'
 import { PageLayout } from '@/components/ui/PageLayout'
 import { EntitiesIntlProvider } from '@/i18n/EntitiesIntlProvider'
 import { BILIMBAGA_ENTITY_TYPES } from '@/config/bilimbagaEntities'
+import { ExamBuilderLink } from './ExamBuilderLink'
 
 function BilimBagaAdminPageInner() {
   const intl = useIntl()
@@ -35,6 +36,8 @@ function BilimBagaAdminPageInner() {
         <p style={{ color: 'var(--text-secondary)' }}>
           {intl.formatMessage({ id: 'entities.admin.landing.intro' })}
         </p>
+
+        <ExamBuilderLink />
 
         <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '.75rem' }}>
           {BILIMBAGA_ENTITY_TYPES.map(({ entityType }) => (

@@ -1,0 +1,98 @@
+# T-0851 (BA-BILIMBAGA): exam analytics, per-question difficulty.
+# Covers REQ-594 criterion 6 (Test R-question: correct rate 3 of 3 versus 1 of 3; a row waiting for manual grading is in neither count; a row of
+# another exam is not counted).
+# Sources: docs/requirements.yaml REQ-594 (description "Report 3, per-question difficulty", ROLLOUT point 2: answers recorded before the
+# rollout carry no exam and are not covered); docs/roles.md (EntitiesAggregate held by TENANT_ADMIN); test/fixtures/uat/actors.yaml
+# (actor-bilimbaga-admin).
+# Preconditions that only test setup can give: the graded answers below must be recorded after the analytics rollout with their exam and
+# correct mark; otherwise BLOCKED, not PASS.
+# Sensitive actions: read-only flow; see exam-analytics-3 (refusals).
+---
+id: bilimbaga-exam-analytics-2-question-difficulty
+scope: bilimbaga
+title: The exam administrator sees, per question, how many graded answers were right, and answers awaiting manual grading and answers of another exam are left out
+version: "1.0"
+tags: [exam_analytics, report, question_difficulty]
+
+description: >
+  The exam "UAT analytics exam" has two questions, "Question A" and "Question B". Each has three graded answers from three different finished
+  attempts. "Question A" was answered correctly in all three. "Question B" was answered correctly in one of the three. "Question B" also has one
+  answer that awaits manual grading. The exam "UAT other analytics exam" has a "Question C" with two graded answers, both correct. The
+  administrator asks, for "UAT analytics exam", how many graded answers each question has and how many of those are correct. The correct rate
+  per question is worked out by the administrator from the two numbers. Answers recorded before the analytics rollout carry no exam and are
+  not part of this report; the report states that boundary. Preconditions: see below.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: The exams and answers described above exist in Bilimbaga, recorded after the analytics rollout, with the correct mark set on every graded answer
+    check: custom
+    detail: Prepared by the test setup, not by a UAT actor. A candidate cannot choose which answers are right in a way that gives exactly 3 of 3 and 1 of 3 without a prepared exam; without the setup the scenario is BLOCKED.
+  - description: The Bilimbaga administrator can sign in
+    check: system_seeded
+    detail: The roster notes that a test token for this actor needs a mapping that is not yet approved; without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator asks, for "UAT analytics exam", for the number of graded answers per question, and notes the numbers for "Question A"
+      and "Question B".
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator asks, for "UAT analytics exam", for the number of graded answers per question that are marked correct, and notes the
+      numbers for "Question A" and "Question B".
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator works out the correct rate per question (correct divided by graded) and checks that the answer awaiting manual grading
+      is in neither number of "Question B".
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator reads the lists of step 1 and step 2 again and checks that "Question C" of the other exam is in neither.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Question A shows 3 correct of 3 graded, question B shows 1 correct of 3 graded
+    verification:
+      method: api_response
+      detail: "Step 1 shows 3 graded answers for Question A and 3 for Question B; step 2 shows 3 correct for Question A and 1 for Question B; the rates are 3 of 3 and 1 of 3"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Question difficulty guides which questions the exam body retires or rewrites. A wrong rate sends the effort to the wrong questions.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: The answer awaiting manual grading is counted neither as correct nor as incorrect
+    verification:
+      method: api_response
+      detail: "Question B has 3 graded answers in step 1, not 4; its correct count in step 2 is 1"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Counting an ungraded answer as wrong lowers a question's rate before anyone has judged it.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: Answers of another exam are not counted
+    verification:
+      method: api_response
+      detail: "Neither list shows Question C; Question A and Question B numbers are unchanged"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A question shared in name between exams must not mix the results of different exams.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing is created by this scenario; the answers are read only.
