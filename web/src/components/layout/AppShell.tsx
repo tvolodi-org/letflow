@@ -4,6 +4,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { P, useAccess, type Permission } from '@/auth/access'
 import { ApiConnectivityBanner } from './ApiConnectivityBanner'
 import { TestEnvironmentBanner } from './TestEnvironmentBanner'
+import { SkipLink } from './SkipLink'
 import { TenantHeader } from './TenantHeader'
 import { TenantSwitcher } from '@/auth/TenantSwitcher'
 import { dlqApi } from '@/api/dlq'
@@ -104,6 +105,7 @@ export function AppShell() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+      <SkipLink label="Skip to main content" />
       {/* Sidebar */}
       <aside
         style={{
@@ -197,7 +199,7 @@ export function AppShell() {
       </aside>
 
       {/* Main content */}
-      <main style={{ flex: 1, overflow: 'auto', background: 'var(--surface-page)' }}>
+      <main id="main-content" tabIndex={-1} style={{ flex: 1, overflow: 'auto', background: 'var(--surface-page)' }}>
         <TestEnvironmentBanner />
         <ApiConnectivityBanner />
         <Outlet />
