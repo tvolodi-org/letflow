@@ -43109,6 +43109,135 @@ requirements:
       - "7. Texts: every user-visible string is in examMessages.ts and ExamIntlProvider; exam-i18n-grep.test.ts passes."
       - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
     depends_on: [REQ-510]
+
+  - id: REQ-606
+    title: "Record T slice T-2: record_trigger_outbox table and same-transaction outbox insert in Records (server-only trigger_lineage opt, loop suppression, depth cap, per-tenant backlog cap, trigger_backlog_full mappings), no worker"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3411
+    # Source: docs/migration/decisions/0067-after-commit-trigger-outbox.md D1 (atomicity rule, where the insert happens, matching, rollback and replay), D2 (table, columns, states, "Lock position" item 5b), D4 ("How lineage reaches the insert", loop protection, Tests), D6 ("Depth cap per tenant", engine-side handling option a), D7 (last row of the failure table, tests for the insert failures), D8 (INV-1, INV-10), D9 slice T-2 and the SECURITY-REVIEWER marker, "Not decided here"; docs/migration/decisions/0061-engine-lock-order-platform-invariant.md items 5, 5a, 6; docs/migration/decisions/0006 D2 (tenant storage); docs/agents/instructions/security-invariants.md INV-1, INV-8, INV-10; REQ-570 (slice T-1, the binding table this slice reads). Code read: lib/letflow/entities/records.ex (create_record/3, update_record/3, delete_record/3, upsert_record_by_external_ref/4 and upsert_opts!/1, command_multi/3, interpret_in_multi/1, the private line_failure/3, the type step_refusal_code()), lib/letflow/entities/step_writes.ex (interpret_failure/2 and the private interpret_line/4), lib/letflow/entities/handler_writes.ex, lib/letflow/engine/entity_port.ex (the failure type), lib/letflow/engine.ex (interpret_service_step_failure/2, classify_service_apply_result/2, land_service_failure/5), lib/letflow/api/response.ex (entity_write_refused/3), lib/letflow/record_triggers.ex (enabled?/0, the T-1 context). Written by the business analyst (T-0811) 2026-10-28.
+    description: >
+      Decision 0067 D9 slice T-2 only ("outbox table and same-transaction insert"). T-1 (REQ-570) is on
+      main: the table record_trigger_bindings, the flag :record_triggers_enabled (default false in
+      config/config.exs and config/test.exs, read by Letflow.RecordTriggers.enabled?/0) and the bind,
+      rebind, unbind and list routes exist, but nothing reads a binding when a record is written. This
+      slice makes every record write that matches an active binding leave one durable outbox row in the
+      SAME database transaction as the write, and nothing more: no worker, no claim, no lease sweep, no
+      script run, no result application, no requeue route, no DLQ entry (T-3 to T-6 stay out and are
+      separate entries). Rows stay pending forever in this slice; that is intended.
+      What it builds. (a) A tenant-schema table record_trigger_outbox (name fixed by 0067 D2) in a new
+      migration under priv/repo/migrations/, registered in the manifest of lib/letflow/tenant_provisioning.ex
+      (new tenants) and reaching existing tenants through the same tenant-migration path as
+      priv/repo/migrations/20261026400001_create_record_trigger_bindings.exs, guarded by `if prefix() do`,
+      with the columns of 0067 D2 (id, binding_id, entity_type, record_id, event, source_seq, occurred_at,
+      script_key, script_version, script_sha256, depth, chain, actor_id, status, attempt, next_attempt_at,
+      claimed_at, lease_expires_at, last_code, done_at). The column names are "working" in 0067 D2; read
+      0006 D2 and the latest tenant migration before writing them, and do not add a tenant_id column unless
+      0006 D2 requires it for tenant tables. No record value and no field name is stored (0067 D8). A partial
+      index serves the backlog count of (c); the indexes the claim query of T-3 needs are T-3's. A new
+      tenant table moves the pin @expected_tenant_tables in test/support/tenant_fixture.ex and the count
+      assertion in test/letflow/support/tenant_fixture_test.exs (assert length(TenantFixture.expected_tenant_tables())
+      == 74 on main on 2026-10-28; the pin moves by +1 from the value on origin/main at implement time, and
+      the summary states the old value, the new value and the position of the new name in the alphabetical
+      list; re-grep `grep -rn "expected_tenant_tables" test/` after the merge of origin/main).
+      (b) A keyword opts argument with a single new key :trigger_lineage (a map with depth and chain) on
+      Records.create_record/4 and Records.update_record/4, and the same key accepted by
+      Records.upsert_record_by_external_ref/4, whose private upsert_opts!/1 today raises ArgumentError for any
+      key but :schema_checked and is extended (0067 D4). The 2- and 3-arity forms that the HTTP routers call,
+      Records.delete_record/2 and /3, and lib/letflow/entities/handler_writes.ex and
+      lib/letflow/entities/step_writes.ex (which build through Records.command_multi/3) pass no opts and write
+      a ROOT row (depth 0, empty chain). The lineage is read only from opts, never from attrs, a request body
+      or a step: an attrs key named trigger_lineage, depth or chain is not interpreted. Only the future worker
+      (T-4) calls the 4-arity form; this slice adds no caller of it except tests.
+      (c) The insert step, in the shared write Multi of the direct create, update, delete and upsert paths and
+      of Records.command_multi/3 (so it also covers the process-step paths of HandlerWrites and StepWrites),
+      after the step that assigns the type's sequence number (the type's sequence row is held and source_seq is
+      known) and before the audit-chain row of the transaction where the path appends one (0067 D1, D2 "Lock
+      position" item 5b; the insert takes no lock on an existing row). It runs only when
+      Letflow.RecordTriggers.enabled?/0 is true; with the flag false no binding is read, no row is inserted and
+      no new step is in the Multi's result that an existing caller reads (this slice is the second reader of the
+      flag). Inside the transaction it reads the active bindings of the write's (entity type, event) (created,
+      updated or deleted; an upsert raises created or updated by the branch it takes), and for each one inserts
+      a pending row with attempt 0, the binding's script key, version and sha256 copied into the row, the
+      write's source_seq, the transaction time as occurred_at, the actor id for attribution only, and depth and
+      chain from the lineage (root: 0 and []). Meaning of the opts value (one rule, fixed here): :trigger_lineage
+      is a map %{depth: integer, chain: list of binding ids} that carries the PARENT's step already appended:
+      depth is the parent row's depth and chain is parent.chain ++ [parent.binding_id] (the T-4 worker builds it
+      from the claimed row; this slice only reads it). The inserted row gets depth = depth + 1 and chain = chain
+      unchanged; with no :trigger_lineage the write is a root write and the row gets depth 0 and chain [].
+      Loop protection (0067 D4): a binding is NOT enqueued when its id is in chain, or when depth + 1 is greater
+      than the depth cap (default 3, a config value a tenant cannot raise). The write that would have raised the refused trigger still
+      commits; the refusal appends a metadata-only audit entry (trigger_loop_suppressed, binding id, depth, no
+      values) in the same transaction and increments a counter. A replay of an already committed write through
+      the idempotency key inserts no new row. Any rollback of the write leaves no row.
+      (d) Backlog cap (0067 D6): before inserting, and only when at least one active binding matches, the step
+      counts the tenant's rows in status pending or running with a bounded count over the partial index of (a),
+      taking no lock. When the count is greater than or equal to the cap (default 10000, config; the figure is
+      "a target to be measured", 0067 D6) the write FAILS with trigger_backlog_full and nothing is committed;
+      the check is made before the insert, so with cap 2 the writes at counts 0 and 1 are accepted and the
+      write at count 2 is refused. The Records return shape on the direct paths is {:error,
+      :trigger_backlog_full}. Direct HTTP writes (0067 D6: "a direct HTTP write answers a refusal with a retry
+      hint"): lib/letflow/routers/entities/record_writes.ex render_record_command/3 gains a clause so that
+      HTTP create, update, delete and the import upsert answer 503 with body {"error": "trigger_backlog_full"}
+      and a Retry-After header, never 500; the 503 is PROVISIONAL, pending the owner (0067 "Not decided
+      here"). On the user-task completion route, Response.entity_write_status/1 in lib/letflow/api/response.ex
+      gains a clause so that entity_write_refused/3 with code trigger_backlog_full answers the same provisional
+      503 (today an unlisted code answers 422). A write with no matching
+      binding never reads the count. A database fault of the insert is trigger_enqueue_failed and stays an
+      internal failure, also on the direct HTTP path (500, unchanged render).
+      (e) Error mapping for the process-step paths (0067 D6, option a, decided in the record). In
+      lib/letflow/entities/records.ex the type step_refusal_code() gains :trigger_backlog_full and the
+      private line_failure/3 gains a clause for the insert step ({:line, i, :enqueue_trigger}) with reason
+      :trigger_backlog_full that returns {:entity_write_refused, i, :trigger_backlog_full}; any other reason of
+      that step stays {:entity_write_failed, i, :enqueue_trigger}. StepWrites.interpret_failure/2 then carries
+      it as {:refused, i, :trigger_backlog_full, :step} (its existing interpret_line/4 clause for {:line, key,
+      _} steps does this once Records.interpret_in_multi/1 returns the refusal), and the failure type in
+      lib/letflow/engine/entity_port.ex gains the code. In lib/letflow/engine.ex, interpret_service_step_failure/2
+      gains a clause that returns :contention for {:refused, _index, :trigger_backlog_full, _detail}, beside the
+      existing :entity_write_contention clause; handle_service_outcome(:contention, ...) then retries with the
+      existing backoff and on exhaustion lands the step through land_service_failure/5 as
+      entity_write_contention (already in @service_refusal_codes: 503, retryable, nothing committed). The code
+      is NOT added to @service_refusal_codes. This applies to the service-task route and the script-task
+      route alike. On the user-task completion route (the :not_a_line_failure call site and
+      Response.entity_write_refused/3) there is no retry loop: the completion answers a retryable
+      entity_write_refused with code trigger_backlog_full, nothing committed. Without the engine clause the
+      code would land as :entity_write_failed with an internal-error log, which 0067 D6 rejects.
+      Out of scope, each its own later requirement (0067 D9): T-3 claim worker with lease (the poller child,
+      the flag :start_record_trigger_worker, the claim query), T-4 script run and result application (and the
+      record_trigger: reserved-prefix refusal in Records), T-5 failure handling, dead letter and tenant
+      visibility (the DLQ entry, list, count and requeue routes, Alerts, the kill switch), T-6 dry-run and UAT
+      scenarios. T-3 to T-6 are not yet in this register. No UI, no new route, no new permission. The three
+      tests the record names for the slice (lineage injected through opts; attrs-borne lineage ignored; both
+      trigger_backlog_full mappings through HandlerWrites, StepWrites and the three engine routes) are
+      criteria 5, 6 and 8 below.
+      Split for the feature round: sized for two parts as REQ-570 was. Part 1: migration with the table-list
+      pin, the opts argument, the insert step with loop suppression and the depth cap, rollback and replay
+      tests, flag-off behaviour (criteria 1-6, 11, 12). Part 2: the backlog cap, both trigger_backlog_full
+      mappings, the HTTP answers and the route tests (criteria 7-10, 13, 11, 12). The design states the split; part 1 says Refs and
+      names part 2 as the remainder.
+      SECURITY-REVIEWER is mandatory (new tenant-data table, migration, a new step in every record write
+      transaction, tenant isolation of the count).
+    acceptance_criteria:
+      - "1. Migration and table-list pin: one new migration creates record_trigger_outbox in the tenant schema under `if prefix() do`, with the columns named in the description, status defaulting to pending and attempt to 0, and a partial index over the pending and running statuses; it is registered in the manifest of lib/letflow/tenant_provisioning.ex; a test provisions a new tenant and asserts the table and the index exist, and a test runs the migration over an already provisioned tenant and asserts the table exists and holds no rows. The summary names the migration file and says how existing tenants get it. @expected_tenant_tables in test/support/tenant_fixture.ex gains the name and the count assertion in test/letflow/support/tenant_fixture_test.exs moves by +1 from the value on origin/main at implement time (74 on 2026-10-28); the summary states the old and new numbers (found with `grep -rn \"expected_tenant_tables\" test/`)."
+      - "2. Flag off changes nothing: with :record_triggers_enabled false, a create, an update, a delete and an upsert on a type that has an active binding insert no outbox row, read neither the binding table nor the outbox, and return the same results as before; the existing tests of test/letflow/entities/ pass unchanged (real output quoted). With the flag true and no matching binding the write inserts no row and reads no count."
+      - "3. Same-transaction insert: with the flag true and an active binding on (type, created), a direct create inserts exactly one row with status pending, attempt 0, depth 0, empty chain, the binding's script key, version and sha256, the record id, event created, and source_seq equal to the sequence number the write's event received; an update raises updated, a delete raises deleted, an upsert raises created on the insert branch and updated on the update branch; a binding on another event or another type of the same tenant yields no row; two bindings cannot match one (type, event), so one write never yields two rows. One test per event and per entry point (create_record, update_record, delete_record, upsert_record_by_external_ref, command_multi)."
+      - "4. Rollback and replay (0067 D1): a write that fails after the insert step (a forced failure of a later step, and a version conflict) leaves no outbox row and no record; a failure of the insert itself rolls the write back; a replay of an already committed write with the same idempotency key returns the original result and inserts no second row; a test inspects the Multi (or the SQL) and shows the insert comes after the sequence assignment and before the audit row, and takes no lock on an existing row (real output quoted)."
+      - "5. Lineage through opts and loop suppression (0067 D4, Tests): with the flag true, a binding B on (type X, created) and another binding id A, create_record/4 with opts trigger_lineage %{depth: 0, chain: [A]} inserts a row of depth 1 and chain [A]; %{depth: 0, chain: [B]} inserts no row (B is in the chain); %{depth: 3, chain: [A]} inserts no row (3 + 1 exceeds the default cap 3); %{depth: 2, chain: [A]} inserts a row of depth 3 and chain [A]; a root write (no opts) inserts a row of depth 0 and chain []. In each suppression the record is still written and committed, one audit entry trigger_loop_suppressed with binding id and depth and no field value is appended in the same transaction, and the counter is incremented. update_record/4 and upsert_record_by_external_ref/4 are covered by one test each; upsert_record_by_external_ref/4 still raises ArgumentError for an unknown option key and for a non-boolean :schema_checked."
+      - "6. Lineage cannot be forged from outside (0067 D4, Tests): an HTTP create, an HTTP update and an HTTP upsert, a process-step write through HandlerWrites and one through StepWrites, each carrying the keys trigger_lineage, depth and chain as accepted field values (the test type's definition declares fields of those names, and for the direct Records call the same names are also set as top-level attrs keys), with values that would suppress the trigger (a chain holding the binding id, depth 3), are accepted, write the record and still insert a row with depth 0 and an empty chain. A grep quoted in the summary lists every caller of the 4-arity forms and shows only tests call them (`grep -rn \"create_record(\\|update_record(\\|upsert_record_by_external_ref(\" lib/`, output pasted)."
+      - "7. Backlog cap, no mapping yet: with the cap set to 2 in the test config, a write with a matching binding at a count of 0 and again at a count of 1 pending or running rows is accepted, and the write at a count of 2 is refused with {:error, :trigger_backlog_full} before the insert and leaves the record and the outbox unchanged; rows in status done or dead do not count; a write on a type with no matching binding succeeds at any backlog; the count query is a bounded count over the partial index and takes no lock (SQL quoted). A forced database fault of the insert (for example the table dropped inside the test) yields trigger_enqueue_failed, the write is rolled back, and the step path reports {:entity_write_failed, i, :enqueue_trigger}, not a refusal."
+      - "8. Both mappings through HandlerWrites and StepWrites (0067 D6, D9 T-2): Records.interpret_in_multi/1 on the failure of the insert step with reason trigger_backlog_full returns {:entity_write_refused, i, :trigger_backlog_full}; StepWrites.interpret_failure/2 returns {:refused, i, :trigger_backlog_full, :step} for it; with reason trigger_enqueue_failed (or any other reason) both return the failed form {:entity_write_failed, i, :enqueue_trigger} / {:failed, i, :enqueue_trigger}. One test through a HandlerWrites write and one through a StepWrites write, each with a full backlog, show the refusal and that nothing is committed."
+      - "9. Engine routes (0067 D6): with a full backlog and a SERVICE_TASK whose handler writes an entity covered by a binding, interpret_service_step_failure/2 returns :contention for the refused code, the step is retried with the existing backoff, and on exhaustion the step lands as entity_write_contention (503, retryable, nothing committed), and the log shows no internal-error line; the same test for a script-task route; for user-task completion the call answers a retryable entity_write_refused with code trigger_backlog_full, nothing committed, and a second completion after the backlog drains succeeds. A test shows :trigger_backlog_full is not in @service_refusal_codes. A trigger_enqueue_failed on the same routes lands as entity_write_failed. The user-task answer is the HTTP answer of criterion 13."
+      - "13. Direct and user-task HTTP answers (0067 D6): with a full backlog, an HTTP create, update, delete and import upsert on a type with a matching binding each answer status 503 with body {\"error\": \"trigger_backlog_full\"} and a Retry-After header, nothing committed; user-task completion answers status 503 with error trigger_backlog_full through Response.entity_write_refused/3; none of them answers 500. A forced trigger_enqueue_failed on a direct HTTP write answers 500 as today. One test per route through the real router with a real token. The 503 is provisional (see open_questions)."
+      - "10. INV-1 and INV-10: the outbox rows and the count live in the tenant schema under the :prefix; no column or value of a row is used to choose a tenant. A test with two tenants shows that a write in tenant A with a matching binding inserts a row only in A's schema, that A's full backlog does not refuse a write in tenant B, and that B's count equals what it would be with A absent. This slice adds no route, so the cross-tenant route negative test of 0067 D8 belongs to T-3 and T-5; the summary says so."
+      - "11. Pins and scope: the summary lists the tests that pin what this slice changes, found with `grep -rn \"step_refusal_code\\|:entity_write_contention\\|upsert_opts\\|expected_tenant_tables\" test/` and `grep -rln \"records.ex\" test/` (source-scanning tests such as records_scope_all_scan, idempotency and the runbook pins), and the scoped tests of each pass with real output quoted; no new route, permission, flag or module under lib/letflow/routers/; the only new config keys are the depth cap and the backlog cap, each with its reason and default in the summary. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the scoped mix test over test/letflow/entities/, the engine entity-write tests and the tenant fixture test pass, real output quoted."
+      - "12. SECURITY-REVIEWER verdict is recorded (mandatory: new tenant-data table, migration, a new step in every record write transaction, tenant-scoped count); REVIEWER verdict recorded. The Sign-off section of docs/migration/decisions/0067-after-commit-trigger-outbox.md is not edited by this slice."
+    open_questions:
+      - "Not settled by 0067 (it lists them under 'Not decided here'): the HTTP status number of trigger_backlog_full on a direct write and on user-task completion (this entry uses 503 with Retry-After as a PROVISIONAL value, pending the owner) and of trigger_enqueue_failed (left as the existing 500); the final figures of the backlog cap (10000) and the depth cap (3), which T-2 is to measure; bulk-import volume (one outbox row per imported record) and a coalescing rule for repeated updates; pruning and retention of done and dead rows. This slice uses the defaults of the record as config values and settles none of these."
+      - "0067 D1 puts the insert in the delete path too, but D4 lists the opts form only for create, update and upsert. This entry keeps delete_record without opts (always a root row), because the trigger worker of T-4 writes only through create, update and upsert (0067 D5 modes). Whether a later slice needs delete_record/4 is not settled by the source."
+      - "0067 D4 says the 'trigger_loop_suppressed' audit entry and a counter exist but names no counter module or metric name; the design picks one and the summary states it."
+      - "Triggers on managed types (observe-only) and the kill-switch alternative are not decided by 0067 and are not touched here (T-1 already refuses binding a managed type)."
+    depends_on: [REQ-570]
   - id: REQ-605
     title: "Form-validation script hook (Record F) slice F-3: the :form_validation_hook step in the locked complete_task transaction, whole-completion re-run for script_busy, the form_hook_refused 422, guard-order, sentinel-order and lock-set tests"
     owner: ELIXIR-DEV
