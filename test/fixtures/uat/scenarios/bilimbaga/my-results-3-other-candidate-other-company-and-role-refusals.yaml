@@ -1,0 +1,142 @@
+# Authored by BA-BILIMBAGA (T-0894) for the candidate "My results" list (GH #3321).
+# Requirement: REQ-587 criterion 1 (role matrix: a role without the exam-session read permission gets 403, an auditor gets 403 with the
+# same body), criterion 2 (second candidate), criterion 3 (INV-5) and criterion 4 (INV-10 cross-company).
+# Criterion text, quoted from docs/requirements.yaml on origin/main:
+#   1. "a token with no role that holds :ExamSessionRead gets 403, a TENANT_AUDITOR token gets 403 with the same body as for any role
+#      without the permission"
+#   2. "candidate B (same tenant) holding one submitted session, a call by A returns exactly A's two sessions, a call by B returns exactly
+#      B's one, and neither response contains a session of the other"
+#   3. "with candidate B's session id and B's certificate id, A's GET /exam-sessions/:id, POST /exam-sessions/:id/certificate and GET
+#      /exam-sessions/:id/certificate/download each return a response identical in status, headers and body to the response for a random
+#      UUID that exists nowhere; and A's list response never contains a certificate_id or session_id of B."
+#   4. "with sessions and certificates in tenant B's schema and a CANDIDATE token of tenant A, GET .../exam-sessions/mine returns none of
+#      B's rows; ... a PLATFORM_ADMIN token calling the route gets only its own tenant's sessions (200, a no-data-leak check, not a refusal)"
+# BLOCKED in the present UAT environment (GAP sidecar scenario-env-limitations/bilimbaga-my-results-3-...). Not UAT-observable:
+#   - a second bilimbaga candidate with a finished session (the roster holds one: actor-bilimbaga-candidate);
+#   - a candidate of another company that has the exam module (the exam module is installed only in bilimbaga);
+#   - a bilimbaga account that holds neither the exam-session read permission nor the auditor role: the roster's bilimbaga accounts are the
+#     candidate and the company administrator; the administrator holds the read permission through its role, so it is no refusal case
+#     (it would get 200 with its own sessions); the roster's auditor belongs to swiftroute, which has no exam module;
+#   - the platform administrator no-data-leak check: the roster's platform administrator belongs to the default company, which has no
+#     exam module, so the route is not reachable for it in UAT;
+#   - criterion 3 compares status, headers and body of A's answer for B's id with the answer for a random identifier; both need B's ids.
+#   Criterion 8 (route and doc pins) is repository content: "Not covered here".
+---
+id: bilimbaga-my-results-3-other-candidate-other-company-and-role-refusals
+scope: bilimbaga
+title: A candidate's My results never shows another candidate's or another company's results, and roles without exam access are refused
+version: "1.0"
+tags: [refusal, results, privacy, access_control, tenant_isolation, certificate]
+
+description: >
+  Results of exam sessions are personal. A candidate who lists their own results sees none of the sessions of another candidate of the
+  same company and none of another company. When the candidate asks for the result, the certificate or the certificate PDF of a session
+  that belongs to somebody else, the answer is the plain "not found" answer, identical to the answer for an identifier that exists
+  nowhere, so the candidate cannot tell that the other session exists. A person who holds no exam role, and an auditor, cannot open the
+  list: they are refused with the same plain answer.
+  Preconditions: (a) a second bilimbaga candidate with a finished, passed session and an issued certificate, whose session and
+  certificate identifiers are known to the runner; (b) a candidate of another company with finished sessions; (c) a bilimbaga account
+  without the exam-session read permission and an auditor account of bilimbaga. The roster holds none of these, so in the present UAT
+  environment this scenario is BLOCKED (recorded as a GAP in scenario-env-limitations); the same refusals are covered by the backend
+  tests M-own, M-inv5, M-tenant and the permission test of REQ-587.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  administrator: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      A second bilimbaga candidate has a finished passed session with an issued certificate, and the identifiers of that session and
+      certificate are known to the runner. A candidate of another company has finished sessions. A bilimbaga account without the
+      exam-session read permission and a bilimbaga auditor exist. If any of these does not exist, this scenario is BLOCKED, not PASS
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: Lists own results and compares the session and certificate identifiers in the list with those of the second candidate
+    via: api
+
+  - step: 2
+    actor: candidate
+    action: Asks for the full result of the session of the second candidate, using its identifier
+    via: api
+    expect_refusal: true
+
+  - step: 3
+    actor: candidate
+    action: Asks for the certificate of the session of the second candidate, using its identifier
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: candidate
+    action: Asks for the certificate PDF of the session of the second candidate, using its identifier
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: candidate
+    action: Asks for the full result of a session identifier that exists nowhere, to compare the answer with step 2, and the same for the certificate and the certificate PDF to compare with steps 3 and 4
+    via: api
+    expect_refusal: true
+
+  - step: 6
+    actor: administrator
+    action: Lists own results as the company administrator, who may open the route but has no finished exam sessions of their own
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The list of one candidate holds no session or certificate of another candidate or company
+    verification:
+      method: api_response
+      detail: "Step 1 holds no session_id and no certificate_id of the second candidate; the list of the candidate holds no row that belongs to another company"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate seeing a colleague's or another company's result is a privacy breach.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      Another candidate's session, certificate and PDF look like they do not exist
+    verification:
+      method: http_status
+      detail: "Steps 2, 3 and 4 answer 404; status, headers and body of each equal the answer of step 5 for the identifier that exists nowhere; the body is not a PDF and holds no name, title or score"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A different answer would confirm to a candidate that a colleague's session exists and invite guessing.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      The administrator gets only what belongs to them
+    verification:
+      method: api_response
+      detail: "Step 6 answers 200 and the items hold no session of any candidate (the administrator has none); the answer is not a list of all candidates' results"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An administrator view of all candidates' results is not part of this release and would expose personal results.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      An account without the exam-session read permission, and an auditor, cannot open the list
+    verification:
+      method: http_status
+      detail: "The account without the permission and the bilimbaga auditor each get 403 for the list, with the same body as for any other account without the permission"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Results would be readable by roles that have no business with exam results.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: Every request only reads or is refused; nothing to undo.

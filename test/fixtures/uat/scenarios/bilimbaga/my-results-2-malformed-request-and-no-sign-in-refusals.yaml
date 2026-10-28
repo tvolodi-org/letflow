@@ -1,0 +1,114 @@
+# Authored by BA-BILIMBAGA (T-0894) for the candidate "My results" list (GH #3321).
+# Requirement: REQ-587 criterion 1 (an unauthenticated call gets 401), criterion 3 (a malformed exam_id gives 400) and criterion 7
+# (an invalid page_size gives 400 with the router's existing 'invalid page_size' text).
+# Criterion text, quoted from docs/requirements.yaml on origin/main:
+#   1. "... and an unauthenticated call gets 401."
+#   3. "A malformed exam_id gives 400 and a well-formed exam_id of an exam A never sat gives 200 with an empty items list (not 404)."
+#   7. "page_size follows Pagination.parse_page_size_param/1 (an invalid value gives 400 with the router's existing 'invalid page_size' text)"
+# The accepted boundary cases (well-formed exam_id never sat) are in scenario my-results-1, step 5, not here.
+# Not UAT-observable: the router's full list of allowed page sizes; this scenario uses values no one could call valid ("abc", -1).
+---
+id: bilimbaga-my-results-2-malformed-request-and-no-sign-in-refusals
+scope: bilimbaga
+title: The My results list refuses a request without sign-in, a malformed exam identifier and an invalid page size
+version: "1.0"
+tags: [refusal, results, validation, access_control]
+
+description: >
+  The list of a candidate's own results is only for a signed-in person. A request without any sign-in is refused. A request that
+  names an exam in a form that is not an identifier, or asks for a page size that is not allowed, is refused with a plain message
+  and returns no result rows. Each refused request returns none of the candidate's data.
+  Preconditions: the roster candidate has at least one finished exam session, so that a refused request could have leaked something.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  visitor: actor-any
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The roster candidate has at least one finished exam session
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: visitor
+    action: Asks for the list of own results without signing in (no sign-in token at all)
+    via: api
+    expect_refusal: true
+
+  - step: 2
+    actor: candidate
+    action: Asks for the list of own results narrowed to the exam identifier "not-an-id"
+    via: api
+    expect_refusal: true
+
+  - step: 3
+    actor: candidate
+    action: Asks for the list of own results with page size "abc"
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: candidate
+    action: Asks for the list of own results with page size -1
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: candidate
+    action: Asks for the list of own results with no narrowing and no page size, to confirm the refused requests changed nothing
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      A request without sign-in is refused
+    verification:
+      method: http_status
+      detail: "Step 1 answers 401 and the body holds no session, exam title or score"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Results of candidates would be readable by anyone on the internet.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      A malformed exam identifier is refused with a plain message
+    verification:
+      method: http_status
+      detail: "Step 2 answers 400 and the body holds no result row"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A malformed identifier that is accepted or crashes the request is a weakness in input handling.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      An invalid page size is refused with the existing page size message
+    verification:
+      method: http_status
+      detail: "Steps 3 and 4 each answer 400 with the router's existing 'invalid page_size' text and hold no result row"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An unchecked page size could return a huge answer or an unpredictable one.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      The refused requests changed nothing
+    verification:
+      method: api_response
+      detail: "Step 5 answers 200 with the candidate's own finished sessions, the same as before steps 1 to 4"
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        A refused read that alters later answers would point to a hidden side effect.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: Every request only reads or is refused; nothing to undo.
