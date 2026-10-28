@@ -43498,7 +43498,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-607 -- slice E-4 builds on the write integration of E-3 (REQ-607), which is still pending
+    gh: 3445
     # Source: docs/migration/decisions/0065-entity-pre-write-script-hook.md (D6 table and the paragraph under it, D8 slice E-4, D2 retry total, D3, "Not decided here", "Threat cases" 5); docs/migration/decisions/0061-engine-lock-order-platform-invariant.md (item 5, item 5a and item 6); docs/agents/instructions/security-invariants.md (INV-1, INV-4, INV-5, INV-8, INV-10); REQ-601 (slice E-2, outcome conversion and stats) and REQ-607 (slice E-3, write integration) in docs/requirements.yaml; code read: lib/letflow/scripts/policy.ex (kill_switch_on?/1: true when either latch is set or the singleton row is absent, a database error raises), lib/letflow/scripts/runtime.ex (check_enabled/1, the hook 1 use of the kill switch), lib/letflow/audit.ex (entry_attrs type, append_multi/4, insert_entry/3), lib/letflow/engine/script_task_dispatcher.ex (facts/7 and run_script/6, the hook 1 record of key, version, sha256 and HMAC), lib/letflow/scripts/form_validation.ex (the single not-started rejection), lib/letflow/engine/lua/script_runner.ex. Written by the business analyst (T-0845) 2026-10-28. Not yet validated.
     description: >
       Slice E-4 of decision 0065 (docs/migration/decisions/0065-entity-pre-write-script-hook.md, D8): the
