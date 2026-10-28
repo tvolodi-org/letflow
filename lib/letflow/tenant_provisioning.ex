@@ -906,10 +906,14 @@ defmodule Letflow.TenantProvisioning do
     # Existing rows stay list or pivot with chart_type NULL; no row altered.
     {20_261_028_100_001, Letflow.Repo.Migrations.AddGraphToEntityViews,
      "20261028100001_add_graph_to_entity_views.exs"},
+    # REQ-619 / GH #3453: kind `report` on entity_views (saved report definitions). Existing rows
+    # stay list, pivot or graph; no row altered.
+    {20_261_028_200_001, Letflow.Repo.Migrations.AddReportToEntityViews,
+     "20261028200001_add_report_to_entity_views.exs"},
     # REQ-544 / GH #3162 part 2: empty per-tenant table for the procurement decision record (and its
     # idempotency keys). No existing row altered.
-    {20_261_028_200_001, Letflow.Repo.Migrations.CreateProcurementDecisions,
-     "20261028200001_create_procurement_decisions.exs"}
+    {20_261_028_300_001, Letflow.Repo.Migrations.CreateProcurementDecisions,
+     "20261028300001_create_procurement_decisions.exs"}
   ]
 
   @doc """
