@@ -230,9 +230,52 @@ defmodule Letflow.Engine.PinResolverValidationScriptTest do
       )
     end
 
+    defmodule AcceptRunner do
+      @moduledoc false
+      def run(_source, _input, _opts),
+        do:
+          {:ok,
+           %{
+             output: %{"ok" => true},
+             stats: %{duration_us: 1, instructions_used: 1, heap_words_at_end: 1}
+           }}
+    end
+
+    # REQ-605 F-3: a node that names the pair now runs its hook at completion. An accepting
+    # hook leaves the completion result equal to that of a node without the pair.
     test "E3 completing the task of a definition with the pair behaves as without it", %{t: t} do
+      previous = Application.fetch_env(:letflow, :form_validation_script_runner)
+      Application.put_env(:letflow, :form_validation_script_runner, AcceptRunner)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, old} -> Application.put_env(:letflow, :form_validation_script_runner, old)
+          :error -> Application.delete_env(:letflow, :form_validation_script_runner)
+        end
+      end)
+
+      manifest = %{
+        "input_schema" => %{
+          "type" => "object",
+          "properties" => %{"amount" => %{"type" => "integer"}}
+        },
+        "output_schema" => %{
+          "type" => "object",
+          "properties" => %{
+            "ok" => %{"type" => "boolean"},
+            "code" => %{"type" => "string"},
+            "fields" => %{"type" => "array"}
+          },
+          "additionalProperties" => false
+        },
+        "fail_codes" => [],
+        "refusal_codes" => ["too_small"],
+        "fields" => ["amount"],
+        "limits" => %{"timeout_ms" => 50}
+      }
+
       rule =
-        F.published!(t.schema_name, "check_amount", F.doubling_source(), F.closed_manifest(),
+        F.published!(t.schema_name, "check_amount", "return { ok = true }", manifest,
           hook_kind: "form_validation"
         )
 
