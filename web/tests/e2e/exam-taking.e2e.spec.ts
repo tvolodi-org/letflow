@@ -8,19 +8,19 @@
  * flow, and a tab-switch warning modal) that has no counterpart in Letflow.
  * Letflow's real candidate-facing session screen is `ExamSessionPage.tsx`
  * (REQ-338, at `/exam/:examId/session`), a deliberately simpler one-question-
- * at-a-time screen: sequential Previous/Next paging (no jump grid), no flag
- * feature, Likert renders through the exact same generic radio-option markup
+ * at-a-time screen: sequential Previous/Next paging (no jump grid), a browser-only flag
+ * toggle (REQ-611), Likert renders through the exact same generic radio-option markup
  * as single-choice/true-false (no distinct widget), and clicking "Submit
  * exam" (`exam-submit-action`) calls `POST /modules/exam/exam-sessions/:id/submit`
  * directly — there is no review screen and no confirm modal to test a
  * cancel path on.
  *
- * Of the source's 11 tests, this file ports 9 real counterparts (some merged,
- * one materially rewritten against the real backend config below) and drops 2:
+ * Of the source's 11 tests, this file ports 10 real counterparts (some merged,
+ * one materially rewritten against the real backend config below) and drops 1:
  *
- *   - "07 — Flag/unflag" — DROPPED. No flag control exists anywhere in
- *     ExamSessionPage.tsx (no `aria-pressed` element, no per-question
- *     flagged state at all).
+ *   - "07 — Flag/unflag" — PORTED (REQ-611). ExamSessionPage.tsx now has a
+ *     browser-only flag toggle (`exam-flag-toggle`, aria-pressed) and a
+ *     `exam-flagged-count` line; flags never reach the server.
  *   - "10 — Submit confirmation happy path" — DROPPED, folded into "09"
  *     below. There is no confirm modal for a "submit anyway"/"cancel"
  *     sequence to exercise; clicking Submit performs the submission
@@ -291,6 +291,26 @@ test.describe.serial('Exam Taking (REQ-346 port onto /exam/:examId/session)', ()
 
     await expect(page.getByTestId('exam-save-status')).toHaveText('Saved', { timeout: 8_000 })
     await expect(textarea).toHaveValue(uniqueAnswer)
+  })
+
+  test('07 — Flag/unflag: the toggle flips aria-pressed, the count follows, the flag survives paging', async () => {
+    await goToQuestionByStem(page, '(single)')
+    const toggle = page.getByTestId('exam-flag-toggle')
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('exam-flagged-count')).toHaveCount(0)
+
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('exam-flagged-count')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await page.getByRole('button', { name: 'Previous' }).click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('exam-flagged-count')).toHaveCount(0)
   })
 
   test('08 — sequential Previous/Next paging moves between questions (real mechanism; no jump grid exists)', async () => {

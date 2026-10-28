@@ -142,6 +142,8 @@ function ExamSessionPageInner() {
   const pendingSavesRef = useRef(new Set<Promise<boolean>>())
   const [warning, setWarning] = useState<{ eventCount: number } | null>(null)
   const [questionIndex, setQuestionIndex] = useState(0)
+  // REQ-611: the candidate's own reminder marks, kept in the browser only (no request, not part of submit).
+  const [flagged, setFlagged] = useState<Record<string, boolean>>({})
 
   const startedRef = useRef(false)
 
@@ -410,6 +412,8 @@ function ExamSessionPageInner() {
 
   // phase.kind === 'in_progress'
   const { minutes, seconds } = formatRemaining(remainingSeconds)
+  const flaggedCount = Object.values(flagged).filter(Boolean).length
+  const isFlagged = currentQuestion ? flagged[currentQuestion.question_id] === true : false
 
   return (
     <div data-testid="exam-session-page">
@@ -468,7 +472,19 @@ function ExamSessionPageInner() {
                 { current: questionIndex + 1, total: session.questions.length },
               )}
             </p>
+            {flaggedCount > 0 && (
+              <p data-testid="exam-flagged-count">{intl.formatMessage({ id: 'exam.session.flaggedCount' }, { count: flaggedCount })}</p>
+            )}
             <h3>{resolveLocalizedText(currentQuestion.stem, uiLocale)}</h3>
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="exam-flag-toggle"
+              pressed={isFlagged}
+              onClick={() => setFlagged((prev) => ({ ...prev, [currentQuestion.question_id]: !prev[currentQuestion.question_id] }))}
+            >
+              {intl.formatMessage({ id: isFlagged ? 'exam.session.unflag' : 'exam.session.flag' })}
+            </Button>
 
             {currentQuestion.type === 'short_text' ? (
               <div>
