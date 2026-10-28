@@ -44381,7 +44381,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-620 -- the ledger tables, triggers and counter constraints this posting code writes to are created by REQ-620 (slice L1)
+    gh: 3469
     description: >
       Slice L2a of the WMS stock ledger (GH #2657, REQ-502, ledger core): the posting primitive and nothing around it.
       One new core module lib/letflow/ledger.ex (directory lib/letflow/ledger/, which does not exist on origin/main today)
