@@ -35,6 +35,7 @@ defmodule Letflow.Entities.WriteHook do
   alias Ecto.Multi
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EntityTypeInstance
+  alias Letflow.Entities.WriteHookAudit
   alias Letflow.EntityTypeHooks.Binding
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceSequence
@@ -61,7 +62,8 @@ defmodule Letflow.Entities.WriteHook do
           prefix: String.t(),
           derived_fields: [String.t()],
           fingerprint: %{String.t() => integer()},
-          locks: [{String.t(), Ecto.UUID.t()}]
+          locks: [{String.t(), Ecto.UUID.t()}],
+          audit: map()
         }
 
   @doc """
@@ -134,52 +136,78 @@ defmodule Letflow.Entities.WriteHook do
   end
 
   @doc """
-  Runs the hook for `candidate` and calls `finish.(derived, fingerprint)`; a `finish` result of
+  Runs the hook for `candidate` and calls `finish.(derived, fingerprint, info)`; a `finish` result of
   `{:error, :hook_fingerprint_mismatch}` runs the whole hook again, at most #{@max_attempts}
   attempts in total.
   """
-  @spec attempts(hook(), map(), (map(), map() -> term())) :: term()
-  def attempts(hook, candidate, finish) when is_function(finish, 2) do
+  @spec attempts(hook(), map(), (map(), map(), map() -> term())) :: term()
+  def attempts(hook, candidate, finish) when is_function(finish, 3) do
     if Repo.in_transaction?(),
       do: {:error, :script_error},
       else: attempt(hook, candidate, finish, 1)
   end
 
+  # `info` handed to `finish` and to the audit row: `%{attempts, stats, hmac}` of THIS attempt.
+  # REQ-618: a final rejection decided by the hook itself (a code of the D6 table, including
+  # the third `script_busy` and the third fingerprint mismatch) writes one rejected audit row.
   defp attempt(hook, candidate, finish, n) do
     case run_hook(hook, candidate) do
-      {:ok, %{derived: derived, fingerprint: fingerprint}} ->
-        case finish.(derived, fingerprint) do
+      {:ok, %{derived: derived, fingerprint: fingerprint}, info} ->
+        info = Map.put(info, :attempts, n)
+
+        case finish.(derived, fingerprint, info) do
           {:error, :hook_fingerprint_mismatch} when n < @max_attempts ->
             attempt(hook, candidate, finish, n + 1)
 
           {:error, :hook_fingerprint_mismatch} ->
-            {:error, :derived_value_conflict}
+            reject(hook, :derived_value_conflict, info)
 
           other ->
             other
         end
 
-      {:error, :script_busy} when n < @max_attempts ->
+      {:error, :script_busy, _info} when n < @max_attempts ->
         Process.sleep(@backoff_ms * n)
         attempt(hook, candidate, finish, n + 1)
 
-      {:error, _code} = error ->
-        error
+      {:error, code, info} ->
+        reject(hook, code, Map.put(info, :attempts, n))
     end
   end
+
+  # Contention is not a D6 outcome of the hook: nothing ran to a decision, nothing is audited.
+  defp reject(_hook, :entity_write_contention, _info), do: {:error, :entity_write_contention}
+
+  defp reject(hook, code, info) do
+    WriteHookAudit.audit_rejected(hook, code, info, info.attempts)
+    {:error, code}
+  end
+
+  @not_started %{duration_us: 0, instructions_used: nil, heap_words_at_end: nil}
 
   defp run_hook(hook, candidate) do
     facts = %{entity_type: hook.type, candidate: candidate, now: DateTime.utc_now()}
 
-    case EntityWrite.run(hook.prefix, hook.pin, facts, publisher_may_restricted?: false) do
-      {:ok, %{derived: _, fingerprint: _} = ok} -> {:ok, ok}
-      {:error, code, _stats} -> {:error, code}
+    case EntityWrite.run_audited(hook.prefix, hook.pin, facts, publisher_may_restricted?: false) do
+      {{:ok, %{derived: _, fingerprint: _, stats: stats} = ok}, hmac} ->
+        {:ok, ok, %{stats: stats, hmac: hmac}}
+
+      {{:error, code, stats}, hmac} ->
+        {:error, normalise(code), %{stats: stats, hmac: hmac}}
     end
   rescue
-    exception -> classify_exception(exception)
+    exception ->
+      {:error, code} = classify_exception(exception)
+      {:error, code, %{stats: @not_started, hmac: nil}}
   catch
-    _kind, _reason -> {:error, :script_error}
+    _kind, _reason -> {:error, :script_error, %{stats: @not_started, hmac: nil}}
   end
+
+  # D6 has no row for these two `EntityWrite` codes: the widened-restriction violation is an
+  # invalid output, the input build failure a not-started rejection (assumptions A4 of the design).
+  defp normalise(:script_output_restriction_widened), do: :output_invalid
+  defp normalise(:input_invalid), do: :script_rejected
+  defp normalise(code), do: code
 
   @doc false
   # The one classification of an exception raised while the hook runs or its write transaction.
@@ -202,8 +230,8 @@ defmodule Letflow.Entities.WriteHook do
   The write-side context of one attempt: the lock set (the written type and every read type,
   ascending by byte order, each once) with the registry id of each. Runs before the transaction.
   """
-  @spec context(hook(), map()) :: {:ok, hook_ctx()} | {:error, term()}
-  def context(hook, fingerprint) when is_map(fingerprint) do
+  @spec context(hook(), map(), map()) :: {:ok, hook_ctx()} | {:error, term()}
+  def context(hook, fingerprint, info) when is_map(fingerprint) and is_map(info) do
     types = Enum.sort(Enum.uniq([hook.type | Map.keys(fingerprint)]))
 
     types
@@ -221,7 +249,14 @@ defmodule Letflow.Entities.WriteHook do
            prefix: hook.prefix,
            derived_fields: hook.derived_fields,
            fingerprint: fingerprint,
-           locks: Enum.reverse(locks)
+           locks: Enum.reverse(locks),
+           audit: %{
+             pin: hook.pin,
+             actor_id: Map.get(hook, :actor_id),
+             attempts: info.attempts,
+             stats: info.stats,
+             hmac: info.hmac
+           }
          }}
 
       error ->
