@@ -43226,7 +43226,7 @@ requirements:
       - "The backoff length before a script_busy re-run is not in 0067 ('short backoff'); the implementer picks a fixed figure and states it in the PR; it is not a setting."
       - "Still open in 0067 'Not decided here' and not decided by this entry: any wall-clock figure between 50 ms and the 0053 D7 maxima, the maximum number of fields entries in a refusal, the HTTP status numbers of the D5 infrastructure codes, whether the 403 of a wrong assignee (ISS-0942) collapses to the not-found answer, a hook 3 with entity reads, and the behaviour of any future automatic completer."
     depends_on: [REQ-569, REQ-581]
-  - id: REQ-613
+  - id: REQ-615
     title: "Record T slice T-3: claim worker with lease for record_trigger_outbox (poller child behind :start_record_trigger_worker, FOR UPDATE SKIP LOCKED claim, per-record order, lease sweep, fairness, retry cap and backoff), the run is a stub that marks the row done"
     owner: ELIXIR-DEV
     status: pending
