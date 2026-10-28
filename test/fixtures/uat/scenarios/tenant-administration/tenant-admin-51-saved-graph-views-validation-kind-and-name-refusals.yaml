@@ -1,0 +1,234 @@
+# T-0902 (BA): TENANT ADMIN group, scenario 51: saved graph views, what the administrator is refused when the graph is not valid, a view cannot
+# change its kind, and the one-name-per-type rule across the three kinds.
+# Covers REQ-613 criteria 1 (the body rules: a graph body with columns or sort, a list body with a chart type, a pivot body with a chart type,
+# refused as an unknown key; nothing stored), 2 (filter field or operator, grouping field or aggregate field not on the type, an unknown
+# aggregate function, a sum without a field, a missing, empty, two-element or field-less grouping, a missing, empty or four-element list of
+# aggregates, a pie with two aggregates, a missing or unknown chart type, a join key: each refused with a short reason code, nothing stored),
+# 3 (a kind that is not list, pivot or graph is refused; a stored view cannot change its kind, in any direction between list, pivot and graph)
+# and 4 (a graph view cannot reuse the name of a list or pivot view of the same type, and the reverse: 409).
+# Sources: docs/requirements.yaml REQ-613 (criteria 1 to 4); lib/letflow/entities/views/clauses.ex (reason codes unknown_key, field_not_allowed,
+# unknown_operator, group_by_invalid, aggregates_invalid, chart_type_invalid, kind_invalid, kind_immutable, and the rule that a body with
+# several faults gets the first of filter, grouping, aggregates, chart type, pie rule: every attempt below has exactly one fault);
+# lib/letflow/routers/entity_views.ex (409 name_taken). Reason codes are quoted from those files, not from the requirement text alone.
+# Depends on the record type "UAT graph ticket" of scenario 50 (fields title, status, region, amount); this scenario creates it if missing.
+# Not UAT-observable: see the header of scenario 50 (the migration constraints, pins and build commands). The accepted cases of criterion 2 are
+# in scenario 50 (steps 2, 4 and 7).
+# A list body that carries grouping or aggregates (unknown_key, criterion 1) is the REQ-598 rule and is covered in scenario 34 (step 6, EO-005).
+# Of the filter reason codes of criterion 2 this scenario samples field_not_allowed and unknown_operator; the rest are test-suite cases.
+# The four sensitive actions are not in this flow; the access refusals are in scenario 52.
+---
+id: tenant-administration-51-saved-graph-views-validation-kind-and-name-refusals
+scope: tenant-administration
+title: A saved graph with an unknown field, operator or function, a bad grouping, bad aggregates, a bad chart type, a join, a mixed-up kind or a repeated name is refused and nothing is stored
+version: "1.0"
+tags: [tenant-admin, saved-views, graph, validation, refusal, conflict]
+
+description: >
+  The administrator of SwiftRoute tries to save graph views over the record type "UAT graph ticket" that break one rule each. Apart from the
+  one broken item named in the step, every attempt is the valid graph of step 1: over "UAT graph ticket", kind graph, filter "status equals
+  open", grouping by region, the aggregate "count of records", chart type bar, and the name "UAT valid graph" unless the step gives another name,
+  so each refusal can only come from the item the step names. The refused items are: a filter on a field the type does not have, an unknown
+  filter operator, a grouping on a field the type does not have, an aggregate on a field the type does not have, an unknown aggregate function,
+  a sum without a field, no grouping, an empty grouping, two groupings, a grouping element without a field, no aggregates, an empty list of
+  aggregates, four aggregates, a pie with two aggregates, no chart type, the chart type "donut", a body that carries a join, a graph that
+  carries columns, a graph that carries a sort, a list view that carries a chart type, a pivot view that carries a chart type, and a kind that
+  is none of list, pivot and graph. A graph with the name of an existing list view or pivot over the same type, and a list view and a pivot with
+  the name of an existing graph, are refused as duplicates (409). A change that turns a graph into a list view or a pivot, or a list view or a
+  pivot into a graph, is refused. After all attempts the list holds only the views the accepted steps saved, unchanged.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator; the record type "UAT graph ticket" with the fields title (text), status (text), region (text) and amount (whole number) is active; no saved view over it exists
+    check: system_seeded
+    detail: If the type is missing, create it as in scenario 50 step 1 (the records are not needed here) and say so in the report; if views exist from an earlier run, delete them first and note it.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator saves the valid graph "UAT valid graph" over "UAT graph ticket" with the filter "status equals open", the grouping by
+      region, the aggregate "count of records" and the chart type bar, and notes its id. This is the baseline for the checks below.
+    via: api
+    input:
+      name: UAT valid graph
+      kind: graph
+      entity_type: UAT graph ticket
+      filter: status equals open
+      group_by: [region]
+      aggregates: [count]
+      chart_type: bar
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the graph "UAT graph bad filter field" with the filter "colour equals red" (the type has no field colour),
+      then the graph "UAT graph bad operator" with the filter "status resembles open" (an operator that does not exist), then the graph "UAT graph
+      bad group field" with the grouping by colour, then the graph "UAT graph bad aggregate field" with the aggregate "sum of colour". Each answer
+      is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the graph "UAT graph bad function" with the aggregate function "median of amount" (not in the list count,
+      sum, average, smallest, largest), then the graph "UAT graph sum no field" with the aggregate "sum" and no field. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the graph "UAT graph no grouping" with no grouping at all, then the graph "UAT graph empty grouping" with an
+      empty grouping, then the graph "UAT graph two groupings" with the grouping by region and by status, then the graph "UAT graph group no
+      field" with a grouping list holding one element that has no field. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the graph "UAT graph no aggregates" with no list of aggregates, then the graph "UAT graph empty aggregates"
+      with an empty list of aggregates, then the graph "UAT graph four aggregates" with four aggregates (count of records, sum of amount, average
+      of amount, largest amount), then the graph "UAT pie two aggregates" with the chart type pie and the two aggregates count of records and sum
+      of amount. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the graph "UAT graph no chart type" with no chart type, then the graph "UAT graph donut" with the chart type
+      "donut". Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the graph "UAT graph join" with a join to another record type added to the body, then the graph "UAT graph
+      columns" with the columns title and status added, then the graph "UAT graph sort" with the sort "title ascending" added, then the list view
+      "UAT list chart type" (kind list, column title) with the chart type bar added, then the pivot "UAT pivot chart type" (grouping by region,
+      aggregate count of records) with the chart type bar added, then the view "UAT bad kind" with the kind "table". Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator saves, as accepted cases, the list view "UAT shared list name" over "UAT graph ticket" with the column title, and the pivot
+      "UAT shared pivot name" over the same type with the grouping by region and the aggregate "count of records". Each answer is noted.
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator tries to save a graph named "UAT shared list name" over "UAT graph ticket" (valid filter, grouping, aggregate and chart
+      type), and notes the answer.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: >
+      The administrator tries to save a graph named "UAT shared pivot name" over "UAT graph ticket" (valid filter, grouping, aggregate and chart
+      type), and notes the answer.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin
+    action: >
+      The administrator tries to save a list view named "UAT valid graph" over "UAT graph ticket" with the column title, and notes the answer.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin
+    action: >
+      The administrator tries to save a pivot named "UAT valid graph" over "UAT graph ticket" (grouping by region, aggregate count of records), and
+      notes the answer.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: tenant_admin
+    action: >
+      The administrator tries four changes, each keeping the name of the stored view and each noted: the graph of step 1 as a list view (kind list,
+      column title); the graph of step 1 as a pivot (kind pivot, grouping by region, aggregate count of records); the list view "UAT shared list
+      name" as a graph (kind graph, grouping by region, aggregate count of records, chart type bar); the pivot "UAT shared pivot name" as a graph
+      (kind graph, grouping by region, aggregate count of records, chart type bar).
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: tenant_admin
+    action: >
+      The administrator lists the views of the type "UAT graph ticket", reads the graph of step 1 by its id, and then deletes the views "UAT valid
+      graph", "UAT shared list name" and "UAT shared pivot name".
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A filter, grouping or aggregate on a field the type does not have, and an unknown filter operator, are each refused with a named reason and store nothing.
+    verification:
+      method: http_status
+      detail: Every answer of step 2 is 422 with a fixed reason code and does not repeat the submitted text; the filter field, the grouping field and the aggregate field cases give the code for a field not allowed, and the operator case gives the code for an unknown operator.
+      evidence: The four answers of step 2 and the list of step 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: A broken saved chart is stored and every user who opens it gets an error or a wrong chart.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: An unknown aggregate function, a sum without its field, no aggregates, empty aggregates, four aggregates and a pie with two aggregates are each refused with the aggregates reason and store nothing.
+    verification:
+      method: http_status
+      detail: Every answer of steps 3 (both), 5 (all four) is 422 with the reason code for invalid aggregates, the same code in all six cases; the list of step 14 shows no graph with these names.
+      evidence: The six answers of steps 3 and 5 and the list of step 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: A chart with no usable figures, or a pie that cannot be drawn, reaches the screens of the company.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: No grouping, an empty grouping, two groupings and a grouping element without a field are each refused with the grouping reason and store nothing.
+    verification:
+      method: http_status
+      detail: All four answers of step 4 are 422 with the reason code for invalid grouping, the same in all four cases; the list of step 14 shows no graph with these names.
+      evidence: The four answers of step 4 and the list of step 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: A chart with no category axis, or with two, is stored and fails when a user opens it.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A missing chart type and the chart type "donut" are each refused with the chart type reason and store nothing.
+    verification:
+      method: http_status
+      detail: Both answers of step 6 are 422 with the reason code for an invalid chart type, the same in both cases; the list of step 14 shows no graph with these names.
+      evidence: The two answers of step 6 and the list of step 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: A chart whose type the screens cannot draw is stored.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A join, columns or a sort on a graph, and a chart type on a list view or a pivot, are refused as an unknown key, and a kind that is none of list, pivot and graph is refused with its own reason.
+    verification:
+      method: http_status
+      detail: The first five answers of step 7 are 422 with the same fixed reason code for an unknown key; the sixth (kind "table") is 422 with the reason code for an invalid kind; none of the six views exists in the list of step 14.
+      evidence: The six answers of step 7 and the list of step 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: A chart could be saved over two record types or mixed with list or pivot settings, which the screens cannot show.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: The name is unique per record type across the three kinds; a repeated name is refused with the conflict answer in both directions, and the accepted list view and pivot of step 8 are stored.
+    verification:
+      method: http_status
+      detail: The answers of step 8 are 201 with the kinds list and pivot; the answers of steps 9, 10, 11 and 12 are 409 with the same fixed reason code; the list of step 14 holds each of those names once.
+      evidence: The answers of steps 8 to 12 and the list of step 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: Two saved views with the same name cannot be told apart by the people who choose between them.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: A saved view cannot change its kind in any direction between list, pivot and graph; the stored views are unchanged.
+    verification:
+      method: http_status
+      detail: All four answers of step 13 are 422 with the reason code for a kind that cannot change; the reading of step 14 shows the graph of step 1 with its kind, filter, grouping, aggregates and chart type unchanged, and the list of step 14 shows the list view and the pivot of step 8 with their own kinds.
+      evidence: The four answers of step 13 and the reading and list of step 14.
+    on_fail:
+      severity: MINOR
+      business_impact: A chart that turns into a list or a table, or the reverse, loses its settings without notice.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the views "UAT valid graph", "UAT shared list name" and "UAT shared pivot name" if they still exist. The record type "UAT graph ticket" stays for scenarios 50 and 52.
