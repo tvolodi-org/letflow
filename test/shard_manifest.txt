@@ -1040,6 +1040,7 @@
 16 test/support/fake_invocation_connection_test.exs 194.32
 16 test/letflow/modules/installs_uninstall_test.exs 5589.95
 4 test/letflow/routers/entity_views_pivot_test.exs 5589.95
+4 test/letflow/routers/entity_views_report_test.exs 5589.95
 4 test/letflow/routers/entity_views_graph_test.exs 5589.95
 5 test/letflow/engine/complete_task_form_hook_busy_test.exs 5589.95
 14 test/letflow/engine/complete_task_form_hook_locks_test.exs 5589.95
