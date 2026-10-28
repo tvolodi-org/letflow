@@ -905,7 +905,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-613 / GH #3432: kind `graph` and a nullable chart_type on entity_views (saved graph views).
     # Existing rows stay list or pivot with chart_type NULL; no row altered.
     {20_261_028_100_001, Letflow.Repo.Migrations.AddGraphToEntityViews,
-     "20261028100001_add_graph_to_entity_views.exs"}
+     "20261028100001_add_graph_to_entity_views.exs"},
+    # REQ-619 / GH #3453: kind `report` on entity_views (saved report definitions). Existing rows
+    # stay list, pivot or graph; no row altered.
+    {20_261_028_200_001, Letflow.Repo.Migrations.AddReportToEntityViews,
+     "20261028200001_add_report_to_entity_views.exs"}
   ]
 
   @doc """
