@@ -1,5 +1,5 @@
 # T-0514 (BA): TENANT ADMIN group, scenario 5 of 6: import of a settings bundle into a SECOND company (REQ-552 slice 1, criteria 3, 4, 6, 8).
-# Sources: docs/requirements.yaml REQ-552 (acceptance criteria 3, 4, 6, 8); lib/letflow/routers/tenant_config_bundle.ex (moduledoc: the
+# Sources: docs/requirements.yaml REQ-552 (acceptance criteria 3, 4, 6, 8), REQ-599 (criteria 3, 5, 6, 8: the two lists on import; scenario 37); lib/letflow/routers/tenant_config_bundle.ex (moduledoc: the
 # company comes only from the sign-in; the import answers with counts of changed settings, changed modules and unchanged modules).
 # Aliases (actor-any): tenant_admin = administrator of company A (scenario 4); tenant_admin_b = administrator of company B, a second
 # test customer created by the platform operator in the foundation group.
