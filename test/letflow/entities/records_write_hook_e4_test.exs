@@ -280,14 +280,19 @@ defmodule Letflow.Entities.RecordsWriteHookE4Test do
     }
 
   defp row("r6a"),
-    do: %{expected: :output_invalid, started?: true, reply: ok_reply(5), source: "return {}"}
+    do: %{
+      expected: :output_invalid,
+      started?: true,
+      reply: :real,
+      source: "return { total = 5 }"
+    }
 
   defp row("r6b"),
     do: %{
       expected: :output_invalid,
       started?: true,
-      source: "return {}",
-      reply: {:ok, %{output: %{"total" => "x", "extra" => "y"}, stats: @stats}}
+      source: "return { total = 'x', extra = 'y' }",
+      reply: :real
     }
 
   # the widened restriction: a labelled input feeds an unrestricted derived field (D6 row 6)
@@ -690,9 +695,13 @@ defmodule Letflow.Entities.RecordsWriteHookE4Test do
 
   describe "K kill switch" do
     setup %{schema: schema} do
-      bound_type!(schema, "tt", manifest())
+      bound_type!(schema, "tt", reads_manifest())
       StubRunner.reply(ok_reply())
-      :ok
+
+      # counts entries into the read phase (the seam runs right before ScriptReads.prefetch_with_fingerprint)
+      reads = :counters.new(1, [])
+      set_env(:entity_write_before_reads, fn -> :counters.add(reads, 1, 1) end)
+      {:ok, reads: reads}
     end
 
     latches = [
@@ -702,13 +711,23 @@ defmodule Letflow.Entities.RecordsWriteHookE4Test do
     ]
 
     for {label, latch} <- latches, path <- @paths do
-      test "#{label}-#{path} rejects the write before the sandbox", %{schema: schema} do
+      test "#{label}-#{path} rejects the write before the sandbox", %{
+        schema: schema,
+        reads: reads
+      } do
         path = unquote(path)
         record_id = existing_record(schema, path)
+
+        # positive control: with the switch off the read phase is entered
+        before_control = :counters.get(reads, 1)
+        assert {:ok, _} = write(schema, "tt", path, record_id, %{"name" => "Ctl"})
+        assert :counters.get(reads, 1) > before_control
+
         set_latch(schema, unquote(latch))
         StubRunner.reply(ok_reply())
 
         calls = StubRunner.calls()
+        read_entries = :counters.get(reads, 1)
         events = event_count(schema)
         rows = length(hook_rows(schema))
 
@@ -716,6 +735,7 @@ defmodule Letflow.Entities.RecordsWriteHookE4Test do
                  {:error, :script_rejected}
 
         assert StubRunner.calls() == calls
+        assert :counters.get(reads, 1) == read_entries
         assert event_count(schema) == events
         assert [%Entry{after_state: after_state}] = Enum.drop(hook_rows(schema), rows)
         assert after_state["outcome_class"] == "script_rejected"

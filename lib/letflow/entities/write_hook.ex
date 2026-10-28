@@ -27,6 +27,14 @@ defmodule Letflow.Entities.WriteHook do
   transaction. `Letflow.Scheduler.RecordDeadlineSweep` is such a caller, so a deadline transition of
   a hooked type is unsupported in this slice.
 
+  REQ-618 / GH #3445 (slice E-4): `finish` is called as `finish(derived, fingerprint, info)`, where
+  `info` carries the final attempt's stats and HMAC. A final rejection (including the third
+  `script_busy` or fingerprint mismatch) writes one rejected audit row through
+  `Letflow.Entities.WriteHookAudit.audit_rejected/4`; an accepted write adds its audit row as a step of
+  the write's own transaction. `normalise/1` maps `:input_invalid` to `script_rejected` and
+  `:script_output_restriction_widened` to `output_invalid`, so no E-2 code reaches a 500. The HMAC is
+  taken when the input is signed, before the runner is called, so an admission refusal records it.
+
   Every `Repo` call passes `prefix:` (INV-1, INV-6); every query uses bound parameters (INV-7).
   """
 
