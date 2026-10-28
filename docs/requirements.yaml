@@ -43708,6 +43708,93 @@ requirements:
       - "The backoff length before a script_busy re-run is not in 0067 ('short backoff'); the implementer picks a fixed figure and states it in the PR; it is not a setting."
       - "Still open in 0067 'Not decided here' and not decided by this entry: any wall-clock figure between 50 ms and the 0053 D7 maxima, the maximum number of fields entries in a refusal, the HTTP status numbers of the D5 infrastructure codes, whether the 403 of a wrong assignee (ISS-0942) collapses to the not-found answer, a hook 3 with entity reads, and the behaviour of any future automatic completer."
     depends_on: [REQ-569, REQ-581]
+  - id: REQ-615
+    title: "Record T slice T-3: claim worker with lease for record_trigger_outbox (poller child behind :start_record_trigger_worker, FOR UPDATE SKIP LOCKED claim, per-record order, lease sweep, fairness, retry cap and backoff), the run is a stub that marks the row done"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3434
+    # Source: docs/migration/decisions/0067-after-commit-trigger-outbox.md D1 (worked example, node death after commit, variant A), D2 (states, "Claim", "Lease length", retry cap and backoff, the ruling on lib/letflow/engine/script_task_dispatcher.ex and service_task_dispatcher.ex), D3 ("CAS on attempt", retriable causes), D6 ("Per record, in commit order", "Fairness", "Admission"), D7 (rows "claim lost" and "lease expired", tenant schema dropped), D8 (INV-1, INV-10 test), D9 slice T-3 and the SECURITY-REVIEWER marker, "Not decided here"; docs/migration/decisions/0061 (lock position of the claim, D2 "Lock position" (b)); docs/agents/instructions/security-invariants.md INV-1, INV-8, INV-10; REQ-606 (T-2, the outbox table), REQ-570 (T-1, the flag :record_triggers_enabled and the bindings). Code read: lib/letflow/engine/script_task_dispatcher.ex (claim_next/1, the private lock_and_claim/2, lease_ms/0, busy_backoff_ms/1, run_tick/2, sweep_expired_leases/2, the config keys tick_budget_ms, max_dispatches_per_cycle, sweep_limit, lease_margin_ms, busy_backoff_base_ms, busy_backoff_cap_ms), lib/letflow/engine/script_task_dispatcher/poller.ex (the private fetch_tenant_schemas, which lists Registration schemas with migrations_applied_at set), lib/letflow/supervisor/pollers.ex (the private script_task_dispatcher_children, one gate per poller), config/test.exs (start_script_task_dispatcher: false), test/letflow/supervisor/pollers_test.exs (the gate keys it lists), lib/letflow/record_triggers.ex (enabled?/0). Written by the business analyst (T-0843) 2026-10-28.
+    description: >
+      Decision 0067 D9 slice T-3 only ("claim worker with lease"). Wait condition: REQ-606 (slice T-2)
+      is on origin/main as a register entry only; the feature task of this entry waits until REQ-606's
+      feature tasks (T-0840 and T-0841) have merged, because the table record_trigger_outbox and the
+      rows to claim come from them. REQ-570 (T-1) is delivered and gives the flag :record_triggers_enabled
+      and Letflow.RecordTriggers.enabled?/0.
+      What it builds. A third poller, a GenServer in a new module (suggested name
+      Letflow.RecordTriggers.Worker, file lib/letflow/record_triggers/worker.ex) started as a child of
+      Letflow.Supervisor.Pollers (lib/letflow/supervisor/pollers.ex) behind its own config key
+      :start_record_trigger_worker, read as Application.get_env(:letflow, :start_record_trigger_worker,
+      true) in a new private children function like script_task_dispatcher_children, and set to false in
+      config/test.exs beside start_script_task_dispatcher (same OwnershipError hazard as the other
+      pollers). The poller shape is copied from lib/letflow/engine/script_task_dispatcher/poller.ex:
+      zero-delay first tick, tenant schema list from Registration where migrations_applied_at is set. It
+      is a separate process from the HTTP and script-task pollers (0067 D6 "Admission"), so a run here
+      never delays them. The worker does nothing while :record_triggers_enabled is false (the tick lists
+      no schema and claims nothing).
+      Claim (0067 D2 "Claim"): two statements in one transaction, as 0067 D2 states (the shape of
+      ScriptTaskDispatcher.claim_next/1 and its private lock_and_claim/2, whose candidate select runs
+      outside the transaction; this slice follows 0067): a candidate read (status = pending AND
+      (next_attempt_at IS NULL OR next_attempt_at <= now), ordered by next_attempt_at then id, limit 8, with
+      the per-record rule below; a pending row whose next_attempt_at is NULL is due, because REQ-606 sets no
+      value for that column at insert and this slice does not leave the rule to REQ-606), then a re-select of the candidate ids
+      with the lock mode FOR UPDATE SKIP LOCKED, limit 1, on the outbox row only, then an update to running
+      with attempt + 1, claimed_at and lease_expires_at = now + lease. The claim transaction takes no other
+      lock (0067 D2 "Lock position" (b)). A row held by another transaction is skipped, never waited for.
+      Per-record order (0067 D6): the candidate query skips a row when a row of the same (entity_type,
+      record_id) with a lower source_seq is pending or running; rows of different records run in parallel;
+      a dead earlier row does not block later rows.
+      Lease and sweep (0067 D2 "Lease length", D3): the lease is 30 s by default, computed like
+      ScriptTaskDispatcher.lease_ms/0 (5 s platform wall clock + 2 s caller margin + a configured margin of
+      23 s, the margin clamped to at least 1 s); the config keys are the worker's own, not the dispatcher's.
+      A sweep at the start of every tick, per tenant and bounded by a sweep limit like sweep_expired_leases/2,
+      returns a running row whose lease has expired to pending with last_code lease_expired and next_attempt_at
+      set by the backoff below; the cause is counted. The expired attempt counts toward the cap. A late worker
+      of an earlier attempt cannot write: every status update of the worker matches (id, attempt, status =
+      running) and a miss is :stale and writes nothing (0067 D3 "CAS on attempt", D7 "claim lost").
+      Retry cap and backoff (0067 D2): max_attempts 10 claims in total per row over all retriable causes; the
+      backoff base 500 ms, doubling, capped at 30 s (the figures of busy_backoff_ms/1). When the lease of a
+      row's tenth claim (attempt 10) expires, the sweep sets it dead with last_code retries_exhausted
+      instead of pending; dead is terminal and the row is not claimed again. In this slice the only retriable cause that can occur is the expired lease
+      (the stub never fails); script_busy and apply contention are T-4 and T-5. No DLQ entry, list route,
+      requeue route or Alerts signal: a dead row is only a status here (T-5).
+      Fairness (0067 D6): one row per tenant per pass, a round-robin start that rotates every tick, under a
+      global wall-time budget per tick, as ScriptTaskDispatcher.run_tick/2 does; one tenant's backlog cannot
+      starve another's. The worker never raises: a failed query or a crash while handling one row is rescued
+      or caught per row and per tenant, logged as one line with the tenant schema and a class tag, never the
+      error text, and counted (INV-8); a tenant schema that has gone is skipped.
+      The run is a stub. A claimed row is marked done in one transaction with the CAS on (id, attempt, status =
+      running), done_at set and last_code left empty. No script is prepared or run, no record is read, no
+      write is applied, no idempotency key is built. T-4 replaces the stub; the stub is one clearly named
+      function so that replacement touches nothing else.
+      Out of scope, each its own later requirement (0067 D9): T-4 script run and result application (and the
+      record_trigger: reserved-prefix refusal), T-5 failure handling, dead-letter visibility, list, count
+      and requeue routes, T-6 dry-run and UAT. No route, no permission, no UI, no migration (the columns
+      claimed_at, lease_expires_at, attempt, next_attempt_at, last_code, done_at come from REQ-606; if the
+      claim needs an index REQ-606 did not create, this slice adds a migration for that index only and the
+      summary says so and moves the tenant-migration pins). The only new config keys are the flag
+      :start_record_trigger_worker and the worker's lease margin, sweep limit, tick budget, max_attempts and
+      backoff values, each with its reason and default (the 0067 values) in the summary.
+      The three tests the record names for the slice (no double claim under concurrency, crash-and-restart of
+      the worked example, INV-10 claim test) are criteria 5, 6 and 7. SECURITY-REVIEWER is mandatory (a new
+      process that reads and writes tenant-schema rows; tenant isolation of the claim).
+    acceptance_criteria:
+      - "1. Flag and child: Letflow.Supervisor.Pollers starts the worker as a child only when Application.get_env(:letflow, :start_record_trigger_worker, true) is true; config/test.exs sets it to false; test/letflow/supervisor/pollers_test.exs gains the key beside :start_script_task_dispatcher (its key list and its assertion that the test config has it off) and passes; a test starts Pollers with the key true and shows the worker child is present, and with it false shows it is absent. With :record_triggers_enabled false a tick claims nothing and reads no outbox table (the test counts the rows claimed, zero, with pending rows present)."
+      - "2. Claim lock mode and shape: claiming a pending row whose next_attempt_at has passed sets status running, attempt 1, claimed_at and lease_expires_at 30 s after claimed_at by default; a pending row inserted with next_attempt_at NULL is due and is claimed on the first tick; a row with next_attempt_at in the future is not claimed; the claim SQL is quoted in the summary and contains FOR UPDATE SKIP LOCKED on the outbox table only; the claim transaction takes no lock on any other table (shown by a test that holds a lock on the record row and on the type's sequence row in another connection and the claim still returns without waiting)."
+      - "3. Per-record order (0067 D6): with rows R1 (source_seq 5) and R2 (source_seq 6) of one (entity_type, record_id) both pending, only R1 is claimed; R2 is not claimable while R1 is pending or running; once R1 is done R2 is claimed; once R1 is dead R2 is claimed (a dead earlier row does not block); rows of two different records, and of two types with the same record id, are both claimable at the same time."
+      - "4. Fairness and budget (0067 D6): with three tenants A, B and C where A has 20 pending rows and B and C one each, one tick claims at most one row per tenant per pass and B and C are served in the first pass, not after A's backlog; the start tenant rotates by one on every tick (the returned offset is offset + 1); the tick stops once the wall-time budget has elapsed (a test with a budget of 0 or a stubbed clock shows budget_exhausted true and unclaimed rows left pending). A tenant schema that does not exist or whose query fails is skipped, counted, and does not stop the tick or the other tenants; the worker process stays alive."
+      - "5. No double claim under concurrency (named test, 0067 D9 T-3): N concurrent claimers (N at most 4, in separate connections, started from a barrier) over a set of M pending rows of distinct records claim every row exactly once: the claimed ids are all different, their count is M, every row has attempt 1; a second test holds one row locked in an open transaction and shows a concurrent claim skips that row and claims another instead of waiting (the call returns without waiting for the lock, with the elapsed time asserted below the lock holder's hold time)."
+      - "6. Crash and restart of the worked example, lease expiry (named test, 0067 D1 and its variant A): in a tenant with an active binding, an outbox row O1 is pending with attempt 0, next_attempt_at NULL, and no worker has run (the worker is not started: node death before any worker ran); the worker is started and its first tick claims O1 (running, attempt 1, lease 30 s) and marks it done. Variant A: O1 is claimed (running, attempt 1) and the claiming process is killed before it finishes; while the lease has not expired a tick does not claim O1 and the sweep does not touch it; after the lease has expired (the clock or the lease value is injected, no sleeping for 30 s) the next tick's sweep sets O1 pending with last_code lease_expired and a next_attempt_at set by the backoff, the cause counter is incremented by one, the following claim after next_attempt_at makes attempt 2 and marks it done; the dead attempt-1 claim, replayed with its old attempt number, finds no row (stale) and changes nothing. The test uses the real worker module and real rows, not a mock of the claim."
+      - "7. INV-1 and INV-10 claim test (named test, 0067 D8): with two tenants A and B, a pending outbox row of A is claimed only by a tick pass over A's schema, never counted or returned in a pass over B's; B's pass over its own empty outbox returns exactly what the same pass returns on a tenant with no rows ever created; a row whose own columns name another tenant's schema or type (for example an entity_type or record id that exists only in B) is still handled in the schema it was found in and touches nothing in B; the worker takes the tenant only from the schema of the tick's Registration list. This slice adds no route, so the route-level cross-tenant negative test of 0067 D8 belongs to T-5; the summary says so."
+      - "8. Retry cap and backoff (0067 D2): the backoff after the first expired lease is 500 ms, doubles per expired lease and never exceeds 30 s (the function is tested at attempts 1, 2, 6 and 12); a row whose lease has expired on its tenth claim becomes dead with last_code retries_exhausted and is not claimed again; a row at attempt 9 whose lease expired is returned to pending and is claimed once more (attempt 10); the cap counts claims over all causes together."
+      - "9. Stub run and no side effects: the stub marks the row done with done_at set in one transaction guarded by the CAS on (id, attempt, status = running); a test shows no record, no history, no event and no audit row is written or read by the run, no script runtime call is made, and the outbox row's pin columns and payload columns are unchanged. A forced exception inside the stub and a forced database failure of the mark-done update are rescued: the worker process stays alive, the row stays running until the lease sweep returns it, and the log has one line with the tenant schema and a class tag and no stacktrace or inspect text."
+      - "10. Pins and scope: the summary lists the tests that pin what this slice changes, found with `grep -rn \"start_script_task_dispatcher\\|script_task_dispatcher_children\" test/ lib/ config/` and `grep -rn \"Pollers\" test/` (output pasted), and the scoped tests pass with real output quoted; no new route, permission or UI; if a migration is added for a claim index, the tenant-table pin and the migration version are re-taken from origin/main. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the scoped mix test over the new test files and test/letflow/supervisor/pollers_test.exs pass, real output quoted; the new test files are async-sandbox safe (letflow.check_async_sandbox_reachability)."
+      - "11. SECURITY-REVIEWER verdict is recorded (mandatory: a new process that reads and writes tenant-schema rows); REVIEWER verdict recorded. The Sign-off section of docs/migration/decisions/0067-after-commit-trigger-outbox.md is not edited by this slice."
+    open_questions:
+      - "Not settled by 0067 (it lists them under 'Not decided here'): the owner's tolerance for a delayed or dead-lettered trigger beyond the defaults; pruning and retention of done and dead rows (this slice prunes nothing); the kill-switch alternative of leaving rows pending (the kill switch itself is T-5). This slice settles none of these."
+      - "0067 D2 names no sweep limit, tick budget or per-tenant cap per tick for this worker; this entry copies the shape of the script-task dispatcher (sweep limit 64, tick budget 10 s) as defaults and the design states the values it picks and why."
+      - "0067 D2 leaves open whether the claim needs an index beyond the partial index REQ-606 creates for the backlog count; the design measures it (EXPLAIN on the candidate query) and adds one only if the plan needs it."
+    depends_on: [REQ-606, REQ-570]
 
   - id: REQ-614
     title: "Per-tenant print-template overrides (decision 0068 D8) slice S4: web authoring screen with a JSON layout editor and a preview from synthetic content"
