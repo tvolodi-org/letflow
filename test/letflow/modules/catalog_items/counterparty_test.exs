@@ -207,6 +207,29 @@ defmodule Letflow.Modules.CatalogItems.CounterpartyTest do
     end
   end
 
+  describe "T-0862: a tenant installed before the type existed" do
+    test "U-01: reactivate is upgrade_required (old hash), reinstall is refused, lookup still works",
+         %{schema: schema} do
+      alias Letflow.Modules.{Installs, TenantModule}
+
+      actor = Ecto.UUID.generate()
+      opts = [prefix: schema, rationale: "T-0862 old tenant"]
+      rec = counterparty!(schema, "OLD-1")
+
+      # A row stamped before GH #3407 carries the hash of the two-type manifest.
+      {:ok, _} = Installs.uninstall("catalog_items", actor, opts)
+
+      Repo.get_by!(TenantModule, [module_id: "catalog_items"], prefix: schema)
+      |> Ecto.Changeset.change(%{manifest_hash: String.duplicate("0", 64)})
+      |> Repo.update!(prefix: schema)
+
+      assert {:error, :upgrade_required} = Installs.reactivate("catalog_items", actor, opts)
+      assert {:error, :already_installed} = Installs.install("catalog_items", actor, opts)
+
+      assert {:ok, %{"code" => "OLD-1"}} = CatalogItems.lookup(schema, rec.record_id)
+    end
+  end
+
   describe "criterion 10: runbook" do
     test "C-09: the runbook names the type, its kind values, the multi-type lookup and the gaps" do
       text = File.read!(@runbook)

@@ -252,6 +252,14 @@ export const queryKeys = {
     retirement: (tenantId: string, id: string) => [...queryKeys.eventRetention.all(tenantId), 'retirement', id] as const,
   },
 
+  /** REQ-614 — print-template override authoring screen. */
+  printOverrides: {
+    all: (tenantId: string) => ['tenant', tenantId, 'print-overrides'] as const,
+    list: (tenantId: string, filters?: Record<string, unknown>) =>
+      [...queryKeys.printOverrides.all(tenantId), 'list', filters ?? {}] as const,
+    detail: (tenantId: string, id: string) => [...queryKeys.printOverrides.all(tenantId), 'detail', id] as const,
+  },
+
   /** REQ-384 §6.1 — the membership list a user consults in order to switch.
    *  Deliberately NOT tenant-scoped — see this file's moduledoc. */
   me: {

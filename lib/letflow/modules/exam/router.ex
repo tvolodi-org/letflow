@@ -31,6 +31,7 @@ defmodule Letflow.Modules.Exam.Router do
   |---|---|---|---|---|
   | start_session | `POST /exam-sessions` | `Letflow.Modules.Exam.Session.create/3`, then `Letflow.Modules.Exam.Session.get_session_state_for_user/3` for the 201 body | `ExamSessionStart` | 201 / 400 / 403 / 409 / 422 |
   | list_available_exams | `GET /exam-sessions/available` (ISS-0718) | `Letflow.Modules.Exam.Session.list_available_exams/2` | `ExamSessionStart` | 200 / 400 / 403 |
+  | list_my_sessions | `GET /exam-sessions/mine` (GH #3321, REQ-587) | `Letflow.Modules.Exam.Session.list_own_sessions/2` | `ExamSessionRead` | 200 / 400 / 403 |
   | get_session_state | `GET /exam-sessions/:id` | `Letflow.Modules.Exam.Session.get_session_state_for_user/3` | `ExamSessionRead` | 200 / 404 |
   | autosave_answer | `PUT /exam-sessions/:id/answers/:question_id` | `Letflow.Modules.Exam.Session.autosave_answer/4` | `ExamSessionSave` | 200 / 400 / 404 / 422 |
   | submit_session | `POST /exam-sessions/:id/submit` | `Letflow.Modules.Exam.Session.submit/3` | `ExamSessionSubmit` | 200 / 404 |
@@ -56,14 +57,12 @@ defmodule Letflow.Modules.Exam.Router do
       the stage file names adaptive selection as an unimplemented bucket-C
       behaviour with its own future requirement; no runtime exists to route
       to.
-    * **Cross-session history / results-list views**
-      (`GetExamHistory`/`HandleGetMyResults`, FR-BB41/FR-BB46) -- outside
-      REQ-330's five analysed behaviours (start, autosave, submit,
-      anti-cheat signal, and this route's own state read); `GetSessionResult`
-      is also not routed here for the same reason -- a *result* view is a
-      sixth behaviour this requirement's own dependency chain (REQ-330's
-      five) never authorized, not a subset of the *state* read this module
-      does implement.
+    * **`GetSessionResult`** (a per-session result view) -- not routed: it
+      is a sixth behaviour REQ-330's five analysed behaviours never
+      authorized, and the by-id state read this module implements is the
+      result. The candidate's results LIST (`GetExamHistory`/`HandleGetMyResults`,
+      FR-BB41/FR-BB46) is routed since GH #3321 / REQ-587 as
+      `GET /exam-sessions/mine` (decision 0031, addendum 2026-10-28).
 
   ## Permission vocabulary -- candidate-reachable, not `PLATFORM_ADMIN`-only
 
@@ -183,6 +182,12 @@ defmodule Letflow.Modules.Exam.Router do
 
   authz_get "/exam-sessions/available", :ExamSessionStart do
     handle_list_available_exams(conn)
+  end
+
+  # GH #3321 (REQ-587): the caller's own finished sessions. Reuses `:ExamSessionRead`; declared
+  # above "/:id" so the literal "/mine" segment is read as the list, not as a session id.
+  authz_get "/exam-sessions/mine", :ExamSessionRead do
+    handle_list_my_sessions(conn)
   end
 
   # ── Session-state read ──────────────────────────────────────────────────
@@ -525,6 +530,69 @@ defmodule Letflow.Modules.Exam.Router do
 
   defp render_list_available_exams(conn, {:error, reason}, _prefix) do
     Logger.warning("available-exams list failed: #{inspect(reason)}")
+    Response.internal_error(conn)
+  end
+
+  # ══ GET /exam-sessions/mine (GH #3321, REQ-587) ═══════════════════════
+  #
+  # The caller's own finished sessions. The owner is `auth_context.user_id`; the query string is
+  # read for `cursor`, `page_size` and `exam_id` only (`user_id`, `candidate_id`, `tenant_id` are
+  # never read). A malformed `exam_id` is a 400; a well-formed foreign one just yields no items.
+  # `ExamSessionRead` also gates this list (the permission vocabulary is unchanged).
+
+  defp handle_list_my_sessions(conn) do
+    prefix = prefix!(conn)
+    conn = fetch_query_params(conn)
+    query = conn.query_params
+
+    with {:ok, page_size} <- parse_my_sessions_page_size(Map.get(query, "page_size")),
+         {:ok, exam_id} <- parse_my_sessions_exam_id(Map.get(query, "exam_id")) do
+      # scope-all: exam routes are :tenant_wide until reclassified (walk guard :exam_route_reclassified)
+      opts = [
+        cursor: Map.get(query, "cursor"),
+        page_size: page_size,
+        exam_id: exam_id,
+        scope: :all,
+        user_id: conn.assigns.auth_context.user_id
+      ]
+
+      render_list_my_sessions(conn, Session.list_own_sessions(prefix, opts))
+    else
+      {:error, :invalid_page_size} -> Response.bad_request(conn, "invalid page_size")
+      {:error, :invalid_exam_id} -> Response.bad_request(conn, "invalid exam_id")
+    end
+  end
+
+  defp parse_my_sessions_page_size(raw), do: Pagination.parse_page_size_param(raw)
+
+  defp parse_my_sessions_exam_id(raw) when raw in [nil, ""], do: {:ok, nil}
+
+  defp parse_my_sessions_exam_id(raw) when is_binary(raw) do
+    case cast_uuid(raw) do
+      {:ok, exam_id} -> {:ok, exam_id}
+      :error -> {:error, :invalid_exam_id}
+    end
+  end
+
+  defp parse_my_sessions_exam_id(_raw), do: {:error, :invalid_exam_id}
+
+  defp render_list_my_sessions(conn, {:ok, %{items: items, next_cursor: next_cursor}}),
+    do: Response.ok(conn, %{"items" => items, "next_cursor" => next_cursor})
+
+  defp render_list_my_sessions(conn, {:error, :page_size_too_large}),
+    do: Response.bad_request(conn, Letflow.Api.Pagination.page_size_error_message())
+
+  defp render_list_my_sessions(conn, {:error, :invalid_cursor}),
+    do: Response.bad_request(conn, "invalid cursor")
+
+  defp render_list_my_sessions(conn, {:error, :wrong_endpoint}),
+    do: Response.bad_request(conn, "cursor is not valid for this endpoint")
+
+  defp render_list_my_sessions(conn, {:error, :resume_key_arity_mismatch}),
+    do: Response.bad_request(conn, "cursor does not match this request's sort clause")
+
+  defp render_list_my_sessions(conn, {:error, reason}) do
+    Logger.warning("my-sessions list failed: #{inspect(reason)}")
     Response.internal_error(conn)
   end
 

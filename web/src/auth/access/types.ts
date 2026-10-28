@@ -18,6 +18,7 @@ export const P = {
   PromotionsRead: 'PromotionsRead',
   PromotionsManage: 'PromotionsManage',
   DlqOperate: 'DlqOperate',
+  DocumentPrintTemplatesManage: 'DocumentPrintTemplatesManage',
   WebhooksManage: 'WebhooksManage',
   UsersGroupsRolesManage: 'UsersGroupsRolesManage',
   TokensManage: 'TokensManage',
