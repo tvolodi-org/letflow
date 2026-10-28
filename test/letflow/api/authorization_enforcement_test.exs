@@ -100,6 +100,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Routers.NumberSequences,
     Letflow.Routers.TenantSettings,
     Letflow.Routers.TenantConfigBundle,
+    Letflow.Routers.TenantLogo,
     Letflow.Routers.IntegrationMappings,
     # REQ-404 -- Letflow.Modules.Fixture.Router's one route
     # (authz_get "/items/:id", :FixtureRead, added by REQ-404 §0.1) declares
@@ -158,6 +159,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Routers.NumberSequences => "/number-sequences",
     Letflow.Routers.TenantSettings => "/tenant/settings",
     Letflow.Routers.TenantConfigBundle => "/tenant/config-bundle",
+    Letflow.Routers.TenantLogo => "/tenant/logo",
     Letflow.Routers.IntegrationMappings => "/integration-mappings",
     Letflow.Modules.Fixture.Router => "/modules/fixture",
     Letflow.Routers.ScriptPolicy => "/script-policy",

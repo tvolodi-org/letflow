@@ -9,7 +9,7 @@ the definition promotion pipeline. Implemented by `Letflow.TenantConfigBundle` a
 | Route | Permission | Result |
 |---|---|---|
 | `GET /api/v1/tenant/config-bundle` | `:TenantSettingsManage`; `label_overrides` needs `:LabelsManage`, `notification_templates` needs `:NotificationTemplatesManage` | the bundle of the caller's own tenant; a part the caller may not read is left out (no key, no 403) |
-| `POST /api/v1/tenant/config-bundle/import` | `:TenantSettingsManage`, plus `:ModulesManage` when `module_settings` is non-empty | counts: `tenant_settings_changed`, `modules_changed`, `modules_unchanged` |
+| `POST /api/v1/tenant/config-bundle/import` | `:TenantSettingsManage`, plus `:ModulesManage` when `module_settings` is non-empty, `:LabelsManage` when a v2 document has a non-empty `label_overrides`, `:NotificationTemplatesManage` when a v2 document has a non-empty `notification_templates` | counts: `tenant_settings_changed`, `modules_changed`, `modules_unchanged`, `label_overrides_changed`, `label_overrides_unchanged`, `notification_templates_changed`, `notification_templates_unchanged` |
 
 There is no tenant identifier in the path, query or body: an import always changes the tenant of the
 token. To promote, export with the source tenant's token and import with the target tenant's token.
@@ -31,8 +31,10 @@ default file are exported as stored.
 - Export is always `bpm/config-bundle/v2`.
 - Import accepts v1 and v2. A v1 document has no `label_overrides` / `notification_templates`; an absent part leaves
   the target untouched.
-- Until part 2 of REQ-599 (GH #3370) the two new parts of a v2 document are not read or applied on import; the
-  audit entry records the version of the imported document.
+- The two new parts are read and applied from a v2 document only. A v1 document's `label_overrides` /
+  `notification_templates` keys are ignored, so they need no permission (a permission check for something that is
+  not applied would be misleading). The audit entry records the version of the imported document.
+- An absent part is left untouched; nothing is deleted because it is missing from the document.
 
 ## What it does not carry
 
@@ -48,5 +50,11 @@ the import fail.
 - All-or-nothing: every violation is listed in the 422 detail and nothing is written.
 - Unknown `bundle_schema_version`: 422 `unknown_bundle_schema_version`.
 - Idempotent: re-importing identical content reports `tenant_settings_changed: 0` and writes no audit entry.
-- A change writes exactly one audit entry (`tenant_config_bundle.import`) with key names and module ids, never values.
+- Label overrides and notification templates are checked with the same functions as `PUT` of a single row
+  (`Labels.check_override/5`, `NotificationTemplates.check_entry/4`); label locales are checked against the tenant
+  locales as set by the same document. A violation is named by id and locale (never the text) in the 422 and rolls
+  back everything, settings and modules included.
+- A change writes exactly one audit entry (`tenant_config_bundle.import`) with key names, module ids and the
+  (id, locale) pairs of changed overrides and templates, never values; the per-row entries of the single-row
+  routes are not written. Rows with identical content count as `..._unchanged` and are not rewritten.
 - A caller without the permissions gets the same 403 body as any other forbidden route.

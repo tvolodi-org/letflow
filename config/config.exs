@@ -152,6 +152,10 @@ config :letflow, :modules_uninstall_enabled, false
 # only by Letflow.RecordTriggers.enabled?/0.
 config :letflow, :record_triggers_enabled, false
 
+# REQ-590 / GH #3338: tenant logo upload (PUT/DELETE /api/v1/tenant/logo). Default off: the routes
+# answer the ordinary 404 until a deployment turns it on.
+config :letflow, :tenant_logo_upload_enabled, false
+
 # GH 2534 PR 7c-1 SECURITY note: the build environment, read by Letflow.Application.start/2's
 # boot guard (Letflow.Scripts.Runtime.boot_check/2 refuses :scripts_test_hooks in :prod).
 config :letflow, :config_env, config_env()

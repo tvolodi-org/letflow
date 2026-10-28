@@ -63,10 +63,7 @@ defmodule Letflow.NotificationTemplates do
   @spec put(String.t(), String.t(), String.t() | nil, term(), term(), term(), term()) ::
           {:ok, :created | :replaced, Template.t()} | {:error, error() | term()}
   def put(prefix, tenant_id, actor_id, key, locale, subject, body) do
-    with {:ok, _entry} <- check_key(key),
-         :ok <- check_locale(locale),
-         {:ok, subject} <- validate_subject(key, subject),
-         {:ok, body} <- validate_body(key, body) do
+    with {:ok, %{subject: subject, body: body}} <- check_entry(key, locale, subject, body) do
       now = DateTime.utc_now()
 
       row = %Template{
@@ -118,6 +115,65 @@ defmodule Letflow.NotificationTemplates do
         {:error, _step, reason, _changes} ->
           {:error, reason}
       end
+    end
+  end
+
+  @doc """
+  The checks of `put/7` without a write: key, locale, subject, body (in that order). The
+  configuration bundle import (REQ-599) calls it so both paths refuse the same input.
+  """
+  @spec check_entry(term(), term(), term(), term()) ::
+          {:ok,
+           %{template_key: String.t(), locale: String.t(), subject: String.t(), body: String.t()}}
+          | {:error,
+             :not_found
+             | :invalid_locale
+             | {:invalid_subject, text_reason()}
+             | {:invalid_body, text_reason()}}
+  def check_entry(key, locale, subject, body) do
+    with {:ok, _entry} <- check_key(key),
+         :ok <- check_locale(locale),
+         {:ok, subject} <- validate_subject(key, subject),
+         {:ok, body} <- validate_body(key, body) do
+      {:ok, %{template_key: key, locale: locale, subject: subject, body: body}}
+    end
+  end
+
+  @doc """
+  Writes one already-checked entry inside the caller's transaction, with no audit entry.
+  Returns `:unchanged` (no write, `updated_at` kept) when subject and body are equal.
+  """
+  @spec upsert_entry(String.t(), String.t(), String.t() | nil, map()) :: :changed | :unchanged
+  def upsert_entry(prefix, tenant_id, actor_id, %{template_key: key, locale: locale} = entry) do
+    existing =
+      from(t in Template,
+        where: t.tenant_id == ^tenant_id and t.template_key == ^key and t.locale == ^locale,
+        select: {t.subject, t.body}
+      )
+      |> Repo.one(prefix: prefix)
+
+    if existing == {entry.subject, entry.body} do
+      :unchanged
+    else
+      now = DateTime.utc_now()
+
+      Repo.insert!(
+        %Template{
+          tenant_id: tenant_id,
+          template_key: key,
+          locale: locale,
+          subject: entry.subject,
+          body: entry.body,
+          updated_by: actor_id,
+          inserted_at: now,
+          updated_at: now
+        },
+        prefix: prefix,
+        on_conflict: {:replace, [:subject, :body, :updated_by, :updated_at]},
+        conflict_target: [:template_key, :locale]
+      )
+
+      :changed
     end
   end
 
