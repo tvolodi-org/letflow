@@ -16,11 +16,19 @@ import BilimBagaAdminPage from './BilimBagaAdminPage'
 import BilimBagaEntityRoute from './BilimBagaEntityRoute'
 import ExamGradingListPage from './ExamGradingListPage'
 import ExamGradingAnswerPage from './ExamGradingAnswerPage'
+import ExamBuilderPage from './ExamBuilderPage'
+import ExamBuilderListPage from './ExamBuilderListPage'
+import { EXAM_AUTHORING_WRITE } from './bilimbagaWrites'
 import { RequirePermission } from '@/auth/access'
 
 /** REQ-589: the examiner screens need ExamGradingRead (the shell's forbidden page otherwise). */
 function gradingGuard(page: ReactNode) {
   return <RequirePermission permission="ExamGradingRead">{page}</RequirePermission>
+}
+
+/** GH 3355 / REQ-602: the exam builder needs ExamAuthoringWrite (the shell's forbidden page otherwise). */
+function builderGuard(page: ReactNode) {
+  return <RequirePermission permission={EXAM_AUTHORING_WRITE}>{page}</RequirePermission>
 }
 
 export const examRouteObjects: RouteObject[] = [
@@ -38,6 +46,8 @@ export const examRouteObjects: RouteObject[] = [
     path: 'admin/bilimbaga',
     children: [
       { index: true, element: <BilimBagaAdminPage /> },
+      { path: 'exam-builder', element: builderGuard(<ExamBuilderListPage />) },
+      { path: 'exam-builder/:examId', element: builderGuard(<ExamBuilderPage />) },
       { path: ':entityType', element: <BilimBagaEntityRoute /> },
     ],
   },

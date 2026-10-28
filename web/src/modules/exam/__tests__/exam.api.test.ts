@@ -19,7 +19,7 @@
  * exam.api.ts's own moduledoc comment.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { examApi, examAuthoringApi } from '../exam.api'
+import { examApi, examAuthoringApi, examBuilderApi } from '../exam.api'
 import { setToken, clearToken } from '@/api/client'
 
 const originalFetch = window.fetch
@@ -222,5 +222,33 @@ describe('GH 2680 — examAuthoringApi hits /modules/exam/authoring', () => {
     ) as unknown as typeof window.fetch
 
     await expect(examAuthoringApi.deleteRecord('tag', 'missing')).rejects.toMatchObject({ status: 404 })
+  })
+})
+
+describe('GH 3355 / REQ-602 — examBuilderApi reads', () => {
+  it('queries exam, sections and rules by id with the sort and follows next_cursor', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockImplementationOnce(() => jsonResponse({ items: [{ record_id: 's1' }], next_cursor: 'c2' }))
+      .mockImplementationOnce(() => jsonResponse({ items: [{ record_id: 's2' }], next_cursor: null }))
+      .mockImplementation(() => jsonResponse({ items: [], next_cursor: null }))
+    window.fetch = fetchSpy as unknown as typeof window.fetch
+
+    const sections = await examBuilderApi.loadSections('e-1')
+    expect(sections.map((s) => s.record_id)).toEqual(['s1', 's2'])
+    const bodies = fetchSpy.mock.calls.map(([, init]) => JSON.parse((init as RequestInit).body as string))
+    expect(bodies[0]).toEqual({
+      entity_type: 'exam_section',
+      filters: [{ field: 'exam_id', op: 'eq', value: 'e-1' }],
+      sort: [{ field: 'sort_order', dir: 'asc' }],
+      page_size: 200,
+    })
+    expect(bodies[1]).toMatchObject({ cursor: 'c2' })
+
+    await examBuilderApi.loadExam('e-1')
+    expect(JSON.parse((fetchSpy.mock.calls[2][1] as RequestInit).body as string)).toMatchObject({
+      entity_type: 'exam',
+      filters: [{ field: 'record_id', op: 'eq', value: 'e-1' }],
+    })
   })
 })
