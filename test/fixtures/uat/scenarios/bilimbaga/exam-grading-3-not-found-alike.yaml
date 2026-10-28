@@ -1,0 +1,147 @@
+# T-0877 (BA-BILIMBAGA): examiner grading, an answer that cannot be graded is reported with one and the same answer whatever the reason.
+# Covers REQ-588 criterion 7 (Test G-404).
+# Sources: docs/requirements.yaml REQ-588 (description "TENANT ISOLATION", criterion 7); lib/letflow/modules/exam/router.ex (render_grade: not found
+# is Response.not_found/1 on the detail and grade routes; 409 'this answer has already been graded' for an answer already marked on the grade route);
+# docs/agents/instructions/security-invariants.md INV-5 (not-found and forbidden indistinguishable).
+# Not covered here: an identifier that exists only in another company is in scenario exam-grading-5 (it needs the other company's actor); the
+# comparison of response headers is a check of the backend test, a UAT actor sees status and body.
+# The four sensitive actions: "see sensitive data" is the point of every step (nothing is revealed about what exists); the others are not in this flow.
+---
+id: bilimbaga-exam-grading-3-not-found-alike
+scope: bilimbaga
+title: Asking to read or mark an answer that does not exist, is not a short text question, or is malformed gets the same answer each time
+version: "1.0"
+tags: [exam_grading, refusal, not_found, isolation]
+
+description: >
+  The administrator of Bilimbaga asks to read and to mark answers that cannot be graded: an identifier that never existed, a question that
+  is a single-choice question, and an identifier that is not a valid identifier at all. Every one of these gets the same "not found" answer, on
+  reading and on marking, so nobody can tell from the answer which one it was. An answer that was already marked is also "not found" when read
+  (it left the queue) but is refused with "already graded" when marked again; that is the only difference and it concerns the caller's own
+  company only. A valid, waiting answer is read successfully in its own step.
+  Preconditions: see below.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Bilimbaga has the exam module installed and the exam "UAT grading exam E" with a single-choice question and a short text question
+    check: custom
+    detail: Prepared by the test setup; without it the scenario is BLOCKED.
+  - description: "Session S4 of \"UAT grading exam E\" is handed in with the short text answer unmarked and the single-choice answer given; session S5 holds a short text answer that is already marked 1"
+    check: custom
+    detail: Prepared by the test setup; without it the scenario is BLOCKED.
+  - description: The Bilimbaga administrator can sign in
+    check: system_seeded
+    detail: The roster notes that a test token for the administrator needs a mapping that is not yet approved; without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator reads the waiting short text answer of S4 and notes that it opens.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator tries to read an answer using a session identifier that was never issued (a freshly made up identifier).
+    via: api
+    expect_refusal: true
+    input:
+      session_id: a freshly made-up valid identifier
+  - step: 3
+    actor: admin
+    action: >
+      The administrator tries to mark an answer using the same never-issued session identifier, with the score 1.
+    via: api
+    expect_refusal: true
+    input:
+      score: 1
+  - step: 4
+    actor: admin
+    action: >
+      The administrator tries to read the single-choice question of S4 as if it were a waiting answer.
+    via: api
+    expect_refusal: true
+  - step: 5
+    actor: admin
+    action: >
+      The administrator tries to mark the single-choice question of S4 with the score 1.
+    via: api
+    expect_refusal: true
+    input:
+      score: 1
+  - step: 6
+    actor: admin
+    action: >
+      The administrator tries to read an answer using a session identifier written as the text "abc".
+    via: api
+    expect_refusal: true
+    input:
+      session_id: abc
+  - step: 7
+    actor: admin
+    action: >
+      The administrator tries to mark an answer using a session identifier written as the text "abc", with the score 1.
+    via: api
+    expect_refusal: true
+    input:
+      score: 1
+  - step: 8
+    actor: admin
+    action: >
+      The administrator tries to read the already marked answer of S5.
+    via: api
+    expect_refusal: true
+  - step: 9
+    actor: admin
+    action: >
+      The administrator tries to mark the already marked answer of S5 again with the score 0.
+    via: api
+    expect_refusal: true
+    input:
+      score: 0
+  - step: 10
+    actor: admin
+    action: >
+      The administrator reads the waiting answer of S4 again and compares it with the note of step 1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A made-up, a non-short-text and a malformed identifier get the same "not found" answer on reading, and the same on marking
+    verification:
+      method: http_status
+      detail: "Steps 2, 4 and 6 are each refused as not found with the same status and the same message; steps 3, 5 and 7 are each refused as not found with the same status and the same message as steps 2, 4 and 6"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Different answers let a caller learn which identifiers exist and which questions are short text.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: An already marked answer is "not found" when read and "already graded" when marked again, and the mark is unchanged
+    verification:
+      method: http_status
+      detail: "Step 8 is refused as not found; step 9 is refused with the text 'this answer has already been graded', with no score and no answer text in it; the answer of S5 still carries 1"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A second mark that is accepted would overwrite the first and change a result already given.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: The refused requests change nothing
+    verification:
+      method: api_response
+      detail: "Step 10 shows the same waiting answer of S4 as step 1; nothing was marked by steps 3, 5, 7 and 9"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A refusal that still writes a mark means anybody can decide an exam by guessing identifiers.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing is created or changed by this scenario; the sessions are prepared by the test setup.

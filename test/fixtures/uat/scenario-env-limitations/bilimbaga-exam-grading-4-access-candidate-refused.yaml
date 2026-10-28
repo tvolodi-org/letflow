@@ -1,0 +1,11 @@
+scenario_id: bilimbaga-exam-grading-4-access-candidate-refused
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the refusals of process operator, process designer, task worker, automation runner and read-only auditor on the three grading routes, the 401 for a request with no sign-in, and the platform operator's own-company view (REQ-588 criterion 1 and the last clause of criterion 8); the candidate and administrator checks run"
+reason: >
+  The roster has no process operator, process designer, task worker or automation runner in Bilimbaga, and its read-only auditor belongs to SwiftRoute, which has no exam module; no actor may be invented. The roster has no unauthenticated actor for a module route. The platform operator signs in to the platform company, which has no exam module, so it can only be checked as a no-data-leak case by the backend test. Nothing a UAT actor can do provides these, so they are not run, not passed.
+recorded_by: BA
+recorded_at: "2026-10-28"
+issue_ref: "GH #3324"
+review: >
+  Revisit when a Bilimbaga roster actor per role exists, or a second QA tenant with the exam module and those roles is provisioned.

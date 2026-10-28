@@ -1,0 +1,11 @@
+scenario_id: bilimbaga-exam-grading-2-mark-and-session-finalisation
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the concurrent-request clauses of REQ-588 criterion 6 (two simultaneous marks on one answer; two simultaneous marks on the last two answers of one session) and the grader's user id in the stored event (criterion 4); the rest of the scenario runs"
+reason: >
+  A UAT actor makes one request at a time and cannot make two overlap; the session row lock is proved by the backend test. The event written with the grader's user id is not shown by any answer or screen of this flow. Nothing a UAT actor can do provides either, so those clauses are not run, not passed.
+recorded_by: BA
+recorded_at: "2026-10-28"
+issue_ref: "GH #3324"
+review: >
+  Revisit when the audit trail of the exam module is readable by an administrator through a screen or route.
