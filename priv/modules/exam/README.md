@@ -22,6 +22,16 @@ Tenants that installed the pack before REQ-594 get `session.score_pct`/`passed` 
 queried `session_question_score.exam_id`/`correct` from
 `Letflow.Release.ManagedTypes.ensure_exam_analytics_definitions/1`, run once per deploy (no column is promoted).
 
+Analytics reports (REQ-594, proven by `exam_analytics_reports_test.exs`): all three are
+`POST /api/v1/entities/query/aggregate` requests, with no new route. Summary: `session`, filters
+`exam_id eq E` and `status in [submitted, auto_submitted]` (add `passed eq true` for the passed count),
+aggregates `count` and `avg score_pct`. Histogram: the same filters plus `score_pct gte 10i` and `lt 10(i+1)` for
+i = 0..8 and `gte 90`, `lte 100` for the last range. Per question: `session_question_score`, filters `exam_id eq E`
+and `grading_status eq graded` (add `correct eq true` for the correct count), `group_by question_id`, aggregate
+`count`. Score rows written before the rollout carry no `exam_id` and `correct` and are not counted. A `queried`
+column of a type that already has a table is read as a typed column only when a column promotion fills it;
+otherwise the request reads the value from `field_values`.
+
 ## Convention: one file per entity type
 
 `entity_definitions/` holds one JSON file per entity type, named after the
