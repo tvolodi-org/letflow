@@ -42,6 +42,7 @@ defmodule Letflow.Modules.Exam.Router do
   | download_certificate | `GET /exam-sessions/:id/certificate/download` | `Letflow.Modules.Exam.Certificate.issue_or_get_for_user/3` + `Letflow.Modules.Exam.CertificateDocument.render/2` (REQ-356) | `ExamCertificateIssue` | 200 (`application/pdf`) / 404 / 409 |
   | list_grading_queue | `GET /grading-queue` (GH #3324) | `Letflow.Modules.Exam.Grading.list_queue/2` | `ExamGradingRead` | 200 / 400 / 403 |
   | get_grading_answer | `GET /grading-queue/:session_id/:question_id` (GH #3324) | `Letflow.Modules.Exam.Grading.get_answer/4` | `ExamGradingRead` | 200 / 403 / 404 |
+  | grade_answer | `POST /grading-queue/:session_id/:question_id/grade` (GH #3324) | `Letflow.Modules.Exam.Session.grade_answer/5` | `ExamGradingWrite` | 200 / 400 / 403 / 404 / 409 / 422 |
 
   REQ-586 parts A and B: a `category`/`question` write carrying `parent_id`, a `question` write that
   touches its lineage, and a delete of either type, can be refused by
@@ -51,9 +52,6 @@ defmodule Letflow.Modules.Exam.Router do
 
   ## Deliberately NOT routed here, and why (REQ-335's own scope fence)
 
-    * **Manual short-text grading, mark half** (`HandleGradeAnswer`, FR-BB42) -- the queue and
-      detail reads are routed (GH #3324, REQ-588 part A); marking an answer and finalising the
-      session are part B and not routed yet.
     * **Adaptive next-question selection** (`GetNextQuestion`, FR-BB72) --
       the stage file names adaptive selection as an unimplemented bucket-C
       behaviour with its own future requirement; no runtime exists to route
@@ -88,7 +86,8 @@ defmodule Letflow.Modules.Exam.Router do
   (PLATFORM_ADMIN and TENANT_ADMIN). CANDIDATE and PROCESS_OPERATOR do not hold it.
 
   `ExamGradingRead` (GH #3324) is the same kind: manifest-only, no `role_grants`, PLATFORM_ADMIN and
-  TENANT_ADMIN only; it gates the two grading-queue reads.
+  TENANT_ADMIN only; it gates the two grading-queue reads. `ExamGradingWrite` (GH #3324 part B) is the
+  same kind and gates the grade route.
 
   ## Ownership and tenant isolation (INV-1, INV-5, INV-8)
 
@@ -278,6 +277,14 @@ defmodule Letflow.Modules.Exam.Router do
 
   authz_get "/grading-queue/:session_id/:question_id", :ExamGradingRead do
     handle_get_grading_answer(conn, conn.params["session_id"], conn.params["question_id"])
+  end
+
+  # ── Examiner grading queue, mark half (GH #3324 / REQ-588 part B) ───────
+  #
+  # Gated by the manifest-only `:ExamGradingWrite`. No `scope:` option, no tenant parameter.
+
+  authz_post "/grading-queue/:session_id/:question_id/grade", :ExamGradingWrite do
+    handle_grade_answer(conn, conn.params["session_id"], conn.params["question_id"])
   end
 
   authz_unmatched(:ordinary)
@@ -575,6 +582,91 @@ defmodule Letflow.Modules.Exam.Router do
       {:ok, detail} -> Response.ok(conn, detail)
       {:error, :not_found} -> Response.not_found(conn)
     end
+  end
+
+  # ══ POST /grading-queue/:session_id/:question_id/grade ═════════════════
+  #
+  # The body is exactly `{"score": <number >= 0>}`. `Validation.validate/2` ignores unknown keys, so
+  # each one is turned into a `FieldError` first (no echoed value). Shape errors answer 422 before any
+  # lookup; the upper bound (`max_score`) needs the row and is checked in the transaction. The grader
+  # is the authenticated caller, never the body. Not-found cases are the one `Response.not_found/1`.
+
+  @grade_schema [
+    %FieldConstraint{name: "score", required: true, type: :number, min_value: 0}
+  ]
+
+  defp handle_grade_answer(conn, session_id, question_id) do
+    with {:ok, body} <- object_body(conn),
+         :ok <- reject_unknown_grade_keys(body),
+         {:ok, attrs} <- validate_schema(@grade_schema, body) do
+      render_grade(
+        conn,
+        Session.grade_answer(
+          prefix!(conn),
+          session_id,
+          question_id,
+          Map.fetch!(attrs, "score"),
+          conn.assigns.auth_context.user_id
+        )
+      )
+    else
+      {:error, :malformed_json} ->
+        Response.bad_request(conn, "request body must be a JSON object")
+
+      {:errors, field_errors} ->
+        Response.send_problem(conn, Validation.problem(field_errors))
+    end
+  end
+
+  # Unknown keys and the schema's own errors are returned together.
+  defp reject_unknown_grade_keys(body) do
+    case body |> Map.keys() |> Enum.reject(&(&1 == "score")) |> Enum.sort() do
+      [] ->
+        :ok
+
+      extra ->
+        unknown =
+          Enum.map(extra, fn key ->
+            %Letflow.Api.Validation.FieldError{
+              field: key,
+              constraint: "unknown_field",
+              message: "field is not allowed"
+            }
+          end)
+
+        case Validation.validate(@grade_schema, body) do
+          {:ok, _attrs} -> {:errors, unknown}
+          {:errors, errors} -> {:errors, errors ++ unknown}
+        end
+    end
+  end
+
+  defp render_grade(conn, {:ok, view}) do
+    Response.ok(conn, %{
+      "session_id" => view.session_id,
+      "question_id" => view.question_id,
+      "score" => view.score,
+      "max_score" => view.max_score,
+      "grading_status" => "graded",
+      "session_status" => view.session_status
+    })
+  end
+
+  defp render_grade(conn, {:error, :not_found}), do: Response.not_found(conn)
+
+  defp render_grade(conn, {:error, :already_graded}),
+    do: Response.conflict(conn, "this answer has already been graded")
+
+  defp render_grade(conn, {:error, :score_out_of_range}),
+    do: Response.unprocessable(conn, "score exceeds the maximum for this answer")
+
+  defp render_grade(conn, {:error, {kind, _reason} = failure})
+       when kind in [:grading_error, :snapshot_error],
+       do: render_snapshot_failure(conn, failure, @grading_failed_detail, "grade")
+
+  defp render_grade(conn, {:error, reason}) do
+    Logger.warning("exam grade failed: #{inspect(reason)}")
+    Response.internal_error(conn)
   end
 
   # ══ PUT /exam-sessions/:id/answers/:question_id ═══════════════════════

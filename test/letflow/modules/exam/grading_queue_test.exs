@@ -408,7 +408,7 @@ defmodule Letflow.Modules.Exam.GradingQueueTest do
         Letflow.Modules.Exam.Router.__authz_routes__()
         |> Enum.filter(fn {_method, path, _key} -> String.contains?(path, "grading-queue") end)
 
-      assert length(routes) == 2
+      assert length(routes) == 3
       for {_method, path, _key} <- routes, do: refute(path =~ ~r/tenant/i)
     end
   end
