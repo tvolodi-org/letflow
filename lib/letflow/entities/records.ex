@@ -206,6 +206,7 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.ScopeDeclaration
   alias Letflow.Entities.ScopedWrites
   alias Letflow.Entities.StepSource
+  alias Letflow.Entities.WriteHook
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.Registry
@@ -237,7 +238,8 @@ defmodule Letflow.Entities.Records do
            actor_id: Ecto.UUID.t(),
            entity_type: String.t(),
            record_id: Ecto.UUID.t() | :not_compared,
-           field_values: map() | :not_compared
+           field_values: map() | :not_compared,
+           drop_keys: [String.t()]
          }
 
   @typedoc """
@@ -322,6 +324,8 @@ defmodule Letflow.Entities.Records do
           | {:error, :reserved_idempotency_key}
           | {:error, :reserved_attribute}
           | {:error, :preserved_value_invalid}
+          | {:error, :entity_write_contention}
+          | {:error, :derived_value_conflict}
           | {:error, term()}
 
   @typedoc "GH #2587: one process-step line (only `kind: :create` is accepted, D-A2.10)."
@@ -428,34 +432,63 @@ defmodule Letflow.Entities.Records do
          :ok <- reject_step_key(attrs),
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
-         {:ok, scope_ctx} <- resolve_scope(attrs, entity_type, prefix),
-         {:ok, field_values} <-
-           validate_field_values(definition, field_values, size_profile(authority), nil),
-         :ok <- scope_new_value(scope_ctx, field_values),
-         :ok <- scope_new_references(scope_ctx, definition, field_values, prefix) do
-      record_id = Ecto.UUID.generate()
+         {:ok, scope_ctx} <- resolve_scope(attrs, entity_type, prefix) do
+      # Validation, scope and the command run on the document as written: the payload for an unbound
+      # type, the payload plus the hook's output for a bound one (REQ-607, decision 0065 D8 E-3).
+      finish = fn values, hook_ctx ->
+        with {:ok, values} <-
+               validate_field_values(definition, values, size_profile(authority), nil),
+             :ok <- scope_new_value(scope_ctx, values),
+             :ok <- scope_new_references(scope_ctx, definition, values, prefix) do
+          record_id = Ecto.UUID.generate()
 
-      ctx =
-        Map.merge(scope_ctx, %{
-          kind: :create,
-          entity_type: entity_type,
-          record_id: record_id,
-          field_values: field_values,
-          definition: definition,
-          existing_record: nil,
-          expected_last_event_global_seq: nil,
-          idempotency_match: match,
-          prefix: prefix,
-          authority: authority,
-          # GH #2659: set only by `upsert_record_by_external_ref/3` (parsed); nil otherwise.
-          external_ref: external_ref,
-          # REQ-541: the number sequence bound to the type (read once, before the transaction).
-          number_binding: NumberSequences.fetch_binding(entity_type, prefix)
-        })
+          ctx =
+            Map.merge(scope_ctx, %{
+              kind: :create,
+              entity_type: entity_type,
+              record_id: record_id,
+              field_values: values,
+              definition: definition,
+              existing_record: nil,
+              expected_last_event_global_seq: nil,
+              idempotency_match: match,
+              prefix: prefix,
+              authority: authority,
+              # GH #2659: set only by `upsert_record_by_external_ref/3` (parsed); nil otherwise.
+              external_ref: external_ref,
+              # REQ-541: the number sequence bound to the type (read once, before the transaction).
+              number_binding: NumberSequences.fetch_binding(entity_type, prefix)
+            })
+            |> put_hook(hook_ctx)
 
-      ctx |> run_command(attrs) |> put_strict_specs(definition)
+          ctx |> run_command(attrs) |> put_strict_specs(definition)
+        end
+      end
+
+      write_with_hook(definition, entity_type, prefix, field_values, finish)
     end
   end
+
+  # The one branch point of the pre-write hook. `finish.(values, hook_ctx)` is the unchanged write
+  # pipeline from validation on; `hook_ctx` is nil for an unbound type.
+  defp write_with_hook(definition, entity_type, prefix, candidate, finish) do
+    case WriteHook.lookup(definition, entity_type, prefix) do
+      :unbound ->
+        finish.(candidate, nil)
+
+      {:hooked, hook} ->
+        with :ok <- WriteHook.refuse_derived(hook, candidate) do
+          WriteHook.attempts(hook, candidate, fn derived, fingerprint ->
+            with {:ok, hook_ctx} <- WriteHook.context(hook, fingerprint) do
+              finish.(Map.merge(candidate, derived), hook_ctx)
+            end
+          end)
+        end
+    end
+  end
+
+  defp put_hook(ctx, nil), do: ctx
+  defp put_hook(ctx, hook_ctx), do: Map.put(ctx, :hook, hook_ctx)
 
   @doc """
   Idempotent create-or-update of one record by its master `external_ref` (GH #2659 / REQ-505,
@@ -537,7 +570,8 @@ defmodule Letflow.Entities.Records do
          :ok <- reject_step_key(attrs),
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
-         {:ok, normalised} <- validate_field_values(definition, field_values, nil, nil) do
+         {:ok, normalised} <-
+           normalise_for_upsert(definition, entity_type, prefix, field_values) do
       # `external_ref` is parsed above and travels separately; `idempotency_match` and
       # `legacy_original` are create-only internals that the upsert never forwards.
       command_attrs = Map.drop(attrs, [:external_ref, :idempotency_match, :legacy_original])
@@ -546,13 +580,28 @@ defmodule Letflow.Entities.Records do
         %{
           attrs: command_attrs,
           ref: ref,
-          normalised: canonical_json(normalised),
+          normalised: normalised,
           prefix: prefix,
           authority: authority,
           schema_checked: schema_checked
         },
         @upsert_max_attempts
       )
+    end
+  end
+
+  # The canonical normalised document the `:unchanged` shortcut compares. A hooked type has none:
+  # the payload alone is not the document that would be stored (the hook adds derived values, and a
+  # required derived field would fail this validation), so it validates after the hook inside
+  # create/update and never takes the shortcut (REQ-607).
+  defp normalise_for_upsert(definition, entity_type, prefix, field_values) do
+    case WriteHook.lookup(definition, entity_type, prefix) do
+      :unbound ->
+        with {:ok, normalised} <- validate_field_values(definition, field_values, nil, nil),
+             do: {:ok, canonical_json(normalised)}
+
+      {:hooked, _hook} ->
+        {:ok, nil}
     end
   end
 
@@ -614,7 +663,7 @@ defmodule Letflow.Entities.Records do
   end
 
   defp upsert_existing(run, %Latest{} = existing) do
-    if json_equal?(existing.field_values, run.normalised) do
+    if run.normalised != nil and json_equal?(existing.field_values, run.normalised) do
       {:ok, %{record: existing, outcome: :unchanged, is_duplicate: false}}
     else
       update_attrs =
@@ -717,28 +766,41 @@ defmodule Letflow.Entities.Records do
          :ok <- scope_old_value(scope_ctx, existing_record),
          :ok <- ensure_not_deleted(existing_record, record_id),
          preserve = preserve_keys(attrs),
-         merged = merge_preserved(field_values, existing_record, preserve),
-         {:ok, field_values} <-
-           validate_merged(definition, merged, preserve, size_profile(authority), existing_record),
-         :ok <- scope_new_value(scope_ctx, field_values),
-         :ok <- scope_new_references(scope_ctx, definition, field_values, prefix) do
-      expected = pin_expected(expected, existing_record, preserve)
+         merged = merge_preserved(field_values, existing_record, preserve) do
+      # See `do_create_record/4`: the same pipeline from validation on, once per hook attempt.
+      finish = fn values, hook_ctx ->
+        with {:ok, values} <-
+               validate_merged(
+                 definition,
+                 values,
+                 preserve,
+                 size_profile(authority),
+                 existing_record
+               ),
+             :ok <- scope_new_value(scope_ctx, values),
+             :ok <- scope_new_references(scope_ctx, definition, values, prefix) do
+          expected = pin_expected(expected, existing_record, preserve)
 
-      ctx =
-        Map.merge(scope_ctx, %{
-          kind: :update,
-          entity_type: entity_type,
-          record_id: record_id,
-          field_values: field_values,
-          definition: definition,
-          existing_record: existing_record,
-          expected_last_event_global_seq: expected,
-          idempotency_match: :request,
-          prefix: prefix,
-          authority: authority
-        })
+          ctx =
+            Map.merge(scope_ctx, %{
+              kind: :update,
+              entity_type: entity_type,
+              record_id: record_id,
+              field_values: values,
+              definition: definition,
+              existing_record: existing_record,
+              expected_last_event_global_seq: expected,
+              idempotency_match: :request,
+              prefix: prefix,
+              authority: authority
+            })
+            |> put_hook(hook_ctx)
 
-      ctx |> run_command(attrs) |> put_strict_specs(definition)
+          ctx |> run_command(attrs) |> put_strict_specs(definition)
+        end
+      end
+
+      write_with_hook(definition, entity_type, prefix, merged, finish)
     end
   end
 
@@ -1189,7 +1251,9 @@ defmodule Letflow.Entities.Records do
   end
 
   defp append_command(ctx, event_attrs, fingerprint, prefix) do
-    case EventStore.append_multi(Multi.new(), event_attrs, prefix: prefix) do
+    case EventStore.append_multi(WriteHook.prelude(Multi.new(), ctx[:hook]), event_attrs,
+           prefix: prefix
+         ) do
       {:ok, multi} ->
         multi
         |> maybe_check_record_version(ctx)
@@ -1213,13 +1277,18 @@ defmodule Letflow.Entities.Records do
         |> Multi.run(:dual_write_promoted_columns, fn repo, changes ->
           dual_write_promoted_columns(repo, changes, ctx)
         end)
-        |> Repo.transaction()
+        |> transact(ctx)
         |> interpret_result(fingerprint, prefix)
 
       {:error, _reason} = error ->
         error
     end
   end
+
+  # A hooked write maps a lock timeout, deadlock or statement timeout to a typed error; the unbound
+  # path has no rescue, so its behaviour is unchanged.
+  defp transact(multi, %{hook: %{}}), do: WriteHook.guard(fn -> Repo.transaction(multi) end)
+  defp transact(multi, _ctx), do: Repo.transaction(multi)
 
   defp build_event_attrs(%{kind: :create} = ctx, attrs, instance_id) do
     payload =
@@ -1770,6 +1839,9 @@ defmodule Letflow.Entities.Records do
     {:error, reason}
   end
 
+  # `WriteHook.guard/1` answered instead of the transaction.
+  defp interpret_result({:error, :entity_write_contention} = error, _fp, _prefix), do: error
+
   # ---------------------------------------------------------------------
   # GH #2543 -- idempotency key binding (design
   # lib/letflow/design/gh2543-idempotency-key-binding.md §2-§4)
@@ -1813,13 +1885,22 @@ defmodule Letflow.Entities.Records do
       actor_id: attrs.actor_id,
       entity_type: ctx.entity_type,
       record_id: if(kind == :create, do: :not_compared, else: ctx.record_id),
-      field_values: fingerprint_field_values(ctx)
+      field_values: fingerprint_field_values(ctx),
+      drop_keys: derived_keys(ctx)
     }
   end
 
+  # REQ-607: the hook's output takes no part in request matching. A payload cannot name a derived
+  # field (refused before the hook), so dropping the keys on both sides compares the caller's own
+  # document and a replay returns the original even if the derived value has moved since.
+  defp derived_keys(%{hook: %{derived_fields: keys}}), do: keys
+  defp derived_keys(_ctx), do: []
+
   defp fingerprint_field_values(%{kind: :delete}), do: :not_compared
   defp fingerprint_field_values(%{idempotency_match: :target}), do: :not_compared
-  defp fingerprint_field_values(%{field_values: field_values}), do: canonical_json(field_values)
+
+  defp fingerprint_field_values(%{field_values: field_values} = ctx),
+    do: field_values |> Map.drop(derived_keys(ctx)) |> canonical_json()
 
   # §2 check order: event_type, then actor (no reads), then $ref resolution,
   # then the payload fields.
@@ -1867,7 +1948,7 @@ defmodule Letflow.Entities.Records do
     with {:ok, entity_type} <- Map.fetch(payload, "entity_type"),
          true <- entity_type == fingerprint.entity_type,
          true <- same_record_id?(payload, fingerprint.record_id),
-         true <- same_field_values?(payload, fingerprint.field_values) do
+         true <- same_field_values?(payload, fingerprint.field_values, fingerprint.drop_keys) do
       true
     else
       _ -> false
@@ -1885,10 +1966,11 @@ defmodule Letflow.Entities.Records do
     end
   end
 
-  defp same_field_values?(_payload, :not_compared), do: true
+  defp same_field_values?(_payload, :not_compared, _drop_keys), do: true
 
-  defp same_field_values?(payload, field_values) do
+  defp same_field_values?(payload, field_values, drop_keys) do
     case Map.fetch(payload, "field_values") do
+      {:ok, stored} when is_map(stored) -> json_equal?(Map.drop(stored, drop_keys), field_values)
       {:ok, stored} -> json_equal?(stored, field_values)
       :error -> false
     end

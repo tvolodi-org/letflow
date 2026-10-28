@@ -2285,6 +2285,7 @@ defmodule Letflow.Api.AuthorizationTest do
         {"GET", "/entities/records/:entity_type/:record_id/history", :EntitiesQuery},
         {"POST", "/modules/exam/exam-sessions", :ExamSessionStart},
         {"GET", "/modules/exam/exam-sessions/available", :ExamSessionStart},
+        {"GET", "/modules/exam/exam-sessions/mine", :ExamSessionRead},
         {"GET", "/modules/exam/exam-sessions/:id", :ExamSessionRead},
         {"PUT", "/modules/exam/exam-sessions/:id/answers/:question_id", :ExamSessionSave},
         {"POST", "/modules/exam/exam-sessions/:id/submit", :ExamSessionSubmit},

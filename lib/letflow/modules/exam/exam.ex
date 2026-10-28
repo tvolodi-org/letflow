@@ -96,6 +96,7 @@ defmodule Letflow.Modules.Exam do
     route_policies: [
       {"POST", "/exam-sessions", :ExamSessionStart},
       {"GET", "/exam-sessions/available", :ExamSessionStart},
+      {"GET", "/exam-sessions/mine", :ExamSessionRead},
       {"GET", "/exam-sessions/:id", :ExamSessionRead},
       {"PUT", "/exam-sessions/:id/answers/:question_id", :ExamSessionSave},
       {"POST", "/exam-sessions/:id/submit", :ExamSessionSubmit},
