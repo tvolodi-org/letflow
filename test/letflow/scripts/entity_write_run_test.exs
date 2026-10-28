@@ -95,7 +95,7 @@ defmodule Letflow.Scripts.EntityWriteRunTest do
     end)
   end
 
-  defp stub!(reply \\ nil) do
+  defp stub!(reply) do
     _started = StubRunner.start()
     on_exit(&StubRunner.stop/0)
     set_env(:entity_write_script_runner, StubRunner)
@@ -247,7 +247,7 @@ defmodule Letflow.Scripts.EntityWriteRunTest do
     defp cover(manifest_extra, derived \\ ["note"]),
       do: manifest(Map.merge(%{"derived_fields" => derived}, manifest_extra))
 
-    defp built(manifest, restricted? \\ false) do
+    defp built(manifest, restricted?) do
       EntityWrite.build_input(
         @t,
         %{"amount" => 2, "note" => "secret-note"},
