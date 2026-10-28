@@ -122,5 +122,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item` and 
     GH #3407 has two types only: no upgrade path adds an entity type to an installed module
     (`lib/letflow/modules/installs.ex`), and because `manages_entity_types` changed the
     manifest hash, reactivating such a tenant's module answers `upgrade_required`. Fresh
-    installs get all three types; `lookup/2` still works on the old tenants. A module-upgrade
-    requirement is needed.
+    installs get all three types; `lookup/2` still works on the old tenants. Reinstalling is
+    refused too (`already_installed`), so there is no operator path today: such a tenant stays
+    on the two types until a module-upgrade requirement is delivered. The behaviour is pinned
+    by test U-01 in `test/letflow/modules/catalog_items/counterparty_test.exs` (T-0862).

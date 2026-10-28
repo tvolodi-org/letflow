@@ -2,6 +2,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { fetchTenantConfig, fetchTenantConfigForSlug } from '@/auth/tenantConfig'
 import { useAuth } from '@/auth/AuthContext'
+import { resolveApiUrl } from '@/api/client'
 import { applyBrandingColors } from './applyBranding'
 import { BrandingContext } from './BrandingContext'
 import { DEFAULT_BRANDING_CONTEXT_VALUE, PLATFORM_DEFAULT_APP_NAME, type BrandingContextValue } from './brandingDefaults'
@@ -52,7 +53,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
       setValue({
         appName: config.branding?.app_name ?? PLATFORM_DEFAULT_APP_NAME,
-        logoUrl: config.branding?.logo_url ?? null,
+        logoUrl: config.branding?.logo_url ? resolveApiUrl(config.branding.logo_url) : null,
       })
     })
 
