@@ -6,10 +6,14 @@
 # test/fixtures/uat/actors.yaml (actor-bilimbaga-admin).
 # Not UAT-observable (left to the Vitest tests U-save and U-i18n): the 422 message on the mark field (the Save button is disabled for a mark outside 0 to the
 # largest mark, so a real person cannot send one; REQ-589 criterion 4, 422 clause), the exactly-one-request check on a double click and the single-key
-# request body (the request contents are not shown to a person), and the completeness check of the text keys (a source check; step 9 checks only what is on screen).
+# request body (the request contents are not shown to a person), and the completeness check of the text keys (a source check; steps 4 and 9 check only what is on screen).
 # Locale switching: the screen text follows the application's interface language; if the QA application offers no language switch for the signed-in
-# user, step 9 is BLOCKED.
+# user, steps 4 and 9 are BLOCKED.
 # The four sensitive actions: "approve" is the mark (step 6); "see sensitive data" is step 3 (no candidate name, e-mail or id on the screen); others not in this flow.
+# Not UAT-observable: the paging clause of REQ-589 criterion 2 (the paging control follows the API page information; the screen pages by 25 and shows a next page only when more
+# exist). It needs at least 26 waiting answers at once, while this scenario depends on exactly three so that the table can become empty in step 8; the setup cannot give both.
+# Recorded in test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-grading-6-examiner-screen.yaml.
+# The stored mark of the answer marked in step 7 is shown by no screen; it is checked in EO-007 as system_state.
 ---
 id: bilimbaga-exam-grading-6-examiner-screen
 scope: bilimbaga
@@ -34,7 +38,7 @@ actors:
 preconditions:
   - description: Bilimbaga has the exam module installed and the exams "UAT grading exam H" and "UAT grading exam I", each with one session handed in holding an unmarked short text answer; the exam H answer reads <script>alert(1)</script> as written by the candidate; there is exactly one more waiting answer in exam H
     check: custom
-    detail: Prepared by the test setup; the candidates' names and e-mail addresses are known to the setup so that step 3 can look for them. Without these answers the scenario is BLOCKED. The setup also removes every other waiting answer of Bilimbaga, so that the table can become empty in step 8, and prepares one further waiting answer that appears only for step 9.
+    detail: Prepared by the test setup; the candidates' names and e-mail addresses are known to the setup so that step 3 can look for them. Without these answers the scenario is BLOCKED. The setup also removes every other waiting answer of Bilimbaga, so that the table can become empty in step 8.
   - description: The Bilimbaga administrator can sign in to the web application
     check: system_seeded
     detail: The roster notes that a test token for the administrator needs a mapping that is not yet approved; without it the scenario is BLOCKED.
@@ -60,7 +64,7 @@ steps:
   - step: 4
     actor: admin
     action: >
-      The administrator opens the exam H answer that reads <script>alert(1)</script>, and reads the question, the answer and the largest mark.
+      The administrator opens the exam H answer that reads <script>alert(1)</script>, and reads the question, the answer and the largest mark. Before typing any mark the administrator switches the interface language to Kazakh, to Russian and to English in turn (ending on English) and reads the headings, the labels and the Save button of this answer screen in each.
     via: gui
   - step: 5
     actor: admin
@@ -95,8 +99,8 @@ steps:
   - step: 9
     actor: admin
     action: >
-      The administrator switches the interface language to Kazakh, to Russian and to English in turn, and on each language opens the empty
-      grading table and one answer screen (a freshly prepared waiting answer), and reads the headings, the labels and the Save button.
+      Right after the last mark of step 8 the administrator switches the interface language to Kazakh, to Russian and to English in turn and reads
+      the empty grading table in each language.
     via: gui
 
 expected_outcomes:
@@ -137,12 +141,23 @@ expected_outcomes:
     description: An answer already marked elsewhere is reported as already graded, the table is refreshed, and the first mark stands
     verification:
       method: page_state
-      detail: "Step 7 shows 'This answer has already been graded. The queue was refreshed.' in the second window and a table without that answer; the stored mark of that answer is 1, not 0.2"
+      detail: "Step 7 shows 'This answer has already been graded. The queue was refreshed.' in the second window and a table without that answer"
     on_fail:
       severity: MAJOR
       business_impact: >
         A screen that overwrites or hides the conflict changes a result already given.
       suggested_action: route_to_frontend_dev
+
+  - id: EO-007
+    description: The first mark stands after the conflict in step 7
+    verification:
+      method: system_state
+      detail: "The stored mark of the answer marked in step 7 is 1, not 0.2; the screen shows no stored mark of a marked answer, so this is read in the test database by the acceptance run"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A screen that overwrites the conflict changes a result already given.
+      suggested_action: route_to_backend_dev
 
   - id: EO-005
     description: An address of an answer that does not exist shows the application's not-found page, and an empty table shows the empty-state text
@@ -159,7 +174,7 @@ expected_outcomes:
     description: The grading texts appear in Kazakh, Russian and English with no raw text key
     verification:
       method: page_state
-      detail: "Step 9 shows the headings, labels, empty-state text and Save button translated in each of the three languages, and no text of the form exam.grading.<something>"
+      detail: "Step 4 shows the headings, labels and Save button of the answer screen translated in Kazakh, Russian and English, and step 9 shows the empty-state text translated in each; no raw text of the form exam.grading.<something> appears"
     on_fail:
       severity: MINOR
       business_impact: >

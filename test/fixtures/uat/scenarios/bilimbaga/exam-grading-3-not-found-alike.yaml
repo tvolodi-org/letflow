@@ -120,10 +120,21 @@ expected_outcomes:
       suggested_action: route_to_backend_dev
 
   - id: EO-002
-    description: An already marked answer is "not found" when read and "already graded" when marked again, and the mark is unchanged
+    description: An already marked answer is "not found" when read and "already graded" when marked again
     verification:
       method: http_status
-      detail: "Step 8 is refused as not found; step 9 is refused with the text 'this answer has already been graded', with no score and no answer text in it; the answer of S5 still carries 1"
+      detail: "Step 8 is refused as not found; step 9 is refused with the text 'this answer has already been graded', with no score and no answer text in it"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A second mark that is accepted would overwrite the first and change a result already given.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: The refused second mark leaves the mark of S5 unchanged
+    verification:
+      method: system_state
+      detail: "After step 9 the stored mark of the answer of S5 is still 1; no route or screen shows a stored mark of a marked answer, so this is read in the test database by the acceptance run"
     on_fail:
       severity: MAJOR
       business_impact: >

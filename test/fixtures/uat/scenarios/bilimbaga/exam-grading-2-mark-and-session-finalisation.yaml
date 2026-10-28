@@ -80,11 +80,16 @@ steps:
   - step: 7
     actor: admin
     action: >
-      The administrator marks the only short text answer of session S2 with 0.5 and then the candidate opens the result of S2.
+      The administrator marks the only short text answer of session S2 with 0.5.
     via: api
     input:
       score: 0.5
   - step: 8
+    actor: candidate
+    action: >
+      The candidate opens the result of session S2.
+    via: api
+  - step: 9
     actor: admin
     action: >
       The administrator tries to mark the unmarked answer of S3 with a score above the largest mark of that answer (1.2 for an answer worth 1).
@@ -92,7 +97,7 @@ steps:
     expect_refusal: true
     input:
       score: 1.2
-  - step: 9
+  - step: 10
     actor: admin
     action: >
       The administrator tries to mark the unmarked answer of S3 with a negative score.
@@ -100,7 +105,7 @@ steps:
     expect_refusal: true
     input:
       score: -0.1
-  - step: 10
+  - step: 11
     actor: admin
     action: >
       The administrator tries to mark the unmarked answer of S3 with a score that is text, the word "full".
@@ -108,23 +113,23 @@ steps:
     expect_refusal: true
     input:
       score: full
-  - step: 11
+  - step: 12
     actor: admin
     action: >
       The administrator tries to mark the unmarked answer of S3 with a request that has no score at all.
     via: api
     expect_refusal: true
-  - step: 12
+  - step: 13
     actor: admin
     action: >
-      The administrator tries to mark the unmarked answer of S3 with a valid score of 1 and, in the same request, also names the result of the session
-      ("passed"), the marking status ("graded"), or a user identifier of another person as the examiner.
+      The administrator tries to mark the unmarked answer of S3 with a valid score of 1 and, in the same request, also names one extra key: the session,
+      the session status, the marking status, the largest mark, a user identifier or a tenant identifier (one key per request, six requests).
     via: api
     expect_refusal: true
     input:
       score: 1
-      extra_keys: "status, grading_status, max_score, user_id, tenant_id (each tried; every one refused)"
-  - step: 13
+      extra_keys: "session_id, status, grading_status, max_score, user_id, tenant_id (each tried in its own request with score 1; every one refused)"
+  - step: 14
     actor: admin
     action: >
       The administrator marks again the first answer of S1, which already carries 0.75, with the score 0.1.
@@ -132,11 +137,16 @@ steps:
     expect_refusal: true
     input:
       score: 0.1
-  - step: 14
+  - step: 15
     actor: admin
     action: >
-      The administrator opens the grading queue and the first answer of S1 and checks that the answers of S1 and S2 are no longer in the queue and
-      that the unmarked answer of S3 is still waiting and unchanged.
+      The administrator opens the grading queue and checks that the answers of S1 and S2 are no longer in it, tries to open the first answer of S1 (already marked, answered as not found), and
+      checks that the unmarked answer of S3 is still waiting and unchanged.
+    via: api
+  - step: 16
+    actor: candidate
+    action: >
+      The candidate opens the result of session S1 once more.
     via: api
 
 expected_outcomes:
@@ -155,7 +165,7 @@ expected_outcomes:
     description: The session stays undecided while one answer is unmarked, and is decided with the last mark
     verification:
       method: api_response
-      detail: "Steps 1 and 4 show the candidate a result that is awaiting grading with no pass or fail; step 6 shows the session handed in, a score of 91.67 percent (2.75 of 3) and passed"
+      detail: "Steps 1 and 4 show the candidate a result that is awaiting grading with no pass or fail; step 6 shows the session handed in, a score of 2.75 / 3 * 100 (91.67 when rounded to two decimals; 2.75 of 3) and passed"
     on_fail:
       severity: BLOCKER
       business_impact: >
@@ -166,7 +176,7 @@ expected_outcomes:
     description: The session is judged against the pass mark frozen when it started, not the one the exam has now
     verification:
       method: api_response
-      detail: "Step 7 shows S2 decided at 75 percent and passed, because its pass mark was 70 when it started, although the exam's pass mark is now 95"
+      detail: "Step 8 (the candidate) shows S2 decided at 75 percent and passed, because its pass mark was 70 when it started, although the exam's pass mark is now 95"
     on_fail:
       severity: BLOCKER
       business_impact: >
@@ -177,7 +187,7 @@ expected_outcomes:
     description: A mark above the largest mark, below 0, not a number, missing, or sent with any extra key is refused and nothing is stored
     verification:
       method: http_status
-      detail: "Steps 8 to 12 are each refused as not accepted: step 8 with the text 'score exceeds the maximum for this answer', steps 9 to 11 with a field error on score, step 12 with the text 'field is not allowed' for each extra key; the answer of S3 is still unmarked afterwards (step 14)"
+      detail: "Steps 9 to 13 are each refused as not accepted: step 9 with the text 'score exceeds the maximum for this answer', steps 10 to 12 with a field error on score, step 13 with the text 'field is not allowed' for each extra key; the answer of S3 is still unmarked afterwards (step 15)"
     on_fail:
       severity: BLOCKER
       business_impact: >
@@ -188,7 +198,7 @@ expected_outcomes:
     description: A second mark on an answer already marked is refused and the first mark stands
     verification:
       method: http_status
-      detail: "Step 13 is refused with the text 'this answer has already been graded', which names no score and no answer text; step 14 still shows 0.75 for that answer and S1 decided as in step 6"
+      detail: "Step 14 is refused with the text 'this answer has already been graded', which names no score and no answer text; step 16 (the candidate) shows S1 with the same score and the same passed as in step 6, so the 0.75 was not replaced by 0.1"
     on_fail:
       severity: MAJOR
       business_impact: >
@@ -199,7 +209,7 @@ expected_outcomes:
     description: Answers that are marked or refused do not appear in the queue as waiting
     verification:
       method: api_response
-      detail: "Step 14 shows no answer of S1 or S2 in the queue; the answer of S3 is still waiting"
+      detail: "Step 15 shows no answer of S1 or S2 in the queue, shows that opening a marked answer of S1 answers not found, and shows the answer of S3 still waiting"
     on_fail:
       severity: MAJOR
       business_impact: >
