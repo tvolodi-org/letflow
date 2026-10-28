@@ -1,6 +1,8 @@
 # Authored by BA-BILIMBAGA for T-0823 (REQ-586 criteria 3 to 6, caller without the exam content writing permission).
 # Source: docs/requirements.yaml REQ-586 acceptance criteria 3 to 6 on origin/main; permission ExamAuthoringWrite
-# (docs/agents/uat-scenario-schema.md, authoring routes; permission matrix, CANDIDATE row).
+# (routes: moduledoc route table of lib/letflow/modules/exam/router.ex; permission rows in
+# priv/permission_matrix/effective.golden: CANDIDATE ExamAuthoringWrite false, TENANT_ADMIN ExamAuthoringWrite true).
+# Criteria not observable through UAT are listed in the header of exam-parent-1.
 ---
 id: bilimbaga-exam-parent-5-refusal-no-authoring-permission-tree-writes
 scope: bilimbaga

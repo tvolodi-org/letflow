@@ -2,6 +2,9 @@
 # Source: docs/requirements.yaml REQ-586 acceptance criterion 4 on origin/main (parent_not_found, 422, identical body
 # for an absent, a removed and another company's parent; INV-5). Refusal body is the exam router's constant
 # problem "exam authoring rule refused" with the reason member parent_not_found.
+# UAT assumption: the "other company" id is the id of an item of another company (swiftroute has no exam module), not an
+# exam record; any id that is not a live same-type record of the caller's company gives parent_not_found.
+# Criteria not observable through UAT are listed in the header of exam-parent-1.
 ---
 id: bilimbaga-exam-parent-2-parent-not-found-same-answer
 scope: bilimbaga

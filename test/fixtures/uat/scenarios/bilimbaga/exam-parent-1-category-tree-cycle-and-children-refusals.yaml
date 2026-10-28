@@ -1,7 +1,22 @@
 # Authored by BA-BILIMBAGA for T-0823 (REQ-586 criteria 3 and 5, category tree part).
 # Source: docs/requirements.yaml REQ-586 acceptance criteria 3 and 5 on origin/main; routes are the exam
-# module's authoring routes (docs/agents/uat-scenario-schema.md, authoring_create/update/delete).
+# module's authoring routes (moduledoc route table of lib/letflow/modules/exam/router.ex: authoring_create,
+# authoring_update, authoring_delete, gated by ExamAuthoringWrite).
 # Reasons are the "reason" member of the 422/409 body: parent_cycle (422), category_has_children (409).
+#
+# REQ-586 parts NOT observable through UAT (numbers = order of acceptance_criteria on origin/main), left out on purpose
+# for all five exam-parent scenarios:
+#   1: pack json and drift guard (build-time check).
+#   2: install DDL, confdeltype (database catalogue).
+#   3: the pre-existing-cycle part (needs a raw table write).
+#   5: the raw SQL DELETE / ON DELETE RESTRICT part (needs direct database access).
+#   8 and 9: ParentRollout, Release.ExamParentId, Catalog boundary (internal modules, no route).
+#   10: needs a tenant not yet upgraded; the QA tenant is assumed upgraded.
+#   11 and 12: vitest tree picker, web grep tests, npm run check (web unit tests).
+#   13: the PR pin listing (a pull request content check).
+# UAT assumption, to be confirmed by the process owner: the QA bilimbaga tenant has had the one-time parent_id
+# upgrade run before UAT.
+# Step 6 moves a category under a new root (a valid non-cycle move), not strictly to a sibling; the rule under test is the same.
 ---
 id: bilimbaga-exam-parent-1-category-tree-cycle-and-children-refusals
 scope: bilimbaga
