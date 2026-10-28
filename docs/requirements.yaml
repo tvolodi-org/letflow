@@ -36431,11 +36431,51 @@ requirements:
     gh: 2677
     # Source: GH #2677 (filed by letflow-2). Blocked on GH #2675; NOT validated by REQ-VALIDATOR (failed twice 2026-10-16; a design stub that must be split). Id allocated by letflow-2.
     description: >
-      Purge and archive execution for documents past retention. Design stub; the
-      GH #2677 body is the content authority.
+      Design and decision slice of the split of GH #2677 (REQ-VALIDATOR round 2, 2026-10-16). The build
+      slice is REQ-603. Decision 0063 (docs/migration/decisions/0063-versioned-documents-retention-and-hold.md)
+      does not cover purge or archive execution: its header says "Purge and archive execution (0056 D7,
+      purge_requests, two-person approval) stay out of this record; they belong to REQ-509", and its
+      Consequences section only obliges purge to take the documents row lock and re-check on_hold. So
+      this slice is a new decision record in docs/migration/decisions/ (next free number at design
+      time), ratified before REQ-603 is built. It turns the direction in decision 0056 D7 into binding
+      rules and writes no code, seed or test. Inputs already settled elsewhere: 0057 D15 (retention
+      forever by default, action keep, archive or purge, purge only through an approval, a legal hold
+      blocks any purge) and 0057 D19 (offboarded tenant: freeze read-only, complete export, purge only
+      on explicit written request and only after retention allows, default never), confirmed by the user
+      on 2026-10-16 per 0057; these answer 0056 open points 5 (default: keep every type; the period per
+      type is a setting of the process owner, not a figure in code) and 13 (default above), except for
+      the points listed under open_questions. Related but separate: REQ-580 (tenant purge for the
+      provisioning delete step) removes a whole tenant; this slice covers one document version inside
+      a live tenant.
+      Clause assignment of the original REQ-509 criteria and of GH #2677: original criterion 1 (record
+      ratified before build) is criterion 1 here; original criteria 2 (typed refusals, atomic delete,
+      shared bytes), 3 (defaults never reach purge, rewritten by the validator as "a not-eligible version
+      is refused by the purge function") and 4 (SECURITY-REVIEWER and REVIEWER verdicts) belong to
+      REQ-603 only; the scope list of GH #2677 (purge_requests, DocumentsPurge, session setting and
+      trigger rewrite, shared bytes, hold re-check, three events) is DECIDED here and BUILT in REQ-603;
+      archive is decided here (defined or dropped) and, if defined, is built by a further requirement
+      written after ratification, not by REQ-603.
     acceptance_criteria:
-      - "1. The acceptance criteria are those of GH #2677 after its design record. NOT DELIVERED."
-    depends_on: [REQ-508]
+      - "1. A decision record for purge and archive execution exists in docs/migration/decisions/, cites 0056 D7, 0057 D15 and D19 and 0063 S5 and S6 by section, states its status, and is ratified by the owner or REVIEWER (sign-off section filled) before REQ-603 is claimed. A reader can check this from the file."
+      - "2. Two-person approval is stated in testable form: (a) a purge request records requested_by and approved_by as different users, enforced by a database CHECK that refuses approved_by equal to requested_by; (b) the approver must hold the DocumentsPurge permission, checked in module code, and the record names this as a stated residual because it cannot be a database check; (c) the approver is not the requester even when the requester holds every tenant permission; (d) one approval is bound to one request id, hence to one document, one version and one content_hash, and cannot be reused for another target or a second purge; (e) a request has a time-to-live measured on the database clock and an expired approval is refused. For each of (a) to (e) the record gives the refusal as a typed error name and the test that must prove it."
+      - "3. The record states the purge request lifecycle as a table of states and transitions (requested, approved, consumed, expired, with who may do each and which event is written: document.purge_requested, document.purge_approved, document.purged, payloads with ids, hashes, counts and reason codes only, per 0056 D9), the columns of purge_requests, which columns may change once, and that DELETE of a request row is refused."
+      - "4. The record states the atomic purge step: one transaction takes the SELECT ... FOR UPDATE row lock on the documents row (lock order of 0063 S5: after entity-type rows, before the audit chain row), re-checks on_hold under that lock, re-checks eligibility under the eligibility rule of 0063 S6 for the target version, re-checks that the target content_hash still matches the request, deletes the version, writes document.purged, and consumes the request. It names the refusal for each failed check as a distinct typed error, and names the forced-overlap test that REQ-603 must ship because this is a new path that takes two row classes (0063 Consequences)."
+      - "5. The record decides the shared-bytes rule: bytes in repository_artifacts are deleted only when no other document version and no attachment still references them (0056 D7, threat T16), says how the references are counted, and says whether the attachment foreign key already forbids the delete (0056 marks the exact foreign key shape NOT VERIFIED; the designer reads the migration and states the result)."
+      - "6. The record decides the trigger exception: the guarded transaction-local session setting letflow.purge_request_id, the rewrite of repository_artifacts_immutable() (priv/repo/migrations/20260830030001_create_repository_artifacts.exs) and the exceptions in the document table triggers (priv/repo/migrations/20261022100002_create_document_immutability_triggers.exs), including that the artifact exception is shared with attachments. It restates the residual of 0056 D7 (code running as the application role can call set_config; the audit chain is the detective control)."
+      - "7. The record decides the permission and scope: DocumentsPurge is a TENANT-scope permission (INV-10), held by TENANT_ADMIN only unless the record states a different role with its reason, and is not a platform operation. It includes the roles-matrix row for docs/roles.md and the cross-tenant negative test the build must ship (a purge request naming a document that exists only in another tenant is refused with the same response as an absent document, INV-5)."
+      - "8. The record decides what a not-eligible version means for the purge function: a version that is not eligible under 0063 S6 (default policy keep, period not elapsed, on hold, status not superseded or cancelled) is refused by the purge function itself, not only filtered out by the eligibility query. This replaces the circular wording of the original criterion 3."
+      - "9. The record decides archive: either it defines where the data moves, who may archive, whether it is reversible, how an archived version reads, which events are written and the criteria a later requirement must meet, or it drops archive and states what retention_action archive of 0063 S3 then means (refused or reinterpreted). It does not leave archive as undefined."
+      - "10. The record states how document purge relates to tenant offboarding (0057 D19) and to REQ-580 (tenant purge): whether an offboarded tenant's document purge on written request uses the same purge request and two-person approval, who is the second principal when the tenant is frozen, and that a legal hold blocks both. Where the source does not settle a point it is written as an open owner question, not decided."
+      - "11. Open owner questions are listed in the record with their source: at least the approval time-to-live (a setting; any starting value is marked as a starting value), the closed reason_code list for purge (0063 leaves the hold list to the owner), whether discarded drafts are ever purged (0063 S6 says no, a later record decides) and the legal minimum retention per document type (0056 open point 5: the customer or process owner supplies the figure per type; the product ships no figure)."
+      - "12. The record carries the test list for REQ-603: one test ID per refusal of criteria 2 to 8, so REQ-603 criteria map one to one to the record."
+      - "13. No code, seed, migration or test file changes in this slice: git diff against main lists only files under docs/. A CODE-DESIGN-VALIDATOR verdict and a REVIEWER verdict on the record are recorded before ratification."
+    open_questions:
+      - "Approval time-to-live of a purge request: 0056 D7 names a TTL measured on the database clock but gives no value. Source for the figure: none yet. The record may propose a starting value marked as a setting; the process owner confirms it."
+      - "Closed reason_code list for purge requests and approvals: 0063 'Not decided here' leaves the hold and policy list to the owner; the same owner list is needed here. Not decided in this entry."
+      - "Legal minimum retention period per document type (0056 open point 5, CUSTOMER DECISION REQUIRED (Kazakhmys)): 0057 D15 answers the default (forever, keep) and that the period is a per-type setting, but the figure per type is a customer or legal input and stays open. The product ships no figure."
+      - "What an offboarded tenant keeps (0056 open point 13): 0057 D19 gives the default (freeze, export, purge only on explicit written request and only after retention allows, default never). Whether the written-request purge follows the same two-person approval, and who is the second person in a frozen tenant, is not settled by 0057 and is for the owner if the designer cannot trace it to a source."
+      - "Whether discarded drafts are ever purged (0063 'Not decided here'): 0063 S6 says no; a later record decides. Left to this record to decide or to pass to the owner."
+    depends_on: [REQ-508, REQ-536]
 
   - id: REQ-510
     title: "Exam authoring write surface (module handlers and permission), then manage the 10 authoring types"
@@ -42913,6 +42953,52 @@ requirements:
       - "10. Scope and gates: the PR adds no migration, tenant table, seed, entity definition or permission, and states the new route-pin values as +1 from the value on origin/main at implement time (grep -rn \"__authz_routes__\\|length(snapshot)\" test/ and test/fixtures/route_scope/tenant_wide_default_routes.txt, the exam router route list in test/ and the module manifest route_policies pin; the child count in the moduledoc of lib/letflow/supervisor/infrastructure.ex and the ordered child list pinned in test/letflow/supervisor/infrastructure_test.exs, each +1 from origin/main at implement time); the moduledoc of lib/letflow/modules/exam/router.ex route table gains one row; the PR names FR-BB73, FR-BB74 and FR-BB75 as not built; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the new test files pass with real output quoted; the SECURITY-REVIEWER verdict (INV-1, INV-4, INV-5, INV-8, INV-9, INV-10) and the REVIEWER verdict are recorded; the open questions above are copied into the PR body as undecided."
     depends_on: [REQ-510, REQ-190, REQ-204]
 
+  - id: REQ-603
+    title: "Document purge execution: purge_requests with two-person approval, DocumentsPurge, guarded delete triggers, shared-bytes rule and purge events (build slice of GH #2677)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3389
+    # Source: GH #2677 (filed by letflow-2), the REQ-VALIDATOR round 2 split of 2026-10-16, and the decision record produced by REQ-509 (not yet written). Written by the business analyst (T-0774) 2026-10-27 as the build half of the REQ-509 split. Not yet validated.
+    description: >
+      Build slice of the split of GH #2677; the design half is REQ-509. This requirement implements
+      the decision record that REQ-509 produces and does not decide anything that record leaves
+      open: the implementer reads that record first and, where it differs from the criteria below,
+      the record wins and the difference is stated in the PR. It covers purge only. Archive is
+      decided by REQ-509 and, if the record defines it, is built by a later requirement. Moving
+      parts (from decision 0056 D7 and GH #2677): a purge_requests table in the tenant schema; the
+      permission DocumentsPurge as TENANT scope in lib/letflow/api/authorization.ex with its row in
+      docs/roles.md and the permission-matrix golden; the guarded transaction-local session setting
+      letflow.purge_request_id and the exceptions in the document table triggers
+      (priv/repo/migrations/20261022100002_create_document_immutability_triggers.exs) and in
+      repository_artifacts_immutable() (priv/repo/migrations/20260830030001_create_repository_artifacts.exs);
+      the purge function under a row lock on the documents row; the shared-bytes rule; and the events
+      document.purge_requested, document.purge_approved and document.purged. It reads the hold
+      columns of REQ-508 and the hold functions of REQ-536 (Letflow.Documents, lib/letflow/documents/)
+      and consumes the eligibility query of decision 0063 S6. The implementer greps the exact
+      function names, route table and pins on origin/main at implement time; this entry names no
+      route because the record decides whether a route exists. Dependencies in words: REQ-509 (the
+      record), REQ-508 (policy, eligibility, hold columns), REQ-536 (hold set and clear, hold
+      permissions); REQ-580 (tenant purge) is a separate path and is not changed here.
+      Clause assignment: this entry owns original REQ-509 criteria 2, 3 and 4; REQ-509 owns
+      criterion 1 and the decisions.
+    acceptance_criteria:
+      - "1. Refusals, one test each, each with a distinct typed error that the REQ-509 record names: purge of a version that is not yet past its retention period; of a version whose document is on hold; of a request that is unapproved; of a request approved by its own requester; of a request whose approval has expired; of a request that was already consumed (replay); of a request whose target document, version or content_hash differs from the one named in the request. Seven tests, seven different errors, and after each refusal the version row and its bytes are unchanged and no document.purged event exists."
+      - "2. Valid purge: for an eligible, not-held version with an approved, unexpired, unconsumed request, one call deletes the version row, writes document.purged (ids, content_hash, counts and reason code only, no content) and sets consumed_at on the request, all in one transaction; a test forces a failure after the delete and shows that the version, the event and consumed_at are all rolled back together."
+      - "3. Not-eligible refusal: the purge function itself refuses a version that the eligibility query of decision 0063 S6 would not return, including the defaults (retention_action keep, no period), a current issued version, a draft and a discarded version; a test calls the purge function directly with an otherwise valid approved request for each and sees the refusal, so the guard does not rest on the caller filtering first."
+      - "4. Two-person rule in the database: the purge_requests table refuses a row with approved_by equal to requested_by by a CHECK (a test inserts it directly and sees the constraint error); approved_by, approved_at and consumed_at can each be set once and nothing else in the row can change; DELETE of a request row is refused. The approver must hold DocumentsPurge: an approver without it is refused by module code with its own typed error."
+      - "5. Hold under lock: the purge transaction takes SELECT ... FOR UPDATE on the documents row before it reads on_hold, and before the audit chain row (lock order of decision 0063 S5). A forced-overlap test, in the form decision 0063 Consequences requires for new two-class lock paths (barrier row, lock-queue order, deadlock and lock-timeout reported through the Repo telemetry event), shows a hold set by REQ-536 while a purge is in flight either blocks the purge or is refused, never both succeed; the sequential case (hold set, then purge) is also tested."
+      - "6. Guarded delete: without letflow.purge_request_id set, a DELETE of a document version row and of a repository_artifacts row is still refused by the triggers (existing behaviour kept, one test each); with the setting set to the id of an approved, unexpired, unconsumed request that targets exactly that row or hash, the delete is allowed; with the setting set to any other value, the delete is refused. The setting is transaction-local and is not visible after the transaction ends."
+      - "7. Shared bytes: bytes in repository_artifacts survive when another document version references the same hash, and survive when an attachment references the same hash; they are deleted only when no reference remains. Three tests: referenced by another version, referenced by an attachment, referenced by nothing."
+      - "8. Permission and scope: DocumentsPurge is classified TENANT scope, held by the roles that the REQ-509 record names and by no other role (docs/roles.md row added, permission-matrix golden regenerated with mix letflow.permission_matrix --write, not by hand). The tenant-auditor refused-set literal and the permission count pins are updated from origin/main at implement time."
+      - "9. Cross-tenant: a purge request or approval naming a document that exists only in another tenant is refused with the same response as an absent document (INV-5), and the document of the other tenant is unchanged (INV-10 negative test with two tenants)."
+      - "10. Events: document.purge_requested, document.purge_approved and document.purged are written in the same transaction as the change they record, carry ids, hashes, counts and reason codes and no content or free text (0056 D9), and are added to the audit event name list wherever the repository pins it; the test asserts the payload keys exactly."
+      - "11. Scope boundary: no archive code, no change to REQ-580 (tenant purge) and no purge of discarded drafts unless the REQ-509 record says so; the diff is checked by the reviewer against the record."
+      - "12. SECURITY-REVIEWER verdict recorded (mandatory: new permission, trigger change on tenant schemas, destructive tenant-data path) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test files pass with real output quoted."
+    open_questions:
+      - "Open until the REQ-509 record is ratified: the approval time-to-live value, the closed reason_code list for purge, whether archive exists, and whether discarded drafts are purged. This requirement does not decide them; if the record leaves one to the owner, the implementer treats it as a setting or a blocker and says so in the PR."
+    depends_on: [REQ-509, REQ-508, REQ-536]
+
   - id: REQ-604
     title: "WMS foundation: supplier master (catalog_counterparty) in the catalog_items module, with external_ref, active flag and lookup (decision 0057 D1, D12; the D1 master that REQ-558 defers)"
     owner: ELIXIR-DEV
@@ -43028,6 +43114,85 @@ requirements:
       - "7. Texts: every user-visible string is in examMessages.ts and ExamIntlProvider; exam-i18n-grep.test.ts passes."
       - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
     depends_on: [REQ-510]
+  - id: REQ-607
+    title: "Record E slice E-3: pre-write script hook wired into Records create, update and upsert under the F13 atomicity rule (sequence-lock set, fingerprint compare, whole-hook retry, derived_value_conflict)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3413
+    # Source: docs/migration/decisions/0065-entity-pre-write-script-hook.md (D1 steps 1-4, D2 "Lock set and order", "Retry count, then typed failure", "Worked example", D3 locked window and pool, D5 "derived field is system-owned", D7 INV-1 and "Managed types" and "Scope", D8 slice E-3, "Not decided here", "Threat cases" 3, 4, 6); docs/migration/decisions/0061-engine-lock-order-platform-invariant.md (item 5, item 6, rule 5); docs/migration/decisions/0054-process-step-writes-entity.md (D3, D8); docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-8, INV-10); REQ-601 (slice E-2) and REQ-567 (slice E-1) in docs/requirements.yaml; code read: lib/letflow/entities/records.ex (do_create_record, update_record, upsert_record_by_external_ref, append_command, maybe_scope_check, recheck_definition, check_write_authority, interpret_result, classify_step_error), lib/letflow/event_store.ex (lock_instance_sequence/3), lib/letflow/routers/entities/record_writes.ex (render_record_command/3), lib/letflow/engine.ex (@entity_write_set_statement_timeout), lib/letflow/api/response.ex (entity_write_status/1), lib/letflow/entity_type_hooks.ex (E-1 binding module). Written by the business analyst (T-0812) 2026-10-28. Not yet validated.
+    description: >
+      Slice E-3 of decision 0065 (docs/migration/decisions/0065-entity-pre-write-script-hook.md, D8): the
+      write integration that E-2 (REQ-601) left out on purpose. After E-2, Letflow.Scripts.EntityWrite.run/4
+      (lib/letflow/scripts/entity_write.ex) can run a bound entity_write script and
+      Letflow.Entities.ScriptReads.prefetch_with_fingerprint (lib/letflow/entities/script_reads.ex) returns
+      the read fingerprint, but no record write calls either. E-3 makes the three direct write functions of
+      lib/letflow/entities/records.ex (create_record/3, update_record, upsert_record_by_external_ref/4,
+      including the created and the updated branch of the upsert) call the hook for a record type that has a
+      binding in entity_type_hook_bindings (E-1, lib/letflow/entity_type_hooks.ex), and applies the F13 rule of
+      0065 D2 around it. A type without a binding takes exactly the path it takes today. Flow of one hooked
+      write (0065 D1): (1) the existing build phase (validation, active definition, authority check, scope
+      resolution), unchanged and before the hook; (2) the read phase and (3) the run phase through
+      EntityWrite.run/4 with the candidate (the payload merged with the stored value for an update), outside
+      every lock and holding no connection while the script runs; (4) the existing write transaction, which
+      first locks FOR UPDATE the instance_sequences row of every type in S = the written type plus the read
+      types, ascending by type name in byte order (EventStore.lock_instance_sequence/3, 0061 item 5; a hooked
+      write takes nothing of 0061 items 1-4), then compares each locked counter with the fingerprint and, on a
+      mismatch, aborts before any write. Retry: on a mismatch the write rolls back (no event, no idempotency
+      claim, no audit row) and the whole hook runs again from the read phase, at most 3 attempts in total
+      (1 run and 2 retries; a script_busy result of E-2 counts in the same total, retried with a short
+      backoff); after the third mismatch the write fails with {:error, :derived_value_conflict}, nothing
+      committed and never committed without the derived value. The derived values from the hook are merged into
+      the field values before the existing validation of the merged document; a caller payload that sets a
+      declared derived field is refused with the existing validation error shape (0065 D5). Scope (0065 D7,
+      0051 T12): the scope check runs on the old stored value and on the new value (payload merged with the
+      hook output) of every field the hook writes and of the type's scope field, for create, update and
+      upsert; an out-of-scope old or new value returns the existing {:error, :scope_refused} of the direct
+      Records paths (maybe_scope_check in lib/letflow/entities/records.ex), which the record routes already
+      render as the by-id 404 bytes of decision 0051 D7 (scope_refused/3 in
+      lib/letflow/routers/entities/record_writes.ex); 0065 D7's write_not_permitted is the step-path name
+      (Records.classify_step_error/1) for the same refusal and no new code is introduced on the direct paths.
+      Managed types: check_write_authority/3 is repeated at run time and a non-owning caller gets the existing
+      {:error, :entity_type_managed}, rendered by the routes as Error.entity_type_managed() (403) (0065 D7,
+      INV-5). A bounded wait: the write phase sets SET LOCAL lock_timeout = '2s' and statement_timeout = '5s',
+      the values of the entity-write transaction in lib/letflow/engine.ex (@entity_write_set_lock_timeout and
+      @entity_write_set_statement_timeout; 0054 D3 open point 4; 0065 D3: unchanged), not the 2 s/2 s of the
+      pre-transaction prepare in lib/letflow/entities/step_writes.ex. A lock timeout, deadlock or statement
+      timeout in the hooked write phase is {:error, :entity_write_contention}. Every non-success result of
+      EntityWrite.run/4 is returned to the caller as a typed {:error, code} and the write is rejected with
+      nothing committed; the mapping of those codes to audit rows and the one-test-per-row suite are E-4.
+      This slice adds no route and no permission, but the existing record routes that call Records now return
+      two codes that render_record_command/3 in lib/letflow/routers/entities/record_writes.ex has no clause
+      for today (they would fall to its 500 catch-all): this slice adds clauses so that
+      :entity_write_contention and :derived_value_conflict both answer 503 with a constant body (0065 D2:
+      the status is chosen within the existing contention mapping, whose status for entity_write_contention
+      is 503 in entity_write_status/1 of lib/letflow/api/response.ex, the step-path renderer, which this slice
+      does not change), and the mapping comment above that function is updated. Out of scope: audit records of hook runs and the
+      kill switch (E-4), dry-run and UAT scenarios (E-5), the process-step path (command_multi/3, 0065 D1: a
+      type with a binding is not a target of entity_writes lines), bulk-import budgeting, a row-level
+      fingerprint, derived fields of managed types, and anything under web/ or apps/. No migration and no
+      tenant table. SECURITY-REVIEWER is mandatory (tenant-data path: lock set, fingerprint compare, scope and
+      managed-type refusals, fail-closed paths, no raw error text). Left open on purpose, each under 'Not
+      decided here' in 0065: the exact millisecond budget of the locked window (this slice measures it and
+      records the figure, 50 ms is the target and not an assertion), numeric read caps, the HTTP status
+      number of entity_type_hooked, a row-level fingerprint, derived fields of managed types.
+    acceptance_criteria:
+      - "1. Hook call on the three paths: for a record type with a binding, create_record/3, update_record and upsert_record_by_external_ref/4 (created branch and updated branch) call Letflow.Scripts.EntityWrite.run/4 once per attempt and store the returned derived values with the record (one test per path, with a real published entity_write script that sets a derived field). For a type without a binding EntityWrite.run/4 and ScriptReads.prefetch_with_fingerprint are called zero times (a stub counter), the stored event's field_values equal the caller's payload with no extra key, and no instance_sequences row of any other type is locked (Repo telemetry), one test per path. The existing tests of lib/letflow/entities/records.ex (test/letflow/entities/records_test.exs, records_upsert_by_external_ref_test.exs, records_command_multi_test.exs) pass unchanged, real output quoted."
+      - "2. Lock set and order: in the write phase of a hooked write whose script reads type invoice_line and writes type invoice, the instance_sequences rows are locked FOR UPDATE in the order invoice, invoice_line before the first event insert, and the written type's row is part of the set when the written type is also a read type (once, not twice); a test records the Repo query events (telemetry) and shows the order and that no lock of 0061 items 1-4 is taken. A read type that was never written has its row inserted by the lock step and a first write passes the compare on attempt 1 (default against default); the same write with a concurrent first write of that read type committed in between needs exactly one retry (two tests)."
+      - "3. Worked example under concurrency (0065 D2): two connections, W1 updating invoice I whose hook sums invoice_line amounts and W2 committing a new line. Case A, W2 commits before W1 takes its locks: W1 mismatches, retries, stores the total including the new line. Case B, W1 holds both locks first: W2 waits on the invoice_line sequence row until W1 commits, W1 stores the total without the new line and W2 commits after (serial order W2,W1 and W1,W2). No interleaving stores a total that omits an already committed line (one test per case, async: false)."
+      - "4. Commit between counter read and row read: a test injects a commit by another connection after the counter queries and before the record queries of the read phase (a hook in the test, not in production code) and shows the write retries and finishes with the value computed from the newer rows, never with the stale value."
+      - "5. Retry cap and failure: when every attempt mismatches (a third connection commits a write of a read type between the read phase and the lock step on each attempt), the write ends after exactly 3 attempts with {:error, :derived_value_conflict}; no event, no idempotency claim and no audit row of the write exists (row counts equal before and after), and a retry of the same request with the same idempotency key afterwards succeeds once the contention stops. A script_busy result on attempt 1 followed by success on attempt 2 is a success that used 2 of the 3 attempts, and three script_busy results end the write as {:error, :script_busy} (stub-driven tests)."
+      - "6. Forced overlap (0061 rule 5): a test holds a barrier row of the written type's sequence row from a third connection, starts two hooked writers with sets {A,B} and {B,A}, releases the barrier, and shows from Repo telemetry that both took A then B, were served first-in first-out, and no deadlock (40P01) error was raised. A third connection holding the sequence row longer than the 2 s lock_timeout makes the hooked write return {:error, :entity_write_contention} within about 2 s (assert under 4 s) with nothing committed and no exception. A test reads the two SET LOCAL statements from Repo telemetry and shows lock_timeout '2s' and statement_timeout '5s'."
+      - "6b. HTTP mapping: for each of the create, update and upsert record routes, a runner stub (or the contention of criterion 6) that yields :entity_write_contention and one that yields :derived_value_conflict answer status 503 with a constant body that holds no record data, script key, version or error text (one route test per code, asserting status and body); render_record_command/3 has an explicit clause for each and neither reaches the 500 catch-all."
+      - "7. Scope and managed types (0065 D7): for a scoped set, update of a record whose stored scope value is outside the caller's set returns {:error, :scope_refused}, and so does a write whose merged new value (payload plus hook output) of the scope field or of a field the hook writes is outside the set (two tests; nothing appended in either); for a create and for an upsert the new-value test is repeated. A route test shows the response bytes are those the record routes already send for scope_refused (the by-id 404 of 0051 D7). A managed type with a binding written by a non-owning caller (authority :tenant) returns {:error, :entity_type_managed} (route: 403, Error.entity_type_managed()) and the runner is not called; the owning module path for the same type is unaffected. A payload that names a declared derived field is refused with the existing validation error shape and the runner is not called."
+      - "8. Fail closed and no leak: for each of {:error, :script_rejected | :script_error | :timeout | :output_invalid | :budget_exceeded | :memory_limit_exceeded | :script_busy | {:script_failed, code}, ...} returned by a runner stub, the write returns that typed error, appends nothing and holds no open transaction afterwards (Repo.in_transaction?/0 false); no returned term holds script source, key, version, sha256 or exception text (one test on the whole term). A raise inside the stub is returned as {:error, :script_error} and does not escape the Records function (INV-8)."
+      - "9. INV-1 and INV-10 cross-tenant negative test: tenants A and B each have a record type named customer; only A has a binding. A hooked write in A with A's prefix runs the script; the same write in B with B's prefix runs no script and stores no derived value, and the lock rows taken and the counters compared in B are B's own (the test reads the telemetry queries and sees only B's prefix). A pin naming A's script key, copied into a write call with B's prefix, is the single script_rejected result of E-2 and no event is appended in either tenant. No route is added or changed by this slice; for each existing record route that reaches the hooked write, a request with tenant B's token naming a type bound only in A answers the same body as a type that exists in no tenant. Every Repo call added by the change passes the prefix option; the PR quotes grep -n \"Repo\\.\" over the changed hunks. No SQL string interpolation (INV-7): SET LOCAL values are constants."
+      - "10. Scope of the change and gate: the diff touches lib/letflow/entities/records.ex, lib/letflow/routers/entities/record_writes.ex (the 503 clauses and the mapping comment of render_record_command/3 only) and, if needed, new helper modules under lib/letflow/entities/; it does not change lib/letflow/entities/step_writes.ex, lib/letflow/entities/handler_writes.ex, lib/letflow/engine.ex or the E-1 and E-2 modules except to expose what E-2 already returns; it adds no route (the __authz_routes__ and length(snapshot) pins in test/ are unchanged), no permission (priv/permission_matrix/effective.golden unchanged), no migration, no tenant table and no config key; test/letflow/entities/records_scope_all_scan_test.exs, the record route tests and the E-1 and E-2 tests pass unchanged or are updated only for the new code, and each moved pin is named in the PR. The measured duration of the locked window (first lock to commit) for the worked example is recorded in the PR summary as a figure and is not asserted. The PR records a SECURITY-REVIEWER verdict in its Gates block before merge. mix format, mix compile --warnings-as-errors and mix letflow.check.static pass, and mix letflow.check_requirements_registration passes, real output quoted."
+    open_questions:
+      - "Decision 0065 'Not decided here' stays open and is neither set nor implied: the millisecond budget of the locked window (measured and reported only), numeric read caps, the HTTP status number of entity_type_hooked, a row-level fingerprint, step-path support and bulk-import budgeting, derived fields of managed types. For derived_value_conflict, 0065 D2 constrains the status to the existing contention mapping and this slice uses 503, the status of entity_write_contention; whether the owner wants another number inside that mapping stays open."
+      - "The activation-time half of entity_type_hooked (refusing to activate a definition with an entity_writes or handler line on a bound type, 0065 D1) is assigned to no slice by 0065 D8. Until it is assigned, a definition activated after the binding can reach a bound type through the step path, which this slice does not hook (0065 threat case 6); the owner or the reviewer of REQ-539 decides which slice closes it."
+      - "How the caller computes opts[:publisher_may_restricted?] for EntityWrite.run/4 (E-2 leaves it to E-3) is not stated by 0065 D5 beyond 'the publisher held EntitiesRestrictionsManage, re-checked at run time'. This slice passes false (restricted fields omitted) until the owner or the reviewer of REQ-539 rules how it is computed; a hook that needs a restricted input is not usable before that."
+    depends_on: [REQ-601, REQ-567]
 
   - id: REQ-611
     title: "Exam taking: a flag/unflag control on each question, kept in the browser only (BilimBaga retirement criterion 3, exam-taking.spec.ts case 07)"
