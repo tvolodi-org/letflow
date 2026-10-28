@@ -55,6 +55,11 @@ rulings below; no type needs it.
 
 ### R2. Transaction 2 (binds 0056 D5, point b; 0056 D4, D9)
 
+Before the render, with no transaction and no lock, `attach_artefact/2` makes an unlocked read of the version:
+unknown or other-tenant gives `{:error, :not_found}`; a status other than `issued` gives
+`{:error, :not_issuable_for_artefact}`; an `artefact_hash` already set returns `{:ok, _}` with no render call.
+Only then does it render. The locked re-read in transaction 2 below stays as the race guard.
+
 Transaction 2 opens after the render returned bytes. In order: lock the version row `FOR UPDATE` and re-read
 it; refuse (R6) if it is not `issued`; if `artefact_hash` is already set, return `{:ok, _}` with no change,
 no new bytes and no second audit entry; otherwise store the bytes with `upsert_content/6` (key
@@ -110,8 +115,8 @@ function; whether the route shows it is the route record's call (R10).
 One-line rulings, each with its reason.
 
 - **Entry function:** `Letflow.Documents.attach_artefact(prefix, %{document_id:, version_no:, actor_id:})`,
-  returning `{:ok, %{version: version}}` or `{:error, atom}`. Reason: same shape as `cancel/3` and
-  `new_version_from_current/2`; `actor_id` is audit-only, the function checks no permission (like the rest of
+  returning `{:ok, %{version: version}}` or `{:error, atom}`. Reason: same map-argument shape as
+  `new_version_from_current/2` (the map form is chosen over `cancel/3`'s separate actor argument); `actor_id` is audit-only, the function checks no permission (like the rest of
   the module; the first caller owns that).
 - **Read function:** `Letflow.Documents.fetch_artefact(prefix, document_id, version_no)`, three arguments, no
   scope. Reason: scope belongs to the later download route (R10).
@@ -121,9 +126,15 @@ One-line rulings, each with its reason.
   superseded between issue and attach), with no render call and no write; `:in_transaction` (R1); `:not_found`
   for an unknown or other-tenant version, shape as `cancel/3`. Reason: one atom per caller decision; the reason
   for a render failure stays in the log as a code, so no atom leaks template internals.
-- **Renderer behaviour:** `Letflow.Documents.Renderer` with one callback `render(template_ref, projection, meta)`
-  returning `{:ok, binary}` or `{:error, term}`. Reason: smallest surface that lets a test renderer stand in
-  and lets 0068 S3 plug in without changing the entry function (the type's `template_ref` is passed through).
+- **Renderer behaviour:** `Letflow.Documents.Renderer` with exactly one callback `render(template_ref, projection,
+  meta)` returning `{:ok, binary, template_version}` or `{:error, term}`, where `template_version` is a non-empty
+  `String.t()` naming the template revision that produced the bytes. The version travels in the return value;
+  there is no second callback and no version in the registry, so REQ-623 criterion 7 ("one callback") holds
+  unchanged. A test renderer returns any fixed non-empty string (for example `"test-1"`); a return of
+  `{:ok, binary}` without a version, or an empty or non-string version, is a contract violation and is treated as
+  `{:error, :render_failed}` (log code `bad_renderer_return`). Reason: smallest surface that lets a test renderer
+  stand in and lets 0068 S3 plug in without changing the entry function (the type's `template_ref` is passed
+  through); the module that renders knows its own revision, and returning it with the bytes cannot drift from them.
 - **Registration per `template_ref`:** a renderer module is registered by code shipped with the owning module,
   as a compile-time map `template_ref => renderer module`, read through one function in a core module
   (`Letflow.Documents.Renderers`, new in REQ-623) that owns the lookup; a module adds its entry the way it
@@ -137,8 +148,8 @@ One-line rulings, each with its reason.
   REQ-622. Reason: an issued legal number without an artefact is still correct and pending, and failing closed is
   the same outcome as any other failed render, so one retry path serves both; the alternative (a silent skip
   marking the version as "no artefact needed") would let a misconfigured type pass unnoticed.
-- **`template_version`:** NOT a column of `document_versions` in REQ-623. The renderer module exposes its
-  template version, and `attach_artefact/2` records it in the `document.artefact_attached` payload (audit is
+- **`template_version`:** NOT a column of `document_versions` in REQ-623. The `template_version` returned by
+  `render/3` (see Renderer behaviour) is recorded by `attach_artefact/2` in the `document.artefact_attached` payload (audit is
   append-only and in transaction 2). This amends 0056 D5 and D9 ("recorded on the version row"). Reason: a new
   column on `document_versions` would need its own write-once rule in the guard next to `artefact_hash` and
   would widen REQ-623 beyond one guard change; the audit payload already ties the artefact to the template
@@ -172,6 +183,9 @@ hash code), before it returns any bytes. On a mismatch it returns `{:error, :not
 of R5) and audits `document.integrity_failed` (ids and hashes only, actor nil), once per read, under the
 transaction contract of `verify_binding/4`'s doc. It also checks that the stored bytes hash to
 `artefact_hash` before returning them; a mismatch is refused the same way and audited the same way.
+The `document.integrity_failed` payload carries ids and hashes only and a `check` key that tells the cases
+apart: `"content"` with `stored_hash` and `recomputed_hash` (the existing `content_hash` shape), or
+`"artefact"` with `artefact_hash` (stored) and `recomputed_hash` (SHA-256 of the stored bytes).
 Reason: 0056 D3 makes the recheck binding on read paths that feed a decision, and a download is one; serving
 corrupted bytes to a recipient who then relies on them is the failure the recheck exists for. A failed
 read writes an audit entry only on a hash mismatch (an integrity event), never for an ordinary not-found, so a
