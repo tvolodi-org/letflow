@@ -17,8 +17,9 @@ defmodule Letflow.Identity.TenantSettings do
 
   ## Allowed keys
 
-  Exactly five string keys, no more, no fewer: `"app_name"`, `"logo_url"`,
-  `"brand_colors"`, `"locales"`, `"default_locale"`. String-keyed (not atom)
+  Exactly seven string keys, no more, no fewer: `"app_name"`, `"logo_url"`,
+  `"brand_colors"`, `"locales"`, `"default_locale"`, `"signatory_name"`,
+  `"signatory_title"` (REQ-595). String-keyed (not atom)
   to match how a value arrives after JSON-decoding at the (out-of-scope-here)
   HTTP boundary, and this codebase's existing convention for `:map`-typed
   fields reaching the DB as JSONB (e.g. `tasks.form_schema`).
@@ -26,7 +27,7 @@ defmodule Letflow.Identity.TenantSettings do
 
   use Ecto.Type
 
-  @allowed_keys ~w(app_name logo_url brand_colors locales default_locale)
+  @allowed_keys ~w(app_name logo_url brand_colors locales default_locale signatory_name signatory_title)
 
   @doc false
   @impl Ecto.Type
