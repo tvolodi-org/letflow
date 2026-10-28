@@ -1,0 +1,79 @@
+# T-0860 (BA): TENANT ADMIN group, scenario 43: while the logo-upload switch is off (the product default), the upload and delete routes answer as if they did not exist.
+# Covers REQ-590 criterion 1 (switch off: PUT and DELETE answer 404 with the router's ordinary not-found body and write nothing).
+# Sources: docs/requirements.yaml REQ-590 criterion 1; lib/letflow/routers/tenant_logo.ex (moduledoc: with the switch off both routes answer the ordinary not-found, after authorisation, so an unauthorised caller learns
+# nothing from it); lib/letflow/plugs/logo_body_parser.ex (with the switch off the body is not read); config/config.exs (tenant_logo_upload_enabled false).
+# Environment: this scenario needs the switch OFF, the opposite of scenarios 40 to 42, whose step or precondition turns it on. The runner reports it BLOCKED in a run where the switch is on (step 1 answers 200).
+# It is not a permanent exclusion (no sidecar): run it in its own pass before scenario 40, or after the environment has turned the switch off again. The "on" half of criterion 1 is covered by scenario 40.
+# Bytes (exact, hex): PNG-OK = 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082 (67 bytes).
+# Nothing is stored, so "nothing written" is judged as system_state.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the switched-off refusals.
+---
+id: tenant-administration-43-tenant-logo-feature-switched-off
+scope: tenant-administration
+title: With the logo-upload switch off, uploading and deleting the company logo answer not-found like a route that does not exist
+version: "1.0"
+tags: [tenant-admin, tenant-logo, refusal, feature-flag]
+
+description: >
+  The logo-upload switch is off. The administrator of SwiftRoute, who holds the right to manage tenant settings, tries to upload a valid PNG and to delete the logo, and gets the plain not-found answer to each,
+  equal to the answer for a path that was never part of the product. Nothing is stored and no audit entry is written.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The logo-upload switch is OFF in the test environment (the product default).
+    check: system_seeded
+    detail: If the upload in step 1 answers 200 (the switch is on), report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute has no stored logo.
+    check: system_seeded
+    detail: Setup-prepared. If one exists, note it; the outcome then reads that the stored logo is unchanged.
+  - description: The runner can read the logo table and the audit trail of SwiftRoute from the database.
+    check: system_seeded
+    detail: If it cannot, report BLOCKED for EO-002 only.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload PNG-OK declared image/png as the company logo. The answer (status, content-type header and decoded body without the per-request trace_id member) is noted.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to delete the company logo. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      For comparison, the administrator tries to read the path "tenant-logo-never-existed" next to the company settings place, a path that is not part of the product. The answer is noted as NR.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Both routes answer not-found, the same as a route that does not exist.
+    verification:
+      method: http_status
+      detail: Steps 1 and 2 each answer 404 and each equals NR (step 3) in status, content-type header and decoded body after removing the per-request trace_id member. This holds although the administrator holds the right and the upload is valid.
+      evidence: The answers of steps 1, 2 and NR.
+    on_fail:
+      severity: MAJOR
+      business_impact: A feature the platform operator has not switched on is reachable, or its existence is revealed.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: Nothing is stored and nothing is audited.
+    verification:
+      method: system_state
+      detail: Read from the database after step 3. The SwiftRoute logo table has no row (or the row that existed before, unchanged), and the audit trail of SwiftRoute has no entry "tenant_logo.upload" or "tenant_logo.delete" since step 1.
+      evidence: The SwiftRoute logo table and audit trail, read directly.
+    on_fail:
+      severity: MAJOR
+      business_impact: A switched-off feature still changes the company's data.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing was created.

@@ -902,10 +902,14 @@ defmodule Letflow.TenantProvisioning do
     # storage and write path only, behind :tenant_logo_upload_enabled). No existing row altered.
     {20_261_027_500_001, Letflow.Repo.Migrations.CreateTenantLogos,
      "20261027500001_create_tenant_logos.exs"},
+    # REQ-613 / GH #3432: kind `graph` and a nullable chart_type on entity_views (saved graph views).
+    # Existing rows stay list or pivot with chart_type NULL; no row altered.
+    {20_261_028_100_001, Letflow.Repo.Migrations.AddGraphToEntityViews,
+     "20261028100001_add_graph_to_entity_views.exs"},
     # REQ-544 / GH #3162 part 2: empty per-tenant table for the procurement decision record (and its
     # idempotency keys). No existing row altered.
-    {20_261_028_100_001, Letflow.Repo.Migrations.CreateProcurementDecisions,
-     "20261028100001_create_procurement_decisions.exs"}
+    {20_261_028_200_001, Letflow.Repo.Migrations.CreateProcurementDecisions,
+     "20261028200001_create_procurement_decisions.exs"}
   ]
 
   @doc """

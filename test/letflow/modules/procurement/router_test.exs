@@ -202,7 +202,7 @@ defmodule Letflow.Modules.Procurement.RouterTest do
 
     # a non-requester without Decide cannot read it either: same 404
     worker_read = call(:get, "#{@base}/#{ctx.request.id}", ctx.worker)
-    assert worker_read.status in [403, 404]
+    assert worker_read.status == 403
   end
 
   test "A5: tenant B cannot read or decide tenant A's request by id", ctx do

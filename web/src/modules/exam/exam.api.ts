@@ -144,3 +144,54 @@ export const examAuthoringApi = {
       `${AUTHORING_BASE}/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
     ),
 }
+
+const GRADING_BASE = '/api/v1/modules/exam/grading-queue'
+
+/** One waiting short-text answer, as `GET /modules/exam/grading-queue` carries it (REQ-588). The
+ *  candidate is only the session id; the server sends no name, e-mail or user id. */
+export interface GradingQueueRow {
+  session_id: string
+  question_id: string
+  exam_title: string
+  stem: string
+  max_score: number
+  submitted_at: string | null
+}
+
+export interface GradingQueuePage {
+  items: GradingQueueRow[]
+  next_cursor: string | null
+}
+
+/** `GET /modules/exam/grading-queue/:session_id/:question_id`: the row plus the candidate's text. */
+export interface GradingAnswer extends GradingQueueRow {
+  text_answer: string | null
+}
+
+export interface GradeResult {
+  session_id: string
+  question_id: string
+  score: number
+  max_score: number
+  grading_status: string
+  session_status: string
+}
+
+/** REQ-589: the examiner's grading queue (REQ-588 routes, `ExamGradingRead` / `ExamGradingWrite`). */
+export const examGradingApi = {
+  listQueue: (opts: { cursor?: string; page_size?: number; exam_id?: string; locale?: string } = {}) =>
+    client.get<GradingQueuePage>(GRADING_BASE, opts),
+
+  getAnswer: (sessionId: string, questionId: string, locale?: string) =>
+    client.get<GradingAnswer>(
+      `${GRADING_BASE}/${encodeURIComponent(sessionId)}/${encodeURIComponent(questionId)}`,
+      locale ? { locale } : {},
+    ),
+
+  /** The body carries the mark only; the grader is the token's user. */
+  grade: (sessionId: string, questionId: string, score: number) =>
+    client.post<GradeResult>(
+      `${GRADING_BASE}/${encodeURIComponent(sessionId)}/${encodeURIComponent(questionId)}/grade`,
+      { score },
+    ),
+}
