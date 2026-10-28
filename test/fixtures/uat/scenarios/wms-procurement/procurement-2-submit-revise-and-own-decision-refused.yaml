@@ -9,6 +9,8 @@
 # ROSTER GAP, blocks the approval half: approve, reject and return by a SECOND person need a second account in the same company that holds the decide permission (today TENANT_ADMIN). The roster has one
 # TENANT_ADMIN per company (SwiftRoute: alice; bilimbaga: bilimbaga-admin; the platform administrator acts only in the platform company). There is no approver actor, so no scenario for approve / reject /
 # return / stale-hash approval is written; asking infra for a second SwiftRoute administrator account is the owner's decision (new account on QA). Until then criteria 6 to 9 are checked by the product's own tests only.
+# SECOND-APPROVER PATH (candidate, not verified by the writer): the product's own admin flows (create user, add to group, mint token in the identity router; the /admin/users screen) might give SwiftRoute a second TENANT_ADMIN without any Keycloak edit. A created user is not in the actor roster, so using it needs the owner's or the roster's agreement; until then approve, reject and return stay unwritten.
+# NOT UAT-observable through the API: that version 1 keeps its content and hash after the change (criterion 4, second half): the read shows only the newest version and the revise answer has no content; the module tests cover it.
 # NOT UAT-observable here: replay with the same idempotency key (needs a decision first); two process definitions with different approval routes (criterion 6; no process-definition client exists for the module).
 ---
 id: wms-procurement-2-submit-revise-and-own-decision-refused
@@ -19,8 +21,8 @@ tags: [wms, procurement, purchase-request, submit, revise, versioning, self-appr
 
 description: >
   Continuing with the SwiftRoute procurement module installed (see scenario 1), the requester saves a valid request, submits it for approval and receives the version number and the content hash of
-  the submitted version. The requester then tries to approve the request personally and is refused. The requester changes the request (a new justification); the system keeps the submitted
-  version unchanged and creates version 2, which is a separate submission with its own content hash. A task worker cannot submit or change the request, and a request id from the other company
+  the submitted version. The requester then tries to approve the request personally and is refused. The requester changes the request (a new justification); the change itself issues
+  version 2 in one operation, with its own content hash and the same number, so no separate submission follows. A task worker cannot submit or change the request, and a request id from the other company
   is answered exactly as an absent one.
 
 actors:
@@ -57,12 +59,12 @@ steps:
   - step: 4
     actor: requester
     action: >
-      The requester changes the request: the same content with the justification "UAT submit and revise - changed". The answer is noted as V2. The requester then reads D1 and notes the answer as D1b.
+      The requester changes the request: the same content with the justification "UAT submit and revise - changed". The change issues version 2 itself. The answer is noted as V2. The requester then reads D1 and notes the answer as D1b.
     via: api
   - step: 5
     actor: requester
     action: >
-      The requester submits D1 version 2 with the idempotency key "uat-submit-2". The answer is noted as S2.
+      The requester submits D1 version 2 again with the idempotency key "uat-submit-2" (version 2 is already issued by step 4, so this is a replay). The answer is noted as S2.
     via: api
   - step: 6
     actor: worker
@@ -102,7 +104,7 @@ expected_outcomes:
     description: A change after submission creates version 2 and leaves submitted version 1 as it was.
     verification:
       method: api_response
-      detail: Step 4 answers 200 with version 2 of the same document id and the new justification. The read D1b still lists version 1 with the content hash from S1 and the old justification. Step 5 answers 200 with version 2 and a content hash different from the one in S1.
+      detail: Step 4 answers 200 with version_no 2, the same document id and the same document number as S1, and a content hash different from the one in S1. The read D1b shows current_version_no 2 and the content hash of V2. Step 5 answers 200 with replayed true and the same content hash as V2, and writes nothing new.
       evidence: S1, V2, D1b and S2.
     on_fail:
       severity: BLOCKER
@@ -112,7 +114,7 @@ expected_outcomes:
     description: A worker with no procurement permission cannot submit.
     verification:
       method: http_status
-      detail: Step 6 answers 403 and version 2 of D1 is still reported as it was after step 5.
+      detail: Step 6 answers 403 and a read of D1 still shows current_version_no 2 with the content hash of V2.
       evidence: The answer of step 6.
     on_fail:
       severity: BLOCKER

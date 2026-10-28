@@ -9,7 +9,7 @@
 # SCREEN GAP (stated, not invented): REQ-544 is a backend slice. grep of web/src finds no purchase request screen, no procurement menu entry, and no module install screen. Every step is
 # therefore an API step (via: api); nothing in this scenario can be clicked in a browser on QA today. The owner script (task folder owner-script.md) says the same.
 # ROSTER GAP: the roster has no requester-only and no approver account. The permission is held by TENANT_ADMIN only, so the requester here is the SwiftRoute administrator.
-# NOT UAT-observable, left to the product's own tests: the exact stored totals of 3 x 0.10 and 2 x 19.99 are read back here through the create answer (step 2); the decimal-precision caps
+# NOT UAT-observable, left to the product's own tests: the totals are checked through the create answer (step 2) only; the read by id (step 3) shows state and version, not content or totals; the decimal-precision caps
 # (quantity below 1,000,000, cost below 1,000,000,000, four decimals, 200 lines) are covered by the module's unit tests; retired (as opposed to unknown) unit or department needs a deactivated master record the QA tenant does not have.
 ---
 id: wms-procurement-1-purchase-request-create-and-validation
@@ -20,8 +20,8 @@ tags: [wms, procurement, purchase-request, validation, totals, permissions]
 
 description: >
   SwiftRoute has the procurement module installed, with the organisation and item catalog modules it depends on. The company administrator, acting as the requester, saves a purchase request
-  for two material lines (3 pieces at 0.10 and 2 pieces at 19.99) and a service line. The system calculates every line total and the request total exactly (0.30, 39.98 and the service line
-  total, sum shown) and the request is saved as a draft with a document id and version 1. A request that lacks a mandatory field, has no lines, names an unknown unit or department, has a
+  for two material lines (3 pieces at 0.10 and 2 pieces at 19.99) and a service line. The system calculates every line total and the request total exactly (0.3, 39.98 and the service line
+  total 100, request total 140.28) and the request is saved as a draft with a document id and version 1. A request that lacks a mandatory field, has no lines, names an unknown unit or department, has a
   service line without scope, deliverables or completion date, or states a total that differs from the calculated one is refused with a list of the problems and nothing is saved. A task
   worker, who does not hold the procurement permission, is refused and cannot tell whether any request exists.
 
@@ -74,13 +74,13 @@ steps:
   - step: 6
     actor: requester
     action: >
-      The requester saves a request with one service line that has no scope, no deliverables and no completion date, and a second line with quantity 0. The answer is noted.
+      The requester saves a request with the same top-level fields as step 2 (department DEPT, justification "UAT office supplies and cleaning", required date 2026-12-15, priority "normal") and two lines: line 1 service "Window cleaning", quantity 1, unit UNIT, estimated unit cost 100.00, with no scope, no deliverables and no completion date; line 2 material "Pen", quantity 0, unit UNIT, estimated unit cost 0.10. No totals are sent. The answer is noted.
     expect_refusal: true
     via: api
   - step: 7
     actor: requester
     action: >
-      The requester saves a request whose department is an id that does not exist in the company, and whose only line names a unit id that does not exist. The answer is noted.
+      The requester saves a request with justification "UAT office supplies and cleaning", required date 2026-12-15, priority "normal", a department id that does not exist in the company (a well-formed random id), and one line: material "Pen", quantity 3, a unit id that does not exist in the company (a well-formed random id), estimated unit cost 0.10. No totals are sent. The answer is noted.
     expect_refusal: true
     via: api
   - step: 8
@@ -95,21 +95,21 @@ expected_outcomes:
     description: The procurement module is installed for SwiftRoute and a valid request is saved as a draft with exact calculated totals.
     verification:
       method: api_response
-      detail: Step 1 leaves "procurement" in the module list. Step 2 answers 201 with a document id, version 1, status "draft". The saved content shows line totals 0.30, 39.98 and 100.00 and a request total of 140.28, with the requester equal to the administrator's own user id (not sent in the request).
+      detail: Step 1 leaves "procurement" in the module list. Step 2 answers 201 with a document id, version 1, status "draft". The saved content shows line totals as the exact strings "0.3", "39.98" and "100" (the product drops trailing zeros) and a request total "140.28", with the requester equal to the administrator's own user id (not sent in the request).
       evidence: Module list after step 1 and the answer R1.
     on_fail:
       severity: MAJOR
       business_impact: A requester cannot raise a purchase request, or the money amounts shown to approvers are wrong.
       suggested_action: route_to_elixir_dev
   - id: EO-002
-    description: Reading the saved request returns the same content and totals.
+    description: Reading the saved request returns its state, version and document id.
     verification:
       method: api_response
-      detail: Step 3 answers 200 for the requester, with the same document id and the same line and request totals as R1.
+      detail: Step 3 answers 200 for the requester, with the same document id as R1, state "draft", current_version_no 1, content_hash null (a draft has none) and an empty decisions list. The read shows no content and no totals; totals are checked in EO-001 only.
       evidence: R1 and R1b side by side.
     on_fail:
       severity: MAJOR
-      business_impact: What the requester saved is not what is later shown for approval.
+      business_impact: The saved request is not found or shows a wrong state or version after saving.
       suggested_action: route_to_elixir_dev
   - id: EO-003
     description: A total that differs from the calculated one is refused and nothing is saved.
