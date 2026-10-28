@@ -236,6 +236,47 @@ defmodule Letflow.Entities.RecordsWriteHookScopeTest do
     assert events(fx) == before
   end
 
+  describe "C7 hook-written reference" do
+    setup %{fx: fx} do
+      bind!(fx, "scoped_child", ["item_id"])
+      StubRunner.reply(output(%{"item_id" => fx.items.b.record_id}))
+      :ok
+    end
+
+    test "C7-hook-ref-create the payload scope is in the set; the hook output is not", %{fx: fx} do
+      before = events(fx)
+
+      assert Records.create_record(
+               attrs(
+                 entity_type: "scoped_child",
+                 field_values: %{"name" => "c", "scope_node" => "sf-a"},
+                 scope: @in_a
+               ),
+               fx.schema_name
+             ) == {:error, :scope_refused}
+
+      assert StubRunner.calls() == 1
+      assert events(fx) == before
+    end
+
+    test "C7-hook-ref-upsert the payload scope is in the set; the hook output is not", %{fx: fx} do
+      before = events(fx)
+
+      assert Records.upsert_record_by_external_ref(
+               attrs(
+                 entity_type: "scoped_child",
+                 external_ref: %{"system" => "s", "id" => "1"},
+                 field_values: %{"name" => "c", "scope_node" => "sf-a"},
+                 scope: @in_a
+               ),
+               fx.schema_name
+             ) == {:error, :scope_refused}
+
+      assert StubRunner.calls() == 1
+      assert events(fx) == before
+    end
+  end
+
   describe "C7 managed type" do
     setup %{fx: fx} do
       bind!(fx, "scoped_managed_item", ["name"])

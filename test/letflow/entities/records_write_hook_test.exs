@@ -17,10 +17,12 @@ defmodule Letflow.Entities.RecordsWriteHookTest do
   import Ecto.Query
 
   alias Letflow.Engine.Lua.ScriptRunner
+  alias Letflow.Entities.EntityTypeInstance
   alias Letflow.Entities.EventTypes
   alias Letflow.Entities.Records
   alias Letflow.EntityTypeHooks, as: Hooks
   alias Letflow.EventStore.Event
+  alias Letflow.Support.PlatformTenantFixture
   alias Letflow.Support.ScopeWritesFixture, as: W
   alias Letflow.Support.ScriptPolicyFixture, as: P
   alias Letflow.Support.ScriptTaskFixture, as: F
@@ -177,6 +179,20 @@ defmodule Letflow.Entities.RecordsWriteHookTest do
   defp event_count(schema), do: Repo.aggregate(Event, :count, prefix: schema)
   defp calls, do: StubRunner.calls()
 
+  # the payload of the latest appended event (the write just made), not the projection
+  defp last_event_values(schema) do
+    event =
+      Repo.one!(
+        from(e in Event,
+          order_by: [desc: e.global_seq],
+          limit: 1
+        ),
+        prefix: schema
+      )
+
+    event.payload["field_values"]
+  end
+
   defp lock_statements(statements),
     do: Enum.filter(statements, &(&1 =~ "instance_sequence" and &1 =~ "FOR UPDATE"))
 
@@ -227,11 +243,29 @@ defmodule Letflow.Entities.RecordsWriteHookTest do
       rule = publish!(schema, "derive_reads", reads_manifest())
       bind!(schema, rule)
 
-      {result, statements} =
-        W.statements(fn -> create(schema, "tt", %{"name" => "Ann", "tier" => "x"}) end)
+      {result, queries} =
+        PlatformTenantFixture.capture_repo_queries(fn ->
+          create(schema, "tt", %{"name" => "Ann", "tier" => "x"})
+        end)
 
       assert {:ok, %{record: %{field_values: %{"total" => "T:Ann"}}}} = result
-      assert length(lock_statements(statements)) >= 2
+
+      locked =
+        queries
+        |> Enum.filter(&(&1.query =~ "instance_sequence" and &1.query =~ "FOR UPDATE"))
+        |> Enum.map(fn %{params: [id | _]} ->
+          if byte_size(id) == 16, do: Ecto.UUID.load!(id), else: id
+        end)
+
+      # the hook's lock set, ascending by type name: the read type "rd", then the written "tt"
+      expected =
+        for type <- ["rd", "tt"] do
+          {:ok, id} = EntityTypeInstance.get_or_create(type, schema)
+          id
+        end
+
+      # the hook locks come first; the write's own append lock of "tt" follows them
+      assert Enum.take(locked, 2) == expected
     end
   end
 
@@ -250,26 +284,37 @@ defmodule Letflow.Entities.RecordsWriteHookTest do
       assert calls() == 0
       refute_received :reads_ran
       assert length(lock_statements(statements)) == 1
+      assert last_event_values(schema) == %{"name" => "x"}
     end
 
     test "C1-unbound-update", %{schema: schema} do
       record = create!(schema, "rd", %{"name" => "x"})
-      assert {:ok, %{record: updated}} = update(schema, "rd", record.record_id, %{"name" => "y"})
+
+      {result, statements} =
+        W.statements(fn -> update(schema, "rd", record.record_id, %{"name" => "y"}) end)
+
+      assert {:ok, %{record: updated}} = result
       assert updated.field_values == %{"name" => "y"}
+      assert last_event_values(schema) == %{"name" => "y"}
       assert calls() == 0
+      refute_received :reads_ran
+      assert length(lock_statements(statements)) == 1
     end
 
     test "C1-unbound-upsert", %{schema: schema} do
-      assert {:ok, %{outcome: :created, record: record}} =
-               upsert(schema, "rd", "1", %{"name" => "x"})
-
+      {created, created_sql} = W.statements(fn -> upsert(schema, "rd", "1", %{"name" => "x"}) end)
+      assert {:ok, %{outcome: :created, record: record}} = created
       assert record.field_values == %{"name" => "x"}
+      assert last_event_values(schema) == %{"name" => "x"}
+      assert length(lock_statements(created_sql)) == 1
+
       assert {:ok, %{outcome: :unchanged}} = upsert(schema, "rd", "1", %{"name" => "x"})
 
-      assert {:ok, %{outcome: :updated, record: record}} =
-               upsert(schema, "rd", "1", %{"name" => "y"})
-
+      {updated, updated_sql} = W.statements(fn -> upsert(schema, "rd", "1", %{"name" => "y"}) end)
+      assert {:ok, %{outcome: :updated, record: record}} = updated
       assert record.field_values == %{"name" => "y"}
+      assert last_event_values(schema) == %{"name" => "y"}
+      assert length(lock_statements(updated_sql)) == 1
       assert calls() == 0
       refute_received :reads_ran
     end
