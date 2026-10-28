@@ -43441,3 +43441,67 @@ requirements:
       - "The backoff length before a script_busy re-run is not in 0067 ('short backoff'); the implementer picks a fixed figure and states it in the PR; it is not a setting."
       - "Still open in 0067 'Not decided here' and not decided by this entry: any wall-clock figure between 50 ms and the 0053 D7 maxima, the maximum number of fields entries in a refusal, the HTTP status numbers of the D5 infrastructure codes, whether the 403 of a wrong assignee (ISS-0942) collapses to the not-found answer, a hook 3 with entity reads, and the behaviour of any future automatic completer."
     depends_on: [REQ-569, REQ-581]
+  - id: REQ-618
+    title: "Saved report definitions over one record type: a summary over the aggregate route plus a detail listing over the records route, stored and validated on the existing view routes (generic views, slice 4, backend)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-598 -- the report kind extends the view kind column that REQ-598 adds
+    # Source: docs/migration/decisions/0066-generic-saved-views-over-records.md, "Deferred slices": "Slice 4: report builder." and D1..D7 (D1 tenant-wide sharing and D4 TENANT_ADMIN-only are assumptions for the process owner, not owner blocks); docs/migration/core-roadmap-20261014.md, Wave 3 row "Generic list, pivot and graph views and a report builder over entities"; REQ-555 and REQ-598 (this file); code read: lib/letflow/entities/views/clauses.ex (@allowed_keys, @list_only_keys, kind/3, check_kind_keys/2, kind_clauses/2, check/3), priv/repo/migrations/20261027400001_add_pivot_to_entity_views.exs (kind CHECK list, pivot clauses CHECK), lib/letflow/routers/entities.ex (query_aggregate, build_aggregate_request/1, build_query_request/1: both read the filter under the request key `filters`), docs/roles.md rows EntitiesQuery, EntitiesAggregate, EntitiesViewsManage. Written by the business analyst (T-0850) 2026-10-28. Not yet validated.
+    description: >
+      Backend of slice 4 of generic views (decision 0066, "Deferred slices": "Slice 4: report builder").
+      Slice 1 (REQ-555) stores a list definition, slice 2 (REQ-598) a pivot definition; a report joins
+      the two under one name. A saved report is a named definition over exactly one entity type holding
+      one filter (stored under the key `filter`, the clause list of both routes), a summary part (a
+      non-empty aggregates list and zero or more group_by clauses, shapes as on
+      POST /entities/query/aggregate) and an optional detail part (columns and sort, shapes as in a
+      list view). It is stored as a further value `report` of the `kind` column of the existing
+      tenant-schema table (priv/repo/migrations/20261025500001_create_entity_views.exs, kind column from
+      priv/repo/migrations/20261027400001_add_pivot_to_entity_views.exs, schema
+      lib/letflow/entities/views/view.ex, writer lib/letflow/entities/views.ex, validation
+      lib/letflow/entities/views/clauses.ex) and served by the existing view routes mounted at
+      /entity-views (lib/letflow/routers/entity_views.ex, forward in lib/letflow/plugs/api_pipeline.ex).
+      This slice adds no route and no new table: create, update, read, list and delete of a report reuse
+      the five routes of REQ-555, so the route-scope and route-count pins do not move. A report is not a
+      read path: no view route returns aggregate or record data. A client builds a report by replaying
+      the stored definition as two ordinary calls, the summary as POST /entities/query/aggregate
+      (lib/letflow/routers/entities.ex, route query_aggregate, permission EntitiesAggregate, RequestAccess.check/4
+      with kind :aggregate, Letflow.Entities.Query.Compiler.run_aggregate) and the detail as
+      POST /entities/query (same file, permission EntitiesQuery), so the type gate, the restricted-field
+      walker and per-user redaction apply to each exactly as for a hand-built request (decision 0066 D3,
+      INV-2); there is no second read path and no report result is cached or stored.
+
+      Permission choice: reuse EntitiesViewsManage for create, update and delete and EntitiesQuery for
+      reading the definition (decision 0066 D4). No new permission atom: a report is one more kind of
+      saved view, and a separate atom would let the two permissions disagree about who may change
+      the same table. Replaying the summary also needs EntitiesAggregate; today the roles holding it are
+      the roles holding EntitiesQuery (docs/roles.md), which the implement step re-checks.
+
+      Not this: exam analytics (REQ-594) is a fixed read-only recipe of three BilimBaga reports over the
+      aggregate route, with queried flags changed in the exam pack; it stores nothing. This slice is the
+      generic, tenant-defined storage of any report over any queryable type and changes no entity
+      definition. Out of scope: the web report builder screen (a later web requirement), the graph view
+      (slice 3, REQ-613), export of a report to CSV or PDF, scheduled or e-mailed reports, per-user
+      reports, reports over joined types (REQ-300) and versioning.
+
+      Coordination: REQ-613 (graph view) also widens the kind column's allowed values. Whichever of the
+      two merges second re-takes the migration version and the kind CHECK list from origin/main at
+      implement time.
+    acceptance_criteria:
+      - "1. Storage: a tenant-schema migration in priv/repo/migrations/ lets the existing entity views table hold the kind `report` (the allowed kind values on origin/main at implement time plus `report`), and relaxes the CHECK that confines group_by and aggregates to pivot rows (entity_views_pivot_clauses_chk) so that it also allows a report row. No new tenant table. A report row stores filter, group_by, aggregates, columns and sort in the existing columns. Tenant_id stays inside the schema (decision 0006 D2). A test asserts that existing list and pivot rows are unchanged after the migration and that a report created in tenant A is absent from the tenant B schema (INV-1, INV-6)."
+      - "2. Write shape: the write body accepts `kind` = `report`. A report body takes entity_type, name, filter, group_by, aggregates, columns and sort; `aggregates` is required and non-empty; `columns` and `sort` are optional and default to empty, and an empty `columns` means the report has no detail part. A report body that carries a `join` key, and a list or pivot body that carries a key of the other kinds that its own kind refuses today, returns 422 `unknown_key` and stores nothing. The kind of a stored view cannot be changed (`kind_immutable` as for pivot). The view response gains no new key beyond the existing kind, group_by, aggregates, columns, sort and filter."
+      - "3. Validation of the summary part: the filter, group_by and aggregates of a report are validated with the same clause rules and the same short codes as a pivot view (REQ-598 criterion 2): `filter_invalid`, `unknown_operator`, `field_not_allowed`, `value_arity_mismatch`, `invalid_in_value`, `invalid_decimal_value`, `operator_not_valid_for_type`, `aggregates_invalid`, `group_by_invalid`. One test per case on create and one on update; nothing is stored on a 422."
+      - "4. Validation of the detail part: columns and sort of a report are validated with the same rules and codes as a list view (REQ-555): a column or sort field not on the type is `field_not_allowed`, an unknown direction is refused, the column and sort count limits of lib/letflow/entities/views/clauses.ex apply. One test per case."
+      - "5. D2 and D1: a report names exactly one entity type; the name is unique per entity type within a tenant across all kinds (409 as in REQ-555). A report created by one TENANT_ADMIN is returned by the list route to every caller who holds EntitiesQuery and may read that type, and is not returned to a caller who may not read the type."
+      - "6. Permissions: reading reports needs EntitiesQuery and creating, updating and deleting needs EntitiesViewsManage; no new permission atom is added and the permission matrix golden (priv/permission_matrix/effective.golden) is unchanged. A test shows that a caller without EntitiesViewsManage gets 403 on create, update and delete of a report, the same 403 for an existing and an absent id."
+      - "7. D3 replay and INV-2: a test stores a report with a non-empty filter, group_by, aggregates, columns and sort, sends its stored group_by and aggregates and its filter (as the request key `filters`) to POST /entities/query/aggregate, and sends its filter (as `filters`) and sort to POST /entities/query (the query route has no columns key: columns only choose which returned fields a client shows); each response equals the response of the same hand-built request. For a caller who has no grant on a field the report names, each replay is refused or redacted exactly as the hand-built request is. The test reads the route's own request keys from build_aggregate_request/1 and build_query_request/1, not from this text. No view route response contains an aggregate result or a record value."
+      - "8. INV-5 not-found: a report of an entity type the caller may not read, a report of another tenant and an absent view id return the same 404 with identical headers and body."
+      - "9. INV-10 cross-tenant negative test: with a report id and entity type key that exist only in tenant A, a TENANT_ADMIN of tenant B calling read, update and delete receives the same 404 as for an absent id with a byte-identical body, and the tenant A report row is unchanged afterwards. No view route takes a tenant identifier from the request."
+      - "10. Audit and pins: create, update and delete of a report each write an audit event in the same transaction as REQ-555 does; refusals write none. No route is added, so the __authz_routes__ tests, the route_scope snapshots and the route-count pins pass unchanged; the implement step greps test/ for the entity views table name, the kind CHECK list and the view column list and updates any exact-set pin it finds."
+      - "11. SECURITY-REVIEWER verdict recorded (mandatory: tenant-data path) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the view tests, the aggregate and query route tests and the authorization and route pin tests pass, real output quoted."
+    open_questions:
+      - "OPEN (owner): is a report allowed several named sections (more than one summary or detail part), or exactly one summary plus one detail as written here? Not decided; one of each is the working assumption of this slice."
+      - "OPEN (owner): should a detail part have a stored row limit, and what happens when a replayed detail exceeds the page size of POST /entities/query? Not decided; the report stores no limit and the client pages as for any query."
+      - "OPEN (owner): export of a report (CSV, PDF) and scheduled delivery are not part of this slice; whether they are wanted and in which order is not decided."
+      - "OPEN (process owner): decision 0066 D1 (tenant-wide sharing) and D4 (TENANT_ADMIN-only writes) are still assumptions to be confirmed; this slice inherits them unchanged."
+    depends_on: [REQ-555, REQ-598]
