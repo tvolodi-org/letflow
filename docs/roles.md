@@ -162,7 +162,12 @@ PLATFORM_ADMIN `yes` means as evaluated in the platform tenant. The rows cover e
 REQ-448's `AttachmentLinksIssue`, which gates `POST /instances/:id/attachments/:attachment_id/link`, and REQ-536's `DocumentHold` and `DocumentsRetentionManage`, which gate the document hold and retention-policy routes, and REQ-551's `LabelsManage`, which gates the tenant label-override write routes `PUT` and `DELETE /labels/:message_id`, REQ-565's `IntegrationMappingsManage`, which gates the tenant integration-mapping routes, REQ-555's `EntitiesViewsManage`, which gates the create, update and delete routes of saved list views, REQ-563's `NotificationTemplatesManage`, which gates the tenant notification-template routes under `/notification-templates`, REQ-579's `DocumentPrintTemplatesManage`, which gates the tenant print-template override routes under `/documents/print-overrides` (TENANT_ADMIN only), REQ-561's `ScheduledJobsManage`, which gates the tenant scheduled-job routes under `/scheduled-jobs`, and REQ-575's `NumberSequencesManage`, which gates `POST` and `GET /number-sequences` (tenant number sequence definitions; TENANT_ADMIN only, the other tenant roles are refused)).
 REQ-446 classified `GET /promotions/platform-events` as tenant scope under `PromotionsRead`
 (see the correction note appended to decision 0046); no platform promotion permission exists.
-Module (Catalog) permissions are all tenant scope and are not listed.
+Module (Catalog) permissions are all tenant scope and are not listed in the matrix below.
+
+Module permissions. Module `procurement` (GH #3162, REQ-544) declares `ProcurementRequestWrite` and
+`ProcurementRequestRead`, tenant scope. It declares no `role_grants`, so in this slice only
+TENANT_ADMIN and PLATFORM_ADMIN hold them; giving requesters write access is a later widening that
+needs per-tenant grant snapshots. The effective rows are in `priv/permission_matrix/effective.golden`.
 Conditional cells: the 0046 D3 binding condition (source-tenant ownership proven) is met by REQ-446
 (`lib/letflow/routers/tenants.ex:451`, `lib/letflow/api/tenant_target.ex:31-39`); the TENANT_ADMIN `yes`
 cells for PromotionsRead and PromotionsManage stand. The TENANT_AUDITOR `PromotionsRead` cell is `yes`

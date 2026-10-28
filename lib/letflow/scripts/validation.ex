@@ -20,6 +20,7 @@ defmodule Letflow.Scripts.Validation do
   @manifest_keys ~w(input_schema output_schema fail_codes limits reads restricted_inputs writes)
   @required_manifest_keys ~w(input_schema output_schema fail_codes)
   @form_keys ~w(refusal_codes fields)
+  @entity_write_keys ~w(derived_fields)
   @limit_keys %{
     "instructions" => :max_instructions,
     "timeout_ms" => :max_timeout_ms,
@@ -64,13 +65,16 @@ defmodule Letflow.Scripts.Validation do
   `manifest/1` for a hook kind (REQ-581, decision 0067 D9). The keys `refusal_codes` and
   `fields` exist for `form_validation` only (both required there; unique code lists like
   `fail_codes`); a `form_validation` manifest has `fail_codes == []` and no `reads` key.
-  Every other kind validates as before.
+  The key `derived_fields` exists for `entity_write` only (REQ-601, decision 0065): a required,
+  non-empty, unique list of field names the script derives. Every other kind validates as before.
   """
   @spec manifest(term(), String.t()) :: :ok | {:error, atom()}
   def manifest(manifest, hook_kind) when is_map(manifest) do
     form? = hook_kind == "form_validation"
-    allowed = if form?, do: @manifest_keys ++ @form_keys, else: @manifest_keys
-    required = if form?, do: @required_manifest_keys ++ @form_keys, else: @required_manifest_keys
+    entity_write? = hook_kind == "entity_write"
+    extra = kind_keys(hook_kind)
+    allowed = @manifest_keys ++ extra
+    required = @required_manifest_keys ++ extra
 
     cond do
       not Enum.all?(Map.keys(manifest), &(&1 in allowed)) ->
@@ -87,12 +91,21 @@ defmodule Letflow.Scripts.Validation do
              codes(manifest["fields"], @max_fail_codes) != :ok) ->
         {:error, :invalid_manifest}
 
+      entity_write? and
+          (manifest["derived_fields"] == [] or
+             codes(manifest["derived_fields"], @max_fail_codes) != :ok) ->
+        {:error, :invalid_manifest}
+
       true ->
         manifest_parts(manifest)
     end
   end
 
   def manifest(_other, _hook_kind), do: {:error, :invalid_manifest}
+
+  defp kind_keys("form_validation"), do: @form_keys
+  defp kind_keys("entity_write"), do: @entity_write_keys
+  defp kind_keys(_other), do: []
 
   defp manifest_parts(manifest) do
     with :ok <- schema(manifest["input_schema"]),

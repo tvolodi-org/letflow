@@ -117,8 +117,17 @@ defmodule Letflow.Plugs.ApiPipeline do
   # GH #3182 (REQ-557) added `Letflow.Plugs.CsvBodyParser`: it claims `text/csv` for ONE route
   # (POST /entities/records/:entity_type/import) and passes every other request on, so the 415
   # for `text/csv` anywhere else is unchanged. It keeps the root 2 MB `length:`.
+  #
+  # GH #3338 (REQ-590) added `Letflow.Plugs.LogoBodyParser`: it claims PUT /tenant/logo for any content
+  # type, so the router (not a bare 415) names the allowed image types. Its own `length:` is the logo
+  # limit plus one byte (the router measures the limit on the received bytes).
   plug(Plug.Parsers,
-    parsers: [:json, {:multipart, length: 26_214_400}, Letflow.Plugs.CsvBodyParser],
+    parsers: [
+      :json,
+      {:multipart, length: 26_214_400},
+      Letflow.Plugs.CsvBodyParser,
+      {Letflow.Plugs.LogoBodyParser, length: 524_289}
+    ],
     json_decoder: Jason,
     length: 2_097_152
   )
@@ -147,6 +156,7 @@ defmodule Letflow.Plugs.ApiPipeline do
   forward("/identity", to: Letflow.Routers.Identity)
   forward("/tenants", to: Letflow.Routers.Tenants)
   forward("/tenant/settings", to: Letflow.Routers.TenantSettings)
+  forward("/tenant/logo", to: Letflow.Routers.TenantLogo)
   forward("/labels", to: Letflow.Routers.Labels)
   forward("/notification-templates", to: Letflow.Routers.NotificationTemplates)
   forward("/number-sequences", to: Letflow.Routers.NumberSequences)
