@@ -43231,7 +43231,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-502 -- depends_on lists REQ-502, REQ-503 and REQ-504 (their register status is still pending; the design notes they ask for are on main); the GitHub issue is filed by the engine after the gate
+    gh: 3438
     description: >
       Slice L0 of the WMS stock ledger (GH #2657, REQ-502): write ONE decision record,
       docs/migration/decisions/0073-domain-neutral-ledger-primitive.md, and nothing else in
