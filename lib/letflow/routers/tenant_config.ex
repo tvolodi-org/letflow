@@ -8,6 +8,7 @@ defmodule Letflow.Routers.TenantConfig do
   | Handler | Method/path            | Delegate                                | Auth     | Response |
   |---------|------------------------|-----------------------------------------|----------|----------|
   | config  | `GET /api/tenant-config` | `Letflow.Identity.get_tenant_by_slug/1` | **none** | always 200, `{oidc_authority, client_id, branding, tenant_type}` |
+  | logo    | `GET /api/tenant-config/logo?slug=` | `Letflow.Identity.TenantLogo.fetch/1` | **none** | 200 with the stored image bytes, or one uniform 404 (flag off, no/unknown slug, lookup failure, nil/empty realm, inactive tenant, no upload) |
 
   ## Why this is mounted on `Letflow.Router`, NOT in `Letflow.Plugs.ApiPipeline`
 
@@ -87,6 +88,25 @@ defmodule Letflow.Routers.TenantConfig do
   it is exactly what any user of that tenant already sees on their own login
   page. **Adding a fourth top-level key to this response, or a fourth sub-key
   to `branding`, is a security change, not a feature.**
+
+  ## Logo (REQ-591, GH #3337)
+
+  `branding.logo_url` may now be a path, `/api/tenant-config/logo?slug=<slug>`, in place of the
+  stored string. That happens only when `:tenant_logo_upload_enabled` is on and the resolved tenant
+  passes the logo route's guard (non-empty `idp_realm_id`, status other than `:inactive`) and has an
+  upload. Which slug can appear: on a `?realm=` hit, the slug the caller sent; on every default branch
+  (`?realm=` miss, `?host=`, no parameter), the constant `bpm-default`, which `oidc_authority` already
+  discloses. Nothing new is learnable. The image bytes, hash, size and `updated_by` never appear in
+  the body (INV-2): only whether a logo exists is read. With the flag off, or with no upload, the
+  stored string (or the platform default) is returned exactly as before; `branding_from_settings/1`
+  is unchanged. The row `GET /api/tenant-config` above stays "always 200".
+
+  `GET /api/tenant-config/logo` resolves ONLY by `?slug=` (no `?realm=`, `?host=` or default
+  fallback). Seven cases return one identical 404 (same status, body and header names, INV-5): no
+  slug, unknown slug, lookup failure, nil or empty `idp_realm_id`, inactive tenant, no upload, and the
+  flag off. A 200 carries the stored content type, `X-Content-Type-Options: nosniff`,
+  `Content-Security-Policy: default-src 'none'; sandbox` and `Content-Disposition: inline`. The
+  `:prefix` is derived from the tenant found by slug (INV-1).
 
   ## Precedence
 
@@ -171,6 +191,7 @@ defmodule Letflow.Routers.TenantConfig do
   alias Letflow.Api.Response
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
+  alias Letflow.Identity.TenantLogo
 
   # PROVENANCE (historical, not current decision authority):
   # Ported from tenant_config.zig:59/:60/:62, then corrected under REQ-133:
@@ -221,8 +242,39 @@ defmodule Letflow.Routers.TenantConfig do
     handle_tenant_config(conn)
   end
 
+  get "/logo" do
+    serve_logo(conn)
+  end
+
   match _ do
     Response.not_found(conn)
+  end
+
+  # ── GET /api/tenant-config/logo (REQ-591) ─────────────────────────────────
+  #
+  # Resolves ONLY by ?slug= (no ?realm=, no ?host=, no default fallback). Every miss
+  # (no slug, unknown, lookup failure, nil/empty realm, inactive, no logo, flag off)
+  # is the one Response.not_found/1 call (INV-5). The prefix comes from the tenant
+  # found by slug inside TenantLogo.fetch/1 (INV-1). The slug is read through the
+  # local `query` map, like the other parameters of this router.
+  defp serve_logo(conn) do
+    conn = fetch_query_params(conn)
+    query = conn.query_params
+
+    with true <- TenantLogo.enabled?(),
+         slug when is_binary(slug) <- non_empty(query["slug"]),
+         {:ok, %Tenant{} = tenant} <- Identity.safe_get_tenant_by_slug(slug, "tenant-config-logo"),
+         true <- TenantLogo.servable?(tenant),
+         {:ok, logo} <- TenantLogo.fetch(tenant) do
+      conn
+      |> put_resp_header("content-type", logo.content_type)
+      |> put_resp_header("x-content-type-options", "nosniff")
+      |> put_resp_header("content-security-policy", "default-src 'none'; sandbox")
+      |> put_resp_header("content-disposition", "inline")
+      |> send_resp(200, logo.data)
+    else
+      _miss -> Response.not_found(conn)
+    end
   end
 
   # ── GET /api/tenant-config (design §12) ───────────────────────────────────
@@ -234,15 +286,34 @@ defmodule Letflow.Routers.TenantConfig do
     conn = fetch_query_params(conn)
     query = conn.query_params
 
-    {realm_id, tenant, tenant_type} =
+    {realm_id, tenant, tenant_type, logo_slug} =
       resolve_realm(non_empty(Map.get(query, "realm")), non_empty(Map.get(query, "host")))
 
-    Response.ok(conn, Map.put(config_map(realm_id, tenant), "tenant_type", tenant_type))
+    body =
+      realm_id
+      |> config_map(tenant)
+      |> Map.put("tenant_type", tenant_type)
+      |> update_in(["branding"], &put_logo(&1, tenant, logo_slug))
+
+    Response.ok(conn, body)
   end
 
+  # REQ-591: the uploaded logo replaces branding.logo_url only when the flag is on and
+  # the tenant is servable with an upload; otherwise the branding is untouched. Reads
+  # existence only, never the row's fields (INV-2).
+  defp put_logo(branding, %Tenant{} = tenant, logo_slug) do
+    case TenantLogo.public_path(tenant, logo_slug) do
+      nil -> branding
+      path -> Map.put(branding, "logo_url", path)
+    end
+  end
+
+  defp put_logo(branding, nil, _logo_slug), do: branding
+
   # Step 1: ?realm=<slug>. A hit with a non-nil idp_realm_id wins outright and
-  # the host branch is skipped. Returns {realm_id, tenant_or_nil, tenant_type} -- OQ-1
-  # (design §4): the matched %Tenant{} (and therefore its already-loaded
+  # the host branch is skipped. Returns {realm_id, tenant_or_nil, tenant_type, logo_slug} -- OQ-1
+  # (design §4; logo_slug is the slug the caller sent, or bpm-default on the default
+  # branches, REQ-591): the matched %Tenant{} (and therefore its already-loaded
   # :settings field) is threaded straight through to config_map/2 so the
   # branding helper never performs a second, independent DB lookup for the
   # same slug in the same request.
@@ -250,7 +321,7 @@ defmodule Letflow.Routers.TenantConfig do
     case Identity.safe_get_tenant_by_slug(slug, "tenant-config") do
       {:ok, %Tenant{idp_realm_id: realm_id} = tenant}
       when is_binary(realm_id) and realm_id != "" and tenant.status != :inactive ->
-        {realm_id, tenant, tenant_type_value(tenant)}
+        {realm_id, tenant, tenant_type_value(tenant), slug}
 
       _miss_or_nil_realm_or_error ->
         resolve_realm(nil, host)
@@ -266,7 +337,8 @@ defmodule Letflow.Routers.TenantConfig do
   #
   # tenant_type is nil here even though the default tenant is non-nil: only the
   # slug-resolved branch above may disclose a type (REQ-472, INV-5).
-  defp resolve_realm(nil, _host_or_absent), do: {@default_realm, default_realm_tenant(), nil}
+  defp resolve_realm(nil, _host_or_absent),
+    do: {@default_realm, default_realm_tenant(), nil, @default_realm}
 
   # Explicit named-key read, closed to the two known values (INV-2).
   defp tenant_type_value(%Tenant{tenant_type: type}) when type in ["test", "production"],

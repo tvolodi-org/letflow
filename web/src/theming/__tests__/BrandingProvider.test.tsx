@@ -22,7 +22,8 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 
 expect.extend(jestDomMatchers)
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
   client: { get: vi.fn() },
 }))
 
@@ -94,6 +95,22 @@ describe('BrandingProvider', () => {
     expect((window as unknown as { __pwned?: boolean }).__pwned).toBeUndefined()
     expect(document.body.querySelectorAll('img').length).toBe(0)
     expect(document.body.querySelectorAll('[onerror]').length).toBe(0)
+  })
+
+  it('V4 (REQ-591): an /api/ logo_url is mapped through resolveApiUrl, an absolute URL and null are not', async () => {
+    await renderWithFreshProvider(() =>
+      Promise.resolve({
+        oidc_authority: 'http://example.invalid/realm',
+        client_id: 'letflow-web',
+        branding: { app_name: 'Letflow', logo_url: '/api/tenant-config/logo?slug=a', brand_colors: {} },
+      }),
+    )
+    const { resolveApiUrl } = await import('@/api/client')
+    await waitFor(() => {
+      expect(screen.getByTestId('probe-logo-url')).toHaveTextContent(
+        resolveApiUrl('/api/tenant-config/logo?slug=a'),
+      )
+    })
   })
 
   it('AC4 (javascript: scheme): a javascript: logo_url is passed through as an opaque string, never executed', async () => {

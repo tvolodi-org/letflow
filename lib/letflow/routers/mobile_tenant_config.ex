@@ -142,6 +142,16 @@ defmodule Letflow.Routers.MobileTenantConfig do
   by this requirement — it is global in the sense the whole paragraph used to
   claim of all four fields; the other three no longer are.
 
+  ## Logo (REQ-591, GH #3337)
+
+  `branding.logo_url` may now be a path, `/api/tenant-config/logo?slug=<slug>`, in place of the
+  stored string, only when `:tenant_logo_upload_enabled` is on and a `?slug=` hit (guard passed)
+  has an uploaded logo. The only slug that can appear is the `?slug=` the caller sent; unknown,
+  missing, lookup-failure, inactive and nil-realm bodies stay the byte-identical platform default
+  and no upload is read for them (INV-5). The logo bytes, hash, size and `updated_by` never appear
+  (INV-2), and the six top-level keys are unchanged. The new route `GET /api/tenant-config/logo` is
+  served by `Letflow.Routers.TenantConfig`: public, 200 with the image, or one uniform 404.
+
   ## Slug resolution — `?slug=` only, no `?host=` branch (design OQ-2)
 
   Unlike `Letflow.Routers.TenantConfig`'s web-SPA `?host=` fallback (used
@@ -172,6 +182,7 @@ defmodule Letflow.Routers.MobileTenantConfig do
   alias Letflow.Api.Response
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
+  alias Letflow.Identity.TenantLogo
 
   # Ported in the same spirit as Letflow.Routers.TenantConfig's own
   # @default_idp_base_url/@default_realm -- adjustable placeholders (design
@@ -209,9 +220,14 @@ defmodule Letflow.Routers.MobileTenantConfig do
     conn = fetch_query_params(conn)
     slug = non_empty(Map.get(conn.query_params, "slug"))
 
-    {realm_id, settings} = resolve_tenant_config(slug)
+    {realm_id, settings, logo_url} = resolve_tenant_config(slug)
 
-    Response.ok(conn, mobile_config_map(realm_id, settings))
+    body = mobile_config_map(realm_id, settings)
+
+    Response.ok(
+      conn,
+      if(logo_url, do: put_in(body, ["branding", "logo_url"], logo_url), else: body)
+    )
   end
 
   # Keyed only on ?slug= -- no ?host= branch (design OQ-2). A hit with a
@@ -225,17 +241,17 @@ defmodule Letflow.Routers.MobileTenantConfig do
   # not just for realm_url, keeping the resolved-or-not distinction a single
   # boolean rather than split per-field).
   @spec resolve_tenant_config(slug :: String.t() | nil) ::
-          {realm_id :: String.t(), settings :: map() | nil}
-  defp resolve_tenant_config(nil), do: {@default_realm, nil}
+          {realm_id :: String.t(), settings :: map() | nil, logo_url :: String.t() | nil}
+  defp resolve_tenant_config(nil), do: {@default_realm, nil, nil}
 
   defp resolve_tenant_config(slug) when is_binary(slug) do
     case Identity.safe_get_tenant_by_slug(slug, "mobile-tenant-config") do
-      {:ok, %Tenant{idp_realm_id: realm_id, settings: settings, status: status}}
+      {:ok, %Tenant{idp_realm_id: realm_id, settings: settings, status: status} = tenant}
       when is_binary(realm_id) and realm_id != "" and status != :inactive ->
-        {realm_id, settings}
+        {realm_id, settings, TenantLogo.public_path(tenant, slug)}
 
       _miss_or_nil_realm_or_error ->
-        {@default_realm, nil}
+        {@default_realm, nil, nil}
     end
   end
 

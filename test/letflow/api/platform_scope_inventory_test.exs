@@ -226,14 +226,15 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       end
     end
 
-    # The six GLOBAL-PUBLIC routes of design 7.4 (never under ApiPipeline).
+    # The GLOBAL-PUBLIC routes of design 7.4 (never under ApiPipeline), plus the tenant logo read (REQ-591).
     @public_allowlist [
       {"lib/letflow/router.ex", "GET", "/health"},
       {"lib/letflow/routers/login_discovery.ex", "POST", "/"},
       {"lib/letflow/routers/metrics_exposition.ex", "GET", "/"},
       {"lib/letflow/routers/mobile_tenant_config.ex", "GET", "/"},
       {"lib/letflow/routers/public_read.ex", "GET", "/:kind/:handle"},
-      {"lib/letflow/routers/tenant_config.ex", "GET", "/"}
+      {"lib/letflow/routers/tenant_config.ex", "GET", "/"},
+      {"lib/letflow/routers/tenant_config.ex", "GET", "/logo"}
     ]
 
     # REQ-572 / decision 0072 D6 (test CS1): the five routes of the provisioner mount. They are plain
@@ -334,7 +335,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
         assert entry in seen, "stale public allowlist entry #{inspect(entry)}"
       end
 
-      assert length(@public_allowlist) == 6
+      assert length(@public_allowlist) == 7
       assert length(@credential_allowlist) == 6
     end
 

@@ -10,6 +10,11 @@ import type { ApiError } from '@/types/api'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
+/** Prefixes the API origin onto an API path (REQ-591 logo_url); other URLs pass through. */
+export function resolveApiUrl(path: string): string {
+  return path.startsWith('/api/') ? `${BASE_URL}${path}` : path
+}
+
 // ── Token storage (in-memory — never localStorage/sessionStorage per FNFR-06) ──
 
 let _token: string | null = null
