@@ -1,0 +1,132 @@
+# T-0825 (BA): WMS procurement slice 1, scenario 2: submit for approval, an edit after submission becomes a new version, a requester cannot decide their own request.
+# Covers REQ-544 criterion 4 (a change after submission is a new version; the submitted version is not edited), criterion 5 (submit operation, idempotency key), criterion 10 (a requester
+# cannot approve their own request; tenant-scoped not-found), and, in part, criteria 7 to 9 (see the gap below).
+# Sources: docs/requirements.yaml REQ-544 criteria 4, 5, 10; lib/letflow/modules/procurement/router.ex (submit and revise routes, 200 / 404 / 422 / 503; decisions route 201 / 200 replay /
+# 403 / 404 / 409 / 422; :self_decision answers 403 with reason "self_decision"; a bad version or hash answers 422 "request refused", reason "binding_refused"); lib/letflow/modules/procurement/decisions.ex
+# (moduledoc order of checks: the requester check (4) comes BEFORE the version binding check (5)).
+#
+# SCREEN GAP (stated, not invented): no procurement screen exists in web/src (no purchase request list, form, submit button, approve/reject/return buttons, or menu entry). All steps are API steps.
+# ROSTER GAP, blocks the approval half: approve, reject and return by a SECOND person need a second account in the same company that holds the decide permission (today TENANT_ADMIN). The roster has one
+# TENANT_ADMIN per company (SwiftRoute: alice; bilimbaga: bilimbaga-admin; the platform administrator acts only in the platform company). There is no approver actor, so no scenario for approve / reject /
+# return / stale-hash approval is written; asking infra for a second SwiftRoute administrator account is the owner's decision (new account on QA). Until then criteria 6 to 9 are checked by the product's own tests only.
+# SECOND-APPROVER PATH (candidate, not verified by the writer): the product's own admin flows (create user, add to group, mint token in the identity router; the /admin/users screen) might give SwiftRoute a second TENANT_ADMIN without any Keycloak edit. A created user is not in the actor roster, so using it needs the owner's or the roster's agreement; until then approve, reject and return stay unwritten.
+# NOT UAT-observable through the API: that version 1 keeps its content and hash after the change (criterion 4, second half): the read shows only the newest version and the revise answer has no content; the module tests cover it.
+# NOT UAT-observable here: replay with the same idempotency key (needs a decision first); two process definitions with different approval routes (criterion 6; no process-definition client exists for the module).
+---
+id: wms-procurement-2-submit-revise-and-own-decision-refused
+scope: wms-procurement
+title: A requester submits a purchase request, a later change is a new version, and the requester cannot approve their own request
+version: "1.0"
+tags: [wms, procurement, purchase-request, submit, revise, versioning, self-approval]
+
+description: >
+  Continuing with the SwiftRoute procurement module installed (see scenario 1), the requester saves a valid request, submits it for approval and receives the version number and the content hash of
+  the submitted version. The requester then tries to approve the request personally and is refused. The requester changes the request (a new justification); the change itself issues
+  version 2 in one operation, with its own content hash and the same number, so no separate submission follows. A task worker cannot submit or change the request, and a request id from the other company
+  is answered exactly as an absent one.
+
+actors:
+  requester: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_company_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Scenario 1's preconditions hold (procurement installed for SwiftRoute; unit UNIT and organisation unit DEPT exist).
+    check: system_seeded
+    detail: If not, report BLOCKED for the whole scenario.
+  - description: The bilimbaga company has no procurement module installed, or has it installed; either way the document id used in step 7 exists only in SwiftRoute.
+    check: system_seeded
+    detail: If the bilimbaga administrator cannot sign in on QA (the roster notes its token needs a qa-login mapping not yet approved), report BLOCKED for step 7 and EO-005.
+
+steps:
+  - step: 1
+    actor: requester
+    action: >
+      The requester saves a valid request (department DEPT, justification "UAT submit and revise", required date 2026-12-15, priority "high", one material line "Pallet label", quantity 10, unit UNIT,
+      estimated unit cost 2.50). The answer is noted as D1 (document id, version 1).
+    via: api
+  - step: 2
+    actor: requester
+    action: >
+      The requester submits D1, version 1, with the idempotency key "uat-submit-1". The answer (document id, version number, content hash, document number) is noted as S1.
+    via: api
+  - step: 3
+    actor: requester
+    action: >
+      The requester tries to approve D1 version 1 with the content hash from S1 and the idempotency key "uat-self-approve-1". The answer (status, decoded body without trace id) is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: requester
+    action: >
+      The requester changes the request: the same content with the justification "UAT submit and revise - changed". The change issues version 2 itself. The answer is noted as V2. The requester then reads D1 and notes the answer as D1b.
+    via: api
+  - step: 5
+    actor: requester
+    action: >
+      The requester submits D1 version 2 again with the idempotency key "uat-submit-2" (version 2 is already issued by step 4, so this is a replay). The answer is noted as S2.
+    via: api
+  - step: 6
+    actor: worker
+    action: >
+      The task worker tries to submit D1 version 2 with the key "uat-worker-submit". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: other_company_admin
+    action: >
+      The administrator of the other company reads D1 by its document id. The answer is noted next to the answer for a document id that exists nowhere.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Submitting a saved request issues its version with a number and a content hash.
+    verification:
+      method: api_response
+      detail: Step 2 answers 200 with document id of D1, version 1, a non-empty content hash and a positive integer document number.
+      evidence: The answer S1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A request cannot be sent to approval, or approvers have nothing to bind their decision to.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: A requester cannot approve their own request, and the answer is distinct from a missing request.
+    verification:
+      method: http_status
+      detail: Step 3 answers 403 with the reason "self_decision"; no content hash, id or request content appears in the body. Reading D1 afterwards shows no decision recorded for version 1.
+      evidence: The answer of step 3 and the read of D1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person can approve their own purchase.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A change after submission creates version 2 and leaves submitted version 1 as it was.
+    verification:
+      method: api_response
+      detail: Step 4 answers 200 with version_no 2, the same document id and the same document number as S1, and a content hash different from the one in S1. The read D1b shows current_version_no 2 and the content hash of V2. Step 5 answers 200 with replayed true and the same content hash as V2, and writes nothing new.
+      evidence: S1, V2, D1b and S2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be edited after submission without a new approval.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A worker with no procurement permission cannot submit.
+    verification:
+      method: http_status
+      detail: Step 6 answers 403 and a read of D1 still shows current_version_no 2 with the content hash of V2.
+      evidence: The answer of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone can push requests into approval.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A document id of another company is answered exactly as an absent id.
+    verification:
+      method: http_status
+      detail: Step 7 answers 404, and its headers (except the per-request trace id) and decoded body equal those of a read of a document id that exists nowhere.
+      evidence: Both answers of step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company can detect or read another company's purchase requests.
+      suggested_action: route_to_security_review
