@@ -83,7 +83,8 @@ defmodule Letflow.Modules.Exam.CertificateDocument do
   NOT ported: Letflow's own branding snapshot
   (`priv/packs/bilimbaga/entity_definitions/certificate.json`'s
   `branding_snapshot` field, sourced from
-  `Letflow.Routers.TenantConfig.branding_from_settings/1`) carries
+  `Letflow.Routers.TenantConfig.branding_from_settings/1`, plus the optional
+  REQ-595 `"signatory_name"` / `"signatory_title"` strings) carries
   `"logo_url"` (a URL string), never embedded image bytes -- fetching that
   URL over the network at render time would violate this module's own
   "pure function, no I/O" shape and turn a from-storage regeneration into a
@@ -276,24 +277,29 @@ defmodule Letflow.Modules.Exam.CertificateDocument do
     |> safe_text_at({@margin, 60}, title)
   end
 
-  # Letflow's branding snapshot (`Letflow.Routers.TenantConfig.branding_from_settings/1`)
-  # carries `app_name`/`logo_url`/`brand_colors` only -- it has no signatory
-  # concept at all (the source's `TemplateSnapshot` carries `SignatoryName`/
-  # `SignatoryTitle` as separate tenant-configured fields Letflow has no
-  # equivalent setting for yet). Rather than inventing a new tenant-settings
-  # key this requirement was not asked to add, the signatory block renders
-  # the certificate's own app name as a fixed, honest placeholder signatory
-  # line ("<app name> Certification Authority" / "Automated Issuance") --
-  # visible, not silently dropped, and clearly a placeholder for a future
-  # requirement that adds real per-tenant signatory configuration.
+  # REQ-595: the snapshot may carry `signatory_name` / `signatory_title`
+  # (tenant settings captured at first issuance). Each line falls back on its
+  # own to the placeholder ("<app name> Certification Authority" / "Automated
+  # Issuance") when the value is missing, blank or not a string (older
+  # certificates, unset settings, INV-8).
   defp signatory(certificate) do
     app_name = branding_app_name(certificate)
 
     %{
-      "signatory_name" => "#{app_name} Certification Authority",
-      "signatory_title" => "Automated Issuance"
+      "signatory_name" =>
+        snapshot_text(certificate, "signatory_name") || "#{app_name} Certification Authority",
+      "signatory_title" => snapshot_text(certificate, "signatory_title") || "Automated Issuance"
     }
   end
+
+  defp snapshot_text(%{branding_snapshot: %{} = snapshot}, key) do
+    case Map.get(snapshot, key) do
+      value when is_binary(value) -> if String.trim(value) == "", do: nil, else: value
+      _ -> nil
+    end
+  end
+
+  defp snapshot_text(_certificate, _key), do: nil
 
   # ── Footer: QR code + readable verification text (bottom-right) ──────
   #

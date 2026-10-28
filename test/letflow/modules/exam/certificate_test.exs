@@ -359,4 +359,104 @@ defmodule Letflow.Modules.Exam.CertificateTest do
                Map.drop(issued, [:first_issuance, :public_read_resource_id])
     end
   end
+
+  # REQ-595 part B: signatory settings captured into the snapshot at first
+  # issuance. Settings are written with Tenant.settings_changeset, which ends
+  # in the same stored settings as a PATCH of the tenant config.
+  describe "branding snapshot -- signatory" do
+    defp put_settings!(tenant_id, settings) do
+      assert {:ok, _} =
+               Repo.get(Tenant, tenant_id)
+               |> Tenant.settings_changeset(%{settings: settings})
+               |> Repo.update()
+    end
+
+    defp issue_with_settings!(slug, settings) do
+      %{tenant_id: tenant_id, schema_name: schema} = tenant(slug)
+      %{exam: exam, question_id: qid, correct_id: cid} = build_minimal_exam!(schema)
+      candidate_id = insert_candidate!(schema).id
+      session_id = submitted_passed_session!(schema, candidate_id, exam, qid, cid)
+      put_settings!(tenant_id, settings)
+      assert {:ok, issued} = Certificate.issue_or_get_for_user(candidate_id, session_id, schema)
+
+      {issued,
+       %{tenant_id: tenant_id, schema: schema, candidate_id: candidate_id, session_id: session_id}}
+    end
+
+    test "B7a: both signatory settings are copied into the snapshot" do
+      {issued, _} =
+        issue_with_settings!("req595-b7a", %{
+          "signatory_name" => "Dr. Jane Doe",
+          "signatory_title" => "Chief Examiner"
+        })
+
+      assert issued.branding_snapshot["signatory_name"] == "Dr. Jane Doe"
+      assert issued.branding_snapshot["signatory_title"] == "Chief Examiner"
+    end
+
+    test "B7b: only the name set adds only the name key" do
+      {issued, _} = issue_with_settings!("req595-b7b", %{"signatory_name" => "Dr. Jane Doe"})
+
+      assert issued.branding_snapshot["signatory_name"] == "Dr. Jane Doe"
+      refute Map.has_key?(issued.branding_snapshot, "signatory_title")
+    end
+
+    test "B8: unset or null settings add no signatory key" do
+      {issued, _} = issue_with_settings!("req595-b8a", %{"app_name" => "Plain Co"})
+      refute Enum.any?(Map.keys(issued.branding_snapshot), &String.contains?(&1, "signatory"))
+
+      {issued, _} =
+        issue_with_settings!("req595-b8b", %{
+          "app_name" => "Plain Co",
+          "signatory_title" => nil
+        })
+
+      refute Map.has_key?(issued.branding_snapshot, "signatory_title")
+      refute Map.has_key?(issued.branding_snapshot, "signatory_name")
+    end
+
+    test "B9: changing or unsetting the settings after issuance never changes snapshot or PDF" do
+      {issued, ctx} =
+        issue_with_settings!("req595-b9", %{
+          "signatory_name" => "Dr. Jane Doe",
+          "signatory_title" => "Chief Examiner"
+        })
+
+      verification = %{base_url: "https://verify.example.com", code: "verify-code-123"}
+
+      assert {:ok, first_pdf} =
+               Letflow.Modules.Exam.CertificateDocument.render(issued, verification)
+
+      put_settings!(ctx.tenant_id, %{
+        "signatory_name" => "Someone Else",
+        "signatory_title" => "Other"
+      })
+
+      assert {:ok, reread} =
+               Certificate.issue_or_get_for_user(ctx.candidate_id, ctx.session_id, ctx.schema)
+
+      assert reread.branding_snapshot == issued.branding_snapshot
+
+      put_settings!(ctx.tenant_id, %{"signatory_name" => nil, "signatory_title" => nil})
+
+      assert {:ok, reread2} =
+               Certificate.issue_or_get_for_user(ctx.candidate_id, ctx.session_id, ctx.schema)
+
+      assert reread2.branding_snapshot == issued.branding_snapshot
+
+      assert {:ok, second_pdf} =
+               Letflow.Modules.Exam.CertificateDocument.render(reread2, verification)
+
+      assert pdf_text(first_pdf) == pdf_text(second_pdf)
+      assert pdf_text(second_pdf) =~ "Dr. Jane Doe"
+    end
+
+    defp pdf_text(bytes) do
+      ~r/stream\r?\n(.*?)endstream/s
+      |> Regex.scan(bytes, capture: :all_but_first)
+      |> Enum.map_join("\n", fn [s] -> s |> :zlib.uncompress() end)
+    rescue
+      _ -> bytes
+    end
+  end
 end
