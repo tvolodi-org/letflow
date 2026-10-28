@@ -84,7 +84,7 @@ expected_outcomes:
     description: Submitting a saved request issues its version with a number and a content hash.
     verification:
       method: api_response
-      detail: Step 2 answers 200 with document id of D1, version 1, a non-empty content hash and a document number that starts with "PR".
+      detail: Step 2 answers 200 with document id of D1, version 1, a non-empty content hash and a positive integer document number.
       evidence: The answer S1.
     on_fail:
       severity: MAJOR
