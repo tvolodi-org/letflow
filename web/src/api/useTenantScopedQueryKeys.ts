@@ -120,6 +120,7 @@ export function useTenantScopedQueryKeys() {
       all: () => queryKeys.exam.all(tenantId),
       session: queryKeys.exam.session.bind(null, tenantId),
       list: queryKeys.exam.list.bind(null, tenantId),
+      mine: queryKeys.exam.mine.bind(null, tenantId),
     },
     platformMigrations: {
       all: () => queryKeys.platformMigrations.all(tenantId),

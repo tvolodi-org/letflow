@@ -27,7 +27,8 @@ defmodule Letflow.Entities.Views.Clauses do
   @refused_keys %{
     "list" => ~w(group_by aggregates chart_type),
     "pivot" => ~w(columns sort chart_type),
-    "graph" => ~w(columns sort)
+    "graph" => ~w(columns sort),
+    "report" => ~w(chart_type)
   }
   @chart_types ~w(bar line pie)
   @max_graph_aggregates 3
@@ -66,7 +67,10 @@ defmodule Letflow.Entities.Views.Clauses do
   `group_by`, one to three `aggregates` and a `chart_type` of `bar`, `line` or `pie` (a pie needs
   exactly one aggregate) and refuses `columns` and `sort`. A graph body with several faults answers
   the first of: filter shape, `group_by_invalid`, `aggregates_invalid`, `chart_type_invalid`, the pie
-  rule (`aggregates_invalid`). On update `stored_kind` is the stored view's kind: an absent `kind` means it, a
+  rule (`aggregates_invalid`). `"report"` (REQ-619) takes `filter`, `group_by`, non-empty `aggregates`
+  (the summary, pivot rules) and optional `columns` and `sort` (the detail, list rules; empty or
+  absent `columns` is accepted, but a `sort` needs columns: `sort_invalid`) and refuses `chart_type`.
+  On update `stored_kind` is the stored view's kind: an absent `kind` means it, a
   different one is `kind_immutable`.
   """
   @spec parse_body(map(), :create | :update, String.t() | nil) ::
@@ -92,6 +96,18 @@ defmodule Letflow.Entities.Views.Clauses do
   """
   @spec check(String.t(), String.t(), shaped()) ::
           :ok | {:error, :not_found} | {:error, {:unprocessable, String.t()}}
+  def check(prefix, entity_type, %{kind: "report"} = shaped)
+      when is_binary(prefix) and is_binary(entity_type) do
+    with {:ok, filters} <- parse_ops(shaped.filter),
+         :ok <- dry_compile_aggregate(prefix, entity_type, filters, shaped),
+         {:ok, sorts} <- parse_dirs(shaped.sort),
+         :ok <- check_report_sort(prefix, entity_type, sorts) do
+      if shaped.columns == [],
+        do: :ok,
+        else: check_columns(prefix, entity_type, shaped.columns)
+    end
+  end
+
   def check(prefix, entity_type, %{kind: kind} = shaped)
       when kind in ["pivot", "graph"] and is_binary(prefix) and is_binary(entity_type) do
     with {:ok, filters} <- parse_ops(shaped.filter) do
@@ -107,6 +123,12 @@ defmodule Letflow.Entities.Views.Clauses do
       check_columns(prefix, entity_type, columns)
     end
   end
+
+  # The filter was already checked with the summary, so only the sort fields are compiled here.
+  defp check_report_sort(_prefix, _entity_type, []), do: :ok
+
+  defp check_report_sort(prefix, entity_type, sorts),
+    do: dry_compile(prefix, entity_type, [], sorts)
 
   # ── shape ──────────────────────────────────────────────────────────────────
 
@@ -124,7 +146,7 @@ defmodule Letflow.Entities.Views.Clauses do
       {:error, :update} ->
         {:ok, stored_kind || "list"}
 
-      {{:ok, kind}, _mode} when kind in ["list", "pivot", "graph"] ->
+      {{:ok, kind}, _mode} when kind in ["list", "pivot", "graph", "report"] ->
         same_kind(kind, mode, stored_kind)
 
       {{:ok, _other}, _mode} ->
@@ -191,6 +213,40 @@ defmodule Letflow.Entities.Views.Clauses do
        }}
     end
   end
+
+  # A report (REQ-619): one filter, a summary (group_by + required non-empty aggregates, the pivot
+  # parsers) and an optional detail (columns + sort, the list parsers). Absent, null or empty
+  # columns are accepted here, unlike a list; sort without columns has nothing to apply to.
+  defp kind_clauses(body, "report") do
+    with {:ok, filter} <- filter(Map.get(body, "filter", [])),
+         {:ok, group_by} <- group_by(Map.get(body, "group_by")),
+         {:ok, aggregates} <- aggregates(Map.get(body, "aggregates")),
+         {:ok, columns} <- report_columns(body),
+         {:ok, sort} <- sort(Map.get(body, "sort", [])),
+         :ok <- report_sort_needs_columns(columns, sort) do
+      {:ok,
+       %{
+         columns: columns,
+         filter: filter,
+         sort: sort,
+         group_by: group_by,
+         aggregates: aggregates,
+         chart_type: nil
+       }}
+    end
+  end
+
+  defp report_columns(body) when is_map_key(body, "columns") do
+    case Map.fetch!(body, "columns") do
+      empty when empty in [nil, []] -> {:ok, []}
+      _present -> columns(body)
+    end
+  end
+
+  defp report_columns(_body), do: {:ok, []}
+
+  defp report_sort_needs_columns([], [_ | _]), do: invalid("sort_invalid")
+  defp report_sort_needs_columns(_columns, _sort), do: :ok
 
   # A graph has exactly one group_by: the wire shape of the aggregate route, narrowed to one.
   defp graph_group_by(value) do

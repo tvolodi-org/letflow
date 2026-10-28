@@ -230,6 +230,9 @@ export const queryKeys = {
      *  web/src/api/exam.ts's own moduledoc). */
     list: (tenantId: string, filters?: { page_size?: number }) =>
       [...queryKeys.exam.all(tenantId), 'list', filters ?? {}] as const,
+    /** ExamMyResultsPage's key (GH 3321): the caller's own finished sessions, per page. */
+    mine: (tenantId: string, filters?: { cursor?: string | null; page_size?: number }) =>
+      [...queryKeys.exam.all(tenantId), 'mine', filters ?? {}] as const,
   },
 
   /** REQ-375 §3.1 — platform migration rollout console. */

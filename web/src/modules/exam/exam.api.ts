@@ -46,6 +46,7 @@ import type {
   AntiCheatSignalOutcome,
   AntiCheatSignalType,
   ExamAutosaveResponse,
+  ExamMySessionsPage,
   ExamSessionStateResponse,
   ExamSubmissionOutcome,
   SaveAnswerBody,
@@ -108,6 +109,15 @@ export const examApi = {
    *  candidate role's ISS-0646 closed set). */
   listAvailableExams: (opts: { cursor?: string; page_size?: number } = {}) =>
     client.get<ExamRecordsPage>(`${BASE}/available`, opts),
+
+  /** `GET /modules/exam/exam-sessions/mine` (GH #3321, REQ-587) — the caller's own finished
+   *  sessions. Only `cursor`, `page_size` and `exam_id` are sent; the candidate is the token's user. */
+  listMySessions: (opts: { cursor?: string; page_size?: number; exam_id?: string } = {}) =>
+    client.get<ExamMySessionsPage>(`${BASE}/mine`, opts),
+
+  /** `GET /modules/exam/exam-sessions/:id/certificate/download` — the PDF bytes (REQ-356). */
+  downloadCertificate: (sessionId: string) =>
+    client.getBlob(`${BASE}/${encodeURIComponent(sessionId)}/certificate/download`),
 }
 
 const AUTHORING_BASE = '/api/v1/modules/exam/authoring'
