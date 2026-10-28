@@ -12,9 +12,9 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Procurement
 
-  @atoms [:ProcurementRequestWrite, :ProcurementRequestRead]
+  @atoms [:ProcurementRequestWrite, :ProcurementRequestRead, :ProcurementRequestDecide]
 
-  test "T-R1: the manifest validates and declares exactly the two permissions" do
+  test "T-R1: the manifest validates and declares exactly the three permissions" do
     manifest = Procurement.manifest()
 
     assert Catalog.validate(manifest) == :ok
@@ -23,11 +23,13 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
     assert manifest.role_grants == %{}
     assert manifest.depends_on == ["org", "catalog_items"]
     assert manifest.pack == nil
-    refute function_exported?(Procurement, :router, 0)
-    assert Enum.sort(Enum.map(manifest.route_policies, &elem(&1, 2))) == Enum.sort(@atoms)
+    assert Procurement.router() == Letflow.Modules.Procurement.Router
+
+    assert manifest.route_policies |> Enum.map(&elem(&1, 2)) |> Enum.uniq() |> Enum.sort() ==
+             Enum.sort(@atoms)
   end
 
-  test "T-R2: the golden holds the two atoms for the two admin roles only" do
+  test "T-R2: the golden holds the three atoms for the two admin roles only" do
     golden = File.read!("priv/permission_matrix/effective.golden")
     assert golden =~ ~r/^# modules: .*procurement@0\.1\.0/m
 
@@ -39,7 +41,7 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
     end
   end
 
-  test "T-R3: docs/roles.md names both atoms outside the fenced matrix" do
+  test "T-R3: docs/roles.md names the atoms outside the fenced matrix" do
     doc = File.read!("docs/roles.md")
     # the fenced matrix is the one block that starts after the "## Matrix" heading
     [before_fence, rest] =
@@ -63,6 +65,9 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
 
   describe "T-NC1: no core change, one door to the documents" do
     @files Path.wildcard("lib/letflow/modules/procurement/**/*.ex")
+    # Part 2: decisions.ex is the one writer of the module's own table `procurement_decisions`
+    # (insert only); it writes no document table and updates or deletes nothing.
+    @decision_writer "lib/letflow/modules/procurement/decisions.ex"
 
     test "the module does not touch the engine or write document tables itself" do
       assert @files != []
@@ -70,7 +75,13 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
       for file <- @files do
         source = File.read!(file)
         refute source =~ "Letflow.Engine", file
-        refute source =~ ~r/Repo\.(insert|update|delete)/, file
+
+        if file == @decision_writer do
+          refute source =~ ~r/Repo\.(update|delete)/, file
+          refute source =~ ~r/Repo\.insert\w*\(\s*%Document/, file
+        else
+          refute source =~ ~r/Repo\.(insert|update|delete)/, file
+        end
       end
     end
 
