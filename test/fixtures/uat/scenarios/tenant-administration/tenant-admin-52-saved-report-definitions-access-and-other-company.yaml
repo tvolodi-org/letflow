@@ -17,7 +17,7 @@
 # visible effect, no report in the other company's list, is checked here); the audit entry being written in the same transaction (scenario 50
 # checks that the entries exist); the unchanged permission matrix golden, the absence of a new permission, the route-count and route-scope
 # pins; the reviewer verdicts and build commands. The statement that no refusal writes an audit entry is checked in scenario 50 for the
-# not-found deletion only.
+# not-found deletion and in scenario 51 (step 16) for the validation and name refusals.
 # The four sensitive actions: "change users" and "approve, pay or release" are not in this flow; "see sensitive data" is the type-hidden and
 # field-protected replay steps.
 ---

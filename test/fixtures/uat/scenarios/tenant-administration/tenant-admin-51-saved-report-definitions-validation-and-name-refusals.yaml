@@ -11,6 +11,11 @@
 # Reason codes are quoted from those files, not from the requirement text alone.
 # Criterion 3's operator-specific codes (value_arity_mismatch, invalid_in_value, invalid_decimal_value, operator_not_valid_for_type) are
 # covered in steps 12 to 14 and EO-008 (a second record type with a decimal field is created for the decimal case).
+# Criterion 3's codes for a filter or grouping that is not a list at all, or whose element lacks a field or operator (filter_invalid,
+# group_by_invalid) are covered in step 15 and EO-009; a grouping on a field the type does not have is a different case and gives the code for
+# a field not allowed (steps 2 and 7). Criterion 10's "refusals write none" is checked in step 16 through the company audit trail.
+# The column limit (100) is tested over its own type "UAT report wide ticket" with 100 text fields c001 to c100, because columns must be
+# distinct and on the type; the refused case is c001 to c100 plus the system column record_id, so only the count can refuse it.
 # Depends on the record type "UAT report ticket" of scenario 50 (fields title, status, region, amount); this scenario creates it if missing.
 # The four sensitive actions are not in this flow; the access refusals are in scenario 52.
 ---
@@ -40,6 +45,9 @@ preconditions:
   - description: SwiftRoute is set up with its administrator; the record type "UAT report ticket" with the fields title (text), status (text), region (text) and amount (whole number) is active; no saved view over it exists
     check: system_seeded
     detail: If the type is missing, create it as in scenario 50 step 1 (the records are not needed here) and say so in the report; if views exist from an earlier run, delete them first and note it.
+  - description: The record type "UAT report wide ticket" with 100 text fields named c001 to c100 is active; no saved view over it exists
+    check: system_seeded
+    detail: If the type is missing, the administrator creates and activates it first (a type may hold up to 200 fields) and says so in the report; no records are needed.
 
 steps:
   - step: 1
@@ -86,7 +94,7 @@ steps:
     actor: tenant_admin
     action: >
       The administrator tries to save the report "UAT report sort no columns" with the sort "title ascending" and no columns, then the report
-      "UAT report 101 columns" with a list of 101 columns (title repeated), then the report "UAT report 11 sorts" with a sort list of 11
+      "UAT report 101 columns" over "UAT report wide ticket" with the 101 columns c001 to c100 and record_id (all distinct, all on that type, so only the count can refuse it), then the report "UAT report 11 sorts" with a sort list of 11
       clauses (title ascending repeated, and the column title). Each answer is noted.
     expect_refusal: true
     via: api
@@ -112,8 +120,8 @@ steps:
   - step: 8
     actor: tenant_admin
     action: >
-      The administrator saves, as accepted cases, the report "UAT report exactly 100 columns" with 100 columns and the sort "title ascending"
-      repeated 10 times, the report "UAT report empty detail" with no columns and no sort, and the list view "UAT shared name" over "UAT report
+      The administrator saves, as accepted cases, the report "UAT report exactly 100 columns" over "UAT report wide ticket" with the 100 distinct columns c001 to c100
+      and the sort "c001 ascending" repeated 10 times, the report "UAT report empty detail" with no columns and no sort, and the list view "UAT shared name" over "UAT report
       ticket" with the column title. Each answer is noted.
     via: api
   - step: 9
@@ -160,13 +168,27 @@ steps:
       The administrator lists the views of the types "UAT report ticket" and "UAT report priced ticket" and notes whether any of the five
       attempted reports exists.
     via: api
+  - step: 15
+    actor: tenant_admin
+    action: >
+      The administrator tries to save these reports over "UAT report ticket", each otherwise like the valid report of step 1: "UAT report group
+      text" with the grouping given as the single word region instead of a list; "UAT report group no field" with a grouping list holding one
+      element that has no field; "UAT report filter text" with the filter given as the single word open instead of a list; "UAT report filter
+      no operator" with a filter list holding one clause that has the field status and no operator. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 16
+    actor: tenant_admin
+    action: >
+      The administrator reads the company audit trail for saved-view entries in the time window of this run.
+    via: api
 
 expected_outcomes:
   - id: EO-001
     description: A filter on a field the type does not have, an unknown filter operator, and a grouping on a field the type does not have, are each refused with a named reason and store nothing.
     verification:
       method: http_status
-      detail: Every answer of step 2 is 422 with a fixed reason code and does not repeat the submitted text; the filter field case gives the code for a field not allowed, the operator case gives the code for an unknown operator, and the grouping case gives the code for an invalid grouping.
+      detail: Every answer of step 2 is 422 with a fixed reason code and does not repeat the submitted text; the filter field case gives the code for a field not allowed, the operator case gives the code for an unknown operator, and the grouping case (a field the type does not have) also gives the code for a field not allowed.
       evidence: The three answers of step 2 and the list of step 11.
     on_fail:
       severity: MAJOR
@@ -216,7 +238,7 @@ expected_outcomes:
     description: The same invalid cases are refused when they are a change to an existing report, the kind cannot be changed, and the report is unchanged.
     verification:
       method: http_status
-      detail: The first seven answers of step 7 are 422, each with the same reason code as its creation case in steps 2 to 4 (field not allowed, unknown operator, invalid grouping, invalid aggregates, column not on the type, field not allowed, unknown sort direction); the last two answers (kind list, kind pivot) are 422 with the reason code for a kind that cannot change; the reading of step 11 shows the report of step 1 with its filter, grouping, aggregates, columns and sort unchanged.
+      detail: The first seven answers of step 7 are 422, each with the same reason code as its creation case in steps 2 to 4 (field not allowed, unknown operator, field not allowed, invalid aggregates, column not on the type, field not allowed, unknown sort direction); the last two answers (kind list, kind pivot) are 422 with the reason code for a kind that cannot change; the reading of step 11 shows the report of step 1 with its filter, grouping, aggregates, columns and sort unchanged.
       evidence: The nine answers of step 7 and the reading of step 11.
     on_fail:
       severity: MAJOR
@@ -242,6 +264,28 @@ expected_outcomes:
     on_fail:
       severity: MAJOR
       business_impact: A saved report whose filter can never be evaluated is stored and fails when a user opens it.
+      suggested_action: route_to_wf03
+
+  - id: EO-009
+    description: A grouping or filter that is not a list, or whose element lacks its field or operator, is refused with its own named reason and stores nothing.
+    verification:
+      method: http_status
+      detail: In step 15 the first two answers are 422 with the reason code for an invalid grouping and the last two answers are 422 with the reason code for an invalid filter; none repeats the submitted text; the audit trail of step 16 shows none of the four reports.
+      evidence: The four answers of step 15 and the audit trail of step 16.
+    on_fail:
+      severity: MAJOR
+      business_impact: A report whose summary part is malformed is stored and fails when a user opens it.
+      suggested_action: route_to_wf03
+
+  - id: EO-010
+    description: Refused attempts write no audit entry; only the accepted creations and the deletions do.
+    verification:
+      method: system_state
+      detail: In the audit trail of step 16, for the run's time window, the saved-view entries are the creations of the views of steps 1 and 8 (the valid report, the 100-column report, the report with no detail part, the shared-name list view) and the deletions of step 11; no entry belongs to any refused attempt of steps 2 to 7, 9, 10, 13 and 15.
+      evidence: The audit trail of step 16 compared with the answers of steps 2 to 15.
+    on_fail:
+      severity: MAJOR
+      business_impact: The audit trail records changes that never happened, or the trail of a refused attempt misleads a later review.
       suggested_action: route_to_wf03
 
 cleanup:
