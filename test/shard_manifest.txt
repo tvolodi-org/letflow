@@ -575,6 +575,7 @@
 9 test/letflow/entities/views/views_test.exs 7808.33
 9 test/letflow/entities/views/pivot_views_test.exs 8000.00
 9 test/letflow/entities/views/graph_views_test.exs 8000.00
+9 test/letflow/entities/views/report_views_test.exs 8000.00
 9 test/letflow/event_store/registry_test.exs 54679.84
 9 test/letflow/gh2622_ci_cd_timeouts_test.exs 84.32
 9 test/letflow/help_test.exs 42482.58
