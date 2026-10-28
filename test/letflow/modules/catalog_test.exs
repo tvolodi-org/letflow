@@ -48,10 +48,12 @@ defmodule Letflow.Modules.CatalogTest do
       # misbehaving-handler negative control):
       # GH #2661 (REQ-473) adds Letflow.Modules.Org right after Exam, matching config/config.exs.
       # GH #2663 (REQ-474) adds Letflow.Modules.CatalogItems right after Org.
+      # GH #3162 (REQ-544) adds Letflow.Modules.Procurement right after CatalogItems.
       assert Catalog.entry_modules() == [
                Letflow.Modules.Exam,
                Letflow.Modules.Org,
                Letflow.Modules.CatalogItems,
+               Letflow.Modules.Procurement,
                Letflow.Modules.Fixture,
                Letflow.Modules.FixtureDependent,
                Letflow.Modules.FixtureFailingInstall,
@@ -80,13 +82,13 @@ defmodule Letflow.Modules.CatalogTest do
       assert Catalog.fetch("does-not-exist") == {:error, :not_found}
     end
 
-    test "config/config.exs registers exactly [Exam, Org, CatalogItems]" do
+    test "config/config.exs registers exactly [Exam, Org, CatalogItems, Procurement]" do
       # REQ-408 added Letflow.Modules.Exam to config/config.exs; the test
       # env (config/test.exs) adds the fixture modules for test coverage.
       config_source = File.read!(Path.join([File.cwd!(), "config", "config.exs"]))
 
       assert config_source =~
-               ~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems\s*\]/
+               ~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems,\s*Letflow\.Modules\.Procurement\s*\]/
     end
   end
 
@@ -364,7 +366,12 @@ defmodule Letflow.Modules.CatalogTest do
       assert Catalog.validate(valid_manifest()) == :ok
       assert Catalog.validate(with_points([])) == :ok
 
-      prod = [Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems]
+      prod = [
+        Letflow.Modules.Exam,
+        Letflow.Modules.Org,
+        Letflow.Modules.CatalogItems,
+        Letflow.Modules.Procurement
+      ]
 
       for module <- prod do
         manifest = module.manifest()
