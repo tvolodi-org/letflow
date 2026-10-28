@@ -43226,3 +43226,80 @@ requirements:
       - "The backoff length before a script_busy re-run is not in 0067 ('short backoff'); the implementer picks a fixed figure and states it in the PR; it is not a setting."
       - "Still open in 0067 'Not decided here' and not decided by this entry: any wall-clock figure between 50 ms and the 0053 D7 maxima, the maximum number of fields entries in a refusal, the HTTP status numbers of the D5 infrastructure codes, whether the 403 of a wrong assignee (ISS-0942) collapses to the not-found answer, a hook 3 with entity reads, and the behaviour of any future automatic completer."
     depends_on: [REQ-569, REQ-581]
+
+  - id: REQ-614
+    title: "Per-tenant print-template overrides (decision 0068 D8) slice S4: web authoring screen with a JSON layout editor and a preview from synthetic content"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-579 -- the routes this screen calls are built by REQ-579
+    # Source: docs/migration/decisions/0068-per-tenant-print-template-overrides.md (D2 "a web editor is a later slice", D5 field restrictions, D7 authority, D8 "S4 Web authoring screen", Open owner questions Q1, Q2, Q5, "Tests the implementation slices must add" D5-redact); docs/requirements.yaml REQ-579 (the five routes, the 409 and 422 reply texts) and REQ-571 (the layout shape); lib/letflow/routers/documents.ex (route table, @override_meta_keys, violation_map, unprocessable_detail); lib/letflow/documents/print_overrides.ex (conflict_reason/1, @reason_code_re); lib/letflow/documents/print_layout.ex (block types and allowed keys); web/src/router.tsx, web/src/components/layout/AppShell.tsx (nav entries with a permission), web/src/auth/access/types.ts (P). Written by the business analyst (T-0844) 2026-10-28. Not yet validated.
+    description: >
+      Slice S4 of decision 0068 (docs/migration/decisions/0068-per-tenant-print-template-overrides.md, D8).
+      A tenant administrator can today manage print-template overrides only by calling the five
+      /api/v1/documents/print-overrides routes of REQ-579 by hand. This slice adds the screen. It changes
+      no backend file, adds no route, no permission and no migration, and does not render a PDF: a preview
+      here is an on-screen approximation, not the issued artefact (decision 0068 D4: the stored artefact is
+      authoritative).
+      FILES. API helper web/src/api/documentPrintOverrides.ts (new; five functions over the existing
+      client in web/src/api/client.ts, in the style of web/src/api/tenantSettings.ts). Page
+      web/src/pages/admin/PrintTemplatesPage.tsx (new). Components web/src/components/admin/PrintLayoutEditor.tsx
+      and web/src/components/admin/PrintLayoutPreview.tsx (new). Route 'admin/print-templates' added to
+      web/src/router.tsx beside 'admin/appearance', and a nav entry in web/src/components/layout/AppShell.tsx
+      in group 'tenantAdmin'. The permission constant DocumentPrintTemplatesManage is added to P in
+      web/src/auth/access/types.ts and to the access fixtures in web/src/auth/access/fixtures.ts for
+      TENANT_ADMIN and PLATFORM_ADMIN only (REQ-579 grants it to those two roles and no other). The nav entry
+      and the route use that permission (RequirePermission, web/src/auth/access); a user without it does not
+      see the entry and the route shows the existing no-access outcome of RequirePermission.
+      SCREEN. A list of overrides (GET /api/v1/documents/print-overrides, optional filters type_key and
+      locale; metadata only: type_key, locale, version_no, status, layout_hash, created_by, activated_by,
+      timestamps) and a detail view opened from a row (GET /api/v1/documents/print-overrides/:id, which also
+      returns the layout). The editor is a text area holding the layout as JSON, with a type_key text input
+      and a locale select with exactly ru, kk and default. There is no route that lists document types or
+      their declared fields, so the type_key is typed by the administrator and the field names are checked
+      only by the server. Actions: Save as new draft (POST /api/v1/documents/print-overrides, body type_key,
+      locale and layout only; the screen never sends tenant_id, version_no, status or created_by), Activate
+      (POST .../:id/activate, shown for status draft) and Retire (POST .../:id/retire, shown for status
+      active), each asking for a reason_code in the format the server accepts (lower-case letter first, then
+      lower-case letters, digits or underscore, at most 64 characters; print_overrides.ex @reason_code_re)
+      and validating that format before the request. There is no edit, delete or retire-a-draft action,
+      because REQ-579 has no such route: changing a layout is saving a new draft, and the editor opened on an
+      existing row saves as a new draft. JSON that does not parse is reported in the editor and sends no
+      request. Server replies shown to the user: 422 with the errors list of REQ-579 is shown as one line per
+      violation, the rule and the layout path only; 422 with a fixed detail, and 409 with its fixed detail
+      (for example "activation needs a second administrator" and "override is not in a status that allows
+      this action", print_overrides.ex conflict_reason/1), are shown as the server's detail text; 404 is
+      shown as one generic not-found message; any other failure is shown as a generic error. No error view
+      prints text taken from the submitted layout. REQ-579 answers 409 to an activation by the draft's own
+      creator (its Q3 assumption); the screen shows that reply and does not try to hide the button.
+      PREVIEW. PrintLayoutPreview is a pure React component of the parsed layout and nothing else: it makes
+      no request and reads no document, record or entity data. It draws the blocks in order on a page frame
+      (the page block gives size A4 or Letter): a text block shows its literal text as a React text node (no
+      dangerouslySetInnerHTML, no HTML parsing); a field block shows its label (or the field_name when there
+      is no label) followed by a placeholder built from the entity_type and field_name, in the form
+      [entity_type.field_name], and a show_if_nonempty field is drawn with a marker saying it is hidden when
+      empty; a table block shows its column headers (or field_names) and three rows of placeholders; a spacer
+      shows blank space of its height_mm. A block of an unknown type, or a layout that is not an object with
+      a blocks list, is shown as a short notice and does not throw. The preview updates from the editor
+      content without a request. Because the preview content is synthetic placeholders derived from names in
+      the layout, it can never show a stored or restricted field value (decision 0068 D5 "D5-redact"); the
+      screen also never calls a document or entity read route for the preview.
+      OPEN OWNER QUESTIONS (decision 0068). Q2 (template form) is taken as its recommended option (a): the
+      closed declarative JSON layout, which is what the server validates; no template language, no file
+      upload. Q1 (who owns the official RU and KK wording) and Q5 (core-locked blocks per type) do not block
+      this slice: it supplies an editor and holds no official wording and no locked-block rule, and the
+      server is the only place that rejects a layout that violates one. Q3 and Q4 are REQ-579's and no
+      reprint or re-render control is added here. Out of scope: a visual drag-and-drop editor, an image
+      block (REQ-571's layout has none), a PDF preview, diffing two versions, Kazakhstan form layouts (S5).
+      Messages: the screen's user-facing text follows the web app's existing i18n mechanism (web/src/i18n)
+      for the languages the app ships.
+    acceptance_criteria:
+      - "web/src/api/documentPrintOverrides.ts exports one function for each of the five routes, GET /api/v1/documents/print-overrides (optional type_key and locale query filters), GET .../print-overrides/:id, POST .../print-overrides, POST .../print-overrides/:id/activate and POST .../print-overrides/:id/retire, and a vitest test over a mocked client asserts the method, the path and the body of each call. The save body has exactly the keys type_key, locale and layout; the activate and retire bodies have exactly the key reason_code."
+      - "Route 'admin/print-templates' in web/src/router.tsx renders PrintTemplatesPage inside RequirePermission with DocumentPrintTemplatesManage, and AppShell shows its nav entry only to a user holding that permission. A component test with the access fixtures shows the entry and the screen for TENANT_ADMIN and PLATFORM_ADMIN, and shows neither for PROCESS_DESIGNER and TENANT_AUDITOR. The fixtures add the permission to those two roles only."
+      - "PrintLayoutEditor test: typing JSON that does not parse shows an error in the editor and makes zero requests; valid JSON with locale ru, kk or default and a type_key calls the save function with exactly type_key, locale and layout; a locale outside ru, kk and default cannot be selected; Activate is offered only for a row with status draft and Retire only for a row with status active; a reason_code that does not match the format [a-z][a-z0-9_]{0,63} makes zero requests and shows a validation message, a matching one calls the route."
+      - "PrintLayoutEditor test, server replies: a mocked 422 whose errors list holds {rule: \"field_not_projected\", path: [\"blocks\", 1, \"field_name\"]} (any rule atom of lib/letflow/documents/print_layout.ex) shows that rule and that path and no other text from the submitted layout; a mocked 409 with the detail \"activation needs a second administrator\" shows that sentence; a mocked 404 shows one generic not-found message; a mocked 500 shows a generic error and not the response body."
+      - "PrintLayoutPreview test: for a layout with a page block (size A4), a text block, a field block (entity_type, field_name, label), a field block with show_if_nonempty, a table block with two columns and a spacer block, the rendered output contains the literal text, the label with the placeholder [entity_type.field_name], the hidden-when-empty marker, the two column headers with exactly three placeholder rows, and the spacer; a text block containing the string <script>alert(1)</script> is rendered as visible text and the container has no script element."
+      - "PrintLayoutPreview test, no restricted values (D5-redact): the component is rendered with a mocked fetch or API client that fails the test on any call, and no call is made; the rendered output of a layout with a field block never contains any text other than the layout's own strings and the placeholder; an unknown block type, a layout without a blocks list, and a non-object value each render a notice and do not throw. The page test asserts that the preview does not call entitiesApi, the documents routes other than print-overrides, or any attachment route."
+      - "Page test of PrintTemplatesPage over mocked API: the list shows the metadata columns of the REQ-579 list reply and never a layout; opening a row calls the get route and fills the editor and the preview with the returned layout; saving from an opened row calls the save function (a new draft) and does not call any other write route; after a successful save, activate or retire the list is fetched again."
+      - "No backend, migration, permission-matrix or route-inventory file changes: git diff --stat main...HEAD lists only files under web/ and, if the implementer updates it, docs/frontend/. cd web && npm run check passes (type-check, lint, unit tests, guards)."
+    depends_on: [REQ-579, REQ-564]
