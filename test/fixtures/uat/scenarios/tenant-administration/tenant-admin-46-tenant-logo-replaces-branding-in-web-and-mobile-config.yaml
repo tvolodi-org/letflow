@@ -1,0 +1,133 @@
+# T-0895 (BA): TENANT ADMIN group, scenario 46: once a company has an uploaded logo, the web and the mobile company configuration point at it, and only for that company; nothing about the stored picture leaks into either answer.
+# Covers REQ-591 criteria 5 (web branches), 6 (mobile) and the user-visible part of 7 (INV-2: neither body carries the picture bytes, the fingerprint, the size or the updater of the logo row).
+# Quoted criterion 5: "Web response branches: for each of ?realm= hit with an upload, ?realm= hit without an upload, ?realm= miss, ?host=, no parameter and a forced lookup failure, a test asserts branding.logo_url as stated in the description (including slug bpm-default on the default branches when that tenant has an upload); an inactive default-realm tenant, and one with a nil or empty idp_realm_id, that has an upload keeps today's value on the default branches (never a path that the logo route would answer with 404); the keys of the web body and of branding are unchanged."
+# Quoted criterion 6: "Mobile response: a ?slug= hit with an upload returns branding.logo_url equal to the path with that slug and the six top-level keys are unchanged; unknown slug, missing slug, lookup failure, inactive tenant and nil-realm tenant return a body byte-identical to today's platform default."
+# Quoted criterion 7 (first clause): "INV-2: neither body contains the bytes, content_hash, byte_size, updated_by of the logo row, asserted by key and by value".
+# Not covered here (no roster actor or user step can create the state; the backend tests of REQ-591 cover them): the forced lookup failure on the web and mobile places; an inactive company or a company with a nil or empty realm on the mobile place and as the default company on the web place;
+# criterion 7's second clause (the moduledoc wording of the two router files, a code-reading check). The default company (address name bpm-default) holding an uploaded logo is covered by scenario 49; this scenario checks the default branches without an upload only.
+# Sources: docs/requirements.yaml REQ-591 (description RESPONSES and INV-2 REASONING, criteria 5, 6, 7); lib/letflow/routers/tenant_config.ex (resolve_realm/2 branches, put_logo/3, default value of logo_url); lib/letflow/routers/mobile_tenant_config.ex (reads ?slug= only); test/fixtures/uat/actors.yaml.
+# Environment: the upload switch must be ON from step 4 on (QA setup step, as in scenario 44 step 1). If step 4 shows the stored string unchanged after an upload that answered 200, the runner reports BLOCKED (switch off), not failed; scenario 48 covers the off case.
+# Bytes (exact, hex): PNG-OK = 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082 (67 bytes), declared image/png.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the "see sensitive data" refusal is the no-leak check (EO-004) and the other-company check (EO-002), which are data checks on public answers and need no refused request.
+---
+id: tenant-administration-46-tenant-logo-replaces-branding-in-web-and-mobile-config
+scope: tenant-administration
+title: After a company uploads its logo, the web and mobile company configuration show the logo address for that company only, and reveal nothing about the stored picture
+version: "1.0"
+tags: [tenant-admin, tenant-logo, branding, web-config, mobile-config, no-leak]
+
+description: >
+  Before SwiftRoute uploads a logo, the web and mobile company configuration for SwiftRoute, for BilimBaga and for the default company are read and kept as baselines. After the SwiftRoute administrator uploads a PNG, the
+  SwiftRoute answers show the logo address of SwiftRoute as the branding logo, on the web place when SwiftRoute is asked for by realm and on the mobile place when it is asked for by address name; the BilimBaga answers,
+  the default-company answers (no parameter, an unknown realm, a host value) and the mobile answers for an unknown or missing address name are unchanged from the baselines. The answers have the same keys as before and
+  contain nothing of the stored picture.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  visitor: actor-any
+
+preconditions:
+  - description: The logo-upload switch is turned ON for QA by step 4 (the baselines of steps 1 to 3 are read before it, which does not matter, because with no stored logo the answers are the same in either state).
+    check: system_seeded
+    detail: If the QA environment cannot turn the switch on, report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute, BilimBaga and the default company (address name bpm-default) have no stored logo at the start.
+    check: system_seeded
+    detail: Setup-prepared. If one exists, delete it first (or, for the default company, report BLOCKED for steps 7 to 9 and EO-003) and note that in the report.
+  - description: The runner knows the address name S-SR of SwiftRoute and S-BB of BilimBaga from the seeded company records. The string "no-such-company-0000" is not the address name of any company. The runner can read the logo table of SwiftRoute from the database.
+    check: system_seeded
+    detail: If the logo table cannot be read, report BLOCKED for EO-004 only.
+
+steps:
+  - step: 1
+    actor: visitor
+    action: >
+      Baselines on the web place. A caller who is not signed in reads the company configuration with the realm value S-SR (W0-SR), with the realm value S-BB (W0-BB), and with the realm value "no-such-company-0000" (W0-UNK).
+      The full bodies are noted.
+    via: api
+  - step: 2
+    actor: visitor
+    action: >
+      Baselines on the web place for the default company. The same caller reads the company configuration with no parameter (W0-NONE) and with only the host value "login.example.test" (W0-HOST). The full bodies are noted.
+    via: api
+  - step: 3
+    actor: visitor
+    action: >
+      Baselines on the mobile place. The same caller reads the mobile company configuration with the address name S-SR (M0-SR), with S-BB (M0-BB), with "no-such-company-0000" (M0-UNK) and with no address name (M0-NONE).
+      The full bodies are noted.
+    via: api
+  - step: 4
+    actor: actor-system-qa-setup
+    action: >
+      The QA environment turns the company-logo upload switch on (the platform setting that is off by default) and restarts the service if the environment requires it.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute uploads PNG-OK declared image/png as the company logo. The answer is noted, including the fingerprint H-SR, the size and the update time.
+    via: api
+  - step: 6
+    actor: visitor
+    action: >
+      The web place is read again with the realm value S-SR (W1-SR) and with the realm value S-BB (W1-BB). The full bodies are noted.
+    via: api
+  - step: 7
+    actor: visitor
+    action: >
+      The web place is read again with the realm value "no-such-company-0000" (W1-UNK), with no parameter (W1-NONE) and with only the host value "login.example.test" (W1-HOST). The full bodies are noted.
+    via: api
+  - step: 8
+    actor: visitor
+    action: >
+      The mobile place is read again with the address name S-SR (M1-SR) and with S-BB (M1-BB). The full bodies are noted.
+    via: api
+  - step: 9
+    actor: visitor
+    action: >
+      The mobile place is read again with "no-such-company-0000" (M1-UNK) and with no address name (M1-NONE). The full bodies are noted.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The SwiftRoute logo address replaces the branding logo on both places and nothing else in the answers changes.
+    verification:
+      method: api_response
+      detail: In W1-SR and M1-SR, branding.logo_url equals "/api/tenant-config/logo?slug=" followed by S-SR (in W1-SR S-SR is the realm value the caller sent). Every other member of W1-SR equals the same member of W0-SR, and every other member of M1-SR equals the same member of M0-SR. The set of top-level keys of W1-SR equals that of W0-SR and the set of keys under branding is the same; the mobile body has the same six top-level keys as M0-SR. Steps 5 and 6 and 8 answer 200.
+      evidence: W0-SR against W1-SR and M0-SR against M1-SR, member by member.
+    on_fail:
+      severity: MAJOR
+      business_impact: The login screens of the web and mobile apps keep showing no logo or the old one after the company uploaded its own.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: Other companies, an unknown company and missing parameters are unchanged.
+    verification:
+      method: api_response
+      detail: W1-BB equals W0-BB byte for byte, W1-UNK equals W0-UNK, W1-NONE equals W0-NONE, W1-HOST equals W0-HOST (the default-company branches; no upload exists for the default company, so branding.logo_url is the stored string or the platform default as in the baseline). M1-BB equals M0-BB, M1-UNK equals M0-UNK and M1-NONE equals M0-NONE byte for byte; M1-UNK and M1-NONE equal the platform default body. None of these contains "/api/tenant-config/logo?slug=" followed by S-SR.
+      evidence: The paired bodies compared byte for byte.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company's logo address appears in another company's or a stranger's configuration, or an unknown name behaves differently from a real one.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: The web default branches do not hand out a logo path for a company that has no logo (the case with a default-company logo is scenario 49).
+    verification:
+      method: api_response
+      detail: W1-NONE and W1-HOST have branding.logo_url equal to the baseline value (no "/api/tenant-config/logo?slug=bpm-default" path), because the default company has no uploaded logo.
+      evidence: W1-NONE and W1-HOST against W0-NONE and W0-HOST.
+    on_fail:
+      severity: MAJOR
+      business_impact: The login page of an unbranded default company shows a broken image.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: Neither answer reveals anything about the stored picture.
+    verification:
+      method: api_response
+      detail: W1-SR and M1-SR contain no member named content_hash, byte_size, updated_by, updated_at, data or bytes anywhere (by key), and no value equal to H-SR, to the size in the step 5 answer, to the update time in it, to the user id of actor-swiftroute-alice (read from the logo table) or to the picture bytes or their base64 form (by value). The same holds for W1-BB and M1-BB.
+      evidence: A key and value search of W1-SR, M1-SR, W1-BB and M1-BB against the step 5 answer and the logo table row.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A public, unauthenticated answer exposes data about a company's stored file.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the logo of SwiftRoute if stored. The environment turns the switch off again afterwards (it is off by default).
