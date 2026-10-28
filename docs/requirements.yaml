@@ -43231,7 +43231,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-598 -- the graph kind extends the kind column and the group_by and aggregates columns that REQ-598 adds
+    gh: 3432
     # Source: docs/migration/decisions/0066-generic-saved-views-over-records.md, "Deferred slices": "Slice 3: graph view."; docs/migration/core-roadmap-20261014.md, Wave 3 row "Generic list, pivot and graph views and a report builder over entities"; decision 0066 D1, D3, D4, D5, D6, D7 and "Assumptions for the process owner" (D1 tenant-wide sharing and D4 TENANT_ADMIN-only are assumptions, to be confirmed by the process owner, not owner blocks). Code read: lib/letflow/entities/views/clauses.ex (parse_body/3, check/3, kind/3, group_by/1, aggregates/1), priv/repo/migrations/20261027400001_add_pivot_to_entity_views.exs, lib/letflow/routers/entities.ex (query_aggregate, parse_group_by/1, parse_aggregates/1). Written by the business analyst (T-0832) 2026-10-28.
     description: >
       Backend of slice 3 of generic views (decision 0066, "Deferred slices": "Slice 3: graph view").
