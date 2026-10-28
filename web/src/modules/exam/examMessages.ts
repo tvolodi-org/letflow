@@ -16,7 +16,9 @@
  *  module.
  */
 
-export const EXAM_UI_LOCALES = ['en', 'ru', 'kk'] as const
+import { questionMessagesEn, questionMessagesKk, questionMessagesRu } from './questionMessages'
+
+export const EXAM_UI_LOCALES =['en', 'ru', 'kk'] as const
 export type ExamUiLocale = (typeof EXAM_UI_LOCALES)[number]
 
 const EXAM_UI_FALLBACK_LOCALE: ExamUiLocale = 'en'
@@ -223,6 +225,7 @@ export const examMessages: Record<ExamUiLocale, Record<string, string>> = {
     'exam.builder.result.section': 'Section {n}',
     'exam.builder.result.rule': 'Rule {n}',
     'exam.builder.result.delete': '{what} (delete)',
+    ...questionMessagesEn,
   },
   ru: {
     'exam.list.title': 'Доступные экзамены',
@@ -390,6 +393,7 @@ export const examMessages: Record<ExamUiLocale, Record<string, string>> = {
     'exam.builder.result.section': 'Раздел {n}',
     'exam.builder.result.rule': 'Правило {n}',
     'exam.builder.result.delete': '{what} (удаление)',
+    ...questionMessagesRu,
   },
   kk: {
     'exam.list.title': 'Қолжетімді емтихандар',
@@ -557,5 +561,6 @@ export const examMessages: Record<ExamUiLocale, Record<string, string>> = {
     'exam.builder.result.section': '{n}-бөлім',
     'exam.builder.result.rule': '{n}-ереже',
     'exam.builder.result.delete': '{what} (жою)',
+    ...questionMessagesKk,
   },
 }
