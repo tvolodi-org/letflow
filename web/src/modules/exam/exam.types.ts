@@ -101,3 +101,24 @@ export interface SaveAnswerBody {
    *  `question.type === 'short_text'`. */
   text_answer?: string
 }
+
+/** One item of `GET /modules/exam/exam-sessions/mine` (GH #3321, REQ-587): the caller's own
+ *  finished session. `exam_title` is null when the exam record is gone; `passed` is null while
+ *  grading is pending. */
+export interface ExamMySessionItem {
+  session_id: string
+  exam_id: string
+  exam_title: string | null
+  status: string
+  started_at: string | null
+  submitted_at: string | null
+  score_pct: number | null
+  passed: boolean | null
+  certificate_issued: boolean
+  certificate_id: string | null
+}
+
+export interface ExamMySessionsPage {
+  items: ExamMySessionItem[]
+  next_cursor: string | null
+}

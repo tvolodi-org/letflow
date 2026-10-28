@@ -12,6 +12,7 @@ import type { RouteObject } from 'react-router-dom'
 import ExamListPage from './ExamListPage'
 import ExamSessionPage from './ExamSessionPage'
 import ExamSessionResultPage from './ExamSessionResultPage'
+import ExamMyResultsPage from './ExamMyResultsPage'
 import BilimBagaAdminPage from './BilimBagaAdminPage'
 import BilimBagaEntityRoute from './BilimBagaEntityRoute'
 import ExamGradingListPage from './ExamGradingListPage'
@@ -29,6 +30,7 @@ export const examRouteObjects: RouteObject[] = [
     children: [
       { index: true, element: <ExamListPage /> },
       { path: ':examId/session', element: <ExamSessionPage /> },
+      { path: 'results', element: <ExamMyResultsPage /> },
       { path: 'sessions/:sessionId/result', element: <ExamSessionResultPage /> },
       { path: 'grading', element: gradingGuard(<ExamGradingListPage />) },
       { path: 'grading/:sessionId/:questionId', element: gradingGuard(<ExamGradingAnswerPage />) },

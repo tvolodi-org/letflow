@@ -13,7 +13,10 @@ defmodule Letflow.Entities.Views.View do
 
   `"graph"` (REQ-613) stores a `filter`, exactly one `group_by`, one to three `aggregates` and a
   `chart_type` (`bar`, `line`, `pie`); its `columns` and `sort` are `[]`. `chart_type` is NULL
-  for list and pivot views (a table CHECK enforces it).
+  for every kind but graph (a table CHECK enforces it).
+
+  `"report"` (REQ-619) stores a `filter`, a summary (`group_by`, non-empty `aggregates`) and an
+  optional detail (`columns`, `sort`; both may be `[]`); `chart_type` is NULL.
   """
 
   use Ecto.Schema

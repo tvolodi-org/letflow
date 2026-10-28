@@ -198,6 +198,23 @@ defmodule Letflow.EntityViewsSupport do
     )
   end
 
+  @doc "A valid report body over `answer_option` (REQ-619): count by question_id plus a detail."
+  def report_view(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "entity_type" => "answer_option",
+        "name" => "Options report",
+        "kind" => "report",
+        "filter" => [%{"field" => "text", "op" => "neq", "value" => "Z"}],
+        "group_by" => [%{"field" => "question_id"}],
+        "aggregates" => [%{"fn" => "count"}],
+        "columns" => ["text", "is_correct"],
+        "sort" => [%{"field" => "text", "dir" => "asc"}]
+      },
+      overrides
+    )
+  end
+
   def view_count(ctx), do: Repo.aggregate("entity_views", :count, prefix: ctx.schema_name)
 
   def audit_count(ctx, action) do
