@@ -44381,7 +44381,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-543 -- the record rules on Documents.issue/2, the numbering transaction that REQ-543 (still pending in the register) delivers
+    gh: 3475
     # Source: docs/migration/decisions/0056-versioned-documents.md header (D5 is direction, not binding until its own follow-up record), D2, D4, D5, D8, D9 and acceptance-criteria candidates 10, 12 and 23; docs/migration/decisions/0068-per-tenant-print-template-overrides.md ("Any slice that renders at issue depends on the 0056 D5 render slice", its S3). Pattern: REQ-509 (design record) before REQ-603 (build). Task T-0885.
     description: >
       Design and decision slice of the render half of slice 2 of versioned documents (decision 0056 header:
@@ -44417,7 +44417,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-622 -- built only after the decision record of REQ-622 is ratified
+    gh: 3474
     # Source: docs/migration/decisions/0056-versioned-documents.md D3 (binding hash recheck on read paths), D4 (artefact_hash write-once), D5, D8, D9 (document.artefact_attached reserved), acceptance-criteria candidates 10, 12 and 23; the record written by REQ-622; docs/migration/decisions/0068-per-tenant-print-template-overrides.md S3. Task T-0885.
     description: >
       The build slice of REQ-622. It is built only after the decision record of REQ-622 is ratified; where
