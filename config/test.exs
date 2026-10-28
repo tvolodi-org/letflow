@@ -306,6 +306,7 @@ config :letflow, :modules, [
   Letflow.Modules.Exam,
   Letflow.Modules.Org,
   Letflow.Modules.CatalogItems,
+  Letflow.Modules.Procurement,
   Letflow.Modules.Fixture,
   Letflow.Modules.FixtureDependent,
   Letflow.Modules.FixtureFailingInstall,
