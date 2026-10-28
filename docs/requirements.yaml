@@ -43278,6 +43278,80 @@ requirements:
       - "How the caller computes opts[:publisher_may_restricted?] for EntityWrite.run/4 (E-2 leaves it to E-3) is not stated by 0065 D5 beyond 'the publisher held EntitiesRestrictionsManage, re-checked at run time'. This slice passes false (restricted fields omitted) until the owner or the reviewer of REQ-539 rules how it is computed; a hook that needs a restricted input is not usable before that."
     depends_on: [REQ-601, REQ-567]
 
+  - id: REQ-612
+    title: "Question editor and question bank pages in the web exam module: create, edit and save a question with its answer options, difficulty badges, stem search (BilimBaga retirement criterion 3)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S10
+    gh: 3423
+    description: |
+      Source: docs/migration/bilimbaga-e2e-remeasure.md section 3 (rows question-editor.spec.ts, 7 tests, and
+      question-bank.spec.ts, 5 rows, both BLOCKED-BY the question editor page and search) and
+      docs/migration/bilimbaga-retirement-status.md (criterion 3, e2e parity; the question banks of criterion 1 are the data these pages author); the corpus files are
+      BilimBaga/frontend/e2e/question-editor.spec.ts and question-bank.spec.ts. Written by the business analyst (T-0818)
+      2026-10-28. Not yet validated.
+
+      Today web/ has no dedicated question page: the exam module (web/src/modules/exam/examRoutes.tsx) routes only
+      exam, exam/:examId/session, exam/sessions/:sessionId/result and admin/bilimbaga[/:entityType]. The last renders the
+      generic EntityCrudPage (web/src/pages/entities/EntityCrudPage.tsx), which has a create/edit modal with no
+      answer options, no search box and no difficulty badge. This requirement adds two pages inside web/src/modules/exam/
+      (module code, decision 0039 D3), registered in examRoutes.tsx, with no change under lib/ or priv/:
+      (a) the question bank at admin/questions and (b) the question editor at admin/questions/new and
+      admin/questions/:recordId/edit.
+
+      Data path (existing, nothing new on the server). Reads use the generic query routes through the existing
+      entitiesApi (web/src/api); writes use examAuthoringApi.createRecord / updateRecord in web/src/modules/exam/exam.api.ts
+      (POST / PUT /api/v1/modules/exam/authoring/:entity_type, permission ExamAuthoringWrite, handlers
+      handle_authoring_create / handle_authoring_update in lib/letflow/modules/exam/router.ex). A question is the record of
+      entity type question (priv/modules/exam/entity_definitions/question.json: category_id, difficulty easy|medium|hard,
+      type single|multiple|truefalse|likert|shorttext, status draft|review|active|archived, version, stem and explanation as
+      localized text over kk, ru, en, parent_id). Its answer options are separate records of entity type answer_option
+      (answer_option.json: question_id, sort_order, is_correct, likert_weight, likert_polarity positive|negative, text
+      localized), written through the same authoring routes. Stem search uses the filter operator contains (case-insensitive,
+      lib/letflow/entities/query/compiler.ex, ilike) on the stem locale column that matches the viewer's UI locale
+      (stem_kk, stem_ru, stem_en: queried, string-typed in lib/letflow/entities/query/allowlist.ex).
+
+      The 12 blocked tests and what happens to each (corpus test titles; the BilimBaga selectors are adapted to Letflow's
+      labels, the checks keep their meaning):
+        In scope (11), all ported as one Playwright file each, web/tests/e2e/question-editor.e2e.spec.ts and
+        question-bank.e2e.spec.ts, in the style of the existing question-bank.e2e.spec.ts neighbours:
+          question-editor: 1 renders the editor with a Save Draft button; 2 type selector offers all five types;
+          3 shows the stem text area; 4 switching to the short text type changes the answer section (see assumption A1);
+          5 switching to likert shows the polarity choice for each option; 6 navigates to the edit page of a seeded
+          question; 7 pre-populates the stem of an existing question.
+          question-bank: 8 the New Question action opens the editor (editor navigation); 9 difficulty badges are shown for
+          the listed questions; 10 a search term filters the list; 11 a search that matches nothing shows the empty state.
+        Split off, not built here (1): question-bank row "Import and AI Generate buttons" (the last of the 5 rows). Import stays
+          with the generic import route
+          (/entities/records/:type/import) and the AI-generate button stays with REQ-600, which is an owner gate (its
+          PRECONDITION: the owner records whether the AI feature is used at all). This entry adds neither button.
+        Dropped: none. The two other tests of the source question-bank spec (heading and New Question button) are not among
+          the 12 blocked rows: the existing question-bank.e2e.spec.ts already covers the list and the button on the generic
+          page; this entry keeps the heading and the New Question action on the new page and does not count them.
+
+      Open question for the owner, not settled here (assumption A1): the corpus test 4 expects an "auto-grading" section
+      for the short text type. In Letflow a short text question has no correct option: lib/letflow/modules/exam/scoring.ex
+      (score_question for :short_text) leaves it to the examiner, and the session becomes grading_pending
+      (lib/letflow/modules/exam/grading.ex). UAT assumption, to be confirmed by the process owner: the editor shows no
+      answer options for short text and shows a fixed notice that an examiner grades the answer; the corpus word "auto-grading"
+      is not reproduced because Letflow has no such feature.
+
+      Out of scope, owned elsewhere: delete, archive, import, export and AI tooling of questions
+      (question-management.spec.ts, 20 tests, BLOCKED-BY those controls); new version of a question from a parent
+      (REQ-586 routes are used only by sending parent_id back unchanged when the edited record has one); the exam wizard
+      (exam-wizard.spec.ts); tag assignment (question_tag).
+    acceptance_criteria:
+      - "1. Routes: examRoutes.tsx registers admin/questions, admin/questions/new and admin/questions/:recordId/edit inside the exam module, behind the module guard (ModuleGuard in web/src/modules/registry.ts), as the admin/bilimbaga routes are. The New Question, Edit and Save Draft actions render only for a holder of ExamAuthoringWrite (the permission BILIMBAGA_WRITES uses, as the canWrite flag of EntityCrudPage does); a unit test in web/src/modules/exam/__tests__/ renders each route for a holder and for a user without it and asserts those actions are absent for the latter. No file outside web/src/modules/exam/ and web/tests/e2e/ changes except the nav entry and messages named below."
+      - "2. Question bank list: admin/questions lists records of entity type question (excluding soft-deleted ones, as EXCLUDE_DELETED_FILTERS does in EntityCrudPage) in a table with a page heading, the stem in the viewer's locale (falling back to the first filled locale), the type, the status and a difficulty badge per row. The badge text is the difficulty value (easy, medium, hard, localized) and each of the three values has its own visually distinct style and a data-testid of the form difficulty-badge-<value>. Unit test: three seeded rows with the three difficulties show three different badges."
+      - "3. Search: the bank has a search input with a visible label and placeholder. The input sits in a form with a Search button (the precedent is EntityListBrowserPage, which fires its query on an explicit Search button press, not on every keystroke); pressing the button or Enter inside the input submits the form, typing alone sends nothing. Submitting sends one query with a contains filter on the stem locale column of the UI locale and shows only the matching rows; clearing the input restores the full list. A term that matches nothing shows an empty-state message and no table rows. The term is sent as data in the filter value, never joined into any path or query text (INV-7). Unit test with a mocked entitiesApi asserts the request filter field name for each of the three UI locales (stem_kk, stem_ru, stem_en) and the empty state."
+      - "4. New Question: the bank has a New Question action (button) that navigates to admin/questions/new. Each row has an Edit action that navigates to admin/questions/<record_id>/edit. Unit test asserts both targets."
+      - "5. Editor, create: admin/questions/new shows a Save Draft button, a stem text area with a placeholder, a type selector with exactly the five options single, multiple, truefalse, likert, shorttext, a difficulty selector with easy, medium, hard, and a category selector filled from records of entity type category. Save Draft sends one examAuthoringApi.createRecord('question', ...) with status draft, version 1, default_locale equal to the UI locale and the stem under the UI locale key, then one createRecord('answer_option', ...) per option row with question_id of the new record, sort_order 1..n, text (required by answer_option.json) under the UI locale key, and is_correct (required) as chosen; on success it navigates to the edit route of the new record. Unit test asserts the call sequence and arguments with a mocked examAuthoringApi."
+      - "6. Option rows by type: single and multiple show 2 to 8 option rows with a correct-answer control (one choice for single, any number for multiple); truefalse shows exactly two fixed options (true, false) with one marked correct, stored with text equal to the localized words for true and false under the UI locale key, which this change adds to examMessages.ts for en, ru and kk (the file has no such words today); likert shows option rows each with a polarity choice of positive or negative (likert_polarity) and a weight input (likert_weight) and no correct-answer control, and each likert option is sent with is_correct false (the field is required); shorttext shows no option rows and the examiner-grading notice of assumption A1. Switching the type re-renders the section without a runtime error. Save is refused in the page, with a visible message and no request sent, when the stem is empty, the category is not chosen, a single or truefalse question has not exactly one correct option, or a multiple question has none. Unit tests, one per type, assert the controls shown and one test per refusal."
+      - "7. Editor, edit: admin/questions/:recordId/edit loads the question record and its answer_option records (filter question_id equal to the record id) and pre-populates the stem with the stored value of the UI locale (non-empty for a seeded question), the type, difficulty, category and the option rows in sort_order. Save sends examAuthoringApi.updateRecord('question', recordId, ...) as a whole-document replacement carrying the loaded values for fields the page does not edit (explanation, parent_id, version and the other locales of the stem) and expected_last_event_global_seq set to the loaded record's last_event_global_seq (web/src/types/api.ts EntityRecord; the authoring PUT ignores If-Match, so no If-Match is relied on), for which examAuthoringApi.updateRecord in web/src/modules/exam/exam.api.ts is extended to accept and send that body field (unit test on the sent body), then createRecord, updateRecord or deleteRecord for the option records that were added, changed or removed. A 409 record-version-conflict (the record changed since it was loaded) and a 422 from the route (reasons parent_not_found, lineage_branch, version_not_increasing, lineage_active_conflict, read from extensions.reason) are shown as a message in the page with the form values kept. An unknown or other-tenant record id shows the same not-found state as an absent one (INV-5). Unit tests: pre-population, whole-document body, the 409 and 422 messages, and the not-found state."
+      - "8. Texts and nav: every new user-visible string is in web/src/modules/exam/examMessages.ts for all three locales (en, ru, kk) and web/src/modules/exam/__tests__/exam-i18n-grep.test.ts passes. The module nav entry 'Question Bank' in web/src/modules/exam/index.ts keeps its permission and now points to admin/questions; the generic admin/bilimbaga/question route stays reachable from BilimBagaAdminPage and its tests (BilimBagaAdminPage.test.tsx, BilimBagaEntityRoute.test.tsx, examModule.nav.test.tsx) pass; if the nav target change breaks one of them, the test is updated in this change and the PR says which."
+      - "9. Playwright specs: web/tests/e2e/question-editor.e2e.spec.ts holds the seven tests 1 to 7 of the list in the description and web/tests/e2e/question-bank.e2e.spec.ts gains tests 8 to 11, each with the corpus assertion adapted to Letflow labels (button names, placeholder, badges by data-testid), signed in as an admin of the BilimBaga demo tenant who holds ExamAuthoringWrite. Tests 6 and 7 (edit) create their own question through the new editor first instead of depending on seeded data, and are not conditional on data being present (the corpus version returns early when the bank is empty). The PR states that the specs cannot run on the engine host and lists the selectors; no test is skipped or marked fixme."
+      - "10. Scope: git diff --stat shows no file under lib/, priv/ or test/ (backend); the web gate cd web && npm run check passes with the real output quoted. docs/migration/bilimbaga-e2e-remeasure.md section 3 is updated in the same change: the two rows now read 'PORTED' for the 11 in-scope tests and 'split to REQ-600' for the Import and AI Generate expectation."
+    depends_on: [REQ-510, REQ-586]
   - id: REQ-608
     title: "Skip-link and main-content landmark in AppShell and the login page (BilimBaga retirement criterion 3, accessibility.spec.ts)"
     owner: FRONTEND-DEV
