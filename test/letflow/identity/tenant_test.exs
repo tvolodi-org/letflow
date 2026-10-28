@@ -420,9 +420,12 @@ defmodule Letflow.Identity.TenantTest do
       max = String.duplicate("я", 100)
 
       for settings <- [
-            %{"signatory_name" => "Aigerim Sadykova"},
-            %{"signatory_title" => "Director"},
-            %{"signatory_name" => "A", "signatory_title" => "B"},
+            %{"signatory_name" => "Aigul Nurpeisova"},
+            %{"signatory_title" => "Director of Certification"},
+            %{
+              "signatory_name" => "Aigul Nurpeisova",
+              "signatory_title" => "Director of Certification"
+            },
             %{"signatory_name" => max, "signatory_title" => max},
             %{"signatory_name" => nil},
             %{"signatory_title" => nil}
