@@ -43278,6 +43278,59 @@ requirements:
       - "How the caller computes opts[:publisher_may_restricted?] for EntityWrite.run/4 (E-2 leaves it to E-3) is not stated by 0065 D5 beyond 'the publisher held EntitiesRestrictionsManage, re-checked at run time'. This slice passes false (restricted fields omitted) until the owner or the reviewer of REQ-539 rules how it is computed; a hook that needs a restricted input is not usable before that."
     depends_on: [REQ-601, REQ-567]
 
+  - id: REQ-608
+    title: "Skip-link and main-content landmark in AppShell and the login page (BilimBaga retirement criterion 3, accessibility.spec.ts)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S10
+    gh: 3415
+    description: >-
+      Source: docs/migration/bilimbaga-e2e-remeasure.md section 3, row accessibility.spec.ts (7 tests, 0
+      portable now, 7 blocked: "BLOCKED-BY skip-link and #main-content landmark in AppShell"); it serves
+      BilimBaga retirement criterion 3 (e2e parity). The corpus file is
+      BilimBaga/frontend/e2e/accessibility.spec.ts (FR-BB63); its 7 cases are, in describe
+      "Accessibility - Skip Link (Login Page)" (no session, page /login): (1) "skip link is the first
+      focusable element on login page" (after one Tab, document.activeElement.href matches /#main-content$/);
+      (2) "skip link is visible when focused" (locator a[href="#main-content"] is visible after one Tab);
+      (3) "#main-content exists and has tabindex=-1 (required for skip link target)"; (4) "login page
+      #main-content exists"; and in describe "Accessibility - Admin Layout" (signed-in session): (5) "admin
+      layout has #main-content landmark" (page /admin); (6) "skip link is the first focusable element on
+      admin page" (same href check as case 1); (7) "admin pages render without accessibility-breaking
+      crashes" (pages /admin/users, /admin/questions, /admin/exams, /admin/tags each have #main-content
+      attached and no "unexpected error" or "something went wrong" text). Today
+      web/src/components/layout/AppShell.tsx renders a sidebar (aside) followed by a main element with no id,
+      and web/src/pages/LoginPage.tsx renders main with data-testid="login-page" and no id; neither has a
+      skip-link. This requirement adds both pieces to both screens, so all 7 cases can be ported.
+      (a) One new shared component web/src/components/layout/SkipLink.tsx: an a element with
+      href="#main-content" and a label prop. It is visually hidden until focused: while not focused its inline
+      style is the clipped visually-hidden form (position absolute, width and height 1px, overflow hidden,
+      clip rect(0,0,0,0)); an onFocus handler sets a React state flag and onBlur clears it, and while the
+      flag is set the style is a visible one (position fixed at the top left, padding, background and text
+      colour from existing CSS custom properties such as --surface-sidebar and --text-primary, no literal
+      colours: web/tests/guards/forbidlist.ts, decision 0020). Its onClick calls preventDefault and then
+      focus() on document.getElementById('main-content'), so the router location and the URL hash do not
+      change and nothing depends on the router's hash handling (Enter on a focused anchor fires click).
+      (b) AppShell.tsx renders SkipLink as the first child of the shell root, with the literal label "Skip to
+      main content" (like the existing "Sign out" literal in that file; AppShell has no message catalogue and
+      this change does not add one), and its existing main element gets id="main-content" and tabIndex={-1}.
+      (c) LoginPage.tsx renders SkipLink as the first child of its returned tree, before the main element,
+      with the label from intl.formatMessage({ id: 'login.skipToContent' }); the key is added in en
+      ("Skip to main content"), ru and kk in web/src/i18n/loginMessages.ts, and its main element keeps
+      data-testid="login-page" and gets id="main-content" and tabIndex={-1}. The shell is the only layout
+      that renders the authenticated screens (web/src/components/layout/AuthenticatedShellRoot.tsx), so case
+      7's four admin pages sit under the AppShell main. Porting the 7 cases as Playwright specs is a later
+      batch and is not part of this change.
+    acceptance_criteria:
+      - "1. Landmark in the shell: the main element rendered by AppShell has id main-content and tabIndex -1, and exactly one element with id main-content exists in the rendered shell. Vitest component test web/src/components/layout/__tests__/AppShell.skip-link.test.tsx (mocking useAuth and useQuery the way AppShell.branding.test.tsx does) asserts document.getElementById('main-content') is the main element. This covers corpus cases 5 and 7."
+      - "2. First focusable in the shell: in the same test, one userEvent.tab() from the document body puts focus on an a element whose getAttribute('href') is '#main-content' and whose accessible name is 'Skip to main content'; it precedes the sidebar's first navigation link in document order. This covers corpus case 6."
+      - "3. Activation: with the skip-link focused, pressing Enter and, in a second case, clicking it, moves document.activeElement to the main-content element, and the router location (pathname and hash) is unchanged. The AppShell test asserts both cases."
+      - "4. Visible when focused: before focus the skip-link's style has width 1px, height 1px and overflow hidden; after userEvent.tab() puts focus on it, the style no longer has that clipped form (position fixed, width auto); after blur it returns to the clipped form. A SkipLink unit test web/src/components/layout/__tests__/SkipLink.test.tsx asserts the three states, and a reading of the file shows no hex, rgb or hsl colour literal and that the colours are var(--...) references; the web guard in web/tests/guards/forbidlist.ts passes. This covers corpus case 2."
+      - "5. Landmark and skip-link on the login page: rendering LoginPage (the way web/src/pages/__tests__/LoginPage.test.tsx does) gives exactly one element with id main-content, which is the main element with data-testid login-page and tabindex attribute '-1'; one Tab from the body focuses an a element with href '#main-content' whose accessible name is the en value of login.skipToContent; clicking it moves focus to the main element. New cases in web/src/pages/__tests__/LoginPage.test.tsx. This covers corpus cases 1 to 4."
+      - "6. Login text: login.skipToContent exists in en, ru and kk in web/src/i18n/loginMessages.ts, and web/src/__tests__/login-i18n-grep.test.ts passes without edits to its scanners."
+      - "7. Not a dead stop: after the skip-link has moved focus to main-content in the AppShell test, pressing Tab moves focus to the first focusable element inside main when the test route renders a button as its page content; the Outlet content and the two banners still render inside the main element as before."
+      - "8. Existing behaviour: AppShell.branding.test.tsx, AppShell.module-nav.test.tsx, AppShell.candidate-nav.test.tsx, AppShell.bilimbaga.test.tsx, AuthenticatedShellRoot.test.tsx, LoginPage.test.tsx (existing cases) and LoginRoute.test.tsx pass without edits to existing cases."
+      - "9. Scope and gate: git diff --stat shows only web/src/components/layout/SkipLink.tsx, web/src/components/layout/AppShell.tsx, web/src/pages/LoginPage.tsx, web/src/i18n/loginMessages.ts and the test files named in criteria 1, 4 and 5 inside web/; no file under lib/, priv/ or test/, and no Playwright spec; cd web && npm run check passes with the real output quoted. The PR states that the 7 accessibility.spec.ts cases are unblocked and that porting them is a later batch."
+    depends_on: []
   - id: REQ-609
     title: "Tenant x_ extension layer slice I2: the write path with the D4 refusals, the :EntitiesExtensionsManage permission, the type-extension routes and audit (decision 0067-tenant-x I2)"
     owner: ELIXIR-DEV
