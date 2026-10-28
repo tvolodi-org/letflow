@@ -927,6 +927,10 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/tenant/config-bundle"), do: :TenantSettingsManage
   def endpoint_policy_key("POST", "/tenant/config-bundle/import"), do: :TenantSettingsManage
 
+  # REQ-590 / GH #3338 -- tenant logo upload (Letflow.Routers.TenantLogo), own tenant only.
+  def endpoint_policy_key("PUT", "/tenant/logo"), do: :TenantSettingsManage
+  def endpoint_policy_key("DELETE", "/tenant/logo"), do: :TenantSettingsManage
+
   # REQ-076 -- onboarding (Letflow.Routers.Onboarding), a top-level sibling
   # router mounted at /onboarding (not under Letflow.Routers.Identity's own
   # /identity mount). Reuses the existing :TenantsManage permission -- same
