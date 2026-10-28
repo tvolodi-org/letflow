@@ -43232,7 +43232,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-579 -- the routes this screen calls are built by REQ-579
+    gh: 3436
     # Source: docs/migration/decisions/0068-per-tenant-print-template-overrides.md (D2 "a web editor is a later slice", D5 field restrictions, D7 authority, D8 "S4 Web authoring screen", Open owner questions Q1, Q2, Q5, "Tests the implementation slices must add" D5-redact); docs/requirements.yaml REQ-579 (the five routes, the 409 and 422 reply texts) and REQ-571 (the layout shape); lib/letflow/routers/documents.ex (route table, @override_meta_keys, violation_map, unprocessable_detail); lib/letflow/documents/print_overrides.ex (conflict_reason/1, @reason_code_re); lib/letflow/documents/print_layout.ex (block types and allowed keys); web/src/router.tsx, web/src/components/layout/AppShell.tsx (nav entries with a permission), web/src/auth/access/types.ts (P). Written by the business analyst (T-0844) 2026-10-28. Not yet validated.
     description: >
       Slice S4 of decision 0068 (docs/migration/decisions/0068-per-tenant-print-template-overrides.md, D8).
