@@ -897,7 +897,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-598 / GH #3367: kind, group_by and aggregates on entity_views (saved pivot views). Existing
     # rows become `list` through the column defaults; no row altered.
     {20_261_027_400_001, Letflow.Repo.Migrations.AddPivotToEntityViews,
-     "20261027400001_add_pivot_to_entity_views.exs"}
+     "20261027400001_add_pivot_to_entity_views.exs"},
+    # REQ-590 / GH #3338: empty per-tenant singleton table for the uploaded tenant logo (part 1,
+    # storage and write path only, behind :tenant_logo_upload_enabled). No existing row altered.
+    {20_261_027_500_001, Letflow.Repo.Migrations.CreateTenantLogos,
+     "20261027500001_create_tenant_logos.exs"}
   ]
 
   @doc """

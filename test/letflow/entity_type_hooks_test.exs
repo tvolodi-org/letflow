@@ -115,10 +115,15 @@ defmodule Letflow.EntityTypeHooksTest do
       end)
 
       body = fn kind ->
+        manifest =
+          if kind == "entity_write",
+            do: Map.put(F.closed_manifest(), "derived_fields", ["total"]),
+            else: F.closed_manifest()
+
         %{
           "hook_kind" => kind,
           "source" => F.doubling_source(),
-          "manifest" => F.closed_manifest(),
+          "manifest" => manifest,
           "test_cases" => [
             %{
               "name" => "c1",
@@ -131,6 +136,7 @@ defmodule Letflow.EntityTypeHooksTest do
 
       assert {:ok, draft} = Scripts.create_draft(schema, "k1key", body.("entity_write"), actor())
       assert draft.hook_kind == "entity_write"
+      assert draft.manifest["derived_fields"] == ["total"]
 
       assert {:ok, published} =
                Scripts.publish(schema, "k1key", draft.version, draft.sha256, actor(), false)

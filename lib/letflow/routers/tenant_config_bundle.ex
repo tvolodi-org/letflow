@@ -10,7 +10,8 @@ defmodule Letflow.Routers.TenantConfigBundle do
       `label_overrides` part needs `:LabelsManage` and `notification_templates` needs
       `:NotificationTemplatesManage`; a part the caller may not read is left out of the bundle.
     * `POST /import` -- applies a bundle. When it carries module settings the caller also needs
-      `:ModulesManage`; a caller without it gets the same 403 body as the route-level check (INV-5).
+      `:ModulesManage`; a v2 document with a non-empty `label_overrides` / `notification_templates`
+      list needs `:LabelsManage` / `:NotificationTemplatesManage` (REQ-599); a caller without it gets the same 403 body as the route-level check (INV-5).
 
   The tenant and the schema prefix come only from `conn.assigns` (token); the path, the query and
   the body carry no tenant identifier (INV-1, INV-10). Unknown `bundle_schema_version` and any
@@ -61,7 +62,11 @@ defmodule Letflow.Routers.TenantConfigBundle do
         Response.ok(conn, %{
           "tenant_settings_changed" => counts.tenant_settings_changed,
           "modules_changed" => counts.modules_changed,
-          "modules_unchanged" => counts.modules_unchanged
+          "modules_unchanged" => counts.modules_unchanged,
+          "label_overrides_changed" => counts.label_overrides_changed,
+          "label_overrides_unchanged" => counts.label_overrides_unchanged,
+          "notification_templates_changed" => counts.notification_templates_changed,
+          "notification_templates_unchanged" => counts.notification_templates_unchanged
         })
 
       {:error, {:unknown_schema_version, _v}} ->

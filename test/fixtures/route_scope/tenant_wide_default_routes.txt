@@ -7,6 +7,7 @@ DELETE /modules/exam/authoring/:entity_type/:record_id ExamAuthoringWrite
 DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
 DELETE /record-trigger-bindings/:entity_type/:event RecordTriggerBindingsManage
 DELETE /script-rules/:key/versions/:version ScriptsWrite
+DELETE /tenant/logo TenantSettingsManage
 DELETE /webhooks/subscriptions/:id WebhookSubscriptionsManage
 GET /admin/services AdminServicesRead
 GET /audit AuditRead
@@ -135,6 +136,7 @@ PUT /script-policy/kill-switch ScriptPolicyManage
 PUT /script-policy/readable-masters/:entity_type ScriptPolicyManage
 PUT /script-policy/sod ScriptPolicyManage
 PUT /script-rules/:key/versions/:version ScriptsWrite
+PUT /tenant/logo TenantSettingsManage
 PUT /tenant/modules/:module_id/settings ModulesManage
 PUT /tenants/:slug/script-policy/kill-switch TenantsManage
 PUT /tenants/:slug/script-policy/solo-audited TenantsManage
