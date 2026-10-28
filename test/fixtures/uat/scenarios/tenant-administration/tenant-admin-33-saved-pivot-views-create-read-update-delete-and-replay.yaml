@@ -1,0 +1,203 @@
+# T-0822 (BA): TENANT ADMIN group, scenario 33: saved pivot views, the administrator saves, reads, changes and deletes a pivot view, and the
+# stored definition replayed as an ordinary aggregate query gives the same answer as the same query typed by hand.
+# Covers REQ-598 criteria 2 (success side: a valid filter, grouping and aggregates are accepted; an absent grouping is accepted), 3 (a pivot
+# view names exactly one record type; another administrator-level reader sees it in the list), 5 (replay through the aggregate query, with a
+# non-empty filter, equals the hand-built request; no view answer carries an aggregate result or a record value) and, for the pivot kind,
+# the existing list views still work unchanged (criterion 1, the write body default).
+# Sources: docs/requirements.yaml REQ-598 (criteria 1, 2, 3, 5); docs/migration/decisions/0066-generic-saved-views-over-records.md (D2, D3);
+# lib/letflow/entities/views/clauses.ex (group_by, aggregates and kind rules); docs/roles.md (EntitiesViewsManage, EntitiesQuery,
+# EntitiesAggregate rows); test/fixtures/uat/actors.yaml.
+# Not UAT-observable (listed in scenario 35): the migration, the audit entry written in the same transaction, and the route and permission
+# pins. Audit entries of a pivot view are readable through the audit trail, but the "same transaction" part is not; this scenario only checks
+# that the entries exist.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are in
+# scenarios 34 and 35.
+---
+id: tenant-administration-33-saved-pivot-views-create-read-update-delete-and-replay
+scope: tenant-administration
+title: The administrator saves, reads, changes and deletes a pivot view over one record type, and replaying it as an aggregate query gives the hand-typed answer
+version: "1.0"
+tags: [tenant-admin, saved-views, pivot, crud, replay, audit]
+
+description: >
+  The administrator of SwiftRoute creates the record type "UAT pivot ticket" with the fields title (text, required), status (text), region
+  (text) and amount (whole number), and four records: (A, open, north, 10), (B, open, north, 20), (C, open, south, 5), (D, closed, north, 100).
+  The administrator saves the pivot view "UAT open by region" over that type with the filter "status equals open", the grouping by region and
+  the aggregates count and sum of amount. The view is read by id and by list, then changed (a second aggregate, the largest amount, and the
+  name "UAT open by region v2"). A task worker, who may read lists, sees the view. The stored filter, grouping and aggregates are then sent as
+  an ordinary aggregate query, which is how a pivot screen computes its table; the answer is compared with the same query typed by hand and
+  with the expected numbers (north: 2 records, 30; south: 1 record, 5; closed record D is not counted). A pivot view with no grouping is also
+  accepted. A list view saved without saying its kind still works as before. Finally the administrator deletes the pivot view; reading and
+  deleting it again give the same not-found answer. No answer of the view routes contains an aggregate result or a record value, and create,
+  change and delete each leave an audit entry.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  worker: actor-swiftroute-lena
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator and a task worker; no record type "UAT pivot ticket" and no saved view named "UAT open by region", "UAT open by region v2", "UAT no grouping" or "UAT plain list" exist
+    check: system_seeded
+    detail: If views exist from an earlier run, delete them first and note it in the report; the record type and its four records may stay if they are as described in the description (otherwise the numbers of EO-005 cannot be judged, report BLOCKED for EO-005).
+  - description: The audit trail of the company can be read by the administrator
+    check: system_seeded
+    detail: If the test environment cannot show the audit trail, report BLOCKED for the audit part of EO-007 and run the rest.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator creates the record type "UAT pivot ticket" with the fields title (text, required), status (text), region (text) and
+      amount (whole number), makes it active, and creates the four records (A, open, north, 10), (B, open, north, 20), (C, open, south, 5)
+      and (D, closed, north, 100).
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator saves the pivot view "UAT open by region" over "UAT pivot ticket" with the filter "status equals open", the grouping by
+      region, and the two aggregates "count of records" and "sum of amount". The administrator notes the id, the name, the kind, the type, the
+      filter, the grouping, the aggregates in order, the creating person and the time of the answer.
+    via: api
+    input:
+      name: UAT open by region
+      kind: pivot
+      entity_type: UAT pivot ticket
+      filter: status equals open
+      group_by: [region]
+      aggregates: [count, sum of amount]
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator lists all views, lists the views of the type "UAT pivot ticket" only, and reads the view of step 2 by its id. The
+      administrator compares the three answers with step 2.
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator changes the view of step 2: the name becomes "UAT open by region v2", and the aggregates become count, sum of amount
+      and largest amount, in this order. The kind stays pivot, the filter stays "status equals open", the grouping stays region, the record type
+      is not part of the change. The administrator reads the view again and notes the name, kind, grouping, aggregates, creating person,
+      changing person and the two times.
+    via: api
+    input:
+      name: UAT open by region v2
+      kind: pivot
+      filter: status equals open
+      group_by: [region]
+      aggregates: [count, sum of amount, largest amount]
+  - step: 5
+    actor: worker
+    action: >
+      The task worker lists the views and reads the view of step 4 by its id, and notes whether the view is shown and what the answer
+      contains.
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator sends the aggregate query over "UAT pivot ticket" built by hand: filter "status equals open", grouping by region,
+      aggregates count, sum of amount and largest amount. Then the administrator sends the aggregate query made from the view of step 4: the
+      stored filter as the filter of the query, the stored grouping and the stored aggregates, with nothing added or left out. The two answers
+      are noted and compared, with the expected numbers (north: 2 records, sum 30, largest 20; south: 1 record, sum 5, largest 5; no row for the
+      closed record D).
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator saves the pivot view "UAT no grouping" over "UAT pivot ticket" with the filter "status equals open", no grouping and the
+      one aggregate "count of records", notes the answer, replays it as an aggregate query and notes the answer. The administrator also saves the
+      view "UAT plain list" over the same type with the column title and does not say its kind, and reads it back.
+    via: api
+    input:
+      name: UAT no grouping
+      kind: pivot
+      entity_type: UAT pivot ticket
+      filter: status equals open
+      aggregates: [count]
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator deletes the view of step 4, then reads it by its id, then lists the views of the type, then deletes it a second time.
+      The answers are noted. The administrator then deletes the views "UAT no grouping" and "UAT plain list".
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator reads the audit trail of the company for the entries of the pivot view of steps 2, 4 and 8, and notes the kind of each
+      entry, the acting person and the time.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A created pivot view is stored as given and the answer names its kind, who created it and when; the company is not named.
+    verification:
+      method: api_response
+      detail: The answer of step 2 is a creation (201) with an id, the name "UAT open by region", the kind pivot, the type "UAT pivot ticket", the filter as given, the grouping by region, the two aggregates in the given order, the creating person alice, and times; it holds no company identifier.
+      evidence: The answer of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A saved pivot does not keep what the administrator set, so every user who opens it sees a different table.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The pivot view is found by list, by type and by id, with the same content each time, and names exactly one record type.
+    verification:
+      method: api_response
+      detail: In step 3 the list of all views and the list of the type each contain the view once; the answer by id equals the answer of step 2 in every field; the view names one record type and no second one.
+      evidence: The three answers of step 3 compared with step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Users cannot find the saved pivot they need, or see two versions of it.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A change replaces the name and the aggregates, keeps the kind, the type, the filter, the grouping and the creating person, and records who changed it and when.
+    verification:
+      method: api_response
+      detail: After step 4 the view has the new name and the three aggregates in the stated order; the kind is pivot, the type is "UAT pivot ticket", the filter and grouping are those of step 2; the creating person is alice and the first time is unchanged; the changing person is alice and the second time is later than in step 2.
+      evidence: The reading of the view in step 4 compared with step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A change to a shared pivot is lost, or nobody can tell who changed it.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A user with the query permission only (the task worker) sees the pivot view, and the answer is the same as the administrator's.
+    verification:
+      method: api_response
+      detail: In step 5 both answers are 200 and the view is shown with the content of step 4. The record type "UAT pivot ticket" is created in step 1 without any restriction, so an empty list or a 404 for the task worker is a failure of this outcome.
+      evidence: The two answers of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Staff cannot use the pivots their administrator has prepared.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Replaying the stored definition as an aggregate query gives exactly the answer of the same query typed by hand, and the filter is applied.
+    verification:
+      method: api_response
+      detail: In step 6 the two answers are equal in every row and number, and show north with 2 records, sum 30 and largest 20, and south with 1 record, sum 5 and largest 5; the closed record D is in no row (a replay that dropped the filter would show north with 3 records and sum 130).
+      evidence: The two answers of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A saved pivot shows different numbers from the same question asked directly, so decisions are taken on wrong figures.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: No answer of the view routes contains an aggregate result or a record value, and a pivot with no grouping, or a list view saved without a kind, is accepted.
+    verification:
+      method: api_response
+      detail: The answers of steps 2 to 5 and 7 hold only the view fields (id, kind, type, name, filter, grouping, aggregates, persons, times; the list view also its columns and sort) and no number computed from records and no value of any record; in step 7 the "UAT no grouping" creation is 201 and its replay gives one row with the count 3 (open records A, B, C); the "UAT plain list" creation is 201 with the kind list.
+      evidence: The answers of steps 2 to 5 and 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A view could become a second way to read records or totals that bypasses the rules which hide fields from a user.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: Deleting removes the pivot view; a second reading or deletion gives the same not-found answer; create, change and delete each leave an audit entry naming the administrator.
+    verification:
+      method: audit_event
+      detail: In step 8 the first deletion succeeds (204), the reading and the second deletion give the same not-found status and body, and the list of the type does not show the view. In step 9 there are three entries (create, update, delete) for the view, each with alice as the acting person, and no entry for the failed second deletion.
+      evidence: The answers of step 8 and the audit entries of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: Deleted pivots keep appearing, or changes to shared pivots cannot be traced to a person.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the views "UAT open by region", "UAT open by region v2", "UAT no grouping" and "UAT plain list" if they still exist. The record type "UAT pivot ticket" and its four records stay for scenarios 34 and 35 and are retired with the test customer.
