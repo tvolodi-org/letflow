@@ -51,6 +51,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/admin/groups', group: 'tenantAdmin', label: 'Groups', permission: P.UsersGroupsRolesManage },
   { to: '/admin/tokens', group: 'tenantAdmin', label: 'Tokens', permission: P.TokensManage },
   { to: '/admin/audit', group: 'tenantAdmin', label: 'Audit', permission: P.AuditRead },
+  { to: '/admin/print-templates', group: 'tenantAdmin', label: 'Print Templates', permission: P.DocumentPrintTemplatesManage },
   { to: '/admin/health', group: 'platform', label: 'Health', permission: P.TenantsManage, platformOnly: true },
   { to: '/admin/metrics', group: 'tenantAdmin', label: 'Metrics', permission: P.MetricsRead },
   { to: '/admin/onboarding/new', group: 'platform', label: 'Register Tenant', permission: P.TenantsManage, platformOnly: true },

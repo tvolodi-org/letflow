@@ -134,6 +134,11 @@ export function useTenantScopedQueryKeys() {
       summary: () => queryKeys.eventRetention.summary(tenantId),
       retirement: queryKeys.eventRetention.retirement.bind(null, tenantId),
     },
+    printOverrides: {
+      all: () => queryKeys.printOverrides.all(tenantId),
+      list: (filters?: Record<string, unknown>) => queryKeys.printOverrides.list(tenantId, filters),
+      detail: queryKeys.printOverrides.detail.bind(null, tenantId),
+    },
     // NOT tenant-scoped — passed through unchanged.
     onboarding: queryKeys.onboarding,
     me: {
