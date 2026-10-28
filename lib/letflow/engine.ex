@@ -2804,6 +2804,12 @@ defmodule Letflow.Engine do
           | {:error,
              {:output_refused, %{missing_keys: [String.t()], rejected_keys: [String.t()]}}}
           | {:error, :separation_of_duties}
+          # GH #3409 (F-3): the node's form validation hook refused (the manifest's code and field
+          # entries only), or gave no verdict (a closed `Letflow.Scripts.FormValidation` code).
+          | {:error,
+             {:form_hook_refused,
+              %{code: String.t(), fields: [%{field: String.t(), code: String.t()}]}}}
+          | {:error, {:form_hook_failed, code :: atom()}}
           # GH #2587 PR B2 (design section 5.4): a declarative entity write refused (a stable
           # code and the declared line index, or `:contention` for a lock/timeout/deadlock
           # or the 10 s guard), failed internally (a step atom only), or the activator is
@@ -2954,9 +2960,9 @@ defmodule Letflow.Engine do
       # GH #2587 PR B2 (design 7.3, P0/P1): the read-only plan phase and `prepare/2` run
       # BEFORE the transaction. `nil` plan = no lines = today's Multi, step for step.
       case plan_entity_writes(task_id, actor_id, prefix) do
-        {:ok, plan} ->
+        {:ok, plan, hook} ->
           run_complete_task_transaction(
-            plan,
+            {plan, hook},
             task_id,
             output_variables,
             actor_id,
@@ -2976,7 +2982,7 @@ defmodule Letflow.Engine do
   end
 
   defp run_complete_task_transaction(
-         plan,
+         {plan, hook},
          task_id,
          output_variables,
          actor_id,
@@ -2995,7 +3001,8 @@ defmodule Letflow.Engine do
       completed_at,
       prefix,
       f1,
-      hidden_check
+      hidden_check,
+      hook
     )
     |> run_transaction(plan)
     |> fold_sys_into_transition()
@@ -3011,8 +3018,20 @@ defmodule Letflow.Engine do
     @doc false
     @spec __complete_task_multi_step_names__(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
             {:ok, [term()]} | {:error, term()}
-    def __complete_task_multi_step_names__(task_id, actor_id, prefix) do
-      with {:ok, plan} <- plan_entity_writes(task_id, actor_id, prefix) do
+    def __complete_task_multi_step_names__(task_id, actor_id, prefix),
+      do: __complete_task_multi_step_names__(task_id, actor_id, prefix, :skip)
+
+    # `hidden_check` is `:skip` or `{:check, hidden}` (as `hidden_check/1` builds it): with a check
+    # the `:redacted_sentinel` step exists, so the position of the hook step after it can be read.
+    @doc false
+    @spec __complete_task_multi_step_names__(
+            Ecto.UUID.t(),
+            Ecto.UUID.t(),
+            String.t(),
+            :skip | {:check, term()}
+          ) :: {:ok, [term()]} | {:error, term()}
+    def __complete_task_multi_step_names__(task_id, actor_id, prefix, hidden_check) do
+      with {:ok, plan, hook} <- plan_entity_writes(task_id, actor_id, prefix) do
         names =
           plan
           |> build_complete_task_multi(
@@ -3023,7 +3042,8 @@ defmodule Letflow.Engine do
             DateTime.utc_now(),
             prefix,
             :off,
-            :skip
+            hidden_check,
+            hook
           )
           |> Multi.to_list()
           |> Enum.map(fn
@@ -3051,6 +3071,84 @@ defmodule Letflow.Engine do
     end)
   end
 
+  # GH #3409 (decision 0067 D1/D9, F-3 part A): hook 3, the node's `form_validation` script, runs
+  # after the guards and the sentinel check (a refused completion never starts the sandbox) and
+  # before the reevaluation and the merge. It only reads; a refusal rolls the transaction back and
+  # writes no audit row (F-4). A node without a hook gets no step.
+  defp maybe_form_validation_hook(multi, nil, _output_variables, _completed_at, _prefix),
+    do: multi
+
+  defp maybe_form_validation_hook(multi, hook, output_variables, completed_at, prefix) do
+    Multi.run(multi, :form_validation_hook, fn _repo,
+                                               %{
+                                                 task: task,
+                                                 instance_projection: projection,
+                                                 snapshot_and_state: snapshot_and_state
+                                               } ->
+      run_form_hook(
+        hook,
+        task,
+        projection,
+        snapshot_and_state,
+        output_variables,
+        completed_at,
+        prefix
+      )
+    end)
+  end
+
+  defp run_form_hook(%{pin: :unresolved}, _task, _projection, _snap, _vars, _at, _prefix),
+    do: {:error, {:completion_refused, {:form_hook_failed, :script_rejected}}}
+
+  defp run_form_hook(
+         hook,
+         %Task{} = task,
+         projection,
+         snap,
+         output_variables,
+         completed_at,
+         prefix
+       ) do
+    {:ok, sha256} = hook.pin
+
+    # Facts come only from the three step results and the submitted output (the SUBMITTED values,
+    # not the re-evaluated ones). Restricted values are dropped by `publisher_may_restricted?: false`.
+    facts = %{
+      variables: output_variables,
+      variable_labels: projection.variable_labels,
+      instance_id: task.instance_id,
+      token_id: task.token_id,
+      form: %{
+        definition_id: projection.definition_id,
+        definition_version: snap.definition_version,
+        node_id: task.node_id,
+        schema_version_hash:
+          :sha256
+          |> :crypto.hash(Letflow.Scripts.Hash.canon(task.form_schema || %{}))
+          |> Base.encode16(case: :lower)
+      },
+      task: %{
+        id: task.id,
+        node_id: task.node_id,
+        assignee_kind: task.assignee_type || "none",
+        now: completed_at
+      }
+    }
+
+    pin = %{script_key: hook.key, script_version: hook.version, script_sha256: sha256}
+
+    case Letflow.Scripts.FormValidation.run(prefix, pin, facts, publisher_may_restricted?: false) do
+      {:ok, :accepted} ->
+        {:ok, :accepted}
+
+      {:ok, {:refused, %{code: _, fields: _} = verdict}} ->
+        {:error, {:completion_refused, {:form_hook_refused, verdict}}}
+
+      {:error, code, _stats} ->
+        {:error, {:completion_refused, {:form_hook_failed, code}}}
+    end
+  end
+
   defp redacted_sentinel_keys(output_variables, labels, hidden) do
     placeholder = Atom.to_string(VariableLabels.representation())
 
@@ -3071,7 +3169,8 @@ defmodule Letflow.Engine do
          completed_at,
          prefix,
          f1,
-         hidden_check
+         hidden_check,
+         hook
        ) do
     Multi.new()
     |> maybe_entity_write_timeouts(plan)
@@ -3100,6 +3199,7 @@ defmodule Letflow.Engine do
       check_completion_guards(repo, graph, task, output_variables, actor_id, prefix, plan)
     end)
     |> maybe_redacted_sentinel_check(hidden_check, output_variables)
+    |> maybe_form_validation_hook(hook, output_variables, completed_at, prefix)
     |> Multi.run(:form_expression_reevaluation, fn _repo,
                                                    %{
                                                      task: task,
@@ -3264,16 +3364,68 @@ defmodule Letflow.Engine do
   # P0 + P1 (design 7.3). Read-only except `prepare/2`'s own short transaction. Never fails the
   # completion by itself for a read problem (`{:ok, nil}`: the in-transaction steps return
   # today's canonical errors, and the fail-closed guard refuses "lines but no plan").
+  #
+  # GH #3409 (F-3): the same reads also give the node's form validation hook binding and its
+  # script pin (`read_form_hook/3`), independent of whether the node has entity lines. An
+  # unreadable task or snapshot gives no hook, which is safe: the transaction re-reads the same
+  # rows and answers `task_not_pending` / `snapshot_not_found` before any step runs (a
+  # non-pending task never becomes pending again; the snapshot is write-once).
   @spec plan_entity_writes(Ecto.UUID.t(), term(), String.t()) ::
-          {:ok, entity_plan() | nil} | {:error, term()}
+          {:ok, entity_plan() | nil, form_hook() | nil} | {:error, term()}
   defp plan_entity_writes(task_id, actor_id, prefix) do
     with %Task{status: :pending} = task <- Repo.get(Task, task_id, prefix: prefix),
          {:ok, graph, raw_graph} <- fetch_graph_with_raw(task.instance_id, prefix),
-         %{attributes: %{} = attributes} <- find_node(graph, task.node_id),
-         declared when declared != {:ok, [], []} <- declared_writes(attributes) do
-      resolve_entity_plan(task, declared, raw_graph, actor_id, prefix)
+         %{attributes: %{} = attributes} <- find_node(graph, task.node_id) do
+      hook = read_form_hook(task, attributes, prefix)
+
+      case declared_writes(attributes) do
+        {:ok, [], []} ->
+          {:ok, nil, hook}
+
+        declared ->
+          with {:ok, plan} <- resolve_entity_plan(task, declared, raw_graph, actor_id, prefix),
+               do: {:ok, plan, hook}
+      end
     else
-      _no_lines_or_unreadable -> {:ok, nil}
+      _no_lines_or_unreadable -> {:ok, nil, nil}
+    end
+  end
+
+  @typep form_hook :: %{
+           key: String.t(),
+           version: pos_integer() | nil,
+           pin: {:ok, String.t()} | :unresolved
+         }
+
+  # GH #3409 (decision 0067 D1, F-3): a node naming `validation_script_key` has a hook. A key with
+  # no usable version, or no matching pin, is still a hook with `pin: :unresolved` (fail closed,
+  # never "no hook"). Script pins are never rebound or inherited, so reading them here, before
+  # the transaction, is exact and keeps the whole-log read out of the locked section.
+  defp read_form_hook(%Task{} = task, attributes, prefix) do
+    case Map.get(attributes, "validation_script_key") do
+      key when is_binary(key) and key != "" ->
+        version = Map.get(attributes, "validation_script_version")
+        version = if is_integer(version) and version >= 1, do: version
+
+        %{key: key, version: version, pin: form_hook_pin(task, key, version, prefix)}
+
+      _no_hook ->
+        nil
+    end
+  end
+
+  defp form_hook_pin(_task, _key, nil, _prefix), do: :unresolved
+
+  defp form_hook_pin(%Task{} = task, key, version, prefix) do
+    expected_version = Integer.to_string(version)
+
+    with {:ok, pins} <- PinResolver.reconstruct_effective_pins(task.instance_id, prefix: prefix),
+         {:ok, %{version: ^expected_version, sha256: sha256}}
+         when is_binary(sha256) and byte_size(sha256) == 64 <-
+           PinResolver.pin_for(pins, :script, key) do
+      {:ok, sha256}
+    else
+      _missing_or_mismatched -> :unresolved
     end
   end
 
@@ -3962,7 +4114,7 @@ defmodule Letflow.Engine do
   # tasks/tokens/instance_projections rows -- not a full REQ-053 event-log
   # replay (design doc §6, MAJOR OQ-2).
   defp build_snapshot_and_state(repo, %Task{} = task, %InstanceProjection{} = projection, prefix) do
-    with {:ok, graph} <- fetch_graph(task.instance_id, prefix) do
+    with {:ok, graph, definition_version} <- fetch_graph_and_version(task.instance_id, prefix) do
       active_token_records = load_active_tokens(repo, task.instance_id, prefix)
       active_tokens = Enum.map(active_token_records, &to_pure_token/1)
 
@@ -3973,6 +4125,8 @@ defmodule Letflow.Engine do
         {:ok,
          %{
            graph: graph,
+           # GH #3409 (F-3): the snapshot row's `definition_ver`, a fact of the form hook (no query).
+           definition_version: definition_version,
            seed_instance_state: seed_instance_state,
            # GH #2359: the seed minus the completing token's own {token_id,
            # node_id} entry -- the task being completed is no longer pending
@@ -3997,6 +4151,18 @@ defmodule Letflow.Engine do
   # time, never a live re-read of process_definitions.
   defp fetch_graph(instance_id, prefix) do
     with {:ok, graph, _raw} <- fetch_graph_with_raw(instance_id, prefix), do: {:ok, graph}
+  end
+
+  # The pinned graph and the snapshot row's definition version (same single read as `fetch_graph/2`).
+  defp fetch_graph_and_version(instance_id, prefix) do
+    case SnapshotStore.get_by_instance_id(instance_id, prefix: prefix) do
+      {:ok, snapshot} ->
+        with {:ok, graph} <- build_graph(snapshot.graph),
+             do: {:ok, graph, snapshot.definition_ver}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   # The pinned graph AND the raw snapshot map it was built from (GH #2590 R4b: the stamp's body
@@ -9172,6 +9338,24 @@ defmodule Letflow.Engine do
     )
 
     {:error, :separation_of_duties}
+  end
+
+  # GH #3409 (F-3): the form validation hook refused, or could not give a verdict. Nothing
+  # committed, no audit row (F-4). Neither internal term may leave this module.
+  defp interpret_complete_result(
+         {:error, _failed_step, {:completion_refused, {:form_hook_refused, verdict}}, _changes},
+         _actor_id,
+         _prefix
+       ) do
+    {:error, {:form_hook_refused, verdict}}
+  end
+
+  defp interpret_complete_result(
+         {:error, _failed_step, {:completion_refused, {:form_hook_failed, code}}, _changes},
+         _actor_id,
+         _prefix
+       ) do
+    {:error, {:form_hook_failed, code}}
   end
 
   # GH #2587 PR B2: the guard's fail-closed "lines but no plan" refusal. Nothing committed.
