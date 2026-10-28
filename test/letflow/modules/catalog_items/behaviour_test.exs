@@ -16,7 +16,7 @@ defmodule Letflow.Modules.CatalogItems.BehaviourTest do
   alias Letflow.EventStore.Registry.ValidationFailure
   alias Letflow.Modules.CatalogItems
 
-  @types ["catalog_uom", "catalog_item"]
+  @types ["catalog_uom", "catalog_item", "catalog_counterparty"]
 
   setup do
     {:ok, installed_tenant!("gh2664-beh")}

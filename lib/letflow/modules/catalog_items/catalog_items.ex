@@ -1,21 +1,23 @@
 defmodule Letflow.Modules.CatalogItems do
   @moduledoc """
   Foundation module `catalog_items` (GH #2663 / REQ-474, WMS foundation slice 0; decisions 0050
-  D1, 0052, 0054 option A, 0057 D1): the shared item and unit-of-measure masters. The manifest
+  D1, 0052, 0054 option A, 0057 D1): the shared item, unit-of-measure and supplier masters. The manifest
   id is `catalog_items` because `catalog` collides with `Letflow.Modules.Catalog`.
 
-  Two entity types, shipped by the pack `priv/modules/catalog_items/pack.json` (generated from
+  Three entity types, shipped by the pack `priv/modules/catalog_items/pack.json` (generated from
   `priv/modules/catalog_items/entity_definitions/` by
   `priv/modules/catalog_items/generate_pack.exs`):
 
     * `catalog_uom`: a unit of measure, unique `code`;
     * `catalog_item`: an item, unique `code`, with a `base_uom_id` (the record id of a
-      `catalog_uom`, a declarative string) and a `kind` enum (`material | service`).
+      `catalog_uom`, a declarative string) and a `kind` enum (`material | service`);
+    * `catalog_counterparty`: a supplier master (GH #3407 / REQ-604), unique `code`, a `kind` enum
+      (`supplier | contractor`) and an optional `tax_id`; retired with `active` false, never deleted.
 
-  Both carry the nullable `external_ref_system` / `external_ref_id` import key (0057 D1) with a
+  All three carry the nullable `external_ref_system` / `external_ref_id` import key (0057 D1) with a
   unique constraint over the pair.
 
-  Both are declared in `manages_entity_types`, so after install the generic entity routes answer
+  All are declared in `manages_entity_types`, so after install the generic entity routes answer
   403 `entity_type_managed`. The module ships no routes, no permissions, no role grants and
   no write functions; the read API (REQ-507, GH #2664) is below. The unit scale and conversion factors
   are REQ-504 (#2660), not here. References between the types are declarative strings (0050
@@ -28,7 +30,7 @@ defmodule Letflow.Modules.CatalogItems do
   never-raise guarantee holds for a provisioned tenant prefix; a well-formed but unprovisioned
   `tenant_<hex>` prefix raises `undefined_table` from Postgres (not caught).
 
-  `on_install/3` activates and promotes the two packed definitions inside the install
+  `on_install/3` activates and promotes the three packed definitions inside the install
   transaction (decision 0052 D2) through `Letflow.Modules.EntityActivation`.
   """
 
@@ -43,7 +45,8 @@ defmodule Letflow.Modules.CatalogItems do
   # Must stay equal to `manages_entity_types` in the manifest below (defmanifest takes literals).
   @types [
     "catalog_uom",
-    "catalog_item"
+    "catalog_item",
+    "catalog_counterparty"
   ]
 
   @uom "catalog_uom"
@@ -62,7 +65,8 @@ defmodule Letflow.Modules.CatalogItems do
     route_policies: [],
     manages_entity_types: [
       "catalog_uom",
-      "catalog_item"
+      "catalog_item",
+      "catalog_counterparty"
     ]
   )
 
@@ -73,7 +77,7 @@ defmodule Letflow.Modules.CatalogItems do
 
   @doc """
   Read API (GH #2664 / REQ-507, decision 0050 D2): the live record `id` (a `record_id` uuid) in
-  tenant schema `prefix`, searched across `catalog_uom` and `catalog_item`.
+  tenant schema `prefix`, searched across `catalog_uom`, `catalog_item` and `catalog_counterparty`; the caller checks `"entity_type"`.
 
   The map has string keys: `"record_id"`, `"entity_type"` (the type name) and every stored field
   value. A value that is not a uuid, an unknown uuid, a soft-deleted record and a non-text
@@ -84,7 +88,7 @@ defmodule Letflow.Modules.CatalogItems do
   def lookup(prefix, id), do: ReadApi.lookup(prefix, id, @types)
 
   @doc """
-  True only for an existing, non-deleted record (either type) whose `active` field is `true`. A
+  True only for an existing, non-deleted record (any of the three types) whose `active` field is `true`. A
   non-uuid `id` is `false`.
   """
   @spec active?(prefix :: String.t(), id :: term()) :: boolean()
