@@ -8,7 +8,7 @@
 # backend test. Recorded in test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-grading-2-mark-and-session-finalisation.yaml.
 # Not UAT-observable either: the grader's user id written into the event (the audit trail is not shown by any screen or answer of this flow).
 # The four sensitive actions: "approve" is the mark itself (steps 3 and 5, decides pass or fail); refusals of marks that are out of range or carry
-# extra keys are steps 8 to 12; "see sensitive data" is scenario exam-grading-1; "change users" is not in this flow.
+# extra keys are steps 9 to 13 (and the second mark, step 14); "see sensitive data" is scenario exam-grading-1; "change users" is not in this flow.
 ---
 id: bilimbaga-exam-grading-2-mark-and-session-finalisation
 scope: bilimbaga
