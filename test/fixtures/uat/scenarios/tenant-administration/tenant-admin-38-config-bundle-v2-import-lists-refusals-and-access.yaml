@@ -1,0 +1,238 @@
+# T-0847 (BA): TENANT ADMIN group, scenario 38: faulty or unauthorised imports of the wording replacements and message wordings change
+# nothing (REQ-599 slice 2, criteria 4, 7's QA-runnable half, and the "part absent is left untouched" rule). Follows scenario 37.
+# Sources: docs/requirements.yaml REQ-599 (acceptance criteria 4, 7, 8's "a refused import writes no entry"; description: the import never
+# deletes a wording replacement or message wording that the document does not name; the two lists are read only from a v2 document);
+# lib/letflow/tenant_config_bundle.ex (check_shape, optional_parts: a violation is a 422 that names the entry as message id or template
+# key and language and says what is wrong, never the text; the whole import is one transaction); lib/letflow/routers/tenant_config_bundle.ex
+# (a caller without the permission gets the same refusal as the route-level check); lib/letflow/labels.ex (text rules: empty, too long,
+# control character, placeholder outside the allow-list, stray brace); docs/roles.md (the settings, wording and message-wording permissions
+# are held by the tenant administrator and the platform operator only among the roles); scenario 8 (the full list of text-limit cases of
+# single wording replacements) and scenario 15 (message wording limits).
+# Aliases (actor-any): tenant_admin_b = administrator of company B (scenarios 5 and 37); worker_b = a task worker of company B (scenario 6).
+# Every refused document below is the document bundle_a_v2 of scenario 36 in which only the stated part is replaced; its settings part
+# and module part are those of bundle_a_v2 with the application name changed to "Name Should Not Stick" so that a partial write would show.
+# Not covered here, by the requirement's own wording: criterion 7's callers who hold the settings permission but lack the wording or the
+# message-wording permission (no built-in role can be that caller; backend seam test test/letflow/routers/tenant_config_bundle_test.exs,
+# criteria 2 and 7), criteria 9 and 10 (code change, review and CI). Not repeated here: the length limits and the control-character rule
+# of wording texts, which scenarios 8 and 15 already refuse one by one on the single-entry paths; this scenario refuses the rules that
+# a document adds (shape, duplicates, language outside the company's, secret reference, placeholder, stray brace, empty).
+# The four sensitive actions: "see sensitive data" (export) and "change users"-like configuration change (import) are refused to the task
+# worker in steps 2 and 3; approve and pay or release are not in this flow.
+# UAT assumption, to be confirmed by the process owner: a label text may hold a "sec://" string (the single-entry path accepts it, per the
+# requirement), so step 14 is an accepted boundary case in its own step, not a refusal.
+---
+id: tenant-administration-38-config-bundle-v2-import-lists-refusals-and-access
+scope: tenant-administration
+title: A task worker can neither export nor import the wording lists, and a faulty document changes nothing at all
+version: "1.0"
+tags: [tenant-admin, config-bundle, import, label-overrides, notification-templates, refusal, all-or-nothing, audit]
+
+description: >
+  A task worker of company B asks for the bundle and tries to import a document carrying both lists, and is refused with the same refusal both
+  times; company B's lists are read back unchanged. The administrator of company B then imports documents that are each wrong in one way: a
+  list that is not a list, an entry that is not an object, a repeated message-and-language pair, a repeated template-key-and-language pair, a
+  message that may not be replaced, a language that is not one of the company's languages, a replacement text with an unknown placeholder,
+  a replacement text with a stray brace, an empty replacement text, a message wording with a language written wrongly, a message wording whose
+  body holds a stored-secret reference, and a document that is correct except for one bad entry beside a good change. Each is refused with a message
+  that names the entry by message id or template key and language, not its text. After the refusals company B's settings, modules, wording
+  replacements and message wordings are read back equal to the baseline and the audit trail has no new entry. A document with
+  no lists, and a document of the older format version, are accepted and leave the stored lists as they were. A replacement text that
+  holds a stored-secret reference is accepted, as on the single-entry path.
+
+actors:
+  tenant_admin_b: actor-any
+  worker_b: actor-any
+
+preconditions:
+  - description: tenant-administration-37 passed in this run, so company B holds three wording replacements and two message wordings and tenant_admin_b is its administrator
+    check: custom
+    detail: If scenario 37 did not pass, report BLOCKED, not PASS.
+  - description: worker_b is an active task worker of company B
+    check: custom
+    detail: If the person does not exist, report BLOCKED. The person may be created by the administrator as in tenant-administration-1.
+
+steps:
+  - step: 1
+    actor: tenant_admin_b
+    action: >
+      The administrator of company B reads company B's branding and module settings, wording replacements, message wordings and the number
+      of entries in the audit trail, and notes them as the "baseline".
+    via: api
+  - step: 2
+    actor: worker_b
+    action: The task worker of company B asks for the settings bundle of company B.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: worker_b
+    action: >
+      The task worker of company B imports bundle_a_v2 with the application name changed to "Name Should Not Stick" and with one wording
+      replacement and one message wording whose texts are changed to "Worker text".
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the wording list is the text "none" instead of a list.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the message-wording list holds the text "task_assigned" as its only entry instead of an object.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the wording list holds the pair "entities.tag.form.submitError" in English twice, with
+      the texts "One" and "Two".
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the message-wording list holds the pair "task_assigned" in Russian twice, with
+      different subjects.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the wording list holds one entry for the message "no.such.message" in English
+      with the text "Welcome" (a message that is not on the list of messages a company may replace; it is
+      not in the company's wording list read in step 1).
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the wording list holds one entry for the message "entities.tag.form.submitError" in
+      the language "fr" with the text "Étiquette non enregistrée", while the document's language list is English and Russian.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the wording list holds one entry for the message "entities.tag.form.submitError" in
+      English with the text "Tag {unknown_name} not saved".
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the wording list holds one entry for the message "entities.tag.form.submitError" in
+      English with the text "Tag { not saved".
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the wording list holds one entry for the message "entities.tag.form.submitError" in
+      English with an empty text.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the message-wording list holds one entry for "task_assigned" with the language
+      "english" (not written as a language code), the subject "Task" and the body "Body".
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which the message-wording list holds one entry for "task_assigned" in English with the subject
+      "Task" and the body "Token sec://vault/mail-key for {task_name}" (a stored-secret reference in the body).
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: tenant_admin_b
+    action: >
+      The administrator imports the document in which one wording entry is good (the message "entities.crud.form.submitError" in Russian with
+      the new text "Хорошее изменение") and one message-wording entry is bad (the body "Body {unknown_name}"). The administrator notes the
+      answer and reads the list of wording replacements.
+    expect_refusal: true
+    via: api
+  - step: 16
+    actor: tenant_admin_b
+    action: >
+      The administrator reads company B's branding and module settings, wording replacements, message wordings and the number of entries in
+      the audit trail, and compares them with the "baseline" of step 1.
+    via: api
+  - step: 17
+    actor: tenant_admin_b
+    action: >
+      The administrator imports a document of format "bpm/config-bundle/v2" that carries the settings part and the module part of bundle_a_v2
+      and no wording list and no message-wording list. The administrator notes the answer, then reads the wording replacements and message wordings.
+    via: api
+  - step: 18
+    actor: tenant_admin_b
+    action: >
+      The administrator imports a document of format "bpm/config-bundle/v1" that carries the settings part and the module part of bundle_a_v2 and,
+      added by the administrator, a wording list with the single entry "entities.crud.form.submitError" in Russian with the text "Из версии один".
+      The administrator notes the answer, then reads the wording replacements.
+    via: api
+  - step: 19
+    actor: tenant_admin_b
+    action: >
+      The administrator imports a v2 document that carries only one wording entry, the message "entities.crud.form.submitError" in Russian
+      with the text "Ключ sec://vault/label-key допустим", and the settings part and module part of bundle_a_v2. The administrator notes the
+      answer and reads the wording replacements, the message wordings and the audit trail.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker can neither export the bundle nor import a document carrying the wording lists, with the same refusal in both cases, and nothing is written.
+    verification:
+      method: system_state
+      detail: Step 2 and step 3 are refused with the same refusal as for a route that does not exist for that caller; the refusal of step 2 carries no part of the settings or lists, and the refusal of step 3 does not depend on the lists in the document (it is the same as for a document without lists). Company B's application name, lists and audit count read in step 16 equal the baseline.
+      evidence: The refusals of steps 2 and 3 and the read-back of step 16.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A task worker can read the company's configuration or rewrite its screen wording and notification messages.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Every faulty document of steps 4 to 15 is refused as a whole, with a message that names the entry and never the text.
+    verification:
+      method: system_state
+      detail: Each of steps 4 to 15 is refused with a 422 (the list-shape steps 4 and 5 name the list; steps 6 to 14 name the entry as the message id or template key and the language; step 15 names only the bad message-wording entry). No message holds a text, subject or body typed in the step (a search of every refusal for "One", "Two", "Welcome", "unknown_name", "Étiquette", "english", "vault/mail-key" and "Хорошее" finds nothing).
+      evidence: The refusals of steps 4 to 15.
+    on_fail:
+      severity: MAJOR
+      business_impact: A faulty document is partly applied, or the refusal does not say which entry to correct, or the refusal repeats a text that may carry a secret.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: After all refusals company B is unchanged.
+    verification:
+      method: system_state
+      detail: In step 16 the branding and module settings (the application name is not "Name Should Not Stick"), the three wording replacements and two message wordings (texts as in the baseline, including "Хорошее изменение" not stored) and the number of audit entries equal the baseline.
+      evidence: The read-back of step 16 compared with step 1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An import that failed leaves a half-applied configuration in a live company.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A v2 document without the two lists, and a v1 document, leave the stored lists as they were.
+    verification:
+      method: system_state
+      detail: Step 17 is accepted (200) with the wording and message-wording changed counts 0 and the lists read afterwards equal to the baseline (nothing deleted although the document names none); step 18 is accepted (200) with the wording replacement changed count 0 and the Russian text for "entities.crud.form.submitError" afterwards not "Из версии один".
+      evidence: The answers and the lists read in steps 17 and 18.
+    on_fail:
+      severity: MAJOR
+      business_impact: An import deletes wording the document does not name, or an old-format document changes wording it cannot carry.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A replacement text that holds a stored-secret reference is accepted, written as given, and is not copied into the audit trail.
+    verification:
+      method: system_state
+      detail: Step 19 is accepted (200) with the wording changed count 1; the Russian text for "entities.crud.form.submitError" is "Ключ sec://vault/label-key допустим"; the new audit entry names the message id and language only and holds no text.
+      evidence: The answer of step 19, the wording list and the audit entry.
+    on_fail:
+      severity: MINOR
+      business_impact: The import is stricter than the single-entry path for the same text, or a text reaches the audit trail.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Step 19 leaves one changed wording replacement in company B; the administrator may restore the baseline text through the single-entry path.
