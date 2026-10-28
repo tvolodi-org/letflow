@@ -540,7 +540,19 @@ defmodule Letflow.Entities.RecordsWriteHookConcurrencyTest do
                prefix: schema
              ) == 0
 
-      assert Repo.aggregate(Entry, :count, prefix: schema) == before_audit
+      # REQ-618: the final rejection writes ONE rejected hook row (attempts 3), nothing else
+      assert Repo.aggregate(Entry, :count, prefix: schema) == before_audit + 1
+
+      assert %{"outcome_class" => "derived_value_conflict", "attempts" => 3} =
+               Repo.one!(
+                 from(a in Entry,
+                   where: a.action == "entity_write_hook.run",
+                   order_by: [desc: a.timestamp],
+                   limit: 1,
+                   select: a.after_state
+                 ),
+                 prefix: schema
+               )
 
       # the same key succeeds once contention stops
       StubRunner.reply(:real)
@@ -554,6 +566,19 @@ defmodule Letflow.Entities.RecordsWriteHookConcurrencyTest do
 
       assert Repo.aggregate(
                from(i in IdempotencyRecord, where: i.idempotency_key == ^key),
+               :count,
+               prefix: schema
+             ) == 1
+
+      # one rejected row and one accepted row (attempts 1) now
+      assert Repo.aggregate(Entry, :count, prefix: schema) == before_audit + 2
+
+      assert Repo.aggregate(
+               from(a in Entry,
+                 where:
+                   a.action == "entity_write_hook.run" and
+                     fragment("?->>'outcome_class' = 'accepted'", a.after_state)
+               ),
                :count,
                prefix: schema
              ) == 1

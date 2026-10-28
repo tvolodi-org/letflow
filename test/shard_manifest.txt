@@ -1045,3 +1045,5 @@
 5 test/letflow/engine/complete_task_form_hook_busy_test.exs 5589.95
 14 test/letflow/engine/complete_task_form_hook_locks_test.exs 5589.95
 8 test/letflow/routers/tasks_form_hook_tenant_test.exs 5589.95
+6 test/letflow/entities/records_write_hook_e4_test.exs 5589.95
+10 test/letflow/routers/entities/record_writes_hook_codes_test.exs 5589.95

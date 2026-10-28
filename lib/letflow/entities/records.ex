@@ -207,6 +207,7 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.ScopedWrites
   alias Letflow.Entities.StepSource
   alias Letflow.Entities.WriteHook
+  alias Letflow.Entities.WriteHookAudit
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.Registry
@@ -465,21 +466,23 @@ defmodule Letflow.Entities.Records do
         end
       end
 
-      write_with_hook(definition, entity_type, prefix, field_values, finish)
+      write_with_hook(definition, entity_type, prefix, field_values, finish, attrs)
     end
   end
 
   # The one branch point of the pre-write hook. `finish.(values, hook_ctx)` is the unchanged write
   # pipeline from validation on; `hook_ctx` is nil for an unbound type.
-  defp write_with_hook(definition, entity_type, prefix, candidate, finish) do
+  defp write_with_hook(definition, entity_type, prefix, candidate, finish, attrs) do
     case WriteHook.lookup(definition, entity_type, prefix) do
       :unbound ->
         finish.(candidate, nil)
 
       {:hooked, hook} ->
+        hook = Map.merge(hook, %{actor_id: attrs.actor_id, record_id: Map.get(attrs, :record_id)})
+
         with :ok <- WriteHook.refuse_derived(hook, candidate) do
-          WriteHook.attempts(hook, candidate, fn derived, fingerprint ->
-            with {:ok, hook_ctx} <- WriteHook.context(hook, fingerprint) do
+          WriteHook.attempts(hook, candidate, fn derived, fingerprint, info ->
+            with {:ok, hook_ctx} <- WriteHook.context(hook, fingerprint, info) do
               finish.(Map.merge(candidate, derived), hook_ctx)
             end
           end)
@@ -800,7 +803,7 @@ defmodule Letflow.Entities.Records do
         end
       end
 
-      write_with_hook(definition, entity_type, prefix, merged, finish)
+      write_with_hook(definition, entity_type, prefix, merged, finish, attrs)
     end
   end
 
@@ -1271,6 +1274,9 @@ defmodule Letflow.Entities.Records do
         # REQ-541: allocated after the idempotency check and the type's sequence row, before the
         # record write; a replay failed at `:idempotency` and allocates nothing.
         |> maybe_allocate_number(ctx)
+        # REQ-618: the accepted hook audit row, after the sequence locks and the number counter
+        # (decision 0061 items 5, 5a, 6), before the record write so a failure there rolls it back.
+        |> WriteHookAudit.audit_step(ctx)
         |> Multi.run(:upsert_record_latest, fn repo, changes ->
           upsert_record_latest(repo, changes, ctx)
         end)

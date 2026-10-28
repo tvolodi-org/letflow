@@ -44376,6 +44376,79 @@ requirements:
       - "The migration version is the next free one at implement time; the engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-616, REQ-499, REQ-501, REQ-502, REQ-503, REQ-504]
 
+  - id: REQ-622
+    title: "Versioned documents slice 2, decision record for the PDF render after the numbering commit (decision 0056 D5, design first)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3475
+    # Source: docs/migration/decisions/0056-versioned-documents.md header (D5 is direction, not binding until its own follow-up record), D2, D4, D5, D8, D9 and acceptance-criteria candidates 10, 12 and 23; docs/migration/decisions/0068-per-tenant-print-template-overrides.md ("Any slice that renders at issue depends on the 0056 D5 render slice", its S3). Pattern: REQ-509 (design record) before REQ-603 (build). Task T-0885.
+    description: >
+      Design and decision slice of the render half of slice 2 of versioned documents (decision 0056 header:
+      signatures, PDF rendering and download, retention and legal hold are slice 2, each with its own record;
+      retention and hold are 0063 and 0074; signatures are not in this entry). The build slice is REQ-623.
+      0056 D5 (render after the numbering transaction commits, then a second transaction that stores the bytes
+      and sets artefact_hash once) is DIRECTION, not binding, until a follow-up record binds it (0056 header).
+      This slice is a new decision record in docs/migration/decisions/ (next free number at design time),
+      ratified by the owner or REVIEWER sign-off, as 0063 and 0074 are, before REQ-623 is built. It writes no
+      code, seed, migration or test. Today Letflow.Documents.issue/2 (lib/letflow/documents.ex) renders nothing
+      (its moduledoc: "Nothing here renders or stores bytes"), and guard_document_versions()
+      (priv/repo/migrations/20261022100002_create_document_immutability_triggers.exs) allows no transition that
+      sets document_versions.artefact_hash on an issued row, so the record must also rule how D4's
+      write-once column is opened to a single NULL-to-value change. Print-template overrides (0068) and
+      Cyrillic or Kazakh glyphs (0033 addendum, 0068 prerequisite) stay out; the renderer takes the type's
+      template reference so 0068 S3 can plug in later.
+    acceptance_criteria:
+      - "1. The record exists in docs/migration/decisions/, with a header that says it is not binding until the owner or REVIEWER signs it, and cites 0056 D2, D4, D5, D8 and D9 and acceptance candidates 10, 12 and 23 by section. A reader can check the citations against 0056."
+      - "2. The record rules the five D5 points as binding text: (a) the render runs after transaction 1 (Documents.issue/2) has committed, with no lock held and outside any transaction of the caller; (b) transaction 2 stores the bytes, sets artefact_hash once and audits document.artefact_attached, with the version row locked and re-read first; (c) a render failure returns {:error, _} to the caller, does not release the number and puts no field values in errors or logs; (d) the renderer receives only the declared_fields projection (0056 D8); (e) a version whose artefact is pending is not downloadable and gives the same not-found value as an unknown version."
+      - "3. The record settles the questions that no source settled, each as a one-line ruling with its reason: which module registers a renderer for a template_ref and how; what a type with no renderer does (the proposed ruling in this entry is a failed attach with nothing stored, which the record confirms or changes); the name of the entry function and its arguments; the error atoms returned for a failed render and for a version that is not issued; whether template_version is recorded on the version row (0056 D5 and D9 say so, document_versions has no such column) and, if yes, in which build slice."
+      - "4. The record rules how the write-once column is opened: the database guard allows, on an issued row whose status does not change, only artefact_hash from NULL to a value; value-to-value and value-to-NULL stay refused; the migration is tenant-scoped, replayed into existing tenants, and keeps the triggers ENABLE ALWAYS (0056 D4)."
+      - "5. The record rules that a read for download rechecks content_hash from the stored content (0056 D3, binding) and, on a mismatch, refuses with the not-found value and audits document.integrity_failed; and that artefact_hash is returned only to a principal with the all-fields grant (0056 D8, field restrictions) or is not returned by the read function."
+      - "6. The record states what stays direction: the bounded retry job for pending artefacts, the download route and document.downloaded, the permission for them, and template overrides. Each has one line saying which later record binds it."
+      - "7. The numbering-transaction test is pinned in the record as a build criterion: a renderer that fails the test if it is invoked inside the numbering transaction (0056 acceptance candidate 23), and a lock check that runs in sandbox auto mode (as test/letflow/documents/issue_lock_order_test.exs does with SandboxAutoMode.enter_auto_mode!(Repo), async: false)."
+      - "8. The diff adds only the decision record and, if the record index requires it, its index line. No code, no migration, no test, no route, no permission. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Whether the owner accepts REVIEWER sign-off alone for this record, as for 0063 and 0074, or wants the owner's own signature; the record states which one it received."
+      - "The schedule and permission of the retry job and of the download route have no source; the record leaves them to their own later records."
+    depends_on: [REQ-500, REQ-543, REQ-356]
+
+  - id: REQ-623
+    title: "Versioned documents slice 2, PDF render after the numbering commit and artefact attach (decision 0056 D5)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3474
+    # Source: docs/migration/decisions/0056-versioned-documents.md D3 (binding hash recheck on read paths), D4 (artefact_hash write-once), D5, D8, D9 (document.artefact_attached reserved), acceptance-criteria candidates 10, 12 and 23; the record written by REQ-622; docs/migration/decisions/0068-per-tenant-print-template-overrides.md S3. Task T-0885.
+    description: >
+      The build slice of REQ-622. It is built only after the decision record of REQ-622 is ratified; where
+      that record names a function, atom or module differently from this entry, the record wins and the
+      criteria below are read with its names. After Letflow.Documents.issue/2 (lib/letflow/documents.ex) has
+      committed, a render runs with no lock held, then transaction 2 stores the PDF bytes with
+      Letflow.Repository.upsert_content/6 (lib/letflow/repository.ex), sets document_versions.artefact_hash
+      once and audits document.artefact_attached. Adds Letflow.Documents.attach_artefact/2 (args
+      %{document_id:, version_no:, actor_id:}), a renderer behaviour, one tenant migration that lets
+      guard_document_versions() accept the single write-once change, and a read function that hides a
+      version whose artefact is pending. No route, no permission, no download route and no retry job:
+      attach_artefact/2 is safe to call again on a version whose artefact is pending. One migration (guard
+      function only, no new table), one context function, one behaviour and one read function with their
+      tests: one change.
+    acceptance_criteria:
+      - "1. Render after commit, no lock held. issue/2 still renders nothing and stores no bytes. A test, in the style of test/letflow/documents/issue_lock_order_test.exs (SandboxAutoMode.enter_auto_mode!(Repo), async: false, Letflow.LockOrderHelpers; under the default sandbox the row locks of issue/2 would stay held until the test ends), calls attach_artefact/2 after issue/2 returned {:ok, _} with a test renderer that reads pg_locks filtered by the test's tenant schema name and fails if, during the render call, any lock is held on document_sequences, documents or the audit chain, or Repo.in_transaction?/0 is true."
+      - "2. Numbering-transaction test (0056 criterion 23). A test calls Documents.issue/2 with a renderer configured that fails the test (flunk) if invoked at all, and issue/2 returns {:ok, _} with the renderer never called. In the same file the same renderer invoked through attach_artefact/2 records its call; the test asserts it was called once."
+      - "3. Transaction 2 stores once. On a successful render one transaction stores the bytes with Letflow.Repository.upsert_content/6 (key content_hash, the SHA-256 of the bytes), sets artefact_hash to the hex form of that hash and writes document.artefact_attached to the audit chain; the version row is locked FOR UPDATE and re-read first. The return is {:ok, %{version: version}} with artefact_hash set. A test asserts the stored bytes hash to artefact_hash (0056 criterion 10) and that exactly one document.artefact_attached entry exists."
+      - "4. Write once, at the database. A new tenant migration (next free version at implement time, in @tenant_scoped_migration_manifest of lib/letflow/tenant_provisioning.ex, replayed into existing tenants, triggers ENABLE ALWAYS) replaces guard_document_versions() so that on an issued row whose status does not change only artefact_hash may change, and only from NULL to a value. Database tests: NULL to value succeeds; value to another value fails; value to NULL fails; a change of any other column on an issued row without a status transition fails; every transition of the old guard behaves as before (test/letflow/documents/triggers_test.exs and constraints_test.exs pass unchanged, except that the case 'A-19: artefact_hash stays NULL' in constraints_test.exs is amended to hold for versions on which attach_artefact/2 was never called). A second attach_artefact/2 on a version that has artefact_hash returns {:ok, _} with no new bytes, no change and no second audit entry; two concurrent calls yield one attach."
+      - "5. Render failure. When the renderer returns {:error, _} or raises, attach_artefact/2 returns {:error, :render_failed} (never the renderer's term) and does not raise to the caller. The number is not released: the document_sequences counter and the version number are unchanged, the version stays issued with artefact_hash NULL, no repository_artifacts row and no document.artefact_attached entry is written, and a later successful call attaches. A test asserts each of these for the error return and for the raise."
+      - "6. No field values in errors or logs. In the failure test the renderer fails with a message containing a sentinel field value taken from the version content; the test captures the log (ExUnit.CaptureLog) and asserts the sentinel is in neither the returned error nor the log. The failure is logged as a reason code only. The audit payload of document.artefact_attached carries only document id, version number, content_hash, artefact_hash, byte size and template reference (0056 D9)."
+      - "7. Projection only. The behaviour Letflow.Documents.Renderer has one callback render(template_ref, projection, meta) returning {:ok, binary} or {:error, term}; meta holds number, period, version number and issue time and no content. projection is the version content restricted to the type's declared_fields (lib/letflow/documents/document_type.ex). A test renderer reading a key that is in content but not in declared_fields finds it absent; when it fails closed on that, the attach returns {:error, :render_failed} with no number released (0056 criterion 12, renderer half)."
+      - "8. Restriction added after issue. When a restriction has been added on a declared field of the type after the version was issued, attach_artefact/2 returns {:error, :render_failed} with no bytes stored and the version left pending. This is an extension of 0056 D8, which rules only that such a restriction refuses the next issue; the REQ-622 record confirms it, and if it does not, this criterion is dropped."
+      - "9. Pending is not downloadable. Documents.fetch_artefact(prefix, document_id, version_no) (three arguments; scope belongs to the later download route) returns {:ok, %{bytes:, content_type:}} for an issued version with artefact_hash set, and the same not-found value as an unknown version (0056 D8, INV-5) for an issued version with artefact_hash NULL, a draft, and a document of another tenant (two-tenant test: attach in tenant A, ask for A's ids with B's prefix, identical not-found). It returns stored bytes, never a fresh render (a test asserts the renderer is not called). It does not return artefact_hash. It adds no route."
+      - "10. Integrity recheck on read (0056 D3). fetch_artefact/3 rechecks the content_hash recomputed from the stored content before returning bytes (through the existing verify path used by verify_binding/4 in lib/letflow/documents.ex). A test corrupts the stored content of an attached version in the throwaway tenant and asserts fetch_artefact/3 returns the same not-found value and exactly one document.integrity_failed entry is written."
+      - "11. Status guard. attach_artefact/2 on a version whose status is not issued (draft, superseded, cancelled, discarded) returns {:error, :not_issuable_for_artefact} with no render call and no write; a version cancelled or superseded after issue and before the attach is refused the same way. Each status is a test."
+      - "12. Security, tenancy and pins (INV-1, INV-2, INV-4, INV-6, INV-7, INV-8). Every query takes the tenant schema prefix and interpolates no value; a second tenant cannot attach to or read the first tenant's artefact; the renderer is never given the full content; a renderer crash is rescued. The change passes a SECURITY-REVIEWER gate as a stated step. No new table, so the tenant table-list pins do not move; the migration version and the tenant-provisioning manifest count move by +1 from the values on origin/main at implement time, with the tests that pin them updated. No route and no permission is added, so route-scope and permission-matrix pins do not move. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Names (attach_artefact/2, fetch_artefact/3, Letflow.Documents.Renderer, :render_failed, :not_issuable_for_artefact), renderer registration per template_ref, the no-renderer behaviour and template_version on the version row are settled by REQ-622, not here."
+      - "The bounded retry job for pending artefacts and the download route are later slices; no source names their schedule or permission."
+    depends_on: [REQ-622, REQ-500, REQ-543, REQ-356]
   - id: REQ-621
     title: "WMS stock ledger slice L2a: Letflow.Ledger.post/1 against a test registration, no-negative guard under ascending row locks, key bounds, first-touch unit pin, gap-free counter, idempotency, offline fields (note gh2657 sections 6, 7, 9, 17 L2a)"
     owner: ELIXIR-DEV
