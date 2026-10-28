@@ -176,6 +176,7 @@ platform_actor_allowed:
   swiftroute-first-login-administrator-binding: "the platform operator reads the onboarding grant list (decision 0048 section 1.7)"
   tenant-administration-4-config-export: "REQ-552 criterion 7: the platform operator cannot reach company A's settings bundle (the route takes the tenant from the sign-in only)"
   tenant-administration-30-print-override-access-and-other-company: "REQ-579 criterion 5: the platform operator on the print-override routes gets only the platform company's own data and is not a route to a customer's drafts (the routes take the company from the sign-in)"
+  tenant-administration-49-tenant-logo-default-company-branding: "REQ-591 criterion 5: the platform administrator is the only roster actor of the default company (realm bpm-default) and stores and deletes the logo of its own company on the own-tenant logo route"
 
 # Scopes with at least one scenario and no expect_refusal step on the day of landing (may only shrink).
 refusal_coverage_exempt: []

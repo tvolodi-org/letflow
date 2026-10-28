@@ -41,7 +41,7 @@ defmodule Letflow.Entities.RecordsWriteHookScopeTest do
   end
 
   setup do
-    fx = F.provision!("e3sc")
+    fx = "e3sc" |> F.provision!() |> S.with_hmac!()
     _ = Sandbox.checkin(Repo)
     items = F.seed_items!(fx)
 

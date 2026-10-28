@@ -1,0 +1,117 @@
+# T-0895 (BA): TENANT ADMIN group, scenario 44: the company logo can be read by anyone without signing in, as exactly the stored picture, and each company's address returns only its own logo.
+# Covers REQ-591 criteria 2 (serving: exact bytes, stored content type, the three protective headers, a PNG with script text after its picture data comes back byte for byte as image/png) and
+# 4 (isolation: with SwiftRoute and BilimBaga each holding a logo, the SwiftRoute address returns SwiftRoute's bytes and the BilimBaga address returns BilimBaga's); the "no database call without the company scope" clause
+# of criterion 4 is code review and is not a user step.
+# Quoted criterion 2: "Serving: GET /api/tenant-config/logo?slug=<tenant with logo> answers 200 with exactly the stored bytes, the stored content type, X-Content-Type-Options: nosniff, Content-Security-Policy: default-src 'none'; sandbox and Content-Disposition: inline; a PNG whose trailing bytes contain <script>alert(1)</script> is returned byte-identical with an image/png content type, never an html or svg content type."
+# Quoted criterion 4: "Tenant isolation (INV-1): with tenants A and B each holding a logo, ?slug=<A> returns A's bytes and ?slug=<B> returns B's; the read uses the :prefix of the tenant found by slug and no Repo call without a prefix exists in the new code."
+# Not covered here: criterion 9 of REQ-591 (gates: security and code review verdicts, route and named-route pin moves, static checks and test runs, the PR statement about the QA switch): process and code-review matters, not reachable by a user step.
+# Sources: docs/requirements.yaml REQ-591 (description PUBLIC READ, criteria 2 and 4); lib/letflow/routers/tenant_config.ex (serve_logo/1: resolves by the slug value only, sets content-type from the stored row, answers the stored bytes);
+# lib/letflow/identity/tenant_logo.ex; test/fixtures/uat/actors.yaml (alice of SwiftRoute, the administrator of BilimBaga).
+# Environment: the upload switch (platform setting, default off) must be ON; step 1 is the QA environment's own setup step (as in scenario 40). If step 3 answers 404 on the upload, the runner reports the scenario BLOCKED, not failed.
+# Bytes (exact, hex): PNG-OK = 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082 (67 bytes).
+# PNG-SCRIPT = PNG-OK followed by the 25 bytes 3C7363726970743E616C6572742831293C2F7363726970743E (the text <script>alert(1)</script>), 92 bytes in all, declared image/png.
+# JPG-OK = FFD8FFE000104A46494600010100000000000000000000000000000000 (29 bytes), declared image/jpeg.
+# If the attachment scanner refuses PNG-SCRIPT at upload (step 4), the runner reports BLOCKED for EO-002 only and notes the refusal; scenario 41 covers what the scanner refuses.
+# The read is public, so the unauthenticated caller is actor-any (not a login).
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals (reads that must be answered not-found) are in scenario 45.
+---
+id: tenant-administration-44-tenant-logo-public-read-bytes-and-company-isolation
+scope: tenant-administration
+title: Anyone can read a company's logo from its public address as exactly the stored picture, and each company's address returns only that company's logo
+version: "1.0"
+tags: [tenant-admin, tenant-logo, public-read, isolation, headers]
+
+description: >
+  With the logo-upload switch on, the administrators of SwiftRoute and BilimBaga each store a logo (SwiftRoute a PNG, BilimBaga a JPEG). A caller who is not signed in asks for the SwiftRoute logo by the
+  company's address name and gets exactly the stored picture, its stored type and the protective headers; asking by the BilimBaga address name gets the BilimBaga picture, never the SwiftRoute one. SwiftRoute then
+  stores a PNG that has script text after its picture data; it is returned byte for byte and typed as an image, never as a web page.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  tenant_admin_b: actor-bilimbaga-admin
+  visitor: actor-any
+
+preconditions:
+  - description: The logo-upload switch is turned ON for QA by step 1 (it is off by default in the product).
+    check: system_seeded
+    detail: If the QA environment cannot turn the switch on, report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: Neither SwiftRoute nor BilimBaga has a stored logo at the start.
+    check: system_seeded
+    detail: Setup-prepared. If one exists, delete it first and note that in the report.
+  - description: The runner knows the company address name (slug) of SwiftRoute as S-SR and of BilimBaga as S-BB, read from the seeded company records.
+    check: system_seeded
+    detail: If either cannot be read, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: actor-system-qa-setup
+    action: >
+      The QA environment turns the company-logo upload switch on (the platform setting that is off by default) and restarts the service if the environment requires it.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute uploads PNG-OK declared image/png as the company logo. The answer is noted, including the fingerprint H-SR.
+    via: api
+  - step: 3
+    actor: tenant_admin_b
+    action: >
+      The administrator of BilimBaga uploads JPG-OK declared image/jpeg as the company logo. The answer is noted, including the fingerprint H-BB.
+    via: api
+  - step: 4
+    actor: visitor
+    action: >
+      A caller who is not signed in reads the public company logo with the address name S-SR. The status, the content type, the three protective headers and the received bytes are noted.
+    via: api
+  - step: 5
+    actor: visitor
+    action: >
+      A caller who is not signed in reads the public company logo with the address name S-BB. The status, the content type and the received bytes are noted.
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute uploads PNG-SCRIPT declared image/png, which replaces PNG-OK. The answer is noted, including the fingerprint H-SC.
+    via: api
+  - step: 7
+    actor: visitor
+    action: >
+      A caller who is not signed in reads the public company logo with the address name S-SR again. The status, content type, protective headers and received bytes are noted. The read of S-BB is then repeated
+      and its bytes noted, to show the SwiftRoute replacement did not change the BilimBaga logo.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A public read returns exactly the stored picture with the stored type and the protective headers.
+    verification:
+      method: api_response
+      detail: Step 4 answers 200. The received bytes equal PNG-OK exactly (67 bytes, sha256 equal to H-SR). The content type is image/png. The headers contain X-Content-Type-Options with value nosniff, Content-Security-Policy with value "default-src 'none'; sandbox" and Content-Disposition with value inline. The body is the picture itself and is not wrapped in markup.
+      evidence: The status, headers and bytes received in step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: The login page cannot show the company logo, or the logo is served in a way a browser could treat as a web page.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: Script text after the picture data is returned unchanged and typed as an image.
+    verification:
+      method: api_response
+      detail: Step 6 answers 200 (if the scanner refuses it, see the header comment). Step 7 answers 200 for S-SR with received bytes equal to PNG-SCRIPT exactly (92 bytes, sha256 equal to H-SC), content type image/png (never text/html and never image/svg+xml), and the same three protective headers as in step 4.
+      evidence: The status, headers and bytes received in step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A stored picture could run script in a visitor's browser on the platform's address.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: Each company's address returns only that company's logo.
+    verification:
+      method: api_response
+      detail: Step 5 answers 200 with received bytes equal to JPG-OK exactly (29 bytes, sha256 equal to H-BB) and content type image/jpeg. The repeated BilimBaga read in step 7 returns the same JPG-OK bytes, not PNG-OK and not PNG-SCRIPT. The SwiftRoute reads never returned JPG-OK.
+      evidence: The bytes received in steps 4, 5 and 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company's logo is shown for another company, or one company's data is readable through another's address.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the logos of SwiftRoute and BilimBaga if stored. The environment turns the switch off again afterwards (it is off by default).

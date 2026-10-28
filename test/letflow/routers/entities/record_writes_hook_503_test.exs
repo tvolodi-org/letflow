@@ -172,9 +172,15 @@ defmodule Letflow.Routers.Entities.RecordWritesHook503Test do
     end)
   end
 
-  defp assert_503(conn, rule) do
+  defp assert_503(conn, rule, kind) do
     assert conn.status == 503, conn.resp_body
-    assert Jason.decode!(conn.resp_body)["detail"] == @detail
+
+    # REQ-618 changed the conflict body to the D6 shape `{"error": "<code>"}`; the contention
+    # body (not a D6 row) keeps its E-3 problem-JSON detail.
+    case kind do
+      :contention -> assert Jason.decode!(conn.resp_body)["detail"] == @detail
+      :conflict -> assert Jason.decode!(conn.resp_body) == %{"error" => "derived_value_conflict"}
+    end
 
     for secret <- [rule.key, rule.sha256, "Ann", "SECRET-DETAIL", "T\""] do
       refute conn.resp_body =~ secret
@@ -188,7 +194,7 @@ defmodule Letflow.Routers.Entities.RecordWritesHook503Test do
       conn =
         request(:post, "/api/v1/entities/records/tt", ctx, %{"field_values" => %{"name" => "Ann"}})
 
-      assert_503(conn, rule)
+      assert_503(conn, rule, unquote(code))
     end
 
     test "C6b-update-#{code} answers the constant 503", %{
@@ -203,18 +209,32 @@ defmodule Letflow.Routers.Entities.RecordWritesHook503Test do
           "field_values" => %{"name" => "Ann"}
         })
 
-      assert_503(conn, rule)
+      assert_503(conn, rule, unquote(code))
     end
   end
 
   test "C6b-clause the renderer has an explicit clause for each code" do
-    for code <- [:entity_write_contention, :derived_value_conflict] do
-      conn =
-        RecordWrites.render_record_command(conn(:post, "/"), {:error, code}, :ok, MapSet.new())
+    conn =
+      RecordWrites.render_record_command(
+        conn(:post, "/"),
+        {:error, :entity_write_contention},
+        :ok,
+        MapSet.new()
+      )
 
-      assert conn.status == 503
-      assert Jason.decode!(conn.resp_body)["detail"] == @detail
-    end
+    assert conn.status == 503
+    assert Jason.decode!(conn.resp_body)["detail"] == @detail
+
+    conn =
+      RecordWrites.render_record_command(
+        conn(:post, "/"),
+        {:error, :derived_value_conflict},
+        :ok,
+        MapSet.new()
+      )
+
+    assert conn.status == 503
+    assert Jason.decode!(conn.resp_body) == %{"error" => "derived_value_conflict"}
   end
 
   test "C6b-import-entry a hooked upsert entry answers the constant internal_error", %{

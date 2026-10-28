@@ -34,7 +34,7 @@ defmodule Letflow.Routers.Entities.RecordWritesHookRoutesTest do
   end
 
   setup do
-    fx = W.provision!("e3rt")
+    fx = "e3rt" |> W.provision!() |> S.with_hmac!()
 
     _ = StubRunner.start()
     on_exit(&StubRunner.stop/0)
