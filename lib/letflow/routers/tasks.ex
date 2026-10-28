@@ -429,6 +429,15 @@ defmodule Letflow.Routers.Tasks do
     Response.output_refused(conn, missing, rejected)
   end
 
+  # GH #3409 (decision 0067 D8, F-3): the node's form validation script refused. 422 with the
+  # manifest's codes only. `{:form_hook_failed, _}` falls to the generic clause (500) until F-4.
+  defp handle_complete_result(
+         {:error, {:form_hook_refused, %{code: code, fields: fields}}},
+         conn
+       ) do
+    Response.form_hook_refused(conn, code, fields)
+  end
+
   # REQ-463 (design req459 §4): separation of duties -- the caller most recently
   # completed a node this one names in distinct_from. 403 with ONE constant body
   # (Response.separation_of_duties/1), identical on complete and claim.
