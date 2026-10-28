@@ -43708,6 +43708,60 @@ requirements:
       - "The backoff length before a script_busy re-run is not in 0067 ('short backoff'); the implementer picks a fixed figure and states it in the PR; it is not a setting."
       - "Still open in 0067 'Not decided here' and not decided by this entry: any wall-clock figure between 50 ms and the 0053 D7 maxima, the maximum number of fields entries in a refusal, the HTTP status numbers of the D5 infrastructure codes, whether the 403 of a wrong assignee (ISS-0942) collapses to the not-found answer, a hook 3 with entity reads, and the behaviour of any future automatic completer."
     depends_on: [REQ-569, REQ-581]
+  - id: REQ-616
+    title: "WMS stock ledger slice L0: decision record 0073 for the domain-neutral ledger primitive (route R-N, D-E, 0057 D5 wording, 0061 class 5b text), docs only"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 3438
+    description: >
+      Slice L0 of the WMS stock ledger (GH #2657, REQ-502): write ONE decision record,
+      docs/migration/decisions/0073-domain-neutral-ledger-primitive.md, and nothing else in
+      the product. No code, no migration, no seed, no route, no permission, no test beyond
+      the repository's own doc lints. Source: lib/letflow/design/gh2657-wms-stock-ledger-core.md
+      (revision 5), section 15 "Decision records needed" (the content list), section 17 (slice
+      L0), sections 3, 7.2, 8.3, 12.2, 19 and 20 (the rulings it copies). The note calls the
+      record "0062 (proposed)"; 0062 is taken by docs/migration/decisions/0062-restriction-carrying-variables.md
+      and the highest number on origin/main when this entry was written is 0072
+      (0072-tenant-provisioner-realm-per-tenant-on-qa.md), so the record is 0073. The implementer
+      re-checks the next free number with git fetch and a listing of docs/migration/decisions/ on
+      origin/main and of the origin/team/* branches, and renames the file and its in-text number if
+      0073 is taken. Roadmap blockers (docs/migration/core-roadmap-20261014.md, "WMS slice 5 (stock
+      ledger)", four items), state re-derived on origin/main: (1) REQ-499 (GH #2587) status done in
+      docs/requirements.yaml, PRs C1 2b628b534 and C2 3d1579bb6 merged; (2) REQ-501 (GH #2590)
+      status done; (3) GH #2583 closed; (4) "the ledger type declares managed_by and posts only in a
+      module write handler" is a rule the ledger slices follow, satisfied by route R-N (the posting
+      runs only through HandlerWrites.post/3 called from a module write handler, never as a
+      declarative entity_write). Gate of L0 (note section 17 and 18): AMENDMENT 1 (2026-10-19) and
+      AMENDMENT 2 (2026-10-19) of the #2657 acceptance criteria are recorded as comments on GH #2657;
+      Amendment 1 amends the 0058 (c) items 2 and 7, master-side parts, which move to slice L7.
+      The record states the owner decisions it takes as the note's defaults: OQ-19 (D-E, neutral
+      core code insufficient_balance with the stock wire alias insufficient_stock), OQ-20 (D-P, no
+      gather_facts and no master, version or retired-master checks in L1-L4), OQ-21 (a warehouse-scoped
+      principal cannot post until slice L6). It states that OQ-13 (warehouse and zone scoping of
+      postings, slice L6) and OQ-23 (tenant-wide serial uniqueness) are NOT decided here, are out of
+      scope of this entry, and gate the pilot together with slice L7 (note section 17, "PILOT GATE").
+      Out of scope: slices L1 to L7, REQ-503 and REQ-504 behaviour, the quantity amendments A1 to A33
+      of lib/letflow/design/gh2660-wms-quantity.md (carried by L1, not by this record), any edit of
+      0039, 0054, 0057 or 0061 themselves (the record states the amended wording; the 0061 text is
+      applied to 0061 by the L3 slice, note section 15 and 16 "0061 amendment (L3 PR, rule 5)").
+    acceptance_criteria:
+      - "1. File: docs/migration/decisions/0073-domain-neutral-ledger-primitive.md exists at the next free decision number (a listing of docs/migration/decisions/ on origin/main at implement time shows no other file with that number), has the headings `## Problem`, `## Decision`, `## Consequences` and `## Open`, as docs/migration/decisions/0061-engine-lock-order-platform-invariant.md does, and names as its source lib/letflow/design/gh2657-wms-stock-ledger-core.md, the file name appearing in the text. The diff of the change touches that file, and no path under lib/, priv/, test/, config/, web/ or apps/."
+      - "2. Route ruling: the record states that route R-N, a domain-neutral core posting primitive (Letflow.Ledger, directory lib/letflow/ledger/, reached from a module write handler by HandlerWrites.post/3), is adopted (ruled by the advisor letflow-ec, 2026-10-19), and rejects route R-D (entity-type ledger through update-kind handler writes plus a read facade) with the ruling's reasons: no gap-free queryable posting sequence, no atomic multi-leg posting beyond 49 creates per handler call and 20 lines per node, row locks in a fixed order not expressible, append-only only at the Records layer, one event plus one projection row plus one audit entry per leg (note section 3.2)."
+      - "3. Relation to 0039 D1 and the boundary rules: the record states that core names no business domain, lists the vocabulary core may use (ledger, entry, leg, balance, balance key, counter, quantity), states Rule 7 (neutral vocabulary), Rule 7b (no Letflow.Modules reference except Letflow.Modules.LedgerRegistration) and Rule 8 (single call site, no forgery of the capability) in the words of note section 3.5, names the second plausible consumers (a spare-part store, leave balances), and says Rule 7 ships in the same PR as the ledger tables (slice L1). It also names the two accepted core changes the ledger relies on (note sections 3.2 and 3.3): append_only entity types (decision 0054) and the non_negative, min and max bounds (GH #2532, decision 0057)."
+      - "4. D-E: the record states that core error codes are neutral and a module maps them to wire codes through error_aliases; it gives the closed aliasable set (insufficient_balance, balance_bound_exceeded, unit_mismatch, posting_not_balanced, posting_already_reversed, posting_is_reversal), the example insufficient_balance to insufficient_stock, and the alias value rule from note section 12.2 (disjoint from every core, engine, entity and ledger wire code); and states that the HTTP status follows the core code."
+      - "5. Amended wording of 0057 D5: the record quotes the old wording (the no-negative guard runs inside the module write handler) and the new wording from note section 15 item 3 (runs, under row locks in a fixed order, slot 1 then slot 2 and so on, in the transaction of the handler's step, reached from the handler call by HandlerWrites.post/3; the stock module's registration supplies the item and location slot meaning). It does not edit 0057."
+      - "6. 0054 Correction: the record states what the Correction (advisor, option A, 2026-10-15) to the D4a ruling in docs/migration/decisions/0054-process-step-writes-entity.md still requires of module code: ledger policy (the closed set of causes and their sign rules, slot meanings, per-key bounds, units, permissions, the pure declare/2 function) stays reviewed module data and code; core enforces only mechanical invariants (append-only, gap-free counter, zero-sum per declared group, non-negative balance and registered bounds, reversal pairing); the deviation from the letter of the Correction is recorded with its reason, that the merged REQ-501 handler contract is create-only (note section 0, V1)."
+      - "7. OQ-R4 stays owed: the record states that update-kind handler writes plus the narrow read facade (the F-R5 table row, D-R.17 and OQ-R4 of lib/letflow/design/gh2590-req501-module-write-handlers.md) remain owed at WMS slice 5 and are NOT replaced by R-N, and that master checks, record-version preconditions and retired-master checks are DEPENDENT on that facade (note sections 14.6, 17 slice L7)."
+      - "8. Decisions copied with their text and reasons from the note: D-L2 (append-only in the database as a tripwire plus a hash chain anchored in the ledger.posted audit entry, with the TRUNCATE trigger as a tripwire and the TenantTemplate unresettable choice, note 5.1 and 5.4), the owner-tamper residual (note 5.1: the table owner can run ALTER TABLE ... DISABLE TRIGGER and a superuser can set session_replication_role = replica, so the hash chain detects but does not prevent), the tenant export and restore requirements (note 4.6: the ledger is part of the export package; a restore is whole-schema; a partial restore of a ledger table is forbidden; reconcile/3 must report clean before the tenant is unfrozen; purge of ledger rows is never offered), D-L3 (one sequence per ledger id, one fixed id per tenant in release 1), D-L4 (lock class 5b), D-L5 (time basis, note section 8), D-L11 (no foreign key from ledger tables to engine tables), D-L12 (SERVICE origin refused with a typed refusal in L1 to L4, lifting needs a later 0061 amendment, note 7.5), D-T (lateness cap 96 hours, registration value capped at 720 hours, no tenant override, note 8.3) and D-C (sign rules per cause, no virtual-location double entry, note section 19). Each is a numbered item whose id appears in the file."
+      - "9. 0061 class 5b amendment text: the record carries the text of note section 15 for the 0061 amendment verbatim in a quoted block (class 5b after class 5 and the ancestor group of class 3 and before class 6; the ledger balance rows ascending by (k1..k8), missing rows inserted first in the same order, then the single counter row of the ledger id; at most one posting per transaction and one ledger id per posting; a transaction holding the audit chain row or any later class never takes a ledger row; SERVICE origin refused) and says the amendment is applied to 0061 by slice L3, not by this change. The diff does not touch docs/migration/decisions/0061-engine-lock-order-platform-invariant.md."
+      - "10. Owner defaults and gates: the record states OQ-19, OQ-20 and OQ-21 are taken as the note's defaults (yes), with the two #2657 amendments cited as recorded on the issue; and states OQ-13 and OQ-23 are not decided, are out of scope, and gate the pilot together with slices L6 and L7 (the stock module is not enabled for a customer tenant until L6 and L7 are done, and serial-tracked goods stay out of the pilot until OQ-23 is resolved)."
+      - "11. This entry's own content: the description names lib/letflow/design/gh2657-wms-stock-ledger-core.md and the four roadmap blockers with their state (three done or closed, the fourth satisfied by route R-N), as above; depends_on lists REQ-499, REQ-501, REQ-502, REQ-503, REQ-504."
+      - "12. Registration and doc checks: mix letflow.check_requirements_registration passes (real output quoted in the PR), mix letflow.check.static passes (real output quoted), and docs/requirements.yaml still parses. No requirement status is flipped and no run-history event is appended by this change."
+    open_questions:
+      - "OQ-13 (warehouse and zone scoping of postings, slice L6) and OQ-23 (tenant-wide serial uniqueness) are not decided by this entry; they gate the pilot."
+      - "The record number 0073 is the next free number at the time of writing; the note's 0062 is taken."
+    depends_on: [REQ-499, REQ-501, REQ-502, REQ-503, REQ-504]
   - id: REQ-615
     title: "Record T slice T-3: claim worker with lease for record_trigger_outbox (poller child behind :start_record_trigger_worker, FOR UPDATE SKIP LOCKED claim, per-record order, lease sweep, fairness, retry cap and backoff), the run is a stub that marks the row done"
     owner: ELIXIR-DEV
