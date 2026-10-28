@@ -1,7 +1,8 @@
 defmodule Letflow.Modules.Procurement.PurchaseRequests do
   @moduledoc """
-  Operations on a purchase request (GH #3162, REQ-544 part 1): `create/3`, `update_draft/4`,
-  `submit/3` and `revise/4`, on top of `Letflow.Documents` (the document type `purchase_request`).
+  Operations on a purchase request (GH #3162, REQ-544 parts 1 and 2): `create/3`, `update_draft/4`,
+  `submit/3`, `submit_for_bpm/3` and `revise/4`, on top of `Letflow.Documents` (the document type
+  `purchase_request`).
 
   Every function takes `prefix` first: it comes from the authenticated tenant, never from HTTP
   input (INV-1). Validation (`Letflow.Modules.Procurement.PurchaseRequest.build/3`) runs before any
@@ -15,8 +16,10 @@ defmodule Letflow.Modules.Procurement.PurchaseRequests do
 
   Ownership: only the requester may update, submit or revise. A document that is absent, malformed,
   of another type, of another tenant or owned by someone else gives the same `{:error, :not_found}`
-  (INV-5). Permissions are NOT checked here, like `Documents` itself: the part 2 router or BPM
-  handler owns `ProcurementRequestWrite` and must be this module's only caller.
+  (INV-5). Permissions are NOT checked here, like `Documents` itself: the part 2 router
+  (`Letflow.Modules.Procurement.Router`) owns `ProcurementRequestWrite` and is this module's only caller.
+  `submit_for_bpm/3` (part 2) is the BPM form of submit; the decisions live in
+  `Letflow.Modules.Procurement.Decisions`.
   """
 
   import Ecto.Query
@@ -26,6 +29,7 @@ defmodule Letflow.Modules.Procurement.PurchaseRequests do
   alias Letflow.Documents.DocumentVersion
   alias Letflow.Modules.CatalogItems
   alias Letflow.Modules.Org
+  alias Letflow.Modules.Procurement.Decisions
   alias Letflow.Modules.Procurement.PurchaseRequest
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
@@ -79,6 +83,118 @@ defmodule Letflow.Modules.Procurement.PurchaseRequests do
          {:ok, issued} <- Documents.issue(prefix, %{document_id: document.id, actor_id: actor_id}) do
       {:ok, issued_result(issued)}
     end
+  end
+
+  @doc """
+  The BPM submit operation (GH #3162, REQ-544 part 2): `params` is `%{document_id, version_no,
+  content_hash, idempotency_key}`. Own request only (`owned/3`, INV-5). The key is checked for
+  shape but not stored: a submit leaves no row of its own, the version state is the record that it
+  happened, so a retry is recognised from that state (the issue of one version is unique).
+
+  After the ownership check, in this order:
+
+    1. a missing or cancelled version, or an open draft with a hash, is `:binding_refused`;
+    2. the open draft with `content_hash: nil` is issued;
+    3. an `:issued` (or later `:superseded`) version with a nil hash or its own stored hash is the
+       first result again (`replayed: true`, nothing written); any other hash is `:binding_refused`;
+    4. `Documents.issue/2` answering `:no_draft` (a concurrent first submit won the row lock)
+       re-reads the version and applies rule 3;
+    5. `{:error, :busy}` from `Documents.issue/2` is returned as is, nothing written.
+
+  Replaying a superseded version (the requester revised after submitting) is accepted: only the
+  owner reaches that branch and nothing is written. Refusals are counted, never audited (D9).
+  """
+  def submit_for_bpm(prefix, actor_id, params) when is_binary(prefix) and is_map(params) do
+    with :ok <- tenant(prefix),
+         {:ok, input} <- submit_shape(params),
+         {:ok, document, _version} <- owned(prefix, document_id_of(params), actor_id) do
+      submit_version(prefix, actor_id, document, input)
+    end
+    |> Decisions.count_refusal(:submit, prefix)
+  end
+
+  def submit_for_bpm(_prefix, _actor_id, _params), do: {:error, :not_found}
+
+  defp submit_version(prefix, actor_id, document, input) do
+    case version_of(prefix, document.id, input.version_no) do
+      %DocumentVersion{status: :draft} when is_nil(input.content_hash) ->
+        issue_for_bpm(prefix, actor_id, document, input)
+
+      version ->
+        replay_submit(prefix, document.id, version, input)
+    end
+  end
+
+  defp issue_for_bpm(prefix, actor_id, document, input) do
+    case Documents.issue(prefix, %{document_id: document.id, actor_id: actor_id}) do
+      {:ok, issued} ->
+        {:ok, Map.merge(issued_result(issued), %{state: :submitted, replayed: false})}
+
+      {:error, :no_draft} ->
+        replay_submit(
+          prefix,
+          document.id,
+          version_of(prefix, document.id, input.version_no),
+          input
+        )
+
+      {:error, :busy} ->
+        {:error, :busy}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp replay_submit(
+         prefix,
+         document_id,
+         %DocumentVersion{status: status, content_hash: stored} = version,
+         input
+       )
+       when status in [:issued, :superseded] and
+              (is_nil(input.content_hash) or input.content_hash == stored) do
+    document = Repo.get!(Document, document_id, prefix: prefix)
+
+    {:ok,
+     Map.merge(issued_result(%{document: document, version: version}), %{
+       state: :submitted,
+       replayed: true
+     })}
+  end
+
+  defp replay_submit(_prefix, _document_id, _version, _input), do: {:error, :binding_refused}
+
+  defp document_id_of(params), do: Map.get(params, :document_id, params["document_id"])
+
+  defp version_of(prefix, document_id, version_no) do
+    Repo.one(
+      from(v in DocumentVersion,
+        where: v.document_id == ^document_id and v.version_no == ^version_no
+      ),
+      prefix: prefix
+    )
+  end
+
+  defp submit_shape(params) do
+    get = fn key -> Map.get(params, key, Map.get(params, Atom.to_string(key))) end
+    version_no = get.(:version_no)
+    hash = get.(:content_hash)
+    key = get.(:idempotency_key)
+
+    errors =
+      [
+        {"version_no", is_integer(version_no) and version_no > 0},
+        {"content_hash", is_nil(hash) or (is_binary(hash) and hash =~ ~r/\A[0-9a-f]{64}\z/)},
+        {Atom.to_string(:idempotency_key),
+         is_binary(key) and key =~ ~r/\A[A-Za-z0-9._:-]{1,128}\z/}
+      ]
+      |> Enum.reject(fn {_field, ok?} -> ok? end)
+      |> Enum.map(fn {field, _ok?} -> %{field: field, code: "invalid"} end)
+
+    if errors == [],
+      do: {:ok, %{version_no: version_no, content_hash: hash, idempotency_key: key}},
+      else: {:error, {:validation, errors}}
   end
 
   @doc """

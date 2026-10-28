@@ -1,0 +1,101 @@
+# Authored by BA-BILIMBAGA for T-0823 (REQ-586 criterion 7, question pool part).
+# Source: docs/requirements.yaml REQ-586 acceptance criterion 7 on origin/main. The candidate cannot see statuses or
+# parents; the check is that only the text of the active version is ever offered.
+---
+id: bilimbaga-exam-parent-4-session-draws-one-version
+scope: bilimbaga
+title: A candidate is examined only on the current version of a revised question, never on an older version
+version: "1.0"
+tags: [exam_authoring, question_lineage]
+
+description: >
+  A question has been revised twice: version 1 and version 2 are archived and version 3 is active. An exam
+  that draws its questions from the category of that question, and an exam that names the question by hand,
+  must offer the candidate version 3 only. A hand-picked older version is not offered. The three versions
+  carry different, easily told apart texts ("Version 1 text", "Version 2 text", "Version 3 text", chosen by
+  the administrator in step 1).
+  Preconditions: the exam module is installed on the bilimbaga tenant and the tenant has been upgraded so
+  that questions can carry a parent; the exam is available to the candidate (see the environment limitation
+  recorded for this scenario).
+
+actors:
+  admin: actor-bilimbaga-admin
+  candidate: actor-bilimbaga-candidate
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The tenant has been upgraded so that exam categories and questions can carry a parent (the one-time upgrade has run for this tenant)
+    check: custom
+  - description: An exam made of the question category below can be started by the candidate (the exam is assigned to all candidates)
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Creates a category and a chain of three versions of one question in it, with texts "Version 1 text", "Version 2 text" and "Version 3 text", each with the previous version as its parent; the first two are archived, the third is active (archive the earlier version before activating the next)
+    via: api
+    produces:
+      category_id: "identifier of the category"
+      v1: "identifier of version 1 (archived)"
+      v2: "identifier of version 2 (archived)"
+      v3: "identifier of version 3 (active)"
+
+  - step: 2
+    actor: admin
+    action: Creates an exam with one section and a rule that draws one question from the category, and makes the exam available to all candidates
+    via: gui
+    produces:
+      exam_title: "the exam's title as typed"
+
+  - step: 3
+    actor: candidate
+    action: Starts the exam of step 2 and reads the question offered
+    via: gui
+
+  - step: 4
+    actor: admin
+    action: Creates a second exam with a hand-picked question that is version 1, and a third exam with a hand-picked question that is version 3, and makes both available to all candidates
+    via: gui
+
+  - step: 5
+    actor: candidate
+    action: Starts the exam with the hand-picked version 1 and reads what is offered
+    via: gui
+
+  - step: 6
+    actor: candidate
+    action: Starts the exam with the hand-picked version 3 and reads the question offered
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The exam that draws from the category offers "Version 3 text" and neither of the older texts, on
+      every start
+    verification:
+      method: gui_screen
+      detail: "Step 3 shows the question text 'Version 3 text'; neither 'Version 1 text' nor 'Version 2 text' appears"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate examined on a withdrawn version is graded against an answer key the authors retired.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      An exam whose hand-picked question is an archived version does not offer that question (step 5; if the exam cannot start at all, nothing is offered, which also passes), and
+      the exam whose hand-picked question is the active version offers it (step 6)
+    verification:
+      method: gui_screen
+      detail: "Step 5 does not show 'Version 1 text'; step 6 shows 'Version 3 text'"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An archived question in a hand-picked list would silently reach candidates.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove the three exams, the three question versions (newest first) and the category created here.

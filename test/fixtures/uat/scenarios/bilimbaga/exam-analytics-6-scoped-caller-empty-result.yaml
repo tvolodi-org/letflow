@@ -1,0 +1,56 @@
+# T-0851 (BA-BILIMBAGA): exam analytics, a caller whose access is limited to other record types gets an empty result, not an error.
+# Covers REQ-594 criterion 9 (Test R-scope).
+# Sources: docs/requirements.yaml REQ-594 (ACCESS RULE, criterion 9; the exam module declares no access-scope declarations);
+# test/fixtures/uat/actors.yaml (actor-bilimbaga-admin).
+# Environment limit: no roster actor has a limited access scope, and none may be invented. The scenario is therefore recorded with a sidecar
+# (test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-analytics-6-scoped-caller-empty-result.yaml) and is BLOCKED until a scoped
+# actor exists. The administrator is named as the actor only because the step needs a roster actor; the precondition narrows their sign-in.
+# Sensitive actions: read-only; none refused here, see scenario exam-analytics-3.
+---
+id: bilimbaga-exam-analytics-6-scoped-caller-empty-result
+scope: bilimbaga
+title: A person whose access is limited to record types other than exam attempts and answers gets zero counts from the exam reports, not an error
+version: "1.0"
+tags: [exam_analytics, access_scope, empty_result]
+
+description: >
+  The administrator's sign-in is narrowed, for the test, to an access scope that lists neither exam attempts nor exam answers. The
+  administrator asks for the finished-attempt count, the passes, the average score and the graded answers per question of "UAT analytics
+  exam". Every request is accepted and answers zero, or an empty list; none is an error. Preconditions: see below.
+
+actors:
+  limited_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: The exam "UAT analytics exam" has finished attempts, and the administrator's sign-in carries an access scope that lists neither exam attempts nor exam answers
+    check: custom
+    detail: UAT assumption, to be confirmed by the process owner - the test environment can narrow a sign-in to such a scope; no roster actor has one today, so the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: limited_admin
+    action: >
+      The person asks for the number of finished attempts, the number that passed and the average score of "UAT analytics exam".
+    via: api
+  - step: 2
+    actor: limited_admin
+    action: >
+      The person asks for the graded answers per question of "UAT analytics exam", with and without the correct mark.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Every report request is accepted and shows nothing, rather than failing
+    verification:
+      method: api_response
+      detail: "Steps 1 and 2 succeed; the counts are zero and the per-question lists are empty; no error is returned"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An error for a limited person suggests the data exists but is withheld; an empty result reveals nothing and keeps screens working.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Remove the temporary narrowing of the sign-in made for the test.

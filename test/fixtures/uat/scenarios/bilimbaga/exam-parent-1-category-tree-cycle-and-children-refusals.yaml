@@ -1,0 +1,184 @@
+# Authored by BA-BILIMBAGA for T-0823 (REQ-586 criteria 3 and 5, category tree part).
+# Source: docs/requirements.yaml REQ-586 acceptance criteria 3 and 5 on origin/main; routes are the exam
+# module's authoring routes (moduledoc route table of lib/letflow/modules/exam/router.ex: authoring_create,
+# authoring_update, authoring_delete, gated by ExamAuthoringWrite).
+# Reasons are the "reason" member of the 422/409 body: parent_cycle (422), category_has_children (409).
+#
+# REQ-586 parts NOT observable through UAT (numbers = order of acceptance_criteria on origin/main), left out on purpose
+# for all five exam-parent scenarios:
+#   1: pack json and drift guard (build-time check).
+#   2: install DDL, confdeltype (database catalogue).
+#   3: the pre-existing-cycle part (needs a raw table write).
+#   5: the raw SQL DELETE / ON DELETE RESTRICT part (needs direct database access).
+#   8 and 9: ParentRollout, Release.ExamParentId, Catalog boundary (internal modules, no route).
+#   10: needs a tenant not yet upgraded; the QA tenant is assumed upgraded.
+#   11 and 12: vitest tree picker, web grep tests, npm run check (web unit tests).
+#   13: the PR pin listing (a pull request content check).
+# UAT assumption, to be confirmed by the process owner: the QA bilimbaga tenant has had the one-time parent_id
+# upgrade run before UAT.
+# Step 6 moves a category under a new root (a valid non-cycle move), not strictly to a sibling; the rule under test is the same.
+---
+id: bilimbaga-exam-parent-1-category-tree-cycle-and-children-refusals
+scope: bilimbaga
+title: The administrator builds a category tree; a category cannot be placed under itself or its own descendants, and a category that still has sub-categories cannot be removed
+version: "1.0"
+tags: [refusal, exam_authoring, category_tree]
+
+description: >
+  Exam categories can now be nested: a category may name another category as its parent, so a
+  certification body can group "Fire safety" under "Safety" under "Compliance". This scenario checks the tree
+  rules on the exam module's content maintenance. A category must never become its own ancestor (the tree
+  would have no top), and a category that still has a live sub-category must not be removed (its
+  sub-categories would be orphaned). Every refused request must leave the tree exactly as it was.
+  Preconditions: the tenant has the exam module installed and has been upgraded so that a category can carry
+  a parent (the one-time upgrade of existing tenants has run); the administrator holds the exam content
+  writing permission (TENANT_ADMIN). The tree is built by the administrator in step 1: category A at the top,
+  category B under A, category C under B (names are chosen by the administrator and noted; none of them
+  exists before).
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The tenant has been upgraded so that exam categories and questions can carry a parent (the one-time upgrade has run for this tenant)
+    check: custom
+  - description: The administrator account is a tenant administrator, a role that holds the exam content writing permission (permission matrix, TENANT_ADMIN row)
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Creates category A with no parent, then category B with A as its parent, then category C with B as its parent, and notes the three identifiers
+    via: api
+    produces:
+      category_a: "identifier of A"
+      category_b: "identifier of B (child of A)"
+      category_c: "identifier of C (child of B, grandchild of A)"
+
+  - step: 2
+    actor: admin
+    action: Changes category A so that its parent is A itself
+    via: api
+    expect_refusal: true
+
+  - step: 3
+    actor: admin
+    action: Changes category A so that its parent is B, its own direct child
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: admin
+    action: Changes category A so that its parent is C, its own grandchild
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: admin
+    action: Reads categories A, B and C again and compares their parents with step 1
+    via: api
+
+  - step: 6
+    actor: admin
+    action: Creates category D with no parent, then changes category C so that its parent is D (a move to a sibling branch that creates no loop)
+    via: api
+    produces:
+      category_d: "identifier of D"
+
+  - step: 7
+    actor: admin
+    action: Removes category A, which still has category B under it
+    via: api
+    expect_refusal: true
+
+  - step: 8
+    actor: admin
+    action: Removes category B, which has no sub-category any more after step 6 (C was moved to D)
+    via: api
+
+  - step: 9
+    actor: admin
+    action: Removes category D, which still has category C under it
+    via: api
+    expect_refusal: true
+
+  - step: 10
+    actor: admin
+    action: Removes category C, a leaf, then category D, then category A, each now without sub-categories
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Placing a category under itself (step 2), under its direct child (step 3) and under its grandchild
+      (step 4) is each refused as an unprocessable request, with the reason that the parent would create a
+      cycle (parent_cycle); nothing is saved
+    verification:
+      method: http_status
+      detail: "Steps 2, 3 and 4 each answer 422 and the body's reason is parent_cycle"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A category loop makes the tree unreadable: lists of categories would never end and exams could
+        not be assembled from a branch.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      After the three refused changes the tree is unchanged: A has no parent, B has parent A, C has parent B
+    verification:
+      method: api_response
+      detail: "Step 5 shows parent empty for A, A for B and B for C"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A refused change that was partly saved would leave the tree in a state nobody chose.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      A valid move to another branch (step 6) is accepted and C now has D as its parent
+    verification:
+      method: api_response
+      detail: "Step 6 is accepted (200) and reading C shows parent D"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If valid re-organisation of categories is turned away, the administrator cannot restructure the
+        tree, and the cycle rule is too strict to be usable.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      Removing a category that still has a live sub-category (step 7: A with B; step 9: D with C) is refused
+      as a conflict with the reason that the category has children (category_has_children), and both
+      categories are still listed afterwards
+    verification:
+      method: http_status
+      detail: "Steps 7 and 9 each answer 409 and the body's reason is category_has_children"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Removing a parent category would orphan its sub-categories and their questions would lose their
+        place in the tree.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-005
+    description: >
+      A category without live sub-categories is removed (step 8: B; step 10: C, then D, then A)
+    verification:
+      method: http_status
+      detail: "Steps 8 and 10 are each accepted (200) and the categories no longer appear in the category list"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If a leaf category cannot be removed, the administrator can never clean up the tree.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove categories A, B, C and D if any step left them, children before parents, so a re-run starts from a
+    clean tenant.

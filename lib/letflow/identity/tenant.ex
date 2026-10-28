@@ -286,7 +286,8 @@ defmodule Letflow.Identity.Tenant do
   also be called to clear settings back to `nil`.
 
   The closed top-level key vocabulary (exactly `app_name`, `logo_url`,
-  `brand_colors`, `locales`, `default_locale`) is enforced by
+  `brand_colors`, `locales`, `default_locale`, `signatory_name`,
+  `signatory_title`) is enforced by
   `Letflow.Identity.TenantSettings`, the custom `Ecto.Type` used for this
   field — an unrecognized top-level key is rejected by `cast/3` itself,
   before this function's own per-key value validation ever runs.
@@ -308,6 +309,9 @@ defmodule Letflow.Identity.Tenant do
       validation — see design §9 OQ-3).
     * `default_locale` — a single locale-shaped string that, when `locales`
       is also present in the same write, must be a member of it.
+    * `signatory_name`, `signatory_title` (REQ-595) — a string that is not
+      blank, at most 100 characters, with no control character (code points
+      below 0x20 or 0x7F), or `nil` to clear it.
   """
   @spec settings_changeset(t :: %__MODULE__{}, attrs :: map()) :: Ecto.Changeset.t()
   def settings_changeset(tenant, attrs) do
@@ -322,9 +326,39 @@ defmodule Letflow.Identity.Tenant do
     |> validate_logo_url(settings)
     |> validate_brand_colors(settings)
     |> validate_locales_and_default_locale(settings)
+    |> validate_signatory_name(settings)
+    |> validate_signatory_title(settings)
   end
 
   defp validate_settings_value(:settings, _nil_or_other), do: []
+
+  @signatory_max_length 100
+
+  defp validate_signatory_name(errors, %{"signatory_name" => v}),
+    do: validate_signatory_value(errors, "signatory_name", v)
+
+  defp validate_signatory_name(errors, _settings), do: errors
+
+  defp validate_signatory_title(errors, %{"signatory_title" => v}),
+    do: validate_signatory_value(errors, "signatory_title", v)
+
+  defp validate_signatory_title(errors, _settings), do: errors
+
+  defp validate_signatory_value(errors, _key, nil), do: errors
+
+  defp validate_signatory_value(errors, key, value) do
+    if is_binary(value) and String.valid?(value) and String.trim(value) != "" and
+         String.length(value) <= @signatory_max_length and
+         not String.match?(value, ~r/[\x00-\x1F\x7F]/) do
+      errors
+    else
+      [
+        {:settings,
+         "#{key} must be a non-empty string of at most #{@signatory_max_length} characters without control characters"}
+        | errors
+      ]
+    end
+  end
 
   @app_name_max_length 100
 

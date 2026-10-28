@@ -1,0 +1,113 @@
+# T-0895 (BA): TENANT ADMIN group, scenario 45: every public logo read that has nothing to show gets the same not-found answer, so a stranger cannot learn which companies exist or which have a logo.
+# Covers REQ-591 criterion 3, the cases a user can reach: no address name, an unknown address name, a company with no uploaded logo, and a request that carries a realm or host but no address name.
+# Quoted criterion 3: "INV-5 on the read: the seven cases (no slug, unknown slug, forced lookup failure, tenant with nil idp_realm_id, tenant with empty idp_realm_id, inactive tenant, tenant with no uploaded logo) plus the flag-off case return the same status 404, the same body and the same header names, compared in one test, and none answers 500; a request carrying ?realm= or ?host= without ?slug= gets that same 404."
+# Not covered here (no UAT actor can create the state; the backend tests of REQ-591 criterion 3 cover them): forced lookup failure, a company with a nil realm, a company with an empty realm, an inactive company. The flag-off case is scenario 48.
+# Sources: docs/requirements.yaml REQ-591 (description PUBLIC READ and criterion 3); lib/letflow/routers/tenant_config.ex (serve_logo/1: one uniform 404 for every miss; moduledoc route table); test/fixtures/uat/actors.yaml.
+# Environment: the upload switch must be ON (scenario 44 step 1), otherwise every step answers 404 for the wrong reason: the runner then reports BLOCKED, detected by step 1 (the positive control) answering 404.
+# Bytes (exact, hex): PNG-OK = 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082 (67 bytes), declared image/png.
+# Every request inside an expect_refusal step is one single read that must be refused; the accepted read (the positive control) is its own step 2.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refused reads are the refusals of learning which companies exist and which hold a logo (the information the not-found answer protects).
+---
+id: tenant-administration-45-tenant-logo-public-read-uniform-not-found
+scope: tenant-administration
+title: A public logo read with no address name, an unknown address name, a company without a logo, or only a realm or host, gets the same not-found answer
+version: "1.0"
+tags: [tenant-admin, tenant-logo, public-read, refusal, anti-oracle]
+
+description: >
+  With the logo-upload switch on and a logo stored for SwiftRoute only, a caller who is not signed in reads the public logo place five ways that must show nothing: with no address name, with an address name no
+  company has, with the address name of BilimBaga (a real company with no logo), with only a realm value of SwiftRoute, and with only a host value. All five answers are equal to each other in status, body and header
+  names, and none is a server error. The same read with SwiftRoute's own address name still returns the logo, so the not-found answers are not just a broken route.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  visitor: actor-any
+
+preconditions:
+  - description: The logo-upload switch is ON for QA.
+    check: system_seeded
+    detail: If step 2 answers 404, report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute has a stored logo (PNG-OK, uploaded by the SwiftRoute administrator in step 1) and BilimBaga has none.
+    check: system_seeded
+    detail: Setup-prepared for BilimBaga; if BilimBaga has a logo, delete it first and note that in the report.
+  - description: The runner knows the company address name S-SR of SwiftRoute and S-BB of BilimBaga from the seeded company records, and the string "no-such-company-0000" is not an address name of any company.
+    check: system_seeded
+    detail: If a company has that address name, report BLOCKED for step 4 only.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute uploads PNG-OK declared image/png as the company logo. The answer is noted.
+    via: api
+  - step: 2
+    actor: visitor
+    action: >
+      Positive control. A caller who is not signed in reads the public company logo with the address name S-SR. The status and the received bytes are noted.
+    via: api
+  - step: 3
+    actor: visitor
+    action: >
+      A caller who is not signed in reads the public company logo with no address name at all. The status, the body and the names of the headers are noted as N1.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: visitor
+    action: >
+      A caller who is not signed in reads the public company logo with the address name "no-such-company-0000". The status, body and header names are noted as N2.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: visitor
+    action: >
+      A caller who is not signed in reads the public company logo with the address name S-BB, a real company with no uploaded logo. The status, body and header names are noted as N3.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: visitor
+    action: >
+      A caller who is not signed in reads the public company logo with only the realm value S-SR and no address name. The status, body and header names are noted as N4.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: visitor
+    action: >
+      A caller who is not signed in reads the public company logo with only the host value "login.example.test" and no address name. The status, body and header names are noted as N5.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The positive control shows the logo is readable, so the refusals below are meaningful.
+    verification:
+      method: http_status
+      detail: Step 2 answers 200 with the bytes of PNG-OK. If it answers 404, the runner reports BLOCKED (switch off or upload failed), not failed.
+      evidence: The answer of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The login page cannot show the company logo.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: Every read with nothing to show gets the same not-found answer.
+    verification:
+      method: http_status
+      detail: Steps 3, 4, 5, 6 and 7 each answer 404. N1 to N5 are equal in status, in the body (byte for byte, after removing a per-request trace_id member if one is present) and in the set of response header names. None answers 500 or any other status.
+      evidence: The five answers N1 to N5 side by side.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A stranger can tell real company names from invented ones, and companies with a logo from those without, so the platform leaks its customer list.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: A realm or host value alone does not select a company; only the address name does.
+    verification:
+      method: api_response
+      detail: Steps 6 and 7 carry a value the company configuration place does use (the realm value S-SR selects SwiftRoute there; a host value resolves the default company), yet they answer the same not-found as step 3, with no picture bytes in the body.
+      evidence: The answers of steps 6 and 7 compared with N1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A public read could be steered to a company by a value other than its address name, widening what a stranger can probe.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the logo of SwiftRoute if stored. The environment turns the switch off again afterwards.

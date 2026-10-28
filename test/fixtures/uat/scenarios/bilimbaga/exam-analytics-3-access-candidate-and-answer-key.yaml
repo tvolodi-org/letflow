@@ -1,0 +1,109 @@
+# T-0851 (BA-BILIMBAGA): exam analytics, who may ask for the reports (administrator yes, candidate no) and the answer-key refusal.
+# Covers REQ-594 criterion 7 (Test R-perm) in part: TENANT_ADMIN gets an answer, CANDIDATE is refused, and a request that names the stored copy of
+# the exam (the answer key) is refused with no data. TENANT_AUDITOR, TASK_WORKER and AGENT_RUNNER are in scenario exam-analytics-4.
+# Sources: docs/requirements.yaml REQ-594 (ACCESS RULE, criterion 7); docs/roles.md (EntitiesAggregate: yes for TENANT_ADMIN, no for CANDIDATE;
+# the 403 for a candidate is the requirement's wording); test/fixtures/uat/actors.yaml (actor-bilimbaga-admin, actor-bilimbaga-candidate).
+# The four sensitive actions: "see sensitive data" is steps 2 and 3 (candidate and answer key); approve, pay or release and change users are not
+# in this flow.
+---
+id: bilimbaga-exam-analytics-3-access-candidate-and-answer-key
+scope: bilimbaga
+title: A candidate is refused the exam reports, the administrator gets them, and a request that names the exam's stored copy is refused with no data
+version: "1.0"
+tags: [exam_analytics, access_control, refusal, sensitive_data]
+
+description: >
+  The administrator of Bilimbaga asks for the finished-attempt count of "UAT analytics exam" and gets an answer. A candidate asks for the same
+  count and for the per-question numbers and is refused both times, with nothing of the results shown. Then the administrator asks for a
+  report that filters or groups by the stored copy of the exam as the candidate saw it (which holds the answer key): the whole request is
+  refused and no number comes back. A request that does not name that field is accepted in its own step.
+  Preconditions: the exam "UAT analytics exam" with finished attempts exists, as in scenario exam-analytics-1.
+
+actors:
+  admin: actor-bilimbaga-admin
+  candidate: actor-bilimbaga-candidate
+
+preconditions:
+  - description: The exam "UAT analytics exam" exists in Bilimbaga with finished attempts
+    check: custom
+    detail: Prepared by the test setup (see scenario exam-analytics-1); without it the scenario is BLOCKED.
+  - description: The Bilimbaga administrator and the Bilimbaga candidate can sign in
+    check: system_seeded
+    detail: The roster notes that a test token for the administrator needs a mapping that is not yet approved; without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator asks for the number of finished attempts of "UAT analytics exam" and notes the answer.
+    via: api
+  - step: 2
+    actor: candidate
+    action: >
+      The candidate asks for the number of finished attempts of "UAT analytics exam".
+    via: api
+    expect_refusal: true
+  - step: 3
+    actor: candidate
+    action: >
+      The candidate asks for the number of graded answers per question of "UAT analytics exam".
+    via: api
+    expect_refusal: true
+  - step: 4
+    actor: admin
+    action: >
+      The administrator asks for the number of finished attempts of "UAT analytics exam" filtered by the stored copy of the exam (the field that
+      holds the answer key).
+    via: api
+    expect_refusal: true
+  - step: 5
+    actor: admin
+    action: >
+      The administrator asks for the number of finished attempts of "UAT analytics exam" grouped by the stored copy of the exam.
+    via: api
+    expect_refusal: true
+  - step: 6
+    actor: admin
+    action: >
+      The administrator asks again for the number of finished attempts of "UAT analytics exam", not naming the stored copy, and compares the
+      answer with step 1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator receives the report answer
+    verification:
+      method: http_status
+      detail: "Steps 1 and 6 succeed and show the same number"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The exam administrator cannot see the results of the exams they run.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: The candidate is refused both report requests and sees no result
+    verification:
+      method: http_status
+      detail: "Steps 2 and 3 are each refused as forbidden; no count appears in the answer"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate who can read exam-wide results learns how other candidates and the exam performed, and which questions are easy.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: A request naming the stored copy of the exam is refused as a whole, by filter and by grouping, and returns no data
+    verification:
+      method: http_status
+      detail: "Steps 4 and 5 are each refused as forbidden; the answer holds no count and no part of the exam copy"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        The stored copy holds the answer key. A report that reads it, even only to count, can be used to find the correct answers.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing is created by this scenario.
