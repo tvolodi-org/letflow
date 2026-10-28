@@ -3,7 +3,7 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
   GH #2663 / REQ-474 AC1 (spec `test/specs/GH-2663.md`, tests D-01..D-06) and the fixture-hygiene
   AC (H-01, H-02): reads the committed source documents under
   `priv/modules/catalog_items/entity_definitions/` and asserts the exact shape the issue fixes:
-  two types, exact fields, types, required and queried flags, the enum values, the unique
+  three types, exact fields, types, required and queried flags, the enum values, the unique
   constraints (code and the external_ref pair), no `foreign_keys`, no decimal field.
 
   Pure file reads: no database. `async: true`.
@@ -13,7 +13,7 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
 
   @dir Path.join([File.cwd!(), "priv", "modules", "catalog_items", "entity_definitions"])
 
-  @types ~w(catalog_item catalog_uom)
+  @types ~w(catalog_counterparty catalog_item catalog_uom)
 
   # {name, type, required, queried}; the order inside a document is not asserted.
   @external_ref [
@@ -36,6 +36,14 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
         {"base_uom_id", "string", true, true},
         {"kind", "enum", true, true},
         @active
+      ] ++ @external_ref,
+    "catalog_counterparty" =>
+      [
+        {"code", "string", true, true},
+        {"name", "string", true, false},
+        {"kind", "enum", true, true},
+        {"tax_id", "string", false, true},
+        @active
       ] ++ @external_ref
   }
 
@@ -47,6 +55,10 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
     "catalog_item" => [
       {"uq_catalog_item_code", ["code"]},
       {"uq_catalog_item_external_ref", ["external_ref_system", "external_ref_id"]}
+    ],
+    "catalog_counterparty" => [
+      {"uq_catalog_counterparty_code", ["code"]},
+      {"uq_catalog_counterparty_external_ref", ["external_ref_system", "external_ref_id"]}
     ]
   }
 
@@ -59,7 +71,7 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
   end
 
   describe "AC1: the entity-definition source documents" do
-    test "D-01: the directory holds exactly the two type files" do
+    test "D-01: the directory holds exactly the three type files" do
       assert @dir |> File.ls!() |> Enum.sort() == Enum.map(@types, &"#{&1}.json")
     end
 
@@ -90,6 +102,12 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
       kind = read!("catalog_item")["fields"] |> Enum.find(&(&1["name"] == "kind"))
       assert kind["type"] == "enum"
       assert kind["enum_values"] == ["material", "service"]
+
+      supplier_kind =
+        read!("catalog_counterparty")["fields"] |> Enum.find(&(&1["name"] == "kind"))
+
+      assert supplier_kind["type"] == "enum"
+      assert supplier_kind["enum_values"] == ["supplier", "contractor"]
     end
 
     test "D-05: the unique constraints are exactly code and the external_ref pair, per type" do
@@ -114,14 +132,14 @@ defmodule Letflow.Modules.CatalogItems.EntityDefinitionsTest do
   end
 
   describe "fixture hygiene: the test fixtures do not claim the real catalog names" do
-    @real_names ~w(catalog_item catalog_uom)
+    @real_names ~w(catalog_item catalog_uom catalog_counterparty)
 
     for {label, id, parts} <- [
           {"fixture_managed.ex", 1,
            ["test", "support", "modules", "fixture_managed", "fixture_managed.ex"]},
           {"managed_foundation.json", 2, ["priv", "module_fixtures", "managed_foundation.json"]}
         ] do
-      test "H-0#{id}: #{label} contains neither catalog_item nor catalog_uom" do
+      test "H-0#{id}: #{label} contains none of the real catalog names" do
         source = File.read!(Path.join([File.cwd!() | unquote(parts)]))
 
         assert source != ""

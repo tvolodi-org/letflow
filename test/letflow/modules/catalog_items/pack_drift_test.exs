@@ -2,7 +2,7 @@ defmodule Letflow.Modules.CatalogItems.PackDriftTest do
   @moduledoc """
   GH #2663 / REQ-474 AC1 (spec `test/specs/GH-2663.md`, tests P-01..P-04): the drift guard named
   in the header of `priv/modules/catalog_items/generate_pack.exs`. `pack.json` is committed output of that
-  script; this test re-reads the two source documents and proves the committed pack still says
+  script; this test re-reads the source documents and proves the committed pack still says
   exactly what they say: `definition_json` equal to the decoded source, the content-derived
   `entity_definition_id`, and the logical-shape digest.
 
@@ -14,7 +14,7 @@ defmodule Letflow.Modules.CatalogItems.PackDriftTest do
   alias Letflow.Entities.Definition.Shape
 
   @dir Path.join([File.cwd!(), "priv", "modules", "catalog_items"])
-  @types ~w(catalog_uom catalog_item)
+  @types ~w(catalog_uom catalog_item catalog_counterparty)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 
@@ -60,7 +60,7 @@ defmodule Letflow.Modules.CatalogItems.PackDriftTest do
     end)
   end
 
-  test "P-01: the pack holds exactly the two entity definitions, in the source set, and nothing else" do
+  test "P-01: the pack holds exactly the three entity definitions, in the source set, and nothing else" do
     document = pack()
 
     assert document["pack_id"] == "letflow-catalog_items"
