@@ -125,9 +125,39 @@ defmodule Letflow.CatalogItemsFixture do
     )
   end
 
+  @doc "An active supplier (owner path) with `code`; `extra` overrides fields."
+  def counterparty!(schema, code, extra \\ %{}) do
+    create!(schema, "catalog_counterparty", values("catalog_counterparty", code, extra))
+  end
+
+  @doc "Owner-path full-document update that must succeed; returns the stored `Latest` row."
+  def update!(schema, record, field_values) do
+    {:ok, %{record: updated}} =
+      Records.update_record(
+        %{
+          entity_type: record.entity_type,
+          record_id: record.record_id,
+          field_values: field_values,
+          actor_id: Ecto.UUID.generate(),
+          idempotency_key: Ecto.UUID.generate()
+        },
+        schema,
+        owner()
+      )
+
+    updated
+  end
+
   @doc "Valid field values for `type` and `code`; `extra` overrides or adds."
   def values("catalog_uom", code, extra) do
     Map.merge(%{"code" => code, "name" => "UoM #{code}", "active" => true}, extra)
+  end
+
+  def values("catalog_counterparty", code, extra) do
+    Map.merge(
+      %{"code" => code, "name" => "Supplier #{code}", "kind" => "supplier", "active" => true},
+      extra
+    )
   end
 
   def values("catalog_item", code, extra) do

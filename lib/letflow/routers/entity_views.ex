@@ -22,7 +22,7 @@ defmodule Letflow.Routers.EntityViews do
   The tenant comes only from `conn.assigns.scoped_opts` (INV-1) and the actor only from the
   DB-resolved `auth_context` (INV-2); no route takes a tenant identifier and a body carrying
   `tenant_id` (or any key outside `entity_type, name, kind, columns, filter, sort, group_by,
-  aggregates`) is a 422 `unknown_key`
+  aggregates, chart_type`) is a 422 `unknown_key`
   that changes nothing (INV-10). A caller without the permission is refused by
   `Letflow.Plugs.Authorize` before the handler, so the 403 is the same for an existing and an absent
   id. An absent, malformed, other-tenant or type-denied id (and an unknown or denied type on create)
@@ -139,6 +139,7 @@ defmodule Letflow.Routers.EntityViews do
       "sort" => view.sort,
       "group_by" => view.group_by,
       "aggregates" => view.aggregates,
+      "chart_type" => view.chart_type,
       "created_by" => view.created_by,
       "updated_by" => view.updated_by,
       "inserted_at" => view.inserted_at,

@@ -1,6 +1,6 @@
 # T-0514 (BA): TENANT ADMIN group, scenario 4 of 6: export of the company's settings bundle (REQ-552 slice 1, criteria 1, 2, 7 and 8's
 # "no value in the record" half is in scenario 5).
-# Sources: docs/requirements.yaml REQ-552 (acceptance criteria 1, 2, 7); docs/roles.md (the settings permission is held by the
+# Sources: docs/requirements.yaml REQ-552 (acceptance criteria 1, 2, 7), REQ-599 (criterion 1: the two lists of the v2 bundle; their content is scenario 36); docs/roles.md (the settings permission is held by the
 # tenant administrator only among the tenant roles); lib/letflow/routers/tenant_config_bundle.ex (moduledoc: one export route, the tenant
 # comes from the sign-in only).
 # Aliases (all actor-any, as in tenant-admin-1: the roster has no entry for people created by the administrator):

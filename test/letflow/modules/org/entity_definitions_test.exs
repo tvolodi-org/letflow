@@ -143,14 +143,14 @@ defmodule Letflow.Modules.Org.EntityDefinitionsTest do
   end
 
   describe "#2584 fixture hygiene: the test fixtures no longer claim the real foundation names" do
-    @real_names ~w(org_legal_entity org_site org_unit org_unit_membership catalog_item catalog_uom)
+    @real_names ~w(org_legal_entity org_site org_unit org_unit_membership catalog_item catalog_uom catalog_counterparty)
 
     for {label, parts} <- [
           {"fixture_managed.ex",
            ["test", "support", "modules", "fixture_managed", "fixture_managed.ex"]},
           {"managed_foundation.json", ["priv", "module_fixtures", "managed_foundation.json"]}
         ] do
-      test "H-0#{if label == "fixture_managed.ex", do: 1, else: 2}: #{label} contains none of the six real names" do
+      test "H-0#{if label == "fixture_managed.ex", do: 1, else: 2}: #{label} contains none of the seven real names" do
         source = File.read!(Path.join([File.cwd!() | unquote(parts)]))
 
         assert source != ""

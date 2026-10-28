@@ -1,0 +1,122 @@
+# T-0847 (BA): TENANT ADMIN group, scenario 36: the settings bundle now also carries the company's screen wording replacements and
+# message wordings (REQ-599 slice 2, criteria 1 and 2's QA-runnable half). Scenarios 37 (import) and 38 (refusals, access) follow.
+# Extends scenario 4 (which asserts the top-level key set of the v2 bundle); this one covers only what the two lists hold.
+# Sources: docs/requirements.yaml REQ-599 (acceptance criteria 1, 2; description: label_overrides sorted by message id then language,
+# notification_templates sorted by template key then language); lib/letflow/routers/tenant_config_bundle.ex (moduledoc: the label part
+# needs the wording permission, the template part the message-wording permission, an administrator holds both); docs/roles.md
+# (LabelsManage, NotificationTemplatesManage: tenant administrator and platform operator only among the roles); scenario 7 (message ids
+# "entities.tag.form.submitError" and "entities.crud.form.submitError") and scenario 14 (the one message "task_assigned").
+# Aliases (actor-any, as in scenario 4): tenant_admin = administrator of company A.
+# Not covered here, by the requirement's own wording: criterion 2's caller who holds only the settings permission (gets the slice-1 keys and
+# neither new list, no refusal) and who lacks only one of the two new permissions: no built-in role can be that caller, so it is checked
+# only by the backend seam test test/letflow/routers/tenant_config_bundle_test.exs (criteria 2 and 7). Criterion 9 (diff scope) and 10
+# (runbook, gates) concern the code change, checked by review and CI.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users): "see sensitive data" is the export, refused to a
+# task worker in scenario 38; approve, pay and change users are not in this flow.
+# UAT assumptions, to be confirmed by the process owner: company A has no stored wording replacement and no stored message wording at the
+# start (precondition); the languages en and ru are set in step 2 so that both are company languages.
+---
+id: tenant-administration-36-config-bundle-v2-export-label-and-template-lists
+scope: tenant-administration
+title: The exported bundle carries the company's wording replacements and message wordings in a fixed order, and carries two empty lists when the company has none
+version: "1.0"
+tags: [tenant-admin, config-bundle, export, label-overrides, notification-templates]
+
+description: >
+  The administrator of company A exports the bundle while the company has no stored screen-wording replacement and no stored message
+  wording: the bundle names the format "bpm/config-bundle/v2" and carries two lists that are empty, not missing and not null. The administrator
+  then sets the company languages to English and Russian, stores three screen-wording replacements in an arbitrary order and two message
+  wordings of the "task assigned" message (Russian, then English), and exports again. Each list holds every stored entry with its text exactly
+  as stored. The wording replacements come in the order of message id, then language; the message wordings in the order of template key, then
+  language, whatever order they were stored in. The text of a replacement or wording appears only in the list that holds it.
+
+actors:
+  tenant_admin: actor-any
+
+preconditions:
+  - description: tenant-administration-4 passed in this run, so tenant_admin is administrator of company A
+    check: custom
+    detail: If the administrator does not exist, report BLOCKED, not PASS.
+  - description: Company A has no stored screen-wording replacement and no stored message wording
+    check: custom
+    detail: If some exist from an earlier run, remove them with the administrator's own removal steps first and note that in the report; if they cannot be removed, report BLOCKED for step 1 (the remaining steps still run, EO-001 is judged on the later steps).
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: The administrator exports the settings bundle of company A and notes the format version and the two lists.
+    via: api
+    produces:
+      bundle_empty: the exported document
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator sets the company languages to English and Russian (English as default language) and notes the
+      application name and other branding values, which this scenario does not change.
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator stores three screen-wording replacements, in this order: message "entities.tag.form.submitError" in Russian with the text
+      "Тег не сохранён A"; message "entities.tag.form.submitError" in English with the text "Tag not saved A"; message
+      "entities.crud.form.submitError" in Russian with the text "Запись не сохранена A". The administrator notes the three answers.
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator stores two message wordings for the message "task_assigned", in this order: Russian with the subject "Задача {task_name}"
+      and the body "Процесс {process_name}, срок {due_date}"; English with the subject "Task {task_name}" and the body "Process {process_name},
+      due {due_date}". The administrator notes the two answers.
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: The administrator exports the settings bundle of company A again, saves the document and reads the two lists.
+    via: api
+    produces:
+      bundle_a_v2: the exported document, used by scenario 37
+
+expected_outcomes:
+  - id: EO-001
+    description: A company with nothing stored gets a v2 bundle with two empty lists.
+    verification:
+      method: system_state
+      detail: In the document of step 1 the format version is "bpm/config-bundle/v2" and the screen-wording list and the message-wording list are both present and both empty lists, neither missing nor null.
+      evidence: The document saved in step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: An import into another company cannot tell "nothing to move" from "part not exported", and a consumer of the bundle may fail on a missing or null list.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The screen-wording list holds every stored replacement exactly as stored, in the order message id, then language.
+    verification:
+      method: system_state
+      detail: The list of step 5 holds exactly three entries, each with message id, language and text equal to step 3, in the order "entities.crud.form.submitError" ru, "entities.tag.form.submitError" en, "entities.tag.form.submitError" ru; no entry carries a company identifier.
+      evidence: The document saved in step 5 compared with the answers of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Wording tested in one company is altered or lost when moved to another, and two exports of the same company differ only by order.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The message-wording list holds every stored wording exactly as stored, in the order template key, then language.
+    verification:
+      method: system_state
+      detail: The list of step 5 holds exactly two entries, each with template key "task_assigned", language, subject and body equal to step 4, English first and Russian second although Russian was stored first.
+      evidence: The document saved in step 5 compared with the answers of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Message wording tested in one company is altered or lost when moved to another.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The bundle still carries the settings part of slice 1 next to the two lists, with the languages set in step 2.
+    verification:
+      method: system_state
+      detail: The document of step 5 holds the branding settings and the module settings as before, and its language list is English and Russian with English as default; no other top-level entry beyond the lists is new.
+      evidence: The document saved in step 5 compared with the values noted in step 2.
+    on_fail:
+      severity: MINOR
+      business_impact: The additional lists displace or damage the settings that already travel in the bundle.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The replacements and wordings stay; scenarios 37 and 38 use bundle_a_v2 and the stored entries of company A.

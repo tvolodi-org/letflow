@@ -182,6 +182,22 @@ defmodule Letflow.EntityViewsSupport do
     )
   end
 
+  @doc "A valid graph body over `answer_option` (REQ-613): count by question_id, bar chart."
+  def graph_view(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "entity_type" => "answer_option",
+        "name" => "Options chart",
+        "kind" => "graph",
+        "filter" => [%{"field" => "text", "op" => "neq", "value" => "Z"}],
+        "group_by" => [%{"field" => "question_id"}],
+        "aggregates" => [%{"fn" => "count"}],
+        "chart_type" => "bar"
+      },
+      overrides
+    )
+  end
+
   def view_count(ctx), do: Repo.aggregate("entity_views", :count, prefix: ctx.schema_name)
 
   def audit_count(ctx, action) do

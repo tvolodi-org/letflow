@@ -29,7 +29,7 @@ defmodule Letflow.Routers.EntityViewsTest do
       view = create!(admin)
 
       assert Map.keys(view) |> Enum.sort() ==
-               ~w(aggregates columns created_by entity_type filter group_by id inserted_at kind name sort updated_at updated_by)
+               ~w(aggregates chart_type columns created_by entity_type filter group_by id inserted_at kind name sort updated_at updated_by)
 
       assert view["created_by"] == admin.user_id
 

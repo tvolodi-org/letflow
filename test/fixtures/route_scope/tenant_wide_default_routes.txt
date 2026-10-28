@@ -90,6 +90,7 @@ POST /modules/exam/exam-sessions ExamSessionStart
 POST /modules/exam/exam-sessions/:id/certificate ExamCertificateIssue
 POST /modules/exam/exam-sessions/:id/events ExamSessionReportEvent
 POST /modules/exam/exam-sessions/:id/submit ExamSessionSubmit
+POST /modules/exam/grading-queue/:session_id/:question_id/grade ExamGradingWrite
 POST /onboarding TenantsManage
 POST /onboarding/:id/bind-realm TenantsManage
 POST /platform-migrations/rollouts TenantsManage

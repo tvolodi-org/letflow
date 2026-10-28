@@ -574,6 +574,7 @@
 9 test/letflow/entities/type_access_test.exs 11647.94
 9 test/letflow/entities/views/views_test.exs 7808.33
 9 test/letflow/entities/views/pivot_views_test.exs 8000.00
+9 test/letflow/entities/views/graph_views_test.exs 8000.00
 9 test/letflow/event_store/registry_test.exs 54679.84
 9 test/letflow/gh2622_ci_cd_timeouts_test.exs 84.32
 9 test/letflow/help_test.exs 42482.58
@@ -1038,3 +1039,6 @@
 16 test/support/fake_invocation_connection_test.exs 194.32
 16 test/letflow/modules/installs_uninstall_test.exs 5589.95
 4 test/letflow/routers/entity_views_pivot_test.exs 5589.95
+5 test/letflow/engine/complete_task_form_hook_busy_test.exs 5589.95
+14 test/letflow/engine/complete_task_form_hook_locks_test.exs 5589.95
+8 test/letflow/routers/tasks_form_hook_tenant_test.exs 5589.95

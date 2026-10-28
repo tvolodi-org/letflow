@@ -2834,6 +2834,11 @@ defmodule Letflow.Engine do
 
   @typep refusal_context :: %{required: [String.t()], allowed: [String.t()]}
 
+  # GH #3409 (F-3 part B, criterion 8): fixed, not a setting. The sandbox cap is
+  # `FormValidation.max_timeout_ms/0` (50 ms), so a busy slot frees within about one script run.
+  @form_hook_busy_attempts 3
+  @form_hook_busy_backoff_ms 25
+
   @type complete_result :: %{
           task_id: Ecto.UUID.t(),
           instance_id: Ecto.UUID.t(),
@@ -2877,6 +2882,11 @@ defmodule Letflow.Engine do
   `Letflow.Routers.Tasks.handle_complete/3` *before* this function, per
   ISS-0942 (moduledoc's "`complete_task/3` (EE-04, REQ-048)" section has
   the full update).
+
+  GH #3409 (F-3 part B): when the node's form validation hook finds the script sandbox busy
+  (`{:error, {:form_hook_failed, :script_busy}}`), the transaction is rolled back, a fixed 25 ms
+  backoff runs outside any transaction, and the whole completion re-runs, at most 3 attempts in
+  total; then that error is returned and the task stays pending. No other code retries.
   """
   @spec complete_task(
           task_id :: Ecto.UUID.t(),
@@ -2946,7 +2956,55 @@ defmodule Letflow.Engine do
   # Atomic phase (design doc §8) -- one Ecto.Multi.
   # ---------------------------------------------------------------------
 
+  # GH #3409 (F-3 part B, REQ-605 criterion 8): a busy script sandbox rolls the whole completion
+  # back (the failed Multi step releases the tasks and projection locks before this loop sees the
+  # result), the backoff runs here with no transaction open, and the whole completion re-runs.
+  # At most `@form_hook_busy_attempts` attempts in total; only `:script_busy` retries.
   defp run_complete_task(
+         task_id,
+         output_variables,
+         actor_id,
+         idempotency_key,
+         completed_at,
+         prefix,
+         f1,
+         hidden_check,
+         attempt \\ 1
+       ) do
+    result =
+      attempt_complete_task(
+        task_id,
+        output_variables,
+        actor_id,
+        idempotency_key,
+        completed_at,
+        prefix,
+        f1,
+        hidden_check
+      )
+
+    case result do
+      {:error, {:form_hook_failed, :script_busy}} when attempt < @form_hook_busy_attempts ->
+        Process.sleep(@form_hook_busy_backoff_ms)
+
+        run_complete_task(
+          task_id,
+          output_variables,
+          actor_id,
+          idempotency_key,
+          completed_at,
+          prefix,
+          f1,
+          hidden_check,
+          attempt + 1
+        )
+
+      other ->
+        other
+    end
+  end
+
+  defp attempt_complete_task(
          task_id,
          output_variables,
          actor_id,
