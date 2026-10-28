@@ -94,7 +94,7 @@ steps:
     actor: tenant_admin
     action: >
       The administrator tries to save the report "UAT report sort no columns" with the sort "title ascending" and no columns, then the report
-      "UAT report 101 columns" over "UAT report wide ticket" with the 101 columns c001 to c100 and record_id (all distinct, all on that type, so only the count can refuse it), then the report "UAT report 11 sorts" with a sort list of 11
+      "UAT report 101 columns" over "UAT report wide ticket" with no filter, no grouping, the aggregate "count of records" and the 101 columns c001 to c100 and record_id (all distinct, all on that type, so only the count can refuse it), then the report "UAT report 11 sorts" with a sort list of 11
       clauses (title ascending repeated, and the column title). Each answer is noted.
     expect_refusal: true
     via: api
@@ -120,10 +120,29 @@ steps:
   - step: 8
     actor: tenant_admin
     action: >
-      The administrator saves, as accepted cases, the report "UAT report exactly 100 columns" over "UAT report wide ticket" with the 100 distinct columns c001 to c100
-      and the sort "c001 ascending" repeated 10 times, the report "UAT report empty detail" with no columns and no sort, and the list view "UAT shared name" over "UAT report
-      ticket" with the column title. Each answer is noted.
+      The administrator saves, as accepted cases, the report "UAT report exactly 100 columns" over "UAT report wide ticket" with no filter, no
+      grouping, the aggregate "count of records", the 100 distinct columns c001 to c100 and the sort "c001 ascending" repeated 10 times; the
+      report "UAT report empty detail" over "UAT report ticket" with the filter "status equals open", the grouping by region, the aggregate
+      "count of records", no columns and no sort; and the list view "UAT shared name" over "UAT report ticket" with the column title. Each
+      answer is noted.
     via: api
+    input:
+      - name: UAT report exactly 100 columns
+        kind: report
+        entity_type: UAT report wide ticket
+        aggregates: [count]
+        columns: c001 to c100
+        sort: c001 ascending, repeated 10 times
+      - name: UAT report empty detail
+        kind: report
+        entity_type: UAT report ticket
+        filter: status equals open
+        group_by: [region]
+        aggregates: [count]
+      - name: UAT shared name
+        kind: list
+        entity_type: UAT report ticket
+        columns: [title]
   - step: 9
     actor: tenant_admin
     action: >
