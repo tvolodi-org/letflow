@@ -196,7 +196,7 @@ defmodule Letflow.Entities.RecordsWriteHookTenantTest do
 
   describe "C9 routes" do
     setup do
-      fx_a = W.provision!("e3ra")
+      fx_a = "e3ra" |> W.provision!() |> F.with_hmac!()
       fx_b = W.provision!("e3rb")
       type = "bound_in_a_only"
       P.active_definition!(fx_a.schema_name, type, ["name", "total"])

@@ -456,7 +456,12 @@ defmodule Letflow.Routers.Entities.RecordWrites do
   #   :preserved_value_invalid       -> 403  (constant restricted-field detail,
   #                                     GH #2812)
   #   :entity_write_contention       -> 503 (REQ-607; pre-write hook lock timeout/deadlock/statement
-  #   :derived_value_conflict           timeout, or three fingerprint mismatches; one constant body)
+  #                                     timeout; the problem-JSON constant body)
+  #   :derived_value_conflict,
+  #   :script_busy                   -> 503 {"error": "<code>"} (REQ-618, decision 0065 D6)
+  #   :script_rejected               -> 409 {"error": "script_rejected"}
+  #   :script_error, :budget_exceeded, :memory_limit_exceeded, :timeout, :output_invalid,
+  #   {:script_failed, code}         -> 422 {"error": "<code>"} (the declared code for script_failed)
   #   :tenant_not_provisioned        -> 500  (unreachable, INV-1)
   #   :invalid_schema_name           -> 500  (unreachable, INV-1)
   #   any other term()               -> 500  (INV-8 catch-all, no detail)
@@ -579,12 +584,33 @@ defmodule Letflow.Routers.Entities.RecordWrites do
   # REQ-607 (decision 0065 D8 E-3): the pre-write hook could not complete the write (a lock timeout,
   # a deadlock or a statement timeout; or three fingerprint mismatches in a row). Nothing was
   # appended and a retry is safe. One constant body for both codes: no record data, script key,
-  # version or error text. The other typed hook errors stay on the logged 500 below until E-4.
+  # version or error text.
   defp render_record_command(conn, {:error, :entity_write_contention}, _status),
     do: Response.service_unavailable(conn, @hook_unavailable)
 
-  defp render_record_command(conn, {:error, :derived_value_conflict}, _status),
-    do: Response.service_unavailable(conn, @hook_unavailable)
+  # REQ-618 (decision 0065 D6, slice E-4): one constant `{"error": "<code>"}` body per hook code,
+  # nothing else in it. Placed before the logged 500, so none of these codes reaches it.
+  defp render_record_command(conn, {:error, code}, _status)
+       when code in [:derived_value_conflict, :script_busy],
+       do: hook_error(conn, 503, code)
+
+  defp render_record_command(conn, {:error, :script_rejected}, _status),
+    do: hook_error(conn, 409, :script_rejected)
+
+  defp render_record_command(conn, {:error, code}, _status)
+       when code in [
+              :script_error,
+              :budget_exceeded,
+              :memory_limit_exceeded,
+              :timeout,
+              :output_invalid
+            ],
+       do: hook_error(conn, 422, code)
+
+  # The manifest-declared fail code (a binary the publisher declared in `fail_codes`).
+  defp render_record_command(conn, {:error, {:script_failed, code}}, _status)
+       when is_binary(code),
+       do: hook_error(conn, 422, code)
 
   defp render_record_command(conn, {:error, reason}, _status)
        when reason in [:tenant_not_provisioned, :invalid_schema_name],
@@ -594,4 +620,7 @@ defmodule Letflow.Routers.Entities.RecordWrites do
     Logger.warning("entity record command failed: #{inspect(reason)}")
     Response.internal_error(conn)
   end
+
+  defp hook_error(conn, status, code),
+    do: Response.send_json(conn, status, %{"error" => to_string(code)})
 end

@@ -2,7 +2,8 @@ defmodule Letflow.Scripts.EntityWrite do
   @moduledoc """
   REQ-601 / GH #3380 part B (decision 0065 D8, slice E-2): runs ONE pinned `entity_write` script
   (hook 1) for one record candidate and returns the derived field values with the read
-  fingerprint. Pure of the engine: no route, no record write, no audit row, no lock (E-3 and
+  fingerprint. No route, no record write, no audit row of its own (REQ-618 writes it in
+  `Letflow.Entities.WriteHookAudit`), no lock (E-3 and
   later own those). The caller passes the tenant schema `prefix` (the only tenant selector;
   `facts` is never read for tenant data), the pinned version and the facts. `prefix` must be a
   database-resolved tenant schema name: a name that does not exist raises from Postgres, so the
@@ -10,6 +11,9 @@ defmodule Letflow.Scripts.EntityWrite do
 
   ## Order of steps (a `with` chain; every failure is a tuple, nothing raises)
 
+    0. the kill switch (`Letflow.Scripts.Policy.kill_switch_on?/1`, REQ-618), read at the start of
+       every attempt: on (either latch, or the policy row absent) is the single rejection below;
+       a database error in that read is `:script_error` (fail closed);
     1. the facts are checked (`entity_type`, a candidate with binary keys, `now`);
     2. the pinned row is loaded under `prefix`: `published` and `retired` rows run; an absent,
        draft, discarded or revoked row, another kind, a sha256 mismatch and a malformed pin are
@@ -26,7 +30,8 @@ defmodule Letflow.Scripts.EntityWrite do
        whose `from` names that label AND only with `publisher_may_restricted?: true`;
     7. the read phase (`Letflow.Entities.ScriptReads.prefetch_with_fingerprint/3`), when the
        manifest declares reads;
-    8. the sandbox runs;
+    8. the HMAC of the canonical `{ctx, input}` (`run_audited/4`; a missing key is the same
+       rejection), then the sandbox runs;
     9. the result is converted to a stable tuple.
 
   `stats` is always `%{duration_us, instructions_used, heap_words_at_end}`; before the sandbox
@@ -48,10 +53,12 @@ defmodule Letflow.Scripts.EntityWrite do
   alias Letflow.Entities.ScopeBearingField
   alias Letflow.Entities.ScriptReads
   alias Letflow.Repo
+  alias Letflow.Scripts.HmacSecret
   alias Letflow.Scripts.Policy
   alias Letflow.Scripts.Runtime
   alias Letflow.Scripts.ScriptRule
   alias Letflow.Scripts.Validation
+  alias Letflow.TenantProvisioning
 
   @hook_kind "entity_write"
   @runner_errors [
@@ -91,8 +98,21 @@ defmodule Letflow.Scripts.EntityWrite do
   @spec run(String.t(), map(), map(), keyword()) ::
           {:ok, %{derived: map(), fingerprint: map(), stats: stats()}}
           | {:error, error_code() | {:script_failed, String.t()}, stats()}
-  def run(prefix, pin, facts, opts \\ []) when is_binary(prefix) and is_list(opts) do
-    with {:ok, type, candidate, now} <- check_facts(facts),
+  def run(prefix, pin, facts, opts \\ []) when is_binary(prefix) and is_list(opts),
+    do: prefix |> run_audited(pin, facts, opts) |> elem(0)
+
+  @doc """
+  `run/4` plus the HMAC of the canonical `{ctx, input}` (REQ-618, the audit row of the hook):
+  `{result, hmac}` with `hmac` `{key_version, hex}`, or nil when the sandbox was not started.
+  A missing HMAC key or a failed `hmac_fun` is the single not-started rejection.
+  """
+  @spec run_audited(String.t(), map(), map(), keyword()) ::
+          {{:ok, %{derived: map(), fingerprint: map(), stats: stats()}}
+           | {:error, error_code() | {:script_failed, String.t()}, stats()},
+           {pos_integer(), String.t()} | nil}
+  def run_audited(prefix, pin, facts, opts \\ []) when is_binary(prefix) and is_list(opts) do
+    with :ok <- check_switch(prefix),
+         {:ok, type, candidate, now} <- check_facts(facts),
          {:ok, rule} <- load_row(prefix, pin),
          manifest = rule.manifest,
          :ok <- check_manifest(prefix, manifest),
@@ -108,12 +128,57 @@ defmodule Letflow.Scripts.EntityWrite do
              restricted,
              Keyword.get(opts, :publisher_may_restricted?, false) == true
            ),
-         {:ok, input, fingerprint} <- read_phase(prefix, manifest, built) do
-      execute(rule, input, fingerprint, prefix, type, now)
+         {:ok, input, fingerprint} <- read_phase(prefix, manifest, built),
+         {:ok, hmac} <- sign(prefix, input, type, now) do
+      {execute(rule, input, fingerprint, prefix, type, now), hmac}
+    else
+      {:error, _code, _stats} = error -> {error, nil}
     end
   end
 
   defp rejected, do: {:error, :script_rejected, @not_started}
+
+  # Step 0 (REQ-618): the kill switch, read at the start of every attempt. On = the single
+  # not-started rejection. A database error is never read as off: it fails closed (INV-8), with
+  # a constant result and nothing logged from the exception.
+  defp check_switch(prefix) do
+    if Policy.kill_switch_on?(prefix), do: rejected(), else: :ok
+  rescue
+    _exception -> {:error, :script_error, @not_started}
+  end
+
+  # The HMAC of hook 1's canonical `{ctx, input}`, taken before the sandbox runs.
+  defp sign(prefix, input, type, now) do
+    ctx = %{
+      "instance_id" => instance_id(type, prefix),
+      "node_id" => type,
+      "token_id" => "entity-write",
+      "now" => DateTime.to_iso8601(now)
+    }
+
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         {:ok, hmac_fun} <- hmac_fun(tenant_id),
+         {:ok, {_version, _hex} = hmac} <- hmac_fun.(ScriptInput.canonical(input, ctx)) do
+      {:ok, hmac}
+    else
+      _no_key_or_failed -> rejected()
+    end
+  end
+
+  # The same resolution as `Runtime.resolve_hmac_fun/1` (private there; `runtime.ex` is not widened).
+  defp hmac_fun(tenant_id) do
+    override = Application.get_env(:letflow, :script_task_hmac_fun_override)
+
+    result =
+      if Runtime.test_hooks?() and is_function(override, 1),
+        do: override.(tenant_id),
+        else: HmacSecret.hmac_fun(tenant_id)
+
+    case result do
+      {:ok, fun} when is_function(fun, 1) -> {:ok, fun}
+      _missing -> :error
+    end
+  end
 
   defp check_facts(%{entity_type: type, candidate: candidate, now: %DateTime{} = now})
        when is_binary(type) and is_map(candidate) do

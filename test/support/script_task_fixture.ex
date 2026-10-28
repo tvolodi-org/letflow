@@ -35,6 +35,14 @@ defmodule Letflow.Support.ScriptTaskFixture do
     tenant
   end
 
+  @doc "Gives an already provisioned fixture (`:tenant_id`) its script HMAC key (REQ-618: a hooked write signs)."
+  @spec with_hmac!(map()) :: map()
+  def with_hmac!(%{tenant_id: tenant_id} = fx) do
+    :ok = HmacSecret.ensure(%{id: tenant_id})
+    delete_secrets_on_exit(tenant_id)
+    fx
+  end
+
   @doc "A provisioned fixture tenant with NO script HMAC key (fixture tenants have none)."
   @spec tenant_without_hmac!(String.t()) :: map()
   def tenant_without_hmac!(slug_prefix),
