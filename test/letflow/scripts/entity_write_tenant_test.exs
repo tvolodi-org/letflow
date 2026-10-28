@@ -103,14 +103,15 @@ defmodule Letflow.Scripts.EntityWriteTenantTest do
   end
 
   describe "criterion 10: scope" do
-    test "T10a EntityWrite.run and prefetch_with_fingerprint have no other caller in lib/" do
+    test "T10a EntityWrite.run has only the E-3 WriteHook caller; prefetch_with_fingerprint no other" do
       files = Path.wildcard("lib/**/*.ex")
 
       hits = fn needle ->
         for f <- files, File.read!(f) =~ needle, do: Path.basename(f)
       end
 
-      assert hits.("EntityWrite.run") == []
+      # E-3 part A (REQ-607): Entities.WriteHook is the one production caller of EntityWrite.run.
+      assert hits.("EntityWrite.run") == ["write_hook.ex"]
 
       assert Enum.sort(hits.("prefetch_with_fingerprint")) == [
                "entity_write.ex",

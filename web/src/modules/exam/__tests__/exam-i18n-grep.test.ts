@@ -29,6 +29,7 @@ const JSX_FILES_TO_CHECK = [
   'modules/exam/ExamBuilderListPage.tsx',
   'modules/exam/ExamBuilderFields.tsx',
   'modules/exam/ExamBuilderLink.tsx',
+  'modules/exam/ExamMyResultsPage.tsx',
 ]
 
 const JSX_TEXT_NODE = />[A-Za-z][A-Za-z '.-]{2,}</g

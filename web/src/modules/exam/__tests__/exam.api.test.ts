@@ -44,7 +44,7 @@ afterEach(() => {
 })
 
 describe('REQ-338 AC1 — examApi shape', () => {
-  it('exposes exactly the five named session operations plus listAvailableExams', () => {
+  it('exposes exactly the five named session operations plus the list and certificate operations', () => {
     const keys = Object.keys(examApi).sort()
     expect(keys).toEqual(
       [
@@ -54,6 +54,8 @@ describe('REQ-338 AC1 — examApi shape', () => {
         'submitSession',
         'reportEvent',
         'listAvailableExams',
+        'listMySessions',
+        'downloadCertificate',
       ].sort(),
     )
   })
@@ -250,5 +252,36 @@ describe('GH 3355 / REQ-602 — examBuilderApi reads', () => {
       entity_type: 'exam',
       filters: [{ field: 'record_id', op: 'eq', value: 'e-1' }],
     })
+  })
+})
+
+describe('GH GH 3321 / REQ-587 — listMySessions and downloadCertificate', () => {
+  it('listMySessions -> GET /exam-sessions/mine with cursor, page_size and exam_id only', async () => {
+    const fetchSpy = vi.fn().mockImplementation(() => jsonResponse({ items: [], next_cursor: null }))
+    window.fetch = fetchSpy as unknown as typeof window.fetch
+
+    await examApi.listMySessions({ cursor: 'c1', page_size: 20, exam_id: 'e1' })
+
+    const [url] = fetchSpy.mock.calls[0] as [string]
+    const parsed = new URL(url, 'http://x')
+    expect(parsed.pathname).toBe('/api/v1/modules/exam/exam-sessions/mine')
+    expect([...parsed.searchParams.keys()].sort()).toEqual(['cursor', 'exam_id', 'page_size'])
+    expect(parsed.searchParams.get('cursor')).toBe('c1')
+  })
+
+  it('downloadCertificate -> GET /exam-sessions/:id/certificate/download as a blob', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(new Response('%PDF', { status: 200, headers: { 'Content-Type': 'application/pdf' } })),
+      )
+    window.fetch = fetchSpy as unknown as typeof window.fetch
+
+    const { contentType } = await examApi.downloadCertificate('s-1')
+
+    expect(contentType).toBe('application/pdf')
+    expect((fetchSpy.mock.calls[0] as [string])[0]).toContain(
+      '/api/v1/modules/exam/exam-sessions/s-1/certificate/download',
+    )
   })
 })

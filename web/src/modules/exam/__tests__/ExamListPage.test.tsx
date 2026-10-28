@@ -135,3 +135,14 @@ describe('ISS-0728 -- localized exam title resolution', () => {
     expect(item.textContent).not.toContain('[object LocalizedText]')
   })
 })
+
+describe('GH GH 3321 / REQ-587 — link to My results', () => {
+  it('links to /exam/results', () => {
+    render(
+      <MemoryRouter>
+        <ExamListPage />
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('exam-list-my-results-link')).toHaveAttribute('href', '/exam/results')
+  })
+})

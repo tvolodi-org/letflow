@@ -41,7 +41,7 @@
  */
 
 import { useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
 import { examApi, type ExamRecord } from './exam.api'
@@ -98,7 +98,14 @@ function ExamListPageInner() {
     <div data-testid="exam-list-page">
       <PageLayout
         title={intl.formatMessage({ id: 'exam.list.title' })}
-        actions={<HelpTrigger screenId="exam-list" />}
+        actions={
+          <>
+            <Link to="/exam/results" data-testid="exam-list-my-results-link">
+              {intl.formatMessage({ id: 'exam.list.myResultsLink' })}
+            </Link>
+            <HelpTrigger screenId="exam-list" />
+          </>
+        }
       >
         <div
           data-testid="exam-list-provisional-notice"
