@@ -19,7 +19,7 @@
 # The four sensitive actions: "see sensitive data" (export) and "change users"-like configuration change (import) are refused to the task
 # worker in steps 2 and 3; approve and pay or release are not in this flow.
 # UAT assumption, to be confirmed by the process owner: a label text may hold a "sec://" string (the single-entry path accepts it, per the
-# requirement), so step 14 is an accepted boundary case in its own step, not a refusal.
+# requirement), so step 19 is an accepted boundary case in its own step, not a refusal.
 ---
 id: tenant-administration-38-config-bundle-v2-import-lists-refusals-and-access
 scope: tenant-administration
@@ -150,7 +150,8 @@ steps:
     actor: tenant_admin_b
     action: >
       The administrator imports the document in which one wording entry is good (the message "entities.crud.form.submitError" in Russian with
-      the new text "Хорошее изменение") and one message-wording entry is bad (the body "Body {unknown_name}").    expect_refusal: true
+      the new text "Хорошее изменение") and one message-wording entry is bad (the body "Body {unknown_name}").
+    expect_refusal: true
     via: api
   - step: 16
     actor: tenant_admin_b
