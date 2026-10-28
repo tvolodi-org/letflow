@@ -4,7 +4,7 @@
 # Quoted criterion 6: "Mobile response: a ?slug= hit with an upload returns branding.logo_url equal to the path with that slug and the six top-level keys are unchanged; unknown slug, missing slug, lookup failure, inactive tenant and nil-realm tenant return a body byte-identical to today's platform default."
 # Quoted criterion 7 (first clause): "INV-2: neither body contains the bytes, content_hash, byte_size, updated_by of the logo row, asserted by key and by value".
 # Not covered here (no roster actor or user step can create the state; the backend tests of REQ-591 cover them): the forced lookup failure on the web and mobile places; an inactive company or a company with a nil or empty realm on the mobile place and as the default company on the web place;
-# the default company (address name bpm-default) holding an uploaded logo, because the roster has no administrator of that company, so on the default branches this scenario checks the case without an upload only; criterion 7's second clause (the moduledoc wording of the two router files, a code-reading check).
+# criterion 7's second clause (the moduledoc wording of the two router files, a code-reading check). The default company (address name bpm-default) holding an uploaded logo is covered by scenario 49; this scenario checks the default branches without an upload only.
 # Sources: docs/requirements.yaml REQ-591 (description RESPONSES and INV-2 REASONING, criteria 5, 6, 7); lib/letflow/routers/tenant_config.ex (resolve_realm/2 branches, put_logo/3, default value of logo_url); lib/letflow/routers/mobile_tenant_config.ex (reads ?slug= only); test/fixtures/uat/actors.yaml.
 # Environment: the upload switch must be ON from step 4 on (QA setup step, as in scenario 44 step 1). If step 4 shows the stored string unchanged after an upload that answered 200, the runner reports BLOCKED (switch off), not failed; scenario 48 covers the off case.
 # Bytes (exact, hex): PNG-OK = 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082 (67 bytes), declared image/png.
@@ -108,7 +108,7 @@ expected_outcomes:
       business_impact: One company's logo address appears in another company's or a stranger's configuration, or an unknown name behaves differently from a real one.
       suggested_action: route_to_elixir_dev
   - id: EO-003
-    description: The web default branches do not hand out a logo path for a company that has no logo.
+    description: The web default branches do not hand out a logo path for a company that has no logo (the case with a default-company logo is scenario 49).
     verification:
       method: api_response
       detail: W1-NONE and W1-HOST have branding.logo_url equal to the baseline value (no "/api/tenant-config/logo?slug=bpm-default" path), because the default company has no uploaded logo.
