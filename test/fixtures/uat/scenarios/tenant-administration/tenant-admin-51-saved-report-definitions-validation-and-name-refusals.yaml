@@ -1,0 +1,249 @@
+# T-0901 (BA): TENANT ADMIN group, scenario 51: saved report definitions, what the administrator is refused when the report is not valid,
+# and the one-name-per-type rule across all kinds.
+# Covers REQ-619 criteria 2 (report body rules: a join or a chart type refused as an unknown key; a sort without columns refused; a list
+# body with grouping or aggregates and a pivot body with columns or sort still refused as an unknown key; the kind cannot change; any other
+# kind refused), 3 (summary part: filter, grouping and aggregates rules, one refusal per case on create and on change, nothing stored), 4
+# (detail part: column not on the type, sort field not on the type, unknown sort direction, more than 100 columns, more than 10 sort
+# clauses) and 5 (the name is unique per record type across all kinds: 409).
+# Sources: docs/requirements.yaml REQ-619 (criteria 2, 3, 4, 5); lib/letflow/entities/views/clauses.ex (reason codes: unknown_key,
+# field_not_allowed, unknown_operator, aggregates_invalid, group_by_invalid, column_not_on_type, unknown_sort_dir, columns_invalid, sort_invalid,
+# kind_invalid, kind_immutable; the report rules including report_sort_needs_columns) and lib/letflow/routers/entity_views.ex (409 name_taken).
+# Reason codes are quoted from those files, not from the requirement text alone.
+# Criterion 3's operator-specific codes (value_arity_mismatch, invalid_in_value, invalid_decimal_value, operator_not_valid_for_type) are
+# covered in steps 12 to 14 and EO-008 (a second record type with a decimal field is created for the decimal case).
+# Depends on the record type "UAT report ticket" of scenario 50 (fields title, status, region, amount); this scenario creates it if missing.
+# The four sensitive actions are not in this flow; the access refusals are in scenario 52.
+---
+id: tenant-administration-51-saved-report-definitions-validation-and-name-refusals
+scope: tenant-administration
+title: A saved report with an unknown field, operator, aggregate, grouping, column or sort, a join, a chart type, a sort without columns, a mixed-up kind or a repeated name is refused and nothing is stored
+version: "1.0"
+tags: [tenant-admin, saved-views, report, validation, refusal, conflict]
+
+description: >
+  The administrator of SwiftRoute tries to save reports over the record type "UAT report ticket" that break one rule each: a filter on a field
+  the type does not have, an unknown filter operator, a grouping on a field the type does not have, an unknown aggregate function, a missing list
+  of aggregates, an empty list of aggregates, a filter whose value count, list value, operator or decimal value does not fit, a column the type does not have, a sort on a field the type does not have, an unknown sort
+  direction, a sort with no columns, more than 100 columns, more than 10 sort clauses, a body that carries a join, a body that carries a chart
+  type, and a kind that is none of list, pivot, graph and report. In every attempt of steps 2 to 7, apart from the one broken item named in the
+  step, the attempted report is the valid report of step 1: over "UAT report ticket", kind report, with the filter "status equals open", the
+  grouping by region, the aggregate "count of records", the column title, the sort "title ascending" and the name "UAT valid report" unless the
+  step gives another name, so each refusal can only come from the item the step names. The same broken filter, grouping, aggregate, column and
+  sort cases are also tried as a change of the valid report. A pivot or a list view with the name of an existing report, and a report with the
+  name of an existing list view, are refused as duplicates (409). A change that turns the report into a list or pivot view is refused. After all
+  attempts the list holds only the valid report of step 1 and the accepted views of step 8, unchanged.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator; the record type "UAT report ticket" with the fields title (text), status (text), region (text) and amount (whole number) is active; no saved view over it exists
+    check: system_seeded
+    detail: If the type is missing, create it as in scenario 50 step 1 (the records are not needed here) and say so in the report; if views exist from an earlier run, delete them first and note it.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator saves the valid report "UAT valid report" over "UAT report ticket" with the filter "status equals open", the grouping by
+      region, the aggregate "count of records", the column title and the sort "title ascending", and notes its id. This is the baseline for the
+      checks below.
+    via: api
+    input:
+      name: UAT valid report
+      kind: report
+      entity_type: UAT report ticket
+      filter: status equals open
+      group_by: [region]
+      aggregates: [count]
+      columns: [title]
+      sort: title ascending
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the report "UAT report bad filter field" with the filter "colour equals red" (the type has no field
+      colour), then the report "UAT report bad operator" with the filter "status resembles open" (an operator that does not exist), then the
+      report "UAT report bad group field" with the grouping by colour. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the report "UAT report bad function" with the aggregate function "median of amount" (not in the list
+      count, sum, average, smallest, largest), then the report "UAT report no aggregates" with no list of aggregates at all, then the report "UAT
+      report empty aggregates" with an empty list of aggregates. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the report "UAT report bad column" with the column colour, then the report "UAT report bad sort field"
+      with the sort "colour ascending" (and the column title), then the report "UAT report bad direction" with the sort "title sideways" (and
+      the column title). Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the report "UAT report sort no columns" with the sort "title ascending" and no columns, then the report
+      "UAT report 101 columns" with a list of 101 columns (title repeated), then the report "UAT report 11 sorts" with a sort list of 11
+      clauses (title ascending repeated, and the column title). Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator tries to save the report "UAT report join" with a join to another record type added to the body, then the report "UAT
+      report chart" with a chart type added to the body, then the list view "UAT list grouping" (kind list, column title) with the grouping by
+      region added, then the list view "UAT list aggregates" (kind list, column title) with the aggregate "count of records" added, then the
+      pivot "UAT pivot columns" (grouping by region, aggregate "count of records") with the column title added, then the pivot "UAT pivot sort"
+      with the sort "title ascending" added, then the view "UAT bad kind" with the kind "table". Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator tries to change the valid report of step 1, one change at a time, keeping the rest of the report as it is: first the
+      filter "colour equals red", then the filter operator "resembles", then the grouping by colour, then the aggregate "median of amount", then
+      the column colour, then the sort "colour ascending", then the sort direction "sideways", then the kind list (column title), then the kind
+      pivot. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator saves, as accepted cases, the report "UAT report exactly 100 columns" with 100 columns and the sort "title ascending"
+      repeated 10 times, the report "UAT report empty detail" with no columns and no sort, and the list view "UAT shared name" over "UAT report
+      ticket" with the column title. Each answer is noted.
+    via: api
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator tries to save a report named "UAT shared name" over "UAT report ticket" (valid filter, grouping and aggregate), and notes
+      the answer.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: >
+      The administrator tries to save a list view named "UAT valid report" over "UAT report ticket" with the column title, and then a pivot
+      named "UAT valid report" with the grouping by region and the aggregate "count of records". Both answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin
+    action: >
+      The administrator lists the views of the type "UAT report ticket", reads the report of step 1 by its id, and then deletes the views "UAT
+      valid report", "UAT report exactly 100 columns", "UAT report empty detail" and "UAT shared name".
+    via: api
+  - step: 12
+    actor: tenant_admin
+    action: >
+      The administrator creates and activates the record type "UAT report priced ticket" with the fields title (text) and price (decimal number
+      with two decimal places), no records needed.
+    via: api
+  - step: 13
+    actor: tenant_admin
+    action: >
+      The administrator tries to save these reports, each with the grouping by title and the aggregate "count of records", differing only in the
+      filter: "UAT report arity null" over "UAT report ticket" with the filter "status is empty" that also carries the value open;
+      "UAT report arity eq" with the filter "status equals" and no value; "UAT report in not list" with the filter "status is one of" given the
+      single word open instead of a list; "UAT report contains number" with the filter "amount contains 5" (contains is for text only); and,
+      over "UAT report priced ticket", "UAT report bad decimal" with the filter "price equals abc". Each answer is noted.
+    expect_refusal: true
+    via: api
+    input:
+      filter_cases: [status is empty with a value, status equals with no value, status is one of with a single word, amount contains 5, price equals abc]
+  - step: 14
+    actor: tenant_admin
+    action: >
+      The administrator lists the views of the types "UAT report ticket" and "UAT report priced ticket" and notes whether any of the five
+      attempted reports exists.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A filter on a field the type does not have, an unknown filter operator, and a grouping on a field the type does not have, are each refused with a named reason and store nothing.
+    verification:
+      method: http_status
+      detail: Every answer of step 2 is 422 with a fixed reason code and does not repeat the submitted text; the filter field case gives the code for a field not allowed, the operator case gives the code for an unknown operator, and the grouping case gives the code for an invalid grouping.
+      evidence: The three answers of step 2 and the list of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A broken saved report is stored and every user who opens it gets an error or a wrong table.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: An unknown aggregate function, a missing list of aggregates and an empty list of aggregates are each refused with the aggregates reason and store nothing.
+    verification:
+      method: http_status
+      detail: Every answer of step 3 is 422 with the reason code for invalid aggregates, the same code in all three cases; the list of step 11 shows no report with these names.
+      evidence: The three answers of step 3 and the list of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A report with no usable figures reaches the screens of the company.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A column or a sort field the type does not have, and an unknown sort direction, are each refused with their own named reason and store nothing.
+    verification:
+      method: http_status
+      detail: In step 4 the column case is 422 with the reason code for a column not on the type, the sort field case is 422 with the code for a field not allowed, and the sort direction case is 422 with the code for an unknown sort direction; the list of step 11 shows none of these reports.
+      evidence: The three answers of step 4 and the list of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A report whose detail part cannot be listed is stored and fails when a user opens it.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A sort without columns, more than 100 columns and more than 10 sort clauses are refused, and exactly 100 columns, and a report with no detail part, are accepted.
+    verification:
+      method: http_status
+      detail: In step 5 the sort without columns and the 11 sort clauses are 422 with the reason code for an invalid sort and the 101 columns is 422 with the reason code for invalid columns; none of the three reports is in the list of step 11. In step 8 the report with exactly 100 columns (and 10 sort clauses) is 201 and the report with no columns and no sort is 201 with empty columns and sort.
+      evidence: The three answers of step 5, the two creations of step 8 and the list of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: Limits on a report are not kept, or a summary-only report cannot be saved.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: A join or a chart type on a report, a grouping or aggregates on a list view, and columns or a sort on a pivot, are refused as an unknown key, and a kind that is none of the four is refused with its own reason.
+    verification:
+      method: http_status
+      detail: The first six answers of step 6 are 422 with the same fixed reason code for an unknown key; the seventh (kind "table") is 422 with the reason code for an invalid kind; none of the seven views exists in the list of step 11.
+      evidence: The seven answers of step 6 and the list of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A report could be saved over two record types or mixed with chart or list settings, which the screens cannot show.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: The same invalid cases are refused when they are a change to an existing report, the kind cannot be changed, and the report is unchanged.
+    verification:
+      method: http_status
+      detail: The first seven answers of step 7 are 422, each with the same reason code as its creation case in steps 2 to 4 (field not allowed, unknown operator, invalid grouping, invalid aggregates, column not on the type, field not allowed, unknown sort direction); the last two answers (kind list, kind pivot) are 422 with the reason code for a kind that cannot change; the reading of step 11 shows the report of step 1 with its filter, grouping, aggregates, columns and sort unchanged.
+      evidence: The nine answers of step 7 and the reading of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A valid report can be damaged by a later change, or turned into another kind without notice.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: The name is unique per record type across all kinds; a repeated name is refused with the conflict answer in every direction.
+    verification:
+      method: http_status
+      detail: The answers of steps 9 and 10 are 409 with the same fixed reason code (three answers); the list of step 11 holds each of those names once.
+      evidence: The answers of steps 9 and 10 and the list of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: Two saved views with the same name cannot be told apart by the people who choose between them.
+      suggested_action: route_to_wf03
+
+  - id: EO-008
+    description: A filter with a value count that does not fit its operator, a list operator given a single word, a text operator on a number field, and a decimal field compared with a non-number are each refused with their own named reason and store nothing.
+    verification:
+      method: http_status
+      detail: In step 13 the five answers are 422 with the reason codes for a value count that does not fit the operator (the first two answers, same code), for an invalid list value, for an operator not valid for the field type, and for an invalid decimal value, in this order; none repeats the submitted text; the lists of step 14 show none of the five reports.
+      evidence: The five answers of step 13 and the lists of step 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: A saved report whose filter can never be evaluated is stored and fails when a user opens it.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the views "UAT valid report", "UAT report exactly 100 columns", "UAT report empty detail" and "UAT shared name" if they still exist. The record types "UAT report ticket" (stays for scenarios 50 and 52) and "UAT report priced ticket" stay and are retired with the test customer.
