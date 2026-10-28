@@ -50,15 +50,24 @@ defmodule Letflow.Entities.ScriptReads do
   from manifest text (the per-type table name, if any, is resolved by the compiler from the
   validated type name). No ETS, persistent_term or process-dictionary state: nothing is cached
   across runs.
+
+  ## Fingerprint read (decision 0065 D2)
+
+  `prefetch_with_fingerprint/3` runs the same phase 1 and phase 2 inside one READ ONLY
+  transaction and, between them, reads the `instance_sequence` counter of every read type in
+  ascending byte order (phase 1 reads no record, so counters still precede all rows). Nothing is
+  inserted; an absent counter is the schema default.
   """
 
   import Ecto.Query
 
   alias Letflow.Entities.Definitions
+  alias Letflow.Entities.EntityTypeInstance
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
   alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
+  alias Letflow.EventStore.InstanceSequence
   alias Letflow.Repo
 
   @max_rows 50
@@ -67,6 +76,76 @@ defmodule Letflow.Entities.ScriptReads do
   def prefetch(prefix, reads, input_vars)
       when is_binary(prefix) and is_list(reads) and is_map(input_vars) do
     # Phase 1 for EVERY read before the first record query.
+    case plan_all(prefix, reads, input_vars) do
+      {:ok, plans} -> fetch_all(plans, prefix)
+      :refused -> {:error, :reads_not_allowed}
+    end
+  end
+
+  def prefetch(_prefix, _reads, _input_vars), do: {:error, :reads_not_allowed}
+
+  @doc """
+  `prefetch/3` plus a per-type fingerprint (REQ-601, decision 0065 D2): `{:ok, rows, fingerprint}`
+  where `fingerprint` maps each read entity type to the `next_seq` of its instance sequence row
+  (the `%InstanceSequence{}` default when the type has no registry or sequence row; nothing is
+  inserted). One READ ONLY, READ COMMITTED transaction runs phase 1, then the counters of all
+  read types in ascending byte order of the type name, then the rows. A counter read before the
+  rows can only be stale, never ahead of the rows. Refusals and rows equal `prefetch/3`.
+
+  The caller must not already be inside a transaction: `SET TRANSACTION` is then refused by
+  Postgres (SQLSTATE 25001, not a data exception) and the error is re-raised. After the call
+  returns, the caller is not in a transaction.
+  """
+  @spec prefetch_with_fingerprint(String.t(), [map()], map()) ::
+          {:ok, %{String.t() => [map()]}, %{String.t() => pos_integer()}}
+          | {:error, :reads_not_allowed}
+  def prefetch_with_fingerprint(prefix, reads, input_vars)
+      when is_binary(prefix) and is_list(reads) and is_map(input_vars) do
+    result =
+      Repo.transaction(fn ->
+        Repo.query!("SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ ONLY")
+
+        plans =
+          case plan_all(prefix, reads, input_vars) do
+            {:ok, plans} -> plans
+            :refused -> Repo.rollback(:reads_not_allowed)
+          end
+
+        fingerprint =
+          plans
+          |> Enum.map(& &1.entity_type)
+          |> Enum.uniq()
+          |> Enum.sort()
+          |> Map.new(&{&1, counter(&1, prefix)})
+
+        {Map.new(plans, &{&1.name, fetch(&1, prefix)}), fingerprint}
+      end)
+
+    case result do
+      {:ok, {rows, fingerprint}} -> {:ok, rows, fingerprint}
+      {:error, :reads_not_allowed} -> {:error, :reads_not_allowed}
+    end
+  rescue
+    error in Postgrex.Error ->
+      if data_exception?(error),
+        do: {:error, :reads_not_allowed},
+        else: reraise(error, __STACKTRACE__)
+  end
+
+  def prefetch_with_fingerprint(_prefix, _reads, _input_vars), do: {:error, :reads_not_allowed}
+
+  # Reads only (`Repo.get`): an absent registry or sequence row is the struct default.
+  defp counter(entity_type, prefix) do
+    with {:ok, instance_id} <- EntityTypeInstance.fetch_instance_id(entity_type, prefix),
+         %InstanceSequence{next_seq: next_seq} <-
+           Repo.get(InstanceSequence, instance_id, prefix: prefix) do
+      next_seq
+    else
+      _absent -> %InstanceSequence{}.next_seq
+    end
+  end
+
+  defp plan_all(prefix, reads, input_vars) do
     planned =
       Enum.reduce_while(reads, {:ok, []}, fn read, {:ok, acc} ->
         case plan(prefix, read, input_vars) do
@@ -76,12 +155,10 @@ defmodule Letflow.Entities.ScriptReads do
       end)
 
     case planned do
-      {:ok, plans} -> fetch_all(Enum.reverse(plans), prefix)
-      :refused -> {:error, :reads_not_allowed}
+      {:ok, plans} -> {:ok, Enum.reverse(plans)}
+      :refused -> :refused
     end
   end
-
-  def prefetch(_prefix, _reads, _input_vars), do: {:error, :reads_not_allowed}
 
   # ── phase 1 ─────────────────────────────────────────────────────────────────
 
@@ -101,7 +178,15 @@ defmodule Letflow.Entities.ScriptReads do
          restricted = omitted_fields(current, read),
          strict = Decimals.specs_from_definition_json(definition.definition_json),
          {:ok, query} <- build_query(prefix, entity_type, match, read, input_vars, strict) do
-      {:ok, %{name: name, fields: fields, restricted: restricted, query: query, strict: strict}}
+      {:ok,
+       %{
+         name: name,
+         entity_type: entity_type,
+         fields: fields,
+         restricted: restricted,
+         query: query,
+         strict: strict
+       }}
     else
       _refused -> :refused
     end

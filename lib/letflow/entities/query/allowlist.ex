@@ -267,10 +267,11 @@ defmodule Letflow.Entities.Query.Allowlist do
           | {:error, :invalid_schema_name}
           | {:error, :entity_type_not_found}
   def load(entity_type, prefix, :with_specs) when is_binary(entity_type) and is_binary(prefix) do
-    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, entity_definition} <- fetch_active_definition(entity_type, prefix) do
       structural_names = MapSet.new(Map.keys(typed_columns()))
       decimal_info = decimal_info(entity_definition.definition_json)
+      written_names = written_promoted_names(tenant_id, entity_type)
 
       promoted_typed_column_names =
         case entity_table_name_if_exists(entity_type, prefix) do
@@ -280,7 +281,8 @@ defmodule Letflow.Entities.Query.Allowlist do
             |> entity_type_typed_columns()
             |> Map.drop(MapSet.to_list(structural_names))
             |> Enum.filter(fn {name, _type} ->
-              TenantProvisioning.entity_column_exists?(prefix, table_name, name)
+              MapSet.member?(written_names, name) and
+                TenantProvisioning.entity_column_exists?(prefix, table_name, name)
             end)
             |> Map.new()
 
@@ -376,6 +378,18 @@ defmodule Letflow.Entities.Query.Allowlist do
 
       {:ok, fk_defs}
     end
+  end
+
+  # GH #3350 / REQ-594: a column that physically exists is read as a typed column only when the
+  # table's dual-write fills it, i.e. a ColumnPromotion row past "pending" names the attribute
+  # (`TenantProvisioning.column_promotions_for_table_write/2`, the set `Records` writes). The table
+  # is created with every `queried` column, but only promoted attributes are written; an eligible
+  # yet never-promoted column is NULL, and reading it silently returns nothing. Such a field
+  # falls back to the `field_values` JSON path, which holds the value.
+  defp written_promoted_names(tenant_id, entity_type) do
+    tenant_id
+    |> TenantProvisioning.column_promotions_for_table_write(entity_type)
+    |> MapSet.new(& &1.attribute)
   end
 
   # `{:ok, table_name}` when entity_type's per-entity-type table physically
