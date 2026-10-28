@@ -155,3 +155,17 @@ describe('REQ-412 AC4 — /exam route guard when exam module not installed', () 
     expect(screen.queryByTestId('exam-list-page')).not.toBeInTheDocument()
   })
 })
+
+describe('GH 3355 / REQ-602 — exam builder nav item', () => {
+  it('a holder of ExamAuthoringWrite sees the Exam builder link', async () => {
+    await renderAppShellAt('tenantAdmin', [{ module_id: 'exam', version: '1.0.0' }])
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Exam builder' })).toBeInTheDocument())
+    expect(screen.getByRole('link', { name: 'Exam builder' })).toHaveAttribute('href', '/admin/bilimbaga/exam-builder')
+  })
+
+  it('the process operator fixture does not see it', async () => {
+    await renderAppShellAt('operator', [{ module_id: 'exam', version: '1.0.0' }])
+    await waitFor(() => expect(screen.getByText('Question Bank')).toBeInTheDocument())
+    expect(screen.queryByRole('link', { name: 'Exam builder' })).not.toBeInTheDocument()
+  })
+})

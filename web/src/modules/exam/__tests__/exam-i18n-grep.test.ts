@@ -24,6 +24,11 @@ const JSX_FILES_TO_CHECK = [
   'modules/exam/ExamListPage.tsx',
   'modules/exam/ExamSessionPage.tsx',
   'modules/exam/ExamIntlProvider.tsx',
+  // GH 3355 / REQ-602: the exam builder screens.
+  'modules/exam/ExamBuilderPage.tsx',
+  'modules/exam/ExamBuilderListPage.tsx',
+  'modules/exam/ExamBuilderFields.tsx',
+  'modules/exam/ExamBuilderLink.tsx',
   'modules/exam/ExamMyResultsPage.tsx',
 ]
 
