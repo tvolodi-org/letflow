@@ -335,3 +335,22 @@ describe('LoginPage organisation-code control', () => {
     expect(assignSpy).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('LoginPage skip link (REQ-608)', () => {
+  it('main is the single #main-content with tabindex -1', () => {
+    renderPage()
+    expect(document.querySelectorAll('#main-content')).toHaveLength(1)
+    const main = screen.getByTestId('login-page')
+    expect(main.id).toBe('main-content')
+    expect(main).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('first Tab focuses the skip link; click moves focus to main', () => {
+    renderPage()
+    const link = screen.getByRole('link', { name: 'Skip to main content' })
+    expect(link).toHaveAttribute('href', '#main-content')
+    link.focus()
+    fireEvent.click(link)
+    expect(screen.getByTestId('login-page')).toHaveFocus()
+  })
+})
