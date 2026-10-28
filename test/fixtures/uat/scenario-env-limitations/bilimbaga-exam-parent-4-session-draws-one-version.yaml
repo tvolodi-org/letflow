@@ -1,0 +1,14 @@
+scenario_id: bilimbaga-exam-parent-4-session-draws-one-version
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: >
+  Steps 2, 4, 5 and 6 need an exam the administrator creates to be available to a candidate. Since REQ-582 an
+  exam is startable only when it has an assignment, and no route or screen to create an assignment exists yet
+  (REQ-582 open question 3); the QA fixture seed assigns only its own fixture exams. Nothing a UAT actor can do
+  provides it, so the run is BLOCKED, not PASS. The same case is covered by the backend tests of REQ-586
+  criterion 7 (Session.fetch_pool_questions/2 and fetch_pinned_question_row/2).
+recorded_by: BA
+recorded_at: "2026-10-28"
+issue_ref: "GH #3315"
+review: >
+  Revisit when a route or screen to assign exams exists (REQ-582 open question 3).

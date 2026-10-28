@@ -1,7 +1,7 @@
 defmodule Letflow.TenantConfigBundle do
   @moduledoc """
   REQ-552 slice 1 (GH #3177) -- export and import of a tenant's configuration bundle: the tenant
-  settings (`tenants.settings`, the five closed keys of `Letflow.Identity.TenantSettings`) and the
+  settings (`tenants.settings`, the seven closed keys of `Letflow.Identity.TenantSettings`) and the
   settings of the installed modules (`tenant_modules.settings`). A separate path from the
   definition promotion pipeline and from solution packs; it touches neither.
 

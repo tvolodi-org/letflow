@@ -164,10 +164,13 @@ REQ-446 classified `GET /promotions/platform-events` as tenant scope under `Prom
 (see the correction note appended to decision 0046); no platform promotion permission exists.
 Module (Catalog) permissions are all tenant scope and are not listed in the matrix below.
 
-Module permissions. Module `procurement` (GH #3162, REQ-544) declares `ProcurementRequestWrite` and
-`ProcurementRequestRead`, tenant scope. It declares no `role_grants`, so in this slice only
-TENANT_ADMIN and PLATFORM_ADMIN hold them; giving requesters write access is a later widening that
-needs per-tenant grant snapshots. The effective rows are in `priv/permission_matrix/effective.golden`.
+Module permissions. Module `procurement` (GH #3162, REQ-544) declares `ProcurementRequestWrite`,
+`ProcurementRequestRead` and `ProcurementRequestDecide` (records an approve, reject or return of a
+purchase request version), tenant scope. It declares no `role_grants`, so in this slice only
+TENANT_ADMIN and PLATFORM_ADMIN hold them; a requester never decides their own request (the module
+refuses it), and giving requesters write access or approvers the decide permission is a later
+widening that needs per-tenant grant snapshots. The effective rows are in
+`priv/permission_matrix/effective.golden`.
 Conditional cells: the 0046 D3 binding condition (source-tenant ownership proven) is met by REQ-446
 (`lib/letflow/routers/tenants.ex:451`, `lib/letflow/api/tenant_target.ex:31-39`); the TENANT_ADMIN `yes`
 cells for PromotionsRead and PromotionsManage stand. The TENANT_AUDITOR `PromotionsRead` cell is `yes`

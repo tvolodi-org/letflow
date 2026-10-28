@@ -1,0 +1,12 @@
+scenario_id: bilimbaga-exam-analytics-4-access-auditor-worker-agent-runner
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the whole scenario"
+reason: >
+  The exam module is installed only in Bilimbaga and the roster has no auditor or task worker there; the roster's auditor and task worker belong to SwiftRoute, which has no exam module. The AGENT_RUNNER refusal has no roster actor at all. Nothing a UAT actor can do provides it, so the run is BLOCKED, not PASS.
+recorded_by: BA
+recorded_at: "2026-10-28"
+issue_ref: "GH #3350"
+review: >
+  Revisit when a second QA tenant with the exam module and a tenant auditor and task worker is provisioned (scenario 4), or when a roster
+  actor with a limited access scope exists (scenario 6).

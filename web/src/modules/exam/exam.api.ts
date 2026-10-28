@@ -41,7 +41,8 @@
  */
 
 import { client } from '@/api/client'
-import type { EntityRecord } from '@/types/api'
+import { entitiesApi } from '@/api/entities'
+import type { EntityQueryFilterClause, EntityQuerySortClause, EntityRecord } from '@/types/api'
 import type {
   AntiCheatSignalOutcome,
   AntiCheatSignalType,
@@ -203,5 +204,44 @@ export const examGradingApi = {
     client.post<GradeResult>(
       `${GRADING_BASE}/${encodeURIComponent(sessionId)}/${encodeURIComponent(questionId)}/grade`,
       { score },
+    ),
+}
+
+const BUILDER_PAGE_SIZE = 200
+
+async function queryAll(
+  entityType: string,
+  filters: EntityQueryFilterClause[],
+  sort?: EntityQuerySortClause[],
+): Promise<EntityRecord[]> {
+  const items: EntityRecord[] = []
+  let cursor: string | undefined
+  do {
+    const page = await entitiesApi.queryRecords(entityType, {
+      filters,
+      ...(sort ? { sort } : {}),
+      page_size: BUILDER_PAGE_SIZE,
+      ...(cursor ? { cursor } : {}),
+    })
+    items.push(...page.items)
+    cursor = page.next_cursor ?? undefined
+  } while (cursor)
+  return items
+}
+
+/** GH 3355 / REQ-602: the reads of the exam builder, one query per entity type
+ *  (`POST /entities/query`). An exam has few sections and rules, so the cursor loop normally ends
+ *  after the first page. Writes go through `examAuthoringApi`. */
+export const examBuilderApi = {
+  loadExam: (examId: string) => queryAll('exam', [{ field: 'record_id', op: 'eq', value: examId }]),
+
+  loadSections: (examId: string) =>
+    queryAll('exam_section', [{ field: 'exam_id', op: 'eq', value: examId }], [{ field: 'sort_order', dir: 'asc' }]),
+
+  loadRules: (examId: string) =>
+    queryAll(
+      'exam_question_rule',
+      [{ field: 'exam_id', op: 'eq', value: examId }],
+      [{ field: 'sort_order', dir: 'asc' }],
     ),
 }
