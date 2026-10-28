@@ -43029,6 +43029,56 @@ requirements:
       - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
     depends_on: [REQ-510]
 
+  - id: REQ-611
+    title: "Exam taking: a flag/unflag control on each question, kept in the browser only (BilimBaga retirement criterion 3, exam-taking.spec.ts case 07)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S10
+    gh: 3421
+    description: >-
+      Source: docs/migration/bilimbaga-e2e-remeasure.md section 3, row exam-taking.spec.ts ("flag/unflag: BLOCKED-BY flag
+      control; submit-confirm modal: DROP"), and the header of web/tests/e2e/exam-taking.e2e.spec.ts, which records case
+      "07 — Flag/unflag" as dropped because ExamSessionPage.tsx has no flagged state. This requirement adds that control
+      so the case can be ported. It serves BilimBaga retirement criterion 3.
+      Bucket (decision 0022, "The bucket rule"): C. Exam-specific candidate UI with no definition that can express it;
+      the code stays in web/src/modules/exam/ (ExamSessionPage.tsx lives there, not in the web/src/pages/exam/ path named
+      in the 0022 table).
+      Where the flag is stored: in the browser only, no backend route. Read of the session model: the state response
+      type ExamSessionStateResponse in web/src/modules/exam/exam.types.ts carries session, remaining_seconds, questions
+      and answers, with no flag field; the candidate session routes of the exam router (lib/letflow/modules/exam/router.ex)
+      include POST /exam-sessions, GET /exam-sessions/:id (the route that returns ExamSessionStateResponse),
+      PUT /exam-sessions/:id/answers/:question_id, POST /exam-sessions/:id/submit and
+      POST /exam-sessions/:id/events, none of which takes or returns a flag; Letflow.Modules.Exam.Session (lib/letflow/modules/exam/session.ex)
+      has no flag state. A flag is the candidate's own reminder, it is not an answer, is not scored, is not shown to an
+      examiner and is not part of any report, so storing it on the server would add a tenant table or event field with
+      no reader. Because no route, table, event or response field is added, INV-1 and INV-5 have nothing new to cover;
+      the existing session routes, which scope the session to the caller, are unchanged. If the process owner later wants
+      flags to survive a reload or a change of device, that is a separate requirement with a backend route; it is an open
+      question for the owner and is not settled here.
+      Behaviour, all in web/src/modules/exam/ExamSessionPage.tsx (state next to questionIndex, keyed by question_id):
+      a toggle Button on the current question with data-testid exam-flag-toggle and aria-pressed true or false; pressing
+      it flips the flag of that question; the flag stays when the candidate moves with Previous or Next and comes back
+      when the candidate returns to the question; a line near the question-of-N text shows how many questions are flagged
+      (data-testid exam-flagged-count, shown only when the count is above 0). Effect on review: the screen has no review
+      step (the e2e header says clicking Submit calls the submit route directly), so the flag only marks and counts; this
+      requirement adds no review screen and no jump list. Effect on submit: none. Submit is not blocked, not confirmed and
+      not changed by flagged questions, the submit request carries no flag, and no request of any kind is sent when a
+      flag is toggled. A reload of the page starts with no flags (the page already re-reads answers from the server,
+      and the flag is not among them). Texts: new keys in web/src/modules/exam/examMessages.ts for kk, ru and en
+      (toggle label for flag and for unflag, flagged count), per the rule in
+      web/src/modules/exam/__tests__/exam-i18n-grep.test.ts.
+      Out of scope: a question navigator or jump grid, a review screen, a submit-confirm modal (dropped in the
+      remeasure document), the other exam-taking cases, and any backend change.
+    acceptance_criteria:
+      - "1. Toggle: on the first question the page shows a control with data-testid exam-flag-toggle and aria-pressed=false; clicking it sets aria-pressed=true; clicking it again sets aria-pressed=false. Vitest in a new file web/src/modules/exam/__tests__/ExamSessionPage.flag.test.tsx (mocked examApi as in ExamSessionPage.test.tsx) asserts both transitions."
+      - "2. Persistence while paging: flag question 1, press Next, then Previous; the control on question 1 has aria-pressed=true and the control on question 2 has aria-pressed=false. The same vitest file asserts it."
+      - "3. Count: with no flags exam-flagged-count is not in the document; after flagging two questions it shows the number 2 in the active locale; after unflagging one it shows 1. The same vitest file asserts it."
+      - "4. No server effect: toggling a flag calls none of examApi.saveAnswer, examApi.submitSession, examApi.reportEvent or examApi.startSession beyond the calls made before the toggle, and examApi.submitSession is called with the same arguments (the session id only) with flagged questions as with none. The same vitest file asserts the mock call counts and arguments."
+      - "5. Submit not blocked: with two questions flagged, clicking exam-submit-action calls examApi.submitSession once and the page moves to the result view with no confirmation step. The same vitest file asserts it."
+      - "6. Texts: the toggle label (flag and unflag states) and the count text exist in examMessages.ts for kk, ru and en, and exam-i18n-grep.test.ts passes."
+      - "7. E2E case: web/tests/e2e/exam-taking.e2e.spec.ts gains a case '07 — Flag/unflag' that flags question 1, sees aria-pressed true, moves Next and Previous, sees it still true, unflags and sees false; the header comment of that file stops listing case 07 as dropped. This is the case the remeasure row marks BLOCKED-BY flag control. The Playwright run needs the e2e stack and is not run in the change; the PR states that, and the vitest criteria 1 to 5 are the local evidence."
+      - "8. Scope: git diff --stat shows only files under web/ and docs/migration/bilimbaga-e2e-remeasure.md, whose exam-taking.spec.ts row (line 80) no longer says BLOCKED-BY flag control (no lib/, priv/, test/); no new route, permission, migration or entity definition; cd web && npm run check passes with the real output quoted."
+    depends_on: [REQ-338, REQ-346]
   - id: REQ-606
     title: "Record T slice T-2: record_trigger_outbox table and same-transaction outbox insert in Records (server-only trigger_lineage opt, loop suppression, depth cap, per-tenant backlog cap, trigger_backlog_full mappings), no worker"
     owner: ELIXIR-DEV
