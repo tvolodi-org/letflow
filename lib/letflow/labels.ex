@@ -34,6 +34,10 @@ defmodule Letflow.Labels do
   alias Letflow.Repo
 
   @max_length 500
+  @upsert_opts [
+    on_conflict: {:replace, [:text, :updated_by, :updated_at]},
+    conflict_target: [:message_id, :locale]
+  ]
 
   @type text_reason :: :empty | :too_long | :control_character | :placeholder | :markup
 
@@ -142,11 +146,8 @@ defmodule Letflow.Labels do
           {:ok, %{message_id: String.t(), locale: String.t(), text: String.t()}}
           | {:error, :invalid_id | :invalid_locale | {:invalid_text, text_reason()} | term()}
   def put_override(prefix, tenant_id, settings, actor_id, message_id, locale, text, opts \\ []) do
-    defaults = Keyword.get(opts, :defaults, Defaults.all())
-
-    with :ok <- check_id(message_id),
-         {:ok, locale} <- check_locale(settings, locale),
-         {:ok, text} <- check_text(defaults, message_id, locale, text) do
+    with {:ok, %{locale: locale, text: text}} <-
+           check_override(settings, message_id, locale, text, opts) do
       now = DateTime.utc_now()
 
       row = %Override{
@@ -183,6 +184,57 @@ defmodule Letflow.Labels do
         {:ok, _} -> {:ok, %{message_id: message_id, locale: locale, text: text}}
         {:error, _step, reason, _changes} -> {:error, reason}
       end
+    end
+  end
+
+  @doc """
+  The checks of `put_override/8` without a write: id, locale against the tenant `settings`, text.
+  The configuration bundle import (REQ-599) calls it so both paths refuse the same input.
+  """
+  @spec check_override(map() | nil, term(), term(), term(), keyword()) ::
+          {:ok, %{message_id: String.t(), locale: String.t(), text: String.t()}}
+          | {:error, :invalid_id | :invalid_locale | {:invalid_text, text_reason()}}
+  def check_override(settings, message_id, locale, text, opts \\ []) do
+    defaults = Keyword.get(opts, :defaults, Defaults.all())
+
+    with :ok <- check_id(message_id),
+         {:ok, locale} <- check_locale(settings, locale),
+         {:ok, text} <- check_text(defaults, message_id, locale, text) do
+      {:ok, %{message_id: message_id, locale: locale, text: text}}
+    end
+  end
+
+  @doc """
+  Writes one already-checked override inside the caller's transaction, with no audit entry.
+  Returns `:unchanged` (no write, `updated_at` kept) when the row exists with the same text.
+  """
+  @spec upsert_override(String.t(), String.t(), String.t() | nil, map()) ::
+          :changed | :unchanged
+  def upsert_override(prefix, tenant_id, actor_id, %{message_id: id, locale: locale, text: text}) do
+    existing =
+      from(o in Override,
+        where: o.tenant_id == ^tenant_id and o.message_id == ^id and o.locale == ^locale,
+        select: o.text
+      )
+      |> Repo.one(prefix: prefix)
+
+    if existing == text do
+      :unchanged
+    else
+      now = DateTime.utc_now()
+
+      row = %Override{
+        tenant_id: tenant_id,
+        message_id: id,
+        locale: locale,
+        text: text,
+        updated_by: actor_id,
+        inserted_at: now,
+        updated_at: now
+      }
+
+      Repo.insert!(row, [prefix: prefix] ++ @upsert_opts)
+      :changed
     end
   end
 

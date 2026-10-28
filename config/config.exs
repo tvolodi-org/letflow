@@ -57,11 +57,13 @@ config :letflow, :lua_platform_time_source, Letflow.Engine.Lua.Platform.SystemCl
 # Application.compile_env/3 by Letflow.Modules.Catalog. The first real
 # module shipped in P2 is Letflow.Modules.Exam; GH #2661 (REQ-473) adds the foundation
 # module Letflow.Modules.Org; GH #2663 (REQ-474) adds Letflow.Modules.CatalogItems;
+# GH #3162 (REQ-544) adds Letflow.Modules.Procurement;
 # config/test.exs appends the test-only fixture modules on top.
 config :letflow, :modules, [
   Letflow.Modules.Exam,
   Letflow.Modules.Org,
-  Letflow.Modules.CatalogItems
+  Letflow.Modules.CatalogItems,
+  Letflow.Modules.Procurement
 ]
 
 # GH #2682 / REQ-511 (design lib/letflow/design/req511-exam-content-snapshot.md section 10 and
@@ -151,6 +153,10 @@ config :letflow, :modules_uninstall_enabled, false
 # record type and event). Default off: the routes of part 2 and every later slice sit behind it. Read
 # only by Letflow.RecordTriggers.enabled?/0.
 config :letflow, :record_triggers_enabled, false
+
+# REQ-590 / GH #3338: tenant logo upload (PUT/DELETE /api/v1/tenant/logo). Default off: the routes
+# answer the ordinary 404 until a deployment turns it on.
+config :letflow, :tenant_logo_upload_enabled, false
 
 # GH 2534 PR 7c-1 SECURITY note: the build environment, read by Letflow.Application.start/2's
 # boot guard (Letflow.Scripts.Runtime.boot_check/2 refuses :scripts_test_hooks in :prod).

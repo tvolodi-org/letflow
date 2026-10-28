@@ -195,6 +195,7 @@ defmodule Letflow.TenantFixture do
     "script_task_dispatches",
     "service_task_dispatches",
     "tasks",
+    "tenant_logos",
     "tenant_modules",
     "tenant_role",
     "timers",
