@@ -1,6 +1,6 @@
 # T-0860 (BA): TENANT ADMIN group, scenario 40: the administrator stores the company logo, replaces it, deletes it and stores it again.
 # Covers REQ-590 criteria 1 (switch on: the routes exist), 3 (valid image stored; a second upload replaces the same single row), 9 (delete answers 200 when a logo existed and not-found when none; upload works again) and 10 (audit entry
-# for upload and delete with type, size and hash and no image bytes, same transaction as the row change; the existing logo_url rule is unchanged).
+# for upload and delete with type, size and hash and no image bytes; the existing logo_url rule is unchanged).
 # Sources: docs/requirements.yaml REQ-590 criteria 1, 3, 9, 10; lib/letflow/routers/tenant_logo.ex (PUT answers 200 with content_type, byte_size, content_hash, updated_at; DELETE answers 200 with deleted true, or the ordinary
 # not-found when no row); lib/letflow/identity/tenant_logo.ex (validate/2, put/6, delete/4); docs/roles.md (TenantSettingsManage: tenant administrator); test/fixtures/uat/actors.yaml.
 # Environment: the upload switch (a platform setting, default off) must be ON. No roster actor can change a platform setting, so step 1 is the QA environment's own setup step (actor-system-qa-setup). If after step 1 the first
@@ -9,6 +9,9 @@
 # JPG-OK = the 29 bytes with hex FFD8FFE000104A46494600010100000000000000000000000000000000, declared image/jpeg.
 # Part 1 has no read route: the stored row, the audit entries and the other company's row are judged as system_state, read from the database. The public read is the next requirement and has its own scenarios.
 # Not covered here: criterion 2 (singleton constraint by a direct database insert), the no-database-call-without-company-scope clause of criterion 8 and criterion 11 (reviews, route pins, static checks) - all are test-suite matters, not reachable by a user.
+# Also not covered here, for the same reason (test suite or code review, no user step can show them): criterion 7's unchanged permission golden file and the test that the route is listed with the tenant-settings
+# permission in the authorization route table; criterion 8's move of the tenant table-list pin by +1; criterion 10's clause that the audit entry is written in the same transaction as the row change, the test that
+# drops the audit table and shows the failure is rescued and the logo row left unchanged, and the code-review checks that the logo_url validation function is unchanged and no migration touches the tenant settings.
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are in scenario 42.
 ---
 id: tenant-administration-40-tenant-logo-upload-replace-delete
@@ -96,7 +99,7 @@ expected_outcomes:
     description: The second upload replaces the first; the company has one logo only.
     verification:
       method: system_state
-      detail: Read from the SwiftRoute schema after step 4. Exactly one logo row exists, with content type image/jpeg, the byte size of JPG-OK and the fingerprint H2, which differs from H1. Step 4 answered 200.
+      detail: Read from the SwiftRoute schema after step 4. Exactly one logo row exists, with content type image/jpeg, the byte size of JPG-OK and the fingerprint H2, which differs from H1, and its updated_by is the user id of actor-swiftroute-alice. Step 4 answered 200.
       evidence: The SwiftRoute logo table, read directly, and the answer of step 4.
     on_fail:
       severity: MAJOR
@@ -116,7 +119,7 @@ expected_outcomes:
     description: Each upload and delete leaves one audit entry without the picture.
     verification:
       method: system_state
-      detail: Read from the audit trail of SwiftRoute after step 7. There are entries "tenant_logo.upload" for steps 3, 4 and 7 and "tenant_logo.delete" for step 5 only, none for the refused delete of steps 2 and 6. Each upload entry holds content type, byte size and fingerprint (equal to H1, H2 and H1) and the entries contain no byte sequence of PNG-OK or JPG-OK.
+      detail: Read from the audit trail of SwiftRoute after step 7. There are entries "tenant_logo.upload" for steps 3, 4 and 7 and "tenant_logo.delete" for step 5 only, none for the refused delete of steps 2 and 6. Each upload entry holds content type, byte size and fingerprint (equal to H1, H2 and H1); the "tenant_logo.delete" entry of step 5 holds content type image/jpeg, the byte size of JPG-OK (29) and fingerprint H2; the entries contain no byte sequence of PNG-OK or JPG-OK.
       evidence: The audit entries of SwiftRoute, read directly.
     on_fail:
       severity: MAJOR
