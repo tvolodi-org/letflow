@@ -1,0 +1,191 @@
+# T-0860 (BA): TENANT ADMIN group, scenario 41: the logo upload refuses the wrong type, the wrong picture bytes, the too-large file and a file the content scanner flags; the three allowed formats and the exact size limit are accepted.
+# Covers REQ-590 criteria 4 (closed list of types; declared type against the first bytes; one passing and one failing case each for PNG, JPEG and WebP), 5 (524289 bytes refused, exactly 524288 accepted) and the first half of 6
+# (a file that passes type, size and first-bytes checks but carries the EICAR test string is refused with the scanner's reason, different from the type and signature reasons, and nothing is stored).
+# Sources: docs/requirements.yaml REQ-590 criteria 4, 5, 6; lib/letflow/routers/tenant_logo.ex (refusals: 415 "allowed types: image/png, image/jpeg, image/webp"; 413 "logo must be at most 524288 bytes"; 422 "image bytes do
+# not match the declared content type"; 422 "upload refused by the content scanner: eicar-test-signature"); lib/letflow/identity/tenant_logo.ex (validate/2 order: type, size, first bytes, scanner);
+# lib/letflow/repository/attachment_scanner/signature_heuristic.ex (the default scanner finds the EICAR string).
+# Environment: the upload switch must be ON (scenario 40 step 1). If step 1 answers 404, the runner reports the scenario BLOCKED, not failed.
+# Bytes (exact, hex): PNG-OK = 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082 (67 bytes).
+# JPG-OK = FFD8FFE000104A46494600010100000000000000000000000000000000 (29 bytes). WEBP-OK = 52494646000000005745425000000000 (16 bytes: RIFF, four zero bytes, WEBP, four zero bytes).
+# SVG-TEXT = the 41 ASCII characters <svg xmlns="http://www.w3.org/2000/svg"/> (exactly that text, no line break).
+# BIG-REFUSED = the 8 bytes 89504E470D0A1A0A followed by 524281 bytes of value 00 (total 524289). BIG-EDGE = the same 8 bytes followed by 524280 bytes of value 00 (total 524288).
+# EICAR-PNG = the 8 bytes 89504E470D0A1A0A followed by the ASCII text X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H* (no line break), declared image/png.
+# Not covered here: the two scanner-adapter cases of criterion 6 (an adapter that raises, one that returns an error): the scanner is a deployment setting no roster actor and no route can change, so they stay in the
+# product's own test suite. Criterion 11 and the other criteria not reachable by a user are listed in scenario 40.
+# Each refusal step holds exactly one request. Accepted cases are in their own steps. Part 1 has no read route, so "nothing stored" is judged as system_state.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are in scenario 42.
+---
+id: tenant-administration-41-tenant-logo-type-size-signature-and-scanner-refusals
+scope: tenant-administration
+title: The logo upload refuses wrong types, mismatched picture bytes, files over 512 KiB and flagged files, and accepts PNG, JPEG, WebP and a file of exactly 524288 bytes
+version: "1.0"
+tags: [tenant-admin, tenant-logo, upload, refusal, limits, scanner]
+
+description: >
+  The administrator of SwiftRoute tries to upload a vector picture (SVG), a GIF, a PDF and a web page as the company logo and each is refused with the list of allowed types. A PNG that really holds
+  JPEG bytes, a PNG that holds the text of a vector picture, a JPEG that holds PNG bytes and a WebP that holds JPEG bytes are refused as not matching their declared type. A file of 524289 bytes is
+  refused as too large. A file that looks like a PNG but carries the standard antivirus test string is refused by the content scanner with a reason of its own. A real PNG, JPEG and WebP and a PNG
+  of exactly 524288 bytes are accepted. No refused upload changes the stored logo.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The logo-upload switch is ON for QA.
+    check: system_seeded
+    detail: If the first upload in step 1 answers 404, report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute has no stored logo at the start, and the content scanner of QA is the product's default scanner (the one that recognises the standard antivirus test string).
+    check: system_seeded
+    detail: Setup-prepared. If a logo exists, delete it first and note that in the report. If the scanner is a different one and step 11 is accepted, report BLOCKED for step 11 and EO-005 only.
+  - description: The runner can read the logo table of SwiftRoute from the database.
+    check: system_seeded
+    detail: If it cannot, report BLOCKED for the "nothing stored" parts of the outcomes only.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads PNG-OK declared image/png. The answer is noted as the stored logo L0.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload SVG-TEXT declared image/svg+xml.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload PNG-OK declared image/gif.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload PNG-OK declared application/pdf.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload PNG-OK declared text/html.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload JPG-OK declared image/png.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload SVG-TEXT declared image/png.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload PNG-OK declared image/jpeg.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload JPG-OK declared image/webp.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload BIG-REFUSED declared image/png.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to upload EICAR-PNG declared image/png.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads JPG-OK declared image/jpeg. The answer is noted.
+    via: api
+  - step: 13
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads WEBP-OK declared image/webp. The answer is noted.
+    via: api
+  - step: 14
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads BIG-EDGE declared image/png. The answer is noted.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Only PNG, JPEG and WebP are allowed types; the others are refused with the list of allowed types.
+    verification:
+      method: http_status
+      detail: Steps 2, 3, 4 and 5 each answer 415 and the detail names image/png, image/jpeg and image/webp. Step 1 answered 200.
+      evidence: The four answers of steps 2 to 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A vector picture can carry script that runs in a visitor's browser when the logo is later shown; a closed list is the protection.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The declared type must match the first bytes of the file.
+    verification:
+      method: http_status
+      detail: Steps 6, 7, 8 and 9 each answer 422 with the detail "image bytes do not match the declared content type".
+      evidence: The four answers of steps 6 to 9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A file can be passed off as a picture by naming its type, so markup can be stored as a logo.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: The size limit is measured on the received bytes; the limit itself is accepted.
+    verification:
+      method: http_status
+      detail: Step 10 answers 413 with the detail "logo must be at most 524288 bytes". Step 14 answers 200 and the answer reports byte size 524288.
+      evidence: The answers of steps 10 and 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: Oversized files fill the company's storage, or a legitimate file at the limit is refused.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A real JPEG and a real WebP are accepted, and the stored logo follows.
+    verification:
+      method: http_status
+      detail: Step 12 answers 200 with content type image/jpeg and byte size 29. Step 13 answers 200 with content type image/webp and byte size 16. Step 1 answered 200 with image/png and byte size 67.
+      evidence: The answers of steps 1, 12 and 13.
+    on_fail:
+      severity: MAJOR
+      business_impact: A format the product promises cannot be used.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: A file that passes the type, size and first-bytes checks but is flagged by the content scanner is refused with the scanner's own reason.
+    verification:
+      method: http_status
+      detail: >-
+        Step 11 answers 422 with the detail "upload refused by the content scanner: eicar-test-signature", which differs from the detail of EO-002 (so the scanner, and not the first-bytes check, refused it).
+      evidence: The answer of step 11 compared with the answer of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Infected files could be stored as company logos.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: No refused upload changes what is stored.
+    verification:
+      method: system_state
+      detail: Read from the SwiftRoute logo table after step 11, before step 12. Exactly one row exists and it is still the logo L0 of step 1 (content type image/png, byte size 67, the same fingerprint). No audit entry "tenant_logo.upload" exists for any of steps 2 to 11.
+      evidence: The SwiftRoute logo table and audit trail, read directly after step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A refused file still alters the company's logo or leaves a record of an upload that did not happen.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the logo of SwiftRoute if one is stored.
