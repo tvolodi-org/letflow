@@ -1,0 +1,66 @@
+{
+  "name": "catalog_counterparty",
+  "display_name": "Counterparty",
+  "description": "GH #3407 / REQ-604, decisions 0050 D1 and 0057 D1. A supplier master. kind is supplier or contractor (UAT assumption, an enum value can be added later). tax_id is optional and its format is not validated (UAT assumption). active false retires the record, there is no delete operation. external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+  "fields": [
+    {
+      "name": "code",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "kind",
+      "type": "enum",
+      "required": true,
+      "queried": true,
+      "enum_values": [
+        "supplier",
+        "contractor"
+      ]
+    },
+    {
+      "name": "tax_id",
+      "type": "string",
+      "queried": true
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "external_ref_system",
+      "type": "string",
+      "queried": true
+    },
+    {
+      "name": "external_ref_id",
+      "type": "string",
+      "queried": true
+    }
+  ],
+  "constraints": [
+    {
+      "name": "uq_catalog_counterparty_code",
+      "type": "unique",
+      "fields": [
+        "code"
+      ]
+    },
+    {
+      "name": "uq_catalog_counterparty_external_ref",
+      "type": "unique",
+      "fields": [
+        "external_ref_system",
+        "external_ref_id"
+      ]
+    }
+  ]
+}

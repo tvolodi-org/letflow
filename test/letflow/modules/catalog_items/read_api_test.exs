@@ -14,7 +14,7 @@ defmodule Letflow.Modules.CatalogItems.ReadApiTest do
 
   alias Letflow.Modules.CatalogItems
 
-  @types ["catalog_uom", "catalog_item"]
+  @types ["catalog_uom", "catalog_item", "catalog_counterparty"]
 
   # Values that are not a uuid; none may raise.
   @non_uuids [nil, 123, "x", "", %{}, %{"a" => 1}, [], :atom, 1.5, "not-a-uuid", <<255>>]
@@ -30,7 +30,7 @@ defmodule Letflow.Modules.CatalogItems.ReadApiTest do
     {item, uom}
   end
 
-  describe "lookup/2 and active?/2 for each of the two types" do
+  describe "lookup/2 and active?/2 for each of the three types" do
     for type <- @types do
       test "R-#{type}: lookup returns record_id, entity_type and the field values", %{
         schema: schema
