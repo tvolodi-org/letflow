@@ -186,7 +186,8 @@ defmodule Letflow.Modules.Procurement.PurchaseRequests do
       [
         {"version_no", is_integer(version_no) and version_no > 0},
         {"content_hash", is_nil(hash) or (is_binary(hash) and hash =~ ~r/\A[0-9a-f]{64}\z/)},
-        {"idempotency_key", is_binary(key) and key =~ ~r/\A[A-Za-z0-9._:-]{1,128}\z/}
+        {Atom.to_string(:idempotency_key),
+         is_binary(key) and key =~ ~r/\A[A-Za-z0-9._:-]{1,128}\z/}
       ]
       |> Enum.reject(fn {_field, ok?} -> ok? end)
       |> Enum.map(fn {field, _ok?} -> %{field: field, code: "invalid"} end)
