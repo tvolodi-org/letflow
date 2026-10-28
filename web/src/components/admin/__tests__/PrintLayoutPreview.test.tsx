@@ -51,6 +51,18 @@ describe('REQ-614 V1/V2 preview rendering', () => {
   })
 })
 
+describe('REQ-614 D5-redact no text beyond the layout and placeholder', () => {
+  it('a field block renders only its label and the placeholder', () => {
+    render(
+      <PrintLayoutPreview
+        layout={{ blocks: [{ type: 'field', entity_type: 'invoice', field_name: 'total', label: 'Total' }] }}
+      />,
+    )
+    expect(screen.getByTestId('preview-field').textContent).toBe('Total: [invoice.total]')
+    expect(screen.getByTestId('print-preview').textContent).toBe('Page: A4Total: [invoice.total]')
+  })
+})
+
 describe('REQ-614 V3/V4 no data, no throw', () => {
   it('V3 makes no request', () => {
     const fetchSpy = vi.spyOn(window, 'fetch').mockImplementation(() => {
