@@ -1,0 +1,120 @@
+# T-0895 (BA): TENANT ADMIN group, scenario 49: once the default company (address name bpm-default) has an uploaded logo, the web company configuration with no parameter, with only a host value and with an unknown realm points at that logo, and the logo can be read publicly.
+# Covers REQ-591 criterion 5, the part "including slug bpm-default on the default branches when that tenant has an upload".
+# Quoted criterion 5: "Web response branches: for each of ?realm= hit with an upload, ?realm= hit without an upload, ?realm= miss, ?host=, no parameter and a forced lookup failure, a test asserts branding.logo_url as stated in the description (including slug bpm-default on the default branches when that tenant has an upload); an inactive default-realm tenant, and one with a nil or empty idp_realm_id, that has an upload keeps today's value on the default branches (never a path that the logo route would answer with 404); the keys of the web body and of branding are unchanged."
+# Why actor-platform-admin: it is the only roster actor that belongs to the default company (it signs in to realm bpm-default, see test/fixtures/uat/actors.yaml and scripts/uat_preflight.sh). The logo route takes the company from the token, so the actor stores and deletes the logo of its own company; this is the least role available for that company, and no other company's data is asked for (own-tenant route rule).
+# Not covered here: criterion 9 (gates); the forced lookup failure; an inactive default company or one with a nil or empty realm (no user step can create that state; the backend tests of REQ-591 cover them). Other branches of criterion 5 are in scenario 46.
+# Sources: docs/requirements.yaml REQ-591 (criterion 5); lib/letflow/routers/tenant_config.ex (resolve_realm/2: no parameter, host value and realm miss use the default address name bpm-default); lib/letflow/routers/tenant_logo.ex (PUT and DELETE of the own company's logo, public read); test/fixtures/uat/actors.yaml.
+# Environment: the upload switch must be ON from step 3 on (QA setup step, as in scenario 44 step 1). If step 3 shows the upload refused because the feature is off, the runner reports BLOCKED, not failed; scenario 48 covers the off case.
+# Bytes (exact, hex): PNG-OK = 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082 (67 bytes), declared image/png.
+# The four sensitive actions are not in this flow; the see-sensitive-data check is the no-leak outcome EO-003 on public answers.
+---
+id: tenant-administration-49-tenant-logo-default-company-branding
+scope: tenant-administration
+title: When the default company has an uploaded logo, the web company configuration shows its logo address on every default branch and the logo is publicly readable
+version: "1.0"
+tags: [tenant-admin, tenant-logo, branding, web-config, default-company]
+risk: standard
+
+description: >
+  The platform administrator, who belongs to the default company, uploads a PNG as the logo of that company. The web company configuration read with no parameter, with only a host value and with an unknown
+  realm then shows the logo address for the default company as the branding logo; all other members and the key sets are unchanged from the baselines. The address resolves publicly to the uploaded picture.
+  When the logo is deleted the baselines return.
+
+actors:
+  platform_admin: actor-platform-admin
+  visitor: actor-any
+
+preconditions:
+  - description: The logo-upload switch is turned ON for QA by step 3.
+    check: system_seeded
+    detail: If the QA environment cannot turn the switch on, report BLOCKED for the whole scenario.
+  - description: The default company exists in QA with address name bpm-default and is not inactive, and it has no stored logo at the start.
+    check: system_seeded
+    detail: If the company record is missing or inactive, report BLOCKED for steps 4 to 7 and all outcomes. If a logo exists, delete it first and note that in the report.
+  - description: The string "no-such-company-0000" is not the address name of any company.
+    check: system_seeded
+    detail: Setup-prepared.
+
+steps:
+  - step: 1
+    actor: visitor
+    action: >
+      Baselines. A caller who is not signed in reads the web company configuration with no parameter (D0-NONE), with only the host value "login.example.test" (D0-HOST) and with the realm value
+      "no-such-company-0000" (D0-UNK). The full bodies are noted.
+    via: api
+  - step: 2
+    actor: visitor
+    action: >
+      The same caller reads the logo of the default company by the address name bpm-default. The answer is noted; it must be the same not-found answer as for an unknown company, because no logo exists yet.
+    via: api
+  - step: 3
+    actor: actor-system-qa-setup
+    action: >
+      The QA environment turns the company-logo upload switch on (the platform setting that is off by default) and restarts the service if the environment requires it.
+    via: api
+  - step: 4
+    actor: platform_admin
+    action: >
+      The platform administrator uploads PNG-OK declared image/png as the logo of its own company. The answer is noted.
+    via: api
+  - step: 5
+    actor: visitor
+    action: >
+      The web company configuration is read again with no parameter (D1-NONE), with only the host value "login.example.test" (D1-HOST) and with the realm value "no-such-company-0000" (D1-UNK). The full bodies are noted.
+    via: api
+  - step: 6
+    actor: visitor
+    action: >
+      The caller who is not signed in reads the logo of the default company by the address name bpm-default. The answer is noted.
+    via: api
+  - step: 7
+    actor: platform_admin
+    action: >
+      The platform administrator deletes the logo of its own company. Then the caller who is not signed in reads the web company configuration with no parameter again (D2-NONE).
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Every default branch of the web place shows the logo address of the default company.
+    verification:
+      method: api_response
+      detail: Step 4 answers 200. In D1-NONE, D1-HOST and D1-UNK, branding.logo_url equals "/api/tenant-config/logo?slug=bpm-default". Every other member of each equals the same member of D0-NONE, D0-HOST and D0-UNK respectively, and the set of top-level keys and the set of keys under branding are the same as in the baselines.
+      evidence: D0 against D1 bodies, member by member.
+    on_fail:
+      severity: MAJOR
+      business_impact: The login page of the default company keeps showing no logo after the company uploaded its own.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The logo address handed out for the default company is one the logo route answers with the picture, not with not-found.
+    verification:
+      method: api_response
+      detail: Step 2 answers 404. Step 6 answers 200 with the exact 67 bytes of PNG-OK and content type image/png.
+      evidence: Status, content type and bytes of the step 2 and step 6 answers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The login page of the default company shows a broken image, or the logo is not served although the configuration points at it.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: The default-company answers reveal nothing about the stored picture.
+    verification:
+      method: api_response
+      detail: D1-NONE, D1-HOST and D1-UNK contain no member named content_hash, byte_size, updated_by, updated_at, data or bytes anywhere (by key) and no value equal to the picture bytes or their base64 form (by value).
+      evidence: A key and value search of the three bodies.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A public, unauthenticated answer exposes data about a stored file.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: After the logo is deleted the default branch returns to its baseline.
+    verification:
+      method: api_response
+      detail: Step 7 deletion answers success, and D2-NONE equals D0-NONE byte for byte.
+      evidence: D0-NONE against D2-NONE.
+    on_fail:
+      severity: MAJOR
+      business_impact: A deleted logo is still advertised and the login page shows a broken image.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the logo of the default company if stored. The environment turns the switch off again afterwards (it is off by default).

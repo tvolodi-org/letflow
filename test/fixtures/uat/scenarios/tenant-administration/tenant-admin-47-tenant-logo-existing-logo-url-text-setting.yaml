@@ -1,0 +1,147 @@
+# T-0895 (BA): TENANT ADMIN group, scenario 47: a company that already has a logo web address in its settings keeps it until it uploads a logo, gets it back when the upload is deleted or the switch is turned off, and the stored address text is never overwritten.
+# Covers REQ-591 criterion 8, the user-visible parts.
+# Quoted criterion 8: "Existing logo_url values: a tenant with settings logo_url \"https://example.com/l.png\" and no upload returns that string from both endpoints exactly as before; with an upload both return the path while settings[\"logo_url\"] in the database is unchanged; after DELETE /api/v1/tenant/logo or after turning the flag off both return the stored string again; Letflow.Routers.TenantConfig.branding_from_settings/1 still returns the stored string (test of Letflow.Modules.Exam.Certificate branding unchanged)."
+# Not covered here: the last clause (the function branding_from_settings/1 still returns the stored string, and the certificate branding test): it is a function-level code check, and no user step calls it. Whether the issued certificate shows the stored address is the certificate scenarios' matter.
+# Sources: docs/requirements.yaml REQ-591 (description EXISTING logo_url VALUES, criterion 8) and REQ-590 (delete, the row kept when the switch is turned off); lib/letflow/routers/tenant_config.ex (put_logo/3); test/fixtures/uat/actors.yaml; docs/roles.md (TenantSettingsManage: tenant administrator).
+# Environment: the upload switch (platform setting, default off) is turned on by step 1 and off by step 10, both QA setup steps (actor-system-qa-setup). The text setting logo_url is changed by the SwiftRoute administrator through the company settings and restored in the cleanup to the value recorded in step 2.
+# Bytes (exact, hex): PNG-OK = 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082 (67 bytes), declared image/png.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; there is no refusal step, because every request here is accepted and the change is in what the public answers show.
+---
+id: tenant-administration-47-tenant-logo-existing-logo-url-text-setting
+scope: tenant-administration
+title: A company's stored logo web address is shown until an uploaded logo exists, is never overwritten by the upload, and returns when the upload is deleted or the switch is turned off
+version: "1.0"
+tags: [tenant-admin, tenant-logo, branding, logo-url, switch]
+
+description: >
+  The SwiftRoute administrator sets the text setting logo_url to "https://example.com/l.png". The web and mobile company configuration show that address. After the administrator uploads a PNG both show the logo
+  address of SwiftRoute instead, while the stored text setting is unchanged. Deleting the upload brings the stored address back in both. A new upload shows the logo address again, and turning the platform switch off
+  brings the stored address back once more while the uploaded picture is kept.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  visitor: actor-any
+
+preconditions:
+  - description: The logo-upload switch is turned ON for QA by step 1 and OFF again by step 10 (it is off by default in the product).
+    check: system_seeded
+    detail: If the QA environment cannot turn the switch on or off, report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute has no stored logo at the start. The runner records the current value of the SwiftRoute text setting logo_url as L-OLD (it may be absent) before step 2.
+    check: system_seeded
+    detail: Setup-prepared. If a logo exists, delete it first (switch on) and note that in the report.
+  - description: The runner knows the address name S-SR of SwiftRoute from the seeded company records and can read the SwiftRoute settings and logo table from the database.
+    check: system_seeded
+    detail: If the database cannot be read, report BLOCKED for EO-002 and EO-005 only.
+
+steps:
+  - step: 1
+    actor: actor-system-qa-setup
+    action: >
+      The QA environment turns the company-logo upload switch on (the platform setting that is off by default) and restarts the service if the environment requires it.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute changes the text setting logo_url of the company to "https://example.com/l.png". The answer is noted.
+    via: api
+  - step: 3
+    actor: visitor
+    action: >
+      A caller who is not signed in reads the web company configuration with the realm value S-SR (W-A) and the mobile company configuration with the address name S-SR (M-A). The bodies are noted.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute uploads PNG-OK declared image/png as the company logo. The answer is noted.
+    via: api
+  - step: 5
+    actor: visitor
+    action: >
+      The same caller reads the web configuration with the realm value S-SR (W-B) and the mobile configuration with the address name S-SR (M-B). The bodies are noted.
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute deletes the company logo. The answer is noted.
+    via: api
+  - step: 7
+    actor: visitor
+    action: >
+      The same caller reads the web configuration with the realm value S-SR (W-C) and the mobile configuration with the address name S-SR (M-C). The bodies are noted.
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute uploads PNG-OK declared image/png again. The answer is noted.
+    via: api
+  - step: 9
+    actor: visitor
+    action: >
+      The same caller reads the web configuration with the realm value S-SR (W-D) and the mobile configuration with the address name S-SR (M-D). The bodies are noted.
+    via: api
+  - step: 10
+    actor: actor-system-qa-setup
+    action: >
+      The QA environment turns the company-logo upload switch off again and restarts the service if the environment requires it.
+    via: api
+  - step: 11
+    actor: visitor
+    action: >
+      The same caller reads the web configuration with the realm value S-SR (W-E) and the mobile configuration with the address name S-SR (M-E). The bodies are noted.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: With a stored address and no upload, both places show the stored address exactly.
+    verification:
+      method: api_response
+      detail: Step 2 answers 200. In W-A and M-A, branding.logo_url equals "https://example.com/l.png" exactly.
+      evidence: W-A and M-A.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company that configured a logo address before this feature loses its logo on the login screens.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: With an upload, both places show the logo address, and the stored text setting is not changed.
+    verification:
+      method: system_state
+      detail: Step 4 answers 200. In W-B and M-B, branding.logo_url equals "/api/tenant-config/logo?slug=" followed by S-SR. Read from the SwiftRoute settings after step 5, the text setting logo_url is still "https://example.com/l.png".
+      evidence: W-B, M-B and the SwiftRoute settings read directly.
+    on_fail:
+      severity: MAJOR
+      business_impact: The upload destroys the address the company configured, so deleting the upload cannot bring it back.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: Deleting the upload brings the stored address back in both places.
+    verification:
+      method: api_response
+      detail: Step 6 answers 200. In W-C and M-C, branding.logo_url equals "https://example.com/l.png" exactly.
+      evidence: W-C and M-C.
+    on_fail:
+      severity: MAJOR
+      business_impact: After a logo is removed the login screens point at a logo that no longer exists.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: A new upload shows the logo address again.
+    verification:
+      method: api_response
+      detail: Step 8 answers 200. In W-D and M-D, branding.logo_url equals "/api/tenant-config/logo?slug=" followed by S-SR.
+      evidence: W-D and M-D.
+    on_fail:
+      severity: MINOR
+      business_impact: A company that deleted and re-uploaded its logo does not see it again.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: Turning the switch off brings the stored address back, and the uploaded picture is kept.
+    verification:
+      method: system_state
+      detail: In W-E and M-E, branding.logo_url equals "https://example.com/l.png" exactly. Read from the SwiftRoute logo table after step 11, the logo row from step 8 still exists with the same fingerprint.
+      evidence: W-E, M-E and the SwiftRoute logo table read directly.
+    on_fail:
+      severity: MAJOR
+      business_impact: Turning the feature off leaves a broken logo address on the login screens, or throws away the company's uploaded picture.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Turn the switch on, delete the SwiftRoute logo, turn the switch off, and restore the SwiftRoute text setting logo_url to L-OLD (or remove it if L-OLD was absent).
