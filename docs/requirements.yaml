@@ -44555,7 +44555,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-623 -- builds on the render slice (attach_artefact/2 and the Renderer behaviour), which is still pending
+    gh: 3485
     # Source: docs/migration/decisions/0068-per-tenant-print-template-overrides.md (D3 "Resolution order at issue" and "Invalid override at issue: fail closed", D4 binding to document versions, D5 later restriction, D8 "S3 Resolution and issue integration", "Tests the implementation slices must add", Threats for SECURITY-REVIEWER); docs/migration/decisions/0056-versioned-documents.md D2 (all refusals before any write to document_sequences), D3, D4, D5, D8, D9; docs/requirements.yaml REQ-571 (Letflow.Documents.PrintLayout.validate/3 and render/4, lib/letflow/documents/print_layout.ex), REQ-579 (Letflow.Documents.PrintOverrides and the table document_print_overrides, lib/letflow/documents/print_overrides.ex), REQ-622 and REQ-623 (render record and build slice); lib/letflow/documents.ex (issue/2, check_issuable!/5, check_restricted/3, number_of!/3, count_refusal/3); priv/repo/migrations/20261022100002_create_document_immutability_triggers.exs (guard_document_versions()). Written by the business analyst (T-0886) 2026-10-28. Not yet validated.
     description: >
       Slice S3 of decision 0068 (docs/migration/decisions/0068-per-tenant-print-template-overrides.md, D8).
