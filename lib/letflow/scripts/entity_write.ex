@@ -4,7 +4,9 @@ defmodule Letflow.Scripts.EntityWrite do
   (hook 1) for one record candidate and returns the derived field values with the read
   fingerprint. Pure of the engine: no route, no record write, no audit row, no lock (E-3 and
   later own those). The caller passes the tenant schema `prefix` (the only tenant selector;
-  `facts` is never read for tenant data), the pinned version and the facts.
+  `facts` is never read for tenant data), the pinned version and the facts. `prefix` must be a
+  database-resolved tenant schema name: a name that does not exist raises from Postgres, so the
+  E-3 caller passes only a resolved one.
 
   ## Order of steps (a `with` chain; every failure is a tuple, nothing raises)
 

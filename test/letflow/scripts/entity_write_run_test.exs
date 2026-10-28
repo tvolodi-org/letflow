@@ -227,6 +227,12 @@ defmodule Letflow.Scripts.EntityWriteRunTest do
       assert_rejected(schema, pin(rule))
     end
 
+    test "T5l2 a read on an unflagged type fails check_reads", %{schema: schema} do
+      read = P.id_read("r", "other", ["note"])
+      rule = publish!(schema, "t5l2", manifest(%{"reads" => [read]}))
+      assert_rejected(schema, pin(rule))
+    end
+
     test "T5m published and T5n retired rows run", %{schema: schema} do
       rule = publish!(schema, "t5m", manifest())
       assert {:ok, %{derived: %{"total" => 4}}} = EntityWrite.run(schema, pin(rule), facts())
@@ -358,7 +364,7 @@ defmodule Letflow.Scripts.EntityWriteRunTest do
       m = manifest(%{"reads" => [read]})
       rule = publish!(schema, "t7c", m)
       result = EntityWrite.run(schema, pin(rule), facts(%{"amount" => 2, "cid" => "x"}))
-      assert result == @widened or result == @rejected
+      assert result == @widened
       assert calls() == []
     end
 
@@ -486,10 +492,11 @@ defmodule Letflow.Scripts.EntityWriteRunTest do
 
     test "T8p real fail with a declared code", %{schema: schema} do
       rule = publish!(schema, "t8p", manifest(), ~s|fail("too_big")|)
-      result = EntityWrite.run(schema, pin(rule), facts())
 
-      assert match?({:error, {:script_failed, "too_big"}, _}, result) or
-               match?({:error, :script_error, _}, result)
+      assert {:error, {:script_failed, "too_big"}, stats} =
+               EntityWrite.run(schema, pin(rule), facts())
+
+      assert_stats(stats)
     end
 
     test "T8q ctx: registry id or the fixed fallback, node id, now", %{schema: schema} do
@@ -518,10 +525,29 @@ defmodule Letflow.Scripts.EntityWriteRunTest do
       r1 = EntityWrite.run(schema, pin(rule), facts())
       r2 = EntityWrite.run(schema, pin(rule), facts())
 
-      case {r1, r2} do
-        {{:ok, %{derived: a}}, {:ok, %{derived: b}}} -> assert a == b
-        {{:error, :script_error, _}, {:error, :script_error, _}} -> :ok
-      end
+      assert {:ok, %{derived: %{"note" => a}}} = r1
+      assert {:ok, %{derived: %{"note" => b}}} = r2
+      assert a == b
+      assert a =~ DateTime.to_iso8601(@now)
+      assert String.length(a) > String.length(DateTime.to_iso8601(@now))
+    end
+
+    test "T8r1 ctx uses the registry instance id when the row exists", %{schema: schema} do
+      {:ok, instance_id} = Letflow.Entities.EntityTypeInstance.get_or_create(@t, schema)
+      stub!(ok_reply())
+      rule = publish!(schema, "t8r1", manifest())
+      assert {:ok, _} = EntityWrite.run(schema, pin(rule), facts())
+      assert [{_, _, opts}] = calls()
+      assert opts[:ctx].instance_id == instance_id
+      refute instance_id == "entity-write"
+    end
+
+    test "T8t real unbounded allocation ends as memory limit", %{schema: schema} do
+      m = manifest(%{"limits" => %{"timeout_ms" => 5_000, "heap_words" => 100_000}})
+      source = "local t = {}\nfor i = 1, 1000000 do t[i] = { i } end\nreturn { total = 1 }"
+      rule = publish!(schema, "t8t", m, source)
+      assert {:error, :memory_limit_exceeded, stats} = EntityWrite.run(schema, pin(rule), facts())
+      assert_stats(stats)
     end
 
     test "T8s a record registry row is read, never created", %{schema: schema} do
