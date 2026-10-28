@@ -19,7 +19,7 @@ defmodule Letflow.Modules.Procurement do
   well: the tenant role that holds it is TENANT_ADMIN (via core), PLATFORM_ADMIN only through the
   platform clause; a test asserts exactly that.
 
-  The three permissions are declared with their route policies (the permission-matrix
+  The permissions are declared with their route policies (the permission-matrix
   classification pre-approves a new module atom only when the owner's own route policies name it)
   and with no `role_grants`: in this slice only TENANT_ADMIN and PLATFORM_ADMIN hold them, so the
   requester/approver split rests on the permission gate and the self-decision check (a requester

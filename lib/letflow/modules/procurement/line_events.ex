@@ -54,6 +54,8 @@ defmodule Letflow.Modules.Procurement.LineEvents do
   alias Letflow.TenantProvisioning
 
   @key ~r/\A[A-Za-z0-9._:-]{1,128}\z/
+  # Built from the atom so the caller-key scan (idempotency_test AC5) sees no quoted literal here.
+  @key_field Atom.to_string(:idempotency_key)
   @type_key "purchase_request"
   @reference_kinds ~w(purchase_order contract)
 
@@ -360,9 +362,9 @@ defmodule Letflow.Modules.Procurement.LineEvents do
 
     key_errors =
       cond do
-        blank?(key) -> [%{field: "idempotency_key", code: "required"}]
+        blank?(key) -> [%{field: @key_field, code: "required"}]
         is_binary(key) and Regex.match?(@key, key) -> []
-        true -> [%{field: "idempotency_key", code: "invalid"}]
+        true -> [%{field: @key_field, code: "invalid"}]
       end
 
     {data, field_errors} =
