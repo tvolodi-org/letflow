@@ -35,7 +35,7 @@ defmodule Letflow.Entities.PivotViewsTest do
       Repo.query!(
         "SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns " <>
           "WHERE table_schema = $1 AND table_name = 'entity_views' " <>
-          "AND column_name IN ('kind', 'group_by', 'aggregates') ORDER BY column_name",
+          "AND column_name IN ('kind', 'group_by', 'aggregates', 'chart_type') ORDER BY column_name",
         [schema]
       )
 
@@ -53,14 +53,19 @@ defmodule Letflow.Entities.PivotViewsTest do
 
       Repo.query!(
         ~s(ALTER TABLE "#{schema}".entity_views DROP CONSTRAINT entity_views_pivot_clauses_chk, ) <>
-          "DROP COLUMN kind, DROP COLUMN group_by, DROP COLUMN aggregates"
+          "DROP COLUMN chart_type, DROP COLUMN kind, DROP COLUMN group_by, DROP COLUMN aggregates"
       )
 
-      Repo.query!(~s(DELETE FROM "#{schema}".schema_migrations WHERE version = $1), [@version])
+      Repo.query!(~s[DELETE FROM "#{schema}".schema_migrations WHERE version IN ($1, $2)], [
+        @version,
+        20_261_028_100_001
+      ])
+
       assert columns_of(schema) == []
 
       assert {:ok, applied} = TenantProvisioning.replay_migrations(a.tenant_id)
       assert @version in applied
+      assert 20_261_028_100_001 in applied
 
       {:ok, reread} = Views.get(schema, a.user_id, view.id)
       assert reread.kind == "list"
@@ -73,6 +78,7 @@ defmodule Letflow.Entities.PivotViewsTest do
     test "M3 columns carry the defaults and a list row cannot hold pivot clauses", %{a: a} do
       assert [
                ["aggregates", "jsonb", "NO", "'[]'::jsonb"],
+               ["chart_type", "text", "YES", nil],
                ["group_by", "jsonb", "NO", "'[]'::jsonb"],
                ["kind", "text", "NO", "'list'::text"]
              ] = columns_of(a.schema_name)
@@ -82,6 +88,13 @@ defmodule Letflow.Entities.PivotViewsTest do
       assert_raise Postgrex.Error, ~r/entity_views_pivot_clauses_chk/, fn ->
         Repo.query!(
           ~s(UPDATE "#{a.schema_name}".entity_views SET group_by = '[{"field":"x"}]' WHERE id = $1),
+          [Ecto.UUID.dump!(view.id)]
+        )
+      end
+
+      assert_raise Postgrex.Error, ~r/entity_views_chart_type_chk/, fn ->
+        Repo.query!(
+          ~s(UPDATE "#{a.schema_name}".entity_views SET chart_type = 'bar' WHERE id = $1),
           [Ecto.UUID.dump!(view.id)]
         )
       end
