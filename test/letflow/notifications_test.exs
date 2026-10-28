@@ -126,6 +126,9 @@ defmodule Letflow.NotificationsTest do
       assert msg.body =~ snapshot.definition_name
       assert msg.body =~ user.display_name
       assert msg.body =~ "Due: ."
+      tenant = Repo.get!(Letflow.Identity.Tenant, fx.tenant_id)
+      assert tenant.display_name not in [nil, ""]
+      assert msg.body =~ tenant.display_name
     end
 
     test "N5 empty names still send one row, username replaces the name", %{fx: fx} do
@@ -146,6 +149,9 @@ defmodule Letflow.NotificationsTest do
       assert {:ok, _} = assign!(fx, task, user)
       assert_receive {:deliver_message, msg}, 2000
       assert msg.body =~ "Hello #{user.username},"
+      assert msg.body =~ "the task  of the process  is assigned"
+      assert String.trim(msg.subject) == "Task assigned:"
+      assert msg.body =~ "Due: ."
       assert [%{status: "sent"}] = await_rows(fx.schema_name)
     end
 
@@ -208,8 +214,11 @@ defmodule Letflow.NotificationsTest do
 
         capture_log(fn ->
           task = unassigned_task(fx)
-          assert {:ok, %EngineTask{assignee_ref: ref}} = assign!(fx, task, user)
+          {micros, result} = :timer.tc(fn -> assign!(fx, task, user) end)
+          assert {:ok, %EngineTask{assignee_ref: ref}} = result
           assert ref == user.id
+          # the request path never waits for the adapter (double sleeps 10 s, timeout 100 ms)
+          assert micros < 5_000_000
           assert [%{status: "failed", reason: "adapter_error"}] = await_rows(fx.schema_name)
 
           assert {:ok, %EngineTask{assignee_ref: ref2}} =
