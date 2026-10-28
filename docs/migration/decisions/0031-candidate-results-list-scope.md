@@ -416,3 +416,18 @@ need it, which is the correct restraint rather than scope creep in either
 direction.
 
 **No defects found. This gate PASSes.** Ready for `ORCH` to commit/push.
+
+## Addendum (2026-10-28, GH #3321 / REQ-587): the results list is now served
+
+Section 1 ("not served today") is reversed under Revisitability trigger 1: the BilimBaga certificates
+criterion (FR-BB41/FR-BB46) needs a candidate to find their own sessions and certificates. The old text
+above, including the quotation of the router's earlier "Deliberately NOT routed here" bullet, is kept as
+history and is superseded by this addendum.
+
+- The list is `GET /api/v1/modules/exam/exam-sessions/mine`, an exam-module route gated by the existing
+  `:ExamSessionRead`. It departs from section 2 (generic entity query) because CANDIDATE does not hold the
+  entity-query permission and must not (recorded as an open owner question).
+- Section 4 option 2 (in-memory sort) is not used: the list is ordered by `expires_at` descending, which is
+  already a queried field, so no `queried` flag flips and there is no migration.
+- Section 5 is unchanged. No new permission, role grant or feature flag.
+- The owner filter is `user_id` from the auth context; no caller-supplied owner, candidate or tenant parameter is read.

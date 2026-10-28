@@ -46,7 +46,7 @@ scenario file. A tenant-side actor holds TENANT_ADMIN or a tenant role, never PL
 ## CANDIDATE
 - Scope: tenant.
 - Who holds it: external people sitting an exam.
-- Does: list the tenant's installed modules; exam-session actions come from the exam module's own grants.
+- Does: list the tenant's installed modules; exam-session actions come from the exam module's own grants. It can list its own finished sessions and certificate flags with `GET /modules/exam/exam-sessions/mine` (`:ExamSessionRead`, GH #3321).
 - Must not: hold any core permission beyond that, so it cannot query entities.
 
 ## TENANT_ADMIN
