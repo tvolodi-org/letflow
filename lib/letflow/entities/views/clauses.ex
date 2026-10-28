@@ -22,9 +22,15 @@ defmodule Letflow.Entities.Views.Clauses do
   alias Letflow.Entities.Query.Compiler
   alias Letflow.Entities.Query.Types
 
-  @allowed_keys ~w(entity_type name kind columns filter sort group_by aggregates)
-  @list_only_keys ~w(columns sort)
-  @pivot_only_keys ~w(group_by aggregates)
+  @allowed_keys ~w(entity_type name kind columns filter sort group_by aggregates chart_type)
+  # Keys each kind refuses (unknown_key).
+  @refused_keys %{
+    "list" => ~w(group_by aggregates chart_type),
+    "pivot" => ~w(columns sort chart_type),
+    "graph" => ~w(columns sort)
+  }
+  @chart_types ~w(bar line pie)
+  @max_graph_aggregates 3
   @max_columns 100
   @max_filter 50
   @max_sort 10
@@ -45,7 +51,8 @@ defmodule Letflow.Entities.Views.Clauses do
           filter: [map()],
           sort: [map()],
           group_by: [map()],
-          aggregates: [map()]
+          aggregates: [map()],
+          chart_type: String.t() | nil
         }
 
   @doc """
@@ -54,8 +61,12 @@ defmodule Letflow.Entities.Views.Clauses do
   checked by the caller against the stored one). Absent `filter` and `sort` are `[]`.
 
   `kind` is `"list"` (default) or `"pivot"` (REQ-598). A pivot body takes `filter`, `group_by` and
-  `aggregates` and refuses `columns` and `sort`; a list body refuses `group_by` and `aggregates`
-  (`unknown_key`). On update `stored_kind` is the stored view's kind: an absent `kind` means it, a
+  `aggregates` and refuses `columns`, `sort` and `chart_type`; a list body refuses `group_by`,
+  `aggregates` and `chart_type` (`unknown_key`). `"graph"` (REQ-613) takes `filter`, exactly one
+  `group_by`, one to three `aggregates` and a `chart_type` of `bar`, `line` or `pie` (a pie needs
+  exactly one aggregate) and refuses `columns` and `sort`. A graph body with several faults answers
+  the first of: filter shape, `group_by_invalid`, `aggregates_invalid`, `chart_type_invalid`, the pie
+  rule (`aggregates_invalid`). On update `stored_kind` is the stored view's kind: an absent `kind` means it, a
   different one is `kind_immutable`.
   """
   @spec parse_body(map(), :create | :update, String.t() | nil) ::
@@ -75,13 +86,14 @@ defmodule Letflow.Entities.Views.Clauses do
 
   @doc """
   Validates the filter and sort of `shaped` against `entity_type`, then every column against the
-  type's declared fields plus the system columns. A pivot is validated with the aggregate route's
-  own compile step instead (filter, `group_by` and aggregate fields, fn and field arity and type).
+  type's declared fields plus the system columns. A pivot or graph is validated with the aggregate
+  route's own compile step instead (filter, `group_by` and aggregate fields, fn and field arity and
+  type).
   """
   @spec check(String.t(), String.t(), shaped()) ::
           :ok | {:error, :not_found} | {:error, {:unprocessable, String.t()}}
-  def check(prefix, entity_type, %{kind: "pivot"} = shaped)
-      when is_binary(prefix) and is_binary(entity_type) do
+  def check(prefix, entity_type, %{kind: kind} = shaped)
+      when kind in ["pivot", "graph"] and is_binary(prefix) and is_binary(entity_type) do
     with {:ok, filters} <- parse_ops(shaped.filter) do
       dry_compile_aggregate(prefix, entity_type, filters, shaped)
     end
@@ -106,10 +118,17 @@ defmodule Letflow.Entities.Views.Clauses do
 
   defp kind(body, mode, stored_kind) do
     case {Map.fetch(body, "kind"), mode} do
-      {:error, :create} -> {:ok, "list"}
-      {:error, :update} -> {:ok, stored_kind || "list"}
-      {{:ok, kind}, _mode} when kind in ["list", "pivot"] -> same_kind(kind, mode, stored_kind)
-      {{:ok, _other}, _mode} -> invalid("kind_invalid")
+      {:error, :create} ->
+        {:ok, "list"}
+
+      {:error, :update} ->
+        {:ok, stored_kind || "list"}
+
+      {{:ok, kind}, _mode} when kind in ["list", "pivot", "graph"] ->
+        same_kind(kind, mode, stored_kind)
+
+      {{:ok, _other}, _mode} ->
+        invalid("kind_invalid")
     end
   end
 
@@ -119,7 +138,7 @@ defmodule Letflow.Entities.Views.Clauses do
   defp same_kind(kind, _mode, _stored_kind), do: {:ok, kind}
 
   defp check_kind_keys(body, kind) do
-    refused = if kind == "pivot", do: @list_only_keys, else: @pivot_only_keys
+    refused = Map.fetch!(@refused_keys, kind)
 
     if Enum.any?(Map.keys(body), &(&1 in refused)), do: invalid("unknown_key"), else: :ok
   end
@@ -128,7 +147,15 @@ defmodule Letflow.Entities.Views.Clauses do
     with {:ok, columns} <- columns(body),
          {:ok, filter} <- filter(Map.get(body, "filter", [])),
          {:ok, sort} <- sort(Map.get(body, "sort", [])) do
-      {:ok, %{columns: columns, filter: filter, sort: sort, group_by: [], aggregates: []}}
+      {:ok,
+       %{
+         columns: columns,
+         filter: filter,
+         sort: sort,
+         group_by: [],
+         aggregates: [],
+         chart_type: nil
+       }}
     end
   end
 
@@ -136,9 +163,56 @@ defmodule Letflow.Entities.Views.Clauses do
     with {:ok, filter} <- filter(Map.get(body, "filter", [])),
          {:ok, group_by} <- group_by(Map.get(body, "group_by")),
          {:ok, aggregates} <- aggregates(Map.get(body, "aggregates")) do
-      {:ok, %{columns: [], filter: filter, sort: [], group_by: group_by, aggregates: aggregates}}
+      {:ok,
+       %{
+         columns: [],
+         filter: filter,
+         sort: [],
+         group_by: group_by,
+         aggregates: aggregates,
+         chart_type: nil
+       }}
     end
   end
+
+  defp kind_clauses(body, "graph") do
+    with {:ok, filter} <- filter(Map.get(body, "filter", [])),
+         {:ok, [_one] = group_by} <- graph_group_by(Map.get(body, "group_by")),
+         {:ok, aggregates} <- graph_aggregates(Map.get(body, "aggregates")),
+         {:ok, chart_type} <- chart_type(Map.get(body, "chart_type"), aggregates) do
+      {:ok,
+       %{
+         columns: [],
+         filter: filter,
+         sort: [],
+         group_by: group_by,
+         aggregates: aggregates,
+         chart_type: chart_type
+       }}
+    end
+  end
+
+  # A graph has exactly one group_by: the wire shape of the aggregate route, narrowed to one.
+  defp graph_group_by(value) do
+    case group_by(value) do
+      {:ok, [_one] = list} -> {:ok, list}
+      {:ok, _none_or_many} -> invalid("group_by_invalid")
+      error -> error
+    end
+  end
+
+  defp graph_aggregates(value) do
+    case aggregates(value) do
+      {:ok, list} when length(list) <= @max_graph_aggregates -> {:ok, list}
+      {:ok, _too_many} -> invalid("aggregates_invalid")
+      error -> error
+    end
+  end
+
+  defp chart_type("pie", [_one]), do: {:ok, "pie"}
+  defp chart_type("pie", _aggregates), do: invalid("aggregates_invalid")
+  defp chart_type(type, _aggregates) when type in @chart_types, do: {:ok, type}
+  defp chart_type(_other, _aggregates), do: invalid("chart_type_invalid")
 
   # Same acceptance as the aggregate route's parse_group_by/1: absent or null is `[]`; each element
   # needs a string "field". Extra keys are dropped, as the route ignores them.

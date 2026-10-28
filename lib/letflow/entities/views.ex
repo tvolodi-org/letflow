@@ -2,7 +2,8 @@ defmodule Letflow.Entities.Views do
   @moduledoc """
   Saved view definitions (REQ-555, GH #3157, decision 0066 D1..D7; pivot kind REQ-598, GH #3367).
 
-  A `pivot` view stores a filter, `group_by` and `aggregates` instead of columns and sort.
+  A `pivot` view stores a filter, `group_by` and `aggregates` instead of columns and sort; a
+  `graph` view (REQ-613, GH #3432) adds a `chart_type`.
   A view is a named, tenant-shared definition over ONE entity type: ordered `columns`, a `filter` and
   a `sort` in the wire shape of `POST /entities/query`. It stores no record value and no function
   here reads a record: a list screen replays a stored view through the ordinary query route, which
@@ -98,7 +99,7 @@ defmodule Letflow.Entities.Views do
       # updated_at is forced so a PUT that changes nothing still moves it and updated_by, matching its audit entry.
       changes =
         shaped
-        |> Map.take([:name, :columns, :filter, :sort, :group_by, :aggregates])
+        |> Map.take([:name, :columns, :filter, :sort, :group_by, :aggregates, :chart_type])
         |> Map.merge(%{updated_by: user_id, updated_at: DateTime.utc_now()})
 
       Multi.new()
