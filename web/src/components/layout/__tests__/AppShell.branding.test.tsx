@@ -32,6 +32,7 @@ vi.mock('@/auth/AuthContext', () => ({
 
 vi.mock('@/api/client', () => ({
   client: { get: vi.fn() },
+  resolveApiUrl: (path: string) => path,
 }))
 
 const SESSION: UserSession = {

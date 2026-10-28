@@ -118,6 +118,19 @@ const GROUPS_BY_ROLE: Record<AccessFixtureName, string[]> = {
   candidate: [],
 }
 
+describe('AppShell Print Templates entry (REQ-614 AC2)', () => {
+  it.each(['tenantAdmin', 'platformAdmin'] as const)('%s sees the entry', (name) => {
+    renderShell(accessState(name))
+    const link = screen.getByRole('link', { name: 'Print Templates' })
+    expect(link.getAttribute('href')).toBe('/admin/print-templates')
+  })
+
+  it.each(['designer', 'auditor'] as const)('%s does not see the entry', (name) => {
+    renderShell(accessState(name))
+    expect(navLabels()).not.toContain('Print Templates')
+  })
+})
+
 describe('AppShell nav groups from /me/access (GH 2238 slice 2b)', () => {
   it.each(Object.keys(ACCESS_FIXTURES) as AccessFixtureName[])('%s: renders exactly the expected groups', (name) => {
     renderShell(accessState(name))

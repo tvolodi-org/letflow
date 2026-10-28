@@ -258,6 +258,122 @@ defmodule Letflow.Modules.Exam.Session do
   end
 
   # -----------------------------------------------------------------------
+  # list_own_sessions/2 (GH #3321, REQ-587)
+  # -----------------------------------------------------------------------
+
+  @doc """
+  Lists the caller's OWN finished sessions (`submitted`, `auto_submitted`,
+  `grading_pending`), newest `expires_at` first (GH #3321, REQ-587).
+
+  The ownership filter (`user_id eq <caller>`), the soft-delete filter and the status set are
+  hardcoded in this body; `opts` carries pagination (`:cursor`, `:page_size`, default
+  #{@default_available_exams_page_size}), an optional `:exam_id` filter and the REQUIRED `:scope`
+  and `:user_id` (read with `Keyword.fetch!/2`, so a missing key raises). The same
+  `Compiler.compile/3`, `Allowlist.load/2`, `Cursor.paginate/5` pipeline as `list_available_exams/2`
+  runs; the cursor is sealed per user.
+
+  Items are hand-assembled with exactly ten keys, so `user_id`, `seed`, `exam_snapshot`, `expires_at`
+  and answer data never leave this function. `certificate_issued`/`certificate_id` come from ONE
+  certificate query for the page; nothing is written and no certificate is issued here.
+  """
+  @spec list_own_sessions(prefix :: String.t(), opts :: keyword()) ::
+          {:ok, %{items: [map()], next_cursor: String.t() | nil}} | {:error, term()}
+  def list_own_sessions(prefix, opts) when is_binary(prefix) and is_list(opts) do
+    scope = Keyword.fetch!(opts, :scope)
+    user_id = Keyword.fetch!(opts, :user_id)
+
+    exam_filter =
+      case Keyword.get(opts, :exam_id) do
+        exam_id when is_binary(exam_id) -> [eq("exam_id", exam_id)]
+        _ -> []
+      end
+
+    request = %{
+      entity_type: "session",
+      filters:
+        [
+          eq("user_id", user_id),
+          eq("deleted", false),
+          %{field: "status", op: :in, value: ["submitted", "auto_submitted", "grading_pending"]}
+        ] ++ exam_filter,
+      sort: [%{field: "expires_at", dir: :desc}],
+      join: []
+    }
+
+    paginate_opts = %{
+      cursor: Keyword.get(opts, :cursor),
+      page_size: Keyword.get(opts, :page_size) || @default_available_exams_page_size,
+      user_id: user_id
+    }
+
+    with {:ok, compiled} <- Compiler.compile(request, prefix, scope),
+         {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
+         {:ok, page} <- Cursor.paginate(request, compiled, allowlist, paginate_opts, prefix),
+         {:ok, certificates} <- certificates_for_page(page.items, prefix) do
+      titles = exam_titles_for_page(page.items, prefix)
+
+      items =
+        Enum.map(page.items, fn row ->
+          my_session_item(row, titles, certificates)
+        end)
+
+      {:ok, %{items: items, next_cursor: page.next_cursor}}
+    end
+  end
+
+  # One certificate query for the whole page (an empty page issues none).
+  defp certificates_for_page([], _prefix), do: {:ok, %{}}
+
+  defp certificates_for_page(rows, prefix) do
+    session_ids = Enum.map(rows, &normalize_record_id(&1.record_id))
+
+    with {:ok, certificates} <-
+           query_all("certificate", [%{field: "session_id", op: :in, value: session_ids}], prefix) do
+      {:ok, Map.new(certificates, &{fv(&1, "session_id"), normalize_record_id(&1.record_id)})}
+    end
+  end
+
+  # Live exam title (the stored localized map) per distinct exam; a missing,
+  # soft-deleted or uncastable exam gives nil.
+  defp exam_titles_for_page(rows, prefix) do
+    rows
+    |> Enum.map(&fv(&1, "exam_id"))
+    |> Enum.uniq()
+    |> Map.new(fn exam_id ->
+      title =
+        with true <- is_binary(exam_id),
+             {:ok, uuid} <- Ecto.UUID.cast(exam_id),
+             {:ok, exam} <- Latest.get_live(uuid, "exam", prefix) do
+          fv(exam, "title")
+        else
+          _ -> nil
+        end
+
+      {exam_id, title}
+    end)
+  end
+
+  defp my_session_item(row, titles, certificates) do
+    session_id = normalize_record_id(row.record_id)
+    status = session_status_atom(fv(row, "status"))
+    raw_score_pct = fv(row, "score_pct")
+    certificate_id = Map.get(certificates, session_id)
+
+    %{
+      "session_id" => session_id,
+      "exam_id" => fv(row, "exam_id"),
+      "exam_title" => Map.get(titles, fv(row, "exam_id")),
+      "status" => fv(row, "status"),
+      "started_at" => fv(row, "started_at"),
+      "submitted_at" => fv(row, "submitted_at"),
+      "score_pct" => if(is_nil(raw_score_pct), do: nil, else: to_float(raw_score_pct)),
+      "passed" => passed_for_status(status, row),
+      "certificate_issued" => not is_nil(certificate_id),
+      "certificate_id" => certificate_id
+    }
+  end
+
+  # -----------------------------------------------------------------------
   # create/3
   # -----------------------------------------------------------------------
 
