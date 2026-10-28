@@ -1,0 +1,196 @@
+# Authored by BA-BILIMBAGA for T-0823 (REQ-586 criteria 5 and 6, question lineage part).
+# Source: docs/requirements.yaml REQ-586 acceptance criteria 5 and 6 on origin/main. A question names the earlier
+# version it replaces as its parent; the reasons are the "reason" member of the 422/409 body:
+# lineage_branch, version_not_increasing, lineage_active_conflict (422), question_has_children (409).
+---
+id: bilimbaga-exam-parent-3-question-version-lineage-rules
+scope: bilimbaga
+title: A question can be replaced by a newer version in a single chain, and only one version of a question is in use at a time
+version: "1.0"
+tags: [refusal, exam_authoring, question_lineage]
+
+description: >
+  A question that is revised keeps its history: the new version names the old one as its parent, so the
+  versions form one chain (version 1, then 2, then 3). The rules are: a version can be replaced by only one
+  newer version (no fork); version numbers go up along the chain; at most one version of the chain is in use
+  (status active) at any time, and the author switches over by archiving the old version first and activating
+  the new one second; a version that has a newer version cannot be removed, but the newest one can. Every
+  refused request must leave the stored questions unchanged.
+  Preconditions: the exam module is installed on the bilimbaga tenant, the tenant has been upgraded so that
+  questions can carry a parent, and the administrator holds the exam content writing permission
+  (TENANT_ADMIN). Question texts, the category and the answer choices are chosen by the administrator in
+  step 1 and noted; all questions below are in that category.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The tenant has been upgraded so that exam categories and questions can carry a parent (the one-time upgrade has run for this tenant)
+    check: custom
+  - description: The administrator account is a tenant administrator, a role that holds the exam content writing permission (permission matrix, TENANT_ADMIN row)
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Creates a category, then question Q1 in it with version 1, status active and no parent, and notes their identifiers
+    via: api
+    produces:
+      q1: "identifier of Q1"
+
+  - step: 2
+    actor: admin
+    action: Creates question Q2 in the same category with version 2, status draft and Q1 as its parent
+    via: api
+    produces:
+      q2: "identifier of Q2"
+
+  - step: 3
+    actor: admin
+    action: Creates a question with version 3, status draft and Q1 as its parent, although Q1 already has Q2 as its newer version
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: admin
+    action: Creates a question with version 2, status draft and Q2 as its parent, so its version is not above its parent's version
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: admin
+    action: Changes the version of Q1 to 3, so that it is no longer below the version of its newer version Q2
+    via: api
+    expect_refusal: true
+
+  - step: 6
+    actor: admin
+    action: Changes the status of Q2 from draft to active while Q1 is still active
+    via: api
+    expect_refusal: true
+
+  - step: 7
+    actor: admin
+    action: Changes the status of Q2 from draft to review, then back to draft, while Q1 is still active
+    via: api
+
+  - step: 8
+    actor: admin
+    action: Changes the status of Q1 to archived, then changes the status of Q2 to active, then lists the questions of the category with their parents and statuses
+    via: api
+
+  - step: 9
+    actor: admin
+    action: Creates question R1 (version 1, status active, no parent) and question S1 (version 2, status active, no parent) in the same category, each in a chain of its own
+    via: api
+    produces:
+      r1: "identifier of R1 (version 1, active, in a lineage of its own)"
+      s1: "identifier of S1 (version 2, active, in a lineage of its own)"
+
+  - step: 10
+    actor: admin
+    action: Changes S1 so that its parent is R1, although R1 and S1 are both active
+    via: api
+    expect_refusal: true
+
+  - step: 11
+    actor: admin
+    action: Removes Q1, which has Q2 as its newer version
+    via: api
+    expect_refusal: true
+
+  - step: 12
+    actor: admin
+    action: Removes Q2, the newest version of the chain
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      A second newer version of the same question (step 3) is refused as unprocessable with the reason that
+      the chain would fork (lineage_branch)
+    verification:
+      method: http_status
+      detail: "Step 3 answers 422 and the body's reason is lineage_branch"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        With two successors, nobody can say which one is the current version of the question.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      A version that is not above its parent's version (step 4) or a change that puts a version at or above
+      its newer version (step 5) is refused as unprocessable with the reason that the version does not
+      increase (version_not_increasing)
+    verification:
+      method: http_status
+      detail: "Steps 4 and 5 each answer 422 and the body's reason is version_not_increasing"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Version numbers that go backwards make the history of a question misleading in an audit.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      Activating Q2 while its earlier version Q1 is still active (step 6) is refused as unprocessable with the
+      reason that two versions would be active at once (lineage_active_conflict); the same reason refuses
+      moving an active question under an active parent (step 10); Q2 stays draft and S1 keeps no parent
+    verification:
+      method: http_status
+      detail: "Steps 6 and 10 each answer 422 and the body's reason is lineage_active_conflict; reading Q2 shows draft, reading S1 shows no parent"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Two active versions of one question could both be offered to candidates, so one candidate is
+        examined on a question that was meant to be replaced.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      Creating Q2 as a draft under the active Q1 (step 2) is accepted and leaves Q1 active; changing Q2 to
+      review and back to draft (step 7) is accepted because only an active status is limited
+    verification:
+      method: api_response
+      detail: "Step 2 answers 201 with Q1 still active; both status changes of step 7 answer 200; the archiving of Q1 in step 8 is accepted too"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The author could not prepare a successor while the current version stays in use, so exams would have
+        to be taken off line to revise a question.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-005
+    description: >
+      Archiving Q1 first and then activating Q2 (step 8) is accepted, and the list then shows exactly one
+      active question in the chain, Q2, the newest version
+    verification:
+      method: api_response
+      detail: "Step 8 lists Q1 archived, Q2 active with parent Q1; exactly one of them is active"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The author cannot publish a new version of a question.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-006
+    description: >
+      Removing a question that has a newer version (step 11) is refused as a conflict with the reason that the
+      question has children (question_has_children); removing the newest version (step 12) is accepted
+    verification:
+      method: http_status
+      detail: "Step 11 answers 409 and the body's reason is question_has_children; step 12 answers 200 and Q2 is no longer listed, Q1 is still listed"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Removing a middle version would break the history of the question; if the newest version cannot be
+        removed, a mistaken revision can never be withdrawn.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove questions S1, R1, Q1 and the category created in step 1 if still live, newest version first.

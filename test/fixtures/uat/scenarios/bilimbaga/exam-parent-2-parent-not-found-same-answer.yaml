@@ -1,0 +1,148 @@
+# Authored by BA-BILIMBAGA for T-0823 (REQ-586 criterion 4).
+# Source: docs/requirements.yaml REQ-586 acceptance criterion 4 on origin/main (parent_not_found, 422, identical body
+# for an absent, a removed and another company's parent; INV-5). Refusal body is the exam router's constant
+# problem "exam authoring rule refused" with the reason member parent_not_found.
+# UAT assumption: the "other company" id is the id of an item of another company (swiftroute has no exam module), not an
+# exam record; any id that is not a live same-type record of the caller's company gives parent_not_found.
+# Criteria not observable through UAT are listed in the header of exam-parent-1.
+---
+id: bilimbaga-exam-parent-2-parent-not-found-same-answer
+scope: bilimbaga
+title: A parent that is missing, removed or belongs to another company is refused with exactly the same answer
+version: "1.0"
+tags: [refusal, access_control, exam_authoring, category_tree]
+
+description: >
+  When the administrator names a parent for a category or a question, the parent must be a live item of the
+  same type in the administrator's own company. If it is not, the request is refused. The answer must be
+  identical whether the parent never existed, was removed, or belongs to another company, so that nobody can
+  find out what another company holds. This scenario checks the refusal for a category and for a question,
+  on creating and on changing, and compares the answers. The identifier of another company's item is taken
+  from that company's own administrator, who notes the identifier of any item of their company (it is only
+  the identifier of an item of another company; it is never an exam item, since that company does not run
+  the exam module).
+  Preconditions: the exam module is installed on the bilimbaga tenant and the tenant has been upgraded so
+  that categories and questions can carry a parent; swiftroute has at least one item whose identifier its
+  administrator can read; the administrator holds the exam content writing permission (TENANT_ADMIN).
+
+actors:
+  admin: actor-bilimbaga-admin
+  other_company_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The tenant has been upgraded so that exam categories and questions can carry a parent (the one-time upgrade has run for this tenant)
+    check: custom
+  - description: The administrator account is a tenant administrator, a role that holds the exam content writing permission (permission matrix, TENANT_ADMIN row)
+    check: custom
+  - description: The swiftroute tenant has at least one item (for example a task or a process instance) whose identifier its administrator can read
+    check: custom
+
+steps:
+  - step: 1
+    actor: other_company_admin
+    action: Opens one item of the swiftroute company and notes its identifier
+    via: gui
+    produces:
+      foreign_id: "identifier of an item of the other company"
+
+  - step: 2
+    actor: admin
+    action: Creates category X, category Y, question Q (version 1, draft) and question R (version 1, draft) of the bilimbaga company and notes their identifiers, then removes category X and question R so that their identifiers name removed items
+    via: api
+    produces:
+      removed_category_id: "identifier of the removed category X"
+      removed_question_id: "identifier of the removed question R"
+      category_y_id: "identifier of category Y, which stays live"
+      question_id: "identifier of question Q"
+      absent_id: "a freshly generated identifier in the standard format that names nothing anywhere"
+
+  - step: 3
+    actor: admin
+    action: Creates a new category with the absent identifier as its parent
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: admin
+    action: Creates a new category with removed category X as its parent
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: admin
+    action: Creates a new category with the other company's identifier as its parent
+    via: api
+    expect_refusal: true
+
+  - step: 6
+    actor: admin
+    action: Changes category Y so that its parent is each of the three identifiers in turn (absent, removed category X, other company)
+    via: api
+    expect_refusal: true
+
+  - step: 7
+    actor: admin
+    action: Creates a new question (draft, version 1) with the absent identifier as its parent, then with the removed question R as its parent, then with the other company's identifier as its parent
+    via: api
+    expect_refusal: true
+
+  - step: 8
+    actor: admin
+    action: Changes question Q so that its parent is each of the three identifiers in turn (absent, removed question R, other company)
+    via: api
+    expect_refusal: true
+
+  - step: 9
+    actor: admin
+    action: Reads the category and question lists, question Q and category Y, and compares them with what was saved in step 2
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Every request in steps 3 to 8 is refused as unprocessable with the reason that the parent was not
+      found (parent_not_found)
+    verification:
+      method: http_status
+      detail: "Steps 3 to 8 each answer 422 for every one of their requests and the body's reason is parent_not_found"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A parent that does not exist, or is removed, would be accepted and the tree or version history would
+        point to nothing.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      For a category and again for a question, the answers for the absent, the removed and the other
+      company's parent are identical: same status, same title, same detail, same reason, no identifier
+      echoed
+    verification:
+      method: api_response
+      detail: "Compare the bodies of steps 3, 4 and 5 and, within step 6, 7 and 8, the three answers of each step: they are equal text for text"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A different answer for another company's identifier would let an outsider test which identifiers
+        exist in other companies, breaking company separation.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      Nothing was saved or changed by the refused requests: no new category or question, and Q and Y still have no
+      parent
+    verification:
+      method: system_state
+      detail: "Step 9 lists no category or question created by steps 3 to 8 and shows Q and Y with no parent"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A refused request that still saves would leave items with an invalid parent.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove question Q and any category or question created in this scenario that is still live.
