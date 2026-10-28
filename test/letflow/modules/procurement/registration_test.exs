@@ -12,9 +12,14 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.Procurement
 
-  @atoms [:ProcurementRequestWrite, :ProcurementRequestRead, :ProcurementRequestDecide]
+  @atoms [
+    :ProcurementRequestWrite,
+    :ProcurementRequestRead,
+    :ProcurementRequestDecide,
+    :ProcurementLineRecord
+  ]
 
-  test "T-R1: the manifest validates and declares exactly the three permissions" do
+  test "T-R1: the manifest validates and declares exactly the four permissions" do
     manifest = Procurement.manifest()
 
     assert Catalog.validate(manifest) == :ok
@@ -29,7 +34,7 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
              Enum.sort(@atoms)
   end
 
-  test "T-R2: the golden holds the three atoms for the two admin roles only" do
+  test "T-R2: the golden holds the four atoms for the two admin roles only" do
     golden = File.read!("priv/permission_matrix/effective.golden")
     assert golden =~ ~r/^# modules: .*procurement@0\.1\.0/m
 
@@ -39,6 +44,25 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
       allowed = role in ~w(PLATFORM_ADMIN TENANT_ADMIN)
       assert golden =~ ~r/^#{role} #{atom} #{allowed} module:procurement /m, "#{role} #{atom}"
     end
+  end
+
+  test "LE-14: exactly TENANT_ADMIN holds ProcurementLineRecord among the tenant roles" do
+    golden = File.read!("priv/permission_matrix/effective.golden")
+    manifest = Procurement.manifest()
+
+    assert :ProcurementLineRecord in manifest.permissions
+    assert manifest.role_grants == %{}
+    refute Map.has_key?(manifest.role_grants, "PLATFORM_ADMIN")
+
+    holders =
+      ~r/^(\w+) ProcurementLineRecord true module:procurement (\w+)$/m
+      |> Regex.scan(golden, capture: :all_but_first)
+      |> Enum.map(&hd/1)
+
+    assert Enum.sort(holders) == ["PLATFORM_ADMIN", "TENANT_ADMIN"]
+    assert golden =~ ~r/^TENANT_ADMIN ProcurementLineRecord true module:procurement core$/m
+    assert golden =~ ~r/^PLATFORM_ADMIN ProcurementLineRecord true module:procurement core$/m
+    assert File.read!("lib/letflow/modules/procurement/procurement.ex") =~ "TENANT_ADMIN"
   end
 
   test "T-R3: docs/roles.md names the atoms outside the fenced matrix" do
@@ -68,6 +92,9 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
     # Part 2: decisions.ex is the one writer of the module's own table `procurement_decisions`
     # (insert only); it writes no document table and updates or deletes nothing.
     @decision_writer "lib/letflow/modules/procurement/decisions.ex"
+    # REQ-558 part 1: line_events.ex is the second writer, of `procurement_line_events` and
+    # `procurement_lines` (insert only), with the same two refutes.
+    @line_writer "lib/letflow/modules/procurement/line_events.ex"
 
     test "the module does not touch the engine or write document tables itself" do
       assert @files != []
@@ -76,7 +103,7 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
         source = File.read!(file)
         refute source =~ "Letflow.Engine", file
 
-        if file == @decision_writer do
+        if file in [@decision_writer, @line_writer] do
           refute source =~ ~r/Repo\.(update|delete)/, file
           refute source =~ ~r/Repo\.insert\w*\(\s*%Document/, file
         else
@@ -91,6 +118,14 @@ defmodule Letflow.Modules.Procurement.RegistrationTest do
         |> Path.wildcard()
         |> Enum.reject(&String.starts_with?(&1, "lib/letflow/modules/procurement/"))
         |> Enum.filter(&(File.read!(&1) =~ "Procurement.PurchaseRequests"))
+
+      assert callers == []
+
+      callers =
+        "lib/**/*.ex"
+        |> Path.wildcard()
+        |> Enum.reject(&String.starts_with?(&1, "lib/letflow/modules/procurement/"))
+        |> Enum.filter(&(File.read!(&1) =~ "Procurement.LineEvents"))
 
       assert callers == []
     end

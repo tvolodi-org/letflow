@@ -36,6 +36,7 @@ GET /modules/exam/grading-queue ExamGradingRead
 GET /modules/exam/grading-queue/:session_id/:question_id ExamGradingRead
 GET /modules/fixture/items/:id FixtureRead
 GET /modules/procurement/purchase-requests/:id ProcurementRequestRead
+GET /modules/procurement/purchase-requests/:id/lines/:line_no ProcurementRequestRead
 GET /onboarding TenantsManage
 GET /onboarding/:id TenantsManage
 GET /onboarding/:id/pending-admins TenantsManage
@@ -95,6 +96,9 @@ POST /modules/exam/exam-sessions/:id/submit ExamSessionSubmit
 POST /modules/exam/grading-queue/:session_id/:question_id/grade ExamGradingWrite
 POST /modules/procurement/purchase-requests ProcurementRequestWrite
 POST /modules/procurement/purchase-requests/:id/decisions ProcurementRequestDecide
+POST /modules/procurement/purchase-requests/:id/lines/:line_no/officer ProcurementLineRecord
+POST /modules/procurement/purchase-requests/:id/lines/:line_no/reference ProcurementLineRecord
+POST /modules/procurement/purchase-requests/:id/lines/:line_no/supplier ProcurementLineRecord
 POST /modules/procurement/purchase-requests/:id/revise ProcurementRequestWrite
 POST /modules/procurement/purchase-requests/:id/submit ProcurementRequestWrite
 POST /onboarding TenantsManage

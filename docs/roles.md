@@ -165,8 +165,8 @@ REQ-446 classified `GET /promotions/platform-events` as tenant scope under `Prom
 Module (Catalog) permissions are all tenant scope and are not listed in the matrix below.
 
 Module permissions. Module `procurement` (GH #3162, REQ-544) declares `ProcurementRequestWrite`,
-`ProcurementRequestRead` and `ProcurementRequestDecide` (records an approve, reject or return of a
-purchase request version), tenant scope. It declares no `role_grants`, so in this slice only
+`ProcurementRequestRead`, `ProcurementRequestDecide` (records an approve, reject or return of a
+purchase request version) and `ProcurementLineRecord` (REQ-558 / GH #3188: records the officer, supplier and PO or contract reference of a line of an approved request), tenant scope. It declares no `role_grants`, so in this slice only
 TENANT_ADMIN and PLATFORM_ADMIN hold them; a requester never decides their own request (the module
 refuses it), and giving requesters write access or approvers the decide permission is a later
 widening that needs per-tenant grant snapshots. The effective rows are in
