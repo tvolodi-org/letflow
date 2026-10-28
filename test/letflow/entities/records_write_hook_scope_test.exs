@@ -104,8 +104,6 @@ defmodule Letflow.Entities.RecordsWriteHookScopeTest do
 
   defp events(fx), do: Repo.aggregate(Event, :count, prefix: fx.schema_name)
 
-  defp item_values(node, name \\ "w"), do: %{"name" => name, "amount" => 1, "scope_node" => node}
-
   describe "C7 scope on a hooked write" do
     setup %{fx: fx} do
       bind!(fx, "scoped_item", ["name"])
