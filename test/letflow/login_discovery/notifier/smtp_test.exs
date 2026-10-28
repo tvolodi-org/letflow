@@ -28,12 +28,14 @@ defmodule Letflow.LoginDiscovery.Notifier.SmtpTest do
   # ── AC1 ─────────────────────────────────────────────────────────────────
 
   describe "AC1: conformance to the Notifier port" do
-    test "the port still has exactly the one REQ-437 callback, unchanged in shape" do
-      assert Notifier.behaviour_info(:callbacks) == [deliver_tenant_list: 2]
+    test "the port has the REQ-437 callback unchanged in shape plus the REQ-584 deliver_message/1" do
+      assert Notifier.behaviour_info(:callbacks) |> Enum.sort() ==
+               [deliver_message: 1, deliver_tenant_list: 2]
+
       assert Notifier.behaviour_info(:optional_callbacks) == []
 
       src = File.read!("lib/letflow/login_discovery/notifier.ex")
-      assert length(Regex.scan(~r/^\s*@callback\b/m, src)) == 1
+      assert length(Regex.scan(~r/^\s*@callback\b/m, src)) == 2
       refute src =~ "@optional_callbacks"
       assert src =~ "recipient_email :: String.t()"
       assert src =~ ":: :ok | {:error, term()}"
@@ -47,7 +49,9 @@ defmodule Letflow.LoginDiscovery.Notifier.SmtpTest do
       assert Enum.any?(specs, &match?({{:deliver_tenant_list, 2}, _}, &1))
 
       {:ok, callbacks} = Code.Typespec.fetch_callbacks(Notifier)
-      assert Enum.map(callbacks, &elem(&1, 0)) == [{:deliver_tenant_list, 2}]
+
+      assert callbacks |> Enum.map(&elem(&1, 0)) |> Enum.sort() ==
+               [{:deliver_message, 1}, {:deliver_tenant_list, 2}]
     end
 
     test "Smtp, Noop and the test double all implement exactly the port's callbacks" do
