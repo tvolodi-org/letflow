@@ -39,10 +39,14 @@ description: >
   without the exam-session read permission and an auditor account of bilimbaga. The roster holds none of these, so in the present UAT
   environment this scenario is BLOCKED (recorded as a GAP in scenario-env-limitations); the same refusals are covered by the backend
   tests M-own, M-inv5, M-tenant and the permission test of REQ-587.
+  UAT assumption, to be confirmed by the process owner: the SwiftRoute roster actors stand in for a bilimbaga auditor (actor-swiftroute-auditor)
+  and a bilimbaga account without exam access (actor-swiftroute-tobias, task worker only), as in the access scenario exam-analytics-4.
 
 actors:
   candidate: actor-bilimbaga-candidate
   administrator: actor-bilimbaga-admin
+  auditor: actor-swiftroute-auditor
+  no_exam_role: actor-swiftroute-tobias
 
 preconditions:
   - description: A bilimbaga tenant exists with the exam solution pack installed
@@ -88,6 +92,18 @@ steps:
     action: Lists own results as the company administrator, who may open the route but has no finished exam sessions of their own
     via: api
 
+  - step: 7
+    actor: no_exam_role
+    action: Asks for the list of own results (an account whose only role is task worker, without the exam-session read permission)
+    via: api
+    expect_refusal: true
+
+  - step: 8
+    actor: auditor
+    action: Asks for the list of own results (an account with the auditor role)
+    via: api
+    expect_refusal: true
+
 expected_outcomes:
   - id: EO-001
     description: >
@@ -130,7 +146,7 @@ expected_outcomes:
       An account without the exam-session read permission, and an auditor, cannot open the list
     verification:
       method: http_status
-      detail: "The account without the permission and the bilimbaga auditor each get 403 for the list, with the same body as for any other account without the permission"
+      detail: "Step 7 (account without the permission) and step 8 (auditor) each answer 403 for the list, with the same body as for any other account without the permission"
     on_fail:
       severity: BLOCKER
       business_impact: >
