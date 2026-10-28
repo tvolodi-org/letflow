@@ -13,6 +13,8 @@
 # Depends on the record type "UAT graph ticket" of scenario 50 (fields title, status, region, amount); this scenario creates it if missing.
 # Not UAT-observable: see the header of scenario 50 (the migration constraints, pins and build commands). The accepted cases of criterion 2 are
 # in scenario 50 (steps 2, 4 and 7).
+# A list body that carries grouping or aggregates (unknown_key, criterion 1) is the REQ-598 rule and is covered in scenario 34 (step 6, EO-005).
+# Of the filter reason codes of criterion 2 this scenario samples field_not_allowed and unknown_operator; the rest are test-suite cases.
 # The four sensitive actions are not in this flow; the access refusals are in scenario 52.
 ---
 id: tenant-administration-51-saved-graph-views-validation-kind-and-name-refusals

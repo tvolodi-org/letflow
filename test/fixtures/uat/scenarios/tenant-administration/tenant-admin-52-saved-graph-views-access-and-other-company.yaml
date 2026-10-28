@@ -250,7 +250,7 @@ expected_outcomes:
     description: The replay of a graph that groups by a protected field is refused for a caller with no grant on the field exactly as the hand-typed query is, and no view answer holds a record value.
     verification:
       method: http_status
-      detail: In step 18 the graph is listed and readable (200) by the task worker; in step 19 both the replay and the hand-typed query are 403 with the same status, the same body byte for byte and the same headers apart from per-request ones (date, request id), and no count or bank account value is in either body. No answer of steps 1 to 18 holds an aggregate result or a record value.
+      detail: In step 18 the graph is listed and readable (200) by the task worker; in step 19 both the replay and the hand-typed query are 403 with the same status, the same body byte for byte and the same headers apart from per-request ones (date, request id), and no count or bank account value is in either body. No answer of the view routes in steps 1 to 18 (listing, reading, creating, changing or deleting a view) holds an aggregate result or a record value; the aggregate query answers of steps 15, 16 and 19 are judged by EO-006 and this outcome.
       evidence: The list and reading of step 18 and the two answers of step 19.
     on_fail:
       severity: BLOCKER
