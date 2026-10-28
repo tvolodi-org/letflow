@@ -95,6 +95,7 @@ POST /modules/procurement/purchase-requests ProcurementRequestWrite
 POST /modules/procurement/purchase-requests/:id/decisions ProcurementRequestDecide
 POST /modules/procurement/purchase-requests/:id/revise ProcurementRequestWrite
 POST /modules/procurement/purchase-requests/:id/submit ProcurementRequestWrite
+POST /modules/exam/grading-queue/:session_id/:question_id/grade ExamGradingWrite
 POST /onboarding TenantsManage
 POST /onboarding/:id/bind-realm TenantsManage
 POST /platform-migrations/rollouts TenantsManage

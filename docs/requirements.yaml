@@ -43114,6 +43114,90 @@ requirements:
       - "7. Texts: every user-visible string is in examMessages.ts and ExamIntlProvider; exam-i18n-grep.test.ts passes."
       - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
     depends_on: [REQ-510]
+  - id: REQ-610
+    title: "Solution-pack override effective definition and activation, slice S3: merge of installed definition plus override patch into a new process definition version, running instances stay pinned (decision 0069 D8 S3)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3419
+    # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D2 (effective definition = installed definition with patch applied over the closed property list; absence of a row means no override), D3 (process definition version stays the unit of activation, running instances stay pinned, "Whether a new override takes effect on a new version only or may re-activate in place is decided by the existing activation rules and not changed here"), D5 (permission, audit without values), D6 (tenant schema, INV-10 negative test), D8 slice S3 and its tests S3-merge and S3-running-instance-unchanged, "Open points" Q1 to Q5, "Boundary" and the "Deferred" bullet of D8 (0069 has no section titled "Not decided here"); REQ-596 (S2) entry for the table, the closed list, the permission and the route prefix; docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-4, INV-5, INV-10). Code read: lib/letflow/definitions.ex (create/2 runs Graph.validate_graph/1, validate_node_attributes/1 and validate_edge_conditions/1; activate/2 and run_activate_transaction deprecate the prior active definition of the same name and accept only a draft; opts :prefix and :activator), lib/letflow/definitions/process_definition.ex (version is a string of 1 to 255 characters, unique index uq_definition_version on (name, version), uq_active_definition), lib/letflow/definitions/solution_pack.ex (artefact_snapshots_from/1: the artefact_id of a process_definition artefact is the tenant-local ProcessDefinition.id of the installed row), lib/letflow/definitions/instance_definition_snapshot.ex (an instance reads its own snapshot, write-once), lib/letflow/audit.ex (append_multi/4 at line 189), lib/letflow/routers/solution_packs.ex. Written by the business analyst (T-0815) 2026-10-28. Not yet validated.
+    description: >
+      Slice S3 of decision 0069 D8 (core roadmap Wave 3, "Solution versioning and per-tenant overrides"). S1 is
+      REQ-573, S2 is REQ-596 (override storage and management API). Decision 0069 is PROPOSED; this slice is
+      implemented only once REQ-562 records its sign-off and REQ-596 is on main.
+      What main does today. Nothing reads an override; none can exist before REQ-596. An installed pack
+      definition is a process_definitions row whose id is the artefact_id of the pack's base row; the tenant
+      changes how it runs only by editing or replacing that definition. Activating a draft with the same name
+      already deprecates the prior active version (Definitions.activate/2), and every instance reads its own
+      write-once instance_definition_snapshots row, so a new active version does not change a running instance.
+      What this slice builds, and nothing else. (1) MERGE. A pure function (no I/O) in a new module under
+      lib/letflow/definitions/ (name chosen by the design) takes the graph of the installed definition row, the
+      patch of one override version and the closed property list that REQ-596 keeps in its override module, and
+      returns the effective graph: the installed graph with every patch path that is a graph property replaced by
+      the patch value. Patch keys of the form settings.<key> (REQ-596 criterion 3, module-declared thresholds) are
+      not graph properties and are neither read nor merged here. A path that is not on the closed list is refused
+      {:error, :property_not_overridable} (defence in depth; REQ-596 refuses it already at write time). After the
+      merge the function compares the effective graph with the installed graph and refuses
+      {:error, :override_changes_structure} when the set of node ids, the edges (source, target, node ids), any
+      gateway condition expression, any variable name or type or any script reference differs. The empty patch of
+      a retired override merges to a graph equal to the installed graph. (2) ACTIVATION. One function (design
+      names it) takes the tenant prefix, the pack_id, the override_id and the actor, loads the LATEST version row
+      of that override_id (active or retired) from the tenant-schema table of REQ-596, loads the installed
+      process_definitions row whose id is the override's artefact_id (never an earlier effective version, so a
+      new override version replaces the earlier patch and patches never stack), merges, and writes the result
+      through the existing definitions path only: Definitions.create/2 for a draft with the same name, the
+      version string "<installed version>+ov<override_version>" (for example 1.0.0+ov2), the merged graph,
+      then Definitions.activate/2 with the actor as activator. No second activation path and no in-place
+      change of an existing row. A definition installed with an owner_module stamp is refused (open question 6). The previous active version is deprecated by activate/2 as for any activation;
+      instances started before keep their snapshot and are not read or written. Only artefact_type
+      process_definition is activated; an override whose artefact_type is variable_schema is refused 422
+      artefact_type_not_supported (variable schema effective definitions are not part of D8 S3; the owner is told
+      in the open questions). If the installed definition row no longer exists (deleted), the reply is the
+      INV-5 not-found reply. (3) ROUTE. One route on the existing /solution-packs router, tenant from the auth
+      context only: POST /solution-packs/:pack_id/overrides/:override_id/activate, body: reason (mandatory),
+      permission SolutionOverridesManage (REQ-596). Replies: 200 with the new definition id, name and version,
+      the override_version and the previous active definition id; 404 with the INV-5 reply for an unknown
+      override_id, a pack with no active install of the tenant, or another tenant's override; 422 with the stable
+      detail texts property_not_overridable, override_changes_structure, artefact_type_not_supported, module_owned_definition_not_supported,
+      override_already_activated (the definition name and version for this override_version already exists,
+      including the loser of two concurrent calls) or the existing definitions-path errors rendered as today
+      (graph validation, semantic validation, script binding). The response carries ids, name and version only,
+      never a patch value (INV-2, INV-4). (4) AUDIT. One hash-chain entry per successful activation in the same
+      transaction as the new definition (Audit.append_multi/4): pack_id, artefact_type, artefact_id, override_id,
+      override_version, patch_hash, new definition id and version, actor, reason; never a patch value. Whether the
+      create-then-activate sequence runs in one transaction or the draft is removed on a failed activation is the
+      design's to state; the criterion below fixes the observable result (no stray draft).
+      NOT IN THIS SLICE: the override tables, the closed list and the permission (REQ-596 S2); the
+      compute_pack_update_plan/5 and apply_pack_update/6 changes (S4); the web screen (S5); adopt-local-edit (S6);
+      pack rollback (Q2); variable_schema and entity_definition effective definitions; any automatic activation
+      (a stored override changes nothing until this route is called); re-activation in place of an existing version.
+      Open points of 0069 read for this entry: the "Open points" section (Q1 pack version format, Q2 pack
+      rollback, Q3 thresholds versus settings_schema, Q4 permissions of the two update routes, Q5 closed property
+      list) and the Boundary and Deferred statements. None blocks building S3, but Q3 leaves a gap named in open question 5: Q1 concerns S1; Q2 rollback is excluded
+      and a tenant returns to the vendor definition by retiring the override and activating the retire version
+      (criterion 4); Q3 (assumed (a) in REQ-596) stores every threshold override as a settings.<key> patch key, which S3 does not apply: this is a gap, not a settled point, and is open question 5; Q4
+      concerns the two update routes that S3 does not touch; Q5 is the S2 design's closed list, which S3 reads
+      and does not define. The questions that are S3's own are in open_questions.
+      Existing tenants (D7): no new table, no migration, no change of the three global pack tables; a tenant with
+      no override row has no way to call the route successfully (404), and every existing route answers as before.
+    acceptance_criteria:
+      - "1. Test S3-merge (pure): for an installed graph and a patch that changes a step assignment, a step label and a timer duration, each on the closed list of REQ-596 (no graph-level threshold path exists on that list, REQ-596 criterion 3), the effective graph equals the installed graph with exactly those paths replaced (compared as whole maps, every other key identical); a patch of one path on the list leaves all other nodes, edges and conditions byte-identical; a patch containing a path not on the closed list returns {:error, :property_not_overridable} and no graph; a patch whose paths are all on the list but whose merged result adds, removes or renames a node, changes an edge, a gateway condition expression, a variable name or type, or a script reference (built by a test that injects such a value through a list path) returns {:error, :override_changes_structure}; the empty patch of a retired override returns a graph equal to the installed graph; settings.<key> patch keys leave the graph unchanged."
+      - "2. Test S3-activation: a TENANT_ADMIN posts to the activate route for an override version 1; the answer is 200, a new process_definitions row exists with the installed definition's name, version \"<installed version>+ov1\" and the effective graph, it is the only active definition of that name, the previously active definition row is deprecated, and its graph, id and version are unchanged; the new row passes the same create/activate checks as any definition (Graph.validate_graph/1, validate_node_attributes/1, validate_edge_conditions/1 and the activation semantic checks); a second call for the same override_version answers 422 override_already_activated and writes no definition row and no audit entry; after override version 2 is written (REQ-596) a call activates \"<installed version>+ov2\" built from the INSTALLED graph plus the version 2 patch only (a property set by version 1 and absent from version 2 is back at its installed value)."
+      - "3. Test S3-running-instance-unchanged: an instance is started through Letflow.Engine.create/2 on the active installed definition before the call; after the activation its instance_definition_snapshots row (graph, definition_name, definition_ver) is byte-identical to before, the instance continues to completion on the old graph (a completed task advances along the old edges and old assignment), and a new instance started after the activation snapshots the new version and shows the overridden assignment; no row of the instance, its events or its snapshot is written by the activation."
+      - "4. Retire and return: after the override is retired (REQ-596), a call to the activate route activates \"<installed version>+ov<n>\" whose graph equals the installed graph, so the tenant returns to the vendor definition content as a new version; no earlier version is edited."
+      - "5. Test S3-refusals: an override with artefact_type variable_schema is refused 422 artefact_type_not_supported with no row written; an unknown override_id, a pack_id with no active install of the tenant, and an override whose installed definition row has been deleted each answer the same not-found reply (status, headers, body compared in one test); an override whose installed definition row has a non-nil owner_module (installed through Definitions.create_owned/3 for a module-wrapped pack, lib/letflow/definitions.ex) is refused 422 module_owned_definition_not_supported with no row written, because Definitions.create/2 would drop the owner stamp and the extension-site check extension_site_violations/2 that runs only for stamped rows; a request without a reason is refused 422 and writes no definition row and no audit entry; a graph that fails validation after the merge answers the existing definitions-path error and leaves no draft row of that name and version (a test counts process_definitions rows before and after); two concurrent calls for the same override version leave exactly one definition row for that name and version and the loser is refused 422 override_already_activated."
+      - "6. Test S3-audit-no-values: a successful activation writes exactly one audit entry in the same transaction as the new definition, carrying pack_id, artefact_type, artefact_id, override_id, override_version, patch_hash, new definition id and version, actor and reason; a test patches a distinctive value (for example the number 987654.321) and asserts it appears in no audit entry payload and in no log line captured during the request, and that the response body carries ids, name and version only; a DROP TABLE audit_entries test shows the failure is rescued, answers a non-500 error and leaves no new definition row."
+      - "7. Test C-activate (INV-10, INV-5): a TENANT_ADMIN of tenant B posts to the activate route with tenant A's override_id and receives the same not-found reply as for an override_id that does not exist (status, headers and body compared in one test) and no definition row is written in either tenant; a tenant id in the path, query or body is ignored and the token's tenant is used; a PLATFORM_ADMIN token receives its own tenant's data only; a user with a tenant role other than TENANT_ADMIN, and a TENANT_AUDITOR, receive 403; a source-scanning test shows every Repo call added by this slice passes a :prefix."
+      - "8. Pins, stated as +N from the values on origin/main at implement time and not as the numbers quoted here: one new route, so __authz_routes__ of Letflow.Routers.SolutionPacks +1 and every length(snapshot) == N pin (grep -rn \"__authz_routes__\\|length(snapshot)\\|@ledger\" test/); the route_scope snapshot and test/fixtures/route_scope/tenant_wide_default_routes.txt +1 when REQ-596 left SolutionOverridesManage out of @admin_plane_keys of lib/letflow/api/route_scope.ex (the three length(snapshot) == N pins in route_scope_resolver_test.exs, route_scope_self_service_test.exs and tasks_route_classes_test.exs move by the same +1; the design states N). This slice adds no table (the tenant-table pin @expected_tenant_tables in test/support/tenant_fixture.ex does not move), no permission (priv/permission_matrix/effective.golden and the tenant-auditor refused-set literal do not move) and no migration; the implementer greps test/ for each of these pins and states in the PR that none moved except the route pins. Callers of Definitions.create/2 and activate/2 are not changed; a grep of test/ for create_owned and the H5 scan (handler_writes_callers_test.exs) shows no new caller of create_owned/3."
+      - "9. Gates: SECURITY-REVIEWER verdict recorded and mandatory (adds a route and creates and activates a tenant definition from stored tenant data; threats of decision 0069: structure change by override, values in audit or responses, cross-tenant activation, privilege to activate) and REVIEWER verdict recorded; mix letflow.check.static and every changed and new test file pass with real output quoted; the PR states that existing QA tenants are unaffected (no table, no row written until the route is called)."
+    depends_on: [REQ-562, REQ-596]
+    open_questions:
+      - "1. Version string of the effective definition (S3's own): this entry fixes \"<installed version>+ov<override_version>\" because process_definitions.version is free text (1 to 255 characters, unique with name) and nothing checks semver. If the owner wants plain semver bumps instead, criteria 2 and 4 change."
+      - "2. Permission to activate (assumed, to be confirmed by the owner): the route needs SolutionOverridesManage only (TENANT_ADMIN), not DefinitionsActivate; the activation checks of Definitions.activate/2 (activator authority for entity_writes, semantic checks) still run with the actor as activator. If the owner wants both permissions, criterion 7 gains the second."
+      - "3. variable_schema overrides (REQ-596 open question 3) have no effective-definition path in D8 S3; they are stored but never applied until the owner decides what a variable schema effective version is."
+      - "4. Decision 0069 D3 leaves open whether a new override may re-activate in place; this entry follows its sentence (existing activation rules, new version only) and does not add in-place re-activation."
+      - "5. Threshold overrides take no effect in S3 (gap for the owner): under the assumed Q3(a) of REQ-596 a threshold override is stored as a settings.<key> patch key; S3 merges graph properties only and neither D8 S4, S5 nor S6 applies settings keys, so a stored threshold override changes nothing until the owner decides where it is applied (for example as the tenant's module setting at activation) and which slice builds it. 0069 D2 says the effective definition is the installed definition with the patch applied; this entry covers the graph part only."
+      - "6. Module-owned definitions (decided here, to be confirmed by the owner and the reviewer): the installed definition of a module-wrapped pack carries owner_module, owner_module_version and hashes (set by Definitions.create_owned/3 from lib/letflow/definitions/solution_pack.ex). Creating the effective version through create/2 would lose the stamp and skip the REQ-574 extension-site check, so S3 refuses such an override (module_owned_definition_not_supported). Overrides of module-owned definitions need a later slice that stamps the new version and re-runs the extension-site check; decision 0055 D1 (module version) and D9 (rollback) are not changed by this refusal."
   - id: REQ-607
     title: "Record E slice E-3: pre-write script hook wired into Records create, update and upsert under the F13 atomicity rule (sequence-lock set, fingerprint compare, whole-hook retry, derived_value_conflict)"
     owner: ELIXIR-DEV
@@ -43194,6 +43278,136 @@ requirements:
       - "How the caller computes opts[:publisher_may_restricted?] for EntityWrite.run/4 (E-2 leaves it to E-3) is not stated by 0065 D5 beyond 'the publisher held EntitiesRestrictionsManage, re-checked at run time'. This slice passes false (restricted fields omitted) until the owner or the reviewer of REQ-539 rules how it is computed; a hook that needs a restricted input is not usable before that."
     depends_on: [REQ-601, REQ-567]
 
+  - id: REQ-609
+    title: "Tenant x_ extension layer slice I2: the write path with the D4 refusals, the :EntitiesExtensionsManage permission, the type-extension routes and audit (decision 0067-tenant-x I2)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3417
+    # Source: docs/migration/decisions/0067-tenant-x-extension-layer-over-module-entity-types.md section D4 (the two refusals, the DB check and identifier format, INV-5 uniform 404), D5 (permission, TENANT_ADMIN, audit entry with actor, type, name, before and after), D3 ("Remove": retire keeps the row and reserves the key; "Retype": not allowed in place), D1 (which types), "Expected implementation requirements" I2 ("security review mandatory; INV-10 cross-tenant negative test"), "Threat cases for SECURITY-REVIEWER" 1, 2, 3, 6, 7, open points OP-4 and OP-5; the note of REQ-576 (open_questions: the cap per type is stated at the write path of I2); the delivered I1 files lib/letflow/entities/entity_type_extension.ex, priv/repo/migrations/20261027300001_create_entity_type_extensions.exs and test/letflow/entities/entity_type_extension_test.exs; the neighbouring permission and route slice REQ-575 (lib/letflow/routers/number_sequences.ex, lib/letflow/number_sequences.ex create_definition_audited/3, test/letflow/api/number_sequences_route_classes_test.exs); lib/letflow/api/authorization.ex (endpoint_policy_key/2, required_permission/1); lib/letflow/entities/definitions.ex get_active_definition_by_name/2; lib/letflow/entities/type_access.ex authorized?/3; lib/letflow/entities/definition/ddl.ex valid_identifier?/1; docs/migration/decisions/0006 D2; docs/agents/instructions/security-invariants.md INV-1, INV-2, INV-5, INV-7, INV-10. Written by the business analyst (T-0814) 2026-10-28. Not yet validated.
+    description: >
+      Slice I2 of decision 0067-tenant-x (its "Expected implementation requirements": "the layer's write path
+      with the D4 refusals, :EntitiesExtensionsManage, the route and audit (security review mandatory; INV-10
+      cross-tenant negative test)"). Slice I1 (REQ-576, merged) created the table entity_type_extensions in
+      every tenant schema and its schema module Letflow.Entities.EntityTypeExtension
+      (lib/letflow/entities/entity_type_extension.ex), which today has no changeset and no Repo call. This
+      requirement adds the only writer of that table and the HTTP surface for it. NOT in this slice: the merge of
+      extension fields into write validation (I3), any read of extensions by record writes, the definition
+      response and query allow-list (I4), the upgrade-plan check (I5), the catalog rule (I6), promoted columns
+      (I7, OP-3), and any change under web/ or apps/. Until I3 lands an extension row does not yet change what a
+      record write accepts; this slice stores, lists and retires the rows.
+
+      THE CONTEXT MODULE. A new module Letflow.Entities.TypeExtensions in lib/letflow/entities/type_extensions.ex
+      (the schema module keeps its name; its moduledoc is updated to say the table now has a writer) with, all
+      taking the tenant schema prefix as the last argument and reading the tenant only through it:
+      create_extension_audited(attrs, actor, prefix), retire_extension_audited(id, actor, prefix) and
+      list_extensions(entity_type, prefix). attrs carries only entity_type, name and spec.
+
+      THE D4 REFUSALS (checked in this order, nothing written on any of them): (1) the type must be visible and
+      extensible, else the one uniform {:error, :not_found}: the type has no active definition
+      (Letflow.Entities.Definitions.get_active_definition_by_name/2 returns {:error, :not_found}), the active
+      definition has no managed_by stamp (tenant-owned types are out, D1), the definition is append_only, or
+      TypeAccess.authorized?(actor user id, entity_type, prefix) returns {:ok, :denied}; (2) name without the x_
+      prefix, or an entity_type or name that fails the identifier format (Letflow.Entities.Definition.Ddl
+      valid_identifier?/1, the ISS-0777 rule, lowercase letters, digits and underscore, at most 64 characters,
+      starting with a letter) answers {:error, {:extension_key_invalid, name}}; (3) name equal to the "name" of an
+      entry in the "fields" list of the ACTIVE module definition document answers
+      {:error, {:extension_key_reserved, name}}; (4) a row for (entity_type, name) already exists, active or
+      retired, answers {:error, :extension_key_taken} (the unique index of I1 is the backstop; a retired key stays
+      reserved, D3); (5) spec invalid, see below; (6) the per-type cap below. The router maps (2) to 422
+      "invalid_extension_key", (3) to 422 "extension_key_reserved", (4) to 422 "extension_key_taken", (5) to 422
+      "invalid_extension_spec", (6) to 422 "extension_limit_reached", and (1) to the same 404 body that an unknown
+      route id answers, so a type that exists but is not extensible, one the caller is restricted from, and one
+      that does not exist cannot be told apart (INV-5). No reply echoes a submitted value other than the code.
+
+      THE SPEC. spec is the field_def shape of Letflow.Entities.Definition (its field_def type) WITHOUT the
+      "name" key (the name is the row's name): allowed keys type, required, default, enum_values, min, max,
+      non_negative; type is one of string, integer, boolean, date, datetime, enum (decision 0067 D1 excludes json,
+      localized_text and decimal in slice 1). Any other key or type is invalid_extension_spec. An enum needs a
+      non-empty enum_values list of strings; required: true needs a default (D3, "Required"). The default is
+      only stored here; it is applied at write time by slice I3.
+
+      THE CAP (deferred from REQ-576). At most 50 rows per (tenant, entity_type), counting active AND retired rows
+      (retired rows are never deleted, so counting only active rows would let create-retire cycles grow the table
+      without bound, threat case 7). The count and the insert run in one transaction that first takes
+      pg_advisory_xact_lock(hashtext($1)) with $1 = prefix <> ":entity_type_extensions:" <> entity_type passed as a
+      bound parameter (the form of lib/letflow/definitions/activated_by.ex), so two concurrent creates cannot both
+      pass the count. The 51st create is refused. The number 50 is a module attribute of the context module, exposed by a NEW public function Letflow.Entities.TypeExtensions.max_per_type/0 that the tests call.
+
+      THE PERMISSION AND THE ROUTES. A new tenant-scope core permission :EntitiesExtensionsManage in
+      Letflow.Api.Authorization (lib/letflow/api/authorization.ex: the permission type, the permission list,
+      endpoint_policy_key/2 clauses and a required_permission/1 clause, in the manner of :NumberSequencesManage),
+      granted to TENANT_ADMIN, and to PLATFORM_ADMIN only through its unconditional clause; it is not granted to
+      PROCESS_DESIGNER, TASK_WORKER or TENANT_AUDITOR (decision 0067 D5, OP-5). It is a core atom, not a module
+      manifest atom, so no module manifest route_policies entry declares it; its routes are mapped only in
+      endpoint_policy_key/2, and mix letflow.permission_matrix --check is the check that it is routed. A new
+      router Letflow.Routers.EntityTypeExtensions (lib/letflow/routers/entity_type_extensions.ex, moduledoc with
+      the route table in the form of lib/letflow/routers/number_sequences.ex) is mounted by
+      forward("/entity-type-extensions", ...) in lib/letflow/plugs/api_pipeline.ex, every route :tenant_wide:
+      POST / (body entity_type, name, spec) answers 201 with the row (id, entity_type, kind, name, spec, position,
+      status); GET /?entity_type=<name> answers 200 {"items": [...]} ordered by position, active and retired rows
+      with their status (an unknown or invisible type answers the uniform 404 above, a missing entity_type query
+      parameter 422); DELETE /:id retires the row (status retired, row kept) and answers 200 with the row; an id
+      that does not exist, or whose type fails check (1), answers 404; retiring an already retired row answers 200
+      with the row unchanged and writes no second audit entry. position of a new row is one more than the largest
+      position of that type (1 for the first). There is NO update route and no retype: a type or constraint change
+      is retire plus a new x_ name (D3, OP-4). No route takes a tenant identifier; the tenant comes only from the
+      DB-resolved auth_context and conn.assigns.scoped_opts and a tenant_id in the body, query or header is never
+      read (INV-1, INV-10). The permission is checked at Letflow.Plugs.Authorize before the body is looked at.
+
+      AUDIT. Create and retire each write one audit entry in the SAME transaction as the row change, through
+      Letflow.Audit.append_multi/4 (as create_definition_audited/3 in lib/letflow/number_sequences.ex does), with
+      actions "entity_type_extension.create" and "entity_type_extension.retire", resource_type
+      "entity_type_extension", resource_id the row id, actor_id the caller, before_state nil on create and the row
+      before on retire, after_state the row (entity_type, name, kind, spec, position, status; no tenant_id). A
+      refusal writes no row and no audit entry. Audit.append_multi raises on a database failure, so the context
+      functions rescue it exactly as create_definition_audited/3 does (lib/letflow/number_sequences.ex, through
+      run_audited), roll the transaction back and answer {:error, {:transaction_failed, exception}} without
+      raising; the router maps that, and any other unexpected {:error, _}, to the detail-free 500
+      (Response.internal_error/1, INV-8).
+
+      PINS THIS CHANGE MOVES (each by +1 from the value on origin/main at implement time; the numbers in
+      parentheses are examples only and sibling merges make them stale): the permission count, the number-word
+      tables and the effective permission list in test/letflow/api/authorization_test.exs; the tenant-auditor
+      refused core set literal and its count in test/letflow/api/authorization_tenant_auditor_test.exs; the
+      permission lists in test/letflow/api/platform_scope_authorization_test.exs; priv/permission_matrix/effective.golden
+      (regenerated with mix letflow.permission_matrix --write, never hand-merged; the diff shows the new permission
+      for TENANT_ADMIN only); the @named_routes list and length(named) pin in
+      test/letflow/routers/tenant_auditor_routes_test.exs (a new forward); docs/roles.md (permission table row and the
+      prose list of core permissions, which must name TENANT_ADMIN as the only tenant holder). Expected NOT to
+      move, shown by a test in the manner of test/letflow/api/number_sequences_route_classes_test.exs: the
+      length(snapshot) pins and test/fixtures/route_scope/tenant_wide_default_routes.txt, because every route is
+      declared :tenant_wide and none is default-sourced; if a pin does move, the new value is quoted. The
+      implementer runs grep -rn "__authz_routes__\|length(snapshot)\|NumberSequencesManage\|length(named)" test/ priv/
+      and lists every hit. The source-scan test test/letflow/entities/entity_type_extension_test.exs asserts (C7c)
+      that alias_hits, the lib files naming EntityTypeExtension, equal [own] and that table_hits equal [own,
+      lib/letflow/tenant_provisioning.ex]; the new context module adds itself to BOTH lists, so both expectations
+      are extended by exactly lib/letflow/entities/type_extensions.ex (the scan stays for every other file). Test
+      C7b (no changeset function, no Repo. and no Ecto.Changeset in the schema module) STAYS, so the changeset
+      and every Repo call live in the context module. The
+      schema moduledoc sentence "Deliberately no changeset and no Repo call here" is brought in step with the
+      change. Existing tenants: no migration and no seed change, the table already exists from I1 and starts
+      empty, so nothing is altered for installed tenants.
+
+      SECURITY-REVIEWER is a mandatory gate (new route, new permission, tenant-data write; INV-1, INV-2 (no
+      field-value read here), INV-5, INV-7, INV-8, INV-10, threat cases 1, 2, 3, 6 and 7 of the record) and so is
+      REVIEWER.
+    acceptance_criteria:
+      - "1. D4 key refusals at the context: create_extension_audited for an extensible module type refuses, writing no row and no audit entry, each of: name \"foo\" (no x_ prefix) with {:error, {:extension_key_invalid, \"foo\"}}; name \"x_Bad\", \"x_a-b\", \"x_\\\"; drop\" and a 65-character name starting x_ with {:error, {:extension_key_invalid, name}}; a name equal to a field name of the active module definition document answers {:error, {:extension_key_reserved, name}} (decision 0067 R0 forbids module x_ keys only from slice I6 on, so the test installs a module definition whose fields list contains \"x_reserved_probe\" and asserts the refusal for that name); and a repeat of an existing (entity_type, name) pair, active or retired, with {:error, :extension_key_taken}. Valid names x_amount, x_a1_b2 and a 64-character x_ name are accepted."
+      - "2. Type visibility refusals are one uniform 404 (INV-5): through the router, POST with an entity_type that has no active definition, one whose active definition has no managed_by stamp (a tenant-owned type), one that is append_only, and one the caller is denied by TypeAccess.authorized?/3 (a restriction row and no grant for that user) each answer 404 with a status, body and content-type header identical to each other and identical to DELETE of an id that does not exist; none writes a row or an audit entry. The same four inputs through GET /?entity_type= also answer that 404."
+      - "3. Spec rules: a spec with type string, integer, boolean, date, datetime or enum (with a non-empty enum_values) is accepted; a spec with type json, localized_text or decimal, an unknown type, an unknown key (for example unique or promoted), an enum without enum_values, required true without a default, or a non-object spec is refused with 422 invalid_extension_spec, no row written. The refusal body contains no submitted value."
+      - "4. Cap: 50 rows can be created for one entity_type in one tenant; the 51st create answers 422 extension_limit_reached; after retiring one of the 50 the create is STILL refused (retired rows count); another entity_type in the same tenant and the same entity_type in another tenant are unaffected (accepted); the test reads the cap from the new public function TypeExtensions.max_per_type/0, which returns 50. A test with two concurrent creates at count 49 through two separate connections (the sandbox in :auto mode, as TenantFixture.provisioned_tenant!/1 sets it; a shared-mode sandbox would serialise the two and prove nothing about the lock) leaves exactly 50 rows and exactly one {:ok, _} and one extension_limit_reached."
+      - "5. Routes and permission: with a TENANT_ADMIN token POST /entity-type-extensions with a valid body answers 201 with id, entity_type, kind \"field\", name, spec, position and status \"active\", position 1 for the first row of a type and 2 for the next; GET /entity-type-extensions?entity_type=T answers 200 with the items ordered by position including retired rows with status \"retired\"; DELETE /entity-type-extensions/:id answers 200 with status \"retired\" and the row still exists with its name unchanged; a second DELETE of the same id answers 200 with the same row and adds no audit entry. No response contains tenant_id. There is no PUT or PATCH route (a request with either answers the router's unmatched response, not 200). The error mapping of the description (invalid_extension_key, extension_key_reserved, extension_key_taken, invalid_extension_spec, extension_limit_reached, all 422, and a 500 with no detail for an unexpected {:error, _}) is asserted once per code through the router."
+      - "6. Role matrix: :EntitiesExtensionsManage is in Letflow.Api.Authorization, mapped by endpoint_policy_key/2 for all three routes and granted to TENANT_ADMIN only, and to PLATFORM_ADMIN only through its unconditional clause; PROCESS_DESIGNER, TASK_WORKER and TENANT_AUDITOR get 403 on all three routes, with identical status, body and content-type header for a POST that would be valid and for one that would be refused with 422 (the permission is checked before the body, INV-5). No test or fixture grants PLATFORM_ADMIN to a tenant user. mix letflow.permission_matrix --check passes and no module manifest route_policies entry names the atom (a grep over lib/letflow/modules/ returns nothing)."
+      - "7. Audit: after one successful create the audit log of the tenant holds exactly one entry with action \"entity_type_extension.create\", actor_id the TENANT_ADMIN user, resource_id the row id, before_state nil and after_state holding entity_type, name, kind, spec, position and status and no tenant_id; after one retire exactly one more entry with action \"entity_type_extension.retire\" whose before_state status is \"active\" and after_state status is \"retired\"; every refusal of criteria 1 to 4 leaves the audit entry count unchanged; and a test that drops the audit table inside the sandbox transaction (or otherwise makes Audit.append_multi raise) shows the row insert is rolled back, the context function answers {:error, {:transaction_failed, _}} without raising, and the router maps it to 500 with no detail; the context part follows the test \"A2 an audit failure stores no definition and does not raise\" in test/letflow/number_sequences/definition_test.exs (DROP TABLE of the tenant audit_entries), the router part is new."
+      - "8. INV-1 and INV-10 cross-tenant negative tests through the router with two provisioned tenants A and B, each with its own TENANT_ADMIN token: (a) a POST by A with a body or query tenant_id (and a tenant header) naming tenant B writes the row in A's schema and none in B's; (b) B lists the same entity_type and sees zero of A's rows; (c) B sending DELETE with the id of A's row answers the uniform 404 and A's row is still active with its audit trail unchanged; (d) the same name x_amount created by B for the same entity_type is accepted independently of A's (no unique conflict across tenants) and the two cap counts are independent; (e) a PLATFORM_ADMIN token of the platform tenant gets only the platform tenant's own rows (zero rows of A or B), a no-data-leak check and not a refusal."
+      - "9. Pins and no stray writer: the pins named in the description move by +1 from origin/main at implement time and the implementer quotes the real new values and the grep output; mix letflow.permission_matrix --write was used for the golden; docs/roles.md names :EntitiesExtensionsManage under TENANT_ADMIN only; the route-class test shows all three routes :tenant_wide and not default-sourced, so length(snapshot) and tenant_wide_default_routes.txt are unchanged; the source-scan test in test/letflow/entities/entity_type_extension_test.exs passes (C7b unchanged, C7c with exactly one added file in each of alias_hits and table_hits, lib/letflow/entities/type_extensions.ex) and fails if another lib file references the table name (the test proves this on a temporary copy or by listing the matched files); no file under web/, apps/ or priv/repo/migrations/ changes."
+      - "10. Gates: SECURITY-REVIEWER verdict recorded (new routes, new permission, tenant-data write, INV-1, INV-5, INV-7, INV-8, INV-10) and REVIEWER verdict recorded in the PR Gates block, and the PR says Refs, not Closes, while slices I3 to I7 remain; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static, mix letflow.check_requirements_registration, test/letflow/ci_backend_path_filter_test.exs, the new test files and every pin file named in criterion 9 pass, real output quoted."
+    open_questions:
+      - "Decision 0067 D1 step 1 also excludes a type \"whose write class is not tenant-writable\" (ProcessWritable.classes/0), but lib/letflow/entities/process_writable.ex says a module-stamped type is assigned write_class \"managed\", so a class test would exclude every module type. This requirement therefore excludes only the four cases of criterion 2 and leaves the write-class rule to the owner of decision 0067 (not settled by the source); slice I3 may need it where a record write is refused for the class."
+      - "OP-1 (opt-OUT catalog flag extensible: false) is slice I6, not built here: until it lands every module type that passes criterion 2 is extensible. OP-5 (new permission) is built as the record recommends and remains open to an owner veto."
+      - "UAT assumption, to be confirmed by the process owner: the cap of 50 rows per type counts retired rows (the record says \"for example 50\" and does not say whether retired rows count); a read-only list for PROCESS_DESIGNER or TENANT_AUDITOR is not granted here and is left to I4."
+    depends_on: [REQ-576, REQ-550]
   - id: REQ-611
     title: "Exam taking: a flag/unflag control on each question, kept in the browser only (BilimBaga retirement criterion 3, exam-taking.spec.ts case 07)"
     owner: FRONTEND-DEV
@@ -43441,6 +43655,87 @@ requirements:
       - "The backoff length before a script_busy re-run is not in 0067 ('short backoff'); the implementer picks a fixed figure and states it in the PR; it is not a setting."
       - "Still open in 0067 'Not decided here' and not decided by this entry: any wall-clock figure between 50 ms and the 0053 D7 maxima, the maximum number of fields entries in a refusal, the HTTP status numbers of the D5 infrastructure codes, whether the 403 of a wrong assignee (ISS-0942) collapses to the not-found answer, a hook 3 with entity reads, and the behaviour of any future automatic completer."
     depends_on: [REQ-569, REQ-581]
+
+  - id: REQ-614
+    title: "Per-tenant print-template overrides (decision 0068 D8) slice S4: web authoring screen with a JSON layout editor and a preview from synthetic content"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 3436
+    # Source: docs/migration/decisions/0068-per-tenant-print-template-overrides.md (D2 "a web editor is a later slice", D5 field restrictions, D7 authority, D8 "S4 Web authoring screen", Open owner questions Q1, Q2, Q5, "Tests the implementation slices must add" D5-redact); docs/requirements.yaml REQ-579 (the five routes, the 409 and 422 reply texts) and REQ-571 (the layout shape); lib/letflow/routers/documents.ex (route table, @override_meta_keys, violation_map, unprocessable_detail); lib/letflow/documents/print_overrides.ex (conflict_reason/1, @reason_code_re); lib/letflow/documents/print_layout.ex (block types and allowed keys); web/src/router.tsx, web/src/components/layout/AppShell.tsx (nav entries with a permission), web/src/auth/access/types.ts (P). Written by the business analyst (T-0844) 2026-10-28. Not yet validated.
+    description: >
+      Slice S4 of decision 0068 (docs/migration/decisions/0068-per-tenant-print-template-overrides.md, D8).
+      A tenant administrator can today manage print-template overrides only by calling the five
+      /api/v1/documents/print-overrides routes of REQ-579 by hand. This slice adds the screen. It changes
+      no backend file, adds no route, no permission and no migration, and does not render a PDF: a preview
+      here is an on-screen approximation, not the issued artefact (decision 0068 D4: the stored artefact is
+      authoritative).
+      FILES. API helper web/src/api/documentPrintOverrides.ts (new; five functions over the existing
+      client in web/src/api/client.ts, in the style of web/src/api/tenantSettings.ts). Page
+      web/src/pages/admin/PrintTemplatesPage.tsx (new). Components web/src/components/admin/PrintLayoutEditor.tsx
+      and web/src/components/admin/PrintLayoutPreview.tsx (new). Route 'admin/print-templates' added to
+      web/src/router.tsx beside 'admin/appearance', and a nav entry in web/src/components/layout/AppShell.tsx
+      in group 'tenantAdmin'. The permission constant DocumentPrintTemplatesManage is added to P in
+      web/src/auth/access/types.ts and to the access fixtures in web/src/auth/access/fixtures.ts for
+      TENANT_ADMIN and PLATFORM_ADMIN only (REQ-579 grants it to those two roles and no other). The nav entry
+      and the route use that permission (RequirePermission, web/src/auth/access); a user without it does not
+      see the entry and the route shows the existing no-access outcome of RequirePermission.
+      SCREEN. A list of overrides (GET /api/v1/documents/print-overrides, optional filters type_key and
+      locale; metadata only: type_key, locale, version_no, status, layout_hash, created_by, activated_by,
+      timestamps) and a detail view opened from a row (GET /api/v1/documents/print-overrides/:id, which also
+      returns the layout). The editor is a text area holding the layout as JSON, with a type_key text input
+      and a locale select with exactly ru, kk and default. There is no route that lists document types or
+      their declared fields, so the type_key is typed by the administrator and the field names are checked
+      only by the server. Actions: Save as new draft (POST /api/v1/documents/print-overrides, body type_key,
+      locale and layout only; the screen never sends tenant_id, version_no, status or created_by), Activate
+      (POST .../:id/activate, shown for status draft) and Retire (POST .../:id/retire, shown for status
+      active), each asking for a reason_code in the format the server accepts (lower-case letter first, then
+      lower-case letters, digits or underscore, at most 64 characters; print_overrides.ex @reason_code_re)
+      and validating that format before the request. There is no edit, delete or retire-a-draft action,
+      because REQ-579 has no such route: changing a layout is saving a new draft, and the editor opened on an
+      existing row saves as a new draft. JSON that does not parse is reported in the editor and sends no
+      request. Server replies shown to the user: 422 with the errors list of REQ-579 is shown as one line per
+      violation, the rule and the layout path only; 422 with a fixed detail, and 409 with its fixed detail
+      (for example "activation needs a second administrator" and "override is not in a status that allows
+      this action", print_overrides.ex conflict_reason/1), are shown as the server's detail text; 404 is
+      shown as one generic not-found message; any other failure is shown as a generic error. No error view
+      prints text taken from the submitted layout. REQ-579 answers 409 to an activation by the draft's own
+      creator (its Q3 assumption); the screen shows that reply and does not try to hide the button.
+      PREVIEW. PrintLayoutPreview is a pure React component of the parsed layout and nothing else: it makes
+      no request and reads no document, record or entity data. It draws the blocks in order on a page frame
+      (the page block gives size A4 or Letter): a text block shows its literal text as a React text node (no
+      dangerouslySetInnerHTML, no HTML parsing); a field block shows its label (or the field_name when there
+      is no label) followed by a placeholder built from the entity_type and field_name, in the form
+      [entity_type.field_name], and a show_if_nonempty field is drawn with a marker saying it is hidden when
+      empty; a table block shows its column headers (or field_names) and three rows of placeholders; a spacer
+      shows blank space of its height_mm. A block of an unknown type, or a layout that is not an object with
+      a blocks list, is shown as a short notice and does not throw. The preview updates from the editor
+      content without a request. Because the preview content is synthetic placeholders derived from names in
+      the layout, it can never show a stored or restricted field value (decision 0068 D5 "D5-redact"); the
+      screen also never calls a document or entity read route for the preview.
+      OPEN OWNER QUESTIONS (decision 0068). Q2 (template form) is taken as its recommended option (a): the
+      closed declarative JSON layout, which is what the server validates; no template language, no file
+      upload. Q1 (who owns the official RU and KK wording) and Q5 (core-locked blocks per type) do not block
+      this slice: it supplies an editor and holds no official wording and no locked-block rule, and the
+      server is the only place that rejects a layout that violates one. Q3 and Q4 are REQ-579's and no
+      reprint or re-render control is added here. Out of scope: a visual drag-and-drop editor, an image
+      block (REQ-571's layout has none), a PDF preview, diffing two versions, Kazakhstan form layouts (S5).
+      Messages: the screen's user-facing text follows the admin pages' existing convention, plain English
+      labels as in NAV_ITEMS of web/src/components/layout/AppShell.tsx; no new i18n catalogue is added.
+      SECURITY. SECURITY-REVIEWER is a mandatory gate for this slice (decision 0068 D8, "Common to all
+      slices"; tenant data, INV-1, INV-2, INV-10). Common dependencies named there are REQ-564, REQ-550 and
+      REQ-542.
+    acceptance_criteria:
+      - "web/src/api/documentPrintOverrides.ts exports one function for each of the five routes, GET /api/v1/documents/print-overrides (optional type_key and locale query filters), GET .../print-overrides/:id, POST .../print-overrides, POST .../print-overrides/:id/activate and POST .../print-overrides/:id/retire, and a vitest test over a mocked client asserts the method, the path and the body of each call. The save body has exactly the keys type_key, locale and layout; the activate and retire bodies have exactly the key reason_code."
+      - "Route 'admin/print-templates' in web/src/router.tsx renders PrintTemplatesPage inside RequirePermission with DocumentPrintTemplatesManage, and AppShell shows its nav entry only to a user holding that permission. A component test with the access fixtures picks them by key, never by role name (web/src/auth/access/fixtures.ts header; web/tests/guards/no-role-literals.spec.ts): it shows the entry and the screen for the fixtures tenantAdmin and platformAdmin, and shows neither for designer and auditor. The fixtures add the permission to those two roles only."
+      - "PrintLayoutEditor test: typing JSON that does not parse shows an error in the editor and makes zero requests; valid JSON with locale ru, kk or default and a type_key calls the save function with exactly type_key, locale and layout; a locale outside ru, kk and default cannot be selected; Activate is offered only for a row with status draft and Retire only for a row with status active; a reason_code that does not match the format [a-z][a-z0-9_]{0,63} makes zero requests and shows a validation message, a matching one calls the route."
+      - "PrintLayoutEditor test, server replies: a mocked 422 whose errors list holds {rule: \"field_not_projected\", path: [\"blocks\", 1, \"field_name\"]} (any rule atom of lib/letflow/documents/print_layout.ex) shows that rule and that path and no other text from the submitted layout; a mocked 409 with the detail \"activation needs a second administrator\" shows that sentence; a mocked 404 shows one generic not-found message; a mocked 500 shows a generic error and not the response body."
+      - "PrintLayoutPreview test: for a layout with a page block (size A4), a text block, a field block (entity_type, field_name, label), a field block with show_if_nonempty, a table block with two columns and a spacer block, the rendered output contains the literal text, the label with the placeholder [entity_type.field_name], the hidden-when-empty marker, the two column headers with exactly three placeholder rows, and the spacer; a text block containing the string <script>alert(1)</script> is rendered as visible text and the container has no script element."
+      - "PrintLayoutPreview test, no restricted values (D5-redact): the component is rendered with a mocked fetch or API client that fails the test on any call, and no call is made; the rendered output of a layout with a field block never contains any text other than the layout's own strings and the placeholder; an unknown block type, a layout without a blocks list, and a non-object value each render a notice and do not throw. The page test asserts that the preview does not call entitiesApi, the documents routes other than print-overrides, or any attachment route."
+      - "Page test of PrintTemplatesPage over mocked API: the list shows the metadata columns of the REQ-579 list reply and never a layout; opening a row calls the get route and fills the editor and the preview with the returned layout; saving from an opened row calls the save function (a new draft) and does not call any other write route; after a successful save, activate or retire the list is fetched again."
+      - "No backend, migration, permission-matrix or route-inventory file changes: git diff --stat main...HEAD lists only files under web/. cd web && npm run check passes (type-check, lint, unit tests, guards)."
+      - "SECURITY-REVIEWER verdict is recorded (decision 0068 D8, Common to all slices): the permission gating of the route and the nav entry, that the preview and the error views show no stored or restricted field value (D5-redact) and no text of the submitted layout, and that no request carries a tenant identifier (INV-10)."
+    depends_on: [REQ-579, REQ-564, REQ-550, REQ-542]
   - id: REQ-613
     title: "Saved graph view definitions over the aggregate query route: storage, validation on the existing view routes and replay through the aggregate route (generic views, slice 3, backend)"
     owner: ELIXIR-DEV
@@ -43492,3 +43787,85 @@ requirements:
       - "8. D7 audit and pins: create, update and delete of a graph view each write an audit event in the same transaction as REQ-555 does; refusals write none. No route is added, so the __authz_routes__ tests, the route_scope snapshots and the route-count pins pass unchanged; the implement step greps test/ for the entity views table name, the kind check and the view column list and updates any exact-set pin it finds."
       - "9. SECURITY-REVIEWER verdict recorded (mandatory: tenant-data path) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the view tests, the aggregate route tests and the authorization and route pin tests pass, real output quoted."
     depends_on: [REQ-598, REQ-555]
+
+  - id: REQ-618
+    title: "Record E slice E-4: failure mapping and audit of the pre-write script hook (one test per D6 row, audit row per hooked write, kill switch honoured, no raw error text)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3445
+    # Source: docs/migration/decisions/0065-entity-pre-write-script-hook.md (D6 table and the paragraph under it, D8 slice E-4, D2 retry total, D3, "Not decided here", "Threat cases" 5); docs/migration/decisions/0061-engine-lock-order-platform-invariant.md (item 5, item 5a and item 6); docs/agents/instructions/security-invariants.md (INV-1, INV-4, INV-5, INV-8, INV-10); REQ-601 (slice E-2, outcome conversion and stats) and REQ-607 (slice E-3, write integration) in docs/requirements.yaml; code read: lib/letflow/scripts/policy.ex (kill_switch_on?/1: true when either latch is set or the singleton row is absent, a database error raises), lib/letflow/scripts/runtime.ex (check_enabled/1, the hook 1 use of the kill switch), lib/letflow/audit.ex (entry_attrs type, append_multi/4, insert_entry/3), lib/letflow/engine/script_task_dispatcher.ex (facts/7 and run_script/6, the hook 1 record of key, version, sha256 and HMAC), lib/letflow/scripts/form_validation.ex (the single not-started rejection), lib/letflow/engine/lua/script_runner.ex. Written by the business analyst (T-0845) 2026-10-28. Not yet validated.
+    description: >
+      Slice E-4 of decision 0065 (docs/migration/decisions/0065-entity-pre-write-script-hook.md, D8): the
+      failure mapping and the audit of the pre-write hook, on top of E-3 (REQ-607), which makes the three direct
+      write functions of lib/letflow/entities/records.ex call Letflow.Scripts.EntityWrite.run/4
+      (lib/letflow/scripts/entity_write.ex, E-2, REQ-601) and returns every non-success result of it as a typed
+      {:error, code} with nothing committed. E-2 and E-3 left four things out on purpose, and E-4 closes them,
+      in this order. (1) Kill switch. At the start of every attempt of a hooked write, EntityWrite.run/4 calls
+      Letflow.Scripts.Policy.kill_switch_on?/1 (lib/letflow/scripts/policy.ex) with the tenant prefix; when it
+      returns true (tenant latch, platform latch, or the policy row absent: fail closed) the result is the single
+      not-started rejection of E-2, {:error, :script_rejected, stats} with no sandbox started and no read phase
+      run (decision 0065 D6, row "kill switch on"), and the pending write is rejected with nothing committed. A
+      database error in that read is not read as off: it raises inside run/4 and E-4 converts it to
+      {:error, :script_error, stats} (INV-8, fail closed). Turning the switch off lets the next write run the
+      script again without a restart. (2) Failure mapping. The D6 table of 0065 is the contract: for each of its
+      ten rows, the executor outcome (or the crash, exit, kill switch or exhausted retry) reaches the caller of
+      create_record/3, update_record or upsert_record_by_external_ref/4 as exactly the tenant-visible code of the
+      table (script_failed with the manifest-declared code as {:script_failed, code}, script_error,
+      budget_exceeded, memory_limit_exceeded, timeout, output_invalid, script_busy, script_rejected,
+      derived_value_conflict), the write rolls back, and no process is left holding a connection or an open
+      transaction. A caller or worker crash or exit (the watchdog DOWN message) is :script_error, tested with a
+      real worker that is killed, not only with a stub. (3) Audit. Every hooked write that reaches the hook
+      appends exactly one audit row (Letflow.Audit, table audit_entries, via lib/letflow/audit.ex) for its final
+      outcome, with the action string \"entity_write_hook.run\", resource_type the record type name,
+      resource_id the record id (for a create rejected before an id exists, the type name), actor_id the invoking
+      actor, and after_state a map holding exactly: script_key, script_version, script_sha256, hmac_key_version
+      and hmac_hex (the HMAC of the canonical {ctx, input}, computed with the same hmac_fun and the same
+      Letflow.Engine.ScriptInput.canonical/2 that Letflow.Engine.ScriptTaskDispatcher uses for hook 1; nil when
+      the sandbox was not started), outcome_class (\"accepted\" or the D6 code as a string), attempts (1 to 3),
+      duration_us, instructions_used, heap_words_at_end and principal (\"tenant_wide\"); never a derived value,
+      an input value, a candidate value, script source or error text. The accepted row is appended inside the
+      write transaction of E-3 as a step of its Ecto.Multi (Audit.append_multi/4). Its place in the Multi of
+      append_command/4 in lib/letflow/entities/records.ex is fixed: immediately before the step
+      :upsert_record_latest, that is after the step :allocate_number (maybe_allocate_number, REQ-541) when the
+      type is bound to a number sequence (decision 0061 item 5a: the counter row is taken before any audit write)
+      and after :recheck_definition otherwise (and after the steps of EventStore.append_multi/3 :lock_timeout,
+      the sequence lock, :assign_sequence, :idempotency and :insert_event, and after :check_record_version and
+      :scope_check where they apply). So it comes after the entity-type sequence locks (item 5 of decision 0061)
+      and its first audit write takes the tenant-wide audit chain row (item 6); the steps :upsert_record_latest and
+      :dual_write_promoted_columns run after it, and a failure in either rolls the accepted row back. A rejected
+      outcome writes its row in its own short transaction after the write transaction has ended, so the audit
+      row survives the rejection and the rejection survives a failure to write it: if the rejected row cannot be
+      written, the caller still gets the typed error of the table and nothing raises (INV-8). A write for a type
+      without a binding appends no hook row. (4) No raw error text. No response body, returned term, log line
+      and audit row of a hooked write holds Exception.format or inspect output of a crash, script source, a
+      secret or an HMAC key (INV-4, INV-5, decision 0065 threat case 5). The three record routes answer the
+      codes of the table through render_record_command/3 (lib/letflow/routers/entities/record_writes.ex). The
+      existing code has no mapping for the script codes on these routes (Response.entity_write_status/1 in
+      lib/letflow/api/response.ex serves the step path only; the only script_busy mapping is the 503 in
+      lib/letflow/routers/script_rules.ex), so E-4 fixes this table, one constant body per code, shaped
+      {\"error\": \"<code>\"} and holding nothing else: derived_value_conflict 503 (the value of REQ-607
+      criterion 6b), script_busy 503 (as script_rules.ex), script_rejected 409 (as scripts_disabled in
+      script_rules.ex), and 422 for script_error, budget_exceeded, memory_limit_exceeded, timeout and
+      output_invalid (the validation-class default of entity_write_status/1); {:script_failed, code} answers 422
+      with {\"error\": \"<code>\"}, code being the manifest-declared code. Every status of this table except
+      the 503 of derived_value_conflict is an assumption of this entry, not settled by 0065 (open questions).
+      Out of scope: dry-run and UAT scenarios (E-5), the process-step path, bulk-import budgeting, any change to
+      the lock set, the fingerprint compare or the retry loop of E-3, any new route, permission, migration or
+      tenant table, and anything under web/ or apps/. SECURITY-REVIEWER is mandatory (tenant-data path:
+      audit content, fail-closed paths, no raw error text, cross-tenant audit isolation).
+    acceptance_criteria:
+      - "1. One test per D6 row (decision 0065 D6 table, ten rows), each driving create_record/3 and then, in a second case for the same row, update_record and upsert_record_by_external_ref/4 (all ten rows are tested on all three paths, none is excluded), asserting the exact tenant-visible code returned and that no record event, no idempotency claim and no accepted audit row exists afterwards (row counts before equal after, apart from the single rejected audit row of criterion 3): script fail(code, details) with a manifest-declared code is {:error, {:script_failed, code}}; script error; instruction budget; memory limit; wall clock; invalid output (a schema violation, an undeclared field, and a widened restriction as three cases of the one row); admission refused ({:error, :capacity}) is retried inside the 3-attempt total with a short backoff and ends as {:error, :script_busy} when all three attempts are refused (a stub-driven case in which the second attempt succeeds is a success that used 2 attempts); a caller or worker crash or exit is {:error, :script_error}; kill switch on is {:error, :script_rejected}; fingerprint mismatch after 3 attempts is {:error, :derived_value_conflict}. The test names carry the row's executor-outcome text so a missing row is visible in the test list. Real scripts, not stubs, are used for fail, error, budget, memory, wall clock and invalid output; a runner stub is allowed for admission refused."
+      - "2. Crash and exit: with a real sandbox worker killed from the test (Process.exit(pid, :kill)) while the script runs, and with a runner that exits with a non-normal reason, the hooked write returns {:error, :script_error}, does not raise, leaves Repo.in_transaction?/0 false and no process of the write alive, and no returned term, log line (capture_log) or audit row contains the exit reason text, a stacktrace, the string \"Exception\" or the script source (one test asserts this on the whole term, the whole captured log and the whole audit after_state)."
+      - "3. Audit rows: for an accepted hooked write on each of the three paths exactly one audit_entries row with action \"entity_write_hook.run\" exists, appended in the write transaction (a test that makes the step :upsert_record_latest fail, which runs after the audit step, by a BEFORE INSERT OR UPDATE trigger that raises on the table entity_record_latest of a throwaway tenant, asserts zero audit_entries rows with action \"entity_write_hook.run\" and zero record events afterwards, whether the call returns an error or raises as the write without a hook does in that case; a lock timeout is not used because it fires before the audit step), and its after_state has exactly the keys listed in the description, with script_key, script_version and script_sha256 equal to the pin of the binding, outcome_class \"accepted\", attempts equal to the number of attempts used (1, and 2 in the case of one retry), duration_us, instructions_used and heap_words_at_end taken from the stats of the run, hmac_key_version and hmac_hex equal to the values the dispatcher function produces for the same canonical {ctx, input} (compared with the same hmac_fun), and principal \"tenant_wide\". For each rejected outcome of criterion 1 exactly one row with the same shape, outcome_class equal to the code string, hmac fields nil when the sandbox did not start, exists after the rejection and was written in a transaction of its own (a test makes the rejected-row insert fail by dropping the audit table in a throwaway tenant and shows the caller still gets the typed error, nothing raises, and the main write left nothing). An audit row's after_state contains no derived value, no candidate or input value and no restricted value (a test writes a record with a restricted field and a derived value 'SECRET-DERIVED-VALUE' and greps the serialized row for both). A write to a type without a binding appends no hook row (zero rows, one test per path)."
+      - "3a. Lock order (decision 0061 item 5a): for a record type bound to a number sequence, the statement log of one accepted hooked create_record/3 shows the number_sequence_counters row taken FOR UPDATE before the first audit chain statement, as the test N4b in test/letflow/number_sequences/records_numbering_test.exs does for the service path."
+      - "4. Kill switch honoured: with the tenant latch on, with the platform latch on, and with the script_policy row deleted (fail closed), a hooked write on each of the three paths returns {:error, :script_rejected}, the sandbox starts zero times and prefetch_with_fingerprint is called zero times (stub counters), no record event is appended, and one rejected audit row with outcome_class \"script_rejected\" exists (nine tests, or three paths by three states in a table). A latch turned on between the read phase and the lock step of attempt 1 does not change an attempt that already ran: that write commits with its derived value and one accepted audit row, and the next hooked write returns {:error, :script_rejected}; turning the latch off again lets the next write run and store its derived value without a restart. A failing read of the policy row (the table dropped in a throwaway tenant) returns {:error, :script_error} and is not read as off. A type without a binding is written normally whatever the switch says (the switch gates scripts, not records), one test."
+      - "5. No raw error text at the route: for each of the create, update and upsert record routes and each of the ten codes of criterion 1, a request answered through a runner stub or the real script of criterion 1 yields the status of the table in the description (503 for derived_value_conflict and script_busy, 409 for script_rejected, 422 for the rest, never 500) and the body {\"error\": \"<code>\"} byte for byte, which holds no record data, script key, version, sha256, fail details, exception text, stacktrace or HMAC (one route test per route and code, asserting status and the exact body; the ten bodies are asserted equal across the three routes). script_failed with a manifest-declared code returns 422 and {\"error\": \"<declared code>\"} and no details text from the script. No code of the table reaches the 500 catch-all of render_record_command/3 (a test enumerates the ten codes against the function's clauses)."
+      - "6. Cross-tenant and prefix (INV-1, INV-10): tenants A and B each have a record type customer, only A with a binding and a rejected hooked write. The audit row of A's rejection is found with A's prefix and not with B's (a query with B's prefix counts zero hook rows); a write of customer in B stores no hook row and runs no script. A second record type invoice is defined and bound only in A and does not exist in B: on each of the three record routes a request with B's token naming invoice answers the same status and the same body bytes as a request naming a type name defined in no tenant, and runs no script. Every Repo call added by the change passes the prefix option; the PR quotes grep -n \"Repo\\.\" over the changed hunks. No SQL string interpolation (INV-7)."
+      - "7. Scope of the change and gate: the diff touches lib/letflow/scripts/entity_write.ex (the kill switch check and the fail-closed conversion), lib/letflow/entities/records.ex (the audit steps and the rejected-row write only), lib/letflow/routers/entities/record_writes.ex (only constant-body clauses for codes that still fall to the catch-all) and new helper modules under lib/letflow/entities/ or lib/letflow/scripts/; it does not change the lock set, the fingerprint compare, the retry loop or the SET LOCAL values of E-3, lib/letflow/entities/step_writes.ex, lib/letflow/entities/handler_writes.ex or lib/letflow/engine.ex; it adds no route (the __authz_routes__ and length(snapshot) pins in test/ are unchanged), no permission (priv/permission_matrix/effective.golden unchanged), no migration, no tenant table and no config key; the tests of E-1, E-2 and E-3 pass unchanged or are updated only for the new code, and each moved pin is named in the PR (grep test/ for the audit action count pins and records_scope_all_scan). The PR records a SECURITY-REVIEWER verdict in its Gates block before merge. mix format, mix compile --warnings-as-errors and mix letflow.check.static pass, and mix letflow.check_requirements_registration passes, real output quoted."
+    open_questions:
+      - "Decision 0065 D6 says every outcome appends an audit record with key, version, sha256, HMAC input, outcome class, duration, instructions, heap words, principal and actor id, but names no table, action string or row count per write. This entry rules (for the owner or the reviewer of REQ-539 to confirm): audit_entries, action \"entity_write_hook.run\", one row per hooked write for its final outcome with an attempts count, not one row per retry. The alternative, one row per attempt, is not chosen here. The instance stream event SCRIPT_RUN_RECORDED used by hook 1 does not fit because a record write has no instance."
+      - "D6 lists the HMAC 'input' in the audit record, but E-2 (REQ-601) builds no HMAC for hook 2. This entry has E-4 compute the HMAC of the canonical {ctx, input} with the hook 1 function; whether a missing HMAC secret rejects the write as hook 1 does (hmac_secret_missing there) or is recorded as nil is not stated by 0065 and stays open; until it is ruled, the implement step must choose rejection as {:error, :script_rejected} and say so in the PR."
+      - "Decision 0065 'Not decided here' stays open and is neither set nor implied: the numeric HTTP status of entity_type_hooked, the locked-window budget, numeric read caps. The direct-route status of derived_value_conflict is the 503 of REQ-607 criterion 6b; only another number inside that contention mapping stays the owner's choice. The other statuses of the table in the description (script_rejected 409, script_busy 503, 422 for script_error, budget_exceeded, memory_limit_exceeded, timeout, output_invalid and script_failed) are UAT assumptions of this entry, to be confirmed by the process owner; 0065 does not list them under 'Not decided here' and sets none of them."
+      - "The activation-time half of entity_type_hooked (0065 D1) and the bind-time field rules of D5 are assigned to no slice by 0065 D8; this slice does not add them (see the open questions of REQ-601 and REQ-607)."
+    depends_on: [REQ-607, REQ-601]

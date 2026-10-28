@@ -131,6 +131,78 @@
       "entity_definition_id": "802d6a3a-9f95-0c9c-d9b8-7261ade45e3d",
       "logical_shape_version": "72be36ff9738d7d3a21da778c8b08c5263ff86278ce2e09da531a2c0eedd75c8",
       "name": "catalog_item"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "code"
+            ],
+            "name": "uq_catalog_counterparty_code",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_catalog_counterparty_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #3407 / REQ-604, decisions 0050 D1 and 0057 D1. A supplier master. kind is supplier or contractor (UAT assumption, an enum value can be added later). tax_id is optional and its format is not validated (UAT assumption). active false retires the record, there is no delete operation. external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "display_name": "Counterparty",
+        "fields": [
+          {
+            "name": "code",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "supplier",
+              "contractor"
+            ],
+            "name": "kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "tax_id",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "name": "catalog_counterparty"
+      },
+      "display_name": "Counterparty",
+      "entity_definition_id": "06752b43-ef7e-3d71-1172-24721fc13384",
+      "logical_shape_version": "28539ec7dd9f29f7a35a25ab470ac4715ea6a45f78a9cf7c799e82de2d2bcb74",
+      "name": "catalog_counterparty"
     }
   ],
   "exported_at": "2026-10-19T00:00:00Z",

@@ -51,7 +51,7 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     # REQ-582 part B: create_assignment/2 is the exam module's own surface for the seed task
     "lib/letflow/modules/exam/authoring.ex" => 4,
     "lib/letflow/modules/exam/certificate.ex" => 1,
-    "lib/letflow/modules/exam/session.ex" => 3,
+    "lib/letflow/modules/exam/session.ex" => 5,
     "lib/letflow/modules/exam/snapshot.ex" => 1,
     "lib/letflow/scheduler/record_deadline_sweep.ex" => 1,
     "lib/mix/tasks/letflow.seed.exam_fixtures.ex" => 1

@@ -32,6 +32,7 @@ AGENT_RUNNER EntitiesViewsManage false core -
 AGENT_RUNNER ExamAuthoringWrite false module:exam -
 AGENT_RUNNER ExamCertificateIssue false module:exam -
 AGENT_RUNNER ExamGradingRead false module:exam -
+AGENT_RUNNER ExamGradingWrite false module:exam -
 AGENT_RUNNER ExamSessionRead false module:exam -
 AGENT_RUNNER ExamSessionReportEvent false module:exam -
 AGENT_RUNNER ExamSessionSave false module:exam -
@@ -96,6 +97,7 @@ CANDIDATE EntitiesViewsManage false core -
 CANDIDATE ExamAuthoringWrite false module:exam -
 CANDIDATE ExamCertificateIssue true module:exam grant
 CANDIDATE ExamGradingRead false module:exam -
+CANDIDATE ExamGradingWrite false module:exam -
 CANDIDATE ExamSessionRead true module:exam grant
 CANDIDATE ExamSessionReportEvent true module:exam grant
 CANDIDATE ExamSessionSave true module:exam grant
@@ -160,6 +162,7 @@ PLATFORM_ADMIN EntitiesViewsManage true core core
 PLATFORM_ADMIN ExamAuthoringWrite true module:exam core
 PLATFORM_ADMIN ExamCertificateIssue true module:exam core
 PLATFORM_ADMIN ExamGradingRead true module:exam core
+PLATFORM_ADMIN ExamGradingWrite true module:exam core
 PLATFORM_ADMIN ExamSessionRead true module:exam core
 PLATFORM_ADMIN ExamSessionReportEvent true module:exam core
 PLATFORM_ADMIN ExamSessionSave true module:exam core
@@ -224,6 +227,7 @@ PROCESS_DESIGNER EntitiesViewsManage false core -
 PROCESS_DESIGNER ExamAuthoringWrite false module:exam -
 PROCESS_DESIGNER ExamCertificateIssue false module:exam -
 PROCESS_DESIGNER ExamGradingRead false module:exam -
+PROCESS_DESIGNER ExamGradingWrite false module:exam -
 PROCESS_DESIGNER ExamSessionRead false module:exam -
 PROCESS_DESIGNER ExamSessionReportEvent false module:exam -
 PROCESS_DESIGNER ExamSessionSave false module:exam -
@@ -288,6 +292,7 @@ PROCESS_OPERATOR EntitiesViewsManage false core -
 PROCESS_OPERATOR ExamAuthoringWrite false module:exam -
 PROCESS_OPERATOR ExamCertificateIssue false module:exam -
 PROCESS_OPERATOR ExamGradingRead false module:exam -
+PROCESS_OPERATOR ExamGradingWrite false module:exam -
 PROCESS_OPERATOR ExamSessionRead false module:exam -
 PROCESS_OPERATOR ExamSessionReportEvent false module:exam -
 PROCESS_OPERATOR ExamSessionSave false module:exam -
@@ -352,6 +357,7 @@ TASK_WORKER EntitiesViewsManage false core -
 TASK_WORKER ExamAuthoringWrite false module:exam -
 TASK_WORKER ExamCertificateIssue false module:exam -
 TASK_WORKER ExamGradingRead false module:exam -
+TASK_WORKER ExamGradingWrite false module:exam -
 TASK_WORKER ExamSessionRead false module:exam -
 TASK_WORKER ExamSessionReportEvent false module:exam -
 TASK_WORKER ExamSessionSave false module:exam -
@@ -416,6 +422,7 @@ TENANT_ADMIN EntitiesViewsManage true core core
 TENANT_ADMIN ExamAuthoringWrite true module:exam core
 TENANT_ADMIN ExamCertificateIssue true module:exam core
 TENANT_ADMIN ExamGradingRead true module:exam core
+TENANT_ADMIN ExamGradingWrite true module:exam core
 TENANT_ADMIN ExamSessionRead true module:exam core
 TENANT_ADMIN ExamSessionReportEvent true module:exam core
 TENANT_ADMIN ExamSessionSave true module:exam core
@@ -480,6 +487,7 @@ TENANT_AUDITOR EntitiesViewsManage false core -
 TENANT_AUDITOR ExamAuthoringWrite false module:exam -
 TENANT_AUDITOR ExamCertificateIssue false module:exam -
 TENANT_AUDITOR ExamGradingRead false module:exam -
+TENANT_AUDITOR ExamGradingWrite false module:exam -
 TENANT_AUDITOR ExamSessionRead false module:exam -
 TENANT_AUDITOR ExamSessionReportEvent false module:exam -
 TENANT_AUDITOR ExamSessionSave false module:exam -
