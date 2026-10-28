@@ -470,6 +470,30 @@ defmodule Letflow.Api.Error do
   end
 
   @doc """
+  HTTP 422 — Form Hook Refused (GH #3409, decision 0067 D8, F-3). The node's `form_validation`
+  script refused the completion; nothing was written and the corrected request can be resent.
+
+  The body carries the constant `code` `"form_hook_refused"`, the manifest's refusal code under
+  `hook_code` and the `fields` entries (`field`, `code`) in the order the script returned them.
+  The constructor takes a binary code and `%{field:, code:}` entries and nothing else, so no
+  source, key, version, sha256 or submitted value can reach the body (INV-2, INV-4).
+  """
+  @spec form_hook_refused(String.t(), [%{field: String.t(), code: String.t()}]) :: t()
+  def form_hook_refused(code, fields) when is_binary(code) and is_list(fields) do
+    %__MODULE__{
+      type: @problems_base <> "form-hook-refused",
+      title: "Form Hook Refused",
+      status: 422,
+      detail: "the form validation refused the submitted output; correct it and resend",
+      extensions: %{
+        "code" => "form_hook_refused",
+        "hook_code" => code,
+        "fields" => Enum.map(fields, fn %{field: f, code: c} -> %{"field" => f, "code" => c} end)
+      }
+    }
+  end
+
+  @doc """
   HTTP 422 — a completion submitted the redaction sentinel for a restricted variable the caller
   cannot read (decision 0062 R8/R9). Nothing was written. The body carries the constant `code`
   `"redacted_value_submitted"` and the sorted key NAMES; no value, label or sentinel text.
