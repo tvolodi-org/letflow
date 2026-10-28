@@ -34,7 +34,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.ColumnPromotion
 
-  @types ~w(catalog_item catalog_uom)
+  @types ~w(catalog_counterparty catalog_item catalog_uom)
   @trace "gh2663-catalog-items-install-fixed-trace"
 
   @install_opts Letflow.Routers.TenantModules.init([])
@@ -153,6 +153,13 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
     Map.merge(%{"code" => code, "name" => "UoM #{code}", "active" => true}, extra)
   end
 
+  defp values("catalog_counterparty", code, extra) do
+    Map.merge(
+      %{"code" => code, "name" => "Supplier #{code}", "kind" => "supplier", "active" => true},
+      extra
+    )
+  end
+
   defp values("catalog_item", code, extra) do
     Map.merge(
       %{
@@ -211,7 +218,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
       assert module_installed?(ctx.schema)
     end
 
-    test "I-02: afterwards exactly the two types exist, both active, each managed_by catalog_items",
+    test "I-02: afterwards exactly the three types exist, all active, each managed_by catalog_items",
          ctx do
       install_catalog!(ctx)
 
@@ -235,8 +242,11 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
 
       assert {"catalog_item", "base_uom_id"} in expected
       assert {"catalog_item", "kind"} in expected
+      assert {"catalog_counterparty", "kind"} in expected
+      assert {"catalog_counterparty", "tax_id"} in expected
       # `name` is not queried, so it has no column.
       refute {"catalog_item", "name"} in expected
+      refute {"catalog_counterparty", "name"} in expected
       refute {"catalog_uom", "name"} in expected
     end
   end
@@ -287,6 +297,23 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
       assert conn.status == 422, conn.resp_body
       assert Jason.decode!(conn.resp_body)["detail"] == "module installation failed"
       assert rows(ctx.schema) == [{"catalog_item", nil, :inactive}]
+      refute module_installed?(ctx.schema)
+      assert promotions(ctx.tenant_id) == []
+    end
+  end
+
+  describe "AC3: a tenant-created catalog_counterparty blocks the install too" do
+    test "N-03: managed_name_taken for the supplier type, nothing else stays", ctx do
+      Letflow.ManagedTypesSupport.plant_legacy_squat!(ctx.schema, "catalog_counterparty", [
+        %{name: "address", type: :string}
+      ])
+
+      assert Installs.install("catalog_items", Ecto.UUID.generate(),
+               prefix: ctx.schema,
+               rationale: "GH-3407 conflict test"
+             ) == {:error, {:pack_install_failed, {:managed_name_taken, "catalog_counterparty"}}}
+
+      assert rows(ctx.schema) == [{"catalog_counterparty", nil, :inactive}]
       refute module_installed?(ctx.schema)
       assert promotions(ctx.tenant_id) == []
     end
@@ -345,7 +372,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
       end
     end
 
-    test "X-05: the same code is accepted across the two types (constraints are per type)", ctx do
+    test "X-05: the same code is accepted across types (constraints are per type)", ctx do
       assert {:ok, _} = owner_create(ctx.schema, "catalog_uom", values("catalog_uom", "kg"))
       assert {:ok, _} = owner_create(ctx.schema, "catalog_item", values("catalog_item", "kg"))
     end
@@ -373,7 +400,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
 
   # ── managed lock ────────────────────────────────────────────────────────────────────────────
 
-  describe "managed lock: the generic routes refuse both catalog types" do
+  describe "managed lock: the generic routes refuse all three catalog types" do
     setup ctx do
       install_catalog!(ctx)
       :ok
@@ -422,7 +449,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
       other = fresh_tenant!("gh2663-cat-b")
 
       install_catalog!(ctx)
-      assert length(rows(ctx.schema)) == 2
+      assert length(rows(ctx.schema)) == 3
 
       assert rows(other.schema_name) == []
       refute module_installed?(other.schema_name)

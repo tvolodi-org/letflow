@@ -10,6 +10,10 @@ defmodule Letflow.Entities.Views.View do
   (`{"field"}`) and `aggregates` (`{"fn"}` or `{"fn","field"}`) in the wire shape of
   `POST /entities/query/aggregate`; its `columns` and `sort` are `[]`. A list view keeps
   `group_by` and `aggregates` empty (a table CHECK enforces it).
+
+  `"graph"` (REQ-613) stores a `filter`, exactly one `group_by`, one to three `aggregates` and a
+  `chart_type` (`bar`, `line`, `pie`); its `columns` and `sort` are `[]`. `chart_type` is NULL
+  for list and pivot views (a table CHECK enforces it).
   """
 
   use Ecto.Schema
@@ -25,6 +29,7 @@ defmodule Letflow.Entities.Views.View do
     field(:kind, :string, default: "list")
     field(:group_by, {:array, :map}, default: [])
     field(:aggregates, {:array, :map}, default: [])
+    field(:chart_type, :string)
     field(:created_by, :binary_id)
     field(:updated_by, :binary_id)
 

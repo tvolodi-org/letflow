@@ -1,0 +1,141 @@
+# T-0860 (BA): TENANT ADMIN group, scenario 40: the administrator stores the company logo, replaces it, deletes it and stores it again.
+# Covers REQ-590 criteria 1 (switch on: the routes exist), 3 (valid image stored; a second upload replaces the same single row), 9 (delete answers 200 when a logo existed and not-found when none; upload works again) and 10 (audit entry
+# for upload and delete with type, size and hash and no image bytes; the existing logo_url rule is unchanged).
+# Sources: docs/requirements.yaml REQ-590 criteria 1, 3, 9, 10; lib/letflow/routers/tenant_logo.ex (PUT answers 200 with content_type, byte_size, content_hash, updated_at; DELETE answers 200 with deleted true, or the ordinary
+# not-found when no row); lib/letflow/identity/tenant_logo.ex (validate/2, put/6, delete/4); docs/roles.md (TenantSettingsManage: tenant administrator); test/fixtures/uat/actors.yaml.
+# Environment: the upload switch (a platform setting, default off) must be ON. No roster actor can change a platform setting, so step 1 is the QA environment's own setup step (actor-system-qa-setup). If after step 1 the first
+# upload does not answer 200 but 404, the runner reports the scenario BLOCKED, not failed; scenario 43 covers the switched-off case in its own pass.
+# Bytes (exact): PNG-OK = the 67 bytes with hex 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082, declared image/png.
+# JPG-OK = the 29 bytes with hex FFD8FFE000104A46494600010100000000000000000000000000000000, declared image/jpeg.
+# Part 1 has no read route: the stored row, the audit entries and the other company's row are judged as system_state, read from the database. The public read is the next requirement and has its own scenarios.
+# Not covered here: criterion 2 (singleton constraint by a direct database insert), the no-database-call-without-company-scope clause of criterion 8 and criterion 11 (reviews, route pins, static checks) - all are test-suite matters, not reachable by a user.
+# Also not covered here, for the same reason (test suite or code review, no user step can show them): criterion 7's unchanged permission golden file and the test that the route is listed with the tenant-settings
+# permission in the authorization route table; criterion 8's move of the tenant table-list pin by +1; criterion 10's clause that the audit entry is written in the same transaction as the row change, the test that
+# drops the audit table and shows the failure is rescued and the logo row left unchanged, and the code-review checks that the logo_url validation function is unchanged and no migration touches the tenant settings.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are in scenario 42.
+---
+id: tenant-administration-40-tenant-logo-upload-replace-delete
+scope: tenant-administration
+title: The administrator stores the company logo, replaces it with another, deletes it, and can store it again
+version: "1.0"
+tags: [tenant-admin, tenant-logo, upload, replace, delete, audit]
+
+description: >
+  With the logo-upload switch turned on for QA, the administrator of SwiftRoute uploads a PNG as the company logo and gets the type, size, fingerprint and time back. Uploading a JPEG replaces it, so the
+  company still has exactly one logo. Deleting it answers success; deleting again answers not-found; a new upload then works. Every upload and delete leaves an audit entry with type, size and fingerprint and
+  never the picture itself. The text setting logo_url keeps its old rule: a value that is not a web address is still refused.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The logo-upload switch is turned ON for QA by step 1 (it is off by default in the product).
+    check: system_seeded
+    detail: If the QA environment cannot turn the switch on, report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: SwiftRoute has no stored logo at the start.
+    check: system_seeded
+    detail: Setup-prepared. If a logo exists, delete it first and note that in the report.
+  - description: The audit trail of SwiftRoute can be read by the runner from the database.
+    check: system_seeded
+    detail: If it cannot be read, report BLOCKED for EO-004 only.
+
+steps:
+  - step: 1
+    actor: actor-system-qa-setup
+    action: >
+      The QA environment turns the company-logo upload switch on (the platform setting that is off by default) and restarts the service if the environment requires it.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to delete the logo although none is stored. The answer (status and body) is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads PNG-OK declared image/png. The answer (status and body) is noted, including the fingerprint H1.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads JPG-OK declared image/jpeg. The answer is noted, including the fingerprint H2.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator deletes the logo. The answer is noted.
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to delete the logo again. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator uploads PNG-OK declared image/png again. The answer is noted.
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to change the text setting logo_url of the company to "javascript:alert(1)", which is not a web address.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A valid PNG is accepted and the answer describes what was stored.
+    verification:
+      method: http_status
+      detail: Step 3 answers 200. The body gives content type image/png, the byte size equal to the length of PNG-OK, a sha256 fingerprint H1 in hexadecimal and an update time.
+      evidence: The answer of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company administrator cannot give the company a logo, which blocks the branding that BilimBaga's retirement needs.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The second upload replaces the first; the company has one logo only.
+    verification:
+      method: system_state
+      detail: Read from the SwiftRoute schema after step 4. Exactly one logo row exists, with content type image/jpeg, the byte size of JPG-OK and the fingerprint H2, which differs from H1, and its updated_by is the user id of actor-swiftroute-alice. Step 4 answered 200.
+      evidence: The SwiftRoute logo table, read directly, and the answer of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Old logos pile up or the new one is not used.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: Delete removes the logo; a second delete is not-found; an upload then works.
+    verification:
+      method: http_status
+      detail: Step 2 answers 404 with the ordinary not-found body. Step 5 answers 200 and the logo table of SwiftRoute is empty afterwards. Step 6 answers 404 with the same ordinary body as step 2. Step 7 answers 200 and one row exists.
+      evidence: The answers of steps 2, 5, 6 and 7 and the logo table read after steps 5 and 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A wrongly uploaded logo cannot be removed, or the company cannot start again afterwards.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: Each upload and delete leaves one audit entry without the picture.
+    verification:
+      method: system_state
+      detail: Read from the audit trail of SwiftRoute after step 7. There are entries "tenant_logo.upload" for steps 3, 4 and 7 and "tenant_logo.delete" for step 5 only, none for the refused delete of steps 2 and 6. Each upload entry holds content type, byte size and fingerprint (equal to H1, H2 and H1); the "tenant_logo.delete" entry of step 5 holds content type image/jpeg, the byte size of JPG-OK (29) and fingerprint H2; the entries contain no byte sequence of PNG-OK or JPG-OK.
+      evidence: The audit entries of SwiftRoute, read directly.
+    on_fail:
+      severity: MAJOR
+      business_impact: Branding changes cannot be traced, or the audit trail stores pictures.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: The old text setting logo_url keeps its rule.
+    verification:
+      method: http_status
+      detail: Step 8 answers 422 and the stored logo_url of SwiftRoute is unchanged.
+      evidence: The answer of step 8 and the company settings read afterwards.
+    on_fail:
+      severity: MINOR
+      business_impact: A harmful address could be stored as the logo.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the logo of SwiftRoute if one is stored. The switch stays on in QA only while the scenarios of this group run; the environment turns it off again afterwards (it is off by default).

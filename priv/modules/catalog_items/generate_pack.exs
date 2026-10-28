@@ -1,4 +1,4 @@
-# Generates priv/modules/catalog_items/pack.json from the two entity-definition documents under
+# Generates priv/modules/catalog_items/pack.json from the entity-definition documents under
 # priv/modules/catalog_items/entity_definitions/ (GH #2663 / REQ-474). Same provenance choice as the exam
 # pack (priv/modules/exam/generate_pack.exs): pack.json is committed and this script is the only
 # thing that may write it. A drift-guard test that re-reads the sources and compares is planned at
@@ -15,6 +15,7 @@ definitions_dir = Path.join(pack_dir, "entity_definitions")
 entity_types = ~w(
   catalog_uom
   catalog_item
+  catalog_counterparty
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole

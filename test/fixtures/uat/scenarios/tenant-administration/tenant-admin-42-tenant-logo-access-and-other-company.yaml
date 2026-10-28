@@ -1,0 +1,138 @@
+# T-0860 (BA): TENANT ADMIN group, scenario 42: only a company administrator may store or delete the company logo, and an administrator can only ever change the logo of their own company.
+# Covers REQ-590 criteria 7 (PUT and DELETE refused for a user without the right to manage tenant settings and for a caller who is not signed in) and 8 (companies A and B each hold a logo; upload and delete by A's
+# administrator change only A's logo, B's bytes and fingerprint stay as they were).
+# Sources: docs/requirements.yaml REQ-590 criteria 7, 8; lib/letflow/routers/tenant_logo.ex (the company comes from the sign-in only; no request member names a company); docs/roles.md (TenantSettingsManage: PLATFORM_ADMIN and
+# TENANT_ADMIN yes; TASK_WORKER and TENANT_AUDITOR no); test/fixtures/uat/actors.yaml (alice and the auditor of SwiftRoute, marco task worker of SwiftRoute, the administrator of BilimBaga).
+# Environment: the upload switch must be ON (scenario 40 step 1). If step 2 answers 404, the runner reports the scenario BLOCKED, not failed.
+# Bytes (exact, hex): PNG-OK = 89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D49444154789C63000100000500010D0A2DB40000000049454E44AE426082 (67 bytes).
+# JPG-OK = FFD8FFE000104A46494600010100000000000000000000000000000000 (29 bytes). WEBP-OK = 52494646000000005745425000000000 (16 bytes).
+# Part 1 has no read route: the stored rows are judged as system_state, read from the database of each company.
+# The platform operator is not a step: the route takes the company from the sign-in, so the operator would only reach the platform company's own logo, never a customer's; there is no other-company request to refuse.
+# The sensitive action "change users" and the others (approve, pay or release, see sensitive data) are not in this flow; the refusals here are the refusals of changing the company's branding.
+---
+id: tenant-administration-42-tenant-logo-access-and-other-company
+scope: tenant-administration
+title: A task worker, a tenant auditor and a caller who is not signed in cannot store or delete the company logo, and an administrator's upload or delete never touches another company's logo
+version: "1.0"
+tags: [tenant-admin, tenant-logo, access, refusal, other-company]
+
+description: >
+  With the logo-upload switch on, the task worker and the read-only auditor of SwiftRoute each try to upload and to delete the company logo and are refused, and so is a caller who is not signed in. The
+  administrator of SwiftRoute uploads a logo and the administrator of BilimBaga uploads another one. The SwiftRoute administrator replaces the SwiftRoute logo and then deletes it; throughout, the BilimBaga logo
+  is byte for byte what the BilimBaga administrator stored. The BilimBaga administrator then deletes the BilimBaga logo and SwiftRoute is not affected.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-marco
+  auditor_a: actor-swiftroute-auditor
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: The logo-upload switch is ON for QA.
+    check: system_seeded
+    detail: If step 2 answers 404, report BLOCKED for the whole scenario. Do not count it as a failure of the product.
+  - description: Neither SwiftRoute nor BilimBaga has a stored logo at the start.
+    check: system_seeded
+    detail: Setup-prepared. If one exists, delete it first and note that in the report.
+  - description: The runner can read the logo table of SwiftRoute and of BilimBaga from the database.
+    check: system_seeded
+    detail: If it cannot, report BLOCKED for EO-002 only.
+
+steps:
+  - step: 1
+    actor: worker_a
+    action: >
+      The task worker tries to upload PNG-OK declared image/png as the company logo.
+    expect_refusal: true
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute uploads PNG-OK declared image/png. The answer is noted with the fingerprint HA1.
+    via: api
+  - step: 3
+    actor: worker_a
+    action: >
+      The task worker tries to delete the company logo.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: auditor_a
+    action: >
+      The auditor tries to upload PNG-OK declared image/png as the company logo.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: auditor_a
+    action: >
+      The auditor tries to delete the company logo.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: actor-any
+    action: >
+      A caller who is not signed in tries to upload PNG-OK declared image/png to the company logo place of SwiftRoute.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: actor-any
+    action: >
+      A caller who is not signed in tries to delete the company logo.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The administrator of BilimBaga uploads JPG-OK declared image/jpeg. The answer is noted with the fingerprint HB.
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute uploads WEBP-OK declared image/webp. The answer is noted with the fingerprint HA2.
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute deletes the company logo. The answer is noted.
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: >
+      The administrator of BilimBaga deletes the company logo. The answer is noted.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Without the right to manage tenant settings, and without a sign-in, neither upload nor delete is allowed.
+    verification:
+      method: http_status
+      detail: Steps 1, 3, 4 and 5 each answer 403; for each of the upload and the delete, the auditor's 403 equals the task worker's 403 in status and body. Steps 6 and 7 answer 401. Step 2 answered 200, so the refusals are not caused by the switch.
+      evidence: The six refusals of steps 1, 3, 4, 5, 6, 7 and the answer of step 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Anyone could change or remove a company's brand picture.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The refused requests change nothing.
+    verification:
+      method: system_state
+      detail: Read from the SwiftRoute logo table after step 7. Exactly one row exists, with the fingerprint HA1 of step 2. The audit trail of SwiftRoute has one entry "tenant_logo.upload" (step 2) and no "tenant_logo.delete".
+      evidence: The SwiftRoute logo table and audit trail, read directly after step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused caller still altered the logo.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: An administrator's upload and delete change only their own company's logo.
+    verification:
+      method: system_state
+      detail: Read from the BilimBaga logo table after steps 8, 9 and 10 - one row each time, content type image/jpeg, byte size 29, fingerprint HB, bytes equal to JPG-OK. Read from the SwiftRoute table after step 9 - one row with fingerprint HA2 (HA2 differs from HA1) - and after step 10 - empty. After step 11 the BilimBaga table is empty and the SwiftRoute table is still empty. Steps 8 to 11 each answered 200.
+      evidence: Both companies' logo tables, read directly after steps 8, 9, 10 and 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could overwrite or delete another company's logo, a breach of the separation between companies.
+      suggested_action: route_to_elixir_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the logo of SwiftRoute and of BilimBaga if either is stored.
