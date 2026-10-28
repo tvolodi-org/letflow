@@ -3,7 +3,7 @@ defmodule Letflow.Modules.Exam.Grading do
   GH #3324 / REQ-588 part A -- the examiner's read side of the manual short-text grading queue.
 
   Read-only: `list_queue/2` and `get_answer/3`. Marking an answer and finalising the session are part B
-  and live elsewhere.
+  and live in `Letflow.Modules.Exam.Session.grade_answer/5`.
 
   ## Tenant isolation (INV-1, INV-5)
 
