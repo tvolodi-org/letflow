@@ -3,7 +3,9 @@ defmodule Letflow.Identity.TenantLogo do
   REQ-590 / GH #3338 part 1: the tenant's uploaded logo, one row per tenant schema
   (`tenant_logos`, singleton `id = 1`, no `tenant_id` column: the schema prefix is the tenant).
 
-  Nothing reads the image back yet (REQ-591) and `tenants.settings["logo_url"]` is untouched.
+  REQ-591 reads the image back: `fetch/1` for the public `GET /api/tenant-config/logo`, `exists?/1` and
+  `public_path/2` for `branding.logo_url` in both tenant-config responses. `tenants.settings["logo_url"]`
+  is never overwritten.
   The feature is behind `:tenant_logo_upload_enabled` (default false).
 
   `validate/2` runs the checks in a fixed order, the cheap ones first: (1) the declared type is
@@ -26,7 +28,9 @@ defmodule Letflow.Identity.TenantLogo do
 
   alias Ecto.Multi
   alias Letflow.Audit
+  alias Letflow.Identity.Tenant
   alias Letflow.Repo
+  alias Letflow.TenantProvisioning
 
   @allowed_content_types ["image/png", "image/jpeg", "image/webp"]
   @max_bytes 524_288
@@ -180,6 +184,65 @@ defmodule Letflow.Identity.TenantLogo do
   rescue
     exception -> audit_failure(tenant_id, exception)
   end
+
+  @doc """
+  The one guard for serving or advertising a logo (REQ-591): a non-empty `idp_realm_id` and a
+  status other than `:inactive`, the same miss guard as both tenant-config resolvers.
+  """
+  @spec servable?(%Tenant{} | term()) :: boolean()
+  def servable?(%Tenant{idp_realm_id: realm_id, status: status}),
+    do: is_binary(realm_id) and realm_id != "" and status != :inactive
+
+  def servable?(_other), do: false
+
+  @doc """
+  The stored image of a tenant that already passed `servable?/1`, read with that tenant's own
+  prefix (INV-1). Any miss or failure is `:none` (INV-5, INV-8).
+  """
+  @spec fetch(%Tenant{}) :: {:ok, %{content_type: String.t(), data: binary()}} | :none
+  def fetch(%Tenant{id: tenant_id}) do
+    with {:ok, prefix} <- TenantProvisioning.schema_name_for_tenant(tenant_id),
+         query =
+           from(l in __MODULE__,
+             where: l.id == 1,
+             select: %{content_type: l.content_type, data: l.data}
+           ),
+         %{} = logo <- Repo.one(query, prefix: prefix) do
+      {:ok, logo}
+    else
+      _none -> :none
+    end
+  rescue
+    _exception -> :none
+  end
+
+  @doc """
+  Whether the tenant has an uploaded logo. Never loads the bytes (INV-2); a failure is `false`.
+  """
+  @spec exists?(%Tenant{}) :: boolean()
+  def exists?(%Tenant{id: tenant_id}) do
+    with {:ok, prefix} <- TenantProvisioning.schema_name_for_tenant(tenant_id),
+         query = from(l in __MODULE__, where: l.id == 1, select: l.id),
+         1 <- Repo.one(query, prefix: prefix) do
+      true
+    else
+      _none -> false
+    end
+  rescue
+    _exception -> false
+  end
+
+  @doc """
+  The public path that replaces `branding.logo_url`, or `nil`. The flag is tested first, so with
+  the flag off there is no database read.
+  """
+  @spec public_path(%Tenant{} | nil, String.t()) :: String.t() | nil
+  def public_path(%Tenant{} = tenant, slug) when is_binary(slug) do
+    if enabled?() and servable?(tenant) and exists?(tenant),
+      do: "/api/tenant-config/logo?slug=" <> URI.encode_www_form(slug)
+  end
+
+  def public_path(_tenant, _slug), do: nil
 
   defp run(multi, tenant_id) do
     case Repo.transaction(multi) do

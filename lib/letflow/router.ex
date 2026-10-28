@@ -9,6 +9,7 @@ defmodule Letflow.Router do
   |--------|---------------------|------------------------------------|-----------|-----------|
   | GET    | /health             | inline 200 `{"status":"ok","sha":…}` | none    | none      |
   | GET    | /api/tenant-config  | `Letflow.Routers.TenantConfig`     | **none**  | global `tenants` |
+  | GET    | /api/tenant-config/logo | `Letflow.Routers.TenantConfig` | **none** | uploaded logo (REQ-591), flag-gated |
   | GET    | /api/mobile/tenant-config | `Letflow.Routers.MobileTenantConfig` | **none** | global `tenants` |
   | GET    | /metrics            | `Letflow.Routers.MetricsExposition`| **none**  | none (ETS only)  |
   | GET    | /api/public/:kind/:handle | `Letflow.Routers.PublicRead` | **none**  | global `public_read_handles` + tenant-scoped resource |
