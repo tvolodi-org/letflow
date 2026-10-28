@@ -901,7 +901,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-590 / GH #3338: empty per-tenant singleton table for the uploaded tenant logo (part 1,
     # storage and write path only, behind :tenant_logo_upload_enabled). No existing row altered.
     {20_261_027_500_001, Letflow.Repo.Migrations.CreateTenantLogos,
-     "20261027500001_create_tenant_logos.exs"}
+     "20261027500001_create_tenant_logos.exs"},
+    # REQ-544 / GH #3162 part 2: empty per-tenant table for the procurement decision record (and its
+    # idempotency keys). No existing row altered.
+    {20_261_028_100_001, Letflow.Repo.Migrations.CreateProcurementDecisions,
+     "20261028100001_create_procurement_decisions.exs"}
   ]
 
   @doc """
