@@ -101,7 +101,8 @@ defmodule Letflow.Api.TasksRouteClassesTest do
       assert RouteScope.audit_routes(routes, snapshot) == []
       # REQ-565 (GH #3201) added the five integration-mappings lines (123).
       # GH #3324 (REQ-588 part A) added the two exam grading-queue read lines (140).
-      assert length(snapshot) == 140
+      # GH #3338 (REQ-590) added the two tenant logo lines (142).
+      assert length(snapshot) == 142
 
       for line <- @filter_lines ++ @resolver_lines do
         refute line in snapshot, line
