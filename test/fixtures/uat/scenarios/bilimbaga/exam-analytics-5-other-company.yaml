@@ -1,0 +1,107 @@
+# T-0851 (BA-BILIMBAGA): exam analytics, one company never sees another company's exam results.
+# Covers REQ-594 criterion 8 (Test R-tenant, INV-1 and INV-10): the reports of one company's administrator count that company's attempts only;
+# the request has no company parameter and a company named in the request is ignored; another company's administrator gets nothing of it.
+# Sources: docs/requirements.yaml REQ-594 (criterion 8); docs/migration/decisions/0006 (tenant isolation by schema, D2) as cited by
+# docs/agents/instructions/security-invariants.md INV-1 and INV-10; test/fixtures/uat/actors.yaml (actor-bilimbaga-admin,
+# actor-swiftroute-alice TENANT_ADMIN).
+# Not covered: a platform operator's view (criterion 8, last clause): the roster's platform actor is allowed only in platform-scope scenarios
+# and on a route that takes the company from the sign-in it would see only the platform company's own (empty) data, which is a no-data-leak
+# check for the backend test, not a UAT refusal.
+# Environment: the exam module exists only in Bilimbaga, which the scenario relies on (precondition); if a second company with the module
+# and its own attempts exists, the final comparison in step 4 may also be run against it.
+# The four sensitive actions: "see sensitive data" is steps 2 to 4 (another company's results); the others are not in this flow.
+---
+id: bilimbaga-exam-analytics-5-other-company
+scope: bilimbaga
+title: The exam reports of one company count that company's attempts only, and another company's administrator gets none of them, even when naming the company
+version: "1.0"
+tags: [exam_analytics, cross_tenant, isolation, refusal]
+
+description: >
+  The administrator of Bilimbaga asks for the finished-attempt count, the passes and the per-question numbers of "UAT analytics exam" and
+  receives Bilimbaga's numbers. The administrator of SwiftRoute, a company that has no exam module and no exam attempts, asks for the same
+  reports of the same exam, once plainly and once with Bilimbaga named as the company in the request: every request is refused as asking for
+  something that does not exist, and no Bilimbaga number or name appears in any answer. The Bilimbaga numbers are the same afterwards.
+  Preconditions: see below.
+
+actors:
+  admin_a: actor-bilimbaga-admin
+  admin_b: actor-swiftroute-alice
+
+preconditions:
+  - description: Bilimbaga holds the exam "UAT analytics exam" with finished attempts as in scenario exam-analytics-1
+    check: custom
+    detail: Prepared by the test setup; without it the scenario is BLOCKED.
+  - description: SwiftRoute does not have the exam module installed and has no exam attempts
+    check: system_seeded
+    detail: Per the QA environment notes in test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-assignment-3-refusal-text-and-other-company.yaml no other QA company has the exam module. If SwiftRoute has it, steps 2 and 3 return empty results instead of a refusal and the scenario is BLOCKED for those steps; the empty result must still show zero and nothing of Bilimbaga.
+  - description: The Bilimbaga administrator and the SwiftRoute administrator can sign in
+    check: system_seeded
+    detail: The roster notes that a test token for the Bilimbaga administrator needs a mapping that is not yet approved; without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin_a
+    action: >
+      The Bilimbaga administrator asks for the number of finished attempts, the number that passed, and the number of graded answers per
+      question of "UAT analytics exam", and notes the answers.
+    via: api
+  - step: 2
+    actor: admin_b
+    action: >
+      The SwiftRoute administrator asks for the number of finished attempts of "UAT analytics exam".
+    via: api
+    expect_refusal: true
+  - step: 3
+    actor: admin_b
+    action: >
+      The SwiftRoute administrator asks for the same number, and for the graded answers per question, with Bilimbaga named as the company in
+      the address and with the body key for the company set to Bilimbaga.
+    via: api
+    expect_refusal: true
+    input:
+      company_named_in_request: Bilimbaga
+  - step: 4
+    actor: admin_a
+    action: >
+      The Bilimbaga administrator repeats step 1 and compares the answers with the notes.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The Bilimbaga administrator sees Bilimbaga's numbers
+    verification:
+      method: api_response
+      detail: "Step 1 shows the numbers of scenarios exam-analytics-1 and 2 (6 finished, 3 passed, the per-question numbers); no number of another company is added"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Results that mix companies are wrong for every company that reads them.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: The SwiftRoute administrator is refused every report request about Bilimbaga's exam, with or without Bilimbaga named
+    verification:
+      method: http_status
+      detail: "Steps 2 and 3 are each refused as asking for a record type that does not exist in SwiftRoute; the answers show no count and no name or id from Bilimbaga, and the answer of step 3 is the same as that of step 2"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        One exam body reading another's results exposes candidates' personal results and breaks the promise made to every client company.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: Bilimbaga's numbers are unchanged after the attempts of the other company
+    verification:
+      method: api_response
+      detail: "Step 4 shows the same numbers as step 1"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A request from outside that changes or removes results would show the isolation is not real.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing is created by this scenario.

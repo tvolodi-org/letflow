@@ -1,0 +1,59 @@
+# T-0851 (BA-BILIMBAGA): exam analytics, the read-only auditor and the task worker may ask for the reports; an automation runner may not.
+# Covers REQ-594 criterion 7 (Test R-perm) in part: TENANT_AUDITOR and TASK_WORKER get an answer. The AGENT_RUNNER refusal is NOT written as
+# a step: the actor roster has no AGENT_RUNNER actor and none may be invented (BLOCKED, reported in the task findings).
+# Sources: docs/requirements.yaml REQ-594 (ACCESS RULE, criterion 7); docs/roles.md (EntitiesAggregate: yes for TASK_WORKER and TENANT_AUDITOR,
+# no for AGENT_RUNNER); test/fixtures/uat/actors.yaml (actor-swiftroute-auditor TENANT_AUDITOR, actor-swiftroute-tobias TASK_WORKER).
+# Environment limit: the exam module is installed only in Bilimbaga and the roster has no auditor or task worker there, so the run is BLOCKED
+# (sidecar test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-analytics-4-access-auditor-worker-agent-runner.yaml).
+# Sensitive actions: read-only; "see sensitive data" is checked in scenario exam-analytics-3.
+---
+id: bilimbaga-exam-analytics-4-access-auditor-worker-agent-runner
+scope: bilimbaga
+title: The read-only auditor and the task worker of a company with the exam module may ask for the exam reports
+version: "1.0"
+tags: [exam_analytics, access_control]
+
+description: >
+  In a company that has the exam module installed and finished attempts of "UAT analytics exam", the read-only auditor and a task worker each
+  ask for the finished-attempt count of that exam and for the per-question numbers, and get an answer. Both roles hold the right to run
+  aggregate queries; neither can change anything. The automation runner role does not hold that right and is refused; that refusal cannot be
+  scripted until the roster has an automation-runner actor. Preconditions: see below.
+
+actors:
+  auditor: actor-swiftroute-auditor
+  worker: actor-swiftroute-tobias
+
+preconditions:
+  - description: The company of the auditor and the task worker has the exam module installed and the exam "UAT analytics exam" with finished attempts, prepared as in scenario exam-analytics-1
+    check: custom
+    detail: SwiftRoute (where the roster has an auditor and a task worker) does not have the exam module; the scenario is BLOCKED until a company with the module and both actors exists. UAT assumption, to be confirmed by the process owner - the roster actors of SwiftRoute stand in for an auditor and a worker of that company.
+
+steps:
+  - step: 1
+    actor: auditor
+    action: >
+      The auditor asks for the number of finished attempts of "UAT analytics exam" and for the number of graded answers per question, and notes
+      the answers.
+    via: api
+  - step: 2
+    actor: worker
+    action: >
+      The task worker asks for the same two things and notes the answers.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The auditor and the task worker each receive the report answers, with the same numbers
+    verification:
+      method: http_status
+      detail: "Steps 1 and 2 succeed; the numbers equal those the administrator sees in scenario exam-analytics-1 and 2"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An auditor who cannot see results cannot do the review the role exists for.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing is created by this scenario.
