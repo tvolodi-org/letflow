@@ -43276,3 +43276,100 @@ requirements:
       - "The backoff length before a script_busy re-run is not in 0067 ('short backoff'); the implementer picks a fixed figure and states it in the PR; it is not a setting."
       - "Still open in 0067 'Not decided here' and not decided by this entry: any wall-clock figure between 50 ms and the 0053 D7 maxima, the maximum number of fields entries in a refusal, the HTTP status numbers of the D5 infrastructure codes, whether the 403 of a wrong assignee (ISS-0942) collapses to the not-found answer, a hook 3 with entity reads, and the behaviour of any future automatic completer."
     depends_on: [REQ-569, REQ-581]
+  - id: REQ-617
+    title: "Solution-pack update plan and apply read overrides, slice S4: override field in compute_pack_update_plan/5, override_conflict blocks apply, kept/advance/orphan rules (decision 0069 D8 S4)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-596 -- override storage (REQ-596) must be on main first
+    # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D3 (kept, re-checked, orphaned, property gone; "an update never overwrites or deletes an override"; resolution storage), D4 (compute_pack_update_plan/5 and apply_pack_update/6 stay the single update path; classify_artefact/3 truth table unchanged; override_conflict blocks apply like an unresolved conflict; no override means present replies), D5 (applying an update that resolves an override conflict also needs the new permission; audit without values; INV-2), D6 (tenant-schema table, global pack_update_resolutions never carries patch values), D7 (existing tenants), D8 slice S4 and its tests S4-keep, S4-conflict-resolved, S4-never-overwrites, S4-orphan, S4-no-override-unchanged, "Threats for SECURITY-REVIEWER"; docs/requirements.yaml REQ-596 (the table solution_pack_overrides, the SolutionOverridesManage permission, the closed property list, append-only history, "Orphaned status is S4's"), REQ-573 (version_not_newer, version_downgrade); code read: lib/letflow/definitions.ex (compute_pack_update_plan/5, classify_artefact/3, plan_entry and plan types, resolution_exists?/5), lib/letflow/definitions/solution_pack.ex (apply_pack_update/6, run_apply_update/8, check_no_unresolved_conflicts/1, apply_entry/6, check_target_version/3), lib/letflow/definitions/pack_update_resolution.ex (global table, resolution keep_local, take_incoming, merged), lib/letflow/routers/solution_packs.ex (compute_and_render_review/5, render_update_apply/2, update_review_response_map/3, plan_entry_map/1, apply_result_map/1, applied_entry_wire_map/1, holds_entities_definitions_write?/1 as the in-handler permission precedent), lib/letflow/tenant_provisioning.ex (schema_name_for_tenant/1, tenant_id_for_schema_name/1); tests that call the changed functions today: test/letflow/definitions_test.exs, test/letflow/definitions/solution_pack_test.exs, test/letflow/definitions/pack_update_migration_test.exs, test/letflow/routers/solution_packs_update_test.exs. Written by the business analyst (T-0849) 2026-10-28. Not yet validated.
+    description: >
+      Slice S4 of decision 0069 D8 (core roadmap Wave 3, "Solution versioning and per-tenant overrides"). S1 is
+      REQ-573, S2 is REQ-596 (override storage and management API), S3 is REQ-610 (effective definition and
+      activation). Decision 0069 is PROPOSED; this slice is implemented only once REQ-562 records its sign-off and
+      REQ-596 is on main. It does not depend on REQ-610.
+      What main does today. compute_pack_update_plan/5 classifies each artefact (unchanged, clean_update,
+      local_only, conflict) from the base row, the tenant's copy and the incoming copy; apply_pack_update/6 refuses
+      while a conflict has no recorded resolution and then advances base rows. Nothing reads an override; none can
+      exist before REQ-596, so an update cannot tell a tenant's deliberate override from drift and could be applied
+      over it.
+      What this slice builds, and nothing else. It makes the existing single update path read the overrides of
+      REQ-596 next to the classification. It adds no table, no route, no permission atom and no web screen (the
+      screen is S5), and changes no classification (the classify_artefact/3 truth table is not touched).
+      (1) READ. compute_pack_update_plan/5 gains, per plan entry, a key override: nil when the tenant has no
+      non-retired, non-orphaned override for (pack_id, artefact_type, artefact_id), otherwise a map with
+      override_id, override_version (the latest), made_against, outcome and, for one outcome, a warning. The
+      overrides are read from the REQ-596 tenant-schema table with the prefix derived from the tenant id of the
+      call (TenantProvisioning.schema_name_for_tenant/1), never from a request value. Only artefacts the caller
+      names in theirs_artefacts or incoming_artefacts are plan entries; this slice adds no entry for an override
+      whose artefact neither list names.
+      (2) OUTCOMES, per D3, decided by the incoming pack against the base: (a) the artefact is absent from
+      incoming_artefacts: outcome orphaned; (b) a patch path is no longer on the closed property list of
+      REQ-596 (the list is passed to the evaluating function as an argument, defaulting to the module attribute,
+      so a test can pass a shorter list): outcome property_gone, handled like orphaned; (c) base equals incoming
+      (classification unchanged or local_only): outcome kept; (d) base differs from incoming (classification
+      clean_update or conflict) and at least one patch path resolves to a different value, or to present versus
+      absent, in the parsed base content than in the parsed incoming content: outcome override_conflict; a patch
+      path that resolves in neither content (a settings.<key> threshold path of REQ-596 is one) counts as not
+      touched; content that does not parse as JSON counts as touched; (e) base differs from incoming and no patch
+      path is touched: outcome kept with warning override_kept_pack_changed. Order of tests: a, b, c, d, e.
+      (3) BLOCKING. A plan entry with outcome override_conflict and no recorded resolution is unresolved: it sets
+      the entry's resolved to false and plan.has_unresolved_conflicts to true, and apply_pack_update/6 refuses it
+      through check_no_unresolved_conflicts/1 exactly as it refuses an unresolved conflict today (reply
+      {:error, {:unresolved_conflict, artefact_type, artefact_id}}, HTTP 409, whole transaction rolled back).
+      Resolved means a pack_update_resolutions row exists for (tenant, pack_id, target version, artefact_type,
+      artefact_id), the lookup resolution_exists?/5 already makes; it is now also made for an override_conflict
+      entry whatever its classification. The resolutions an override_conflict accepts are keep_local and
+      take_incoming; merged is refused for such an entry with 422 and the stable detail text
+      override_merge_unsupported, nothing written (see open question 2).
+      (4) APPLY. In the same transaction as the existing base-row writes, and after the existing base handling of
+      the entry (unchanged by this slice): outcome kept, and keep_local on an override_conflict: if made_against
+      is not already the target version, a new override version row with the same patch and patch_hash,
+      status active and made_against the target version (the "advance" of D3; a new version, not an update of the
+      row, because REQ-596 makes the table append-only); outcome orphaned or property_gone: a new version row with
+      the same patch and status orphaned; take_incoming on an override_conflict: a new version row with an empty
+      patch and status retired, the shape of the REQ-596 retire. Each of these writes one audit entry in the same
+      transaction (Audit.append_multi/4): pack_id, artefact_type, artefact_id, override_id, the new
+      override_version, patch_hash, actor, the target version and the action (advanced, orphaned, property_gone,
+      retired); never a patch value. A re-run of the same apply finds made_against already equal and writes
+      nothing for that entry. An update never deletes an override row, never changes a patch and never changes a
+      row in place.
+      (5) REPLIES. The review reply keeps its keys and gains, per entry that has an override, an override object
+      with exactly: override_id, override_version, made_against, outcome (kept, override_conflict, orphaned,
+      property_gone) and, when present, warning; the apply reply's applied entry gains override_action (advanced,
+      retired, orphaned, property_gone, left_unchanged) for such entries. Both objects are built from an explicit
+      key list (INV-2): no patch, no path and no value is echoed. For an install with no override the replies of
+      both routes are exactly those of today (no override key at all). The two routes keep their paths, their
+      permissions (:DefinitionsRead, :DefinitionsCreate) and the REQ-573 version refusals, which run before any
+      override is read.
+      (6) PERMISSION (D5). update-apply additionally requires SolutionOverridesManage when the plan it computes
+      holds at least one entry with outcome override_conflict; the check is made in the handler before the
+      transaction opens, from the DB-resolved auth context (the recipe of holds_entities_definitions_write?/1),
+      and a caller without it receives the same 403 as a route-level permission refusal, with nothing written. An
+      apply whose plan has no override_conflict entry needs no new permission. Q4 of decision 0069 (changing
+      the permissions of the two routes) stays open and is not changed.
+      (7) TENANT ISOLATION (D6). Override rows are read only through the :prefix of the call; the global
+      pack_update_resolutions table receives no patch value, path or hash from this slice and gains no column
+      (no migration in this slice).
+      Existing tenants (D7): no data step; with no override rows the new code paths find nothing.
+      NOT IN THIS SLICE: a web screen (S5); adopt local edit (S6); pack rollback (Q2); applying the effective
+      definition (S3); a merged resolution of an override_conflict; re-evaluating an orphaned override when its
+      artefact returns in a later update.
+    acceptance_criteria:
+      - "1. Test S4-no-override-unchanged: for an install with no override row, the review and apply replies of a clean_update, a local_only, a conflict, an unchanged and a resolved-conflict case are byte-identical to the replies of the same requests on origin/main at implement time (a recorded expected body per case), no reply carries the key override or override_action, and compute_pack_update_plan/5 returns override: nil on every entry. The same holds for an override row whose status is retired or orphaned."
+      - "2. Test S4-keep: with an active override on a process_definition artefact whose incoming content equals its base (classification unchanged, and a second case local_only), the review shows outcome kept without warning; apply writes exactly one new override version row for it with made_against equal to the target version, the same patch and patch_hash, status active, and exactly one audit entry whose payload holds the ids, version, patch_hash, actor and action advanced; a second identical apply writes no further row and no entry. A case where base differs from incoming but none of the patch paths resolves differently shows outcome kept with warning override_kept_pack_changed and is advanced the same way."
+      - "3. Test S4-conflict-resolved: with an active override whose patch path resolves to a different value in incoming than in base, the review shows outcome override_conflict, resolved false and has_unresolved_conflicts true, for classification clean_update and for classification conflict; apply without a resolution answers 409 with the unresolved-conflict text of today and writes nothing (no override row, no base row, no resolution row). With keep_local the apply succeeds and the override is advanced as in criterion 2; with take_incoming it succeeds and a new version row with an empty patch and status retired exists with an audit entry action retired; with merged it is refused 422 override_merge_unsupported and nothing is written. After the apply a repeated review shows resolved true."
+      - "4. Test S4-never-overwrites: across the cases of criteria 2, 3 and 5 every override row that existed before the apply is byte-identical after it (compared on all columns); the number of rows for the override_id only grows; a source-scanning test finds no Repo.update, Repo.delete, update_all or delete_all on the override table in the files this slice changes; and when the apply is rolled back by an unresolved conflict on another artefact of the same call, no override row and no audit entry of that call exists."
+      - "5. Test S4-orphan: an artefact with an active override that is in theirs_artefacts and absent from incoming_artefacts gives outcome orphaned and apply writes a new version row with the same patch and status orphaned and one audit entry action orphaned; it is not an unresolved conflict and does not block apply. With a shortened closed property list passed to the evaluating function so that one patch path is no longer on it, the outcome is property_gone with the same handling and the audit action property_gone. The patch is never deleted: the orphaned row still holds the original patch."
+      - "6. Tests S4-permission and S4-reply-shape: a caller who holds :DefinitionsCreate but not SolutionOverridesManage (the design names the role from the docs/roles.md matrix) posting update-apply for a plan with an override_conflict entry receives the 403 of a route-level refusal, whether or not a resolution is supplied, and nothing is written; the same caller posting an apply with no override_conflict entry succeeds. A TENANT_ADMIN succeeds. The override object of a review entry has exactly the keys override_id, override_version, made_against, outcome and optional warning; a distinctive patch value (for example 987654.321) appears in no reply, no audit payload, no captured log line and no row of pack_update_resolutions or the other two global pack tables."
+      - "7. Test C-update (INV-10, INV-1): tenant A has an override on pack P and tenant B installed the same pack P without one; tenant B's update-review and update-apply answer as in criterion 1 (override nil) and never mention tenant A's override_id or outcome; the overrides are read with the prefix derived from the call's tenant id (a source-scanning test: no Repo call of the new code path lacks a :prefix); a request body, query or path carrying another tenant's id is ignored; a PLATFORM_ADMIN token receives its own tenant's plan only."
+      - "8. The REQ-573 refusals still apply first: with an override present, a target version equal to or lower than the installed version is refused with version_not_newer or version_downgrade before any override is read, and no override row or audit entry is written."
+      - "9. Pins and callers: compute_pack_update_plan/5 and apply_pack_update/6 keep their arities (grep -rnE \"compute_pack_update_plan\\(|apply_pack_update\\(\" lib/ test/ lists every caller, the design pastes the output); every test that matches a plan entry or an applied entry by exact map (grep test/ for the key set of plan_entry and for applied_entries) is updated for the new key; no route, permission or tenant table is added, so __authz_routes__, the route_scope snapshot, tenant_wide_default_routes.txt, @expected_tenant_tables and priv/permission_matrix/effective.golden are unchanged (a test or a pasted grep shows it); docs/roles.md or the router comment that says update-apply needs only :DefinitionsCreate is corrected for the conditional SolutionOverridesManage check."
+      - "10. Gates: SECURITY-REVIEWER verdict recorded and mandatory (the slice reads tenant-schema override rows inside the global-table update path, writes override rows and audit entries, and adds a conditional privilege check; threats of decision 0069: an update that overwrites, drops or re-points an override, apply without the permission, patch values in the global resolution table or in audit and replies, cross-tenant read) and REVIEWER verdict recorded; mix letflow.check.static and every changed and new test file pass with real output quoted; the PR states that no table, migration or existing row changes for existing QA tenants."
+    depends_on: [REQ-562, REQ-596, REQ-573, REQ-380, REQ-041]
+    open_questions:
+      - "1. Advance of made_against (decision 0069 D3 says \"advanced\" and the audit rule says every advance writes an entry, but REQ-596 makes the override table append-only): this entry assumes an advance is a new override version with the same patch, to be confirmed by the owner and REVIEWER. If the owner wants an in-place update of made_against, REQ-596 criterion 4 changes."
+      - "2. A merged resolution of an override_conflict (D3: \"merged = new override version\") needs an input that carries a new patch; the existing resolution input carries artefact content, not a patch. This entry refuses merged for an override_conflict (override_merge_unsupported) and leaves the input shape to a later requirement; the owner decides whether S4 must include it."
+      - "3. How \"touches a property\" is read (D3): this entry compares the value at each patch path in the parsed base and incoming content, and treats unparsable content as touched. The path syntax is the closed property list of REQ-596 (its Q5, the S2 design's); if that list names paths a content parser cannot resolve, the S4 design reports it before building."
+      - "4. Q4 of decision 0069 (permissions of the two existing update routes) is not decided here; only the extra SolutionOverridesManage check of D5 is added, conditional on an override_conflict entry."
+      - "5. An orphaned override is not re-evaluated if its artefact returns in a later pack version, and an override whose artefact neither list names is not evaluated: the source does not settle either; the owner decides whether a later slice handles them."
