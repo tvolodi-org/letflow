@@ -39,6 +39,7 @@ import PlatformMigrationConsolePage from '@/pages/admin/platform-migrations/Plat
 import SolutionPackUpdateLauncherPage from '@/pages/solution-packs/SolutionPackUpdateLauncherPage'
 import SolutionPackUpdateReviewPage from '@/pages/solution-packs/SolutionPackUpdateReviewPage'
 import EventRetentionPage from '@/pages/admin/event-retention/EventRetentionPage'
+import PrintTemplatesPage from '@/pages/admin/PrintTemplatesPage'
 import EntityListBrowserPage from '@/pages/entities/EntityListBrowserPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
@@ -105,6 +106,7 @@ export const router = createBrowserRouter([
       { path: 'admin/tokens', element: <TokensPage /> },
       { path: 'admin/audit', element: <AuditLogPage /> },
       { path: 'admin/appearance', element: <AppearanceSettingsPage /> },
+      { path: 'admin/print-templates', element: <RequirePermission permission={P.DocumentPrintTemplatesManage}><PrintTemplatesPage /></RequirePermission> },
       { path: 'admin/health', element: platformPage(P.TenantsManage, <HealthDashboardPage />) },
       { path: 'admin/metrics', element: <MetricsPage /> },
       { path: 'admin/onboarding', element: platformPage(P.TenantsManage, <RegisterTenantPage />) },
