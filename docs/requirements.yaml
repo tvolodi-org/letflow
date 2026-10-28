@@ -43497,7 +43497,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-613 -- the report kind widens the kind check and the group_by/aggregates clauses check that REQ-613 replaces
+    gh: 3445
     # Source: docs/migration/decisions/0066-generic-saved-views-over-records.md, "Deferred slices": "Slice 4: report builder." and D1..D7 (D1 tenant-wide sharing and D4 TENANT_ADMIN-only are assumptions for the process owner, not owner blocks); docs/migration/core-roadmap-20261014.md, Wave 3 row "Generic list, pivot and graph views and a report builder over entities"; REQ-555, REQ-598 and REQ-613 (this file); code read: lib/letflow/entities/views/clauses.ex (@allowed_keys, @list_only_keys, kind/3, check_kind_keys/2, kind_clauses/2, check/3), priv/repo/migrations/20261027400001_add_pivot_to_entity_views.exs (kind CHECK list, pivot clauses CHECK), lib/letflow/routers/entities.ex (query_aggregate, build_aggregate_request/1, build_query_request/1: both read the filter under the request key `filters`), docs/roles.md rows EntitiesQuery, EntitiesAggregate, EntitiesViewsManage. Written by the business analyst (T-0850) 2026-10-28. Not yet validated.
     description: >
       Backend of slice 4 of generic views (decision 0066, "Deferred slices": "Slice 4: report builder").
