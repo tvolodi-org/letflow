@@ -1,0 +1,111 @@
+# T-0851 (BA-BILIMBAGA): exam analytics, the per-exam summary and the score distribution.
+# Covers REQ-594 criteria 4 (Test R-summary: attempts, passed, average score; the unfinished session is not counted) and 5 (Test R-histogram:
+# scores 0, 9.99, 10, 55, 99.99 and 100 fall in ten ranges of ten points, 100 in the last range).
+# Sources: docs/requirements.yaml REQ-594 (description "THE THREE REPORTS", criteria 4 and 5); docs/roles.md (EntitiesAggregate held by
+# TENANT_ADMIN); test/fixtures/uat/actors.yaml (actor-bilimbaga-admin, TENANT_ADMIN).
+# Preconditions that only test setup can give: the finished sessions below carry exact scores (a candidate cannot choose a score of 9.99), so
+# the run is BLOCKED, not PASS, if the environment does not hold them. Not covered here: the rollout step for existing tenants and the
+# written-answer fields (criteria 2, 3, 10): they are checked by the backend tests; no UAT actor can see them.
+# Sensitive actions: this flow only reads results. "See sensitive data" is refused in scenario exam-analytics-3 (candidate, answer key);
+# approve, release and change users are not in this flow.
+---
+id: bilimbaga-exam-analytics-1-summary-and-histogram
+scope: bilimbaga
+title: The exam administrator sees attempts, passes and average score of one exam, and a score distribution in ten ranges that adds up to the finished attempts
+version: "1.0"
+tags: [exam_analytics, report, summary, histogram, boundary]
+
+description: >
+  The exam "UAT analytics exam" has seven attempts. Six are finished (three submitted by the candidate, three submitted automatically
+  when time ran out) with the scores 0, 9.99, 10, 55, 99.99 and 100 percent, and one is still in progress. Three of the six finished
+  attempts passed: the ones scoring 55, 99.99 and 100. The administrator asks for the summary of this exam and for the number of finished attempts in each of
+  the ten ranges 0 to under 10, 10 to under 20, up to 90 to 100, where the last range includes 100. Only finished attempts are counted.
+  Pass rate is worked out by the administrator from the two counts. A second exam with one finished attempt exists and must not be counted.
+  Preconditions: see below.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: The exam "UAT analytics exam" exists in Bilimbaga with exactly the seven attempts described above, and a second exam "UAT other analytics exam" has one finished attempt scoring 70 that passed
+    check: custom
+    detail: Prepared by the test setup, not by a UAT actor. Without it the scenario is BLOCKED. UAT assumption, to be confirmed by the process owner - which attempts carry the passed mark is set by the setup, as described.
+  - description: The Bilimbaga administrator can sign in
+    check: system_seeded
+    detail: The roster notes that a test token for this actor needs a mapping that is not yet approved; without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator asks for the number of finished attempts (submitted or submitted automatically) of "UAT analytics exam", and notes the
+      number.
+    via: api
+  - step: 2
+    actor: admin
+    action: >
+      The administrator asks for the number of finished attempts of "UAT analytics exam" that passed, and for the average score percent of the
+      finished attempts, and notes both.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator asks for the number of finished attempts of "UAT analytics exam" in each of the ten ranges of ten points (the first
+      range includes 0, the last includes 100), one question per range, and notes the ten numbers and their sum.
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator asks the same count as in step 1 for "UAT other analytics exam" and notes the number.
+    via: api
+expected_outcomes:
+  - id: EO-001
+    description: The summary counts the six finished attempts only, the three passes, and the average of the six scores
+    verification:
+      method: api_response
+      detail: "Step 1 shows 6; step 2 shows 3 passed and an average of 45.83 percent (the six scores add up to 274.98 and divide by 6 to 45.83, shown to at least two decimals); the in-progress attempt is not counted"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An exam body that publishes pass rates from a count that includes unfinished attempts reports false results to its clients.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: Every finished attempt falls in exactly one range, with the boundaries on the right side
+    verification:
+      method: api_response
+      detail: "Step 3 shows 2, 1, 0, 0, 0, 1, 0, 0, 0, 2 for the ranges in order: 0 and 9.99 in the first (2), 10 in the second (1), 55 in the sixth (1), 99.99 and 100 in the last (2); the ten numbers add up to 6"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A score on a boundary counted twice or not at all makes the distribution disagree with the summary, and a score of 100 that falls in no
+        range hides the best results.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: The ten ranges add up to the number of finished attempts
+    verification:
+      method: api_response
+      detail: "The sum of the ten numbers of step 3 equals the number of step 1 (6)"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A distribution that does not add up to the summary cannot be trusted by the reader.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: Attempts of another exam are not counted
+    verification:
+      method: api_response
+      detail: "Step 4 shows 1, and step 1 is still 6 (the other exam's attempt is not in it)"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Mixing exams in one report misstates the pass rate of both.
+      suggested_action: route_to_backend_dev
+
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing is created by this scenario; the attempts are read only. Leave the prepared exams in place for the other analytics scenarios.

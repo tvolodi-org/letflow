@@ -1,0 +1,130 @@
+# Authored by BA-BILIMBAGA for T-0823 (REQ-586 criteria 3 to 6, caller without the exam content writing permission).
+# Source: docs/requirements.yaml REQ-586 acceptance criteria 3 to 6 on origin/main; permission ExamAuthoringWrite
+# (routes: moduledoc route table of lib/letflow/modules/exam/router.ex; permission rows in
+# priv/permission_matrix/effective.golden: CANDIDATE ExamAuthoringWrite false, TENANT_ADMIN ExamAuthoringWrite true).
+# Criteria not observable through UAT are listed in the header of exam-parent-1.
+---
+id: bilimbaga-exam-parent-5-refusal-no-authoring-permission-tree-writes
+scope: bilimbaga
+title: A person without the exam content writing permission cannot place, move or remove categories and question versions
+version: "1.0"
+tags: [refusal, access_control, exam_authoring, category_tree, question_lineage]
+
+description: >
+  Building the category tree and the version chains of questions is part of maintaining exam content, which
+  needs the exam content writing permission held by the exam administrator. A candidate, the roster's
+  least-privileged bilimbaga actor, does not hold it. The permission is checked before the tree rules: a
+  candidate gets the same refusal for a request that would be valid and for one that would break a tree rule,
+  and never learns whether a named parent exists. Nothing may change.
+  Preconditions: a category with a sub-category, and a question with a newer version, exist on the tenant
+  (created by the administrator in step 1).
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The tenant has been upgraded so that exam categories and questions can carry a parent (the one-time upgrade has run for this tenant)
+    check: custom
+  - description: The administrator account is a tenant administrator, a role that holds the exam content writing permission (permission matrix, TENANT_ADMIN row)
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Creates category A, category B under A, question Q1 (version 1, draft) and question Q2 (version 2, draft) with Q1 as its parent, and notes the four identifiers
+    via: api
+    produces:
+      category_a: "identifier of A"
+      category_b: "identifier of B (child of A)"
+      q1: "identifier of Q1"
+      q2: "identifier of Q2 (child of Q1)"
+
+  - step: 2
+    actor: candidate
+    action: Tries to create a category with category A as its parent
+    via: api
+    expect_refusal: true
+
+  - step: 3
+    actor: candidate
+    action: Tries to change category A so that its parent is B, its own child
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: candidate
+    action: Tries to remove category A, which has B under it
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: candidate
+    action: Tries to create a question with version 3 and Q1 as its parent
+    via: api
+    expect_refusal: true
+
+  - step: 6
+    actor: candidate
+    action: Tries to remove question Q1, which has Q2 as its newer version
+    via: api
+    expect_refusal: true
+
+  - step: 7
+    actor: candidate
+    action: Tries to create a category with a parent identifier that names nothing
+    via: api
+    expect_refusal: true
+
+  - step: 8
+    actor: admin
+    action: Reads categories A and B and questions Q1 and Q2 and compares them with step 1
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Every attempt by the candidate in steps 2 to 7 is refused as forbidden because the candidate lacks the
+      permission; none returns a tree-rule reason (a cycle, a missing parent, children present, a fork or a
+      version order)
+    verification:
+      method: http_status
+      detail: "Steps 2 to 7 each answer 403; no body carries a reason such as parent_cycle, parent_not_found, category_has_children, question_has_children or lineage_branch"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate who can restructure categories or question versions can change which questions an exam
+        draws, and so which questions they are examined on.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The refusal in step 7, for a parent that names nothing, looks the same as the refusals in steps 2 and 4
+      for parents that exist
+    verification:
+      method: http_status
+      detail: "Step 7 matches steps 2 and 4 in status and message shape"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A different answer would let a candidate find out which identifiers exist in the exam content.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      Nothing changed: A and B, Q1 and Q2 and their parents are as created in step 1
+    verification:
+      method: system_state
+      detail: "Step 8 shows A without parent, B under A, Q1 without parent, Q2 under Q1, and no extra category or question"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A refused request that still took effect would let an unauthorised person alter exam content.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove Q2, Q1, B and A (children first).
