@@ -14,13 +14,10 @@
  *  `ExamResultView` component (extracted for exactly this reuse) rather than
  *  duplicating its JSX/testids.
  *
- *  URL SHAPE IS PROVISIONAL (REQ-351's own text, restated here so it is not
- *  read anywhere as a settled contract). REQ-350's numbered questions (2)
- *  and (3) may later decide Letflow serves a cross-session results-LIST; if
- *  so, this route becomes that list's detail view and its URL may be
- *  RENAMED by the requirement that implements the list. Nothing here or in
- *  `web/src/router.tsx` should be read as fixing `/exam/sessions/:sessionId/
- *  result` as a permanent contract.
+ *  URL SHAPE. The cross-session results list now exists (GH #3321, REQ-587:
+ *  `ExamMyResultsPage` at `/exam/results`, backed by `GET /exam-sessions/mine`),
+ *  and its rows link here, so `/exam/sessions/:sessionId/result` is the list's
+ *  detail view and no longer provisional.
  *
  *  SCORE RENDERING (ISS-0674, closed). `GET /modules/exam/exam-sessions/:id`
  *  (`Letflow.Exam.Session.get_session_state_for_user/3`, wrapped by

@@ -40,6 +40,9 @@ defmodule Letflow.Routers.Entities.RecordWrites do
   # minted so the delegate's required key is always present. A supplied key may also resolve to a pre-#2550 original
   # (Idempotency.legacy_original/3, one release, GH #2578).
 
+  # REQ-607: the constant detail of the 503 for the two pre-write hook codes.
+  @hook_unavailable "the write could not be completed; retry"
+
   @record_write_schema [
     %FieldConstraint{name: "field_values", required: true, type: :object},
     %FieldConstraint{
@@ -452,6 +455,8 @@ defmodule Letflow.Routers.Entities.RecordWrites do
   #                                     GH #2583)
   #   :preserved_value_invalid       -> 403  (constant restricted-field detail,
   #                                     GH #2812)
+  #   :entity_write_contention       -> 503 (REQ-607; pre-write hook lock timeout/deadlock/statement
+  #   :derived_value_conflict           timeout, or three fingerprint mismatches; one constant body)
   #   :tenant_not_provisioned        -> 500  (unreachable, INV-1)
   #   :invalid_schema_name           -> 500  (unreachable, INV-1)
   #   any other term()               -> 500  (INV-8 catch-all, no detail)
@@ -570,6 +575,16 @@ defmodule Letflow.Routers.Entities.RecordWrites do
   # the pre-checks above). The same bytes as the by-id 404 (decision 0051 D7); counted, not audited.
   defp render_record_command(conn, {:error, :scope_refused}, _status),
     do: scope_refused(conn, :EntitiesRecordsWrite, :write_value)
+
+  # REQ-607 (decision 0065 D8 E-3): the pre-write hook could not complete the write (a lock timeout,
+  # a deadlock or a statement timeout; or three fingerprint mismatches in a row). Nothing was
+  # appended and a retry is safe. One constant body for both codes: no record data, script key,
+  # version or error text. The other typed hook errors stay on the logged 500 below until E-4.
+  defp render_record_command(conn, {:error, :entity_write_contention}, _status),
+    do: Response.service_unavailable(conn, @hook_unavailable)
+
+  defp render_record_command(conn, {:error, :derived_value_conflict}, _status),
+    do: Response.service_unavailable(conn, @hook_unavailable)
 
   defp render_record_command(conn, {:error, reason}, _status)
        when reason in [:tenant_not_provisioned, :invalid_schema_name],
