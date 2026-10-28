@@ -26,7 +26,14 @@ defmodule Letflow.LoginDiscoveryNotifierDouble do
   def set_owner(pid), do: put(:owner, pid)
 
   @doc "Switches the double's behaviour (see moduledoc)."
-  @spec set_behaviour(:ok | :error | :raise | :exit | {:sleep, non_neg_integer()}) :: :ok
+  @spec set_behaviour(
+          :ok
+          | :error
+          | {:error, term()}
+          | :raise
+          | :exit
+          | {:sleep, non_neg_integer()}
+        ) :: :ok
   def set_behaviour(behaviour), do: put(:behaviour, behaviour)
 
   @doc "Clears owner and behaviour."
@@ -47,6 +54,29 @@ defmodule Letflow.LoginDiscoveryNotifierDouble do
       :error -> {:error, :boom}
       :raise -> raise "notifier boom for #{recipient_email}"
       :exit -> exit({:notifier_boom, recipient_email})
+      {:sleep, ms} -> Process.sleep(ms)
+    end
+  end
+
+  @doc """
+  REQ-584: reports `{:deliver_message, message}` to the owner, then behaves as above. The
+  behaviour may also be `{:error, reason}`, returned as is.
+  """
+  @impl true
+  def deliver_message(message) do
+    state = Application.get_env(:letflow, @key, [])
+
+    case state[:owner] do
+      pid when is_pid(pid) -> send(pid, {:deliver_message, message})
+      _none -> :ok
+    end
+
+    case state[:behaviour] || :ok do
+      :ok -> :ok
+      :error -> {:error, :boom}
+      {:error, reason} -> {:error, reason}
+      :raise -> raise "notifier boom for #{message.to}"
+      :exit -> exit({:notifier_boom, message.to})
       {:sleep, ms} -> Process.sleep(ms)
     end
   end

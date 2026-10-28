@@ -328,7 +328,7 @@ defmodule Letflow.Support.TenantFixtureTest do
       # number_sequence_counters and number_sequence_numbers, bumping it to 65 -- REQ-551 / GH #3180 added label_overrides, bumping it to 66; REQ-565 / GH #3201 added integration_mappings, bumping it to 67; REQ-555 / GH #3157 added entity_views, bumping it to 68 -- REQ-561 / GH #3194 added scheduled_jobs, bumping it to 69; REQ-563 / GH #3199 added notification_templates, bumping it to 70; REQ-567 / GH #3217 added entity_type_hook_bindings, bumping it to 71; REQ-570 / GH #3248 added record_trigger_bindings, bumping it to 72.  REQ-579 / GH #3289 added document_print_overrides, bumping it to 73; REQ-576 / GH #3258 added entity_type_extensions, bumping it to 74; REQ-590 / GH #3338 added tenant_logos, bumping it to 75.
       # test/support/tenant_fixture.ex's own @expected_tenant_tables
       # list already carries all 74.)
-      assert length(TenantFixture.expected_tenant_tables()) == 75
+      assert length(TenantFixture.expected_tenant_tables()) == 76
       assert length(state.manifest_versions) > 0
     end
 

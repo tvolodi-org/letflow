@@ -905,7 +905,10 @@ defmodule Letflow.TenantProvisioning do
     # REQ-613 / GH #3432: kind `graph` and a nullable chart_type on entity_views (saved graph views).
     # Existing rows stay list or pivot with chart_type NULL; no row altered.
     {20_261_028_100_001, Letflow.Repo.Migrations.AddGraphToEntityViews,
-     "20261028100001_add_graph_to_entity_views.exs"}
+     "20261028100001_add_graph_to_entity_views.exs"},
+    # REQ-584 / GH #3310: the per-tenant notification delivery log (new empty table; no row altered).
+    {20_261_028_200_001, Letflow.Repo.Migrations.CreateNotificationDeliveries,
+     "20261028200001_create_notification_deliveries.exs"}
   ]
 
   @doc """
