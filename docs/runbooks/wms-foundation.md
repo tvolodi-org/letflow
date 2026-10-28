@@ -55,9 +55,9 @@ was written.
 
 Module `catalog_items` (GH #2663 / REQ-474 skeleton, GH #2664 / REQ-507 read API) as it is on
 main. Each limit names the GH issue or the code that holds it; code lines were re-read when
-this section was written. It covers the types `catalog_uom` and `catalog_item`.
+this section was written. It covers the types `catalog_uom`, `catalog_item` and `catalog_counterparty` (GH #3407, REQ-604).
 
-1. **Generic writes to the two types are refused.** Both are in `manages_entity_types`, so the
+1. **Generic writes to the three types are refused.** All are in `manages_entity_types`, so the
    generic entity routes answer 403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
@@ -71,7 +71,7 @@ this section was written. It covers the types `catalog_uom` and `catalog_item`.
    `priv/modules/catalog_items/entity_definitions/catalog_item.json`). `item_uom_valid?/3` is
    where an unknown or inactive unit shows up, as `false`.
 4. **Record attachment upload and delete on a managed type are refused.** A non-owner caller
-   gets the 403 `entity_type_managed` (both catalog types included) via
+   gets the 403 `entity_type_managed` (all three catalog types included) via
    `Letflow.Entities.RecordAccess.attachment_write/3` (GH #2582); list and content reads are
    unchanged.
 5. **Client idempotency keys cannot use the reserved server-derived prefix.** The single-command
@@ -100,3 +100,27 @@ this section was written. It covers the types `catalog_uom` and `catalog_item`.
    tenant with no check. The never-raise guarantee holds for a provisioned tenant prefix only (a
    well-formed but unprovisioned `tenant_<hex>` prefix raises `undefined_table` from Postgres;
    `lib/letflow/modules/catalog_items/catalog_items.ex`).
+9. **`catalog_counterparty` is the supplier master (GH #3407, REQ-604).** Its definition is
+   `priv/modules/catalog_items/entity_definitions/catalog_counterparty.json`: unique `code`,
+   `name`, `kind`, optional `tax_id` (queried, format not validated), `active` and the nullable
+   `external_ref_system` / `external_ref_id` pair. `kind` is `supplier` or `contractor`; both
+   the two values and the `tax_id` rule are UAT assumptions for the process owner to confirm.
+10. **`lookup/2` and `active?/2` return several types.** They search `catalog_uom`,
+    `catalog_item` and `catalog_counterparty` in one call
+    (`lib/letflow/modules/catalog_items/catalog_items.ex`), so a caller must check the
+    `"entity_type"` of the map it gets: a supplier id passed as a unit or an item is found, not
+    rejected, by `lookup/2`.
+11. **A supplier is retired with `active` false; there is no delete operation.** The record stays
+    readable, `lookup/2` returns it with `"active" => false` and `active?/2` is `false`. The
+    module ships no write function (GH #3407). The both-or-neither rule for the external
+    reference pair is not enforced, as for the other two types.
+12. **Suppliers cannot be seeded by the generic import.** `POST /entities/records/catalog_counterparty/import`
+    answers 403 `entity_type_managed` because the type is managed
+    (`lib/letflow/routers/entities/record_import.ex`), so the seeding path of decision 0057 D12
+    for suppliers is open (GH #3407).
+13. **An already installed tenant does not get the new type.** `catalog_items` installed before
+    GH #3407 has two types only: no upgrade path adds an entity type to an installed module
+    (`lib/letflow/modules/installs.ex`), and because `manages_entity_types` changed the
+    manifest hash, reactivating such a tenant's module answers `upgrade_required`. Fresh
+    installs get all three types; `lookup/2` still works on the old tenants. A module-upgrade
+    requirement is needed.

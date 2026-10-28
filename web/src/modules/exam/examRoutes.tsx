@@ -7,12 +7,21 @@
  *  No guard wrapper here — registry.ts wraps these in ModuleGuard when
  *  building REGISTERED_MODULE_ROUTE_OBJECTS.
  */
+import type { ReactNode } from 'react'
 import type { RouteObject } from 'react-router-dom'
 import ExamListPage from './ExamListPage'
 import ExamSessionPage from './ExamSessionPage'
 import ExamSessionResultPage from './ExamSessionResultPage'
 import BilimBagaAdminPage from './BilimBagaAdminPage'
 import BilimBagaEntityRoute from './BilimBagaEntityRoute'
+import ExamGradingListPage from './ExamGradingListPage'
+import ExamGradingAnswerPage from './ExamGradingAnswerPage'
+import { RequirePermission } from '@/auth/access'
+
+/** REQ-589: the examiner screens need ExamGradingRead (the shell's forbidden page otherwise). */
+function gradingGuard(page: ReactNode) {
+  return <RequirePermission permission="ExamGradingRead">{page}</RequirePermission>
+}
 
 export const examRouteObjects: RouteObject[] = [
   {
@@ -21,6 +30,8 @@ export const examRouteObjects: RouteObject[] = [
       { index: true, element: <ExamListPage /> },
       { path: ':examId/session', element: <ExamSessionPage /> },
       { path: 'sessions/:sessionId/result', element: <ExamSessionResultPage /> },
+      { path: 'grading', element: gradingGuard(<ExamGradingListPage />) },
+      { path: 'grading/:sessionId/:questionId', element: gradingGuard(<ExamGradingAnswerPage />) },
     ],
   },
   {

@@ -1,6 +1,6 @@
 # T-0514 (BA): TENANT ADMIN group, scenario 6 of 6: refused and failed imports of a settings bundle (REQ-552 slice 1, criteria 3 "keys not
 # carried are left untouched", 5, 7, 8 "a refused import writes no entry").
-# Sources: docs/requirements.yaml REQ-552 (acceptance criteria 3, 5, 7, 8); lib/letflow/routers/tenant_config_bundle.ex (a violation answers 422 and
+# Sources: docs/requirements.yaml REQ-552 (acceptance criteria 3, 5, 7, 8), REQ-599 (criterion 4: refused v2 lists; scenario 38); lib/letflow/routers/tenant_config_bundle.ex (a violation answers 422 and
 # names keys and module ids, never values; the whole import is one transaction); docs/roles.md (settings and module permissions are held by
 # the tenant administrator only among the tenant roles).
 # Aliases (actor-any): tenant_admin_b = administrator of company B (scenario 5); worker_b = a task worker of company B.

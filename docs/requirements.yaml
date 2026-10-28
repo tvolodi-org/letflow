@@ -43114,6 +43114,90 @@ requirements:
       - "7. Texts: every user-visible string is in examMessages.ts and ExamIntlProvider; exam-i18n-grep.test.ts passes."
       - "8. Scope: git diff --stat shows no file outside web/ (no lib/, priv/, test/); cd web && npm run check passes with the real output quoted. No Playwright spec is added under web/; the PR states that porting the corpus file exam-wizard.spec.ts is the later batch T3c."
     depends_on: [REQ-510]
+  - id: REQ-610
+    title: "Solution-pack override effective definition and activation, slice S3: merge of installed definition plus override patch into a new process definition version, running instances stay pinned (decision 0069 D8 S3)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3419
+    # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D2 (effective definition = installed definition with patch applied over the closed property list; absence of a row means no override), D3 (process definition version stays the unit of activation, running instances stay pinned, "Whether a new override takes effect on a new version only or may re-activate in place is decided by the existing activation rules and not changed here"), D5 (permission, audit without values), D6 (tenant schema, INV-10 negative test), D8 slice S3 and its tests S3-merge and S3-running-instance-unchanged, "Open points" Q1 to Q5, "Boundary" and the "Deferred" bullet of D8 (0069 has no section titled "Not decided here"); REQ-596 (S2) entry for the table, the closed list, the permission and the route prefix; docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-4, INV-5, INV-10). Code read: lib/letflow/definitions.ex (create/2 runs Graph.validate_graph/1, validate_node_attributes/1 and validate_edge_conditions/1; activate/2 and run_activate_transaction deprecate the prior active definition of the same name and accept only a draft; opts :prefix and :activator), lib/letflow/definitions/process_definition.ex (version is a string of 1 to 255 characters, unique index uq_definition_version on (name, version), uq_active_definition), lib/letflow/definitions/solution_pack.ex (artefact_snapshots_from/1: the artefact_id of a process_definition artefact is the tenant-local ProcessDefinition.id of the installed row), lib/letflow/definitions/instance_definition_snapshot.ex (an instance reads its own snapshot, write-once), lib/letflow/audit.ex (append_multi/4 at line 189), lib/letflow/routers/solution_packs.ex. Written by the business analyst (T-0815) 2026-10-28. Not yet validated.
+    description: >
+      Slice S3 of decision 0069 D8 (core roadmap Wave 3, "Solution versioning and per-tenant overrides"). S1 is
+      REQ-573, S2 is REQ-596 (override storage and management API). Decision 0069 is PROPOSED; this slice is
+      implemented only once REQ-562 records its sign-off and REQ-596 is on main.
+      What main does today. Nothing reads an override; none can exist before REQ-596. An installed pack
+      definition is a process_definitions row whose id is the artefact_id of the pack's base row; the tenant
+      changes how it runs only by editing or replacing that definition. Activating a draft with the same name
+      already deprecates the prior active version (Definitions.activate/2), and every instance reads its own
+      write-once instance_definition_snapshots row, so a new active version does not change a running instance.
+      What this slice builds, and nothing else. (1) MERGE. A pure function (no I/O) in a new module under
+      lib/letflow/definitions/ (name chosen by the design) takes the graph of the installed definition row, the
+      patch of one override version and the closed property list that REQ-596 keeps in its override module, and
+      returns the effective graph: the installed graph with every patch path that is a graph property replaced by
+      the patch value. Patch keys of the form settings.<key> (REQ-596 criterion 3, module-declared thresholds) are
+      not graph properties and are neither read nor merged here. A path that is not on the closed list is refused
+      {:error, :property_not_overridable} (defence in depth; REQ-596 refuses it already at write time). After the
+      merge the function compares the effective graph with the installed graph and refuses
+      {:error, :override_changes_structure} when the set of node ids, the edges (source, target, node ids), any
+      gateway condition expression, any variable name or type or any script reference differs. The empty patch of
+      a retired override merges to a graph equal to the installed graph. (2) ACTIVATION. One function (design
+      names it) takes the tenant prefix, the pack_id, the override_id and the actor, loads the LATEST version row
+      of that override_id (active or retired) from the tenant-schema table of REQ-596, loads the installed
+      process_definitions row whose id is the override's artefact_id (never an earlier effective version, so a
+      new override version replaces the earlier patch and patches never stack), merges, and writes the result
+      through the existing definitions path only: Definitions.create/2 for a draft with the same name, the
+      version string "<installed version>+ov<override_version>" (for example 1.0.0+ov2), the merged graph,
+      then Definitions.activate/2 with the actor as activator. No second activation path and no in-place
+      change of an existing row. A definition installed with an owner_module stamp is refused (open question 6). The previous active version is deprecated by activate/2 as for any activation;
+      instances started before keep their snapshot and are not read or written. Only artefact_type
+      process_definition is activated; an override whose artefact_type is variable_schema is refused 422
+      artefact_type_not_supported (variable schema effective definitions are not part of D8 S3; the owner is told
+      in the open questions). If the installed definition row no longer exists (deleted), the reply is the
+      INV-5 not-found reply. (3) ROUTE. One route on the existing /solution-packs router, tenant from the auth
+      context only: POST /solution-packs/:pack_id/overrides/:override_id/activate, body: reason (mandatory),
+      permission SolutionOverridesManage (REQ-596). Replies: 200 with the new definition id, name and version,
+      the override_version and the previous active definition id; 404 with the INV-5 reply for an unknown
+      override_id, a pack with no active install of the tenant, or another tenant's override; 422 with the stable
+      detail texts property_not_overridable, override_changes_structure, artefact_type_not_supported, module_owned_definition_not_supported,
+      override_already_activated (the definition name and version for this override_version already exists,
+      including the loser of two concurrent calls) or the existing definitions-path errors rendered as today
+      (graph validation, semantic validation, script binding). The response carries ids, name and version only,
+      never a patch value (INV-2, INV-4). (4) AUDIT. One hash-chain entry per successful activation in the same
+      transaction as the new definition (Audit.append_multi/4): pack_id, artefact_type, artefact_id, override_id,
+      override_version, patch_hash, new definition id and version, actor, reason; never a patch value. Whether the
+      create-then-activate sequence runs in one transaction or the draft is removed on a failed activation is the
+      design's to state; the criterion below fixes the observable result (no stray draft).
+      NOT IN THIS SLICE: the override tables, the closed list and the permission (REQ-596 S2); the
+      compute_pack_update_plan/5 and apply_pack_update/6 changes (S4); the web screen (S5); adopt-local-edit (S6);
+      pack rollback (Q2); variable_schema and entity_definition effective definitions; any automatic activation
+      (a stored override changes nothing until this route is called); re-activation in place of an existing version.
+      Open points of 0069 read for this entry: the "Open points" section (Q1 pack version format, Q2 pack
+      rollback, Q3 thresholds versus settings_schema, Q4 permissions of the two update routes, Q5 closed property
+      list) and the Boundary and Deferred statements. None blocks building S3, but Q3 leaves a gap named in open question 5: Q1 concerns S1; Q2 rollback is excluded
+      and a tenant returns to the vendor definition by retiring the override and activating the retire version
+      (criterion 4); Q3 (assumed (a) in REQ-596) stores every threshold override as a settings.<key> patch key, which S3 does not apply: this is a gap, not a settled point, and is open question 5; Q4
+      concerns the two update routes that S3 does not touch; Q5 is the S2 design's closed list, which S3 reads
+      and does not define. The questions that are S3's own are in open_questions.
+      Existing tenants (D7): no new table, no migration, no change of the three global pack tables; a tenant with
+      no override row has no way to call the route successfully (404), and every existing route answers as before.
+    acceptance_criteria:
+      - "1. Test S3-merge (pure): for an installed graph and a patch that changes a step assignment, a step label and a timer duration, each on the closed list of REQ-596 (no graph-level threshold path exists on that list, REQ-596 criterion 3), the effective graph equals the installed graph with exactly those paths replaced (compared as whole maps, every other key identical); a patch of one path on the list leaves all other nodes, edges and conditions byte-identical; a patch containing a path not on the closed list returns {:error, :property_not_overridable} and no graph; a patch whose paths are all on the list but whose merged result adds, removes or renames a node, changes an edge, a gateway condition expression, a variable name or type, or a script reference (built by a test that injects such a value through a list path) returns {:error, :override_changes_structure}; the empty patch of a retired override returns a graph equal to the installed graph; settings.<key> patch keys leave the graph unchanged."
+      - "2. Test S3-activation: a TENANT_ADMIN posts to the activate route for an override version 1; the answer is 200, a new process_definitions row exists with the installed definition's name, version \"<installed version>+ov1\" and the effective graph, it is the only active definition of that name, the previously active definition row is deprecated, and its graph, id and version are unchanged; the new row passes the same create/activate checks as any definition (Graph.validate_graph/1, validate_node_attributes/1, validate_edge_conditions/1 and the activation semantic checks); a second call for the same override_version answers 422 override_already_activated and writes no definition row and no audit entry; after override version 2 is written (REQ-596) a call activates \"<installed version>+ov2\" built from the INSTALLED graph plus the version 2 patch only (a property set by version 1 and absent from version 2 is back at its installed value)."
+      - "3. Test S3-running-instance-unchanged: an instance is started through Letflow.Engine.create/2 on the active installed definition before the call; after the activation its instance_definition_snapshots row (graph, definition_name, definition_ver) is byte-identical to before, the instance continues to completion on the old graph (a completed task advances along the old edges and old assignment), and a new instance started after the activation snapshots the new version and shows the overridden assignment; no row of the instance, its events or its snapshot is written by the activation."
+      - "4. Retire and return: after the override is retired (REQ-596), a call to the activate route activates \"<installed version>+ov<n>\" whose graph equals the installed graph, so the tenant returns to the vendor definition content as a new version; no earlier version is edited."
+      - "5. Test S3-refusals: an override with artefact_type variable_schema is refused 422 artefact_type_not_supported with no row written; an unknown override_id, a pack_id with no active install of the tenant, and an override whose installed definition row has been deleted each answer the same not-found reply (status, headers, body compared in one test); an override whose installed definition row has a non-nil owner_module (installed through Definitions.create_owned/3 for a module-wrapped pack, lib/letflow/definitions.ex) is refused 422 module_owned_definition_not_supported with no row written, because Definitions.create/2 would drop the owner stamp and the extension-site check extension_site_violations/2 that runs only for stamped rows; a request without a reason is refused 422 and writes no definition row and no audit entry; a graph that fails validation after the merge answers the existing definitions-path error and leaves no draft row of that name and version (a test counts process_definitions rows before and after); two concurrent calls for the same override version leave exactly one definition row for that name and version and the loser is refused 422 override_already_activated."
+      - "6. Test S3-audit-no-values: a successful activation writes exactly one audit entry in the same transaction as the new definition, carrying pack_id, artefact_type, artefact_id, override_id, override_version, patch_hash, new definition id and version, actor and reason; a test patches a distinctive value (for example the number 987654.321) and asserts it appears in no audit entry payload and in no log line captured during the request, and that the response body carries ids, name and version only; a DROP TABLE audit_entries test shows the failure is rescued, answers a non-500 error and leaves no new definition row."
+      - "7. Test C-activate (INV-10, INV-5): a TENANT_ADMIN of tenant B posts to the activate route with tenant A's override_id and receives the same not-found reply as for an override_id that does not exist (status, headers and body compared in one test) and no definition row is written in either tenant; a tenant id in the path, query or body is ignored and the token's tenant is used; a PLATFORM_ADMIN token receives its own tenant's data only; a user with a tenant role other than TENANT_ADMIN, and a TENANT_AUDITOR, receive 403; a source-scanning test shows every Repo call added by this slice passes a :prefix."
+      - "8. Pins, stated as +N from the values on origin/main at implement time and not as the numbers quoted here: one new route, so __authz_routes__ of Letflow.Routers.SolutionPacks +1 and every length(snapshot) == N pin (grep -rn \"__authz_routes__\\|length(snapshot)\\|@ledger\" test/); the route_scope snapshot and test/fixtures/route_scope/tenant_wide_default_routes.txt +1 when REQ-596 left SolutionOverridesManage out of @admin_plane_keys of lib/letflow/api/route_scope.ex (the three length(snapshot) == N pins in route_scope_resolver_test.exs, route_scope_self_service_test.exs and tasks_route_classes_test.exs move by the same +1; the design states N). This slice adds no table (the tenant-table pin @expected_tenant_tables in test/support/tenant_fixture.ex does not move), no permission (priv/permission_matrix/effective.golden and the tenant-auditor refused-set literal do not move) and no migration; the implementer greps test/ for each of these pins and states in the PR that none moved except the route pins. Callers of Definitions.create/2 and activate/2 are not changed; a grep of test/ for create_owned and the H5 scan (handler_writes_callers_test.exs) shows no new caller of create_owned/3."
+      - "9. Gates: SECURITY-REVIEWER verdict recorded and mandatory (adds a route and creates and activates a tenant definition from stored tenant data; threats of decision 0069: structure change by override, values in audit or responses, cross-tenant activation, privilege to activate) and REVIEWER verdict recorded; mix letflow.check.static and every changed and new test file pass with real output quoted; the PR states that existing QA tenants are unaffected (no table, no row written until the route is called)."
+    depends_on: [REQ-562, REQ-596]
+    open_questions:
+      - "1. Version string of the effective definition (S3's own): this entry fixes \"<installed version>+ov<override_version>\" because process_definitions.version is free text (1 to 255 characters, unique with name) and nothing checks semver. If the owner wants plain semver bumps instead, criteria 2 and 4 change."
+      - "2. Permission to activate (assumed, to be confirmed by the owner): the route needs SolutionOverridesManage only (TENANT_ADMIN), not DefinitionsActivate; the activation checks of Definitions.activate/2 (activator authority for entity_writes, semantic checks) still run with the actor as activator. If the owner wants both permissions, criterion 7 gains the second."
+      - "3. variable_schema overrides (REQ-596 open question 3) have no effective-definition path in D8 S3; they are stored but never applied until the owner decides what a variable schema effective version is."
+      - "4. Decision 0069 D3 leaves open whether a new override may re-activate in place; this entry follows its sentence (existing activation rules, new version only) and does not add in-place re-activation."
+      - "5. Threshold overrides take no effect in S3 (gap for the owner): under the assumed Q3(a) of REQ-596 a threshold override is stored as a settings.<key> patch key; S3 merges graph properties only and neither D8 S4, S5 nor S6 applies settings keys, so a stored threshold override changes nothing until the owner decides where it is applied (for example as the tenant's module setting at activation) and which slice builds it. 0069 D2 says the effective definition is the installed definition with the patch applied; this entry covers the graph part only."
+      - "6. Module-owned definitions (decided here, to be confirmed by the owner and the reviewer): the installed definition of a module-wrapped pack carries owner_module, owner_module_version and hashes (set by Definitions.create_owned/3 from lib/letflow/definitions/solution_pack.ex). Creating the effective version through create/2 would lose the stamp and skip the REQ-574 extension-site check, so S3 refuses such an override (module_owned_definition_not_supported). Overrides of module-owned definitions need a later slice that stamps the new version and re-runs the extension-site check; decision 0055 D1 (module version) and D9 (rollback) are not changed by this refusal."
   - id: REQ-607
     title: "Record E slice E-3: pre-write script hook wired into Records create, update and upsert under the F13 atomicity rule (sequence-lock set, fingerprint compare, whole-hook retry, derived_value_conflict)"
     owner: ELIXIR-DEV
@@ -43194,6 +43278,59 @@ requirements:
       - "How the caller computes opts[:publisher_may_restricted?] for EntityWrite.run/4 (E-2 leaves it to E-3) is not stated by 0065 D5 beyond 'the publisher held EntitiesRestrictionsManage, re-checked at run time'. This slice passes false (restricted fields omitted) until the owner or the reviewer of REQ-539 rules how it is computed; a hook that needs a restricted input is not usable before that."
     depends_on: [REQ-601, REQ-567]
 
+  - id: REQ-608
+    title: "Skip-link and main-content landmark in AppShell and the login page (BilimBaga retirement criterion 3, accessibility.spec.ts)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S10
+    gh: 3415
+    description: >-
+      Source: docs/migration/bilimbaga-e2e-remeasure.md section 3, row accessibility.spec.ts (7 tests, 0
+      portable now, 7 blocked: "BLOCKED-BY skip-link and #main-content landmark in AppShell"); it serves
+      BilimBaga retirement criterion 3 (e2e parity). The corpus file is
+      BilimBaga/frontend/e2e/accessibility.spec.ts (FR-BB63); its 7 cases are, in describe
+      "Accessibility - Skip Link (Login Page)" (no session, page /login): (1) "skip link is the first
+      focusable element on login page" (after one Tab, document.activeElement.href matches /#main-content$/);
+      (2) "skip link is visible when focused" (locator a[href="#main-content"] is visible after one Tab);
+      (3) "#main-content exists and has tabindex=-1 (required for skip link target)"; (4) "login page
+      #main-content exists"; and in describe "Accessibility - Admin Layout" (signed-in session): (5) "admin
+      layout has #main-content landmark" (page /admin); (6) "skip link is the first focusable element on
+      admin page" (same href check as case 1); (7) "admin pages render without accessibility-breaking
+      crashes" (pages /admin/users, /admin/questions, /admin/exams, /admin/tags each have #main-content
+      attached and no "unexpected error" or "something went wrong" text). Today
+      web/src/components/layout/AppShell.tsx renders a sidebar (aside) followed by a main element with no id,
+      and web/src/pages/LoginPage.tsx renders main with data-testid="login-page" and no id; neither has a
+      skip-link. This requirement adds both pieces to both screens, so all 7 cases can be ported.
+      (a) One new shared component web/src/components/layout/SkipLink.tsx: an a element with
+      href="#main-content" and a label prop. It is visually hidden until focused: while not focused its inline
+      style is the clipped visually-hidden form (position absolute, width and height 1px, overflow hidden,
+      clip rect(0,0,0,0)); an onFocus handler sets a React state flag and onBlur clears it, and while the
+      flag is set the style is a visible one (position fixed at the top left, padding, background and text
+      colour from existing CSS custom properties such as --surface-sidebar and --text-primary, no literal
+      colours: web/tests/guards/forbidlist.ts, decision 0020). Its onClick calls preventDefault and then
+      focus() on document.getElementById('main-content'), so the router location and the URL hash do not
+      change and nothing depends on the router's hash handling (Enter on a focused anchor fires click).
+      (b) AppShell.tsx renders SkipLink as the first child of the shell root, with the literal label "Skip to
+      main content" (like the existing "Sign out" literal in that file; AppShell has no message catalogue and
+      this change does not add one), and its existing main element gets id="main-content" and tabIndex={-1}.
+      (c) LoginPage.tsx renders SkipLink as the first child of its returned tree, before the main element,
+      with the label from intl.formatMessage({ id: 'login.skipToContent' }); the key is added in en
+      ("Skip to main content"), ru and kk in web/src/i18n/loginMessages.ts, and its main element keeps
+      data-testid="login-page" and gets id="main-content" and tabIndex={-1}. The shell is the only layout
+      that renders the authenticated screens (web/src/components/layout/AuthenticatedShellRoot.tsx), so case
+      7's four admin pages sit under the AppShell main. Porting the 7 cases as Playwright specs is a later
+      batch and is not part of this change.
+    acceptance_criteria:
+      - "1. Landmark in the shell: the main element rendered by AppShell has id main-content and tabIndex -1, and exactly one element with id main-content exists in the rendered shell. Vitest component test web/src/components/layout/__tests__/AppShell.skip-link.test.tsx (mocking useAuth and useQuery the way AppShell.branding.test.tsx does) asserts document.getElementById('main-content') is the main element. This covers corpus cases 5 and 7."
+      - "2. First focusable in the shell: in the same test, one userEvent.tab() from the document body puts focus on an a element whose getAttribute('href') is '#main-content' and whose accessible name is 'Skip to main content'; it precedes the sidebar's first navigation link in document order. This covers corpus case 6."
+      - "3. Activation: with the skip-link focused, pressing Enter and, in a second case, clicking it, moves document.activeElement to the main-content element, and the router location (pathname and hash) is unchanged. The AppShell test asserts both cases."
+      - "4. Visible when focused: before focus the skip-link's style has width 1px, height 1px and overflow hidden; after userEvent.tab() puts focus on it, the style no longer has that clipped form (position fixed, width auto); after blur it returns to the clipped form. A SkipLink unit test web/src/components/layout/__tests__/SkipLink.test.tsx asserts the three states, and a reading of the file shows no hex, rgb or hsl colour literal and that the colours are var(--...) references; the web guard in web/tests/guards/forbidlist.ts passes. This covers corpus case 2."
+      - "5. Landmark and skip-link on the login page: rendering LoginPage (the way web/src/pages/__tests__/LoginPage.test.tsx does) gives exactly one element with id main-content, which is the main element with data-testid login-page and tabindex attribute '-1'; one Tab from the body focuses an a element with href '#main-content' whose accessible name is the en value of login.skipToContent; clicking it moves focus to the main element. New cases in web/src/pages/__tests__/LoginPage.test.tsx. This covers corpus cases 1 to 4."
+      - "6. Login text: login.skipToContent exists in en, ru and kk in web/src/i18n/loginMessages.ts, and web/src/__tests__/login-i18n-grep.test.ts passes without edits to its scanners."
+      - "7. Not a dead stop: after the skip-link has moved focus to main-content in the AppShell test, pressing Tab moves focus to the first focusable element inside main when the test route renders a button as its page content; the Outlet content and the two banners still render inside the main element as before."
+      - "8. Existing behaviour: AppShell.branding.test.tsx, AppShell.module-nav.test.tsx, AppShell.candidate-nav.test.tsx, AppShell.bilimbaga.test.tsx, AuthenticatedShellRoot.test.tsx, LoginPage.test.tsx (existing cases) and LoginRoute.test.tsx pass without edits to existing cases."
+      - "9. Scope and gate: git diff --stat shows only web/src/components/layout/SkipLink.tsx, web/src/components/layout/AppShell.tsx, web/src/pages/LoginPage.tsx, web/src/i18n/loginMessages.ts and the test files named in criteria 1, 4 and 5 inside web/; no file under lib/, priv/ or test/, and no Playwright spec; cd web && npm run check passes with the real output quoted. The PR states that the 7 accessibility.spec.ts cases are unblocked and that porting them is a later batch."
+    depends_on: []
   - id: REQ-609
     title: "Tenant x_ extension layer slice I2: the write path with the D4 refusals, the :EntitiesExtensionsManage permission, the type-extension routes and audit (decision 0067-tenant-x I2)"
     owner: ELIXIR-DEV
@@ -43571,6 +43708,93 @@ requirements:
       - "The backoff length before a script_busy re-run is not in 0067 ('short backoff'); the implementer picks a fixed figure and states it in the PR; it is not a setting."
       - "Still open in 0067 'Not decided here' and not decided by this entry: any wall-clock figure between 50 ms and the 0053 D7 maxima, the maximum number of fields entries in a refusal, the HTTP status numbers of the D5 infrastructure codes, whether the 403 of a wrong assignee (ISS-0942) collapses to the not-found answer, a hook 3 with entity reads, and the behaviour of any future automatic completer."
     depends_on: [REQ-569, REQ-581]
+  - id: REQ-615
+    title: "Record T slice T-3: claim worker with lease for record_trigger_outbox (poller child behind :start_record_trigger_worker, FOR UPDATE SKIP LOCKED claim, per-record order, lease sweep, fairness, retry cap and backoff), the run is a stub that marks the row done"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3434
+    # Source: docs/migration/decisions/0067-after-commit-trigger-outbox.md D1 (worked example, node death after commit, variant A), D2 (states, "Claim", "Lease length", retry cap and backoff, the ruling on lib/letflow/engine/script_task_dispatcher.ex and service_task_dispatcher.ex), D3 ("CAS on attempt", retriable causes), D6 ("Per record, in commit order", "Fairness", "Admission"), D7 (rows "claim lost" and "lease expired", tenant schema dropped), D8 (INV-1, INV-10 test), D9 slice T-3 and the SECURITY-REVIEWER marker, "Not decided here"; docs/migration/decisions/0061 (lock position of the claim, D2 "Lock position" (b)); docs/agents/instructions/security-invariants.md INV-1, INV-8, INV-10; REQ-606 (T-2, the outbox table), REQ-570 (T-1, the flag :record_triggers_enabled and the bindings). Code read: lib/letflow/engine/script_task_dispatcher.ex (claim_next/1, the private lock_and_claim/2, lease_ms/0, busy_backoff_ms/1, run_tick/2, sweep_expired_leases/2, the config keys tick_budget_ms, max_dispatches_per_cycle, sweep_limit, lease_margin_ms, busy_backoff_base_ms, busy_backoff_cap_ms), lib/letflow/engine/script_task_dispatcher/poller.ex (the private fetch_tenant_schemas, which lists Registration schemas with migrations_applied_at set), lib/letflow/supervisor/pollers.ex (the private script_task_dispatcher_children, one gate per poller), config/test.exs (start_script_task_dispatcher: false), test/letflow/supervisor/pollers_test.exs (the gate keys it lists), lib/letflow/record_triggers.ex (enabled?/0). Written by the business analyst (T-0843) 2026-10-28.
+    description: >
+      Decision 0067 D9 slice T-3 only ("claim worker with lease"). Wait condition: REQ-606 (slice T-2)
+      is on origin/main as a register entry only; the feature task of this entry waits until REQ-606's
+      feature tasks (T-0840 and T-0841) have merged, because the table record_trigger_outbox and the
+      rows to claim come from them. REQ-570 (T-1) is delivered and gives the flag :record_triggers_enabled
+      and Letflow.RecordTriggers.enabled?/0.
+      What it builds. A third poller, a GenServer in a new module (suggested name
+      Letflow.RecordTriggers.Worker, file lib/letflow/record_triggers/worker.ex) started as a child of
+      Letflow.Supervisor.Pollers (lib/letflow/supervisor/pollers.ex) behind its own config key
+      :start_record_trigger_worker, read as Application.get_env(:letflow, :start_record_trigger_worker,
+      true) in a new private children function like script_task_dispatcher_children, and set to false in
+      config/test.exs beside start_script_task_dispatcher (same OwnershipError hazard as the other
+      pollers). The poller shape is copied from lib/letflow/engine/script_task_dispatcher/poller.ex:
+      zero-delay first tick, tenant schema list from Registration where migrations_applied_at is set. It
+      is a separate process from the HTTP and script-task pollers (0067 D6 "Admission"), so a run here
+      never delays them. The worker does nothing while :record_triggers_enabled is false (the tick lists
+      no schema and claims nothing).
+      Claim (0067 D2 "Claim"): two statements in one transaction, as 0067 D2 states (the shape of
+      ScriptTaskDispatcher.claim_next/1 and its private lock_and_claim/2, whose candidate select runs
+      outside the transaction; this slice follows 0067): a candidate read (status = pending AND
+      (next_attempt_at IS NULL OR next_attempt_at <= now), ordered by next_attempt_at then id, limit 8, with
+      the per-record rule below; a pending row whose next_attempt_at is NULL is due, because REQ-606 sets no
+      value for that column at insert and this slice does not leave the rule to REQ-606), then a re-select of the candidate ids
+      with the lock mode FOR UPDATE SKIP LOCKED, limit 1, on the outbox row only, then an update to running
+      with attempt + 1, claimed_at and lease_expires_at = now + lease. The claim transaction takes no other
+      lock (0067 D2 "Lock position" (b)). A row held by another transaction is skipped, never waited for.
+      Per-record order (0067 D6): the candidate query skips a row when a row of the same (entity_type,
+      record_id) with a lower source_seq is pending or running; rows of different records run in parallel;
+      a dead earlier row does not block later rows.
+      Lease and sweep (0067 D2 "Lease length", D3): the lease is 30 s by default, computed like
+      ScriptTaskDispatcher.lease_ms/0 (5 s platform wall clock + 2 s caller margin + a configured margin of
+      23 s, the margin clamped to at least 1 s); the config keys are the worker's own, not the dispatcher's.
+      A sweep at the start of every tick, per tenant and bounded by a sweep limit like sweep_expired_leases/2,
+      returns a running row whose lease has expired to pending with last_code lease_expired and next_attempt_at
+      set by the backoff below; the cause is counted. The expired attempt counts toward the cap. A late worker
+      of an earlier attempt cannot write: every status update of the worker matches (id, attempt, status =
+      running) and a miss is :stale and writes nothing (0067 D3 "CAS on attempt", D7 "claim lost").
+      Retry cap and backoff (0067 D2): max_attempts 10 claims in total per row over all retriable causes; the
+      backoff base 500 ms, doubling, capped at 30 s (the figures of busy_backoff_ms/1). When the lease of a
+      row's tenth claim (attempt 10) expires, the sweep sets it dead with last_code retries_exhausted
+      instead of pending; dead is terminal and the row is not claimed again. In this slice the only retriable cause that can occur is the expired lease
+      (the stub never fails); script_busy and apply contention are T-4 and T-5. No DLQ entry, list route,
+      requeue route or Alerts signal: a dead row is only a status here (T-5).
+      Fairness (0067 D6): one row per tenant per pass, a round-robin start that rotates every tick, under a
+      global wall-time budget per tick, as ScriptTaskDispatcher.run_tick/2 does; one tenant's backlog cannot
+      starve another's. The worker never raises: a failed query or a crash while handling one row is rescued
+      or caught per row and per tenant, logged as one line with the tenant schema and a class tag, never the
+      error text, and counted (INV-8); a tenant schema that has gone is skipped.
+      The run is a stub. A claimed row is marked done in one transaction with the CAS on (id, attempt, status =
+      running), done_at set and last_code left empty. No script is prepared or run, no record is read, no
+      write is applied, no idempotency key is built. T-4 replaces the stub; the stub is one clearly named
+      function so that replacement touches nothing else.
+      Out of scope, each its own later requirement (0067 D9): T-4 script run and result application (and the
+      record_trigger: reserved-prefix refusal), T-5 failure handling, dead-letter visibility, list, count
+      and requeue routes, T-6 dry-run and UAT. No route, no permission, no UI, no migration (the columns
+      claimed_at, lease_expires_at, attempt, next_attempt_at, last_code, done_at come from REQ-606; if the
+      claim needs an index REQ-606 did not create, this slice adds a migration for that index only and the
+      summary says so and moves the tenant-migration pins). The only new config keys are the flag
+      :start_record_trigger_worker and the worker's lease margin, sweep limit, tick budget, max_attempts and
+      backoff values, each with its reason and default (the 0067 values) in the summary.
+      The three tests the record names for the slice (no double claim under concurrency, crash-and-restart of
+      the worked example, INV-10 claim test) are criteria 5, 6 and 7. SECURITY-REVIEWER is mandatory (a new
+      process that reads and writes tenant-schema rows; tenant isolation of the claim).
+    acceptance_criteria:
+      - "1. Flag and child: Letflow.Supervisor.Pollers starts the worker as a child only when Application.get_env(:letflow, :start_record_trigger_worker, true) is true; config/test.exs sets it to false; test/letflow/supervisor/pollers_test.exs gains the key beside :start_script_task_dispatcher (its key list and its assertion that the test config has it off) and passes; a test starts Pollers with the key true and shows the worker child is present, and with it false shows it is absent. With :record_triggers_enabled false a tick claims nothing and reads no outbox table (the test counts the rows claimed, zero, with pending rows present)."
+      - "2. Claim lock mode and shape: claiming a pending row whose next_attempt_at has passed sets status running, attempt 1, claimed_at and lease_expires_at 30 s after claimed_at by default; a pending row inserted with next_attempt_at NULL is due and is claimed on the first tick; a row with next_attempt_at in the future is not claimed; the claim SQL is quoted in the summary and contains FOR UPDATE SKIP LOCKED on the outbox table only; the claim transaction takes no lock on any other table (shown by a test that holds a lock on the record row and on the type's sequence row in another connection and the claim still returns without waiting)."
+      - "3. Per-record order (0067 D6): with rows R1 (source_seq 5) and R2 (source_seq 6) of one (entity_type, record_id) both pending, only R1 is claimed; R2 is not claimable while R1 is pending or running; once R1 is done R2 is claimed; once R1 is dead R2 is claimed (a dead earlier row does not block); rows of two different records, and of two types with the same record id, are both claimable at the same time."
+      - "4. Fairness and budget (0067 D6): with three tenants A, B and C where A has 20 pending rows and B and C one each, one tick claims at most one row per tenant per pass and B and C are served in the first pass, not after A's backlog; the start tenant rotates by one on every tick (the returned offset is offset + 1); the tick stops once the wall-time budget has elapsed (a test with a budget of 0 or a stubbed clock shows budget_exhausted true and unclaimed rows left pending). A tenant schema that does not exist or whose query fails is skipped, counted, and does not stop the tick or the other tenants; the worker process stays alive."
+      - "5. No double claim under concurrency (named test, 0067 D9 T-3): N concurrent claimers (N at most 4, in separate connections, started from a barrier) over a set of M pending rows of distinct records claim every row exactly once: the claimed ids are all different, their count is M, every row has attempt 1; a second test holds one row locked in an open transaction and shows a concurrent claim skips that row and claims another instead of waiting (the call returns without waiting for the lock, with the elapsed time asserted below the lock holder's hold time)."
+      - "6. Crash and restart of the worked example, lease expiry (named test, 0067 D1 and its variant A): in a tenant with an active binding, an outbox row O1 is pending with attempt 0, next_attempt_at NULL, and no worker has run (the worker is not started: node death before any worker ran); the worker is started and its first tick claims O1 (running, attempt 1, lease 30 s) and marks it done. Variant A: O1 is claimed (running, attempt 1) and the claiming process is killed before it finishes; while the lease has not expired a tick does not claim O1 and the sweep does not touch it; after the lease has expired (the clock or the lease value is injected, no sleeping for 30 s) the next tick's sweep sets O1 pending with last_code lease_expired and a next_attempt_at set by the backoff, the cause counter is incremented by one, the following claim after next_attempt_at makes attempt 2 and marks it done; the dead attempt-1 claim, replayed with its old attempt number, finds no row (stale) and changes nothing. The test uses the real worker module and real rows, not a mock of the claim."
+      - "7. INV-1 and INV-10 claim test (named test, 0067 D8): with two tenants A and B, a pending outbox row of A is claimed only by a tick pass over A's schema, never counted or returned in a pass over B's; B's pass over its own empty outbox returns exactly what the same pass returns on a tenant with no rows ever created; a row whose own columns name another tenant's schema or type (for example an entity_type or record id that exists only in B) is still handled in the schema it was found in and touches nothing in B; the worker takes the tenant only from the schema of the tick's Registration list. This slice adds no route, so the route-level cross-tenant negative test of 0067 D8 belongs to T-5; the summary says so."
+      - "8. Retry cap and backoff (0067 D2): the backoff after the first expired lease is 500 ms, doubles per expired lease and never exceeds 30 s (the function is tested at attempts 1, 2, 6 and 12); a row whose lease has expired on its tenth claim becomes dead with last_code retries_exhausted and is not claimed again; a row at attempt 9 whose lease expired is returned to pending and is claimed once more (attempt 10); the cap counts claims over all causes together."
+      - "9. Stub run and no side effects: the stub marks the row done with done_at set in one transaction guarded by the CAS on (id, attempt, status = running); a test shows no record, no history, no event and no audit row is written or read by the run, no script runtime call is made, and the outbox row's pin columns and payload columns are unchanged. A forced exception inside the stub and a forced database failure of the mark-done update are rescued: the worker process stays alive, the row stays running until the lease sweep returns it, and the log has one line with the tenant schema and a class tag and no stacktrace or inspect text."
+      - "10. Pins and scope: the summary lists the tests that pin what this slice changes, found with `grep -rn \"start_script_task_dispatcher\\|script_task_dispatcher_children\" test/ lib/ config/` and `grep -rn \"Pollers\" test/` (output pasted), and the scoped tests pass with real output quoted; no new route, permission or UI; if a migration is added for a claim index, the tenant-table pin and the migration version are re-taken from origin/main. mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check.static and the scoped mix test over the new test files and test/letflow/supervisor/pollers_test.exs pass, real output quoted; the new test files are async-sandbox safe (letflow.check_async_sandbox_reachability)."
+      - "11. SECURITY-REVIEWER verdict is recorded (mandatory: a new process that reads and writes tenant-schema rows); REVIEWER verdict recorded. The Sign-off section of docs/migration/decisions/0067-after-commit-trigger-outbox.md is not edited by this slice."
+    open_questions:
+      - "Not settled by 0067 (it lists them under 'Not decided here'): the owner's tolerance for a delayed or dead-lettered trigger beyond the defaults; pruning and retention of done and dead rows (this slice prunes nothing); the kill-switch alternative of leaving rows pending (the kill switch itself is T-5). This slice settles none of these."
+      - "0067 D2 names no sweep limit, tick budget or per-tenant cap per tick for this worker; this entry copies the shape of the script-task dispatcher (sweep limit 64, tick budget 10 s) as defaults and the design states the values it picks and why."
+      - "0067 D2 leaves open whether the claim needs an index beyond the partial index REQ-606 creates for the backlog count; the design measures it (EXPLAIN on the candidate query) and adds one only if the plan needs it."
+    depends_on: [REQ-606, REQ-570]
 
   - id: REQ-614
     title: "Per-tenant print-template overrides (decision 0068 D8) slice S4: web authoring screen with a JSON layout editor and a preview from synthetic content"
@@ -43785,3 +44009,68 @@ requirements:
       - "Decision 0065 'Not decided here' stays open and is neither set nor implied: the numeric HTTP status of entity_type_hooked, the locked-window budget, numeric read caps. The direct-route status of derived_value_conflict is the 503 of REQ-607 criterion 6b; only another number inside that contention mapping stays the owner's choice. The other statuses of the table in the description (script_rejected 409, script_busy 503, 422 for script_error, budget_exceeded, memory_limit_exceeded, timeout, output_invalid and script_failed) are UAT assumptions of this entry, to be confirmed by the process owner; 0065 does not list them under 'Not decided here' and sets none of them."
       - "The activation-time half of entity_type_hooked (0065 D1) and the bind-time field rules of D5 are assigned to no slice by 0065 D8; this slice does not add them (see the open questions of REQ-601 and REQ-607)."
     depends_on: [REQ-607, REQ-601]
+  - id: REQ-619
+    title: "Saved report definitions over one record type: a summary over the aggregate route plus a detail listing over the records route, stored and validated on the existing view routes (generic views, slice 4, backend)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3453
+    # Source: docs/migration/decisions/0066-generic-saved-views-over-records.md, "Deferred slices": "Slice 4: report builder." and D1..D7 (D1 tenant-wide sharing and D4 TENANT_ADMIN-only are assumptions for the process owner, not owner blocks); docs/migration/core-roadmap-20261014.md, Wave 3 row "Generic list, pivot and graph views and a report builder over entities"; REQ-555, REQ-598 and REQ-613 (this file); code read: lib/letflow/entities/views/clauses.ex (@allowed_keys, @list_only_keys, kind/3, check_kind_keys/2, kind_clauses/2, check/3), priv/repo/migrations/20261027400001_add_pivot_to_entity_views.exs (kind CHECK list, pivot clauses CHECK), lib/letflow/routers/entities.ex (query_aggregate, build_aggregate_request/1, build_query_request/1: both read the filter under the request key `filters`), docs/roles.md rows EntitiesQuery, EntitiesAggregate, EntitiesViewsManage. Written by the business analyst (T-0850) 2026-10-28. Not yet validated.
+    description: >
+      Backend of slice 4 of generic views (decision 0066, "Deferred slices": "Slice 4: report builder").
+      Slice 1 (REQ-555) stores a list definition, slice 2 (REQ-598) a pivot definition; a report joins
+      the two under one name. A saved report is a named definition over exactly one entity type holding
+      one filter (stored under the key `filter`, the clause list of both routes), a summary part (a
+      non-empty aggregates list and zero or more group_by clauses, shapes as on
+      POST /entities/query/aggregate) and an optional detail part (columns and sort, shapes as in a
+      list view). It is stored as a further value `report` of the `kind` column of the existing
+      tenant-schema table (priv/repo/migrations/20261025500001_create_entity_views.exs, kind column from
+      priv/repo/migrations/20261027400001_add_pivot_to_entity_views.exs, schema
+      lib/letflow/entities/views/view.ex, writer lib/letflow/entities/views.ex, validation
+      lib/letflow/entities/views/clauses.ex) and served by the existing view routes mounted at
+      /entity-views (lib/letflow/routers/entity_views.ex, forward in lib/letflow/plugs/api_pipeline.ex).
+      This slice adds no route and no new table: create, update, read, list and delete of a report reuse
+      the five routes of REQ-555, so the route-scope and route-count pins do not move. A report is not a
+      read path: no view route returns aggregate or record data. A client builds a report by replaying
+      the stored definition as two ordinary calls, the summary as POST /entities/query/aggregate
+      (lib/letflow/routers/entities.ex, route query_aggregate, permission EntitiesAggregate, RequestAccess.check/4
+      with kind :aggregate, Letflow.Entities.Query.Compiler.run_aggregate) and the detail as
+      POST /entities/query (same file, permission EntitiesQuery), so the type gate, the restricted-field
+      walker and per-user redaction apply to each exactly as for a hand-built request (decision 0066 D3,
+      INV-2); there is no second read path and no report result is cached or stored.
+
+      Permission choice: reuse EntitiesViewsManage for create, update and delete and EntitiesQuery for
+      reading the definition (decision 0066 D4). No new permission atom: a report is one more kind of
+      saved view, and a separate atom would let the two permissions disagree about who may change
+      the same table. Replaying the summary also needs EntitiesAggregate; today the roles holding it are
+      the roles holding EntitiesQuery (docs/roles.md), which the implement step re-checks.
+
+      Not this: exam analytics (REQ-594) is a fixed read-only recipe of three BilimBaga reports over the
+      aggregate route, with queried flags changed in the exam pack; it stores nothing. This slice is the
+      generic, tenant-defined storage of any report over any queryable type and changes no entity
+      definition. Out of scope: the web report builder screen (a later web requirement), the graph view
+      (REQ-613), export of a report to CSV or PDF, scheduled or e-mailed reports, per-user
+      reports, reports over joined types (REQ-300) and versioning.
+
+      Coordination: REQ-619 builds on the migration of REQ-613 (graph view, gh: 3432): REQ-613 replaces the
+      kind check with one allowing list, pivot and graph, replaces entity_views_pivot_clauses_chk and adds
+      the nullable chart_type column with entity_views_chart_type_chk. REQ-619 adds `report` on top of that
+      state and re-takes the migration version from origin/main at implement time.
+    acceptance_criteria:
+      - "1. Storage: a tenant-schema migration in priv/repo/migrations/ lets the existing entity views table hold the kind `report`: the kind check, as REQ-613 replaces it, allows list, pivot, graph and report; the group_by/aggregates CHECK, as REQ-613 replaces it (`kind IN ('pivot','graph') OR (group_by = '[]'::jsonb AND aggregates = '[]'::jsonb)`, constraint name taken from REQ-613 migration on origin/main at implement time), becomes `kind IN ('pivot','graph','report') OR (...)`; `entity_views_chart_type_chk` is left as is and keeps chart_type null for a report row. No new tenant table. A report row stores filter, group_by, aggregates, columns and sort in the existing columns. Tenant_id stays inside the schema (decision 0006 D2). A test asserts that existing list and pivot rows are unchanged after the migration and that a report created in tenant A is absent from the tenant B schema (INV-1, INV-6)."
+      - "2. Write shape: the write body accepts `kind` = `report`. A report body takes entity_type, name, filter, group_by, aggregates, columns and sort; `aggregates` is required and non-empty; `columns` and `sort` are optional and default to empty, and an empty or absent `columns` is accepted for kind `report` and means the report has no detail part (the list rule that refuses an empty `columns` with `columns_invalid` applies to a report only when `columns` is non-empty). A report with an empty `columns` and a non-empty `sort` returns 422 `sort_invalid` and stores nothing. A report body that carries a `join` key or a `chart_type` key returns 422 `unknown_key` and stores nothing; a list body that carries `group_by` or `aggregates`, and a pivot body that carries `columns` or `sort`, still return 422 `unknown_key` as in REQ-598 criterion 1. The kind of a stored view cannot be changed (`kind_immutable` as for pivot). The view response gains no new key: it carries the existing kind, group_by, aggregates, columns, sort, filter and chart_type (null for a report). `kind_invalid` stays the 422 for any kind other than list, pivot, graph and report."
+      - "3. Validation of the summary part: the filter, group_by and aggregates of a report are validated with the same clause rules and the same short codes as a pivot view (REQ-598 criterion 2): `filter_invalid`, `unknown_operator`, `field_not_allowed`, `value_arity_mismatch`, `invalid_in_value`, `invalid_decimal_value`, `operator_not_valid_for_type`, `aggregates_invalid`, `group_by_invalid`. One test per case on create and one on update; nothing is stored on a 422."
+      - "4. Validation of the detail part: columns and sort of a report are validated, when non-empty, with the rules and codes of a list view in lib/letflow/entities/views/clauses.ex: a column not on the type is 422 `column_not_on_type` (check_columns/3), a sort field not on the type is `field_not_allowed`, an unknown sort direction is `unknown_sort_dir`, more than 100 columns is `columns_invalid`, more than 10 sort clauses is `sort_invalid`. One test per case on create and one on update; nothing is stored on a 422."
+      - "5. D2 and D1: a report names exactly one entity type; the name is unique per entity type within a tenant across all four kinds (409 as in REQ-555). A report created by one TENANT_ADMIN is returned by the list route to every caller who holds EntitiesQuery and may read that type, and is not returned to a caller who may not read the type."
+      - "6. Permissions: reading reports needs EntitiesQuery and creating, updating and deleting needs EntitiesViewsManage; no new permission atom is added and the permission matrix golden (priv/permission_matrix/effective.golden) is unchanged. A test shows that a caller without EntitiesViewsManage gets 403 on create, update and delete of a report, the same 403 for an existing and an absent id."
+      - "7. D3 replay and INV-2: a test stores a report with a non-empty filter, group_by, aggregates, columns and sort, sends its stored group_by and aggregates and its filter (as the request key `filters`) to POST /entities/query/aggregate, and sends its filter (as `filters`) and sort to POST /entities/query (the query route has no columns key: columns only choose which returned fields a client shows); each response equals the response of the same hand-built request. For a caller who has no grant on a field the report names, each replay is refused or redacted exactly as the hand-built request is. The replay sends the request keys `filters`, `group_by` and `aggregates` (read by build_aggregate_request/1) and `filters` and `sort` (read by build_query_request/1), both in lib/letflow/routers/entities.ex. No view route response contains an aggregate result or a record value."
+      - "8. INV-5 not-found: a report of an entity type the caller may not read, a report of another tenant and an absent view id return the same 404 with identical headers and body."
+      - "9. INV-10 cross-tenant negative test: with a report id and entity type key that exist only in tenant A, a TENANT_ADMIN of tenant B calling read, update and delete receives the same 404 as for an absent id with a byte-identical body, and the tenant A report row is unchanged afterwards. No view route takes a tenant identifier from the request."
+      - "10. Audit and pins: create, update and delete of a report each write an audit event in the same transaction as REQ-555 does; refusals write none. No route is added, so the __authz_routes__ tests, the route_scope snapshots and the route-count pins pass unchanged; the implement step greps test/ for the entity views table name, the kind CHECK list and the view column list and updates any exact-set pin it finds."
+      - "11. SECURITY-REVIEWER verdict recorded (mandatory: tenant-data path) and REVIEWER verdict recorded; mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check_boundaries, mix letflow.check_requirements_registration and the scoped mix test over the view tests, the aggregate and query route tests and the authorization and route pin tests pass, real output quoted."
+    open_questions:
+      - "OPEN (owner): is a report allowed several named sections (more than one summary or detail part), or exactly one summary plus one detail as written here? Not decided; one of each is the working assumption of this slice."
+      - "OPEN (owner): should a detail part have a stored row limit, and what happens when a replayed detail exceeds the page size of POST /entities/query? Not decided; the report stores no limit and the client pages as for any query."
+      - "OPEN (owner): export of a report (CSV, PDF) and scheduled delivery are not part of this slice; whether they are wanted and in which order is not decided."
+      - "OPEN (process owner): decision 0066 D1 (tenant-wide sharing) and D4 (TENANT_ADMIN-only writes) are still assumptions to be confirmed; this slice inherits them unchanged."
+    depends_on: [REQ-555, REQ-598, REQ-613]

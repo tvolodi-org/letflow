@@ -901,7 +901,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-590 / GH #3338: empty per-tenant singleton table for the uploaded tenant logo (part 1,
     # storage and write path only, behind :tenant_logo_upload_enabled). No existing row altered.
     {20_261_027_500_001, Letflow.Repo.Migrations.CreateTenantLogos,
-     "20261027500001_create_tenant_logos.exs"}
+     "20261027500001_create_tenant_logos.exs"},
+    # REQ-613 / GH #3432: kind `graph` and a nullable chart_type on entity_views (saved graph views).
+    # Existing rows stay list or pivot with chart_type NULL; no row altered.
+    {20_261_028_100_001, Letflow.Repo.Migrations.AddGraphToEntityViews,
+     "20261028100001_add_graph_to_entity_views.exs"}
   ]
 
   @doc """

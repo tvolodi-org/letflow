@@ -1,0 +1,149 @@
+# T-0847 (BA): TENANT ADMIN group, scenario 37: the administrator of a SECOND company imports company A's v2 bundle with its wording
+# replacements and message wordings (REQ-599 slice 2, criteria 3, 5, 6, 8). Follows scenario 36, extends scenario 5.
+# Sources: docs/requirements.yaml REQ-599 (acceptance criteria 3, 5, 6, 8); lib/letflow/routers/tenant_config_bundle.ex (the answer adds
+# the counts of changed and unchanged wording replacements and message wordings; the company comes only from the sign-in);
+# lib/letflow/tenant_config_bundle.ex (moduledoc: one audit entry per changing import, carrying key names, module ids and the
+# message-id/language and template-key/language pairs, never values; a repeated identical import changes nothing and writes no entry).
+# Aliases (actor-any): tenant_admin = administrator of company A (scenario 36); tenant_admin_b = administrator of company B (scenario 5).
+# Not covered here, by the requirement's own wording: criterion 7's per-part permission cases (a caller holding the settings permission but
+# lacking the wording or message-wording permission) cannot be set up with a built-in role; they are checked by the backend seam test
+# test/letflow/routers/tenant_config_bundle_test.exs. Criteria 9 and 10 concern the code change, checked by review and CI.
+# The four sensitive actions: the import is "change company configuration"; its refusal for a task worker is scenario 38.
+# UAT assumptions, to be confirmed by the process owner: company B has no stored wording replacement and no stored message wording at the
+# start, and has the same installed modules as company A (as scenario 5 assumes).
+---
+id: tenant-administration-37-config-bundle-v2-import-lists-second-tenant
+scope: tenant-administration
+title: The second company imports the first company's wording replacements and message wordings, only the second company changes, a repeat changes nothing, and one audit entry names pairs but no text
+version: "1.0"
+tags: [tenant-admin, config-bundle, import, label-overrides, notification-templates, cross-tenant, idempotent, audit]
+
+description: >
+  The administrator of company B imports bundle_a_v2, the document company A's administrator saved in scenario 36. Company B then holds the
+  three screen-wording replacements and the two message wordings of the document, the answer counts them as changed, and it also counts
+  the settings and modules. Company A's replacements and wordings are read before and after and are identical. The administrator of B then
+  imports a copy that names company A inside the document and inside one entry and has one replacement text changed: only company B changes,
+  and only that one replacement. Importing the same copy again is accepted, every changed count is zero and the unchanged counts equal the
+  entries present. The audit trail of company B shows one entry for each of the two changing imports and none for the repeat; the entries
+  name message ids, languages, template keys and the administrator, and no replacement text, subject or body; no single-row wording or
+  message-wording audit entry is written by an import.
+
+actors:
+  tenant_admin: actor-any
+  tenant_admin_b: actor-any
+
+preconditions:
+  - description: tenant-administration-36 passed in this run, so bundle_a_v2 exists and company A holds three wording replacements and two message wordings
+    check: custom
+    detail: If scenario 36 did not pass, report BLOCKED, not PASS.
+  - description: Company B exists, is active, has an administrator tenant_admin_b, has English and Russian among its languages after the import (the bundle sets them), and holds no stored wording replacement and no stored message wording
+    check: custom
+    detail: If company B or its administrator does not exist, report BLOCKED. If wordings exist in B from an earlier run, note them; the counts of step 3 are then judged by the difference they make.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator of company A reads company A's wording replacements and message wordings and notes them, with the number of
+      settings-import entries in company A's audit trail, as the "before" record.
+    via: api
+  - step: 2
+    actor: tenant_admin_b
+    action: >
+      The administrator of company B reads company B's wording replacements and message wordings and the number of entries in the audit trail
+      for settings imports and for single wording changes, and notes them as the "before" record of company B.
+    via: api
+  - step: 3
+    actor: tenant_admin_b
+    action: The administrator of company B imports bundle_a_v2 unchanged and notes the answer, with all its counts.
+    via: api
+  - step: 4
+    actor: tenant_admin_b
+    action: The administrator of company B reads company B's wording replacements and message wordings and compares them with the lists of bundle_a_v2.
+    via: api
+  - step: 5
+    actor: tenant_admin
+    action: The administrator of company A reads company A's wording replacements, message wordings and audit entry count and compares them with the "before" record of step 1.
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The administrator of company B imports a copy of bundle_a_v2 in which the entries "tenant_id" and "source_tenant_id" (both naming
+      company A) are added at the top of the document and the entry "tenant_id" (naming company A) is added inside the first wording
+      replacement, and in which the text of the replacement for "entities.tag.form.submitError" in English is changed to "Tag not saved B".
+      The administrator notes the answer.
+    via: api
+    produces:
+      copy_b: the changed copy, used again in step 8
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator of company A reads company A's wording replacements and compares the English text for "entities.tag.form.submitError"
+      with the "before" record; it must not be "Tag not saved B".
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: The administrator of company B imports copy_b, the same copy as in step 6, a second time and notes the answer, then reads company B's wording replacements and message wordings.
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The administrator of company B opens the audit trail and lists the entries for settings imports and the entries for single wording
+      changes and single message-wording changes.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: After the first import company B holds the wording replacements and message wordings of the document, and the answer counts them.
+    verification:
+      method: system_state
+      detail: Step 4 lists in company B exactly three wording replacements and two message wordings equal in message id or template key, language and text to the lists of bundle_a_v2, in the same order. The answer of step 3 carries a changed count of 3 and an unchanged count of 0 for the wording replacements, and a changed count of 2 and an unchanged count of 0 for the message wordings, next to the counts of settings and modules.
+      evidence: Company B's lists from step 4 and the answer of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Wording tested in one company cannot be moved to another, so production wording is typed by hand and differs from the tested one.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Company A is not changed by company B's imports.
+    verification:
+      method: system_state
+      detail: Company A's wording replacements and message wordings read in steps 5 and 7 are identical to the "before" record of step 1, including the English text for "entities.tag.form.submitError", which is not "Tag not saved B".
+      evidence: Company A's lists in steps 1, 5 and 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer's administrator can change another customer's wording.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Company identifiers named inside the document or inside an entry are ignored; the import changes company B only, and only the one changed replacement.
+    verification:
+      method: system_state
+      detail: Step 6 is not refused for the extra entries. Its answer counts 1 wording replacement changed, 2 unchanged, 0 message wordings changed and 2 unchanged. Company B's English text for "entities.tag.form.submitError" is "Tag not saved B" and company A's is unchanged (step 7).
+      evidence: The answer of step 6, company B's list after step 6 and company A's text in step 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A bundle can aim an import at a company other than the one the administrator is signed in to.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: Importing the same document again is accepted and changes nothing.
+    verification:
+      method: system_state
+      detail: The answer of step 8 is accepted (200) with every changed count zero (settings, modules, wording replacements, message wordings), the wording replacements counted unchanged 3 and the message wordings counted unchanged 2; company B's lists after step 8 equal those after step 6, with equal last-change times for the unchanged entries where the list shows them.
+      evidence: The answer of step 8 and company B's lists before and after step 8.
+    on_fail:
+      severity: MINOR
+      business_impact: Repeating an import after an interrupted release gives surprising results or noise in the audit trail.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Each import that changed something has exactly one audit entry, the repeat has none, and the entries carry pairs and no text.
+    verification:
+      method: system_state
+      detail: The audit trail of company B shows one settings-import entry for step 3 and one for step 6 and none for step 8. The entry of step 3 names tenant_admin_b, the format version "bpm/config-bundle/v2", the three message-id/language pairs and the two template-key/language pairs; the entry of step 6 names only the pair "entities.tag.form.submitError"/English among the wording replacements and no message-wording pair. No replacement text, subject or body appears in any entry (a search for "Tag not saved", "Задача" and "Process" finds nothing), and company B's audit trail gains no single-wording-change or single-message-wording-change entry from the imports.
+      evidence: The audit list of step 9 compared with the "before" record of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Configuration changes cannot be traced to a person, the trail is flooded by per-row entries, or the record itself leaks wording text.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Company B keeps the imported lists; scenario 38 uses company B as the target of refused imports and copy_b as a baseline.
