@@ -16,8 +16,8 @@ defmodule Letflow.Definitions.SolutionPackOverrides do
   `:reason_required`, `:property_not_overridable`, `:invalid_patch_value`, `:not_found`,
   `:override_exists`, `:override_version_taken`, `:override_retired`, `:busy`, `:invalid_input`,
   `:audit_failed`. `:audit_failed` covers EVERY write-transaction failure (the audit table being
-  gone is the usual cause, but any other database error maps to it too); part B maps it to a 500,
-  not a 422. `new_version`/`retire` serialise on a per-artefact advisory lock; with
+  gone is the usual cause, but any other database error maps to it too); part B maps it to a 503,
+  not a 422 or a 500. `new_version`/`retire` serialise on a per-artefact advisory lock; with
   `base_version: nil` two concurrent callers write consecutive versions, so part B must always send
   `base_version` to get `:override_version_taken` for the loser.
 
@@ -118,6 +118,70 @@ defmodule Letflow.Definitions.SolutionPackOverrides do
 
       :error ->
         []
+    end
+  end
+
+  @doc """
+  The newest row per `override_id` of `pack_id` (retired ones included, with their status), oldest
+  override first. `{:error, :not_found}` when `tenant_id` has no active install of `pack_id`.
+  """
+  @spec list(String.t(), term(), String.t()) ::
+          {:ok, [SolutionPackOverride.t()]} | {:error, :not_found}
+  def list(prefix, tenant_id, pack_id) when is_binary(prefix) and is_binary(pack_id) do
+    with {:ok, tenant} <- cast_tenant(tenant_id),
+         {:ok, _version} <- active_install_version(tenant, pack_id) do
+      rows =
+        Repo.all(
+          from(o in SolutionPackOverride,
+            where: o.pack_id == ^pack_id,
+            distinct: o.override_id,
+            order_by: [asc: o.override_id, desc: o.override_version]
+          ),
+          prefix: prefix
+        )
+
+      first_inserted =
+        Map.new(
+          Repo.all(
+            from(o in SolutionPackOverride,
+              where: o.pack_id == ^pack_id and o.override_version == 1,
+              select: {o.override_id, o.inserted_at}
+            ),
+            prefix: prefix
+          )
+        )
+
+      {:ok, Enum.sort_by(rows, &{Map.get(first_inserted, &1.override_id), &1.override_id})}
+    end
+  end
+
+  def list(_prefix, _tenant_id, _pack_id), do: {:error, :not_found}
+
+  @doc """
+  The newest row of `override_id`, only when it belongs to `pack_id` and `tenant_id` has an active
+  install of that pack; otherwise `{:error, :not_found}` (an absent id, another pack's override and
+  a pack without install are indistinguishable, INV-5).
+  """
+  @spec fetch(String.t(), term(), String.t(), term()) ::
+          {:ok, SolutionPackOverride.t()} | {:error, :not_found}
+  def fetch(prefix, tenant_id, pack_id, override_id)
+      when is_binary(prefix) and is_binary(pack_id) do
+    with {:ok, tenant} <- cast_tenant(tenant_id),
+         {:ok, row} <- latest(prefix, override_id),
+         true <- row.pack_id == pack_id,
+         {:ok, _version} <- active_install_version(tenant, pack_id) do
+      {:ok, row}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def fetch(_prefix, _tenant_id, _pack_id, _override_id), do: {:error, :not_found}
+
+  defp cast_tenant(tenant_id) do
+    case cast_uuid(tenant_id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :not_found}
     end
   end
 

@@ -1,0 +1,107 @@
+# Authored by BA-SWIFTROUTE for T-0935 (process audit T-0925, GH #3509). Definition:
+# test/fixtures/qa/swiftroute_incident_process_definition.json v1.2, injury-check gateway: the default
+# edge (injury-check-default) leads to safety-notification, so an incident reported without any
+# injury answer is treated like one with an injury ("more scrutiny"). Sibling scenario
+# driver-incident-injury-safety-notification covers the explicit injury answer.
+# Sensitive action covered: approving/costing (step 2 is a refusal).
+---
+id: swiftroute-driver-incident-injury-unknown-safety-notification
+company_id: swiftroute
+process_id: proc-swiftroute-driver-incident
+title: An incident reported without an injury answer still sends the safety notification
+version: "1.0"
+tags: [safety, injury, default_branch]
+
+description: >
+  A dispatcher records an incident but does not say whether anyone was hurt. The process must not
+  assume nobody was: the safety notification is sent before assessment and costing, exactly as for
+  a reported injury. The Operations Manager and the Accountant then do their jobs as usual.
+
+  PRECONDITION (BA decision T-0321): the dispatcher holds the Process Operator responsibility in
+  the swiftroute realm. If step 1 is refused for lack of that right, the scenario is BLOCKED.
+
+actors:
+  dispatcher:  actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+  accountant:  actor-swiftroute-hans
+
+preconditions:
+  - description: Driver incident report process definition is active
+    check: process_definition_active
+  - description: No open incident instances for SwiftRoute
+    check: no_pending_instances
+  - description: >
+      The dispatcher can start an incident (Process Operator responsibility, BA decision T-0321).
+    check: custom
+    detail: Step 1 returns a created instance; a refusal at step 1 means BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      Records an incident reported by a driver: a vehicle damaged in a yard in Lübeck. The injury
+      question is left unanswered (the injury field is not supplied at all).
+    via: api
+    input:
+      incident_id: sim-incident-noinjury-001
+      incident_type: accident
+      description: "Vehicle scraped a gatepost in the Lübeck yard; the driver has not said whether anyone was hurt."
+    produces:
+      instance_id: "the process instance ID for this incident"
+
+  - step: 2
+    actor: accountant
+    action: >
+      Tries to record the operations assessment of the incident, which belongs to the
+      Operations Manager.
+    expect_refusal: true
+    via: api
+    input:
+      assessment_notes: "No view on the cause."
+
+  - step: 3
+    actor: ops_manager
+    action: Completes the operations assessment of the incident.
+    via: api
+    input:
+      assessment_notes: "Low-speed scrape at the yard gate; driver unhurt on inspection."
+
+  - step: 4
+    actor: accountant
+    action: Completes the finance estimate of the incident.
+    via: api
+    input:
+      estimated_cost_eur: 300
+
+expected_outcomes:
+  - id: EO-001
+    description: The safety notification is sent although no injury answer was given, and both tasks follow it.
+    verification:
+      method: instance_state
+      detail: >
+        After step 1: safety-notification ran (through the gateway's default branch) before the
+        ops-assessment and finance-estimate tasks were created, and both tasks are open.
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An incident with an unknown injury status is handled like cargo damage and the people
+        responsible for safety are not told.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: The wrong department is refused, and the case closes only after both tasks are done.
+    verification:
+      method: instance_state
+      detail: >
+        After step 2: the refusal is of the assessment task (the Accountant is not the Operations
+        Manager's routing role) and the task is still open. After step 4: instance status ==
+        COMPLETED and case-summary ran.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An incident is closed without both checks, or the wrong department can do them.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the sim-incident-noinjury-001 instance if not already completed.

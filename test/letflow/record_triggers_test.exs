@@ -431,22 +431,27 @@ defmodule Letflow.RecordTriggersTest do
         |> Enum.sort()
 
       assert readers == [
+               "lib/letflow/entities/records.ex",
                "lib/letflow/record_triggers.ex",
                "lib/letflow/record_triggers/binding.ex",
+               "lib/letflow/record_triggers/outbox.ex",
+               "lib/letflow/record_triggers/outbox_row.ex",
                "lib/letflow/routers/record_trigger_bindings.ex",
                "lib/letflow/tenant_provisioning.ex"
              ]
 
-      for f <- ~w(records step_writes handler_writes) do
+      for f <- ~w(step_writes handler_writes) do
         src = File.read!("lib/letflow/entities/#{f}.ex")
         refute src =~ "RecordTriggers"
         refute src =~ "record_trigger"
       end
     end
 
-    test "N2 no migration creates a trigger outbox" do
+    test "N2 only the outbox migration creates the trigger outbox" do
       for f <- Path.wildcard("priv/repo/migrations/*.exs") do
-        refute File.read!(f) =~ "record_trigger_outbox"
+        unless Path.basename(f) == "20261029200001_create_record_trigger_outbox.exs" do
+          refute File.read!(f) =~ "record_trigger_outbox"
+        end
       end
     end
   end

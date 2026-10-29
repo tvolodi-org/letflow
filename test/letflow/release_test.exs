@@ -106,4 +106,86 @@ defmodule Letflow.ReleaseTest do
       refute out =~ "rel-clean"
     end
   end
+
+  describe "platform role groups (T-0934)" do
+    alias Letflow.Identity.RoleBackfill
+    alias Letflow.Identity.RoleRegistry
+    alias Letflow.Identity.TenantRole
+
+    alias Letflow.Identity.Tenant
+    alias Letflow.TenantOnboarding
+    alias Letflow.TenantProvisioning.Registration
+
+    # The real onboarding path (`POST /onboarding` creates the row `migrating`); the pooled
+    # fixture clones the template and does not seed roles, so it cannot prove this.
+    setup do
+      Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+      on_exit(fn -> Letflow.Test.SandboxAutoMode.exit_auto_mode!(Letflow.Repo) end)
+
+      tenant =
+        %Tenant{}
+        |> Tenant.create_changeset(
+          %{
+            slug: Letflow.TenantSlugFixture.unique_slug("t0934-roles"),
+            display_name: "T-0934 role groups",
+            status: "migrating"
+          },
+          :disabled
+        )
+        |> Repo.insert!()
+
+      assert {:ok, %Registration{schema_name: schema}} =
+               TenantOnboarding.provision_and_migrate(tenant.id)
+
+      on_exit(fn ->
+        Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
+        Repo.delete_all(from(r in Registration, where: r.tenant_id == ^tenant.id))
+        Repo.delete_all(from(t in Tenant, where: t.id == ^tenant.id))
+      end)
+
+      %{schema: schema, regs: [%{tenant_id: tenant.id, schema_name: schema}]}
+    end
+
+    test "T0934-1 a freshly provisioned tenant holds every seedable role", %{
+      schema: schema,
+      regs: regs
+    } do
+      held =
+        from(t in TenantRole, where: t.kind == :platform_role, select: t.name)
+        |> Repo.all(prefix: schema)
+
+      assert Enum.sort(held) == Enum.sort(RoleRegistry.seedable_role_names(schema))
+      assert "TENANT_ADMIN" in held and "TENANT_AUDITOR" in held
+      assert {:ok, []} = RoleBackfill.missing_role_groups(registrations: regs)
+
+      {result, out} =
+        run(fn -> Letflow.Release.check_platform_role_groups([registrations: regs] ++ @opts) end)
+
+      assert result == {:ok, %{tenants: 1, with_missing_role_groups: 0}}
+      refute out =~ "MISSING_ROLE_GROUPS"
+    end
+
+    test "T0934-2 a missing TENANT_AUDITOR is reported, then healed by the backfill", %{
+      schema: schema,
+      regs: regs
+    } do
+      Repo.delete_all(from(t in TenantRole, where: t.name == "TENANT_AUDITOR"), prefix: schema)
+
+      assert {:ok, [%{schema_name: ^schema, missing: ["TENANT_AUDITOR"]}]} =
+               RoleBackfill.missing_role_groups(registrations: regs)
+
+      {result, out} =
+        run(fn -> Letflow.Release.check_platform_role_groups([registrations: regs] ++ @opts) end)
+
+      assert {:error, %{with_missing_role_groups: 1}} = result
+      assert out =~ "MISSING_ROLE_GROUPS schema=#{schema} roles=TENANT_AUDITOR"
+
+      {result, out} = run(fn -> Letflow.Release.backfill_platform_roles(@opts) end)
+      assert {:ok, %{failed: 0, created: created}} = result
+      assert created >= 1
+      assert out =~ "platform role backfill:"
+
+      assert {:ok, []} = RoleBackfill.missing_role_groups(registrations: regs)
+    end
+  end
 end

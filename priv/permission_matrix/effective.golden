@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: catalog_items@0.1.0,exam@0.1.0,org@0.1.0,procurement@0.1.0
 # roles: 8
-# permissions: 66
-# rows: 528
+# permissions: 67
+# rows: 536
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -64,6 +64,7 @@ AGENT_RUNNER RolesManage false core -
 AGENT_RUNNER ScheduledJobsManage false core -
 AGENT_RUNNER ScriptsPublish false core -
 AGENT_RUNNER ScriptsWrite false core -
+AGENT_RUNNER SolutionOverridesManage false core -
 AGENT_RUNNER TasksAssign false core -
 AGENT_RUNNER TasksComplete false core -
 AGENT_RUNNER TasksRead false core -
@@ -130,6 +131,7 @@ CANDIDATE RolesManage false core -
 CANDIDATE ScheduledJobsManage false core -
 CANDIDATE ScriptsPublish false core -
 CANDIDATE ScriptsWrite false core -
+CANDIDATE SolutionOverridesManage false core -
 CANDIDATE TasksAssign false core -
 CANDIDATE TasksComplete false core -
 CANDIDATE TasksRead false core -
@@ -196,6 +198,7 @@ PLATFORM_ADMIN RolesManage true core core
 PLATFORM_ADMIN ScheduledJobsManage true core core
 PLATFORM_ADMIN ScriptsPublish true core core
 PLATFORM_ADMIN ScriptsWrite true core core
+PLATFORM_ADMIN SolutionOverridesManage true core core
 PLATFORM_ADMIN TasksAssign true core core
 PLATFORM_ADMIN TasksComplete true core core
 PLATFORM_ADMIN TasksRead true core core
@@ -262,6 +265,7 @@ PROCESS_DESIGNER RolesManage true core core
 PROCESS_DESIGNER ScheduledJobsManage false core -
 PROCESS_DESIGNER ScriptsPublish false core -
 PROCESS_DESIGNER ScriptsWrite true core core
+PROCESS_DESIGNER SolutionOverridesManage false core -
 PROCESS_DESIGNER TasksAssign false core -
 PROCESS_DESIGNER TasksComplete false core -
 PROCESS_DESIGNER TasksRead true core core
@@ -328,6 +332,7 @@ PROCESS_OPERATOR RolesManage false core -
 PROCESS_OPERATOR ScheduledJobsManage false core -
 PROCESS_OPERATOR ScriptsPublish false core -
 PROCESS_OPERATOR ScriptsWrite false core -
+PROCESS_OPERATOR SolutionOverridesManage false core -
 PROCESS_OPERATOR TasksAssign true core core
 PROCESS_OPERATOR TasksComplete true core core
 PROCESS_OPERATOR TasksRead true core core
@@ -394,6 +399,7 @@ TASK_WORKER RolesManage false core -
 TASK_WORKER ScheduledJobsManage false core -
 TASK_WORKER ScriptsPublish false core -
 TASK_WORKER ScriptsWrite false core -
+TASK_WORKER SolutionOverridesManage false core -
 TASK_WORKER TasksAssign false core -
 TASK_WORKER TasksComplete true core core
 TASK_WORKER TasksRead true core core
@@ -460,6 +466,7 @@ TENANT_ADMIN RolesManage true core core
 TENANT_ADMIN ScheduledJobsManage true core core
 TENANT_ADMIN ScriptsPublish true core core
 TENANT_ADMIN ScriptsWrite true core core
+TENANT_ADMIN SolutionOverridesManage true core core
 TENANT_ADMIN TasksAssign true core core
 TENANT_ADMIN TasksComplete true core core
 TENANT_ADMIN TasksRead true core core
@@ -526,6 +533,7 @@ TENANT_AUDITOR RolesManage false core -
 TENANT_AUDITOR ScheduledJobsManage false core -
 TENANT_AUDITOR ScriptsPublish false core -
 TENANT_AUDITOR ScriptsWrite false core -
+TENANT_AUDITOR SolutionOverridesManage false core -
 TENANT_AUDITOR TasksAssign false core -
 TENANT_AUDITOR TasksComplete false core -
 TENANT_AUDITOR TasksRead true core core
