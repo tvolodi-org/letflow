@@ -1,0 +1,170 @@
+# Authored by BA-BILIMBAGA for GH #3415 / REQ-608 (UAT design task T-0944).
+# Covers REQ-608 criteria 1 to 4 and 7 for the signed-in screens. Criterion texts, quoted from origin/main:
+#   1. "Landmark in the shell: the main element rendered by AppShell has id main-content and tabIndex -1, and exactly
+#      one element with id main-content exists in the rendered shell. ... This covers corpus cases 5 and 7."
+#   2. "First focusable in the shell: ... one userEvent.tab() from the document body puts focus on an a element whose
+#      getAttribute('href') is '#main-content' and whose accessible name is 'Skip to main content'; it precedes the
+#      sidebar's first navigation link in document order."
+#   3. "Activation: with the skip-link focused, pressing Enter and, in a second case, clicking it, moves
+#      document.activeElement to the main-content element, and the router location (pathname and hash) is unchanged."
+#   4. "Visible when focused: before focus the skip-link's style has width 1px, height 1px and overflow hidden; after
+#      userEvent.tab() puts focus on it, the style no longer has that clipped form (position fixed, width auto); after
+#      blur it returns to the clipped form. ..."
+#   7. "Not a dead stop: after the skip-link has moved focus to main-content ..., pressing Tab moves focus to the first
+#      focusable element inside main when the test route renders a button as its page content; the Outlet content and
+#      the two banners still render inside the main element as before."
+# Not covered here:
+#   - criterion 5 and 6 (login page, login text): in skip-link-1-login-page.
+#   - criterion 8 (existing unit tests pass without edits): a developer test run, nothing a user sees.
+#   - criterion 9 (the diff touches only named web files, no Playwright spec, npm run check passes): checked on
+#     the diff and in CI, not on a running screen.
+#   - element id, tabindex value, colour variables and the colour-literal guard: source details; the user sees
+#     only their effect (focus moves, link readable).
+#   - a skip-link target that is missing or not focusable cannot be produced in a running tenant without changing
+#     code; step 4 checks the visible symptom (focus stays on the link, address changes).
+---
+id: bilimbaga-skip-link-2-signed-in-shell
+scope: bilimbaga
+title: Every signed-in screen starts with a skip-to-content link that moves keyboard focus into the page content
+version: "1.0"
+tags: [accessibility, gui, app_shell, skip_link]
+
+description: >
+  A signed-in administrator who uses only the keyboard opens an administration page. The first Tab stop is a
+  link "Skip to main content", ahead of the side menu; it is hidden until focused; activating it with Enter or a
+  click moves focus into the page content area without changing the page or the address; pressing Tab then
+  goes to the first control inside the content, so the link is not a dead stop. The same holds on the pages for
+  users, questions, exams and tags, which show no error text.
+  Preconditions: the browser is English (en), because the link text on the signed-in screens is English only;
+  the administrator (the roster's bilimbaga administrator) is signed in; the keyboard focus starts at the top
+  of the page after the page has loaded (nothing clicked); the exam module is installed so that the pages for
+  questions, exams and tags exist.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The administrator is signed in and the page has fresh keyboard focus
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Opens the administration home page and looks at the top left without pressing any key
+    via: gui
+
+  - step: 2
+    actor: admin
+    action: Presses Tab once and reads what has the focus, what appeared, and which control would come next
+    via: gui
+
+  - step: 3
+    actor: admin
+    action: Presses Enter while the skip link has the focus and reads the address bar and the focus
+    via: gui
+
+  - step: 4
+    actor: admin
+    action: >
+      Presses Tab once and reads where the focus goes; then reloads the page, presses Tab once, and presses Tab
+      once more without activating the link, and reads the address bar and the link
+    via: gui
+
+  - step: 5
+    actor: admin
+    action: >
+      Reloads the page, presses Tab once so the skip link has the focus, clicks it with the mouse, and reads the
+      address bar and the focus; then presses Tab and reads where the focus goes
+    via: gui
+
+  - step: 6
+    actor: admin
+    action: >
+      Opens in turn the administration pages for users, questions, exams and tags; on each presses Tab once and
+      reads the link, and reads the page for error text
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The skip link is hidden until focused, is the very first Tab stop and comes before the side menu's first
+      link, and is readable when focused
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 shows no skip link. Step 2 shows a visible link "Skip to main content" at the top left with
+        the focus ring, and no other control had the focus before it; pressing Tab again (step 4, second
+        part) moves the focus on to the first link of the side menu, after the skip link
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Keyboard and screen-reader users have to pass the whole side menu on every page.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      Activating the skip link with Enter or with a click moves the focus to the content area; the page, its
+      address and its sections stay as they were
+    verification:
+      method: gui_screen
+      detail: >
+        Steps 3 and 5 show the same page, the address bar identical to before and without "#main-content", the
+        focus on the content area (not on the link and not on the side menu), and the skip link hidden again
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The skip link does nothing, or reloads or routes away from the page the user was reading.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: >
+      Negative check for a missing or unfocusable target. If the target were absent or could not take focus,
+      activation would leave the focus on the skip link or change the address. Neither happens, and tabbing past
+      the link without activating it changes nothing
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 (second part) shows the address unchanged and the link hidden again after the focus left it. In
+        steps 3 and 5 the skip link is not the element with the focus after activation. A deliberately missing
+        target cannot be arranged in a running tenant; this is its visible symptom
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A dead skip link looks fine to sighted testers but traps keyboard users.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: >
+      After skipping, the next Tab goes to the first control inside the content, so the skip link is not a dead stop,
+      and the content and the banners above it are still shown as before
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 (first part) and step 5 show the focus moving to the first button, link or field inside the
+        content area of the page; the page content and any banners show as before the change
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Keyboard users who skip to the content cannot reach the controls in it.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-005
+    description: >
+      Every administration page has the content area as a single main region and shows no error text
+    verification:
+      method: gui_screen
+      detail: >
+        Step 6: on the pages for users, questions, exams and tags, Tab once shows the skip link, the browser's
+        accessibility view lists exactly one main region, and the text "unexpected error" or "something went
+        wrong" does not appear
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        Some pages lack the landmark or crash for assistive-technology users.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing was created.

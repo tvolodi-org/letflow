@@ -1,0 +1,169 @@
+# Authored by BA-BILIMBAGA for GH #3415 / REQ-608 (UAT design task T-0944).
+# Covers REQ-608 criteria 5 (landmark and skip-link on the login page), 6 (login text in three languages),
+# and the login-page half of 4 (visible only when focused) and 7 (not a dead stop). The sign-in shell side is
+# in skip-link-2-signed-in-shell.
+# Criterion texts, quoted from origin/main:
+#   5. "Landmark and skip-link on the login page: ... gives exactly one element with id main-content, which is the
+#      main element with data-testid login-page and tabindex attribute '-1'; one Tab from the body focuses an a
+#      element with href '#main-content' whose accessible name is the en value of login.skipToContent; clicking it
+#      moves focus to the main element."
+#   6. "Login text: login.skipToContent exists in en, ru and kk in web/src/i18n/loginMessages.ts ..."
+#   4. "Visible when focused: before focus the skip-link's style has width 1px, height 1px and overflow hidden; after
+#      userEvent.tab() puts focus on it, the style no longer has that clipped form ...; after blur it returns to the clipped form."
+# Not covered here:
+#   - criterion 8 (existing unit tests pass without edits): a developer test run, nothing a user sees.
+#   - criterion 9 (the diff touches only named web files, no Playwright spec, npm run check passes): checked on
+#     the diff and in CI, not on a running screen.
+#   - criteria 1 to 3 and 7 for the signed-in shell: in the sibling scenario.
+#   - the element id, tabindex value, colour variables and the web guard of criteria 4 and 5 (source and style
+#     details): seen by the user only as their effect (focus moves, the link appears with readable colours).
+#   - a skip-link target that is missing or not focusable cannot be produced in a running tenant without changing
+#     code; the negative step 4 checks the user-visible result such a defect would cause (focus stays on the link
+#     or the address changes).
+---
+id: bilimbaga-skip-link-1-login-page
+scope: bilimbaga
+title: The login page has a skip-to-content link that is the first stop of the keyboard and moves focus into the page
+version: "1.0"
+tags: [accessibility, gui, login, skip_link]
+
+description: >
+  A visitor who is not signed in and uses only the keyboard opens the login page. The first press of the Tab key
+  puts focus on a link "Skip to main content" which was not visible before; activating it moves focus to the
+  main area of the page without leaving the page or changing the address; the next Tab press goes on into the
+  page (the e-mail field) and does not get stuck. In Russian and Kazakh the link has its own text.
+  Preconditions: the browser is English (en) for steps 1 to 5; the page is opened with no session (a fresh
+  browser profile or after signing out); the login page is reachable at the tenant's sign-in address; the
+  keyboard focus starts at the top of the page (nothing clicked yet).
+
+actors:
+  visitor: actor-any
+
+preconditions:
+  - description: The visitor has no session and the keyboard focus is at the start of the page
+    check: custom
+
+steps:
+  - step: 1
+    actor: visitor
+    action: Opens the login page and looks at the top of the screen without pressing any key
+    via: gui
+    produces:
+      screen_text: "the login form; no link with the text Skip to main content is visible"
+
+  - step: 2
+    actor: visitor
+    action: Presses the Tab key once and reads what has the focus and what appeared on the screen
+    via: gui
+
+  - step: 3
+    actor: visitor
+    action: Presses Enter while the skip link has the focus, then reads the address bar and what has the focus
+    via: gui
+
+  - step: 4
+    actor: visitor
+    action: >
+      Repeats the opening of the login page in a new tab, presses Tab once, then presses Tab once more to leave
+      the skip link without activating it, and reads the address bar and the link
+    via: gui
+
+  - step: 5
+    actor: visitor
+    action: >
+      Opens the login page again, presses Tab once so the skip link has the focus, activates it with the mouse
+      instead of the keyboard (clicks it), then presses Tab once and reads what has the focus
+    via: gui
+
+  - step: 6
+    actor: visitor
+    action: >
+      Switches the page language to Russian, opens the login page, presses Tab once and reads the link text;
+      then does the same in Kazakh
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The skip link is hidden until it has the focus. Before any key is pressed no skip link is visible; after the
+      first Tab it is visible at the top left with the text "Skip to main content", readable against its background
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 shows no skip link. Step 2 shows a visible link "Skip to main content" at the top left of the
+        window and the focus ring on it; it is the very first stop (no other control had the focus before it)
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A keyboard or screen-reader visitor has to tab through the whole page, or sees a permanently visible
+        stray link that spoils the login screen.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      Activating the skip link with Enter moves the focus to the main area of the login page, stays on the same
+      page, and does not add a fragment to the address
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 shows the same login page, the address bar without "#main-content" and unchanged otherwise, and the
+        focus now on the main area of the page (the focus ring or the browser's focus indicator is no longer on the
+        skip link, and the skip link has disappeared again)
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The skip link does nothing for keyboard users, or leaves the login page.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: >
+      Negative check for a missing or unfocusable target. If the target of the link were absent or could not take
+      focus, activation would leave the focus on the skip link or would change the address. Neither happens: the
+      skip link without activation changes nothing, and the activation in step 3 and step 5 does not leave the
+      focus on the link
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 shows the address unchanged after Tab and Tab again, and the link hidden again once the focus
+        left it. In steps 3 and 5 after activation the skip link is not the element with the focus and the address
+        has no "#main-content". A deliberately missing target cannot be arranged in a running tenant; this is
+        the visible symptom of it
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A dead skip link looks like a working one to sighted testers but traps keyboard users on the link.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: >
+      Activating the link with a mouse click gives the same result as Enter, and the next Tab goes on into the
+      page (the e-mail field), so the skip link is not a dead stop
+    verification:
+      method: gui_screen
+      detail: >
+        Step 5 shows after the click the focus on the main area, and after the next Tab the focus on the
+        e-mail field of the login form
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Keyboard users who skip to the content cannot continue to the form.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-005
+    description: >
+      The page has one main area, and the skip link text exists in all three languages
+    verification:
+      method: gui_screen
+      detail: >
+        Steps 3 and 5: the browser's accessibility view (or a screen reader landmark list) lists exactly one
+        main region for the login page. Step 6 shows the link in Russian and in Kazakh with a translated text,
+        not the English text and not a raw key such as login.skipToContent
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        Russian and Kazakh speaking visitors hear an English or technical label.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing was created; the language switch is set back to English.
