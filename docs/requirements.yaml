@@ -44630,3 +44630,84 @@ requirements:
       - "To be put to the owner or settled in the REQ-622 record before implementation, since it decides which legal layout prints: where the document's locale is stored is not settled by 0068; this entry fixes the draft content key locale as a UAT assumption, to be confirmed by the process owner."
       - "0068 D3 says the pre-check runs before the numbering transaction; in the code the number is taken inside the issue transaction (number_of!/3), so this entry puts the pre-check inside that transaction before any write to document_sequences, which has the same effect (a refusal rolls back with no number). The gate confirms or changes this."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571, REQ-579, REQ-622, REQ-623]
+  - id: REQ-627
+    title: "Module uninstall slice 2: open_work_exists refusal, new-instance block with uniform 404 and start-versus-uninstall row lock (decision 0066 D8 slice 2)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-549 -- decision record 0066 is not yet marked done in the register
+    # Source: docs/migration/decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md (D4 "Running work" table and "Which definitions are the module's (rule)", the "Open work" paragraph and its Concurrency sentence, D1 row on step writes, D5 item 3, D8 slice 2 row with tests W1..W5, D8 flag sentence, "Threat cases"); docs/migration/decisions/0061-engine-lock-order-platform-invariant.md (Decision rules 1 and 5: the eight row classes in one global order, a new path needs a forced-overlap test); docs/migration/decisions/0039 D5 and docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10); REQ-578 (slice 1, its description says the flag stays off until slice 2 has merged); code read: lib/letflow/modules/installs.ex (uninstall/3, reactivate/3, the private transition/7 with lock_row and check_fun, uninstall_enabled?/0), lib/letflow/engine.ex (create/2, resolve_definition/2, interpret_definition_lookup/1, persist/14 and lock_scope_node/3), lib/letflow/routers/instances.ex (render_create for {:error, :definition_not_found} answers Response.not_found), lib/letflow/definitions/process_definition.ex (owner_module), lib/letflow/definitions/owner_stamp.ex, lib/letflow/definitions/module_writes.ex and lib/letflow/entities/handler_writes.ex (module_write_module_not_installed), lib/letflow/engine/task.ex (status :pending | :completed | :cancelled), lib/letflow/event_store/instance_projection.ex (status :active | :completed | :cancelled | :error). Written by the business analyst (T-0915) 2026-10-29. Not yet validated.
+    description: >
+      Slice 2 of decision 0066 (D8). The D8 row reads: "Open-work precondition (open_work_exists),
+      new-instance block with uniform 404, row-lock serialization of start vs uninstall (checked against
+      0061)", depends_on REQ-549, REQ-496, slice 1; tests W1 open instance refuses uninstall; W2 open task
+      refuses; W3 start after uninstall is 404 identical to unknown definition; W4 step write of a managed
+      type fails with module_write_module_not_installed; W5 race: start and uninstall serialize (race-only,
+      not forceable without a hook; stated, not skipped silently). Slice 1 is REQ-578 (GH 3267, merged):
+      status column, Installs.uninstall/3 and reactivate/3, the routes behind the flag. SECURITY-REVIEWER is
+      a mandatory gate (tenant-data path: a refusal on the instance start route and a new lock).
+      (1) Open-work precondition. Installs.uninstall/3 gains one more refusal, taken after the row is locked
+      FOR UPDATE (lock_row in the private transition/7 of lib/letflow/modules/installs.ex) and after the
+      dependents check: {:error, {:open_work_exists, %{open_instances: n, open_tasks: m}}} when n + m > 0.
+      An instance counts as open when its status in instance_projections is :active (the other statuses are
+      terminal) and the process definition version it is pinned to has owner_module equal to the module id
+      (the stamp written by Definitions.create_owned/3). A task counts as open when its status is :pending
+      and its instance counts. Instances pinned to an unstamped tenant version of the same definition name
+      are not counted (owner_module is NULL; 0066 D4). The two counts are read inside the uninstall
+      transaction, with plain reads that take no row lock. The route answers 409 with the stable code
+      open_work_exists and the two counts only, no instance or task id. The status stays active, nothing is
+      cancelled or suspended, and no audit entry is written for a refused call.
+      (2) New-instance block. Letflow.Engine.create/2 (lib/letflow/engine.ex) returns
+      {:error, :definition_not_found} when the definition version the start would pin has owner_module set
+      to a module whose tenant_modules row has status :uninstalled. The caller therefore gets the same
+      answer as for an unknown definition (Letflow.Routers.Instances render_create, Response.not_found):
+      status and body byte-identical, to every caller. The cause (module_uninstalled) goes to the server log
+      and the audit trail only, never to the response. The check runs twice: once in the lookup (advisory,
+      before any snapshot write) and once in the persist transaction under the lock of item (3). A
+      definition version with owner_module NULL, or whose module row is active, starts as before. A
+      reactivated module makes its stamped versions startable again. Out of scope: sub-process children
+      (Letflow.Engine.SubProcess.append_start_multi/7 starts them inside the parent transaction and does not
+      pass through create/2); whether a non-module process may start a module's definition as a child is
+      not settled by 0066 and is an open question for the gate.
+      (3) Row lock. In the persist transaction of create/2, when the pinned definition has an owner_module,
+      the first Multi step reads that module's tenant_modules row FOR SHARE (prefix from the caller's scoped
+      options only), before the instance_projections insert. Installs.uninstall/3 already takes the same row
+      FOR UPDATE, so a start and an uninstall of one module serialize on Postgres row locks (no process per
+      instance, REQ-045): the start that holds the share lock commits first and the uninstall then counts it
+      as open work, or the uninstall commits first and the start re-reads status uninstalled and returns
+      {:error, :definition_not_found} with nothing written. Check against decision 0061, to be written into
+      the design and kept in the moduledoc of create/2: tenant_modules is not one of the eight row classes of
+      0061 rule 1; the start takes it first, before class 1 and P_x; uninstall holds it FOR UPDATE and then
+      takes no engine row lock (its two counts are plain reads, and a plain read takes no lock, so it cannot
+      wait on or be waited on by a P_x holder); therefore no wait-for cycle between the two paths can form
+      and the global order of 0061 is unchanged. If the implementer finds a path that makes this false, that
+      is a defect of this slice (0066 D4), to be settled by an amendment of 0061 in the same change (0061
+      rule 5), not by changing 0066. The audit chain row (0061 class 6) is taken by uninstall after the row
+      lock and by start after P_x; they are never held together in opposite order because uninstall takes no
+      P_x. The step is skipped (no extra read) for a definition with no owner_module.
+      (4) Step write of a managed type (W4). A process step that writes a type the module manages (0054
+      step-writes-entity) in a process that is NOT the module's own is refused after uninstall by the run-time
+      recheck already built in slice 1; this slice adds the test only and changes no code unless the test
+      fails. The step reason is module_write_module_not_installed (lib/letflow/definitions/module_writes.ex,
+      mapped in lib/letflow/entities/handler_writes.ex), the step fails by the existing step-failure path,
+      and no record is written.
+      (5) Flag. modules_uninstall_enabled stays false in config/config.exs and in every environment until
+      this slice has merged; this slice does not turn it on (turning it on is a separate operator act after
+      the merge, 0066 D8). The slice 1 comment and the REQ-578 text that say the flag stays off until slice 2
+      are not edited.
+      Out of scope: the orphaned-read proof (slice 3), journal kinds (slice 4), the SPA screen (slice 5),
+      a purge, cancelling or suspending open work, a platform-operator route that names another tenant,
+      anything under web/ or apps/. No migration, no new permission, no new route (the 409 is a new answer of
+      the slice 1 uninstall route; the route-scope and route-count pins do not move).
+    acceptance_criteria:
+      - "1. W1 open instance refuses uninstall: in a new test file test/letflow/modules/uninstall_open_work_test.exs, with modules_uninstall_enabled set to true in test setup (restored in on_exit), a tenant has the module installed and one :active instance pinned to a definition version stamped with that module id; Installs.uninstall/3 returns {:error, {:open_work_exists, %{open_instances: 1, open_tasks: 0}}} (or the task count of the instance if its start created a pending task), the row stays :active, no audit entry is written, the instance stays :active and untouched, and the route answers 409 with code open_work_exists and the counts and no id of an instance or task. Once the instance is cancelled through the existing cancel route, the same uninstall returns {:ok, _}."
+      - "2. W2 open task refuses: with the instance of criterion 1 waiting at a human task (task status :pending), uninstall is refused with open_tasks equal to the number of pending tasks of that instance; after the task is completed and the instance is terminal, uninstall succeeds. A terminal instance (:completed, :cancelled, :error) and a :completed or :cancelled task count as nothing."
+      - "3. Rule by stamp, not by name: an :active instance pinned to a tenant-made version of the same definition name (owner_module NULL) is not counted and does not block uninstall; a tenant-made version of that name starts normally while the module is uninstalled."
+      - "4. W3 start after uninstall: after a successful uninstall, POST to the instance start route with the module's stamped definition (by definition_id, and again by definition_name) answers 404 with status and body byte-identical to the answer for a definition name that never existed; Letflow.Engine.create/2 returns {:error, :definition_not_found}; no instance_projections row, no event and no task is written (row counts before and after); the response body and headers contain neither the module id nor the word uninstalled. The same request from a second caller with a different role gets the identical answer. After Installs.reactivate/3 the same start succeeds."
+      - "5. W4 step write refused: in test/letflow/engine/module_write_runtime_stamp_test.exs or the new test file, a process that is not the module's own, with a step that writes a type the module manages, is started before the uninstall (its definition is unstamped), the module is then uninstalled (allowed: that instance is not counted), and the step runs; it fails with step reason module_write_module_not_installed, no entity record is written, and the instance takes the existing step-failure path."
+      - "6. W5 race, race-only: the test names this row as W5 and states in its body that the interleaving cannot be forced without a hook. It asserts the two outcomes the lock allows, each in its own test, by holding the tenant_modules row with a barrier connection (the pattern of test/letflow/engine/subprocess_start_vs_cancel_test.exs): (a) a start that holds the FOR SHARE lock makes a concurrent uninstall wait, and once the start commits the uninstall returns {:error, {:open_work_exists, _}}; (b) an uninstall that holds the FOR UPDATE lock makes a concurrent start wait, and once the uninstall commits the start returns {:error, :definition_not_found} with nothing written. The test reports deadlock and lock-timeout errors through the Repo telemetry event and asserts there are none (0061 rule 5)."
+      - "7. 0061 check: the design for this change quotes 0061 rule 1 and shows, for the start path and the uninstall path, the order of the row classes each takes, ending in the statement that no cycle is possible; the moduledoc of Letflow.Engine.create/2 (or the persist step) carries the same statement. A test in test/letflow/engine/ reads the statement log (the technique of test/letflow/number_sequences/records_numbering_test.exs N4b) and asserts that, in a start of a stamped definition, the tenant_modules FOR SHARE read comes before the instance_projections insert and before any audit chain statement. If the check finds a violation of 0061, the change amends 0061 in the same pull request and says so."
+      - "8. INV-10 cross-tenant negative test: tenant A and tenant B both install the module and each has an :active instance of its stamped definition. A TENANT_ADMIN of tenant A (with the flag on) is refused uninstall with open_work_exists counting only A's instance, and B's counts never include A's; after A's instance is closed and A uninstalls, B's tenant_modules row is still :active, B can still start the stamped definition (201), and B's open instance is untouched. A start in tenant A of the module's definition answers the 404 of criterion 4, while the identical start in B succeeds. A tenant_id, tenant or prefix in the body or a header naming B is ignored (the request acts on A)."
+      - "9. Flag and scope: config/config.exs still sets :modules_uninstall_enabled of :letflow to false and Installs.uninstall_enabled?/0 is false by default (a test asserts it); with the flag off the uninstall route still answers 404 like an unknown route and the new refusals are not reachable from HTTP. The diff of this change adds no migration file, no route and no permission, and does not edit config/config.exs."
+      - "10. No data deleted: a test in the new file reads lib/letflow/modules/installs.ex and lib/letflow/engine.ex and asserts that the lines added by this slice contain no Repo.delete, Repo.delete_all or delete_all call (the file-level scan of REQ-578 criterion 10 still passes); a refused uninstall and a refused start change no row count in tenant_modules, instance_projections, tasks, process_definitions, entity records or audit entries."
+    depends_on: [REQ-549, REQ-496, REQ-578]
