@@ -100,6 +100,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     # handoffs/WF02-REQ382-20260922/step-02c-security-reviewer.json.
     Letflow.Routers.Labels,
     Letflow.Routers.NotificationTemplates,
+    Letflow.Routers.NotificationDeliveries,
     Letflow.Routers.NumberSequences,
     Letflow.Routers.TenantSettings,
     Letflow.Routers.TenantConfigBundle,
@@ -160,6 +161,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Routers.Me => "/me",
     Letflow.Routers.Labels => "/labels",
     Letflow.Routers.NotificationTemplates => "/notification-templates",
+    Letflow.Routers.NotificationDeliveries => "/notification-deliveries",
     Letflow.Routers.NumberSequences => "/number-sequences",
     Letflow.Routers.TenantSettings => "/tenant/settings",
     Letflow.Routers.TenantConfigBundle => "/tenant/config-bundle",

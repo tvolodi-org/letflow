@@ -1,6 +1,7 @@
 defmodule Letflow.Notifications do
   @moduledoc """
-  Notification delivery (REQ-584, GH #3310), part 1: the `task_assigned` mail sent after
+  Notification delivery (REQ-584, GH #3310), part 1 (part 2 adds `list_deliveries/2`, read by
+  `GET /notification-deliveries`): the `task_assigned` mail sent after
   `Letflow.Tasks.assign_task/3` / `reassign_task/3` commit, and the per-tenant
   `notification_deliveries` log (one send attempt, one row).
 
@@ -211,6 +212,33 @@ defmodule Letflow.Notifications do
     fun.()
   rescue
     _exception -> nil
+  end
+
+  @doc """
+  The tenant's delivery log, newest first, at most 100 rows (REQ-584 part 2). `status` is nil (no
+  filter) or one of `Delivery.statuses/0`; any other value is `{:error, :invalid_status}`. The
+  tenant is the `:prefix` only (INV-1).
+  """
+  @spec list_deliveries(String.t(), term()) :: {:ok, [Delivery.t()]} | {:error, :invalid_status}
+  def list_deliveries(prefix, status \\ nil)
+
+  def list_deliveries(prefix, nil), do: {:ok, query_deliveries(from(d in Delivery, []), prefix)}
+
+  def list_deliveries(prefix, status) when is_binary(status) do
+    if status in Delivery.statuses() do
+      {:ok, query_deliveries(from(d in Delivery, where: d.status == ^status), prefix)}
+    else
+      {:error, :invalid_status}
+    end
+  end
+
+  def list_deliveries(_prefix, _status), do: {:error, :invalid_status}
+
+  defp query_deliveries(query, prefix) do
+    query
+    |> Ecto.Query.order_by([d], desc: d.inserted_at, desc: d.id)
+    |> Ecto.Query.limit(100)
+    |> Repo.all(prefix: prefix)
   end
 
   defp log(attrs, prefix) do

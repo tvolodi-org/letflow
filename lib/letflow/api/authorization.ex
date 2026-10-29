@@ -1294,6 +1294,9 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/notification-templates/:template_key/preview"),
     do: :NotificationTemplatesManage
 
+  # REQ-584 part 2 (GH #3310): the delivery log read reuses the notification-template permission.
+  def endpoint_policy_key("GET", "/notification-deliveries"), do: :NotificationTemplatesManage
+
   # REQ-575 (GH #3263): tenant number sequence definitions.
   def endpoint_policy_key("POST", "/number-sequences"), do: :NumberSequencesManage
   def endpoint_policy_key("GET", "/number-sequences"), do: :NumberSequencesManage
