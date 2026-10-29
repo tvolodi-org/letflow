@@ -1,0 +1,142 @@
+# T-0919 (BA): TENANT ADMIN group, scenario 53: assigning a task sends the "task assigned" message and one log row records the attempt.
+# Covers REQ-584 criteria 2 (message in the company's default language, values inserted), 3 (assignment succeeds whatever the mail
+# system does; exactly one row), 4 (log rows: sent, skipped/adapter_noop; each row carries template, language, recipient and task) and 6
+# (no message content, address or secret in the log row).
+# Sources: docs/requirements.yaml REQ-584 criteria 2, 3, 4, 6 (quoted, origin/main); docs/roles.md (TasksAssign and
+# NotificationTemplatesManage: TENANT_ADMIN holds both); lib/letflow/routers/notification_deliveries.ex (row fields: id, template_key,
+# locale, recipient_user_id, status, reason, trigger_ref, inserted_at); test/fixtures/uat/actors.yaml (alice: SwiftRoute TENANT_ADMIN).
+# Open items, NOT COVERED HERE:
+#  - Whether Keycloak or Letflow sends reset and welcome mail (REQ-584 study T5c): undecided, no scenario.
+#  - Criterion 2 text checks (message to the right address in the "fr" wording; platform default wording when no row of "fr" is stored;
+#    empty task name / user name / no snapshot row) and criterion 3 (adapter returns an error, raises, sleeps past the time limit) and
+#    criterion 4 no_email (user whose email is "" set by direct database update) and criterion 5 reasons, and the capture of the
+#    application log in criterion 6 need the code-level capturing test adapter and direct database writes; a QA user cannot do them.
+#    They are covered by the backend tests of REQ-584. Gap sidecar: scenario-env-limitations/tenant-administration-53-*.yaml.
+#  - Mailbox receipt: QA has no mailbox the scenario can read. If the QA environment sends real mail, the owner may look at the
+#    recipient's inbox as an extra; the pass/fail here is the log row.
+# Sensitive actions: this flow changes who a task belongs to (assignment); approve, pay or release and see-sensitive-data are not in it.
+# The refusal of the assignment by a caller without the assign permission is covered by the task-assignment scenarios; the refusals
+# of REQ-584 itself are in scenarios 54 and 55.
+---
+id: tenant-administration-53-notification-delivery-assign-sends-and-logs
+scope: tenant-administration
+title: Assigning a task sends one "task assigned" message and the delivery log shows one row for it, with no message content
+version: "1.0"
+tags: [tenant-admin, notification-delivery, task-assignment, delivery-log, inv-4]
+
+description: >
+  The administrator of SwiftRoute reads the delivery log as a baseline, assigns an open task to a colleague who has an email address,
+  and reads the log again. One new row appears for that task, with the message kind "task_assigned", the company's default language
+  (English when none is set), the colleague as recipient and the task as reference. The row says "sent" with no reason when the QA
+  environment sends mail, or "skipped" with reason "adapter_noop" when it only pretends to. The task is assigned either way. The row
+  holds no subject, no text of the message, no email address and no error text. The task is then reassigned to another colleague and
+  exactly one more row appears.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has an open task that nobody has taken yet, and two colleagues with an email address who may be given tasks
+    check: system_seeded
+    detail: The administrator needs the identifiers of the task and of both colleagues. If no such task exists, report BLOCKED. The assignee's email address must not be empty; the empty-address case is not covered here (see header).
+  - description: The administrator of SwiftRoute holds the assign and wording-management permissions
+    check: system_seeded
+    detail: Per the role matrix TENANT_ADMIN holds TasksAssign and NotificationTemplatesManage.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the delivery log of the company and notes the number of rows and the identifier of the newest row (or
+      "none") as the baseline.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator assigns the open task to the first colleague and notes the answer and the time.
+    via: api
+    input:
+      assignee: the first colleague (a SwiftRoute user with an email address)
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the task and then the delivery log, waiting up to 10 seconds and reading again if the new row is not yet
+      there. The new row and the baseline are compared. The row is read field by field.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the delivery log filtered to status "sent" and then to status "skipped" and notes in which of the two the
+      new row of step 3 appears.
+    via: api
+    input:
+      status: sent, then skipped
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator reassigns the same task to the second colleague, waits up to 10 seconds, and reads the delivery log again.
+      The new rows are compared with step 3.
+    via: api
+    input:
+      assignee: the second colleague (a SwiftRoute user with an email address)
+
+expected_outcomes:
+  - id: EO-001
+    description: The assignment succeeds and the task belongs to the first colleague, whatever the mail system did.
+    verification:
+      method: api_response
+      detail: The answer of step 2 is a success (2xx) and was not delayed by the sending; the task read in step 3 shows the first colleague as its assignee.
+      evidence: The answer of step 2 and the task read in step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A failing mail system would stop managers from assigning work.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Exactly one log row appears for the assignment, naming the message kind, language, recipient and task.
+    verification:
+      method: api_response
+      detail: >
+        Between the baseline of step 1 and step 3 exactly one row is added. Its template_key is "task_assigned"; its locale is the
+        company's default language, "en" when none is set; its recipient_user_id is the first colleague; its trigger_ref is the task
+        identifier; its status is "sent" with a null reason, or "skipped" with reason "adapter_noop" when the QA environment does not
+        send mail (the one that applies is noted). No row has status "failed" for this assignment unless the QA mail setting is
+        broken, in which case it is reported as a finding with reason "adapter_error".
+      evidence: The baseline of step 1 and the row of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Managers cannot tell whether the assignee was told about the task.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The status filter shows the row under its own status.
+    verification:
+      method: api_response
+      detail: In step 4 the new row appears under exactly the status noted in EO-002 and not under the other one.
+      evidence: The two filtered lists of step 4.
+    on_fail:
+      severity: MINOR
+      business_impact: The filtered log misreports which messages were sent.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: The log row holds no message content, no address and no error text.
+    verification:
+      method: api_response
+      detail: The row of step 3 has only the fields id, template_key, locale, recipient_user_id, status, reason, trigger_ref and inserted_at. A search of the whole answer for the colleague's email address, for the words of the subject or body of the "task assigned" wording and for any SMTP setting finds nothing.
+      evidence: The full text of the log answer of step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Personal data or mail credentials would be readable from the log by anyone with the wording permission.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A reassignment adds exactly one more row, for the second colleague.
+    verification:
+      method: api_response
+      detail: In step 5 the log holds exactly one row more than in step 3; the new row has recipient_user_id equal to the second colleague, the same trigger_ref, template_key "task_assigned", and the same status rule as EO-002; the earlier row is unchanged.
+      evidence: The log of step 5 compared with step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A reassigned colleague is not told, or is told twice.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: The log rows cannot be removed through the product and stay as test evidence. Reassigning the task back is allowed through the same route if the owner wants the task as before.
