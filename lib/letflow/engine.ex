@@ -6446,6 +6446,11 @@ defmodule Letflow.Engine do
       {:refused, _index, :entity_write_contention, _detail} ->
         :contention
 
+      # REQ-606 (decision 0067 D6): a full trigger backlog drains on its own, so it is retried like
+      # contention and lands as `entity_write_contention`; it is not a service refusal code.
+      {:refused, _index, :trigger_backlog_full, _detail} ->
+        :contention
+
       # A `sys:step:` key cannot be claimed by a client: treated as "a prior apply committed".
       {:refused, _index, :idempotency_conflict, _detail} ->
         {:final, {:ok, :already_final}}

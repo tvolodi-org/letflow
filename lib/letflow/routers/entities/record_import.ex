@@ -91,9 +91,21 @@ defmodule Letflow.Routers.Entities.RecordImport do
              prefix,
              ImportAccess.new(access, scope)
            ) do
+        # REQ-606 (decision 0067 D6): upsert mode only. A retry is safe there (rows are addressed by
+        # external ref and updated in place), so a full trigger backlog answers the provisional 503
+        # for the whole request. Create mode never does: its idempotency key derives from a fresh
+        # request id, so a re-POST would duplicate the committed entries; it reports the entry instead.
+        {:ok, results} when mode == :upsert ->
+          if backlog_full_in?(results) do
+            conn
+            |> Response.put_backlog_retry_after()
+            |> Response.send_json(503, %{"error" => "trigger_backlog_full"})
+          else
+            import_results_ok(conn, results, csv_rows)
+          end
+
         {:ok, results} ->
-          json_results = Enum.map(results, &import_entry_result_json/1)
-          Response.ok(conn, %{"results" => merge_csv_rows(csv_rows, json_results)})
+          import_results_ok(conn, results, csv_rows)
 
         # §6/INV-5, AC: a definition_not_found from the FIRST entry -- the
         # only entry this handler ever inspects for this outcome, since
@@ -317,6 +329,14 @@ defmodule Letflow.Routers.Entities.RecordImport do
   # GH #2659 (design 5.1): after the entity_type match, so the existing error
   # ordering is unchanged. Absent -> today's create-only import; exactly
   # "external_ref" -> the idempotent upsert; anything else (null included) -> 422.
+  defp import_results_ok(conn, results, csv_rows) do
+    json_results = Enum.map(results, &import_entry_result_json/1)
+    Response.ok(conn, %{"results" => merge_csv_rows(csv_rows, json_results)})
+  end
+
+  defp backlog_full_in?(results),
+    do: Enum.any?(results, &match?({:error, _source_id, {:error, :trigger_backlog_full}}, &1))
+
   defp check_upsert_by(body) do
     case Map.fetch(body, "upsert_by") do
       :error -> {:ok, :create}
@@ -553,6 +573,9 @@ defmodule Letflow.Routers.Entities.RecordImport do
        when reason in [:tenant_not_provisioned, :invalid_schema_name] do
     %{"type" => Atom.to_string(reason)}
   end
+
+  # REQ-606: create-mode entry refused for a full trigger backlog; constant, no warning log.
+  defp import_reason_json(:trigger_backlog_full), do: %{"type" => "trigger_backlog_full"}
 
   defp import_reason_json(other) do
     Logger.warning("entity record import entry failed: #{inspect(other)}")

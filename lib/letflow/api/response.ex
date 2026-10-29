@@ -332,15 +332,35 @@ defmodule Letflow.Api.Response do
   @spec entity_write_refused(Plug.Conn.t(), atom(), non_neg_integer() | nil) :: Plug.Conn.t()
   def entity_write_refused(conn, code, index)
       when is_atom(code) and (is_nil(index) or is_integer(index)) do
+    conn = if code == :trigger_backlog_full, do: put_backlog_retry_after(conn), else: conn
+
     send_json(conn, entity_write_status(code), %{
       "error" => Atom.to_string(code),
       "line_index" => index
     })
   end
 
+  @doc """
+  The `Retry-After` seconds of a `trigger_backlog_full` answer (REQ-606, decision 0067 D6).
+  PROVISIONAL, like the 503 itself, pending the owner's decision (REQ-606 open_questions).
+  """
+  @spec backlog_retry_after_seconds() :: pos_integer()
+  def backlog_retry_after_seconds, do: 30
+
+  @doc false
+  @spec put_backlog_retry_after(Plug.Conn.t()) :: Plug.Conn.t()
+  def put_backlog_retry_after(conn),
+    do:
+      Plug.Conn.put_resp_header(
+        conn,
+        "retry-after",
+        Integer.to_string(backlog_retry_after_seconds())
+      )
+
   defp entity_write_status(:write_not_permitted), do: 403
   defp entity_write_status(:record_version_conflict), do: 409
   defp entity_write_status(:entity_write_contention), do: 503
+  defp entity_write_status(:trigger_backlog_full), do: 503
   defp entity_write_status(_validation_class), do: 422
 
   @doc """

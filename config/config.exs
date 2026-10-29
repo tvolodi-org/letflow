@@ -159,6 +159,13 @@ config :letflow, :record_triggers_enabled, false
 # it is never read from tenant data. Read by Letflow.RecordTriggers.Outbox.
 config :letflow, :record_trigger_depth_cap, 3
 
+# REQ-606 / GH #3411 (decision 0067 D6): the most `pending` + `running` rows of record_trigger_outbox a
+# tenant may hold; a write that would insert one more is refused with `trigger_backlog_full` (503). It
+# bounds the undrained rows before the drain worker exists and when it lags. 10000 is a target to be
+# measured (0067 D6). Set only here by operators: never read from tenant data. Read by
+# Letflow.RecordTriggers.Outbox.
+config :letflow, :record_trigger_backlog_cap, 10_000
+
 # REQ-597 / GH #3363: exam notification mails (the exam_result mail after a scored submit). Default
 # off. Read only by Letflow.Modules.Exam.Notifications.enabled?/0.
 config :letflow, :exam_notifications_enabled, false
