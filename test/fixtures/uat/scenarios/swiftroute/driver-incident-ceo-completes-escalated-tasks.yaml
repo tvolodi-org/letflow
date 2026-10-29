@@ -1,0 +1,148 @@
+# Authored by BA-SWIFTROUTE for T-0935 (process audit T-0925, GH #3509). Definition:
+# test/fixtures/qa/swiftroute_incident_process_definition.json v1.2: ops-assessment (role-ops-manager, P1D)
+# -> escalate-ops-assessment-to-ceo (role-ceo, edge e6-escalated to the join) and finance-estimate
+# (role-accountant, P1D) -> escalate-finance-estimate-to-ceo (role-ceo, edge e8-escalated to the join).
+# The sibling scenarios driver-incident-ops-assessment-lapses and driver-incident-finance-estimate-lapses
+# cover the CEO also letting the deadline pass; this one covers the CEO acting in time.
+# Sensitive action covered: costing/approving (step 4 refusal).
+#
+# Timer steps: test control by the tooling account swiftroute-admin-user, timer advance only
+# (BA decision 3221); it is not in the roster. The timers of the two escalated tasks are never advanced.
+---
+id: swiftroute-driver-incident-ceo-completes-escalated-tasks
+company_id: swiftroute
+process_id: proc-swiftroute-driver-incident
+title: The CEO who completes both escalated incident tasks in time closes the case without a timeout notice
+version: "1.0"
+tags: [escalation, ceo, happy_path]
+
+description: >
+  A driver reports cargo damage. Neither the Operations Manager nor the Accountant acts within a
+  day, so the operations assessment and the finance estimate both go to the CEO. The CEO supplies
+  the assessment notes and the estimated cost before the CEO's own deadline. Both values are
+  recorded, the case is summarised and closed, and no "timed out" closing notice is produced for
+  either part.
+
+  PRECONDITIONS (BA decisions T-0321, 3221): the dispatcher holds the Process Operator responsibility in
+  the swiftroute realm (a refusal at step 1 means BLOCKED); the tooling account swiftroute-admin-user
+  is available for the timer advances of steps 2 and 3 only, never for a business step or a refusal check (UAT assumption, to be
+  confirmed by the process owner). The run report names it. If the advance-timer
+  endpoint is unavailable, steps 2 and 3 are SKIP, never PASS.
+
+actors:
+  dispatcher: actor-swiftroute-lena
+  accountant: actor-swiftroute-hans
+  ceo:        actor-swiftroute-alice
+
+preconditions:
+  - description: Driver incident report process definition is active
+    check: process_definition_active
+  - description: No open incident instances for SwiftRoute
+    check: no_pending_instances
+  - description: >
+      The dispatcher can start an incident, and the tooling account swiftroute-admin-user may advance timers (timer steps only).
+    check: custom
+    detail: Step 1 returns a created instance; the run report names the account used for each timer advance.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      Records an incident reported by a driver: cargo damaged in transit, no injury.
+    via: api
+    input:
+      incident_id: sim-incident-ceo-001
+      incident_type: cargo damage
+      injury_involved: false
+      description: "Two pallets damaged on the way to Rostock."
+    produces:
+      instance_id: "the process instance ID for this incident"
+
+  - step: 2
+    actor: system
+    action: >
+      The one-day timer of the operations assessment fires (advanced by UAT-RUNNER with the
+      tooling account swiftroute-admin-user, not waited for).
+    via: api
+    input:
+      timer_node_id: ops-assessment
+
+  - step: 3
+    actor: system
+    action: >
+      The one-day timer of the finance estimate fires (advanced the same way). The timers of the two
+      escalated CEO tasks are not advanced.
+    via: api
+    input:
+      timer_node_id: finance-estimate
+
+  - step: 4
+    actor: accountant
+    action: >
+      Tries to complete the finance estimate that has now gone to the CEO. The estimated cost is
+      supplied, so the refusal can only be about who may do the task.
+    expect_refusal: true
+    via: api
+    input:
+      estimated_cost_eur: 400
+
+  - step: 5
+    actor: ceo
+    action: Completes the escalated operations assessment before its deadline.
+    via: api
+    input:
+      assessment_notes: "Two pallets crushed by a shifted load; carrier at fault, no further risk."
+
+  - step: 6
+    actor: ceo
+    action: Completes the escalated finance estimate before its deadline.
+    via: api
+    input:
+      estimated_cost_eur: 1250
+      finance_notes: "Two pallets written off."
+
+expected_outcomes:
+  - id: EO-001
+    description: After the two first timers, the CEO holds both tasks and the original roles hold none.
+    verification:
+      method: task_assigned
+      detail: >
+        After step 3: an escalate-ops-assessment-to-ceo task and an escalate-finance-estimate-to-ceo task are
+        assigned to role-ceo; no ops-assessment task remains open for role-ops-manager and no
+        finance-estimate task remains open for role-accountant.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A lapsed assessment or estimate is stuck with an absent person and nobody higher is asked.
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: The Accountant cannot take over the task that went to the CEO.
+    verification:
+      method: instance_state
+      detail: >
+        After step 4: the attempt is refused and the escalate-finance-estimate-to-ceo task is still open
+        for role-ceo; no estimated_cost_eur value is recorded on the incident.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A cost could be recorded by a person who no longer holds the task.
+      suggested_action: route_to_wf03
+
+  - id: EO-003
+    description: The CEO's values are stored and the case closes without any timeout notice.
+    verification:
+      method: instance_state
+      detail: >
+        After step 6: assessment_notes holds the text of step 5 and estimated_cost_eur == 1250 on the
+        incident; neither ops-auto-close nor finance-auto-close ran; case-summary ran and
+        instance status == COMPLETED.
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The CEO's work is lost, or a case the CEO completed is closed as if it had timed out.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the sim-incident-ceo-001 instance if not already completed.
