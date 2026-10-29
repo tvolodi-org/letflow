@@ -16,6 +16,27 @@ defmodule Letflow.NotificationTemplates.Registry do
       body:
         "Hello {assignee_name}, the task {task_name} of the process {process_name} " <>
           "is assigned to you. Due: {due_date}. {tenant_name}"
+    },
+    "exam_assigned" => %{
+      placeholders: ~w(exam_title candidate_name deadline tenant_name),
+      subject: "Exam assigned: {exam_title}",
+      body:
+        "Hello {candidate_name}, the exam {exam_title} is assigned to you. " <>
+          "Deadline: {deadline}. {tenant_name}"
+    },
+    "exam_reminder" => %{
+      placeholders: ~w(exam_title candidate_name deadline tenant_name),
+      subject: "Exam reminder: {exam_title}",
+      body:
+        "Hello {candidate_name}, a reminder that the exam {exam_title} is due. " <>
+          "Deadline: {deadline}. {tenant_name}"
+    },
+    "exam_result" => %{
+      placeholders: ~w(exam_title candidate_name result_status score_percent tenant_name),
+      subject: "Exam result: {exam_title}",
+      body:
+        "Hello {candidate_name}, your result for the exam {exam_title}: {result_status}, " <>
+          "score {score_percent}%. {tenant_name}"
     }
   }
 

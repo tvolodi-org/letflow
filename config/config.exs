@@ -154,6 +154,10 @@ config :letflow, :modules_uninstall_enabled, false
 # only by Letflow.RecordTriggers.enabled?/0.
 config :letflow, :record_triggers_enabled, false
 
+# REQ-597 / GH #3363: exam notification mails (the exam_result mail after a scored submit). Default
+# off. Read only by Letflow.Modules.Exam.Notifications.enabled?/0.
+config :letflow, :exam_notifications_enabled, false
+
 # REQ-590 / GH #3338: tenant logo upload (PUT/DELETE /api/v1/tenant/logo). Default off: the routes
 # answer the ordinary 404 until a deployment turns it on.
 config :letflow, :tenant_logo_upload_enabled, false

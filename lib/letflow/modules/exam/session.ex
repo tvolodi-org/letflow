@@ -130,6 +130,7 @@ defmodule Letflow.Modules.Exam.Session do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Modules.Exam
+  alias Letflow.Modules.Exam.Notifications
   alias Letflow.Modules.Exam.QuestionSetResolver
   alias Letflow.Modules.Exam.Scoring
   alias Letflow.Modules.Exam.Snapshot
@@ -801,7 +802,9 @@ defmodule Letflow.Modules.Exam.Session do
   @spec submit(session_id :: String.t(), user_id :: String.t(), prefix :: String.t()) ::
           {:ok, submission_outcome()} | {:error, submit_error() | term()}
   def submit(session_id, user_id, prefix) do
-    Repo.transaction(fn -> submit_txn(session_id, user_id, prefix) end)
+    fn -> submit_txn(session_id, user_id, prefix) end
+    |> Repo.transaction()
+    |> notify_result(prefix)
   end
 
   defp submit_txn(session_id, user_id, prefix) do
@@ -815,15 +818,34 @@ defmodule Letflow.Modules.Exam.Session do
             Repo.rollback(:not_owner)
 
           fv(session, "status") in ["submitted", "auto_submitted", "grading_pending"] ->
-            outcome_from_session(session)
+            {:replay, outcome_from_session(session)}
 
           true ->
             case score_and_persist(session, prefix, audit_actor_id: user_id) do
-              {:ok, outcome} -> outcome
+              {:ok, outcome} -> {:scored, outcome, result_ref(session)}
               {:error, reason} -> Repo.rollback(reason)
             end
         end
     end
+  end
+
+  # After the submit/finalize transaction committed (never inside it): a freshly scored session
+  # starts the `exam_result` mail (REQ-597, off by default, never raises); a replay sends nothing.
+  # The public return value stays `{:ok, outcome} | {:error, _}`.
+  defp notify_result({:ok, {:scored, outcome, ref}}, prefix) do
+    Notifications.result(prefix, ref, outcome)
+    {:ok, outcome}
+  end
+
+  defp notify_result({:ok, {:replay, outcome}}, _prefix), do: {:ok, outcome}
+  defp notify_result({:error, _reason} = error, _prefix), do: error
+
+  defp result_ref(session) do
+    %{
+      session_id: session.record_id,
+      user_id: fv(session, "user_id"),
+      exam_id: fv(session, "exam_id")
+    }
   end
 
   # -----------------------------------------------------------------------
@@ -840,7 +862,9 @@ defmodule Letflow.Modules.Exam.Session do
         ) ::
           {:ok, submission_outcome()} | {:error, term()}
   def finalize_expired(session_id, %DateTime{} = deadline_at, prefix) do
-    Repo.transaction(fn -> finalize_txn(session_id, deadline_at, prefix) end)
+    fn -> finalize_txn(session_id, deadline_at, prefix) end
+    |> Repo.transaction()
+    |> notify_result(prefix)
   end
 
   defp finalize_txn(session_id, deadline_at, prefix) do
@@ -850,13 +874,13 @@ defmodule Letflow.Modules.Exam.Session do
 
       {:ok, session} ->
         if fv(session, "status") in ["submitted", "auto_submitted", "grading_pending"] do
-          outcome_from_session(session)
+          {:replay, outcome_from_session(session)}
         else
           case score_and_persist(session, prefix,
                  submitted_at: deadline_at,
                  status_override: :auto_submitted
                ) do
-            {:ok, outcome} -> outcome
+            {:ok, outcome} -> {:scored, outcome, result_ref(session)}
             {:error, reason} -> Repo.rollback(reason)
           end
         end
