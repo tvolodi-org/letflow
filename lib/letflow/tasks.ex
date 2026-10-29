@@ -734,6 +734,7 @@ defmodule Letflow.Tasks do
       |> Multi.merge(fn changes -> record_task_assign_audit(changes, "task.assign", prefix) end)
       |> Repo.transaction()
       |> unwrap_write_result()
+      |> notify_assigned(user_id, prefix)
     end
   end
 
@@ -804,6 +805,7 @@ defmodule Letflow.Tasks do
       |> Multi.merge(fn changes -> record_task_assign_audit(changes, "task.reassign", prefix) end)
       |> Repo.transaction()
       |> unwrap_write_result()
+      |> notify_assigned(user_id, prefix)
     end
   end
 
@@ -852,6 +854,15 @@ defmodule Letflow.Tasks do
   # (engine.ex), restated here since this is a different module.
   defp unwrap_write_result({:ok, %{apply: task}}), do: {:ok, task}
   defp unwrap_write_result({:error, _failed_step, reason, _changes}), do: {:error, reason}
+
+  # REQ-584: after the commit, start the best-effort assignment mail. `after_assignment/3` never
+  # raises and the result is returned unchanged in every case (INV-8).
+  defp notify_assigned({:ok, task} = ok, user_id, prefix) do
+    Letflow.Notifications.after_assignment(task, user_id, prefix)
+    ok
+  end
+
+  defp notify_assigned(other, _user_id, _prefix), do: other
 
   # ── list_tasks/2 private helpers ────────────────────────────────────────
 

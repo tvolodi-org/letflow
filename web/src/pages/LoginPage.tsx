@@ -28,6 +28,7 @@ import { storeRealmSlug } from '@/auth/tenantConfig'
 import { getOrCreateManagerForTenant } from '@/auth/tenantOidcRegistry'
 import { loginDiscoveryApi } from '@/api/loginDiscovery'
 import { LoginIntlProvider } from '@/i18n/LoginIntlProvider'
+import { SkipLink } from '@/components/layout/SkipLink'
 
 type PageState = 'idle' | 'loading' | 'neutral' | 'network_error' | 'rate_limited' | 'malformed'
 
@@ -163,7 +164,11 @@ function LoginPageContent() {
   )
 
   return (
+    <>
+      <SkipLink label={intl.formatMessage({ id: 'login.skipToContent' })} />
     <main
+      id="main-content"
+      tabIndex={-1}
       data-testid="login-page"
       style={{ maxWidth: '26rem', margin: '4rem auto', padding: '0 1rem', color: 'var(--text-primary)' }}
     >
@@ -248,6 +253,7 @@ function LoginPageContent() {
         </form>
       </section>
     </main>
+    </>
   )
 }
 

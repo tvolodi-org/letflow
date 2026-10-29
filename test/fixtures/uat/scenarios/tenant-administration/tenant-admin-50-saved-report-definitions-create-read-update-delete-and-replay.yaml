@@ -1,0 +1,222 @@
+# T-0901 (BA): TENANT ADMIN group, scenario 50: saved report definitions, the administrator saves, reads, changes and deletes a report
+# (a summary part plus an optional detail part over one record type), and the stored definition replayed as two ordinary queries gives the
+# same answers as the same queries typed by hand.
+# Covers REQ-619 criteria 2 (success side: a report body with filter, grouping, aggregates, columns and sort is accepted; a report with
+# no columns is accepted and has no detail part; the view answer carries no new key and no chart type), 5 (a report names exactly one record
+# type; the name is shared with list and pivot views; another reader sees it in the list), 6 (success side: reading needs only the query
+# permission), 7 (replay as the aggregate query and as the record query equals the hand-built request; no view answer holds an aggregate
+# result or a record value) and 10 (create, change and delete each leave an audit entry).
+# Sources: docs/requirements.yaml REQ-619 (criteria 2, 5, 6, 7, 10); docs/migration/decisions/0066-generic-saved-views-over-records.md
+# (D2, D3, D4); lib/letflow/entities/views/clauses.ex (report kind rules); docs/roles.md (EntitiesViewsManage, EntitiesQuery,
+# EntitiesAggregate rows); test/fixtures/uat/actors.yaml.
+# Not UAT-observable by an outside user, so not covered by any scenario (REQ-619 criteria 1, 10 in part, 11): the migration and the fact that
+# existing list and pivot rows are unchanged by it and that the report row is absent from the other company's tenant schema as a table row
+# (the visible effect, no report in the other company's list, is checked in scenario 52); the audit entry being written in the same
+# transaction (this scenario only checks that the entries exist); the unchanged permission matrix golden, the absence of a new permission,
+# the route-count and route-scope pins; the reviewer verdicts and build commands (criterion 11). The "columns only choose which fields a client
+# shows" part of criterion 7 is a client behaviour, not an answer of the platform; the replay of the detail part sends the stored filter and sort.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are in scenarios 51
+# and 52.
+---
+id: tenant-administration-50-saved-report-definitions-create-read-update-delete-and-replay
+scope: tenant-administration
+title: The administrator saves, reads, changes and deletes a report over one record type, and replaying it as a summary query and a record query gives the hand-typed answers
+version: "1.0"
+tags: [tenant-admin, saved-views, report, crud, replay, audit]
+
+description: >
+  The administrator of SwiftRoute creates the record type "UAT report ticket" with the fields title (text, required), status (text), region
+  (text) and amount (whole number), and four records: (A, open, north, 10), (B, open, north, 20), (C, open, south, 5), (D, closed, north, 100).
+  The administrator saves the report "UAT open report" over that type with the filter "status equals open", the grouping by region, the
+  aggregates count and sum of amount, the columns title and amount, and the sort "amount descending". The report is read by id and by list, then
+  changed (a third aggregate, the largest amount, and the name "UAT open report v2"). A task worker, who may read lists, sees the report. The
+  stored filter, grouping and aggregates are then sent as an ordinary aggregate query (the summary), and the stored filter and sort as an
+  ordinary record query (the detail); each answer is compared with the same query typed by hand and with the expected numbers (summary: north 2
+  records, sum 30, largest 20; south 1 record, sum 5, largest 5; detail: B, A, C in this order, the closed record D is absent). A report with no
+  columns and no sort (a summary only) is also accepted. Finally the administrator deletes the report; reading and deleting it again give the
+  same not-found answer. No answer of the view routes contains an aggregate result or a record value, and create, change and delete each leave
+  an audit entry.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  worker: actor-swiftroute-lena
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator and a task worker; no record type "UAT report ticket" and no saved view named "UAT open report", "UAT open report v2" or "UAT summary only" exist
+    check: system_seeded
+    detail: If views exist from an earlier run, delete them first and note it in the report; the record type and its four records may stay if they are as described in the description (otherwise the numbers of EO-005 cannot be judged, report BLOCKED for EO-005).
+  - description: The audit trail of the company can be read by the administrator
+    check: system_seeded
+    detail: If the test environment cannot show the audit trail, report BLOCKED for the audit part of EO-007 and run the rest.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator creates the record type "UAT report ticket" with the fields title (text, required), status (text), region (text) and
+      amount (whole number), makes it active, and creates the four records (A, open, north, 10), (B, open, north, 20), (C, open, south, 5)
+      and (D, closed, north, 100).
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator saves the report "UAT open report" over "UAT report ticket" with the filter "status equals open", the grouping by
+      region, the two aggregates "count of records" and "sum of amount", the columns title and amount, and the sort "amount descending". The
+      administrator notes the id, the name, the kind, the type, the filter, the grouping, the aggregates in order, the columns, the sort, the
+      creating person and the time of the answer.
+    via: api
+    input:
+      name: UAT open report
+      kind: report
+      entity_type: UAT report ticket
+      filter: status equals open
+      group_by: [region]
+      aggregates: [count, sum of amount]
+      columns: [title, amount]
+      sort: amount descending
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator lists all views, lists the views of the type "UAT report ticket" only, and reads the report of step 2 by its id. The
+      administrator compares the three answers with step 2.
+    via: api
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator changes the report of step 2: the name becomes "UAT open report v2", and the aggregates become count, sum of amount and
+      largest amount, in this order. The kind stays report, the filter stays "status equals open", the grouping stays region, the columns and
+      sort stay as they are, the record type is not part of the change. The administrator reads the report again and notes the name, kind,
+      grouping, aggregates, columns, sort, creating person, changing person and the two times.
+    via: api
+    input:
+      name: UAT open report v2
+      kind: report
+      filter: status equals open
+      group_by: [region]
+      aggregates: [count, sum of amount, largest amount]
+      columns: [title, amount]
+      sort: amount descending
+  - step: 5
+    actor: worker
+    action: >
+      The task worker lists the views and reads the report of step 4 by its id, and notes whether the report is shown and what the answer
+      contains.
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator sends the aggregate query over "UAT report ticket" built by hand: filter "status equals open", grouping by region,
+      aggregates count, sum of amount and largest amount. Then the administrator sends the aggregate query made from the report of step 4: the
+      stored filter as the filter of the query, the stored grouping and the stored aggregates, with nothing added or left out. The two answers
+      are noted and compared, with the expected numbers (north: 2 records, sum 30, largest 20; south: 1 record, sum 5, largest 5; no row for the
+      closed record D).
+    via: api
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator sends the record query over "UAT report ticket" built by hand: filter "status equals open", sort "amount descending".
+      Then the administrator sends the record query made from the report of step 4: the stored filter as the filter of the query and the
+      stored sort, with nothing added or left out. The two answers are noted and compared, with the expected records (B with 20, A with 10, C
+      with 5, in this order; the closed record D is absent).
+    via: api
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator saves the report "UAT summary only" over "UAT report ticket" with the filter "status equals open", no grouping, the one
+      aggregate "count of records", and no columns and no sort, notes the answer, and replays it as an aggregate query. The administrator then
+      reads the report back.
+    via: api
+    input:
+      name: UAT summary only
+      kind: report
+      entity_type: UAT report ticket
+      filter: status equals open
+      aggregates: [count]
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator deletes the report of step 4, then reads it by its id, then lists the views of the type, then deletes it a second time.
+      The answers are noted. The administrator then deletes the report "UAT summary only".
+    via: api
+  - step: 10
+    actor: tenant_admin
+    action: >
+      The administrator reads the audit trail of the company for the entries of the report of steps 2, 4 and 9, and notes the kind of each
+      entry, the acting person and the time.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A created report is stored as given and the answer names its kind, who created it and when; the company and a chart type are not named.
+    verification:
+      method: api_response
+      detail: The answer of step 2 is a creation (201) with an id, the name "UAT open report", the kind report, the type "UAT report ticket", the filter as given, the grouping by region, the two aggregates in the given order, the columns title and amount, the sort amount descending, the creating person alice, and times; the chart type is empty and no company identifier is shown.
+      evidence: The answer of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A saved report does not keep what the administrator set, so every user who opens it sees a different report.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The report is found by list, by type and by id, with the same content each time, and names exactly one record type.
+    verification:
+      method: api_response
+      detail: In step 3 the list of all views and the list of the type each contain the report once; the answer by id equals the answer of step 2 in every field; the report names one record type and no second one.
+      evidence: The three answers of step 3 compared with step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Users cannot find the saved report they need, or see two versions of it.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A change replaces the name and the aggregates, keeps the kind, the type, the filter, the grouping, the columns, the sort and the creating person, and records who changed it and when.
+    verification:
+      method: api_response
+      detail: After step 4 the report has the new name and the three aggregates in the stated order; the kind is report, the type is "UAT report ticket", the filter, grouping, columns and sort are those of step 2; the creating person is alice and the first time is unchanged; the changing person is alice and the second time is later than in step 2.
+      evidence: The reading of the report in step 4 compared with step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A change to a shared report is lost, or nobody can tell who changed it.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A user with the query permission only (the task worker) sees the report, and the answer is the same as the administrator's.
+    verification:
+      method: api_response
+      detail: In step 5 both answers are 200 and the report is shown with the content of step 4. The record type "UAT report ticket" is created in step 1 without any restriction, so an empty list or a 404 for the task worker is a failure of this outcome.
+      evidence: The two answers of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: Staff cannot use the reports their administrator has prepared.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: Replaying the stored summary as an aggregate query and the stored detail as a record query gives exactly the answers of the same queries typed by hand, and the filter is applied to both.
+    verification:
+      method: api_response
+      detail: In step 6 the two answers are equal in every row and number, and show north with 2 records, sum 30 and largest 20, and south with 1 record, sum 5 and largest 5; the closed record D is in no row (a replay that dropped the filter would show north with 3 records and sum 130). In step 7 the two answers are equal and list B, A, C in this order; D is not listed.
+      evidence: The four answers of steps 6 and 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A saved report shows different numbers from the same question asked directly, so decisions are taken on wrong figures.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: No answer of the view routes contains an aggregate result or a record value, and a report with no columns and no sort (summary only) is accepted.
+    verification:
+      method: api_response
+      detail: The answers of steps 2 to 5 and 8 hold only the view fields (id, kind, type, name, filter, grouping, aggregates, columns, sort, persons, times) and no number computed from records and no value of any record; in step 8 the creation of "UAT summary only" is 201 with empty columns and an empty sort, and its replay gives one row with the count 3 (open records A, B, C).
+      evidence: The answers of steps 2 to 5 and 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A view could become a second way to read records or totals that bypasses the rules which hide fields from a user.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: Deleting removes the report; a second reading or deletion gives the same not-found answer; create, change and delete each leave an audit entry naming the administrator.
+    verification:
+      method: audit_event
+      detail: In step 9 the first deletion succeeds (204), the reading and the second deletion give the same not-found status and body, and the list of the type does not show the report. In step 10 there are three entries (create, update, delete) for the report, each with alice as the acting person, and no entry for the failed second deletion.
+      evidence: The answers of step 9 and the audit entries of step 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: Deleted reports keep appearing, or changes to shared reports cannot be traced to a person.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the reports "UAT open report", "UAT open report v2" and "UAT summary only" if they still exist. The record type "UAT report ticket" and its four records stay for scenarios 51 and 52 and are retired with the test customer.

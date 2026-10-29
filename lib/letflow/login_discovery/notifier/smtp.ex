@@ -52,6 +52,24 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp do
     _kind, _reason -> {:error, :failed}
   end
 
+  @impl true
+  @spec deliver_message(%{to: String.t(), subject: String.t(), body: String.t()}) ::
+          :ok | {:error, reason()}
+  def deliver_message(message) do
+    with {:ok, config} <- Config.runtime(),
+         {:ok, composed} <- Message.compose_message(message, %{from: config.from}),
+         {:ok, credentials} <- credentials() do
+      Transport.send_message(composed, connection(config), credentials, [])
+    else
+      {:error, reason} when reason in [:not_configured, :invalid_recipient, :invalid_message] ->
+        {:error, reason}
+    end
+  rescue
+    _exception -> {:error, :failed}
+  catch
+    _kind, _reason -> {:error, :failed}
+  end
+
   defp connection(config) do
     Map.take(config, [:host, :port, :tls, :socket_timeout_ms])
   end

@@ -82,7 +82,8 @@ defmodule Letflow.Supervisor.Infrastructure do
   23. `Letflow.EventStore.RetirementTaskSupervisor`
   24. `Letflow.LoginDiscovery.TaskSupervisor` (REQ-437: off-request-path
       notifier tasks of the login-discovery endpoint)
-  25. `Letflow.Obs.Alerts.TaskSupervisor`
+  25. `Letflow.Notifications.TaskSupervisor` (REQ-584: task_assigned mail delivery)
+  26. `Letflow.Obs.Alerts.TaskSupervisor`
 
   ## Ordering guarantees preserved (both load-bearing, unchanged from
   `Letflow.Application`'s own prior flat list)
@@ -369,6 +370,13 @@ defmodule Letflow.Supervisor.Infrastructure do
         Task.Supervisor,
         # x2: each delivery uses two slots (outer closure + inner async_nolink task).
         name: Letflow.LoginDiscovery.TaskSupervisor,
+        max_children: 2 * Letflow.LoginDiscovery.Dispatch.max_concurrent()
+      },
+      # REQ-584: notification delivery (task_assigned mail) and its inner adapter task; same
+      # isolation and x2 slot reasoning as the login-discovery supervisor above.
+      {
+        Task.Supervisor,
+        name: Letflow.Notifications.TaskSupervisor,
         max_children: 2 * Letflow.LoginDiscovery.Dispatch.max_concurrent()
       },
       # ISS-0429 (design lib/letflow/design/iss0429-async-alert-hook-delivery.md §1):
