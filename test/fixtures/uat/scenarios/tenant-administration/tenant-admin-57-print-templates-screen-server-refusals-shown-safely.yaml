@@ -1,0 +1,167 @@
+# T-0923 (BA): TENANT ADMIN group, scenario 57: the Print templates screen shows the server's refusals (unknown type, 422 rule lines) as safe text and never prints layout text or a protected value.
+# Covers REQ-614 criterion 4 (quoted): "PrintLayoutEditor test, server replies: a mocked 422 whose errors list holds {rule: "field_not_projected",
+# path: ["blocks", 1, "field_name"]} (any rule atom of lib/letflow/documents/print_layout.ex) shows that rule and that path and no other text from the
+# submitted layout; a mocked 409 with the detail "activation needs a second administrator" shows that sentence; a mocked 404 shows one generic
+# not-found message; a mocked 500 shows a generic error and not the response body." Here: the 422 lines (steps 3 to 5, rules field_not_projected,
+# field_restricted, unknown_key, unknown_block_type), the fixed 422 detail "unknown type_key" (step 2), the 409 sentence (scenario 56 step 15), and
+# the criterion's "no other text from the submitted layout" (step 6 search). Criterion 6 "an unknown block type ... render a notice and do not
+# throw": step 5 (the preview notice for an unknown block type).
+# Not covered here: the mocked 404 "one generic not-found message" and the mocked 500 "generic error and not the response body" (a person cannot make
+# the server answer 404 for a row just listed or answer 500 on a realistic path; vitest over a mocked client is their check); a 422 with the fixed
+# detail "invalid locale" (the language list on the screen cannot offer another language, see scenario 56 EO-004); "layout without a blocks list" in the
+# preview is the case of scenario 56 step 4 (the editor refuses before any preview or request).
+# Sources: docs/requirements.yaml REQ-614, REQ-579; web/src/api/documentPrintOverrides.ts describePrintOverrideError (line "<rule> at <path>", path
+# rendered as blocks[3].field_name; fixed detail text for 422 and 409; "Not found"; "Something went wrong. Try again."); lib/letflow/documents/print_layout.ex
+# (projection: field_restricted before field_not_projected; check_block: unknown_block_type at path + type; unknown_key at path + key);
+# lib/letflow/routers/documents.ex (unprocessable_detail "unknown type_key", "layout failed validation").
+# UAT assumption, to be confirmed by the process owner: the order of the rule lines is the order of the blocks; the checks below do not depend on it.
+# Hidden values: the layout literal "SENTINEL-print-9f3a" and the protected field's sample value "SECRET-cost-4471" must not appear in any error message line of steps 2 to 5 (the editor's text area and the preview show the layout by design), in any stored row, the service log or any audit entry.
+# Sensitive actions: see-sensitive-data is the protected field internal_cost (steps 3, 6); approve is scenario 56 step 15; pay or release and
+# change-users do not occur in this flow.
+---
+id: tenant-administration-57-print-templates-screen-server-refusals-shown-safely
+scope: tenant-administration
+title: When the server refuses a print layout the screen shows the rule and its place only, never the layout wording or a protected value
+version: "1.0"
+tags: [tenant-admin, documents, print-override, gui, validation, refusal, restricted-field, escaping]
+
+description: >
+  The SwiftRoute administrator saves from the Print templates screen. An unknown document type is answered with the sentence "unknown type_key".
+  A layout naming a field the document type does not have, and a field the company has protected, is refused and the screen lists one line per
+  problem in the form "field_not_projected at blocks[3].field_name" and "field_restricted at blocks[4].field_name"; the secret wording
+  "SENTINEL-print-9f3a" placed in the layout, and the protected field's sample value, appear in no line. A layout with an extra key and a layout with an
+  unknown block type are refused with their own lines; the preview shows a notice for the unknown block and does not break. Nothing refused is
+  stored or audited. A correct layout is then saved and the error lines disappear.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  module: actor-system-documents-service
+
+preconditions:
+  - description: SwiftRoute has a document type "purchase_order" whose fields are supplier_name, total_amount and internal_cost, and the company has protected the field internal_cost; a purchase_order record holds internal_cost = "SECRET-cost-4471"
+    check: system_seeded
+    detail: Registered, protected and seeded through the service-level harness before step 1 (the module actor). If the harness cannot do it, the whole scenario is BLOCKED, not PASS. The harness can read the stored overrides, the SwiftRoute audit trail and the service log. No print override exists in SwiftRoute.
+  - description: The administrator can sign in to the web application of SwiftRoute and open the Print templates screen
+    check: system_seeded
+    detail: If the roster account cannot sign in to the web application, the scenario is BLOCKED, not FAIL.
+  - description: The layouts are exact
+    check: custom
+    detail: >
+      Every layout begins with the blocks {"type":"page","size":"A4","margin_mm":15,"font":"dejavu-sans"} and
+      {"type":"text","text":"SENTINEL-print-9f3a"} (blocks 0 and 1) and has "layout_schema_version":1.
+      BAD-FIELDS adds three blocks: {"type":"field","entity_type":"purchase_order","field_name":"supplier_name","label":"Supplier"} (block 2),
+      {"type":"field","entity_type":"purchase_order","field_name":"cost_center","label":"Cost"} (block 3) and
+      {"type":"field","entity_type":"purchase_order","field_name":"internal_cost","label":"Internal"} (block 4).
+      BAD-KEY is the page, then {"type":"text","text":"SENTINEL-print-9f3a","script":"x"} as block 1.
+      BAD-BLOCK is the page, the text block, then {"type":"image","text":"SENTINEL-print-9f3a"} as block 2.
+      GOOD is the page, the text block with the text "test sample header" and the supplier_name field block as block 2.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: Opens the Print templates screen from the menu group "Tenant administration" and notes that the table of overrides has no rows.
+    via: gui
+  - step: 2
+    actor: tenant_admin
+    action: Types the type key "no_such_type", chooses the language ru, enters GOOD as the layout and presses "Save as new draft". Notes the message.
+    expect_refusal: true
+    via: gui
+    input:
+      type_key: no_such_type
+      locale: ru
+      layout: GOOD
+  - step: 3
+    actor: tenant_admin
+    action: Types the type key "purchase_order", keeps the language ru, enters BAD-FIELDS as the layout and presses "Save as new draft". Notes every line of the message.
+    expect_refusal: true
+    via: gui
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: BAD-FIELDS
+  - step: 4
+    actor: tenant_admin
+    action: Enters BAD-KEY as the layout and presses "Save as new draft". Notes every line of the message.
+    expect_refusal: true
+    via: gui
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: BAD-KEY
+  - step: 5
+    actor: tenant_admin
+    action: Enters BAD-BLOCK as the layout. Notes the preview, then presses "Save as new draft" and notes every line of the message.
+    expect_refusal: true
+    via: gui
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: BAD-BLOCK
+    produces:
+      preview_bad_block: the preview with the unknown block
+  - step: 6
+    actor: module
+    action: >
+      Searches the text of every message noted in steps 2 to 5 (as the screen showed it, without the editor's own text area), the service log written during
+      steps 2 to 5 and every audit entry for "SENTINEL-print-9f3a" and "SECRET-cost-4471", and notes the number of stored overrides (expected 0) and of
+      audit entries of the three print-override actions (expected 0).
+    via: system
+  - step: 7
+    actor: tenant_admin
+    action: Enters GOOD as the layout and presses "Save as new draft". Notes the message area and the list.
+    via: gui
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: GOOD
+
+expected_outcomes:
+  - id: EO-001
+    description: An unknown document type is answered with the server's fixed sentence only.
+    verification:
+      method: gui_screen
+      detail: Step 2 shows the single line "unknown type_key" and nothing from the layout; no row appears in the list.
+      evidence: The message noted in step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot tell why the save failed.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: A layout naming a field the type does not have or a protected field is refused with one line per problem, the rule and its place only.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 shows two lines, "field_not_projected at blocks[3].field_name" and "field_restricted at blocks[4].field_name" (in either order) and no other
+        text. Step 4 shows one line "unknown_key at blocks[1]._key" (the server replaces the caller-chosen key name by _key; the key name "script" must not appear in the message). Step 5 shows one line "unknown_block_type at blocks[2].type" and the preview of
+        step 5 shows the page, the text and a short notice "Unsupported block (index 2)" in place of the unknown block, without an error page.
+      evidence: The messages of steps 3 to 5 and the preview of step 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot find which block of the layout the server refused, or the preview breaks on an unfinished layout.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: No refusal shows layout wording or a protected value, and nothing refused is stored or audited.
+    verification:
+      method: system_state
+      detail: >
+        Step 6: neither "SENTINEL-print-9f3a" nor "SECRET-cost-4471" appears in any message of steps 2 to 5, in the service log or in any audit entry; the
+        stored override count is 0 and the audit count of the three print-override actions is 0.
+      evidence: The searches and counts of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refusal could leak a protected value or company wording, or a rejected layout could be stored or leave an audit trail.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A correct layout is saved and the error lines disappear.
+    verification:
+      method: gui_screen
+      detail: Step 7 shows no message lines and the list has one row purchase_order, ru, version 1, draft.
+      evidence: The message area and list noted in step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A correct layout cannot be saved after a refusal, or old error lines stay on the screen and mislead.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: The one stored draft cannot be deleted; it stays unused. Re-running needs a fresh test company or a different type key.

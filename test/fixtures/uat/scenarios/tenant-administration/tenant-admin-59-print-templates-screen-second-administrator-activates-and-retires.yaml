@@ -1,0 +1,134 @@
+# T-0923 (BA): TENANT ADMIN group, scenario 59: on the Print templates screen a second administrator activates a draft the first one saved; the list refreshes; Retire is offered for the active row only.
+# Covers REQ-614 criterion 3 (quoted, the parts not in scenario 56): "Activate is offered only for a row with status draft and Retire only for a row
+# with status active; ... a matching [reason_code] calls the route" and criterion 7 (quoted): "after a successful save, activate or retire the list is
+# fetched again." (the new status appears in the list without reopening the screen); and the second administrator can activate (the 409 for the creator
+# is scenario 56 step 15).
+# NOT RUNNABLE TODAY: the roster has one TENANT_ADMIN per company (actor-swiftroute-alice for SwiftRoute) and this flow needs a second administrator of the
+# same company. The second actor is written as actor-any with a precondition and is NOT added to the roster (not invented); a GAP sidecar in
+# test/fixtures/uat/scenario-env-limitations/ records the limitation. It becomes runnable when the owner approves a second SwiftRoute TENANT_ADMIN test
+# account and it is added to the roster. Until then the backend side is covered by the REQ-579 tests (S2-sod-1..3 in
+# test/letflow/documents/print_overrides_test.exs, see scenario 31) and the screen side by the page tests of REQ-614 (vitest).
+# Not covered here: the mocked 404 and 500 displays (see scenario 57); fixtures by key (unit test).
+# Sources: docs/requirements.yaml REQ-614, REQ-579; web/src/pages/admin/PrintTemplatesPage.tsx (Activate for draft, Retire for active, "Confirm activate" and
+# "Confirm retire", list invalidated after success); lib/letflow/documents/print_overrides.ex (do_activate retires the previous active version of the
+# same type and language in the same transaction); docs/roles.md; test/fixtures/uat/actors.yaml.
+# UAT assumption, to be confirmed by the process owner: Q3 of decision 0068 as built is two-person activation (REQ-579 open_questions).
+# Sensitive actions: approve = activation by the second administrator (success) and by the creator (refusal, step 3); the creator may retire (step 7).
+---
+id: tenant-administration-59-print-templates-screen-second-administrator-activates-and-retires
+scope: tenant-administration
+title: A second administrator activates a saved draft on the Print templates screen, the list shows the new status at once, and only an active row offers Retire
+version: "1.0"
+tags: [tenant-admin, documents, print-override, gui, activation, separation-of-duties]
+
+description: >
+  The SwiftRoute administrator (A) has saved two drafts of one layout for "purchase_order" (ru). A opens the first on the Print templates screen and
+  tries to activate it: the screen shows "activation needs a second administrator" and the row stays a draft. A second SwiftRoute administrator (A2)
+  opens the screen, sees both drafts, opens the first, activates it with the reason code "go_live" and sees it as active, activated by A2, in the list
+  without reopening the page; the button Retire is offered and Activate is not. A2 activates the second draft with "go_live_2"; the list shows it
+  active and the first retired, and a retired row offers neither button. A retires the active one with the reason code "withdrawn" and the list shows
+  no active row.
+
+actors:
+  creator: actor-swiftroute-alice
+  second_admin: actor-any
+  module: actor-system-documents-service
+
+preconditions:
+  - description: A second person holds TENANT_ADMIN in SwiftRoute (not the creator of the drafts), signed in as second_admin
+    check: system_seeded
+    detail: The roster has no such actor today; without an approved second SwiftRoute administrator account the whole scenario is BLOCKED, not PASS (see the sidecar). Using the same person for both roles makes step 4 fail.
+  - description: SwiftRoute has the document type "purchase_order" with the field supplier_name; the creator has saved two drafts for purchase_order, ru (version 1 text "test sample one", version 2 text "test sample two"); no override is active
+    check: system_seeded
+    detail: Seeded through the service-level harness and the administrator's saves before step 1. Each draft has layout_schema_version 1 and blocks page (A4, margin 15, font dejavu-sans), text, and a field block for supplier_name.
+
+steps:
+  - step: 1
+    actor: creator
+    action: Opens the Print templates screen, clicks version 1 and presses "Activate", enters the reason code "go_live" and confirms. Notes the message and the status in the list.
+    expect_refusal: true
+    via: gui
+    input:
+      reason_code: go_live
+  - step: 2
+    actor: second_admin
+    action: Opens the Print templates screen and notes the rows. Clicks version 1 and notes the heading and which of the buttons Activate and Retire are offered.
+    via: gui
+    produces:
+      second_admin_view: the list and the buttons of the opened draft
+  - step: 3
+    actor: second_admin
+    action: Presses "Activate", enters the reason code "go_live" and confirms. Without reloading the page, notes the list and the heading, and which buttons are offered.
+    via: gui
+    input:
+      reason_code: go_live
+    produces:
+      after_activate: the list and the buttons after the first activation
+  - step: 4
+    actor: second_admin
+    action: Clicks version 2, presses "Activate", enters "go_live_2" and confirms. Without reloading, notes the list. Then clicks version 1 and notes which buttons are offered.
+    via: gui
+    input:
+      reason_code: go_live_2
+    produces:
+      after_second_activate: the list; the buttons of the retired row
+  - step: 5
+    actor: module
+    action: Reads the stored rows (version 1 retired, version 2 active, both activated by the second administrator or retired by the activation) and the audit entries of the three print-override actions.
+    via: system
+  - step: 6
+    actor: creator
+    action: Opens the screen, clicks version 2 (active), presses "Retire", enters the reason code "withdrawn" and confirms. Without reloading, notes the list.
+    via: gui
+    input:
+      reason_code: withdrawn
+    produces:
+      after_retire: the list after the retirement
+  - step: 7
+    actor: module
+    action: Reads the stored rows and the audit entries and compares them with step 5.
+    via: system
+
+expected_outcomes:
+  - id: EO-001
+    description: The creator cannot activate their own draft; the screen shows the server's sentence and the draft stays a draft.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 shows the sentence "activation needs a second administrator"; version 1 is still draft in the list and the button Activate is still offered.
+        After step 1 no document.print_override_activated audit entry exists.
+      evidence: The message and list noted in step 1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The author of a company print layout could put it into force alone.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: A second administrator activates the draft; the list shows the new status without reloading, and only the buttons that apply are offered.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 shows both drafts and, for version 1, the button Activate and no Retire. Step 3 shows version 1 with status active and "Activated by" the
+        second administrator, the button Retire and no Activate. Step 4 shows version 2 active and version 1 retired (a retirement date shown); for the
+        retired version 1 neither Activate nor Retire is offered; only one row is active.
+      evidence: The screens noted in steps 2 to 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company's official layout cannot be put into force by a second person, two layouts are in force at once, or the screen offers actions that the server refuses.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: The administrator retires the active version and the list shows no active row; each change is stored and audited once.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 6 shows version 2 as retired and no active row. Step 5 shows one document.print_override_activated entry per activation (two) after the
+        two saves; step 7 shows exactly one more, document.print_override_retired, and the stored rows equal what the screens showed; the refused
+        request of step 1 added no entry.
+      evidence: The list of step 6 and the rows and entries of steps 5 and 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A wrong official layout cannot be withdrawn, or changes to company print layouts are not traceable.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: The stored rows cannot be deleted; they stay unused. Re-running needs a fresh test company or a different type key.
