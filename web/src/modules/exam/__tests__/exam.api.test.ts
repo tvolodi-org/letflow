@@ -186,6 +186,19 @@ describe('GH 2680 — examAuthoringApi hits /modules/exam/authoring', () => {
     expect(new Headers(init.headers).get('If-Match')).toBeNull()
   })
 
+  it('A1 (GH 3423): updateRecord sends expected_last_event_global_seq when given and omits it otherwise', async () => {
+    const fetchSpy = vi.fn().mockImplementation(() => jsonResponse({ record_id: 'r1' }))
+    window.fetch = fetchSpy as unknown as typeof window.fetch
+
+    await examAuthoringApi.updateRecord('question', 'r1', { a: 1 }, undefined, 0)
+    await examAuthoringApi.updateRecord('question', 'r1', { a: 1 })
+
+    const first = fetchSpy.mock.calls[0] as [string, RequestInit]
+    const second = fetchSpy.mock.calls[1] as [string, RequestInit]
+    expect(JSON.parse(first[1].body as string)).toEqual({ field_values: { a: 1 }, expected_last_event_global_seq: 0 })
+    expect(JSON.parse(second[1].body as string)).toEqual({ field_values: { a: 1 } })
+  })
+
   it('deleteRecord -> DELETE /api/v1/modules/exam/authoring/:entity_type/:record_id, bodyless', async () => {
     const fetchSpy = vi.fn().mockImplementation(() => jsonResponse({ record_id: 'r1', deleted: true }))
     window.fetch = fetchSpy as unknown as typeof window.fetch

@@ -44,6 +44,12 @@ defmodule Letflow.Modules.Exam.CertificatePublicProjection do
   identifier (`id`/`record_id`), `tenant_id`, and any candidate
   `user_id`/email -- see the design doc's exclusion table for the
   per-field reasoning.
+
+  `branding_snapshot` is returned whole. Since REQ-595 it may contain
+  `signatory_name` and `signatory_title`: tenant-set strings printed on the
+  paper certificate, visible on this unauthenticated verify endpoint for
+  certificates issued after REQ-595. They are absent for older certificates
+  and when the tenant had not set them.
   """
 
   @behaviour Letflow.PublicRead.Projection

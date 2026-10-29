@@ -1,0 +1,144 @@
+# T-0877 (BA-BILIMBAGA): examiner grading, who may read the queue and who may mark: the administrator yes, a candidate no.
+# Covers REQ-588 criterion 1 (Test G-perm) in part: TENANT_ADMIN gets an answer, CANDIDATE gets the same refusal on all three routes; and REQ-589
+# criterion 1 (Test U-guard) in part: the "Grading" menu entry and the two screens for a candidate.
+# Sources: docs/requirements.yaml REQ-588 (description, criterion 1), REQ-589 (criterion 1); web/src/modules/exam/index.ts (nav item 'Grading' with
+# ExamGradingRead), web/src/modules/exam/examRoutes.tsx (gradingGuard: RequirePermission ExamGradingRead; the shell's forbidden page);
+# test/fixtures/uat/actors.yaml (actor-bilimbaga-admin, actor-bilimbaga-candidate).
+# Not UAT-observable, in sidecar test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-grading-4-access-candidate-refused.yaml:
+#   - process operator, process designer, task worker, automation runner and read-only auditor refusals: the roster has none of these in Bilimbaga
+#     (the roster's auditor belongs to SwiftRoute, which has no exam module); no actor may be invented;
+#   - the platform operator's 200: the platform operator signs in to the platform company, which has no exam module, so it sees no Bilimbaga rows
+#     (a no-data-leak check of the backend test, not a refusal); see scenario exam-grading-5;
+#   - the request with no sign-in at all (401): the roster has no unauthenticated actor for a module route; left to the backend test;
+#   - the permission-matrix file and the route table (criteria 1 and 9, 10 of REQ-588): repository and review checks, not a UAT action.
+# The four sensitive actions: "approve" (marking) and "see sensitive data" (the queue) are steps 3 to 6 and 8; change users and pay are not in this flow.
+---
+id: bilimbaga-exam-grading-4-access-candidate-refused
+scope: bilimbaga
+title: The administrator may read the grading queue and mark; a candidate is refused on every route and sees no grading menu or screen
+version: "1.0"
+tags: [exam_grading, access_control, refusal, sensitive_data]
+
+description: >
+  The administrator of Bilimbaga reads the grading queue and one waiting answer, and sees the "Grading" menu entry. A candidate asks for the
+  queue, for one waiting answer, and tries to mark it, and is refused every time with the same answer; the answer names no data of the queue and
+  does not say whether the answer exists. The candidate's menu has no "Grading" entry, and typing the address of the grading screen, or of
+  one answer's screen, shows the application's "not allowed" page and no row. The answer is unmarked afterwards.
+  Preconditions: see below.
+
+actors:
+  admin: actor-bilimbaga-admin
+  candidate: actor-bilimbaga-candidate
+
+preconditions:
+  - description: Bilimbaga has the exam module installed and the exam "UAT grading exam F" with one session S6 handed in holding an unmarked short text answer
+    check: custom
+    detail: Prepared by the test setup; without it the scenario is BLOCKED.
+  - description: The Bilimbaga administrator and the Bilimbaga candidate can sign in
+    check: system_seeded
+    detail: The roster notes that a test token for the administrator needs a mapping that is not yet approved; without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in to the web application and looks at the menu of the exam module.
+    via: gui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator reads the grading queue and then the waiting answer of S6, and notes the row and the text.
+    via: api
+  - step: 3
+    actor: candidate
+    action: >
+      The candidate asks for the grading queue.
+    via: api
+    expect_refusal: true
+  - step: 4
+    actor: candidate
+    action: >
+      The candidate asks to read the waiting answer of S6, naming the session and question of the administrator's row.
+    via: api
+    expect_refusal: true
+  - step: 5
+    actor: candidate
+    action: >
+      The candidate tries to mark the answer of S6 with the score 1.
+    via: api
+    expect_refusal: true
+    input:
+      score: 1
+  - step: 6
+    actor: candidate
+    action: >
+      The candidate tries to read an answer of a session that does not exist (a freshly made up identifier).
+    via: api
+    expect_refusal: true
+  - step: 7
+    actor: candidate
+    action: >
+      The candidate signs in to the web application and looks for a "Grading" entry in the menu of the exam module.
+    via: gui
+    expect_refusal: true
+  - step: 8
+    actor: candidate
+    action: >
+      The candidate types the address of the grading screen and then the address of the screen of the answer of S6.
+    via: gui
+    expect_refusal: true
+  - step: 9
+    actor: admin
+    action: >
+      The administrator reads the answer of S6 again and compares it with the note of step 2.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator sees the "Grading" menu entry and gets the queue and the answer
+    verification:
+      method: page_state
+      detail: "Step 1 shows the menu entry 'Grading' in the exam module; step 2 succeeds and shows the row and the text of S6"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An administrator who cannot reach the queue cannot decide any short text exam.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: The candidate is refused the queue, the reading and the marking with the same refusal, and the refusal for an answer that exists looks the same as for one that does not
+    verification:
+      method: http_status
+      detail: "Steps 3, 4, 5 and 6 are each refused as forbidden with the same status and the same message; none returns a row, a text or a mark"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate who can mark can pass any exam; one who can read the queue reads other candidates' answers (personal data).
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: The candidate sees no "Grading" menu entry and gets the application's not-allowed page on both grading addresses, with no row shown
+    verification:
+      method: page_state
+      detail: "Step 7 shows no 'Grading' entry; step 8 shows the application's forbidden page for both addresses and no queue row or answer text"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Controls shown to a person who is then refused confuse users and hint at what exists.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: The answer is unmarked and unchanged
+    verification:
+      method: api_response
+      detail: "Step 9 shows the same waiting answer of S6 as step 2, with no mark"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A refusal that still wrote a mark means the permission is not real.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing is created or changed by this scenario; the session is prepared by the test setup.
