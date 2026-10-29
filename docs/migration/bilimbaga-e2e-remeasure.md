@@ -77,7 +77,7 @@ planned, or the same assertion is already covered by a dedicated Letflow spec.
 | `question-bank.spec.ts` | 5 | 0 | 5 | 0 | editor navigation, difficulty badges, search x2, Import/AI-Generate: BLOCKED-BY question editor and search |
 | `exam-lifecycle.spec.ts` | 2 | 0 | 0 | 2 | edit-wizard navigation; no wizard planned |
 | `employee-portal.spec.ts` | 5 | 0 | 3 | 2 | Start modal open/cancel: DROP (Start navigates directly). Continue CTA, View Result CTA, My Results: BLOCKED-BY results list |
-| `exam-taking.spec.ts` | 2 | 0 | 1 | 1 | flag/unflag: BLOCKED-BY flag control; submit-confirm modal: DROP |
+| `exam-taking.spec.ts` | 2 | 1 | 0 | 1 | flag/unflag: PORTABLE-NOW since REQ-611 (flag control, case 07 in `exam-taking.e2e.spec.ts`); submit-confirm modal: DROP |
 | `exam-result.spec.ts` | 1 | 0 | 0 | 0 | result by id: ALREADY PORTED SINCE (`exam-result-by-id.e2e.spec.ts`), 1 row |
 | `my-results.spec.ts` | 6 | 0 | 6 | 0 | BLOCKED-BY results list view |
 | `auth.spec.ts` | 5 | 1 | 0 | 4 | "redirects to /login when unauthenticated" is portable; password form, invalid credentials and post-login redirect: DROP (email-first login, Keycloak hosted) |

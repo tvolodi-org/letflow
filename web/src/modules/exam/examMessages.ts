@@ -101,6 +101,9 @@ export const examMessages: Record<ExamUiLocale, Record<string, string>> = {
     'exam.session.shortTextLabel': 'Your answer',
     'exam.session.prevQuestion': 'Previous',
     'exam.session.nextQuestion': 'Next',
+    'exam.session.flag': 'Flag question',
+    'exam.session.unflag': 'Remove flag',
+    'exam.session.flaggedCount': 'Flagged: {count}',
 
     // Anti-cheat
     'exam.anticheat.warning': 'Warning: leaving the exam window has been detected ({count} time(s)). Further activity may auto-submit your exam.',
@@ -273,6 +276,9 @@ export const examMessages: Record<ExamUiLocale, Record<string, string>> = {
     'exam.session.shortTextLabel': 'Ваш ответ',
     'exam.session.prevQuestion': 'Назад',
     'exam.session.nextQuestion': 'Далее',
+    'exam.session.flag': 'Отметить вопрос',
+    'exam.session.unflag': 'Снять отметку',
+    'exam.session.flaggedCount': 'Отмечено: {count}',
 
     'exam.anticheat.warning': 'Внимание: обнаружен выход из окна экзамена ({count} раз(а)). Дальнейшая активность может привести к автоматическому завершению экзамена.',
 
@@ -440,6 +446,9 @@ export const examMessages: Record<ExamUiLocale, Record<string, string>> = {
     'exam.session.shortTextLabel': 'Сіздің жауабыңыз',
     'exam.session.prevQuestion': 'Артқа',
     'exam.session.nextQuestion': 'Алға',
+    'exam.session.flag': 'Сұрақты белгілеу',
+    'exam.session.unflag': 'Белгіні алу',
+    'exam.session.flaggedCount': 'Белгіленген: {count}',
 
     'exam.anticheat.warning': 'Ескерту: емтихан терезесінен шығу анықталды ({count} рет). Одан әрі белсенділік емтиханды автоматты түрде аяқтауы мүмкін.',
 

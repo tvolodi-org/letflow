@@ -44,6 +44,9 @@ defmodule Letflow.Supervisor.InfrastructureTest do
   `Letflow.Plugs.LoginDiscoveryRateLimit.Bucket` and before the FaultThrottle, bringing the live
   list from 25 to 26.
 
+  REQ-584 added `Letflow.Notifications.TaskSupervisor` directly after
+  `Letflow.LoginDiscovery.TaskSupervisor`, bringing the live list from 26 to 27.
+
   Read-only against the already-running, application-supervised singletons
   -- no restart, no config mutation, safe to run `async: true`.
 
@@ -79,7 +82,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
     refute Letflow.Scheduler.Poller in ids
   end
 
-  test "Letflow.Supervisor.Infrastructure owns the 26 expected children, in order" do
+  test "Letflow.Supervisor.Infrastructure owns the 27 expected children, in order" do
     children = Supervisor.which_children(Letflow.Supervisor.Infrastructure)
 
     ids =
@@ -139,10 +142,12 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              # REQ-437: dedicated Task.Supervisor for login-discovery notifier tasks,
              # placed before Obs.Alerts.TaskSupervisor, which stays last.
              Letflow.LoginDiscovery.TaskSupervisor,
+             # REQ-584: notification delivery tasks, also before Obs.Alerts.TaskSupervisor.
+             Letflow.Notifications.TaskSupervisor,
              Letflow.Obs.Alerts.TaskSupervisor
            ]
 
-    assert length(ids) == 26
+    assert length(ids) == 27
   end
 
   test "ISS-0224: SandboxPool.TaskSupervisor precedes SandboxPool" do

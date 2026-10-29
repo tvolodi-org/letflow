@@ -69,7 +69,9 @@ defmodule Letflow.LoginDiscovery.Notifier.SmtpSmokeTest do
   end
 
   test "conforms to the port" do
-    assert Letflow.LoginDiscovery.Notifier.behaviour_info(:callbacks) == [deliver_tenant_list: 2]
+    assert Enum.sort(Letflow.LoginDiscovery.Notifier.behaviour_info(:callbacks)) ==
+             [deliver_message: 1, deliver_tenant_list: 2]
+
     assert Letflow.LoginDiscovery.Notifier in (Smtp.module_info(:attributes)[:behaviour] || [])
   end
 

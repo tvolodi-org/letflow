@@ -61,6 +61,58 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.Message do
     end
   end
 
+  @max_subject_chars 200
+  @max_body_chars 20_000
+
+  @doc """
+  Builds a message from already-rendered operator text (REQ-584 notification delivery). Pure,
+  never raises. `to` and `from` pass `valid_address?/1`; the subject is one line of 1..200
+  codepoints (control characters become spaces); the body is 1..20_000 codepoints with newlines
+  kept (CRLF/CR normalised to `\\n`), other control characters turned into spaces and bidi or
+  zero-width characters removed. Unlike `sanitize_text/2` it does not collapse newlines or
+  rewrite `@` and `://`: the stored template is operator wording, not tenant-supplied data.
+  A rendered subject over 200 codepoints is refused (`:invalid_message`), not truncated.
+  """
+  @spec compose_message(map(), %{from: String.t()}) ::
+          {:ok, composed()} | {:error, :invalid_recipient | :invalid_message}
+  def compose_message(%{to: to, subject: subject, body: body}, %{from: from})
+      when is_binary(to) and is_binary(subject) and is_binary(body) and is_binary(from) do
+    cond do
+      not valid_address?(to) ->
+        {:error, :invalid_recipient}
+
+      not valid_address?(from) or not String.valid?(subject) or not String.valid?(body) ->
+        {:error, :invalid_message}
+
+      true ->
+        subject = subject |> strip_invisible() |> single_line() |> String.trim()
+        body = body |> String.replace(["\r\n", "\r"], "\n") |> strip_invisible() |> clean_body()
+
+        if String.length(subject) in 1..@max_subject_chars and
+             String.length(body) in 1..@max_body_chars do
+          {:ok, %{from: from, to: to, subject: subject, body: body}}
+        else
+          {:error, :invalid_message}
+        end
+    end
+  end
+
+  def compose_message(%{to: to}, _opts) when not is_binary(to), do: {:error, :invalid_recipient}
+  def compose_message(_message, _opts), do: {:error, :invalid_message}
+
+  defp single_line(text), do: String.replace(text, ~r/[\x{0000}-\x{001F}\x{007F}-\x{009F}]/u, " ")
+
+  defp clean_body(text),
+    do: String.replace(text, ~r/[\x{0000}-\x{0008}\x{000B}-\x{001F}\x{007F}-\x{009F}]/u, " ")
+
+  defp strip_invisible(text) do
+    String.replace(
+      text,
+      ~r/[\x{202A}-\x{202E}\x{2066}-\x{2069}\x{200E}\x{200F}\x{200B}-\x{200D}\x{2060}\x{FEFF}]/u,
+      ""
+    )
+  end
+
   defp blocks(tenants, base_url) do
     Enum.reduce_while(tenants, {:ok, []}, fn tenant, {:ok, acc} ->
       case block(tenant, base_url) do

@@ -913,7 +913,10 @@ defmodule Letflow.TenantProvisioning do
     # REQ-544 / GH #3162 part 2: empty per-tenant table for the procurement decision record (and its
     # idempotency keys). No existing row altered.
     {20_261_028_300_001, Letflow.Repo.Migrations.CreateProcurementDecisions,
-     "20261028300001_create_procurement_decisions.exs"}
+     "20261028300001_create_procurement_decisions.exs"},
+    # REQ-584 / GH #3310: the per-tenant notification delivery log (new empty table; no row altered).
+    {20_261_028_400_001, Letflow.Repo.Migrations.CreateNotificationDeliveries,
+     "20261028400001_create_notification_deliveries.exs"}
   ]
 
   @doc """

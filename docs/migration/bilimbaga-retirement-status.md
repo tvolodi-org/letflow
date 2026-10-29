@@ -194,6 +194,7 @@ not yet matched (revocation, template).
 - A notification template store (`Letflow.NotificationTemplates`, routes in
   `routers/notification_templates.ex`, REQ-563) with exactly one registered key, `task_assigned`.
   Nothing sends it: callers of `NotificationTemplates.*` outside the module are only its router.
+  (Update: REQ-584 part 1 now sends `task_assigned` after assign/reassign, via `Letflow.Notifications`.)
 - A scheduler (`Letflow.Scheduler`, `ScheduledJobs`) that could drive reminders.
 - Password reset and account welcome: identity is delegated to Keycloak/OIDC (decision 0044), so
   reset mail is a realm setting, not Letflow code. Not verified against the realm template.
