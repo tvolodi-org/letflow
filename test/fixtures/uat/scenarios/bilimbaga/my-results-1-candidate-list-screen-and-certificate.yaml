@@ -1,0 +1,216 @@
+# Authored by BA-BILIMBAGA (T-0894) for the candidate "My results" list (BilimBaga criterion 4, certificates; GH #3321).
+# Requirement: REQ-587, acceptance criteria 2, 5, 6, 7 (own sessions only, list content, certificate flag, paging, filter, order),
+# criterion 9 (screen states) and criterion 10 (certificate download from the list), as far as a UAT actor can observe them.
+# Criterion text, quoted from docs/requirements.yaml on origin/main:
+#   2. "Ownership filter (test M-own): ... a call by A returns exactly A's two sessions ... an in_progress session is never listed."
+#   5. "Response shape (test M-shape): each item holds exactly the keys session_id, exam_id, exam_title, status, started_at, submitted_at,
+#      score_pct, passed, certificate_issued, certificate_id; no item holds user_id, seed, exam_snapshot or any answer or option data"
+#   6. "Certificate flag (test M-cert): for a passed session with an issued certificate the item has certificate_issued true and certificate_id
+#      equal to that record's id; for a passed session with no certificate, and for a failed session, certificate_issued is false and
+#      certificate_id is null"
+#   7. "Pagination, filter and order (test M-page): ... next_cursor walks the whole set without repeats or gaps ..., the optional exam_id
+#      restricts items to that exam, and items are ordered by expires_at descending."
+#   9. "(a) the loading state, (b) one row per item with title, status, score, passed or failed and a link to sessions/<id>/result,
+#      (c) the empty state when items is empty, (d) the list-failure state with a retry ..., (e) a Download certificate action only on
+#      rows with passed true, and (f) the next-page control only when next_cursor is non-null."
+#  10. "activating Download certificate calls client.getBlob ... and saves the returned PDF blob; when getBlob rejects with status 409, 404 or
+#      500 the page shows the localized download-failure message, keeps the list rendered and lets the same row be retried"
+# Not UAT-observable (left to the backend and web tests of REQ-587, listed here so it survives the merge):
+#   - criterion 2: that the compiled request carries the user filter, and a list of a second candidate in the same company (no second
+#     bilimbaga candidate in the roster; see scenario my-results-3);
+#   - criterion 5: the sentinel string in the stored exam copy and the key-set comparison are checked here only on the response the
+#     runner sees; a session whose exam record is deleted (exam_title null) cannot be set up through the product's own screens;
+#   - criterion 6: "no certificate record and no audit row written by the list" and "one query per page" (record and query counts);
+#   - criterion 7: the unchanged entity definition and "no migration" (repository state); 7 sessions at page size 3 is the test's setup,
+#     here the walk uses the sessions the candidate already has (precondition below);
+#   - criterion 9 (a), (c), (d), (f)-by-mock: the loading state is too brief to observe, the empty state needs a candidate with no finished
+#     session (the roster candidate has finished sessions after the other scenarios), the list-failure state needs the backend to fail;
+#   - criterion 10: the failure message after a 409, 404 or 500 needs a passed session whose certificate cannot be produced, which the
+#     product's screens cannot set up. Note: the delivered screen carries one localized download-failure text for all failures
+#     (examMessages exam.myResults.downloadFailed); the "certificate is not available for this exam" wording of the requirement text is not
+#     in the messages file. The failure state is therefore covered by the web tests only.
+#   - criterion 8 (route and doc pins) is repository content: "Not covered here".
+---
+id: bilimbaga-my-results-1-candidate-list-screen-and-certificate
+scope: bilimbaga
+title: A candidate sees only their own finished exams in My results, with a certificate download on passed rows
+version: "1.0"
+tags: [candidate, results, certificate, pagination, privacy]
+
+description: >
+  A signed-in candidate opens "My results" from the exam list and sees one row for each of their own finished exam sessions
+  (submitted, submitted automatically at the deadline, or waiting for grading). Each row shows the exam title, the status, the score,
+  passed or failed (nothing for a session still waiting for grading) and a link to the full result of that session. Only a row of a
+  passed session offers "Download certificate". An exam that is still in progress is not listed. The list shows nothing that would
+  help a candidate guess an answer: no answer key, no exam copy and no other person's data. The newest deadline comes first, and a
+  long list is shown in pages. The list can be narrowed to one exam. A request that names another person (a user or company
+  identifier in the address) does not change whose results are shown.
+  Preconditions: the roster candidate has finished at least four exam sessions, among them one passed with an issued certificate,
+  one failed, and one passed for which no certificate has been issued yet, and one exam session that is still in progress. If the
+  environment cannot provide these, this scenario is BLOCKED, not PASS. The certificate of the passed session is issued by the
+  existing certificate action, which this scenario does not change.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: >
+      The roster candidate has at least four finished exam sessions (at least one passed with an issued certificate, one passed without
+      an issued certificate, one failed) and one exam session in progress. If not, this scenario is BLOCKED, not PASS
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: Signs in, opens the exam list and follows the "My results" link
+    via: gui
+
+  - step: 2
+    actor: candidate
+    action: Looks at the rows of My results and notes, for each row, the exam title, status, score, passed or failed, and whether a "Download certificate" action is offered
+    via: gui
+
+  - step: 3
+    actor: candidate
+    action: Asks for the list of own results without any narrowing, once as it is and once with a page size of 3, and follows the next-page cursor until none is returned
+    via: api
+
+  - step: 4
+    actor: candidate
+    action: Asks for the list of own results narrowed to one exam that the candidate has sat, using that exam's identifier
+    via: api
+
+  - step: 5
+    actor: candidate
+    action: Asks for the list of own results narrowed to an exam identifier that is well formed but belongs to an exam the candidate never sat
+    via: api
+
+  - step: 6
+    actor: candidate
+    action: Asks for the list of own results with an extra address parameter user_id set to a well formed identifier of someone else, and again with the extra address parameter tenant_id set to a well formed identifier of another company
+    via: api
+
+  - step: 7
+    actor: candidate
+    action: On a row of a passed session that has an issued certificate, activates "Download certificate"
+    via: gui
+
+  - step: 8
+    actor: candidate
+    action: On the My results screen, activates the link to the full result of one row
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The My results screen is reachable from the exam list and lists one row per finished session
+    verification:
+      method: gui_screen
+      detail: "The exam list shows a 'My results' link; after following it the screen titled 'My results' shows a row for each finished session of the candidate and no row for the session still in progress"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A candidate cannot find their past results, which is the reason the screen exists.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      Each row shows title, status, score, passed or failed, and a link to the full result; the download action appears only on passed rows
+    verification:
+      method: gui_screen
+      detail: "Every row shows the exam title (or the plain word 'Exam' when the exam no longer exists), 'Status: ...', 'Score: nn.n%' ('—' when there is no score), 'Passed' or 'Failed' (neither for a row 'Awaiting grading'), a 'View result' link, and 'Download certificate' on the passed rows only; the failed row has no download action"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A failed candidate offered a certificate button, or a passed candidate without one, gets a wrong picture of the outcome.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: >
+      The list answers with exactly the agreed content and nothing that reveals an answer
+    verification:
+      method: api_response
+      detail: "Step 3 answers 200 with items and next_cursor; every item holds exactly session_id, exam_id, exam_title, status, started_at, submitted_at, score_pct, passed, certificate_issued, certificate_id; no item holds user_id, seed, exam_snapshot, questions, options or answers; a session waiting for grading has passed null; the in-progress session is absent"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A list that carries the exam copy or an answer key lets a candidate learn the answers before sitting an exam.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      The certificate flag matches the certificate that really exists
+    verification:
+      method: api_response
+      detail: "The passed session with an issued certificate has certificate_issued true and a certificate_id; the passed session without an issued certificate and the failed session have certificate_issued false and certificate_id null; the list request itself did not create a certificate (the passed session without one is still without one on a second call)"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A wrong flag shows a candidate a certificate that does not exist, or hides one that does.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-005
+    description: >
+      Paging walks the whole set once, and the order is newest deadline first
+    verification:
+      method: api_response
+      detail: "At page size 3 each page holds at most 3 items; following next_cursor until it is null returns every session of the unpaged list exactly once, with no repeat and no gap, in the same order as the unpaged list; the order is by the session deadline, latest first; the next-page control on the screen appears only while a next cursor exists"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A candidate with many results would miss some or see some twice.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-006
+    description: >
+      Narrowing to one exam shows only that exam; an exam never sat gives an empty list, not an error
+    verification:
+      method: api_response
+      detail: "Step 4 answers 200 and every item has that exam_id; step 5 answers 200 with an empty items list and no next_cursor, not 404"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An error for an exam never sat would tell a candidate whether an exam exists.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-007
+    description: >
+      A person or company named in the address changes nothing
+    verification:
+      method: api_response
+      detail: "Step 6 answers 200 and the items equal the unnarrowed list of step 3 (same session_id values, same order); no session of another person or company appears"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        If the address could name another person, any candidate could read a colleague's results.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-008
+    description: >
+      The certificate of a passed row downloads as a PDF
+    verification:
+      method: gui_screen
+      detail: "Step 7 saves a PDF file for that session's certificate; no failure message is shown and the list stays on screen"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The candidate cannot obtain the certificate from the one place that lists it.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-009
+    description: >
+      The link on a row opens the full result of that same session
+    verification:
+      method: gui_screen
+      detail: "Step 8 opens the result screen of the session of that row (same exam title and score as the row)"
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        A candidate cannot move from the summary to the detail of one result.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: The scenario only reads results and downloads a certificate; nothing to undo. The exam session in progress is left as found.
