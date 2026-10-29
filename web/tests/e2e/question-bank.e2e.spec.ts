@@ -1,65 +1,52 @@
 /**
- * Question Bank admin E2E tests — REQ-347 port of BilimBaga's
- * question-bank.spec.ts.
+ * Question Bank admin E2E tests — REQ-347 port of BilimBaga's question-bank.spec.ts, extended by
+ * GH 3423 / REQ-612.
  *
- * PORT, NOT TRANSLITERATION: BilimBaga's seven tests target its own bespoke
- * `/admin/questions` screen (heading + table, New-Question button that
- * navigates to a dedicated `/admin/questions/new` editor, a search box,
- * difficulty badges, Import/AI-Generate buttons). Letflow's real
- * counterpart is the generic `/admin/bilimbaga/question` screen
- * (`EntityCrudPage`, REQ-343).
+ * PORT, NOT TRANSLITERATION: BilimBaga's tests target its own bespoke `/admin/questions` screen
+ * (heading + table, New-Question button that navigates to a dedicated `/admin/questions/new` editor,
+ * a search box, difficulty badges, Import/AI-Generate buttons).
  *
- * ONLY 2 OF 7 SOURCE TESTS HAVE A REAL COUNTERPART. Per REQ-344's triage
- * (§4.8), re-verified live here by reading
- * `web/src/pages/entities/EntityCrudPage.tsx` in full:
+ *   Tests 1 and 2 (REQ-347) cover the generic `/admin/bilimbaga/question` screen (`EntityCrudPage`,
+ *   REQ-343): the list renders, and the create action exists.
  *
- *   PORTED (2):
- *   - "displays the question bank heading and table" -> the page renders a
- *     `data-table` inside `entity-crud-page` with no crash.
- *   - "shows the New Question button" -> the generic `entity-create-action`
- *     button.
+ *   Tests 8 to 11 (REQ-612) cover the dedicated bank page `/admin/questions` (QuestionBankPage):
+ *   8 the New Question action opens the editor, 9 difficulty badges by data-testid, 10 a search term
+ *   filters the list, 11 a search that matches nothing shows the empty state. Each of 9 and 10
+ *   creates its own question through the editor first, so none depends on seeded data.
  *
- *   DROPPED (5, each with its specific missing Letflow behaviour):
- *   - "navigates to question editor on New Question click" — asserts the
- *     URL becomes `/admin/questions/new`. `entity-create-action` opens an
- *     in-page `entity-form-modal`, not a URL navigation to a dedicated
- *     editor route; no such route exists or is planned under S10 for the
- *     generic entity-CRUD engine.
- *   - "shows difficulty badges for existing questions" — the source
- *     assertion body only checks `table tbody tr` row count (no actual
- *     badge/color/style assertion), which duplicates the "heading and
- *     table" test's own coverage; genuinely testing "difficulty badge"
- *     would require asserting a styled badge component, which
- *     `EntityCrudPage` does not render (`formatCellValue` in
- *     `EntityCrudPage.tsx` renders every enum field, `difficulty` included,
- *     as a plain `String(value)` table cell — no badge/pill styling of any
- *     kind). Dropped rather than kept as a redundant row-count duplicate of
- *     the first ported test.
- *   - "search input filters questions without crashing" — `EntityCrudPage`
- *     has no search input at all (its only interactive controls are the
- *     create action, per-row edit/delete, and cursor pagination).
- *   - "shows empty state when search matches nothing" — same missing
- *     search-box behaviour as above.
- *   - "shows Import and AI Generate buttons" — no import or AI-generate
- *     feature exists anywhere in the generic entity-CRUD engine; not named
- *     in REQ-347's scope.
+ *   The source row "Import and AI Generate buttons" is split to REQ-600 and is not built.
  *
- * GETBYROLE COUNT: 0 uses — both ported tests select purely via
- * `entity-crud-page` / `data-table` / `entity-create-action` testids.
- *
- * Authentication: `web/tests/e2e/helpers.ts`'s `getKeycloakToken`/
- * `loginWithToken`.
+ * Authentication: `web/tests/e2e/helpers.ts`'s `getKeycloakToken`/`loginWithToken`. These specs need
+ * the full stack and do not run on the engine host.
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { getKeycloakToken, loginWithToken } from './helpers'
 
 const QUESTION_ROUTE = '/admin/bilimbaga/question'
 
-async function gotoQuestions(page: import('@playwright/test').Page) {
+async function gotoQuestions(page: Page) {
   await page.goto(QUESTION_ROUTE, { waitUntil: 'domcontentloaded' })
   await expect(page.getByTestId('entity-crud-page')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('entity-crud-page')).toHaveAttribute('data-entity-type', 'question')
+}
+
+async function createQuestion(page: Page, stem: string, difficulty: string) {
+  await page.goto('/admin/questions/new', { waitUntil: 'domcontentloaded' })
+  await page.getByPlaceholder('Write the question text').fill(stem)
+  await page.getByLabel('Difficulty').selectOption(difficulty)
+  await page.getByLabel('Category').selectOption({ index: 1 })
+  await page.getByLabel('Option text 1').fill('Right')
+  await page.getByLabel('Option text 2').fill('Wrong')
+  await page.getByRole('radio').first().check()
+  await page.getByRole('button', { name: 'Save Draft' }).click()
+  await expect(page).toHaveURL(/\/admin\/questions\/[^/]+\/edit$/, { timeout: 15_000 })
+}
+
+async function searchFor(page: Page, term: string) {
+  await page.goto('/admin/questions', { waitUntil: 'domcontentloaded' })
+  await page.getByPlaceholder('Search by question text').fill(term)
+  await page.getByRole('button', { name: 'Search' }).click()
 }
 
 test.describe('Question Bank admin (REQ-347 port onto /admin/bilimbaga/question)', () => {
@@ -82,5 +69,34 @@ test.describe('Question Bank admin (REQ-347 port onto /admin/bilimbaga/question)
   test('shows the New Question button', async ({ page }) => {
     await gotoQuestions(page)
     await expect(page.getByTestId('entity-create-action')).toBeVisible()
+  })
+
+  test('8. the New Question action opens the editor', async ({ page }) => {
+    await page.goto('/admin/questions', { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('question-new').click()
+    await expect(page).toHaveURL(/\/admin\/questions\/new$/)
+    await expect(page.getByRole('button', { name: 'Save Draft' })).toBeVisible()
+  })
+
+  test('9. difficulty badges are shown for the listed questions', async ({ page }) => {
+    const stem = `E2E badge ${Date.now()}`
+    await createQuestion(page, stem, 'hard')
+    await searchFor(page, stem)
+    await expect(page.locator('table tbody tr')).toHaveCount(1)
+    await expect(page.getByTestId('difficulty-badge-hard')).toBeVisible()
+  })
+
+  test('10. a search term filters the list', async ({ page }) => {
+    const stem = `E2E search ${Date.now()}`
+    await createQuestion(page, stem, 'easy')
+    await searchFor(page, stem)
+    await expect(page.locator('table tbody tr')).toHaveCount(1)
+    await expect(page.locator('table tbody')).toContainText(stem)
+  })
+
+  test('11. a search that matches nothing shows the empty state', async ({ page }) => {
+    await searchFor(page, `no-such-question-${Date.now()}`)
+    await expect(page.getByTestId('question-bank-empty')).toBeVisible()
+    await expect(page.locator('table tbody tr')).toHaveCount(0)
   })
 })

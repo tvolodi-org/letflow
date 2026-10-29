@@ -41,6 +41,7 @@
  */
 
 import { client } from '@/api/client'
+import { DELETED_FALSE } from './questionEditorModel'
 import { entitiesApi } from '@/api/entities'
 import type { EntityQueryFilterClause, EntityQuerySortClause, EntityRecord } from '@/types/api'
 import type {
@@ -142,10 +143,14 @@ export const examAuthoringApi = {
     recordId: string,
     fieldValues: Record<string, unknown>,
     ifMatch?: string,
+    expectedSeq?: number,
   ) =>
     client.putWithHeaders<EntityRecord>(
       `${AUTHORING_BASE}/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
-      { field_values: fieldValues },
+      {
+        field_values: fieldValues,
+        ...(expectedSeq !== undefined ? { expected_last_event_global_seq: expectedSeq } : {}),
+      },
       ifMatch ? { 'If-Match': ifMatch } : {},
     ),
 
@@ -213,9 +218,11 @@ async function queryAll(
   entityType: string,
   filters: EntityQueryFilterClause[],
   sort?: EntityQuerySortClause[],
+  maxPages = Infinity,
 ): Promise<EntityRecord[]> {
   const items: EntityRecord[] = []
   let cursor: string | undefined
+  let pages = 0
   do {
     const page = await entitiesApi.queryRecords(entityType, {
       filters,
@@ -225,8 +232,26 @@ async function queryAll(
     })
     items.push(...page.items)
     cursor = page.next_cursor ?? undefined
-  } while (cursor)
+    pages += 1
+  } while (cursor && pages < maxPages)
   return items
+}
+
+/** GH 3423 / REQ-612: the reads of the question editor (`POST /entities/query`). Every read excludes
+ *  soft-deleted rows, which the generic query returns unless filtered. */
+export const examQuestionApi = {
+  loadQuestion: (recordId: string) =>
+    queryAll('question', [{ field: 'record_id', op: 'eq', value: recordId }, DELETED_FALSE]),
+
+  loadOptions: (questionId: string) =>
+    queryAll(
+      'answer_option',
+      [{ field: 'question_id', op: 'eq', value: questionId }, DELETED_FALSE],
+      [{ field: 'sort_order', dir: 'asc' }],
+    ),
+
+  loadCategories: () =>
+    queryAll('category', [DELETED_FALSE], [{ field: 'sort_order', dir: 'asc' }], 1),
 }
 
 /** GH 3355 / REQ-602: the reads of the exam builder, one query per entity type

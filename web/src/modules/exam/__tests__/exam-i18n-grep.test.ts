@@ -30,6 +30,11 @@ const JSX_FILES_TO_CHECK = [
   'modules/exam/ExamBuilderFields.tsx',
   'modules/exam/ExamBuilderLink.tsx',
   'modules/exam/ExamMyResultsPage.tsx',
+  // GH 3423 / REQ-612: the question bank and editor.
+  'modules/exam/QuestionBankPage.tsx',
+  'modules/exam/QuestionEditorPage.tsx',
+  'modules/exam/DifficultyBadge.tsx',
+  'modules/exam/DifficultyBadge.tsx',
 ]
 
 const JSX_TEXT_NODE = />[A-Za-z][A-Za-z '.-]{2,}</g
