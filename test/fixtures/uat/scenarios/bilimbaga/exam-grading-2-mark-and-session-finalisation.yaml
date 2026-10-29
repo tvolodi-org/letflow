@@ -1,0 +1,222 @@
+# T-0877 (BA-BILIMBAGA): examiner marks a short text answer; the session is decided with the last mark, against the pass mark frozen when it started.
+# Covers REQ-588 criterion 4 (Test G-mark), criterion 5 (Test G-final) and criterion 6 (Test G-once), the 409 half.
+# Sources: docs/requirements.yaml REQ-588 (description "WHAT A MARK DOES", criteria 4, 5, 6); lib/letflow/modules/exam/router.ex (handle_grade_answer:
+# the body is exactly one number named score; render_grade: 409 'this answer has already been graded', 422 'score exceeds the maximum for this
+# answer', other body keys answer 422 'field is not allowed'); test/fixtures/uat/actors.yaml (actor-bilimbaga-admin, actor-bilimbaga-candidate).
+# Not UAT-observable (left to the backend tests, REQ-588 criterion 6 second and third clauses): two grade requests arriving at the same instant
+# for one answer, or for the last two answers of one session. A UAT actor cannot make two requests overlap; the session lock is checked by the
+# backend test. Recorded in test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-grading-2-mark-and-session-finalisation.yaml.
+# Not UAT-observable either: the grader's user id written into the event (the audit trail is not shown by any screen or answer of this flow).
+# The four sensitive actions: "approve" is the mark itself (steps 3 and 5, decides pass or fail); refusals of marks that are out of range or carry
+# extra keys are steps 9 to 13 (and the second mark, step 14); "see sensitive data" is scenario exam-grading-1; "change users" is not in this flow.
+---
+id: bilimbaga-exam-grading-2-mark-and-session-finalisation
+scope: bilimbaga
+title: The examiner marks short text answers, the session stays open until its last answer is marked, and is then decided against the pass mark it started with
+version: "1.0"
+tags: [exam_grading, mark, finalisation, frozen_pass_mark, refusal]
+
+description: >
+  A candidate has handed in "UAT grading exam C": one single-choice question answered correctly (1 of 1) and two short text questions, each worth
+  1. The pass mark of the exam was 70 percent when the candidate started. The administrator marks the first short text answer 0.75. The session
+  is not decided yet: the candidate's own result page shows no pass or fail. The administrator marks the second answer 1. The session is now handed
+  in, its score is (1 + 0.75 + 1) of 3, 91.67 percent, and it counts as passed. A second session was started when the pass mark was 70 percent; after
+  it started the exam's pass mark was raised to 95 percent; its last mark decides it against 70, not 95. Marks that are out of range, not a
+  number, missing, or that carry any extra key are refused and change nothing; marking an answer a second time is refused and keeps the first mark.
+  Preconditions: see below.
+
+actors:
+  admin: actor-bilimbaga-admin
+  candidate: actor-bilimbaga-candidate
+
+preconditions:
+  - description: Bilimbaga has the exam module installed and the exam "UAT grading exam C" (pass mark 70 percent) with one single-choice question and two short text questions, each question worth 1
+    check: custom
+    detail: Prepared by the test setup; without it the scenario is BLOCKED.
+  - description: "The candidate has handed in session S1 of \"UAT grading exam C\": the single-choice answer correct, both short text answers unmarked. The candidate has also handed in session S2 of \"UAT grading exam D\" (one correct single-choice answer, one short text answer unmarked) whose pass mark was 70 percent at the start and was raised to 95 percent afterwards. A third session S3 of \"UAT grading exam C\" holds one unmarked short text answer worth 1 that stays unmarked until the end of the scenario"
+    check: custom
+    detail: Prepared by the test setup, which sets the pass-mark change after S2 started. Without it the scenario is BLOCKED. S2 has a single-choice answer worth 1 and a short text answer worth 1, so the examiner's 0.5 in step 7 gives 75 percent, between the frozen 70 and the raised 95.
+  - description: The Bilimbaga administrator and the Bilimbaga candidate can sign in
+    check: system_seeded
+    detail: The roster notes that a test token for the administrator needs a mapping that is not yet approved; without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: candidate
+    action: >
+      The candidate opens the result of session S1 and notes what it says about pass or fail.
+    via: api
+    produces:
+      s1_before: "result of S1 before any mark: awaiting grading, no pass or fail"
+  - step: 2
+    actor: admin
+    action: >
+      The administrator opens the first waiting short text answer of S1 and notes its largest mark.
+    via: api
+  - step: 3
+    actor: admin
+    action: >
+      The administrator marks that answer 0.75.
+    via: api
+    input:
+      score: 0.75
+  - step: 4
+    actor: candidate
+    action: >
+      The candidate opens the result of session S1 again.
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator marks the second short text answer of S1 with 1.
+    via: api
+    input:
+      score: 1
+  - step: 6
+    actor: candidate
+    action: >
+      The candidate opens the result of session S1 a third time.
+    via: api
+  - step: 7
+    actor: admin
+    action: >
+      The administrator marks the only short text answer of session S2 with 0.5.
+    via: api
+    input:
+      score: 0.5
+  - step: 8
+    actor: candidate
+    action: >
+      The candidate opens the result of session S2.
+    via: api
+  - step: 9
+    actor: admin
+    action: >
+      The administrator tries to mark the unmarked answer of S3 with a score above the largest mark of that answer (1.2 for an answer worth 1).
+    via: api
+    expect_refusal: true
+    input:
+      score: 1.2
+  - step: 10
+    actor: admin
+    action: >
+      The administrator tries to mark the unmarked answer of S3 with a negative score.
+    via: api
+    expect_refusal: true
+    input:
+      score: -0.1
+  - step: 11
+    actor: admin
+    action: >
+      The administrator tries to mark the unmarked answer of S3 with a score that is text, the word "full".
+    via: api
+    expect_refusal: true
+    input:
+      score: full
+  - step: 12
+    actor: admin
+    action: >
+      The administrator tries to mark the unmarked answer of S3 with a request that has no score at all.
+    via: api
+    expect_refusal: true
+  - step: 13
+    actor: admin
+    action: >
+      The administrator tries to mark the unmarked answer of S3 with a valid score of 1 and, in the same request, also names one extra key: the session,
+      the session status, the marking status, the largest mark, a user identifier or a tenant identifier (one key per request, six requests).
+    via: api
+    expect_refusal: true
+    input:
+      score: 1
+      extra_keys: "session_id, status, grading_status, max_score, user_id, tenant_id (each tried in its own request with score 1; every one refused)"
+  - step: 14
+    actor: admin
+    action: >
+      The administrator marks again the first answer of S1, which already carries 0.75, with the score 0.1.
+    via: api
+    expect_refusal: true
+    input:
+      score: 0.1
+  - step: 15
+    actor: admin
+    action: >
+      The administrator opens the grading queue and checks that the answers of S1 and S2 are no longer in it, tries to open the first answer of S1 (already marked, answered as not found), and
+      checks that the unmarked answer of S3 is still waiting and unchanged.
+    via: api
+  - step: 16
+    actor: candidate
+    action: >
+      The candidate opens the result of session S1 once more.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A valid mark is stored with the examiner's score and the answer counts as marked
+    verification:
+      method: api_response
+      detail: "Step 3 succeeds and shows score 0.75, largest mark 1 and the status graded; step 5 shows score 1 and graded"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A mark that is not stored leaves the candidate without a result.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: The session stays undecided while one answer is unmarked, and is decided with the last mark
+    verification:
+      method: api_response
+      detail: "Steps 1 and 4 show the candidate a result that is awaiting grading with no pass or fail; step 6 shows the session handed in, a score of 2.75 / 3 * 100 (91.67 when rounded to two decimals; 2.75 of 3) and passed"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate told pass or fail on a partly marked exam receives a wrong result; a session never decided leaves the candidate waiting for ever.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: The session is judged against the pass mark frozen when it started, not the one the exam has now
+    verification:
+      method: api_response
+      detail: "Step 8 (the candidate) shows S2 decided at 75 percent and passed, because its pass mark was 70 when it started, although the exam's pass mark is now 95"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Changing a pass mark after the fact would change results the candidate was already promised and could void issued certificates.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: A mark above the largest mark, below 0, not a number, missing, or sent with any extra key is refused and nothing is stored
+    verification:
+      method: http_status
+      detail: "Steps 9 to 13 are each refused as not accepted: step 9 with the text 'score exceeds the maximum for this answer', steps 10 to 12 with a field error on score, step 13 with the text 'field is not allowed' for each extra key; the answer of S3 is still unmarked afterwards (step 15)"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An examiner who can set the result, the status or the person recorded as examiner through the mark request can decide any exam and hide who did it.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-005
+    description: A second mark on an answer already marked is refused and the first mark stands
+    verification:
+      method: http_status
+      detail: "Step 14 is refused with the text 'this answer has already been graded', which names no score and no answer text; step 16 (the candidate) shows S1 with the same score and the same passed as in step 6, so the 0.75 was not replaced by 0.1"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A mark that can be overwritten silently changes a candidate's result after it was issued.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-006
+    description: Answers that are marked or refused do not appear in the queue as waiting
+    verification:
+      method: api_response
+      detail: "Step 15 shows no answer of S1 or S2 in the queue, shows that opening a marked answer of S1 answers not found, and shows the answer of S3 still waiting"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A marked answer that stays in the queue invites a second mark.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    The marks and decided sessions cannot be undone through the product (a mark is final). The test setup recreates S1 and S2 before the next run.

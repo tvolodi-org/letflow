@@ -1,0 +1,156 @@
+# T-0877 (BA-BILIMBAGA): examiner grading queue, the list, its paging and filter, and what the examiner sees and does not see.
+# Covers REQ-588 criterion 2 (Test G-list) and criterion 3 (Test G-redact).
+# Sources: docs/requirements.yaml REQ-588 (description "WHAT A READER SEES", criteria 2 and 3); test/fixtures/uat/actors.yaml
+# (actor-bilimbaga-admin, TENANT_ADMIN, holds the two grading permissions through the core rules).
+# Not UAT-observable, left to the backend tests: the byte-level search of the JSON for the internal field names (the scenario checks what
+# an examiner can read in the answers instead); the exact error texts of a malformed page size are checked here as refusal steps.
+# UAT assumption, to be confirmed by the process owner: blind grading, the examiner does not see who the candidate is (REQ-588 open question 2).
+# The four sensitive actions: "see sensitive data" is step 5 (answer key and candidate identity stay hidden); approve, pay or release and
+# change users are not in this flow (marking is scenario exam-grading-2).
+---
+id: bilimbaga-exam-grading-1-queue-list-and-redaction
+scope: bilimbaga
+title: The examiner lists the short text answers waiting for a mark, pages and filters them, and sees neither the answer key nor who answered
+version: "1.0"
+tags: [exam_grading, queue, paging, redaction, sensitive_data]
+
+description: >
+  Three candidates have each handed in the exam "UAT grading exam A" with one short text answer that nobody has marked. A fourth session holds
+  a short text answer that is already marked, and a fifth holds only a single-choice question. The administrator of Bilimbaga, who may
+  grade, opens the grading queue and finds exactly the three waiting answers, in the order the sessions were handed in. Each row names the
+  session, the question, the exam title, the question text, the largest mark and the time handed in, and nothing else. The administrator pages
+  through the queue two at a time, filters it to one exam, and is refused when asking for a nonsensical page size or exam. Opening one
+  answer shows the candidate's text exactly as written, including characters that look like markup, and shows no answer key, no explanation,
+  no pass mark and no name, e-mail or user id of the candidate.
+  Preconditions: see below.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Bilimbaga has the exam module installed and the exams "UAT grading exam A" and "UAT grading exam B", each with a short text question and a single-choice question
+    check: custom
+    detail: Prepared by the test setup; without it the scenario is BLOCKED.
+  - description: "Three sessions of \"UAT grading exam A\" are handed in, each with one unmarked short text answer; one more session holds a marked short text answer; one more holds only a single-choice answer; one unmarked short text answer belongs to \"UAT grading exam B\""
+    check: custom
+    detail: Prepared by the test setup. One of the three waiting answers has the text <b>x</b> & "quoted" written by the candidate. Without these sessions the scenario is BLOCKED. The candidates' e-mail addresses and display names are known to the setup so that step 5 can look for them.
+  - description: The Bilimbaga administrator can sign in
+    check: system_seeded
+    detail: The roster notes that a test token for the administrator needs a mapping that is not yet approved; without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator opens the grading queue with no filter and notes the rows, the order and the fields of each row.
+    via: api
+    produces:
+      queue_rows: "the waiting answers, their order, and the fields shown"
+  - step: 2
+    actor: admin
+    action: >
+      The administrator asks for the queue two rows at a time, then asks for the next page using the continuation the first answer gave.
+    via: api
+    input:
+      page_size: 2
+  - step: 3
+    actor: admin
+    action: >
+      The administrator asks for the queue filtered to "UAT grading exam B".
+    via: api
+  - step: 4
+    actor: admin
+    action: >
+      The administrator opens the waiting answer whose text contains markup characters and reads everything the answer shows.
+    via: api
+  - step: 5
+    actor: admin
+    action: >
+      The administrator looks through the queue rows and the opened answer for the answer key (which choice is correct), the explanation of
+      the question, the pass mark, the stored copy of the exam, and for the candidate's e-mail, display name and user id.
+    via: api
+  - step: 6
+    actor: admin
+    action: >
+      The administrator asks for the queue with a page size that is not a number.
+    via: api
+    expect_refusal: true
+    input:
+      page_size: abc
+  - step: 7
+    actor: admin
+    action: >
+      The administrator asks for the queue with a page size of 0.
+    via: api
+    expect_refusal: true
+    input:
+      page_size: 0
+  - step: 8
+    actor: admin
+    action: >
+      The administrator asks for the queue with an exam that is not a valid exam identifier.
+    via: api
+    expect_refusal: true
+    input:
+      exam_id: not-an-id
+
+expected_outcomes:
+  - id: EO-001
+    description: The queue lists exactly the three waiting answers of "UAT grading exam A" and the one of "UAT grading exam B", and not the marked answer or the single-choice session
+    verification:
+      method: api_response
+      detail: "Step 1 shows four rows in total (three of exam A, one of exam B), ordered by the time the session was handed in, then by session identifier; the marked answer and the single-choice-only session are absent. Each row shows only the session, the question, the exam title, the question text in the request's language or the default language, the largest mark (1) and the time handed in"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An examiner who misses a waiting answer leaves a candidate without a result for ever; an examiner who sees a marked answer again may mark twice.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: Paging gives every row once and the exam filter keeps only that exam's rows
+    verification:
+      method: api_response
+      detail: "Step 2 returns two rows and then the remaining rows with no repeat and no gap; step 3 returns only the row of \"UAT grading exam B\""
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Repeated or missing rows mean answers are marked twice or never.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: The opened answer returns the candidate's text unchanged, as data
+    verification:
+      method: api_response
+      detail: "Step 4 returns the text <b>x</b> & \"quoted\" exactly as written, with the same question text and largest mark as in the list"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An examiner who reads altered text may mark a different answer from the one given.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: Neither the queue nor the opened answer shows the answer key, the explanation, the pass mark, the stored copy of the exam, or who the candidate is
+    verification:
+      method: api_response
+      detail: "Step 5 finds no correct-choice marking, no explanation, no pass mark, no copy of the exam, and no e-mail, display name or user id of any candidate; the candidate is shown only as the session identifier"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A grading queue that shows the answer key leaks the exam to every examiner; one that shows candidate identity breaks the blind grading the process relies on and exposes personal data.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-005
+    description: A page size that is not a number, a page size of 0 and an invalid exam identifier are each refused, and no rows come back
+    verification:
+      method: http_status
+      detail: "Step 6 is refused with the text 'invalid page_size'; step 7 is refused with the text that names the maximum page size (200 today); step 8 is refused with the text 'invalid exam_id'. A page size inside the allowed range is accepted in step 2"
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        A wrong request that is silently accepted hides mistakes in the screen that sends it.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing is created or changed by this scenario; the sessions are prepared by the test setup.

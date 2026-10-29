@@ -1,0 +1,112 @@
+# T-0877 (BA-BILIMBAGA): examiner grading, one company never reads or marks another company's waiting answers.
+# Covers REQ-588 criterion 8 (Test G-tenant, INV-1 and INV-10) in part: the administrator of another company gets none of Bilimbaga's rows, a "not
+# found" on reading and on marking, and Bilimbaga's answer is unchanged. The route takes the company from the sign-in only.
+# Sources: docs/requirements.yaml REQ-588 (description "TENANT ISOLATION", criterion 8); docs/migration/decisions/0006 (tenant isolation by schema, D2) as
+# cited by docs/agents/instructions/security-invariants.md INV-1 and INV-10; test/fixtures/uat/actors.yaml (actor-bilimbaga-admin,
+# actor-swiftroute-alice TENANT_ADMIN).
+# Environment: only Bilimbaga has the exam module (see sidecar test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-assignment-3-refusal-text-and-other-company.yaml);
+# SwiftRoute's administrator is therefore refused as asking for something that does not exist. If SwiftRoute has the module, steps 2 to 4 return an
+# empty list or "not found" and still must show nothing of Bilimbaga.
+# Not UAT-observable: the check that the compiled route paths have no company parameter (a source check of the backend test), and the platform
+# operator's own-company view (a no-data-leak check, not a refusal: the platform operator signs in to the platform company, which has no exam module;
+# actors.yaml allows the platform actor only in platform-scope scenarios). Both are in the sidecar of scenario exam-grading-4.
+# The four sensitive actions: "see sensitive data" (steps 2 and 3) and "approve" (marking, step 4); the others are not in this flow.
+---
+id: bilimbaga-exam-grading-5-other-company
+scope: bilimbaga
+title: The administrator of another company cannot see or mark Bilimbaga's waiting answers, even by naming the session, and nothing changes
+version: "1.0"
+tags: [exam_grading, cross_tenant, isolation, refusal]
+
+description: >
+  Bilimbaga has an unmarked short text answer in session S7. The administrator of Bilimbaga notes the queue row. The administrator of SwiftRoute,
+  a company with no exam module, asks for the queue, asks to read the answer of S7 by its session and question, and tries to mark it with the score
+  1: nothing of Bilimbaga comes back, the answers to reading and to marking are the same "not found", and the queue has no row of Bilimbaga.
+  Afterwards the Bilimbaga administrator reads the answer of S7 again and finds it unmarked and unchanged.
+  Preconditions: see below.
+
+actors:
+  admin_a: actor-bilimbaga-admin
+  admin_b: actor-swiftroute-alice
+
+preconditions:
+  - description: Bilimbaga has the exam "UAT grading exam G" with session S7 handed in holding an unmarked short text answer
+    check: custom
+    detail: Prepared by the test setup; without it the scenario is BLOCKED.
+  - description: SwiftRoute does not have the exam module installed and has no exam answers
+    check: system_seeded
+    detail: Per the QA environment notes no other QA company has the exam module. If SwiftRoute has it, step 2 shows an empty queue and steps 3 and 4 show "not found"; nothing of Bilimbaga may appear.
+  - description: The Bilimbaga administrator and the SwiftRoute administrator can sign in
+    check: system_seeded
+    detail: The roster notes that a test token for the Bilimbaga administrator needs a mapping that is not yet approved; without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin_a
+    action: >
+      The Bilimbaga administrator reads the grading queue and the waiting answer of S7 and notes the row and the text.
+    via: api
+  - step: 2
+    actor: admin_b
+    action: >
+      The SwiftRoute administrator asks for the grading queue.
+    via: api
+    expect_refusal: true
+  - step: 3
+    actor: admin_b
+    action: >
+      The SwiftRoute administrator asks to read the answer of S7, naming Bilimbaga's session and question.
+    via: api
+    expect_refusal: true
+  - step: 4
+    actor: admin_b
+    action: >
+      The SwiftRoute administrator tries to mark the answer of S7 with the score 1.
+    via: api
+    expect_refusal: true
+    input:
+      score: 1
+  - step: 5
+    actor: admin_a
+    action: >
+      The Bilimbaga administrator reads the answer of S7 again and compares it with the notes.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The Bilimbaga administrator sees Bilimbaga's waiting answer
+    verification:
+      method: api_response
+      detail: "Step 1 shows the row and the text of S7"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An examiner who cannot see own company's answers cannot grade.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: The SwiftRoute administrator gets no row of Bilimbaga and a "not found" on reading and on marking, the same for both
+    verification:
+      method: http_status
+      detail: "Steps 2, 3 and 4 are each refused as asking for something that does not exist; the answers show no row, no text, no exam title and no identifier from Bilimbaga, and the answers of steps 3 and 4 are the same as the answer for an identifier that never existed (scenario exam-grading-3)"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        One exam body reading or marking another's candidates' answers breaks the promise made to every client company and exposes personal data.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: Bilimbaga's answer is unmarked and unchanged after the attempt
+    verification:
+      method: api_response
+      detail: "Step 5 shows the same answer as step 1 with no mark"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A mark written into another company's answer means the isolation is not real.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    Nothing is created or changed by this scenario.
