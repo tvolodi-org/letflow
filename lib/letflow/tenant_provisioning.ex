@@ -928,7 +928,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-596 / GH #3353 part A: one new empty per-tenant table for solution-pack overrides.
     # No existing row altered.
     {20_261_029_100_001, Letflow.Repo.Migrations.CreateSolutionPackOverrides,
-     "20261029100001_create_solution_pack_overrides.exs"}
+     "20261029100001_create_solution_pack_overrides.exs"},
+    # REQ-606 / GH #3411 part 1: one new empty per-tenant table, the record-trigger outbox.
+    # No existing row altered.
+    {20_261_029_200_001, Letflow.Repo.Migrations.CreateRecordTriggerOutbox,
+     "20261029200001_create_record_trigger_outbox.exs"}
   ]
 
   @doc """
