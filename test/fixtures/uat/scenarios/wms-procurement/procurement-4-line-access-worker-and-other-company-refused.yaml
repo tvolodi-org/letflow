@@ -1,0 +1,119 @@
+# T-0826 (BA): WMS procurement slice 2, scenario 4: who may read a line and record on it. A task worker and the administrator of another company are refused.
+# Covers REQ-558 criterion 5 (only a holder of the new line-record permission may record; the Letflow task alone does not grant it) and criterion 9 (a request or line of another tenant is answered exactly as an
+# absent one; tenant B cannot read nor record on tenant A's line by id).
+# Sources: docs/requirements.yaml REQ-558 criteria 5, 9; lib/letflow/modules/procurement/router.ex (moduledoc: line read needs the read permission, the four line records need the line-record permission, 403 from the
+# permission gate; a document of another tenant or an absent one gives the same not-found answer; "Until per-tenant role grants exist the same two roles (TENANT_ADMIN, PLATFORM_ADMIN) hold the write, read and decide
+# permissions: every other role is refused by the permission gate"); lib/letflow/modules/procurement/procurement.ex (permission names and role grants; TASK_WORKER holds none); docs/roles.md; test/fixtures/uat/actors.yaml
+# (actor-swiftroute-marco: TASK_WORKER only; actor-bilimbaga-admin: TENANT_ADMIN of the other company).
+#
+# SCREEN GAP (stated, not invented): no procurement screen exists in web/src; every step is an API step. See scenario 3 for the same gap and for the roster gap that blocks the approved half of slice 2
+# (a second SwiftRoute administrator is needed to approve; owner's decision).
+# NOTE on the other company: if the bilimbaga company has no procurement module installed, the route is not found there for any id; the comparison with an absent id then proves the same answer but not more.
+# NOT UAT-observable: that the other company's administrator, if it held a valid line, could not record on it (it has none; there is no way to create an approved request without the missing approver).
+---
+id: wms-procurement-4-line-access-worker-and-other-company-refused
+scope: wms-procurement
+title: A task worker cannot read or record on a request line, and another company's administrator is told the line does not exist
+version: "1.0"
+tags: [wms, procurement, line-view, permissions, tenant-isolation]
+
+description: >
+  The SwiftRoute administrator saves a request (not submitted, not approved). A task worker of the same company, who has no procurement permission, tries to read line 1, to record a supplier on it and to cancel
+  it: each is refused as not permitted and nothing is stored. The administrator of the other company (bilimbaga) tries to read line 1 by the document id, to record a supplier and to cancel: each is answered
+  exactly as for a document id that exists nowhere. The SwiftRoute administrator then reads line 1 and sees it untouched.
+
+actors:
+  requester: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+  other_company_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Scenario 1's preconditions hold (procurement installed for SwiftRoute; unit UNIT and organisation unit DEPT exist).
+    check: system_seeded
+    detail: If not, report BLOCKED for the whole scenario.
+  - description: The bilimbaga administrator can sign in on QA (the roster notes its token needs a qa-login mapping not yet approved).
+    check: system_seeded
+    detail: If not, report BLOCKED for steps 5 to 7 and EO-002, and run the rest.
+
+steps:
+  - step: 1
+    actor: requester
+    action: >
+      The requester saves a request: department DEPT, justification "UAT slice 2 access", required date 2026-12-15, priority "normal", one material line "Carton box", quantity 20, unit UNIT, estimated unit
+      cost 1.20. The answer is noted as D1 (document id, version 1).
+    via: api
+  - step: 2
+    actor: worker
+    action: >
+      The task worker reads line 1 of D1. The answer (status, decoded body without trace id) is noted.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: worker
+    action: >
+      The task worker records a supplier for line 1 of D1: source system "ERP-UAT", identifier "SUP-200", display name "UAT Worker Supplier", idempotency key "uat-s2-w-sup". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: worker
+    action: >
+      The task worker cancels line 1 of D1 with the reason "UAT worker cancel" and the idempotency key "uat-s2-w-cancel". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: other_company_admin
+    action: >
+      The administrator of the other company reads line 1 of the document id of D1. The answer is noted next to the answer for the same read on a document id that exists nowhere.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: other_company_admin
+    action: >
+      The administrator of the other company records a supplier for line 1 of the document id of D1 (source system "ERP-UAT", identifier "SUP-201", display name "UAT Other Company Supplier", idempotency key
+      "uat-s2-o-sup"). The answer is noted next to the answer for the same record on a document id that exists nowhere.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: other_company_admin
+    action: >
+      The administrator of the other company cancels line 1 of the document id of D1 with the reason "UAT other company cancel" and the idempotency key "uat-s2-o-cancel". The answer is noted next to the
+      answer for the same cancel on a document id that exists nowhere.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: requester
+    action: >
+      The requester reads line 1 of D1. The answer is noted as L1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker, holding no procurement permission, can neither read a line nor record on it.
+    verification:
+      method: http_status
+      detail: Steps 2, 3 and 4 each answer 403; no body shows a document id, line content, supplier or reason text that was sent.
+      evidence: The answers of steps 2 to 4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any worker could attach suppliers to purchase requests or cancel their lines.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A document id of another company is answered exactly as an absent id, for a read, a record and a cancel.
+    verification:
+      method: http_status
+      detail: Steps 5, 6 and 7 each answer 404, and for each, the headers (except the per-request trace id) and decoded body equal those of the same call on a document id that exists nowhere.
+      evidence: The paired answers of steps 5, 6 and 7.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company can detect, read or change another company's purchase request lines.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: No refusal changed the line.
+    verification:
+      method: api_response
+      detail: Step 8 answers 200 with line_no 1, supplier null, procurement_document null, officer null, cancelled null, and three empty histories.
+      evidence: The answer L1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused caller still changed a purchase request line.
+      suggested_action: route_to_security_review
