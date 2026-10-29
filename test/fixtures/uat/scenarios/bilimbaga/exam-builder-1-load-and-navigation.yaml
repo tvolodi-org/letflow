@@ -15,7 +15,7 @@ description: >
   their order, and the question-selection rules under the section they belong to; rules that belong to
   no section are shown in their own group. The screen is reached from the exam administration page by one
   extra link and from the side menu; the ten existing administration pages keep working.
-  Preconditions: the bilimbaga tenant has the exam module installed; the administrator holds the
+  Preconditions: the browser language is English (en), because the quoted texts are the English texts; the bilimbaga tenant has the exam module installed; the administrator holds the
   exam content writing permission (the roster's bilimbaga administrator). The exam used here is made in
   step 2 with the builder itself and saved; if the saving does not work, the scenario is BLOCKED, and
   the edit scenario reports it.
@@ -41,9 +41,9 @@ steps:
     actor: admin
     action: >
       Follows the link to the exam builder, presses the create-exam action, and in the new exam
-      sets the title to "UAT builder load", adds a section with order 1 and a section with order 2,
-      adds one rule under each section and one rule without a section, giving the rules the
-      orders 1, 2 and 3, and presses Save
+      sets the title to "UAT builder load", adds first a section with order 2 and then a section with order 1,
+      adds one rule under each section (the one under the Order-2 section first) and one rule without a section, giving the rules the
+      orders 2 (under the Order-2 section), 1 (under the Order-1 section) and 3 (without a section), and presses Save
     via: gui
     produces:
       exam_title: "UAT builder load"
@@ -84,12 +84,12 @@ expected_outcomes:
 
   - id: EO-002
     description: >
-      Reopening the exam shows its settings, the two sections in the order 1 then 2, and each rule under
+      Reopening the exam shows its settings, the two sections sorted by Order (1 then 2, although entered 2 then 1), and each rule under
       the section it was saved in; the rule without a section is in the group "Rules without a section"
     verification:
       method: gui_screen
       detail: >
-        Step 4 shows the title "UAT builder load", the sections headed Section 1 and Section 2 in that order,
+        Step 4 shows the title "UAT builder load"; the first section on screen has its Order field showing 1 and the second shows 2 (section headings are numbered by position and are not evidence of the stored order),
         one rule under each, and one rule in the group "Rules without a section"; all values equal those
         entered in step 2
     on_fail:

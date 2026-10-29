@@ -17,7 +17,7 @@ description: >
   builder, and the server refuses the candidate's attempts to change exam content (the screen is only a view; the
   server decides). The administrator who asks for an exam that does not exist, or whose address is not a valid exam
   identifier, sees a plain not-found page, never an empty form to fill in.
-  Preconditions: bilimbaga tenant with the exam module; an exam "UAT builder gate" with one section exists (the
+  Preconditions: the browser language is English (en), because the quoted texts are the English texts; bilimbaga tenant with the exam module; an exam "UAT builder gate" with one section exists (the
   administrator makes it in step 1). The candidate is the roster's least-privileged bilimbaga actor.
 
 actors:

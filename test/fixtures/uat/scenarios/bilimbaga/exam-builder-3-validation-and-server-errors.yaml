@@ -4,11 +4,14 @@
 # bilimbaga-exam-builder-4-gating-and-not-found (the screen is not shown to such a person, so the 403 path of the
 # screen itself is not UAT-observable and is left to the component tests).
 # Not covered here (code-only): criterion 7 (messages file) and criterion 8 (diff scope).
-# UAT assumption, to be confirmed by the process owner: the server refuses a second section with an order that
-# the exam already uses with a 422 field error. The refusal text itself is the server's and is not asserted, only
-# that the save is refused, nothing is stored for the refused row, and the screen shows a message at the order control
-# or in the banner. The 'changed elsewhere' 409 is produced with a second browser window of the same administrator.
+# Traced fact: a section order that the exam already uses hits the database uniqueness rule on exam and order.
+# The server answers 422 with the text 'exam_id, sort_order has already been taken' under the path exam_id, sort_order;
+# the screen takes the first path segment (exam_id), which is not a control of the section, so the text appears
+# in the banner above the form, not at the order control. Not UAT-observable and left to the component tests:
+# the half of criterion 4 that says a 422 shows its field errors against the matching controls. The screen's own
+# validation (part A) catches every case of a control field first, and no server-only 422 on a control field is reachable.
 ---
+# The 'changed elsewhere' 409 is produced with a second browser window of the same administrator.
 id: bilimbaga-exam-builder-3-validation-and-server-errors
 scope: bilimbaga
 title: The exam builder refuses bad input before sending and shows server refusals without losing track of what was saved
@@ -19,10 +22,10 @@ description: >
   Part A: input the screen can check itself (a rule with fewer than 1 question, a missing required setting,
   two sections or two rules with the same order) is marked next to the control and nothing is sent.
   Part B: a refusal by the server (a section order the exam already uses, set by someone else after the page
-  was opened) is shown against the order control; a record removed in another window gives the message that the
+  was opened) is refused and the server text is shown in the banner above the form; a record removed in another window gives the message that the
   record was changed or removed elsewhere with a Reload action; after the first refused change the remaining
   changes are not sent and the screen lists which were saved and which were not.
-  Preconditions: bilimbaga tenant with the exam module; the roster's bilimbaga administrator, who works in two
+  Preconditions: the browser language is English (en), because the quoted texts are the English texts; bilimbaga tenant with the exam module; the roster's bilimbaga administrator, who works in two
   browser windows (window A and window B). The exam "UAT builder errors" is made in step 1.
 
 actors:
@@ -139,8 +142,8 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        Step 7 shows a message at the order of the new section (or in the banner above the form) and no entry
-        'Saved' for that section; step 8 shows exactly the sections 1, 2 and the one added in window B (order 3), with no second
+        Step 7 shows in the banner above the form the text 'exam_id, sort_order has already been taken' (not at the order control), and a save result list in which the exam reads 'Saved' and the new section reads 'Failed', with no entry
+        'Saved' for that section; step 8 shows exactly three sections, with Order 1, 2 and 3 (the Order-3 one added in window B), with no second
         section of order 3
     on_fail:
       severity: MAJOR
@@ -166,11 +169,11 @@ expected_outcomes:
 
   - id: EO-005
     description: >
-      Reload repeats the load and shows the current exam: section 2 and its rule are gone, the time limit is 40
-      (saved before the failure), the rule under section 1 still has its earlier count
+      Reload repeats the load and shows the current exam: the section with Order 2 and its rule are gone, the time limit is 40
+      (saved before the failure), the rule under the Order-1 section still has its earlier count
     verification:
       method: gui_screen
-      detail: "Step 11 shows time limit 40, no section 2, and the rule under section 1 with 2 questions (the 4 was not sent)"
+      detail: "Step 11 shows time limit 40; two sections, with Order 1 and Order 3; no section with Order 2; the rule under the Order-1 section shows 2 questions (the 4 was not sent)"
     on_fail:
       severity: MAJOR
       business_impact: >

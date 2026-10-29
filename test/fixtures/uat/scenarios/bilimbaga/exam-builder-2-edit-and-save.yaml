@@ -15,7 +15,7 @@ description: >
   adds a rule inside that new section, edits an existing rule, and presses Save once. Afterwards the
   administrator removes a rule and then a whole section that still has a rule, and saves again. After each
   save the screen says the changes are saved, and reloading the page shows exactly the saved state.
-  Preconditions: the bilimbaga tenant has the exam module; the administrator is the roster's
+  Preconditions: the browser language is English (en), because the quoted texts are the English texts; the bilimbaga tenant has the exam module; the administrator is the roster's
   bilimbaga administrator. The exam "UAT builder edit" is created in step 1 with the builder's create action.
 
 actors:
@@ -43,7 +43,7 @@ steps:
       with order 2 (mode random, 3 questions), changes the first rule to 7 questions, and presses Save
     via: gui
     produces:
-      saved_state: "time limit 50; section 1 with one rule of 7 questions; section 2 with one rule of 3 questions"
+      saved_state: "time limit 50; the Order-1 section with one rule of 7 questions; the Order-2 section with one rule of 3 questions"
 
   - step: 3
     actor: admin
@@ -52,12 +52,12 @@ steps:
 
   - step: 4
     actor: admin
-    action: Removes the rule under section 2 and presses Save, then reloads the page
+    action: Removes the rule under the Order-2 section and presses Save, then reloads the page
     via: gui
 
   - step: 5
     actor: admin
-    action: Removes section 1 together with its rule (the screen warns that the rules of that section go too) and presses Save, then reloads the page
+    action: Removes the Order-1 section together with its rule (the screen warns that the rules of that section go too) and presses Save, then reloads the page
     via: gui
 
   - step: 6
@@ -88,7 +88,7 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        After the reload in step 3 the time limit is 50, section 1 holds one rule of 7 questions, section 2 holds one
+        After the reload in step 3 the time limit is 50, the Order-1 section holds one rule of 7 questions, the Order-2 section holds one
         rule of 3 questions, and the title and the passing score are unchanged
     on_fail:
       severity: BLOCKER
@@ -102,8 +102,8 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        After step 4 the reloaded exam has section 1 with its rule and a section 2 without rules; after step 5 the
-        reloaded exam has only section 2 without rules, and every entry in the save result reads 'Saved'
+        After step 4 the reloaded exam has two sections, the one with Order 1 holding its rule and the one with Order 2 without rules; after step 5 the
+        reloaded exam has one section, whose Order field shows 2, with no rules (it is headed by position, so not "Section 2"), and every entry in the save result reads 'Saved'
     on_fail:
       severity: MAJOR
       business_impact: >
