@@ -924,7 +924,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-558 / GH #3188 part 2: widens the kind CHECK of procurement_line_events with `cancel`.
     # No table added, no row altered.
     {20_261_028_600_001, Letflow.Repo.Migrations.AllowCancelLineEvent,
-     "20261028600001_allow_cancel_line_event.exs"}
+     "20261028600001_allow_cancel_line_event.exs"},
+    # REQ-596 / GH #3353 part A: one new empty per-tenant table for solution-pack overrides.
+    # No existing row altered.
+    {20_261_029_100_001, Letflow.Repo.Migrations.CreateSolutionPackOverrides,
+     "20261029100001_create_solution_pack_overrides.exs"}
   ]
 
   @doc """
