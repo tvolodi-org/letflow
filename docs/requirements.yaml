@@ -44884,7 +44884,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-596 -- the screen calls the REQ-596 routes and reads the REQ-617 override field; neither is on main yet
+    gh: 3515
     # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D8 slice S5 ("Web screen (FRONTEND-DEV). List and edit overrides, show the update report. After S2 and S4."), D3 (kept, re-checked, orphaned, property gone; history never deleted), D5 (permission, INV-2), "Threats for SECURITY-REVIEWER"; docs/requirements.yaml REQ-596 (routes, permissions SolutionOverridesManage and :DefinitionsRead, append-only versions, closed property list, reason mandatory, 422 detail texts property_not_overridable, override_exists), REQ-617 (override object of a review entry, override_action of an applied entry, 409 unresolved conflict, 403 without SolutionOverridesManage, override_merge_unsupported), REQ-381 (existing update-review screen); code read: web/src/api/solutionPacks.ts (solutionPacksApi, PackUpdateReviewEntry, PackUpdateAppliedEntry), web/src/pages/solution-packs/SolutionPackUpdateReviewPage.tsx, web/src/pages/solution-packs/SolutionPackUpdateLauncherPage.tsx, web/src/components/solution-packs/UpdateReviewGroupList.tsx, web/src/router.tsx, web/src/components/layout/AppShell.tsx, web/src/auth/access/types.ts (P), web/src/i18n/entitiesMessages.ts (ENTITIES_UI_LOCALES en, ru, kk).
     description: >
       Slice S5 of decision 0069 D8 (core roadmap Wave 3, "Solution versioning and per-tenant overrides"). S2 is
