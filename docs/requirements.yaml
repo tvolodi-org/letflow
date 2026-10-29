@@ -44715,6 +44715,190 @@ requirements:
       - "Process owner: must procurement attachments count toward the tenant storage allowance (tenants.storage_allowance_bytes, REQ-390) and be refused with the quota error when it is exceeded? This requirement applies no quota and adds nothing to the usage figure, so the allowance can be exceeded through procurement uploads until the owner decides."
       - "Process owner: is there a limit on the number or total size of attachments per request (none is set here beyond the 25 MiB per file of the existing upload rules), and is the allowed content-type list of the free-form attachments right for procurement (quotes, specifications, drawings)?"
     depends_on: [REQ-543, REQ-544]
+  - id: REQ-627
+    title: "Module uninstall slice 2: open_work_exists refusal, new-instance block with uniform 404 and start-versus-uninstall row lock (decision 0066 D8 slice 2)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3505
+    # Source: docs/migration/decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md (D4 "Running work" table and "Which definitions are the module's (rule)", the "Open work" paragraph and its Concurrency sentence, D1 row on step writes, D5 item 3, D8 slice 2 row with tests W1..W5, D8 flag sentence, "Threat cases"); docs/migration/decisions/0061-engine-lock-order-platform-invariant.md (Decision rules 1 and 5: the eight row classes in one global order, a new path needs a forced-overlap test); docs/migration/decisions/0039 D5 and docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10); REQ-578 (slice 1, its description says the flag stays off until slice 2 has merged); code read: lib/letflow/modules/installs.ex (uninstall/3, reactivate/3, the private transition/7 with lock_row and check_fun, uninstall_enabled?/0), lib/letflow/engine.ex (create/2, resolve_definition/2, interpret_definition_lookup/1, persist/14 and lock_scope_node/3), lib/letflow/routers/instances.ex (render_create for {:error, :definition_not_found} answers Response.not_found), lib/letflow/definitions/process_definition.ex (owner_module), lib/letflow/definitions/owner_stamp.ex, lib/letflow/definitions/module_writes.ex and lib/letflow/entities/handler_writes.ex (module_write_module_not_installed), lib/letflow/engine/task.ex (status :pending | :completed | :cancelled), lib/letflow/event_store/instance_projection.ex (status :active | :completed | :cancelled | :error). Written by the business analyst (T-0915) 2026-10-29. Not yet validated.
+    description: >
+      Slice 2 of decision 0066 (D8). The D8 row reads: "Open-work precondition (open_work_exists),
+      new-instance block with uniform 404, row-lock serialization of start vs uninstall (checked against
+      0061)", depends_on REQ-549, REQ-496, slice 1; tests W1 open instance refuses uninstall; W2 open task
+      refuses; W3 start after uninstall is 404 identical to unknown definition; W4 step write of a managed
+      type fails with module_write_module_not_installed; W5 race: start and uninstall serialize (race-only,
+      not forceable without a hook; stated, not skipped silently). Slice 1 is REQ-578 (GH 3267, merged):
+      status column, Installs.uninstall/3 and reactivate/3, the routes behind the flag. SECURITY-REVIEWER is
+      a mandatory gate (tenant-data path: a refusal on the instance start route and a new lock).
+      (1) Open-work precondition. Installs.uninstall/3 gains one more refusal, taken after the row is locked
+      FOR UPDATE (lock_row in the private transition/7 of lib/letflow/modules/installs.ex) and after the
+      dependents check: {:error, {:open_work_exists, %{open_instances: n, open_tasks: m}}} when n + m > 0.
+      An instance counts as open when its status in instance_projections is :active (the other statuses are
+      terminal) and the process definition version it is pinned to has owner_module equal to the module id
+      (the stamp written by Definitions.create_owned/3). A task counts as open when its status is :pending
+      and its instance counts. Instances pinned to an unstamped tenant version of the same definition name
+      are not counted (owner_module is NULL; 0066 D4). The two counts are read inside the uninstall
+      transaction, with plain reads that take no row lock. The route answers 409 with the stable code
+      open_work_exists and the two counts only, no instance or task id. The status stays active, nothing is
+      cancelled or suspended, and no audit entry is written for a refused call.
+      (2) New-instance block. Letflow.Engine.create/2 (lib/letflow/engine.ex) returns
+      {:error, :definition_not_found} when the definition version the start would pin has owner_module set
+      to a module whose tenant_modules row has status :uninstalled. The caller therefore gets the same
+      answer as for an unknown definition (Letflow.Routers.Instances render_create, Response.not_found):
+      status and body byte-identical, to every caller. The cause (module_uninstalled) goes to the server log
+      and the audit trail only, never to the response. The check runs twice: once in the lookup (advisory,
+      before any snapshot write) and once in the persist transaction under the lock of item (3). A
+      definition version with owner_module NULL, or whose module row is active, starts as before. A
+      reactivated module makes its stamped versions startable again. Out of scope: sub-process children
+      (Letflow.Engine.SubProcess.append_start_multi/7 starts them inside the parent transaction and does not
+      pass through create/2) are NOT covered by this slice. The 0066 D4 row (a request to start a new instance
+      of a definition owned by the module creates no instance, no event, no task) reads wider than create/2,
+      so this is a known hole, not a decision: it is an open question for decision 0066 (does a SUB_PROCESS
+      node of a non-module process start a module's stamped definition as a child after uninstall?), to be
+      settled by a follow-up requirement. Therefore modules_uninstall_enabled must stay off until this slice
+      has merged AND the child-start question is settled and delivered; this slice alone does not make the
+      flag safe to turn on (see item 5).
+      (3) Row lock. In the persist transaction of create/2, when the pinned definition has an owner_module,
+      a new Multi step reads that module's tenant_modules row FOR SHARE (prefix from the caller's scoped
+      options only), directly after the existing lock_scope_node/3 step (lib/letflow/engine.ex, the first
+      step of persist/14, a FOR SHARE re-check of the scope node, 0061 class 5) and before the
+      instance_projections insert. Installs.uninstall/3 already takes the same row
+      FOR UPDATE, so a start and an uninstall of one module serialize on Postgres row locks (no process per
+      instance, REQ-045): the start that holds the share lock commits first and the uninstall then counts it
+      as open work, or the uninstall commits first and the start re-reads status uninstalled and returns
+      {:error, :definition_not_found} with nothing written. Check against decision 0061, to be written into
+      the design and kept in the moduledoc of create/2: tenant_modules is not one of the eight row classes of
+      0061 rule 1; the start takes it after the scope node lock (class 5) and before the P_x and projection
+      writes, and the uninstall path takes no scope node lock, so the two orders share no pair of locks taken
+      in opposite order; uninstall holds it FOR UPDATE and then
+      takes no engine row lock (its two counts are plain reads, and a plain read takes no lock, so it cannot
+      wait on or be waited on by a P_x holder); therefore no wait-for cycle between the two paths can form
+      and the global order of 0061 is unchanged. If the implementer finds a path that makes this false, that
+      is a defect of this slice (0066 D4), to be settled by an amendment of 0061 in the same change (0061
+      rule 5), not by changing 0066. The audit chain row (0061 class 6) is taken by uninstall after the row
+      lock and by start after P_x; they are never held together in opposite order because uninstall takes no
+      P_x. The step is skipped (no extra read) for a definition with no owner_module.
+      (4) Step write of a managed type (W4). The refusal exists from slice 1: a module_writes line runs only
+      from a stamped definition (an unstamped one is refused with stamp_missing, a definition stamped by
+      another module with module_write_stamp_mismatch, lib/letflow/definitions/module_writes.ex), and
+      stamp_codes/3 there returns module_write_module_not_installed when the module of the stamp has no
+      installed row or is uninstalled. This slice adds no code for it and changes none unless the test fails.
+      After this slice W4 cannot be reached through Installs.uninstall/3: the module's own open instances
+      block the uninstall (item 1), and a process that is not the module's own cannot carry a module-write
+      line. The 0066 D4 row that says it arises for an instance of a process that is NOT the module's own
+      does not match the code; this is recorded as a finding for decision 0066, not settled here. W4 is
+      therefore pinned by the existing slice 1 test "a write handler of an uninstalled module is refused (row
+      kept, status uninstalled): module_not_installed" in test/letflow/engine/module_write_runtime_stamp_test.exs,
+      which sets the status to :uninstalled directly as a harness and must stay green. (The recheck of
+      lib/letflow/entities/handler_writes.ex owner_recheck/3 returns hash_mismatch, not this reason.)
+      (5) Flag. modules_uninstall_enabled stays false in config/config.exs and in every environment until
+      this slice has merged and the child-start question of item (2) is settled and delivered; this slice
+      does not turn it on (turning it on is a separate operator act, 0066 D8). The slice 1 comment and the
+      REQ-578 text that say the flag stays off until slice 2 are not edited.
+      Out of scope: the orphaned-read proof (slice 3), journal kinds (slice 4), the SPA screen (slice 5),
+      a purge, cancelling or suspending open work, a platform-operator route that names another tenant,
+      anything under web/ or apps/. No migration, no new permission, no new route (the 409 is a new answer of
+      the slice 1 uninstall route; the route-scope and route-count pins do not move).
+    acceptance_criteria:
+      - "1. W1 open instance refuses uninstall: in a new test file test/letflow/modules/uninstall_open_work_test.exs, with modules_uninstall_enabled set to true in test setup (restored in on_exit), a tenant has the module installed and one :active instance pinned to a definition version stamped with that module id; Installs.uninstall/3 returns {:error, {:open_work_exists, %{open_instances: 1, open_tasks: n}}} where n is the number of :pending rows in tasks for that instance, read in the test, the row stays :active, no audit entry is written, the instance stays :active and untouched, and the route answers 409 with code open_work_exists and the counts and no id of an instance or task. Once the instance is cancelled through the existing cancel route, the same uninstall returns {:ok, _}."
+      - "2. W2 open task refuses: with the instance of criterion 1 waiting at a human task (task status :pending), uninstall is refused with open_tasks equal to the number of pending tasks of that instance; after the task is completed and the instance is terminal, uninstall succeeds. A terminal instance (:completed, :cancelled, :error) and a :completed or :cancelled task count as nothing."
+      - "3. Rule by stamp, not by name: an :active instance pinned to a tenant-made version of the same definition name (owner_module NULL) is not counted and does not block uninstall; a tenant-made version of that name starts normally while the module is uninstalled."
+      - "4. W3 start after uninstall: after a successful uninstall, POST to the instance start route with the module's stamped definition (by definition_id, and again by definition_name) answers 404 with status and body byte-identical to the answer for a definition name that never existed; Letflow.Engine.create/2 returns {:error, :definition_not_found}; no instance_projections row, no event and no task is written (row counts before and after); the response body and headers contain neither the module id nor the word uninstalled. The same request from a second caller with a different role gets the identical answer. After Installs.reactivate/3 the same start succeeds."
+      - "5. W4 (see description item 4): the existing test in test/letflow/engine/module_write_runtime_stamp_test.exs named \"a write handler of an uninstalled module is refused (row kept, status uninstalled): module_not_installed\" stays green and unchanged. A new test in test/letflow/modules/uninstall_open_work_test.exs shows that W4 cannot be reached through Installs.uninstall/3: with an :active instance of the module's own stamped definition that has a module-write step, uninstall is refused with open_work_exists (criterion 1), and a process whose definition is unstamped, with a module_writes line, is refused when the step runs with module_write_stamp_missing (the test of module_write_runtime_stamp_test.exs named 'a definition row with no stamp (a tenant-created copy) is refused: stamp_missing' is the precedent), and a definition stamped by another module with module_write_stamp_mismatch (assert_refused takes the short form stamp_missing), so no process that is not the module's own can carry the line."
+      - "6. W5 race, race-only: the test names this row as W5 and states in its body that the interleaving cannot be forced without a hook. It asserts the two outcomes the lock allows, each in its own test, by holding the tenant_modules row with a barrier connection (the pattern of test/letflow/engine/subprocess_start_vs_cancel_test.exs): (a) a start transaction holds the tenant_modules FOR SHARE lock (the barrier connection is only used to pause it), which makes a concurrent uninstall wait, and once the start commits the uninstall returns {:error, {:open_work_exists, _}}; (b) an uninstall transaction holds the FOR UPDATE lock (paused by the barrier connection), which makes a concurrent start wait, and once the uninstall commits the start returns {:error, :definition_not_found} with nothing written. The test reports deadlock and lock-timeout errors through the Repo telemetry event and asserts there are none (0061 rule 5)."
+      - "7. 0061 check: the design for this change quotes 0061 rule 1 and shows, for the start path and the uninstall path, the order of the row classes each takes, ending in the statement that no cycle is possible; the moduledoc of Letflow.Engine.create/2 (or the persist step) carries the same statement. A test in test/letflow/engine/ reads the statement log (the technique of test/letflow/number_sequences/records_numbering_test.exs N4b) and asserts that, in a start of a stamped definition, the tenant_modules FOR SHARE read comes after the scope node FOR SHARE statement of lock_scope_node/3 (when the start has a scope node), before the instance_projections insert and before any audit chain statement. If the check finds a violation of 0061, the change amends 0061 in the same pull request and says so."
+      - "8. INV-10 cross-tenant negative test: tenant A and tenant B both install the module and each has an :active instance of its stamped definition. A TENANT_ADMIN of tenant A (with the flag on) is refused uninstall with open_work_exists counting only A's instance, and B's counts never include A's; after A's instance is closed and A uninstalls, B's tenant_modules row is still :active, B can still start the stamped definition (201), and B's open instance is untouched. A start in tenant A of the module's definition answers the 404 of criterion 4, while the identical start in B succeeds. A tenant_id, tenant or prefix in the body or a header naming B is ignored (the request acts on A)."
+      - "9. Flag and scope: config/config.exs still sets :modules_uninstall_enabled of :letflow to false and Installs.uninstall_enabled?/0 is false by default (a test asserts it); with the flag off the uninstall route still answers exactly what the same caller gets on an unknown path of the tenant modules router (403 for a TENANT_ADMIN, 404 for the platform-tenant PLATFORM_ADMIN; the existing R5 test of test/letflow/routers/tenant_modules_uninstall_test.exs stays green), and the new refusals are not reachable from HTTP. The diff of this change adds no migration file, no route and no permission, and does not edit config/config.exs; the entry text and the moduledoc of create/2 state that the flag may be turned on only after this slice has merged and the child-start question of the description is settled."
+      - "10. No data deleted: a test in the new file reads lib/letflow/modules/installs.ex and asserts the whole file contains no Repo.delete, Repo.delete_all or delete_all call (the scan of REQ-578 criterion 10 still passes). For lib/letflow/engine.ex, which already holds one delete call and so cannot be scanned whole, a reader checks that the diff of this change adds no Repo.delete, Repo.delete_all or delete_all line to it. A test asserts that a refused uninstall and a refused start change no row count in tenant_modules, instance_projections, tasks, process_definitions, entity records or audit entries."
+    depends_on: [REQ-549, REQ-496, REQ-578]
+
+  - id: REQ-628
+    title: "Record T slice T-4: trigger script run and result application (Scripts.Runtime.prepare_run/3, input build with redaction, pre-fetched reads, output check, result transaction with CAS and per-line record_trigger key, reserved-prefix refusal, second terminal transaction, forced-overlap and duplicate-apply tests)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3507
+    # Source: docs/migration/decisions/0067-after-commit-trigger-outbox.md D9 slice T-4 (copied in the description), D2 ("Lock position (against 0061)"), D3 (idempotency key, write entry points, result transaction, second terminal transaction, "What a script author may assume", retriable causes, "CAS on attempt"), D4 (Tests, Slice T-4), D5 (principal, input, output, application), D7 (failure table), D8 (INV-3), "Not decided here", "Threat cases for SECURITY-REVIEWER"; docs/migration/decisions/0061-engine-lock-order-platform-invariant.md rule 5; docs/agents/instructions/security-invariants.md INV-1, INV-3, INV-5, INV-8, INV-10; REQ-615 (T-3, the stub run), REQ-606 (T-2, the outbox table and the :trigger_lineage opt), REQ-570 (T-1, bindings and the flag :record_triggers_enabled). Code read: lib/letflow/scripts/runtime.ex (prepare_run/3, check_output/2), lib/letflow/scripts/entity_write.ex (build_input/5, run/4, the output_invalid mapping), lib/letflow/entities/records.ex (create_record/3, update_record/2-3, upsert_record_by_external_ref/3, the private reject_step_key/1, step_key_prefix/0, the idempotency_key_reuse replay rule), lib/letflow/engine/script_task_dispatcher.ex (run_claimed/2, the pattern for the run), test/letflow/engine/number_sequence_lock_order_test.exs (precedent for the forced-overlap shape). Written by the business analyst (T-0921) 2026-10-29.
+    description: >
+      Decision 0067 D9 slice T-4 only. D9 text, copied: "T-4 script run and result application:
+      Scripts.Runtime.prepare_run/3, input build with redaction, pre-fetched reads, the run, output check,
+      the result transaction with CAS and the per-line key over the single-command paths (D3; the
+      record_trigger: reserved-prefix refusal in Records; the worker passes :trigger_lineage from the
+      claimed row; the end-to-end loop tests of D4; the second terminal transaction of D3 and the
+      worker-dies-between test), the forced-overlap test of 0061 rule 5, a forced duplicate apply
+      expecting is_duplicate: true and no second write, and the idempotency_key_reuse case. No
+      command_multi/3 extension is needed, so no extra slice. Depends on T-3. [SECURITY-REVIEWER:
+      mandatory]".
+      Wait condition: REQ-615 (slice T-3) is a register entry only on origin/main when this entry is
+      written; the feature task waits until REQ-615's feature task has merged and REQ-606 and REQ-570 are
+      delivered, because the claimed row, the stub run function and the :trigger_lineage opt come from
+      them. The feature task of this entry is not queued before that.
+      What it builds. (a) The run replaces the single clearly named stub function of the T-3 worker
+      (lib/letflow/record_triggers/worker.ex, suggested name from REQ-615): after a claim the worker calls
+      Letflow.Scripts.Runtime.prepare_run/3 (lib/letflow/scripts/runtime.ex) with the tenant prefix, the
+      tenant id taken from the tick's Registration schema list (never the row payload, 0067 D8) and the
+      row's own pin (script_key, script_version, script_sha256), then builds the input, runs the script
+      through the existing sandbox and admission as the script-task dispatcher does
+      (Letflow.Engine.ScriptTaskDispatcher.run_claimed/2), and checks the output with
+      Letflow.Scripts.Runtime.check_output/2 plus the two new checks of criterion 4 (write lines against the manifest writes declaration; widening by the 0062 R5 predicate). (b) Input (0067 D5, D8): built by the host after the claim,
+      never stored in the outbox: the current record under the script principal (tenant-wide, no user
+      grants), filtered through the field restrictions of that principal (a restricted field is omitted
+      unless named in the manifest input schema and the publisher held EntitiesRestrictionsManage,
+      re-checked at run time), plus the event name, source_seq and the record's current sequence, and the
+      declared tenant-wide reads pre-fetched by the host (no Repo call in the sandbox; unknown, redacted
+      and out-of-scope read results are indistinguishable from a miss, INV-5). A record the principal cannot
+      see, and a record of a deleted event, give record: null. ctx.now is the row's occurred_at; ctx.uuid()
+      is the UUIDv5 over (outbox row id, counter) of 0067 D3. (c) Result transaction (0067 D3): ONE
+      Repo.transaction of the worker holds the CAS on (id, attempt, status = running), each declared write
+      line in order through Records.create_record/3, Records.update_record/3 or
+      Records.upsert_record_by_external_ref/3 (lib/letflow/entities/records.ex) with the authority :tenant
+      and the key record_trigger:<outbox row id>:<line index> as the line's idempotency_key, and the update
+      of the row to done. Records.command_multi/3 is not used. Each write passes :trigger_lineage copied
+      from the claimed row's depth and chain. The lock order inside the transaction is the outbox row
+      first, then the type sequence rows ascending by entity type, then the chain row (0067 D2 "Lock
+      position"). (d) Reserved prefix: record_trigger: is added to the reserved-prefix refusal in
+      Records (the private reject_step_key/1, which refuses the "sys:step:" prefix of
+      step_key_prefix/0 with {:error, :reserved_idempotency_key}); the 4-arity forms accept the key only
+      when opts carries :trigger_lineage (criterion 5). This and the lineage opt of REQ-606 are the only
+      changes to Records. record_trigger: is a new server key family: it is added to @server_prefixes in
+      lib/letflow/idempotency.ex (not to @reserved_prefixes, which is for families nothing produces yet,
+      and this slice produces it). The pins that move: test/letflow/idempotency_test.exs (the
+      @server_families map and the test "server_prefixes/0 is exactly design §1b, and each literal is
+      still built in its file") and test/letflow/idempotency/squat_audit_test.exs (it reads
+      server_prefixes/0 and Idempotency.SquatAudit.families/0 audits the families); the feature task greps
+      "server_prefixes" across test/ again and lists the hits. (e) Second
+      terminal transaction (0067 D3, D7): a result refused by any line (idempotency_key_reuse, a 0050,
+      0051 or 0062 refusal, validation) rolls the whole result transaction back; the worker then runs a
+      second transaction with the same CAS that sets dead and last_code. Apply contention and script_busy
+      return the row to pending with the T-3 backoff and count toward max_attempts. The full D7 table,
+      its DLQ entry, list, count and requeue routes, Alerts and the kill switch are slice T-5 (REQ for it
+      is not written yet); this slice sets the dead status and the closed last_code only, and writes no
+      DLQ entry. Numeric caps that 0067 lists under "Not decided here" (read caps, write lines per result,
+      rows per result, wall clock above 5 000 ms) are not decided here: the run uses the 0053 D7 maxima
+      already enforced by the runtime and admission, and any new cap is a config setting with a
+      default, see the first open question. No route, no permission, no UI, no migration. The flag
+      :record_triggers_enabled and :start_record_trigger_worker stay off by default.
+      SECURITY-REVIEWER is mandatory (tenant-data read, tenant-data write, a new idempotency-key prefix
+      in Records).
+    acceptance_criteria:
+      - "1. Run replaces the stub: for a claimed row of a tenant with a published entity_event script and a matching pin, the worker calls Scripts.Runtime.prepare_run/3 with the tenant prefix, the tenant id of the tick's schema list and the row's pin, runs the script under the existing sandbox and admission, and marks the row done only through the result transaction of criterion 4; the stub function of REQ-615 is gone (grep quoted in the summary shows no caller). A test with prepare_run answering {:rejected, reason} shows the row is not marked done and no record is written, for each of the eight rejections that prepare_run/3 returns (grep -n 'rejected' lib/letflow/scripts/runtime.ex): scripts_disabled maps to last_code script_rejected (0067 D6 Kill switch, row dead); script_unavailable, script_revoked and pin_mismatch map to the same-named last_code (0067 D7 table, row dead); tenant_inactive, output_schema_open, reads_not_allowed and hmac_secret_missing have no row in the D7 table, so this entry fixes them as a UAT assumption, to be confirmed by the process owner: each is terminal on its first occurrence with last_code script_rejected and no retry (see the open questions). The one test per D7 row for the executor outcomes and the refusals is slice T-5, not this one."
+      - "2. Input build and redaction: a test with a record holding a restricted field shows the script input omits that field when the manifest input schema does not name it, and includes it only when the manifest names it and the publisher held EntitiesRestrictionsManage at run time (a test revokes the permission after publish and the field is omitted); the input carries the event name, source_seq and the record's current sequence; for a deleted event, and for a record outside the principal's scope, the value of the input key record equals the value for a nonexistent record id (null) and no other input key carries a field of that record (0067 D5; the event name and source_seq keys differ by event and are not compared). The outbox row is unchanged by the run (no record value is stored in the table, checked by reading the row after the run)."
+      - "3. Pre-fetched reads: a script declaring two reads receives their results in the input; a test shows the sandbox makes no Repo call (the run passes with the sandbox connection checked in); a read of an unknown id, of a restricted field and of an out-of-scope row each give the same result as a miss (equal terms, asserted in one test). ctx.now equals the row's occurred_at and ctx.uuid() gives equal values on two runs of the same row and different values on two different rows (0067 D3)."
+      - "4. Result transaction and key: a script returning two write lines (one update_self, one create) applies both in one transaction: the CAS on (id, attempt, status = running), the two Records calls in order with idempotency keys record_trigger:<row id>:0 and record_trigger:<row id>:1, and the row set to done; a test shows the two keys on the written records' events, the authority :tenant, and that Records.command_multi/3 is not called (grep or call count). The output is checked before any write. Scripts.Runtime.check_output/2 checks that the output is a map, that no top-level key starts with $ (writes_not_allowed) and that keys and values match the output schema; a failure makes no write and the row dead with last_code output_invalid. Two checks are not in check_output/2 and are new code of this slice: (i) each write line is compared with the manifest writes declaration (0067 D5), an undeclared entity type or operation gives output_invalid and no write; (ii) widening of the output restriction is found by the 0062 R5 predicate at bind time and at run time (0067 D5; the hook-2 precedent is Letflow.Scripts.EntityWrite in lib/letflow/scripts/entity_write.ex, which answers script_output_restriction_widened before the sandbox starts), and gives last_code script_output_restriction_widened and no write. One test per check."
+      - "5. Reserved prefix (one rule): reject_step_key/1 in lib/letflow/entities/records.ex runs inside create_record, update_record and upsert_record_by_external_ref themselves, so the only way past it is the opts channel of REQ-606. The 4-arity forms (create_record/4, update_record/4, upsert_record_by_external_ref/4) accept an idempotency_key beginning record_trigger: only when opts carries :trigger_lineage; every other call (every 2- and 3-arity call, and a 4-arity call without :trigger_lineage) answers {:error, :reserved_idempotency_key} and writes nothing. No third option is added (0067 D3 and D4: Records changes in exactly two places). Tests: a 3-arity call and a 4-arity call without :trigger_lineage, each with the key record_trigger:<id>:0, are refused for create, update and upsert; the same 4-arity call with :trigger_lineage is accepted; a key beginning sys:step: still answers the same refusal; a key record_trigger without the colon is accepted. Request paths: an HTTP create (POST /entities/records/:entity_type) or update (PUT /entities/records/:entity_type/:record_id) carrying a body idempotency_key record_trigger:<id>:0 succeeds with the key stored as client:rec:<actor>:record_trigger:<id>:0 (Letflow.Idempotency.from_body/3), so the key cannot claim the worker key; a bulk import with upsert_by external_ref ignores any entry-level idempotency_key and writes each entry under the server-derived key ImportUpsert.idempotency_key/2 (entities-record-import:<request_id>:ext:<digest>, lib/letflow/entities/import_upsert.ex), so it cannot claim a record_trigger: key; a process-step command (Records.command_multi/3) carrying an idempotency_key answers {:error, :invalid_step_source} (reject_caller_keys, unchanged). The worker alone passes :trigger_lineage."
+      - "6. Lineage and the loop tests of 0067 D4: the worker passes :trigger_lineage with the claimed row's depth and chain to every write line. A binding on type X whose script writes X creates no second outbox row (suppression: the binding id is already in the chain). A chain of bindings A -> B -> C -> D (a script on each type writing the next) creates outbox rows with depth 0, 1, 2 and 3 for A, B, C and D and a suppression at the fourth write (no row at depth 4). Both tests run end to end through the worker with the flag on."
+      - "7. Second terminal transaction and worker-dies-between (0067 D3): a script whose second write line is refused by a 0050, 0051 or 0062 check rolls back the first line (no record of line 0 exists afterwards, no event appended) and a second transaction with the same CAS sets the row dead with last_code trigger_write_refused and the matching reason code; the row has no DLQ entry (slice T-5). A named test kills the worker process after the first transaction rolled back and before the second runs: the row is still running with nothing applied, the lease expires, the T-3 sweep returns it to pending, the next attempt meets the same refusal and writes the terminal transaction; attempt is 2 and nothing was ever written twice."
+      - "8. Forced overlap of 0061 rule 5 (named test, 0067 D2): a result transaction against a record writer of the same entity type is run with a barrier row held on the type's sequence row by a third connection, with lock-queue FIFO and with deadlock and lock-timeout errors reported through the Repo telemetry event, in both start orders, in the shape of test/letflow/engine/number_sequence_lock_order_test.exs; each shows no deadlock, no duplicate and no gap. The new test file name is given in the summary. If the shape cannot be copied, the test says why and still asserts the telemetry event count is zero."
+      - "9. Forced duplicate apply and key reuse (0067 D3): a test bypasses the CAS and re-runs the same lines of a row already done: every line answers is_duplicate: true with the original record, no second event is appended and the row stays done; the worker treats it as success. A second test re-runs the row with a script that returns a different request under the same key: the answer is {:error, :idempotency_key_reuse}, mapped to trigger_write_refused with reason idempotency_conflict, the row is dead (second transaction), and no write was applied twice."
+      - "10. CAS and retriable causes: a late worker of an earlier attempt, a swept row and a duplicate each find no row at the CAS and write nothing (the outcome is :stale, nothing logged beyond one counter); script_busy from admission and entity_write_contention while applying return the row to pending with the 500 ms doubling backoff capped at 30 s and count toward max_attempts 10; this slice tests only these two retriable causes and the :stale outcome; the per-outcome tests for the other executor outcomes (script error, budget, memory, timeout, sandbox crash) are slice T-5 (0067 D7, D9 T-5). No error text, stacktrace or inspect output is written to the row, a log or a response (a test captures the log of a crashing script and asserts it holds a class tag only); the worker never raises."
+      - "11. INV-1, INV-10 and pins: a test with two tenants A and B and a row of A shows the run reads and writes only tenant A's schema and a write line naming an entity type that exists only in B writes nothing (INV-1, INV-10); the summary lists the tests that pin what this slice changes, found with greps pasted with their output: the reserved-prefix list (grep -rn \"step_key_prefix\\|reserved_idempotency_key\" test/ lib/), the server key family pins (grep -rln \"server_prefixes\" test/, with test/letflow/idempotency_test.exs and test/letflow/idempotency/squat_audit_test.exs updated for the new record_trigger: family), every caller of the changed Records functions, and the stub function name of REQ-615; the scoped tests pass with real output quoted. SECURITY-REVIEWER verdict is recorded (mandatory) and REVIEWER verdict recorded. The Sign-off section of docs/migration/decisions/0067-after-commit-trigger-outbox.md is not edited by this slice."
+    open_questions:
+      - "0067 lists under 'Not decided here' the numeric values above the 0053 D7 maxima: read caps (rows per read, reads per hook), the number of write lines per result, rows per result and any wall clock above 5 000 ms. This entry does not decide them. If the feature task needs a cap that the runtime does not already enforce, it adds it as a config setting with a default and a stated reason and reports the value in the summary as a UAT assumption, to be confirmed by the process owner; otherwise it adds none."
+      - "Owner tolerance for a delayed or dead-lettered trigger beyond the defaults, and the choice at-least-once run with exactly-once application over at-most-once, are the owner's (0067 'Not decided here'); this slice implements the chosen at-least-once run."
+      - "The HTTP status numbers of trigger_write_refused are open in 0067; this slice has no route and returns none."
+      - "last_code of the four prepare_run rejections that 0067 D7 has no row for (tenant_inactive, output_schema_open, reads_not_allowed, hmac_secret_missing): this entry assumes script_rejected, dead, as a UAT assumption, to be confirmed by the process owner and settled in 0067 or slice T-5."
+    depends_on: [REQ-615]
   - id: REQ-625
     title: "WMS foundation: module locations skeleton and read API, warehouse location hierarchy (site, zone, address) with unique scannable address, location type, active flag, external_ref (base document MD-02)"
     owner: ELIXIR-DEV
