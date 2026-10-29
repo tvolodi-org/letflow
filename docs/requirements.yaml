@@ -44630,3 +44630,83 @@ requirements:
       - "To be put to the owner or settled in the REQ-622 record before implementation, since it decides which legal layout prints: where the document's locale is stored is not settled by 0068; this entry fixes the draft content key locale as a UAT assumption, to be confirmed by the process owner."
       - "0068 D3 says the pre-check runs before the numbering transaction; in the code the number is taken inside the issue transaction (number_of!/3), so this entry puts the pre-check inside that transaction before any write to document_sequences, which has the same effect (a refusal rolls back with no number). The gate confirms or changes this."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571, REQ-579, REQ-622, REQ-623]
+
+  - id: REQ-627
+    title: "Record T slice T-4: trigger script run and result application (Scripts.Runtime.prepare_run/3, input build with redaction, pre-fetched reads, output check, result transaction with CAS and per-line record_trigger key, reserved-prefix refusal, second terminal transaction, forced-overlap and duplicate-apply tests)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-615 -- the run replaces the stub of the T-3 claim worker, which is a register entry only until REQ-615 merges
+    # Source: docs/migration/decisions/0067-after-commit-trigger-outbox.md D9 slice T-4 (copied in the description), D2 ("Lock position (against 0061)"), D3 (idempotency key, write entry points, result transaction, second terminal transaction, "What a script author may assume", retriable causes, "CAS on attempt"), D4 (Tests, Slice T-4), D5 (principal, input, output, application), D7 (failure table), D8 (INV-3), "Not decided here", "Threat cases for SECURITY-REVIEWER"; docs/migration/decisions/0061-engine-lock-order-platform-invariant.md rule 5; docs/agents/instructions/security-invariants.md INV-1, INV-3, INV-5, INV-8, INV-10; REQ-615 (T-3, the stub run), REQ-606 (T-2, the outbox table and the :trigger_lineage opt), REQ-570 (T-1, bindings and the flag :record_triggers_enabled). Code read: lib/letflow/scripts/runtime.ex (prepare_run/3, check_output/2), lib/letflow/scripts/entity_write.ex (build_input/5, run/4, the output_invalid mapping), lib/letflow/entities/records.ex (create_record/3, update_record/2-3, upsert_record_by_external_ref/3, the private reject_step_key/1, step_key_prefix/0, the idempotency_key_reuse replay rule), lib/letflow/engine/script_task_dispatcher.ex (run_claimed/2, the pattern for the run), test/letflow/engine/number_sequence_lock_order_test.exs (precedent for the forced-overlap shape). Written by the business analyst (T-0921) 2026-10-29.
+    description: >
+      Decision 0067 D9 slice T-4 only. D9 text, copied: "T-4 script run and result application:
+      Scripts.Runtime.prepare_run/3, input build with redaction, pre-fetched reads, the run, output check,
+      the result transaction with CAS and the per-line key over the single-command paths (D3; the
+      record_trigger: reserved-prefix refusal in Records; the worker passes :trigger_lineage from the
+      claimed row; the end-to-end loop tests of D4; the second terminal transaction of D3 and the
+      worker-dies-between test), the forced-overlap test of 0061 rule 5, a forced duplicate apply
+      expecting is_duplicate: true and no second write, and the idempotency_key_reuse case. No
+      command_multi/3 extension is needed, so no extra slice. Depends on T-3. [SECURITY-REVIEWER:
+      mandatory]".
+      Wait condition: REQ-615 (slice T-3) is a register entry only on origin/main when this entry is
+      written; the feature task waits until REQ-615's feature task has merged and REQ-606 and REQ-570 are
+      delivered, because the claimed row, the stub run function and the :trigger_lineage opt come from
+      them. The feature task of this entry is not queued before that.
+      What it builds. (a) The run replaces the single clearly named stub function of the T-3 worker
+      (lib/letflow/record_triggers/worker.ex, suggested name from REQ-615): after a claim the worker calls
+      Letflow.Scripts.Runtime.prepare_run/3 (lib/letflow/scripts/runtime.ex) with the tenant prefix, the
+      tenant id taken from the tick's Registration schema list (never the row payload, 0067 D8) and the
+      row's own pin (script_key, script_version, script_sha256), then builds the input, runs the script
+      through the existing sandbox and admission as the script-task dispatcher does
+      (Letflow.Engine.ScriptTaskDispatcher.run_claimed/2), and checks the output with
+      Letflow.Scripts.Runtime.check_output/2. (b) Input (0067 D5, D8): built by the host after the claim,
+      never stored in the outbox: the current record under the script principal (tenant-wide, no user
+      grants), filtered through the field restrictions of that principal (a restricted field is omitted
+      unless named in the manifest input schema and the publisher held EntitiesRestrictionsManage,
+      re-checked at run time), plus the event name, source_seq and the record's current sequence, and the
+      declared tenant-wide reads pre-fetched by the host (no Repo call in the sandbox; unknown, redacted
+      and out-of-scope read results are indistinguishable from a miss, INV-5). A record the principal cannot
+      see, and a record of a deleted event, give record: null. ctx.now is the row's occurred_at; ctx.uuid()
+      is the UUIDv5 over (outbox row id, counter) of 0067 D3. (c) Result transaction (0067 D3): ONE
+      Repo.transaction of the worker holds the CAS on (id, attempt, status = running), each declared write
+      line in order through Records.create_record/3, Records.update_record/3 or
+      Records.upsert_record_by_external_ref/3 (lib/letflow/entities/records.ex) with the authority :tenant
+      and the key record_trigger:<outbox row id>:<line index> as the line's idempotency_key, and the update
+      of the row to done. Records.command_multi/3 is not used. Each write passes :trigger_lineage copied
+      from the claimed row's depth and chain. The lock order inside the transaction is the outbox row
+      first, then the type sequence rows ascending by entity type, then the chain row (0067 D2 "Lock
+      position"). (d) Reserved prefix: record_trigger: is added to the reserved-prefix refusal in
+      Records (the private reject_step_key/1, which refuses the "sys:step:" prefix of
+      step_key_prefix/0 with {:error, :reserved_idempotency_key}) so that no request or process step can
+      supply such a key. This and the lineage opt of REQ-606 are the only changes to Records. (e) Second
+      terminal transaction (0067 D3, D7): a result refused by any line (idempotency_key_reuse, a 0050,
+      0051 or 0062 refusal, validation) rolls the whole result transaction back; the worker then runs a
+      second transaction with the same CAS that sets dead and last_code. Apply contention and script_busy
+      return the row to pending with the T-3 backoff and count toward max_attempts. The full D7 table,
+      its DLQ entry, list, count and requeue routes, Alerts and the kill switch are slice T-5 (REQ for it
+      is not written yet); this slice sets the dead status and the closed last_code only, and writes no
+      DLQ entry. Numeric caps that 0067 lists under "Not decided here" (read caps, write lines per result,
+      rows per result, wall clock above 5 000 ms) are not decided here: the run uses the 0053 D7 maxima
+      already enforced by the runtime and admission, and any new cap is a config setting with a
+      default, see the first open question. No route, no permission, no UI, no migration. The flag
+      :record_triggers_enabled and :start_record_trigger_worker stay off by default.
+      SECURITY-REVIEWER is mandatory (tenant-data read, tenant-data write, a new idempotency-key prefix
+      in Records).
+    acceptance_criteria:
+      - "1. Run replaces the stub: for a claimed row of a tenant with a published entity_event script and a matching pin, the worker calls Scripts.Runtime.prepare_run/3 with the tenant prefix, the tenant id of the tick's schema list and the row's pin, runs the script under the existing sandbox and admission, and marks the row done only through the result transaction of criterion 4; the stub function of REQ-615 is gone (grep quoted in the summary shows no caller). A test with prepare_run answering {:rejected, reason} for each of scripts_disabled, tenant_inactive, script_unavailable, script_revoked and pin_mismatch shows the row is not marked done and no record is written; the closed last_code each maps to is the one in the D7 table of 0067."
+      - "2. Input build and redaction: a test with a record holding a restricted field shows the script input omits that field when the manifest input schema does not name it, and includes it only when the manifest names it and the publisher held EntitiesRestrictionsManage at run time (a test revokes the permission after publish and the field is omitted); the input carries the event name, source_seq and the record's current sequence; for a deleted event, and for a record outside the principal's scope, the input has record: null and the two inputs are byte-identical to the input for a record that does not exist. The outbox row is unchanged by the run (no record value is stored in the table, checked by reading the row after the run)."
+      - "3. Pre-fetched reads: a script declaring two reads receives their results in the input; a test shows the sandbox makes no Repo call (the run passes with the sandbox connection checked in); a read of an unknown id, of a restricted field and of an out-of-scope row each give the same result as a miss (equal terms, asserted in one test). ctx.now equals the row's occurred_at and ctx.uuid() gives equal values on two runs of the same row and different values on two different rows (0067 D3)."
+      - "4. Result transaction and key: a script returning two write lines (one update_self, one create) applies both in one transaction: the CAS on (id, attempt, status = running), the two Records calls in order with idempotency keys record_trigger:<row id>:0 and record_trigger:<row id>:1, and the row set to done; a test shows the two keys on the written records' events, the authority :tenant, and that Records.command_multi/3 is not called (grep or call count). The output is checked with Scripts.Runtime.check_output/2 first: an undeclared write, an undeclared field or a widening output makes no write and the row dead with last_code output_invalid (script_output_restriction_widened for widening)."
+      - "5. Reserved prefix: create_record, update_record and upsert_record_by_external_ref called with an idempotency_key beginning record_trigger: answer {:error, :reserved_idempotency_key} and write nothing, through the Records functions and through an HTTP create, update and upsert route, and through a process-step write (service task, script task and user-task completion); a key beginning sys:step: still answers the same refusal; a key such as record_trigger without the colon is accepted. The worker's own calls are the only ones that pass the key (the worker passes it through a path that does not run the request-level refusal, or through an internal option, and the summary names which one and why the choice allows one implementation only)."
+      - "6. Lineage and the loop tests of 0067 D4: the worker passes :trigger_lineage with the claimed row's depth and chain to every write line. A binding on type X whose script writes X creates no second outbox row (suppression: the binding id is already in the chain). A chain of bindings A -> B -> C -> D (a script on each type writing the next) creates outbox rows with depth 0, 1, 2 and 3 for A, B, C and D and a suppression at the fourth write (no row at depth 4). Both tests run end to end through the worker with the flag on."
+      - "7. Second terminal transaction and worker-dies-between (0067 D3): a script whose second write line is refused by a 0050, 0051 or 0062 check rolls back the first line (no record of line 0 exists afterwards, no event appended) and a second transaction with the same CAS sets the row dead with last_code trigger_write_refused and the matching reason code; the row has no DLQ entry (slice T-5). A named test kills the worker process after the first transaction rolled back and before the second runs: the row is still running with nothing applied, the lease expires, the T-3 sweep returns it to pending, the next attempt meets the same refusal and writes the terminal transaction; attempt is 2 and nothing was ever written twice."
+      - "8. Forced overlap of 0061 rule 5 (named test, 0067 D2): a result transaction against a record writer of the same entity type is run with a barrier row held on the type's sequence row by a third connection, with lock-queue FIFO and with deadlock and lock-timeout errors reported through the Repo telemetry event, in both start orders, in the shape of test/letflow/engine/number_sequence_lock_order_test.exs; each shows no deadlock, no duplicate and no gap. The new test file name is given in the summary. If the shape cannot be copied, the test says why and still asserts the telemetry event count is zero."
+      - "9. Forced duplicate apply and key reuse (0067 D3): a test bypasses the CAS and re-runs the same lines of a row already done: every line answers is_duplicate: true with the original record, no second event is appended and the row stays done; the worker treats it as success. A second test re-runs the row with a script that returns a different request under the same key: the answer is {:error, :idempotency_key_reuse}, mapped to trigger_write_refused with reason idempotency_conflict, the row is dead (second transaction), and no write was applied twice."
+      - "10. CAS and retriable causes: a late worker of an earlier attempt, a swept row and a duplicate each find no row at the CAS and write nothing (the outcome is :stale, nothing logged beyond one counter); script_busy from admission and entity_write_contention while applying return the row to pending with the 500 ms doubling backoff capped at 30 s and count toward max_attempts 10; every other executor outcome (script error, budget, memory, timeout, sandbox crash) is terminal on its first occurrence with the closed last_code of the D7 table. No error text, stacktrace or inspect output is written to the row, a log or a response (a test captures the log of a crashing script and asserts it holds a class tag only); the worker never raises."
+      - "11. INV-1, INV-10 and pins: a test with two tenants A and B and a row of A shows the run reads and writes only tenant A's schema and a write line naming an entity type that exists only in B writes nothing (INV-1, INV-10); the summary lists the tests that pin what this slice changes, found with greps pasted with their output: the reserved-prefix list (grep -rn \"step_key_prefix\\|reserved_idempotency_key\" test/ lib/), every caller of the changed Records functions, and the stub function name of REQ-615; the scoped tests pass with real output quoted. SECURITY-REVIEWER verdict is recorded (mandatory) and REVIEWER verdict recorded. The Sign-off section of docs/migration/decisions/0067-after-commit-trigger-outbox.md is not edited by this slice."
+    open_questions:
+      - "0067 lists under 'Not decided here' the numeric values above the 0053 D7 maxima: read caps (rows per read, reads per hook), the number of write lines per result, rows per result and any wall clock above 5 000 ms. This entry does not decide them. If the feature task needs a cap that the runtime does not already enforce, it adds it as a config setting with a default and a stated reason and reports the value in the summary as a UAT assumption, to be confirmed by the process owner; otherwise it adds none."
+      - "Owner tolerance for a delayed or dead-lettered trigger beyond the defaults, and the choice at-least-once run with exactly-once application over at-most-once, are the owner's (0067 'Not decided here'); this slice implements the chosen at-least-once run."
+      - "The HTTP status numbers of trigger_write_refused are open in 0067; this slice has no route and returns none."
+      - "How the worker passes the record_trigger: key past the request-level reserved-prefix refusal of criterion 5 is not stated by 0067 (it says the prefix is reserved for the worker); the feature task picks one way and states it."
+    depends_on: [REQ-615]
