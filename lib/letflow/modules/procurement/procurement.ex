@@ -13,7 +13,13 @@ defmodule Letflow.Modules.Procurement do
   type; the reference data (units, departments) stays in `catalog_items` and `org`. The module has
   no approval route, threshold, assignee or delegation: a process definition owns those.
 
-  The three permissions are declared with their route policies (the permission-matrix
+  REQ-558 / GH #3188 part 1 adds the line events of an approved request (officer, supplier, PO or
+  contract reference: `Letflow.Modules.Procurement.LineEvents`, tables `procurement_line_events` and
+  `procurement_lines`) behind the permission `ProcurementLineRecord`. Its `role_grants` stay empty as
+  well: the tenant role that holds it is TENANT_ADMIN (via core), PLATFORM_ADMIN only through the
+  platform clause; a test asserts exactly that.
+
+  The permissions are declared with their route policies (the permission-matrix
   classification pre-approves a new module atom only when the owner's own route policies name it)
   and with no `role_grants`: in this slice only TENANT_ADMIN and PLATFORM_ADMIN hold them, so the
   requester/approver split rests on the permission gate and the self-decision check (a requester
@@ -44,7 +50,12 @@ defmodule Letflow.Modules.Procurement do
     version: "0.1.0",
     depends_on: ["org", "catalog_items"],
     pack: nil,
-    permissions: [:ProcurementRequestWrite, :ProcurementRequestRead, :ProcurementRequestDecide],
+    permissions: [
+      :ProcurementRequestWrite,
+      :ProcurementRequestRead,
+      :ProcurementRequestDecide,
+      :ProcurementLineRecord
+    ],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
@@ -53,7 +64,11 @@ defmodule Letflow.Modules.Procurement do
       {"GET", "/purchase-requests/:id", :ProcurementRequestRead},
       {"POST", "/purchase-requests/:id/submit", :ProcurementRequestWrite},
       {"POST", "/purchase-requests/:id/revise", :ProcurementRequestWrite},
-      {"POST", "/purchase-requests/:id/decisions", :ProcurementRequestDecide}
+      {"POST", "/purchase-requests/:id/decisions", :ProcurementRequestDecide},
+      {"GET", "/purchase-requests/:id/lines/:line_no", :ProcurementRequestRead},
+      {"POST", "/purchase-requests/:id/lines/:line_no/officer", :ProcurementLineRecord},
+      {"POST", "/purchase-requests/:id/lines/:line_no/supplier", :ProcurementLineRecord},
+      {"POST", "/purchase-requests/:id/lines/:line_no/reference", :ProcurementLineRecord}
     ]
   )
 

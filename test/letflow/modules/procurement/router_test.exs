@@ -260,13 +260,17 @@ defmodule Letflow.Modules.Procurement.RouterTest do
     assert %{"reason" => "idempotency_key_reused"} = json(conn)
   end
 
-  test "P2: the five routes are declared with their permissions", _ctx do
+  test "P2: the nine routes are declared with their permissions", _ctx do
     routes = Router.__authz_routes__() |> Enum.map(fn {m, p, k} -> {m, p, k} end) |> Enum.sort()
 
     assert routes == [
              {"GET", "/purchase-requests/:id", :ProcurementRequestRead},
+             {"GET", "/purchase-requests/:id/lines/:line_no", :ProcurementRequestRead},
              {"POST", "/purchase-requests", :ProcurementRequestWrite},
              {"POST", "/purchase-requests/:id/decisions", :ProcurementRequestDecide},
+             {"POST", "/purchase-requests/:id/lines/:line_no/officer", :ProcurementLineRecord},
+             {"POST", "/purchase-requests/:id/lines/:line_no/reference", :ProcurementLineRecord},
+             {"POST", "/purchase-requests/:id/lines/:line_no/supplier", :ProcurementLineRecord},
              {"POST", "/purchase-requests/:id/revise", :ProcurementRequestWrite},
              {"POST", "/purchase-requests/:id/submit", :ProcurementRequestWrite}
            ]

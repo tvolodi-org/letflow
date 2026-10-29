@@ -183,6 +183,8 @@ defmodule Letflow.TenantFixture do
     "pending_tenant_admin_grants",
     "process_definitions",
     "procurement_decisions",
+    "procurement_line_events",
+    "procurement_lines",
     "promotion_assertion_runs",
     "promotion_reviews",
     "record_trigger_bindings",

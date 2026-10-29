@@ -916,7 +916,11 @@ defmodule Letflow.TenantProvisioning do
      "20261028300001_create_procurement_decisions.exs"},
     # REQ-584 / GH #3310: the per-tenant notification delivery log (new empty table; no row altered).
     {20_261_028_400_001, Letflow.Repo.Migrations.CreateNotificationDeliveries,
-     "20261028400001_create_notification_deliveries.exs"}
+     "20261028400001_create_notification_deliveries.exs"},
+    # REQ-558 / GH #3188 part 1: two empty per-tenant tables for the procurement line events and the
+    # per-line fulfilled quantity. No existing row altered.
+    {20_261_028_500_001, Letflow.Repo.Migrations.CreateProcurementLineTables,
+     "20261028500001_create_procurement_line_tables.exs"}
   ]
 
   @doc """

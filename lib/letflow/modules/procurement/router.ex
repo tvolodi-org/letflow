@@ -12,6 +12,10 @@ defmodule Letflow.Modules.Procurement.Router do
   | `POST /purchase-requests/:id/submit` | `ProcurementRequestWrite` | `PurchaseRequests.submit_for_bpm/3` | 200 / 404 / 422 / 503 |
   | `POST /purchase-requests/:id/revise` | `ProcurementRequestWrite` | `PurchaseRequests.revise/4` | 200 / 404 / 422 |
   | `POST /purchase-requests/:id/decisions` | `ProcurementRequestDecide` | `Decisions.record/3` | 201 / 200 replay / 403 / 404 / 409 / 422 / 503 |
+  | `GET /purchase-requests/:id/lines/:line_no` | `ProcurementRequestRead` | `LineEvents.line_view/3` | 200 / 404 |
+  | `POST /purchase-requests/:id/lines/:line_no/officer` | `ProcurementLineRecord` | `LineEvents.record_officer/3` | 201 / 200 replay / 403 / 404 / 409 / 422 / 503 |
+  | `POST /purchase-requests/:id/lines/:line_no/supplier` | `ProcurementLineRecord` | `LineEvents.record_supplier/3` | same |
+  | `POST /purchase-requests/:id/lines/:line_no/reference` | `ProcurementLineRecord` | `LineEvents.record_reference/3` | same |
 
   The caller is `conn.assigns.auth_context.user_id` and the tenant is `conn.assigns.scoped_opts`
   (INV-1, INV-10): no route takes a performer, requester, actor or tenant from the body or path. The
@@ -20,7 +24,9 @@ defmodule Letflow.Modules.Procurement.Router do
   (INV-5). The one exception is `:self_decision` (403): the requester already knows the request
   exists. Error bodies carry a code in the `reason` extension, never a hash, id or content.
 
-  `GET` is open to the requester and to a holder of `ProcurementRequestDecide` (who must read a
+  GH #3188 / REQ-558 part 1 adds the four line routes (a refusal `:not_approved` is a 409). `GET` is
+  open to the requester and to a holder of `ProcurementRequestDecide` or, for the line read,
+  `ProcurementLineRecord` (who must read a
   request to decide it); anyone else gets not-found. All routes are tenant-wide, as the Exam router:
   there is no per-org-unit scope on deciders in this slice.
 
@@ -36,6 +42,7 @@ defmodule Letflow.Modules.Procurement.Router do
   alias Letflow.Api.Authorization
   alias Letflow.Api.Response
   alias Letflow.Modules.Procurement.Decisions
+  alias Letflow.Modules.Procurement.LineEvents
   alias Letflow.Modules.Procurement.PurchaseRequests
   alias Letflow.PlatformTenant
 
@@ -49,7 +56,9 @@ defmodule Letflow.Modules.Procurement.Router do
     actor = actor(conn)
 
     with {:ok, status} <- Decisions.status(prefix, conn.params["id"]),
-         true <- Decisions.requester_of(prefix, status.document_id) == actor or decider?(conn) do
+         true <-
+           Decisions.requester_of(prefix, status.document_id) == actor or
+             holds?(conn, :ProcurementRequestDecide) do
       Response.ok(conn, status)
     else
       _other -> Response.not_found(conn)
@@ -89,6 +98,32 @@ defmodule Letflow.Modules.Procurement.Router do
     end
   end
 
+  authz_get "/purchase-requests/:id/lines/:line_no", :ProcurementRequestRead do
+    prefix = prefix!(conn)
+    actor = actor(conn)
+
+    with {:ok, view} <- LineEvents.line_view(prefix, conn.params["id"], conn.params["line_no"]),
+         true <-
+           Decisions.requester_of(prefix, view.document_id) == actor or
+             holds?(conn, :ProcurementRequestDecide) or holds?(conn, :ProcurementLineRecord) do
+      Response.ok(conn, view)
+    else
+      _other -> Response.not_found(conn)
+    end
+  end
+
+  authz_post "/purchase-requests/:id/lines/:line_no/officer", :ProcurementLineRecord do
+    record_line(conn, :record_officer, ~w(officer_id idempotency_key))
+  end
+
+  authz_post "/purchase-requests/:id/lines/:line_no/supplier", :ProcurementLineRecord do
+    record_line(conn, :record_supplier, ~w(source_system identifier display_name idempotency_key))
+  end
+
+  authz_post "/purchase-requests/:id/lines/:line_no/reference", :ProcurementLineRecord do
+    record_line(conn, :record_reference, ~w(source_system identifier kind idempotency_key))
+  end
+
   authz_unmatched(:ordinary)
 
   # -- rendering --------------------------------------------------------------------------------
@@ -118,7 +153,7 @@ defmodule Letflow.Modules.Procurement.Router do
       )
 
   defp render(conn, {:error, reason}, _status, _shape)
-       when reason in [:idempotency_key_reused, :version_closed],
+       when reason in [:idempotency_key_reused, :version_closed, :not_approved],
        do:
          Response.send_problem(
            conn,
@@ -166,9 +201,23 @@ defmodule Letflow.Modules.Procurement.Router do
     end
   end
 
-  defp decider?(conn) do
+  defp record_line(conn, operation, keys) do
+    params =
+      conn
+      |> whitelist(keys)
+      |> Map.put("document_id", conn.params["id"])
+      |> Map.put("line_no", conn.params["line_no"])
+
+    case apply(LineEvents, operation, [prefix!(conn), actor(conn), params]) do
+      {:ok, %{replayed: true} = result} -> Response.ok(conn, result)
+      {:ok, result} -> Response.created(conn, result)
+      {:error, _reason} = error -> render(conn, error, 200, & &1)
+    end
+  end
+
+  defp holds?(conn, permission) do
     platform? = PlatformTenant.platform_tenant?(Map.get(conn.assigns.auth_context, :tenant_id))
     roles = Authorization.effective_roles(conn.assigns.auth_context.roles, platform?)
-    Authorization.has_permission?(roles, :ProcurementRequestDecide)
+    Authorization.has_permission?(roles, permission)
   end
 end
