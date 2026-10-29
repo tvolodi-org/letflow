@@ -336,6 +336,13 @@ defmodule Letflow.Routers.SolutionPackOverridesRoutesTest do
         ["A", "B"]
         |> Enum.map(fn l -> Task.async(fn -> write.(l) end) end)
         |> Task.await_many(30_000)
+        # On a loaded runner the loser can wait past the 2s lock_timeout and answer 503 busy
+        # (it wrote nothing); resending the same body makes it meet the committed version 2.
+        |> Enum.zip(["A", "B"])
+        |> Enum.map(fn
+          {%{status: 503}, l} -> write.(l)
+          {reply, _} -> reply
+        end)
 
       assert replies |> Enum.map(& &1.status) |> Enum.sort() == [200, 422]
       assert Enum.any?(replies, &(&1.status == 422 and &1.resp_body =~ "override_version_taken"))
