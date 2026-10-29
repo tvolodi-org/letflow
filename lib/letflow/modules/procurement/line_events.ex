@@ -1,7 +1,7 @@
 defmodule Letflow.Modules.Procurement.LineEvents do
   @moduledoc """
   The line half of module `procurement` after approval (GH #3188, REQ-558 part 1, PR-04):
-  `record_officer/3`, `record_supplier/3` and `record_reference/3` store one event each for one line
+  `record_officer/3`, `record_supplier/3`, `record_reference/3` and (part 2) `cancel_line/3` store one event each for one line
   of an approved purchase request, and `line_view/3` reads the line back.
 
   A line is `(document_id, line_no)`: the line is an element of the request's version content, not a
@@ -25,6 +25,8 @@ defmodule Letflow.Modules.Procurement.LineEvents do
        `replayed: true` and writes nothing (another payload under that key is
        `:idempotency_key_reused`);
     6. the newest version must be issued and approved (`Decisions.approved?/3`), else `:not_approved`;
+    6b. a Closed or Cancelled request (`Fulfilment`, derived inside the transaction) refuses with
+       `:request_closed`, for the three records and for `cancel_line/3`;
     7. insert the event (`recorded_at` is the server clock), make sure the `procurement_lines` row
        exists, and write one `procurement.line_*_recorded` audit entry, all in the transaction.
 
@@ -48,6 +50,7 @@ defmodule Letflow.Modules.Procurement.LineEvents do
   alias Letflow.Documents.DocumentVersion
   alias Letflow.Identity
   alias Letflow.Modules.Procurement.Decisions
+  alias Letflow.Modules.Procurement.Fulfilment
   alias Letflow.Modules.Procurement.Line
   alias Letflow.Modules.Procurement.LineEvent
   alias Letflow.Repo
@@ -60,7 +63,7 @@ defmodule Letflow.Modules.Procurement.LineEvents do
   @reference_kinds ~w(purchase_order contract)
 
   # maximum characters per text field
-  @bounds %{source_system: 64, identifier: 128, display_name: 200}
+  @bounds %{source_system: 64, identifier: 128, display_name: 200, reason: 500}
 
   @doc "Records the officer of a line; see the moduledoc for the order of checks and the errors."
   def record_officer(prefix, performer, params),
@@ -74,10 +77,39 @@ defmodule Letflow.Modules.Procurement.LineEvents do
   def record_reference(prefix, performer, params),
     do: record(:reference, prefix, performer, params, :record_reference)
 
+  @doc """
+  Marks a line cancelled, with a required `reason` (at most 500 characters). Cancelling an already
+  cancelled line returns the first cancel event with `replayed: true`, also under another
+  idempotency key. A Closed or Cancelled request refuses it like the three records above.
+  """
+  def cancel_line(prefix, performer, params),
+    do: record(:cancel, prefix, performer, params, :cancel_line)
+
+  @doc """
+  The derived request status (`Fulfilment.request_status/1`): `:partial`, `:closed`, `:cancelled`,
+  or `nil` when nothing is fulfilled or cancelled, or when the request has no approved version.
+  """
+  def request_status(prefix, document_id) when is_binary(prefix) do
+    with {:ok, id} <- cast_uuid(document_id),
+         %Document{type_key: @type_key} <- Repo.get(Document, id, prefix: prefix),
+         %DocumentVersion{} = version <- latest_version(prefix, id),
+         :ok <- approved(prefix, id, version) do
+      prefix
+      |> summaries(id, version)
+      |> Enum.map(&Map.take(&1, [:quantity, :fulfilled, :cancelled?]))
+      |> Fulfilment.request_status()
+    else
+      _other -> nil
+    end
+  end
+
+  def request_status(_prefix, _document_id), do: nil
+
   @fields %{
     officer: [:officer_id],
     supplier: [:source_system, :identifier, :display_name],
-    reference: [:source_system, :identifier, :kind]
+    reference: [:source_system, :identifier, :kind],
+    cancel: [:reason]
   }
 
   defp record(kind, prefix, performer, params, action)
@@ -117,6 +149,8 @@ defmodule Letflow.Modules.Procurement.LineEvents do
          %DocumentVersion{} = version <- latest_version(prefix, id),
          true <- line_in?(version, n) do
       events = events_of(prefix, id, n)
+      fulfilled = fulfilled(prefix, id, n)
+      cancel = events |> Enum.filter(&(&1.kind == :cancel)) |> List.first() |> cancel_item()
 
       history = fn kind ->
         events |> Enum.filter(&(&1.kind == kind)) |> Enum.map(&item/1)
@@ -130,7 +164,10 @@ defmodule Letflow.Modules.Procurement.LineEvents do
        %{
          document_id: id,
          line_no: n,
-         fulfilled_quantity: fulfilled(prefix, id, n),
+         fulfilled_quantity: fulfilled,
+         quantity: line_quantity_string(version, n),
+         status: line_status(prefix, id, version, n, fulfilled, cancel != nil),
+         cancelled: cancel,
          officer: List.last(officer),
          supplier: List.last(supplier),
          procurement_document: List.last(reference),
@@ -180,7 +217,8 @@ defmodule Letflow.Modules.Procurement.LineEvents do
     with :ok <- lock_document(prefix, input.document_id),
          {:ok, version} <- existing_line(prefix, input),
          :ok <- replay_or_proceed(prefix, performer, input),
-         :ok <- approved(prefix, input.document_id, version) do
+         :ok <- approved(prefix, input.document_id, version),
+         :ok <- request_open(prefix, input.document_id, version) do
       insert(prefix, performer, input, version)
     else
       {:replay, event} -> {:accepted, result(event, true)}
@@ -214,13 +252,126 @@ defmodule Letflow.Modules.Procurement.LineEvents do
   defp replay_or_proceed(prefix, performer, input) do
     case stored(prefix, input.document_id, input.idempotency_key) do
       nil ->
-        :ok
+        already_cancelled(prefix, input)
 
       %LineEvent{} = event ->
         if same?(event, performer, input),
           do: {:replay, event},
           else: {:error, :idempotency_key_reused}
     end
+  end
+
+  # A repeat cancel of a cancelled line answers with the first cancel event, whatever the key.
+  defp already_cancelled(prefix, %{kind: :cancel} = input) do
+    case first_cancel(prefix, input.document_id, input.line_no) do
+      nil -> :ok
+      %LineEvent{} = event -> {:replay, event}
+    end
+  end
+
+  defp already_cancelled(_prefix, _input), do: :ok
+
+  # A Closed or Cancelled request takes no further record or cancel. Runs inside the transaction,
+  # after the document row lock, so concurrent cancels see each other's committed state.
+  defp request_open(prefix, document_id, version) do
+    status =
+      prefix
+      |> summaries(document_id, version)
+      |> Enum.map(&Map.take(&1, [:quantity, :fulfilled, :cancelled?]))
+      |> Fulfilment.request_status()
+
+    if status in [:closed, :cancelled], do: {:error, :request_closed}, else: :ok
+  end
+
+  # One entry per line of the version content: three queries, not one per line. A line without a
+  # `procurement_lines` row has fulfilled 0; a quantity that does not parse is left out (it cannot
+  # happen: `PurchaseRequest` validates it).
+  defp summaries(prefix, document_id, %DocumentVersion{content: %{"lines" => lines}})
+       when is_list(lines) do
+    fulfilled =
+      Map.new(
+        Repo.all(
+          from(l in Line,
+            where: l.document_id == ^document_id,
+            select: {l.line_no, l.fulfilled_quantity}
+          ),
+          prefix: prefix
+        )
+      )
+
+    cancelled =
+      MapSet.new(
+        Repo.all(
+          from(e in LineEvent,
+            where: e.document_id == ^document_id and e.kind == :cancel,
+            select: e.line_no
+          ),
+          prefix: prefix
+        )
+      )
+
+    Enum.flat_map(lines, fn
+      %{"line_no" => n} = line when is_integer(n) ->
+        case parse_quantity(line["quantity"]) do
+          {:ok, quantity} ->
+            [
+              %{
+                line_no: n,
+                quantity: quantity,
+                fulfilled: Map.get(fulfilled, n, Decimal.new(0)),
+                cancelled?: MapSet.member?(cancelled, n)
+              }
+            ]
+
+          :error ->
+            []
+        end
+
+      _other ->
+        []
+    end)
+  end
+
+  defp summaries(_prefix, _document_id, _version), do: []
+
+  defp parse_quantity(value) when is_binary(value) do
+    case Decimal.parse(value) do
+      {%Decimal{} = quantity, ""} -> {:ok, quantity}
+      _other -> :error
+    end
+  end
+
+  defp parse_quantity(_value), do: :error
+
+  defp line_quantity_string(%DocumentVersion{content: %{"lines" => lines}}, line_no) do
+    with line when is_map(line) <- Enum.find(lines, &(is_map(&1) and &1["line_no"] == line_no)),
+         {:ok, quantity} <- parse_quantity(line["quantity"]) do
+      Decimal.to_string(quantity, :normal)
+    else
+      _other -> nil
+    end
+  end
+
+  # A line has no fulfilment status before its request is approved.
+  defp line_status(prefix, document_id, version, line_no, fulfilled, cancelled?) do
+    with :ok <- approved(prefix, document_id, version),
+         {:ok, quantity} <- version |> line_quantity_string(line_no) |> parse_quantity(),
+         {%Decimal{} = done, ""} <- Decimal.parse(fulfilled) do
+      Fulfilment.line_status(quantity, done, cancelled?)
+    else
+      _other -> nil
+    end
+  end
+
+  defp first_cancel(prefix, document_id, line_no) do
+    Repo.one(
+      from(e in LineEvent,
+        where: e.document_id == ^document_id and e.line_no == ^line_no and e.kind == :cancel,
+        order_by: [asc: e.id],
+        limit: 1
+      ),
+      prefix: prefix
+    )
   end
 
   defp same?(event, performer, input) do
@@ -474,6 +625,13 @@ defmodule Letflow.Modules.Procurement.LineEvents do
       kind: event.data["kind"]
     })
   end
+
+  defp item(%LineEvent{kind: :cancel} = event) do
+    meta(event, %{reason: event.data["reason"]})
+  end
+
+  defp cancel_item(nil), do: nil
+  defp cancel_item(%LineEvent{} = event), do: item(event)
 
   defp meta(event, fields) do
     Map.merge(fields, %{

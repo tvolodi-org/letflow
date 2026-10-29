@@ -920,7 +920,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-558 / GH #3188 part 1: two empty per-tenant tables for the procurement line events and the
     # per-line fulfilled quantity. No existing row altered.
     {20_261_028_500_001, Letflow.Repo.Migrations.CreateProcurementLineTables,
-     "20261028500001_create_procurement_line_tables.exs"}
+     "20261028500001_create_procurement_line_tables.exs"},
+    # REQ-558 / GH #3188 part 2: widens the kind CHECK of procurement_line_events with `cancel`.
+    # No table added, no row altered.
+    {20_261_028_600_001, Letflow.Repo.Migrations.AllowCancelLineEvent,
+     "20261028600001_allow_cancel_line_event.exs"}
   ]
 
   @doc """

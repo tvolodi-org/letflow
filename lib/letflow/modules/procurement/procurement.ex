@@ -68,7 +68,8 @@ defmodule Letflow.Modules.Procurement do
       {"GET", "/purchase-requests/:id/lines/:line_no", :ProcurementRequestRead},
       {"POST", "/purchase-requests/:id/lines/:line_no/officer", :ProcurementLineRecord},
       {"POST", "/purchase-requests/:id/lines/:line_no/supplier", :ProcurementLineRecord},
-      {"POST", "/purchase-requests/:id/lines/:line_no/reference", :ProcurementLineRecord}
+      {"POST", "/purchase-requests/:id/lines/:line_no/reference", :ProcurementLineRecord},
+      {"POST", "/purchase-requests/:id/lines/:line_no/cancel", :ProcurementLineRecord}
     ]
   )
 
