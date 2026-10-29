@@ -44636,7 +44636,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- every dependency is done; the engine files the issue after the gate
+    gh: 3501
     # Source: docs/WMS/WMS_Procurement_Requirements_Draft.md MD-02 (location hierarchy, unique scannable addresses, receiving/pick/ship/reject/quarantine/custody/outdoor locations); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (line 18: "`locations` arrives with the warehouse slices"; the reference contract: reference by immutable record id, retire = active false, no hard delete; the read API shape lookup and active?; line 286: a consumer that needs a warehouse before the module exists carries a free-text reference); docs/migration/decisions/0057-wms-customer-draft-reconciliation.md D1 (masters carry a nullable external_ref {system, id}, no inbound master sync) and D12 (the pilot is seeded with test data, locations among them, through the generic idempotent import); docs/requirements.yaml REQ-473 and REQ-474 (the skeleton pattern copied here), REQ-506 and REQ-507 (the read-API contract copied here), REQ-505 (the import). Written by the business analyst (T-0912) 2026-10-29. Not yet validated.
     description: >
       Adds the foundation module that decision 0050 deferred: `locations`, the warehouse location master of base document item
