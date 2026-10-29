@@ -1,0 +1,294 @@
+# T-0923 (BA): TENANT ADMIN group, scenario 56: the "Print templates" screen: list, open, JSON editor, live preview, Save as new draft, reason-code check, creator activation.
+# Covers REQ-614 (screen, not the REQ-579 API that scenarios 29 to 31 cover). Criteria, quoted from REQ-614 on origin/main and where each is checked:
+#  C2 "...AppShell shows its nav entry only to a user holding that permission..." : the entry is seen here (step 1); the refusal side is scenario 58.
+#  C3 "...typing JSON that does not parse shows an error in the editor and makes zero requests; valid JSON with locale ru, kk or default and a type_key
+#     calls the save function...; a locale outside ru, kk and default cannot be selected; Activate is offered only for a row with status draft and
+#     Retire only for a row with status active; a reason_code that does not match the format [a-z][a-z0-9_]{0,63} makes zero requests and shows a
+#     validation message, a matching one calls the route." : steps 3 to 5 (invalid JSON, not an object, empty type key), 6 (locale choices), 12 to 15
+#     (reason code format and boundary 64/65), 9 (Activate offered for a draft, no Retire). Retire offered only for an active row: scenario 59.
+#  C5 (preview) "...contains the literal text, the label with the placeholder [entity_type.field_name], the hidden-when-empty marker, the two column
+#     headers with exactly three placeholder rows, and the spacer; a text block containing the string <script>alert(1)</script> is rendered as visible
+#     text and the container has no script element." : steps 2 and 7.
+#  C7 (page) "...the list shows the metadata columns of the REQ-579 list reply and never a layout; opening a row calls the get route and fills the
+#     editor and the preview with the returned layout; saving from an opened row calls the save function (a new draft) and does not call any other
+#     write route; after a successful save, activate or retire the list is fetched again." : steps 8 to 11 (the list showing the new row is the
+#     visible side of "fetched again").
+#  Also REQ-614 description: "REQ-579 answers 409 to an activation by the draft's own creator...; the screen shows that reply and does not try to hide
+#     the button." : step 15. Filters type_key and locale: step 10.
+# Not covered here (no surface a person can see, or other scenarios): C1 (API helper: method, path and body of each call, vitest only); C2 "fixtures
+# picked by key, never by role name" and "the fixtures add the permission to those two roles only" (unit test and guard; the user-visible result is
+# scenario 58); C3 "zero requests" is not visible to a person: steps 3 to 5 check it through the stored-override count and the audit count read by
+# the harness; C4 mocked 404 and mocked 500 (a person cannot make the server answer 404 for a row just listed, or 500); C6 "no call is made", "does not
+# call entitiesApi, ..." (network calls, vitest only); C6 "an unknown block type, a layout without a blocks list and a non-object value each render
+# a notice and do not throw" is partly seen (non-object: step 4; unknown block type: scenario 57 step 7); C8 (git diff touches only web/, npm run check)
+# and C9 (security verdict) are process gates, not UAT. Scenario 57 covers the 422 and 409 error lines; scenario 59 the second-administrator success.
+# Sources: docs/requirements.yaml REQ-614; web/src/pages/admin/PrintTemplatesPage.tsx, web/src/components/admin/PrintLayoutEditor.tsx,
+# PrintLayoutPreview.tsx, web/src/api/documentPrintOverrides.ts (REASON_CODE_MESSAGE, describePrintOverrideError), web/src/components/layout/AppShell.tsx
+# (nav entry "Print Templates" in the group "Tenant administration"); docs/roles.md (DocumentPrintTemplatesManage); test/fixtures/uat/actors.yaml.
+# UAT assumption, to be confirmed by the process owner: the screen texts quoted below are read from the screen code (page title "Print templates",
+# button "Save as new draft", message "Layout is not valid JSON"); a different wording on screen with the same meaning is not a FAIL.
+# Sensitive actions: approve = activation (steps 13 to 15, refused for the creator); pay or release, see-sensitive-data and change-users do not occur
+# in this flow (the sensitive-data check is scenario 57, the access check scenario 58).
+---
+id: tenant-administration-56-print-templates-screen-author-preview-and-save
+scope: tenant-administration
+title: On the Print templates screen the administrator edits a layout as JSON, sees a live preview, saves new drafts, and the screen refuses bad input before sending it
+version: "1.0"
+tags: [tenant-admin, documents, print-override, gui, preview, validation, separation-of-duties]
+
+description: >
+  The SwiftRoute administrator opens "Print Templates" from the "Tenant administration" menu group. The list is empty. They type the type key
+  "purchase_order", choose the language ru and enter a layout with a page, a text block that holds the characters "<script>alert(1)</script>",
+  a field block, a field block shown only when not empty, a table with two columns and a spacer. The preview beside the editor shows the text as
+  visible characters, the field labels with placeholders, the hidden-when-empty marker, the two column headers with three placeholder rows and
+  blank space. Text that is not valid JSON, JSON that is not an object, and an empty type key are refused on the screen and nothing is stored. The
+  language list has exactly ru, kk and default. Saving creates draft version 1 in the list (metadata only, no layout). Opening the row fills the
+  editor and the preview; changing the text and saving creates draft version 2 and leaves version 1 unchanged. The list filters narrow the rows. An
+  activation reason code that is not lower-case letter first, then lower-case letters, digits or underscore, at most 64 characters, is refused on
+  the screen; a 64-character code is accepted by the screen and the server answers that activation needs a second administrator.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  module: actor-system-documents-service
+
+preconditions:
+  - description: SwiftRoute has a document type "purchase_order" whose fields are supplier_name, total_amount and internal_cost (entity type purchase_order); no print override exists in SwiftRoute
+    check: system_seeded
+    detail: Registered through the service-level harness before step 1 (the module actor). If the harness cannot do it, the whole scenario is BLOCKED, not PASS. The harness can read the stored overrides and the SwiftRoute audit trail.
+  - description: The administrator can sign in to the web application of SwiftRoute and holds the print-override permission (TENANT_ADMIN)
+    check: system_seeded
+    detail: Per the role matrix only TENANT_ADMIN and the platform operator hold it. If the roster account cannot sign in to the web application, the scenario is BLOCKED, not FAIL.
+  - description: The layout texts below are exact
+    check: custom
+    detail: >
+      LAYOUT-A is this JSON, typed exactly (a page with size A4; blocks in this order): {"layout_schema_version":1,"blocks":[
+      {"type":"page","size":"A4","margin_mm":15,"font":"dejavu-sans"},
+      {"type":"text","text":"<script>alert(1)</script>"},
+      {"type":"field","entity_type":"purchase_order","field_name":"supplier_name","label":"Supplier"},
+      {"type":"field","entity_type":"purchase_order","field_name":"total_amount","label":"Total","show_if_nonempty":true},
+      {"type":"table","entity_type":"purchase_order","columns":[{"field_name":"supplier_name","header":"Name"},{"field_name":"total_amount","header":"Amount"}]},
+      {"type":"spacer","height_mm":5}]}.
+      LAYOUT-B is LAYOUT-A with the text block's text "test sample header v2". The long reason codes: R64 is the letter a followed by 63 letters b
+      (64 characters); R65 is the letter a followed by 64 letters b (65 characters).
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      Signs in to the web application and opens the menu group "Tenant administration". Notes whether an entry "Print Templates" is there, opens it,
+      and notes the page title, the table of overrides and the two filters (type key text field, language list).
+    via: gui
+    produces:
+      first_screen: the menu entry, the page title, the empty table with its column headings and the filters
+  - step: 2
+    actor: tenant_admin
+    action: >
+      On the same screen enters the type key "purchase_order", leaves the language at its default and replaces the layout text with LAYOUT-A. Notes
+      the preview beside the editor and the browser's page for any pop-up.
+    via: gui
+    input:
+      type_key: purchase_order
+      layout: LAYOUT-A
+    produces:
+      preview_a: the preview of LAYOUT-A
+  - step: 3
+    actor: tenant_admin
+    action: 'Replaces the layout text with {"blocks": [ (not valid JSON) and presses "Save as new draft". Notes the message beside the editor.'
+    expect_refusal: true
+    via: gui
+    input:
+      layout: '{"blocks": ['
+  - step: 4
+    actor: tenant_admin
+    action: Replaces the layout text with [1, 2] (valid JSON but not an object) and presses "Save as new draft". Notes the message beside the editor.
+    expect_refusal: true
+    via: gui
+    input:
+      layout: "[1, 2]"
+  - step: 5
+    actor: tenant_admin
+    action: Puts LAYOUT-A back, empties the type key field and presses "Save as new draft". Notes the message.
+    expect_refusal: true
+    via: gui
+    input:
+      type_key: ""
+      layout: LAYOUT-A
+  - step: 6
+    actor: module
+    action: Reads and notes the number of stored overrides in SwiftRoute (expected 0) and the number of audit entries whose action is document.print_override_saved, document.print_override_activated or document.print_override_retired (expected 0).
+    via: system
+  - step: 7
+    actor: tenant_admin
+    action: Types the type key "purchase_order" again, opens the language list and notes every choice it offers, chooses ru, and presses "Save as new draft". Notes the list.
+    via: gui
+    input:
+      type_key: purchase_order
+      locale: ru
+      layout: LAYOUT-A
+    produces:
+      locale_choices: the choices of the language list
+      list_after_save: the list with the new row
+  - step: 8
+    actor: module
+    action: Reads and notes the stored override rows (expected one row, purchase_order, ru, version 1, draft, created by the administrator) and the audit entries of the three print-override actions (expected one, document.print_override_saved).
+    via: system
+  - step: 9
+    actor: tenant_admin
+    action: Clicks the row in the list. Notes the heading above the editor, which buttons are offered, and the text in the editor and the preview.
+    via: gui
+    produces:
+      opened_draft: the heading, the buttons and the editor and preview content of the opened row
+  - step: 10
+    actor: tenant_admin
+    action: >
+      With the row still open, replaces the text of the text block in the editor with "test sample header v2" (LAYOUT-B) and presses "Save as new draft".
+      Then types "purchase_order" in the list's type key filter and chooses ru in the list's language filter, notes the rows, then chooses kk and notes the rows.
+    via: gui
+    input:
+      layout: LAYOUT-B
+      filter_type_key: purchase_order
+      filter_locale: [ru, kk]
+    produces:
+      list_two_drafts: the list after the second save
+      filter_ru: the rows with the filter ru
+      filter_kk: the rows with the filter kk
+  - step: 11
+    actor: module
+    action: Reads the stored rows (expected two for purchase_order, ru, version 1 and version 2, both draft; the fingerprint of version 1 is the one noted in step 8) and the audit entries (expected two document.print_override_saved).
+    via: system
+  - step: 12
+    actor: tenant_admin
+    action: Opens version 2 in the list, presses "Activate", enters the reason code "Go-Live" and confirms. Notes the message.
+    expect_refusal: true
+    via: gui
+    input:
+      reason_code: Go-Live
+  - step: 13
+    actor: tenant_admin
+    action: Enters the reason code R65 (65 characters) and confirms. Notes the message.
+    expect_refusal: true
+    via: gui
+    input:
+      reason_code: R65
+  - step: 14
+    actor: module
+    action: Reads and notes the audit entries (expected still two, both saves) and the stored status of version 2 (expected draft).
+    via: system
+  - step: 15
+    actor: tenant_admin
+    action: Enters the reason code R64 (64 characters, accepted by the format) and confirms. Notes the message on the screen, then the status of version 2 in the list.
+    expect_refusal: true
+    via: gui
+    input:
+      reason_code: R64
+  - step: 16
+    actor: module
+    action: Reads the stored rows and the audit entries after step 15 and compares them with step 14.
+    via: system
+
+expected_outcomes:
+  - id: EO-001
+    description: The Print templates entry is in the Tenant administration group for the administrator and opens an empty list with the filters.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 1 shows an entry "Print Templates" under "Tenant administration"; the page title is "Print templates"; the table has the headings Type key,
+        Locale, Version, Status, Layout hash, Created by, Activated by, Activated at, Retired at and no rows; there is a type key field and a language
+        list with All, ru, kk and default.
+      evidence: The screens noted in step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot find the screen that replaces calling the print-override routes by hand.
+      suggested_action: route_to_frontend_dev
+  - id: EO-002
+    description: The preview draws the layout as the administrator types, shows markup as characters, and contains only the layout's own words and placeholders.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 preview shows, in order, the text "<script>alert(1)</script>" as visible characters (no pop-up, no script run); the label "Supplier"
+        followed by the placeholder [purchase_order.supplier_name]; "Total" followed by [purchase_order.total_amount] with a note "(hidden when empty)";
+        a table with the headers "Name" and "Amount" and exactly three rows of the placeholders [purchase_order.supplier_name] and
+        [purchase_order.total_amount]; blank space for the spacer. No stored value of any record appears. The preview changes in step 10 to the
+        text "test sample header v2" as it is typed.
+      evidence: The preview noted in steps 2, 7 and 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An administrator cannot check a layout before saving, or markup typed into a layout runs on the administrator's screen.
+      suggested_action: route_to_frontend_dev
+  - id: EO-003
+    description: Text that is not valid JSON, JSON that is not an object and an empty type key are refused on the screen and nothing is stored or audited.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 shows "Layout is not valid JSON"; step 4 shows "Layout must be a JSON object"; step 5 shows "Type key is required". In step 6 the stored
+        override count is 0 and the audit count of the three actions is 0.
+      evidence: The messages of steps 3 to 5 and the counts of step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: Unusable layouts reach the server or the administrator gets no hint what is wrong.
+      suggested_action: route_to_frontend_dev
+  - id: EO-004
+    description: The language list offers exactly ru, kk and default.
+    verification:
+      method: gui_screen
+      detail: The list opened in step 7 offers the choices ru, kk and default and no other.
+      evidence: The choices noted in step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A language the server does not accept could be chosen, or an accepted language is missing.
+      suggested_action: route_to_frontend_dev
+  - id: EO-005
+    description: Saving creates a draft, shown in a list that carries metadata only and never the layout.
+    verification:
+      method: gui_screen
+      detail: >
+        After step 7 the list has one row: purchase_order, ru, version 1, status draft, a layout fingerprint, created by the administrator, activated
+        by and activated at and retired at shown as a dash. No cell holds layout text ("test sample", "Supplier" or the characters "<script>").
+        In step 8 the stored row equals that row and the audit trail has one document.print_override_saved entry.
+      evidence: The list noted in step 7 and the rows and entries read in step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A saved layout is not visible to the administrator, or the list exposes layout wording.
+      suggested_action: route_to_frontend_dev
+  - id: EO-006
+    description: Opening a row fills the editor and the preview with the stored layout and offers Activate for a draft only.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 9 shows the heading "purchase_order / ru / v1 (draft)", a button "Activate" and no button "Retire"; the editor holds the layout of LAYOUT-A
+        and the preview shows the same blocks as in step 2.
+      evidence: The screen noted in step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot review what was saved, or is offered an action that does not apply to a draft.
+      suggested_action: route_to_frontend_dev
+  - id: EO-007
+    description: Saving from an opened row creates a new draft and leaves the opened version unchanged; the list filters narrow the rows.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 10 list shows version 1 and version 2 of purchase_order, ru, both draft; the filter ru shows both rows and the filter kk shows no row. In
+        step 11 version 1 still has the fingerprint noted in step 8 and the audit trail has exactly two document.print_override_saved entries.
+      evidence: The lists of step 10 and the rows and entries of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: Changing a layout could overwrite the version already reviewed, or the list cannot be narrowed to one document type and language.
+      suggested_action: route_to_frontend_dev
+  - id: EO-008
+    description: An activation reason code in the wrong format is refused on the screen; a code at the 64-character limit is passed on and the server's refusal for the creator is shown.
+    verification:
+      method: gui_screen
+      detail: >
+        Steps 12 and 13 show the message "reason_code must start with a lower-case letter and use lower-case letters, digits or underscore, at most 64
+        characters". In step 14 the audit trail still holds two entries and version 2 is still draft. Step 15 shows the server's sentence "activation
+        needs a second administrator", the button "Activate" is still offered, version 2 is still draft in the list, and in step 16 the rows and the
+        audit entries equal those of step 14.
+      evidence: The messages of steps 12, 13 and 15 and the rows and entries of steps 14 and 16.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The author of a company print layout could put it into force alone, or a malformed reason code could reach the audit trail.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: The stored overrides are permanent and stay as unused drafts. Re-running needs a fresh test company or a different type key.
