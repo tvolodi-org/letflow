@@ -39,7 +39,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
         assert Authorization.required_permission(p) == p
       end
 
-      assert core |> Enum.take(-10) |> Enum.take(2) == @permissions
+      assert core |> Enum.take(-11) |> Enum.take(2) == @permissions
     end
 
     test "TENANT_ADMIN holds both; every other role holds neither" do
