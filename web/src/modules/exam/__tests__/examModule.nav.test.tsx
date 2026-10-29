@@ -4,7 +4,7 @@
  *
  * With `GET /api/v1/me/modules` returning exam in installed_modules:
  *   - A the candidate fixture sees the /exam nav item.
- *   - A the process operator fixture sees the /admin/bilimbaga nav item.
+ *   - A the process operator fixture sees the /admin/questions nav item (REQ-612).
  *
  * With installed_modules: []:
  *   - Neither nav item renders.
@@ -103,10 +103,10 @@ describe('REQ-412 AC4 — exam module nav items', () => {
     expect(screen.getByRole('link', { name: 'Exams' })).toHaveAttribute('href', '/exam')
   })
 
-  it('the process operator fixture sees the /admin/bilimbaga nav item when exam module is installed', async () => {
+  it('the process operator fixture sees the /admin/questions nav item when exam module is installed', async () => {
     await renderAppShellAt('operator', [{ module_id: 'exam', version: '1.0.0' }])
     await waitFor(() => expect(screen.getByText('Question Bank')).toBeInTheDocument())
-    expect(screen.getByRole('link', { name: 'Question Bank' })).toHaveAttribute('href', '/admin/bilimbaga')
+    expect(screen.getByRole('link', { name: 'Question Bank' })).toHaveAttribute('href', '/admin/questions')
   })
 
   it('with installed_modules:[], the candidate fixture does not see the /exam nav item', async () => {
@@ -115,7 +115,7 @@ describe('REQ-412 AC4 — exam module nav items', () => {
     expect(screen.queryByText('Exams')).not.toBeInTheDocument()
   })
 
-  it('with installed_modules:[], the process operator fixture does not see the /admin/bilimbaga nav item', async () => {
+  it('with installed_modules:[], the process operator fixture does not see the /admin/questions nav item', async () => {
     await renderAppShellAt('operator', [])
     await waitFor(() => expect(screen.getByTestId('logout-button')).toBeInTheDocument())
     expect(screen.queryByText('Question Bank')).not.toBeInTheDocument()

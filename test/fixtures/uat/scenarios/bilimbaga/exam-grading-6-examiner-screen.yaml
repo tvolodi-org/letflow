@@ -1,0 +1,187 @@
+# T-0877 (BA-BILIMBAGA): the examiner's grading screen of the web application: queue, answer, mark form, messages in three languages.
+# Covers REQ-589 criteria 2 (Test U-list), 3 (Test U-answer), 4 (Test U-save) and 5 (Test U-i18n); criterion 1 (Test U-guard) is in scenario exam-grading-4.
+# Sources: docs/requirements.yaml REQ-589 (description, criteria 2 to 5); web/src/modules/exam/examMessages.ts (texts 'Answers to grade', 'Nothing to grade.',
+# 'Mark', 'Largest mark: {maxScore}', 'The mark was saved.', 'This answer has already been graded. The queue was refreshed.'); web/src/modules/exam/
+# ExamGradingListPage.tsx, ExamGradingAnswerPage.tsx, examRoutes.tsx (screens /exam/grading and /exam/grading/:sessionId/:questionId, shell not-found page);
+# test/fixtures/uat/actors.yaml (actor-bilimbaga-admin).
+# Not UAT-observable (left to the Vitest tests U-save and U-i18n): the 422 message on the mark field (the Save button is disabled for a mark outside 0 to the
+# largest mark, so a real person cannot send one; REQ-589 criterion 4, 422 clause), the exactly-one-request check on a double click and the single-key
+# request body (the request contents are not shown to a person), and the completeness check of the text keys (a source check; steps 4 and 9 check only what is on screen).
+# Locale switching: the screen text follows the application's interface language; if the QA application offers no language switch for the signed-in
+# user, steps 4 and 9 are BLOCKED.
+# The four sensitive actions: "approve" is the mark (step 6); "see sensitive data" is step 3 (no candidate name, e-mail or id on the screen); others not in this flow.
+# Not UAT-observable: the paging clause of REQ-589 criterion 2 (the paging control follows the API page information; the screen pages by 25 and shows a next page only when more
+# exist). It needs at least 26 waiting answers at once, while this scenario depends on exactly three so that the table can become empty in step 8; the setup cannot give both.
+# Recorded in test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-grading-6-examiner-screen.yaml.
+# The stored mark of the answer marked in step 7 is shown by no screen; it is checked in EO-007 as system_state.
+---
+id: bilimbaga-exam-grading-6-examiner-screen
+scope: bilimbaga
+title: The examiner works through the grading screens, from the waiting answers to a saved mark, with clear messages when a mark cannot be saved
+version: "1.0"
+tags: [exam_grading, gui, mark, i18n, sensitive_data]
+
+description: >
+  The administrator of Bilimbaga opens "Grading" in the exam menu and sees a table of waiting answers with the exam title, the question text and
+  the time handed in, and no candidate name, e-mail or identifier. The administrator filters the table to one exam, then clears the filter, and
+  opens one answer whose text contains the characters of a script tag: the screen shows them as written, nothing runs. The Save button is disabled
+  while the mark field is empty or is above the largest mark shown. The administrator saves a valid mark: a confirmation appears, the table returns
+  and the marked row is gone. In a second browser window the administrator opens a second answer, marks it in the first window, then tries to save
+  a different mark in the second window: the screen says the answer was already graded and the table is refreshed. An address of an answer that does
+  not exist shows the application's not-found page. When the last answer is marked the table shows "Nothing to grade." The texts are shown in
+  Kazakh, Russian and English with no raw text key.
+  Preconditions: see below.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Bilimbaga has the exam module installed and the exams "UAT grading exam H" and "UAT grading exam I", each with one session handed in holding an unmarked short text answer; the exam H answer reads <script>alert(1)</script> as written by the candidate; there is exactly one more waiting answer in exam H
+    check: custom
+    detail: Prepared by the test setup; the candidates' names and e-mail addresses are known to the setup so that step 3 can look for them. Without these answers the scenario is BLOCKED. The setup also removes every other waiting answer of Bilimbaga, so that the table can become empty in step 8.
+  - description: The Bilimbaga administrator can sign in to the web application
+    check: system_seeded
+    detail: The roster notes that a test token for the administrator needs a mapping that is not yet approved; without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      The administrator signs in, chooses "Grading" in the exam menu and reads the table.
+    via: gui
+  - step: 2
+    actor: admin
+    action: >
+      The administrator types the identifier of "UAT grading exam I" in the exam filter and applies it, then clears the filter.
+    via: gui
+    input:
+      exam_filter: the identifier of "UAT grading exam I"
+  - step: 3
+    actor: admin
+    action: >
+      The administrator looks through the table and the opened answers for a candidate name, e-mail address or user identifier.
+    via: gui
+  - step: 4
+    actor: admin
+    action: >
+      The administrator opens the exam H answer that reads <script>alert(1)</script>, and reads the question, the answer and the largest mark. Before typing any mark the administrator switches the interface language to Kazakh, to Russian and to English in turn (ending on English) and reads the headings, the labels and the Save button of this answer screen in each.
+    via: gui
+  - step: 5
+    actor: admin
+    action: >
+      The administrator leaves the mark field empty, then types a mark above the largest mark (2 when the largest mark is 1), and looks at the Save button each time.
+    via: gui
+    expect_refusal: true
+    input:
+      mark: "2"
+  - step: 6
+    actor: admin
+    action: >
+      The administrator types 0.5 in the mark field and presses Save once.
+    via: gui
+    input:
+      mark: "0.5"
+  - step: 7
+    actor: admin
+    action: >
+      The administrator opens the other waiting answer of exam H in two browser windows, marks it 1 in the first window and saves, then in the second
+      window types 0.2 and presses Save.
+    via: gui
+    input:
+      mark_window_1: "1"
+      mark_window_2: "0.2"
+  - step: 8
+    actor: admin
+    action: >
+      The administrator types the address of an answer screen with a session and question that do not exist, and then marks the last waiting answer
+      (the one of exam I) with 1.
+    via: gui
+  - step: 9
+    actor: admin
+    action: >
+      Right after the last mark of step 8 the administrator switches the interface language to Kazakh, to Russian and to English in turn and reads
+      the empty grading table in each language.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: The table lists the waiting answers with exam title, question text and time handed in, filters by exam, and shows no candidate identity
+    verification:
+      method: page_state
+      detail: "Step 1 shows the three waiting answers (two of exam H, one of exam I) with exam title, question text and the time handed in; step 2 shows only the exam I row, and all rows again after clearing; step 3 finds no candidate name, e-mail address or user identifier in the table or any answer screen"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A table that shows who answered breaks the blind grading and exposes personal data.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: The answer is shown as plain text and the Save button follows the allowed range
+    verification:
+      method: page_state
+      detail: "Step 4 shows the characters <script>alert(1)</script> as written, with the question text, the candidate's answer and the largest mark; no message box appears; step 5 shows the Save button disabled when the field is empty and when the mark is 2, and enabled for 0.5 in step 6"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An answer shown as active content lets a candidate run code in the examiner's session.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: A saved mark shows a confirmation and returns to a table without the marked row
+    verification:
+      method: page_state
+      detail: "Step 6 shows 'The mark was saved.' and the table, which no longer contains the answer just marked, and the exam H and exam I rows still waiting"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An examiner who is not told the mark was saved marks twice or not at all.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: An answer already marked elsewhere is reported as already graded, the table is refreshed, and the first mark stands
+    verification:
+      method: page_state
+      detail: "Step 7 shows 'This answer has already been graded. The queue was refreshed.' in the second window and a table without that answer"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A screen that overwrites or hides the conflict changes a result already given.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-007
+    description: The first mark stands after the conflict in step 7
+    verification:
+      method: system_state
+      detail: "The stored mark of the answer marked in step 7 is 1, not 0.2; the screen shows no stored mark of a marked answer, so this is read in the test database by the acceptance run"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A screen that overwrites the conflict changes a result already given.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-005
+    description: An address of an answer that does not exist shows the application's not-found page, and an empty table shows the empty-state text
+    verification:
+      method: page_state
+      detail: "Step 8 shows the application's not-found page for the made-up address, and after the last mark the table shows 'Nothing to grade.'"
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        A blank or broken page leaves the examiner unsure whether work is left.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-006
+    description: The grading texts appear in Kazakh, Russian and English with no raw text key
+    verification:
+      method: page_state
+      detail: "Step 4 shows the headings, labels and Save button of the answer screen translated in Kazakh, Russian and English, and step 9 shows the empty-state text translated in each; no raw text of the form exam.grading.<something> appears"
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        An examiner who reads a raw key or a wrong language cannot work in the language of the body.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: false
+  description: >
+    The marks cannot be undone through the product (a mark is final). The test setup recreates the waiting answers before the next run.

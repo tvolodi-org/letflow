@@ -1,0 +1,11 @@
+scenario_id: bilimbaga-exam-grading-6-examiner-screen
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the paging clause of REQ-589 criterion 2 (the paging control follows the API's page information: a next page only when more answers exist); the rest of the scenario runs"
+reason: >
+  Paging needs at least 26 waiting answers at the same time (the screen pages by 25). The scenario depends on exactly three waiting answers so that the table can become empty in step 8, and the test setup cannot provide both queues in one run. The clause is not run, not passed.
+recorded_by: BA
+recorded_at: "2026-10-28"
+issue_ref: "GH #3323"
+review: >
+  Revisit when the setup can prepare a separate Bilimbaga queue of 26 or more waiting answers.

@@ -74,7 +74,7 @@ planned, or the same assertion is already covered by a dedicated Letflow spec.
 | Source file | Rows | PORTABLE-NOW | BLOCKED-BY | DROP | Notes |
 |---|---:|---:|---:|---:|---|
 | `tags.spec.ts` | 1 | 0 | 1 | 0 | search filter: BLOCKED-BY search box on entity CRUD page |
-| `question-bank.spec.ts` | 5 | 0 | 5 | 0 | editor navigation, difficulty badges, search x2, Import/AI-Generate: BLOCKED-BY question editor and search |
+| `question-bank.spec.ts` | 5 | 0 | 5 | 0 | PORTED (GH 3423 / REQ-612, `question-bank.e2e.spec.ts` tests 8 to 11): editor navigation, difficulty badges, search x2. Import/AI-Generate: split to REQ-600 (not built; counts above are the measurement before REQ-612) |
 | `exam-lifecycle.spec.ts` | 2 | 0 | 0 | 2 | edit-wizard navigation; no wizard planned |
 | `employee-portal.spec.ts` | 5 | 0 | 3 | 2 | Start modal open/cancel: DROP (Start navigates directly). Continue CTA, View Result CTA, My Results: BLOCKED-BY results list |
 | `exam-taking.spec.ts` | 2 | 1 | 0 | 1 | flag/unflag: PORTABLE-NOW since REQ-611 (flag control, case 07 in `exam-taking.e2e.spec.ts`); submit-confirm modal: DROP |
@@ -86,7 +86,7 @@ planned, or the same assertion is already covered by a dedicated Letflow spec.
 | `grading/ai-grading.spec.ts` | 9 | 0 | 9 | 0 | BLOCKED-BY examiner grading screen |
 | `accessibility.spec.ts` | 7 | 0 | 7 | 0 | BLOCKED-BY skip-link and `#main-content` landmark in `AppShell` |
 | `branding.spec.ts` | 4 | 3 | 0 | 1 | form renders, primary colour field, Save: portable against `AppearanceSettingsPage`; "update app name": DROP (no such field) |
-| `question-editor.spec.ts` | 7 | 0 | 7 | 0 | BLOCKED-BY question editor page |
+| `question-editor.spec.ts` | 7 | 0 | 7 | 0 | PORTED (GH 3423 / REQ-612, `question-editor.e2e.spec.ts` tests 1 to 7; test 4 follows assumption A1, no auto-grading section; counts above are the measurement before REQ-612) |
 | `question-management.spec.ts` | 20 | 0 | 20 | 0 | BLOCKED-BY delete/archive/import/export/AI tooling |
 | `user-management.spec.ts` | 18 | 6 | 10 | 2 | deactivate x4 and edit display name x2: portable against `UserDetailPage` (page, not drawer). Reset password x4, CSV import x6: BLOCKED-BY those controls. Drawer-required-fields and drawer-cancel: DROP |
 | `loyalty-narrative.spec.ts` | 4 | 0 | 4 | 0 | BLOCKED-BY employee record page and AI narrative |

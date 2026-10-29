@@ -19,6 +19,8 @@ import ExamGradingListPage from './ExamGradingListPage'
 import ExamGradingAnswerPage from './ExamGradingAnswerPage'
 import ExamBuilderPage from './ExamBuilderPage'
 import ExamBuilderListPage from './ExamBuilderListPage'
+import QuestionBankPage from './QuestionBankPage'
+import QuestionEditorPage from './QuestionEditorPage'
 import { EXAM_AUTHORING_WRITE } from './bilimbagaWrites'
 import { RequirePermission } from '@/auth/access'
 
@@ -33,6 +35,16 @@ function builderGuard(page: ReactNode) {
 }
 
 export const examRouteObjects: RouteObject[] = [
+  {
+    // GH 3423 / REQ-612: the question bank and editor. No permission wrapper: a user without
+    // ExamAuthoringWrite sees the pages with the write actions hidden.
+    path: 'admin/questions',
+    children: [
+      { index: true, element: <QuestionBankPage /> },
+      { path: 'new', element: <QuestionEditorPage /> },
+      { path: ':recordId/edit', element: <QuestionEditorPage /> },
+    ],
+  },
   {
     path: 'exam',
     children: [
