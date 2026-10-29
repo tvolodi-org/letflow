@@ -44630,3 +44630,69 @@ requirements:
       - "To be put to the owner or settled in the REQ-622 record before implementation, since it decides which legal layout prints: where the document's locale is stored is not settled by 0068; this entry fixes the draft content key locale as a UAT assumption, to be confirmed by the process owner."
       - "0068 D3 says the pre-check runs before the numbering transaction; in the code the number is taken inside the issue transaction (number_of!/3), so this entry puts the pre-check inside that transaction before any write to document_sequences, which has the same effect (a refusal rolls back with no number). The gate confirms or changes this."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571, REQ-579, REQ-622, REQ-623]
+
+  - id: REQ-625
+    title: "WMS foundation: module locations skeleton and read API, warehouse location hierarchy (site, zone, address) with unique scannable address, location type, active flag, external_ref (base document MD-02)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- every dependency is done; the engine files the issue after the gate
+    # Source: docs/WMS/WMS_Procurement_Requirements_Draft.md MD-02 (location hierarchy, unique scannable addresses, receiving/pick/ship/reject/quarantine/custody/outdoor locations); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (line 18: "`locations` arrives with the warehouse slices"; the reference contract: reference by immutable record id, retire = active false, no hard delete; the read API shape lookup and active?; line 286: a consumer that needs a warehouse before the module exists carries a free-text reference); docs/migration/decisions/0057-wms-customer-draft-reconciliation.md D1 (masters carry a nullable external_ref {system, id}, no inbound master sync) and D12 (the pilot is seeded with test data, locations among them, through the generic idempotent import); docs/requirements.yaml REQ-473 and REQ-474 (the skeleton pattern copied here), REQ-506 and REQ-507 (the read-API contract copied here), REQ-505 (the import). Written by the business analyst (T-0912) 2026-10-29. Not yet validated.
+    description: >
+      Adds the foundation module that decision 0050 deferred: `locations`, the warehouse location master of base document item
+      MD-02. It copies the shape of the modules org (lib/letflow/modules/org/org.ex, pack priv/modules/org/) and catalog_items
+      (lib/letflow/modules/catalog_items/catalog_items.ex, pack priv/modules/catalog_items/): module id locations, entry module
+      Letflow.Modules.Locations in lib/letflow/modules/locations/, pack priv/modules/locations/ (entity_definitions/, pack.json
+      and generate_pack.exs as the two existing packs have them). The type is declared in manages_entity_types, so after install
+      the generic routes answer 403 entity_type_managed and only the module's Owner writes. Manifest: permissions [], no
+      role_grants, no widens_grants, no routes, no write functions (the same skeleton limits as REQ-473 and REQ-474). Reads go
+      through the module read API, which reuses Letflow.Modules.ReadApi (lib/letflow/modules/read_api.ex).
+
+      One entity type, location_node, holds all three levels of the hierarchy, so a tree needs no second type. Fields (all
+      declarative, no foreign_keys, as 0050 D3.6 requires): code (string, queried, required, unique); name (string, required);
+      node_kind (enum site | zone | address, queried, required); parent_id (string, queried, optional; the record_id of the
+      parent location_node, absent for a site; the rule that a zone's parent is a site and an address's parent is a zone, and
+      the absence of cycles, are NOT in the definition and are not enforced by this skeleton, as in org_unit); org_site_id
+      (string, optional; the record_id of an org_site of the org module, meaningful on a node of kind site, not validated here);
+      address (string, queried, optional; the scannable address printed on the rack or bay label, filled for kind address;
+      unique per tenant through the unique constraint uq_location_node_address over [address], and many rows with no address are
+      accepted because Postgres treats NULLs as distinct); location_type (enum receiving | pick | ship | reject | quarantine |
+      custody | outdoor, queried, optional; the list is the seven kinds named in MD-02; whether an address must have a type is
+      not enforced here); active (boolean, queried, required; MD-02's "operational status" is carried by this flag only in this
+      slice, UAT assumption, to be confirmed by the process owner); external_ref_system and external_ref_id (nullable strings,
+      both queried, unique pair constraint, 0057 D1; the both-or-neither rule is not enforced because the module has no write
+      functions, as for the existing types). A location is retired with active false and never deleted (0050).
+
+      Read API in Letflow.Modules.Locations, the contract of REQ-506 and REQ-507: lookup(prefix, id) returns {:ok, record_map} |
+      {:error, :not_found} with string keys "record_id", "entity_type" and the stored fields; active?(prefix, id) is true only
+      for an existing, non-deleted location_node whose active is true; a non-uuid, an unknown uuid, a deleted record and a
+      non-text prefix give :not_found / false, never a raise. Isolation is by prefix alone.
+
+      Not in this change (open questions for the process owner or later requirements, not decided here). (1) Item-to-location
+      and item-to-item compatibility rules, and blocking or exception routing of an incompatible or overloaded putaway: base
+      document MD-03 and the putaway behaviour of MD-02's acceptance text; they depend on the customer's rules and on the stock
+      ledger. (2) Location size, capacity, load limit, storage mode and temperature band: they need the exact-decimal quantity
+      type (the quantity requirement, GH #2654) and customer values; no such field is added. (3) Resolving a scanned address
+      string to a record (lookup by address): a later slice, because the module has no query function yet; the unique address
+      constraint is the part of "a scan resolves to one address" that this slice delivers. (4) Write functions that enforce the
+      tree rules, the both-or-neither external_ref rule and the check that org_site_id exists. (5) Seeding locations: the
+      generic import of REQ-505 refuses a managed type with 403 entity_type_managed, as for catalog_item today (REQ-604
+      records the same gap against decision 0057 D12), so test locations cannot be loaded that way; no seed, fixture data set or
+      QA script is written here. (6) Whether the module depends_on org in its manifest: here depends_on stays [] and org_site_id
+      is a plain string, as catalog_items does for base_uom_id.
+
+      Existing tenants: a tenant installs locations through POST /tenant/modules like the other modules; nothing exists to
+      migrate. All file and line references are re-read on main by the implementer.
+    acceptance_criteria:
+      - "1. Definition: priv/modules/locations/entity_definitions/location_node.json exists with exactly the fields code, name, node_kind, parent_id, org_site_id, address, location_type, active, external_ref_system, external_ref_id; the enum values node_kind = site | zone | address and location_type = receiving | pick | ship | reject | quarantine | custody | outdoor; the queried and required flags stated in the description; no foreign_keys; a unique constraint over [code], one over [address] and one over the external_ref pair; asserted by a test that reads the file (as test/letflow/modules/org/entity_definitions_test.exs does), and a pack drift test (as test/letflow/modules/org/pack_drift_test.exs does) passes with the generated pack.json."
+      - "2. Registration: Catalog.validate/1 accepts the manifest (id locations, depends_on [], manages_entity_types equal to [\"location_node\"], permissions [], no role_grants, no widens_grants); Catalog.entry_modules/0 includes Letflow.Modules.Locations; the literal module-list assertions in test/letflow/modules/catalog_test.exs and the golden modules assertion in test/letflow/api/permission_matrix_test.exs are updated; mix letflow.permission_matrix --write regenerates priv/permission_matrix/effective.golden and mix letflow.permission_matrix --check passes, output quoted."
+      - "3. Install on real Postgres: POST /tenant/modules as TENANT_ADMIN with a rationale returns 201; without a rationale, with a blank one and with a non-string one it returns 422; after install location_node is active and exactly one promotion row exists per promoted column (computed from DDL.promoted_columns/1, including the two external_ref columns and the address column)."
+      - "4. Name conflict: with a tenant-created entity type already named location_node, the install is refused and rolls back completely (the error shape is read from Installs.install/3 on main, as the REQ-473 name-conflict test asserts); no location_node type, no tenant_modules row and no promotion row remains."
+      - "5. Managed: after install a generic POST /entities/records/location_node answers 403 entity_type_managed."
+      - "6. Hierarchy and uniqueness through the owner path (the /3 arity with ManagedTypes.owner_for!(Letflow.Modules.Locations), as test/support/modules/fixture_managed/fixture_managed.ex and the org tests do): a site, a zone whose parent_id is the site's record_id and an address whose parent_id is the zone's record_id are all accepted and read back with those parent_id values; a second location_node with an existing code and a second one with an existing non-null address are each refused with {:error, {:record_payload_invalid, [%Violation{rule: :unique, path: [...]}]}} naming the field; two rows with no address are accepted; the same address in tenant B's schema is accepted (per-tenant uniqueness)."
+      - "7. Types and required fields: an owner-path create with location_type outside the seven values, one with node_kind outside site | zone | address, and one missing code, name, node_kind or active are each refused with {:error, {:record_payload_invalid, _}} naming the field (the test asserts the path); one address is created with each of the seven location_type values and all are accepted."
+      - "8. external_ref and retire: two rows with both external_ref fields NULL are accepted and two rows with the same non-null pair are refused by the database unique violation; a location updated with active false stays readable, lookup/2 returns it with \"active\" false and active?/2 returns false; the slice adds no delete operation and a delete through the generic route is refused as for the existing managed types."
+      - "9. Read API: lookup/2 given the record_id of a location_node returns {:ok, map} with \"entity_type\" \"location_node\" and the stored fields; active?/2 is true for an active location, false for a retired one, an unknown uuid, a deleted record and the id of a record of another type; a non-uuid id gives {:error, :not_found} from lookup/2 and false from active?/2, never a raise."
+      - "10. Tenant isolation and limits (INV-1, INV-5, INV-10): in a two-tenant test a location written under tenant A is not returned by lookup/2 or active?/2 called with tenant B's prefix, and gives the same answer as an absent id; the change adds no route, no permission and no role grant. The runbook docs/runbooks/wms-foundation.md gains a section \"Locations module limits\", a numbered list of the limits as on main when this is done (managed type, owner path only, no tree-rule check, no org_site_id check, no both-or-neither external_ref rule, no capacity or compatibility fields, generic import refuses the managed type), each naming a GH number or code path that exists; a runbook test as test/letflow/modules/org/runbook_test.exs reads it."
+      - "11. SECURITY-REVIEWER (new tenant entity type, managed lock, module-to-module read surface) and REVIEWER verdicts recorded; mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/modules/locations/ and test/letflow/modules/catalog_test.exs, mix letflow.check_boundaries and mix letflow.check_requirements_registration pass, real output quoted. git diff shows no change under lib/letflow/modules/procurement/, org or catalog_items and no seed data."
+    depends_on: [REQ-473, REQ-474, REQ-505, REQ-506, REQ-507]
