@@ -9,7 +9,7 @@
  *  (assumption A1: an examiner grades the answer, shown as a fixed notice). No AI action.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
@@ -32,12 +32,14 @@ import {
   QUESTION_TYPES,
   blankOption,
   buildOptionFields,
+  fieldsChanged,
   buildQuestionFields,
   emptyDraft,
   localizedText,
   optionRowsForType,
   optionsFromRecords,
   planOptionWrites,
+  type SaveErrorKind,
   saveErrorKind,
   validateDraft,
   type Difficulty,
@@ -101,6 +103,9 @@ function QuestionEditorPageInner() {
     refetchOnWindowFocus: false,
   })
 
+  // An error to show after the next load (set when a save fails after the question was written).
+  const errorAfterLoad = useRef<SaveErrorKind | null>(null)
+
   const loadedQuestion = loadQuery.data?.question
   const loadedOptions = loadQuery.data?.options ?? []
 
@@ -119,7 +124,8 @@ function QuestionEditorPageInner() {
       options: optionsFromRecords(data.options, locale),
     })
     setRefusals([])
-    setErrorKind(null)
+    setErrorKind(errorAfterLoad.current)
+    errorAfterLoad.current = null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadQuery.dataUpdatedAt])
 
@@ -173,6 +179,7 @@ function QuestionEditorPageInner() {
     setSaved(false)
     if (issues.length > 0) return
     setSaving(true)
+    let questionWritten = false
     try {
       if (!editing) {
         const created = await examAuthoringApi.createRecord('question', buildQuestionFields(draft, locale))
@@ -185,7 +192,7 @@ function QuestionEditorPageInner() {
           }
         } catch (error) {
           // The question exists: open it for edit so a retry does not create it twice.
-          setErrorKind(saveErrorKind(error))
+          errorAfterLoad.current = saveErrorKind(error)
           navigate(`${BANK_PATH}/${encodeURIComponent(created.record_id)}/edit`)
           return
         }
@@ -201,14 +208,22 @@ function QuestionEditorPageInner() {
         undefined,
         loadedQuestion.last_event_global_seq,
       )
+      questionWritten = true
       const plan = planOptionWrites(loadedOptions, draft.options, typeChanged)
       for (const id of plan.deletes) await examAuthoringApi.deleteRecord('answer_option', id)
       for (const { index, option } of plan.updates) {
-        await examAuthoringApi.updateRecord(
-          'answer_option',
-          option.recordId as string,
-          buildOptionFields(option, index, loadedQuestion.record_id, draft.type, locale, words),
+        const stored = loadedOptions.find((r) => r.record_id === option.recordId)
+        const fields = buildOptionFields(
+          option,
+          index,
+          loadedQuestion.record_id,
+          draft.type,
+          locale,
+          words,
+          stored?.field_values,
         )
+        if (stored && !fieldsChanged(fields, stored.field_values)) continue
+        await examAuthoringApi.updateRecord('answer_option', option.recordId as string, fields)
       }
       for (const { index, option } of plan.creates) {
         await examAuthoringApi.createRecord(
@@ -219,7 +234,14 @@ function QuestionEditorPageInner() {
       setSaved(true)
       await loadQuery.refetch()
     } catch (error) {
-      setErrorKind(saveErrorKind(error))
+      if (questionWritten) {
+        // The stored question moved on: reload it so a retry carries the new sequence.
+        errorAfterLoad.current = saveErrorKind(error)
+        const reloaded = await loadQuery.refetch()
+        if (reloaded.isError) setErrorKind(saveErrorKind(error))
+      } else {
+        setErrorKind(saveErrorKind(error))
+      }
     } finally {
       setSaving(false)
     }

@@ -138,7 +138,9 @@ export function buildQuestionFields(
   }
 }
 
-/** The `field_values` of one answer option. `trueFalseWords` are the localized words true and false. */
+/** The `field_values` of one answer option. `trueFalseWords` are the localized words true and false.
+ *  On edit `loaded` (the stored field_values) is kept for what the page does not edit, because the
+ *  authoring PUT replaces the document wholesale: the other text locales must survive. */
 export function buildOptionFields(
   option: OptionDraft,
   index: number,
@@ -146,12 +148,15 @@ export function buildOptionFields(
   type: QuestionType,
   locale: ExamUiLocale,
   trueFalseWords: { true: string; false: string },
+  loaded?: Record<string, unknown>,
 ): Record<string, unknown> {
   const text = type === 'truefalse' ? (index === 0 ? trueFalseWords.true : trueFalseWords.false) : option.text
+  const oldText = loaded?.['text'] && typeof loaded['text'] === 'object' ? (loaded['text'] as Record<string, unknown>) : {}
   const fields: Record<string, unknown> = {
+    ...loaded,
     question_id: questionId,
     sort_order: index + 1,
-    text: { [locale]: text },
+    text: { ...oldText, [locale]: text },
     is_correct: type === 'likert' ? false : option.isCorrect,
   }
   if (type === 'likert') {
@@ -207,6 +212,23 @@ export function planOptionWrites(
     updates: draftOptions.flatMap((option, index) => (option.recordId ? [{ index, option }] : [])),
     deletes: loaded.map((r) => r.record_id).filter((id) => !keep.has(id)),
   }
+}
+
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`
+  if (value && typeof value === 'object') {
+    const map = value as Record<string, unknown>
+    return `{${Object.keys(map)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stable(map[k])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'undefined'
+}
+
+/** True when the field map to send differs from the stored one (key order is ignored). */
+export function fieldsChanged(next: Record<string, unknown>, stored: Record<string, unknown>): boolean {
+  return stable(next) !== stable(stored)
 }
 
 export type SaveErrorKind =

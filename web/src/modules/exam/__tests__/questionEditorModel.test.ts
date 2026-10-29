@@ -5,6 +5,7 @@ import {
   DELETED_FALSE,
   blankOption,
   buildOptionFields,
+  fieldsChanged,
   buildQuestionFields,
   emptyDraft,
   localizedText,
@@ -139,6 +140,13 @@ describe('optionRowsForType and buildOptionFields', () => {
       likert_polarity: 'negative',
       likert_weight: 2.5,
     })
+  })
+  it('keeps the loaded text locales of an option and only overrides the UI locale', () => {
+    const loaded = { question_id: 'q1', sort_order: 1, is_correct: true, text: { kk: 'A', ru: 'Б', en: 'C' } }
+    const f = buildOptionFields(blankOption({ text: 'New', isCorrect: true }), 0, 'q1', 'single', 'en', { true: 'T', false: 'F' }, loaded)
+    expect(f['text']).toEqual({ kk: 'A', ru: 'Б', en: 'New' })
+    expect(fieldsChanged(f, loaded)).toBe(true)
+    expect(fieldsChanged({ ...f, text: { en: 'C', ru: 'Б', kk: 'A' } }, loaded)).toBe(false)
   })
   it('truefalse rows take the localized words', () => {
     const f = buildOptionFields(blankOption(), 1, 'q1', 'truefalse', 'ru', { true: 'Верно', false: 'Неверно' })

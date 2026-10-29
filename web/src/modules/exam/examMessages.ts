@@ -18,7 +18,7 @@
 
 import { questionMessagesEn, questionMessagesKk, questionMessagesRu } from './questionMessages'
 
-export const EXAM_UI_LOCALES =['en', 'ru', 'kk'] as const
+export const EXAM_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type ExamUiLocale = (typeof EXAM_UI_LOCALES)[number]
 
 const EXAM_UI_FALLBACK_LOCALE: ExamUiLocale = 'en'

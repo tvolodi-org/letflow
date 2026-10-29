@@ -356,6 +356,34 @@ describe('edit', () => {
     expect(screen.queryByTestId('question-option-text-2')).toBeNull()
   })
 
+  it('E22 an untouched option is not written and an edited one keeps its other locales', async () => {
+    optionItems = [
+      record('o-1', { question_id: 'q-1', sort_order: 1, text: { kk: 'A', ru: 'Б', en: 'C' }, is_correct: true }),
+      record('o-2', { question_id: 'q-1', sort_order: 2, text: { kk: 'Д', ru: 'Е', en: 'F' }, is_correct: false }),
+    ]
+    await openEdit()
+    await screen.findByTestId('question-option-text-1')
+    fireEvent.change(screen.getByTestId('question-option-text-1'), { target: { value: 'F2' } })
+    fireEvent.click(screen.getByTestId('question-save'))
+    await screen.findByTestId('question-saved')
+    const optionPuts = clientMock.putWithHeaders.mock.calls.filter((c) => String(c[0]).includes('/answer_option/'))
+    expect(optionPuts.map((c) => c[0])).toEqual([`${AUTH}/answer_option/o-2`])
+    expect(optionPuts[0][1].field_values.text).toEqual({ kk: 'Д', ru: 'Е', en: 'F2' })
+  })
+
+  it('E23 a failed option write after the question PUT reloads the question and keeps the error', async () => {
+    await openEdit()
+    fireEvent.change(screen.getByTestId('question-option-text-0'), { target: { value: 'First!' } })
+    clientMock.putWithHeaders.mockImplementation(async (path: string) => {
+      if (String(path).includes('/answer_option/')) throw Object.assign(new Error('boom'), { status: 500 })
+      return {}
+    })
+    const before = queryBodies('question').length
+    fireEvent.click(screen.getByTestId('question-save'))
+    await waitFor(() => expect(queryBodies('question').length).toBeGreaterThan(before))
+    expect(await screen.findByTestId('question-error-generic')).toBeInTheDocument()
+  })
+
   it('E18 a 409 shows the conflict message and keeps the form values', async () => {
     await openEdit()
     clientMock.putWithHeaders.mockRejectedValue({ status: 409, message: 'conflict' })
