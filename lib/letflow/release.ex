@@ -24,6 +24,9 @@ defmodule Letflow.Release do
   See `docs/runbooks/release-backfills.md`. `Letflow.Release.IdempotencySquats` and the other
   `Letflow.Release.*` modules are separate operator entry points.
 
+  T-0934 adds the built-in role group check and heal (`check_platform_role_groups/1`,
+  `backfill_platform_roles/1`); see the runbook's "Platform role groups" section.
+
   GH 2579 adds the PLATFORM_ADMIN token inventory and the explicit re-mint act:
 
       bin/letflow eval "Letflow.Release.platform_admin_token_inventory()"
@@ -35,6 +38,7 @@ defmodule Letflow.Release do
   """
 
   alias Letflow.Identity.PlatformAdminTokens
+  alias Letflow.Identity.RoleBackfill
   alias Letflow.LoginDirectory.Backfill, as: LoginDirectoryBackfill
   alias Letflow.Scripts.HmacSecret.Backfill, as: HmacSecretBackfill
   alias Letflow.TenantProvisioning
@@ -100,6 +104,72 @@ defmodule Letflow.Release do
       {:error, :pepper_unavailable} ->
         IO.puts("login directory backfill: the login directory pepper configuration is missing")
         halt_or_return({:error, empty_summary(1)}, opts)
+    end
+  end
+
+  @doc """
+  T-0934 -- read-only check that every registered tenant holds every built-in role group
+  (`Letflow.Identity.RoleBackfill.missing_role_groups/1`). Prints one `MISSING_ROLE_GROUPS`
+  line per tenant with a gap (schema name and role names) and a `SUMMARY` line. A tenant with
+  a gap makes the result `{:error, _}` (non-zero exit), so a release step can gate on it.
+  Heal with `backfill_platform_roles/1`. Options: `:halt`, `:start`, `:registrations`.
+  """
+  @spec check_platform_role_groups(keyword()) :: {:ok | :error, map()}
+  def check_platform_role_groups(opts \\ []) do
+    maybe_start(opts)
+
+    registrations =
+      Keyword.get_lazy(opts, :registrations, &TenantProvisioning.list_registrations/0)
+
+    case RoleBackfill.missing_role_groups(registrations: registrations) do
+      {:ok, gaps} ->
+        Enum.each(gaps, fn gap ->
+          IO.puts(
+            "MISSING_ROLE_GROUPS schema=#{gap.schema_name} roles=#{Enum.join(gap.missing, ",")}"
+          )
+        end)
+
+        IO.puts(
+          "SUMMARY tenants=#{length(registrations)} with_missing_role_groups=#{length(gaps)}"
+        )
+
+        summary = %{tenants: length(registrations), with_missing_role_groups: length(gaps)}
+        halt_or_return({if(gaps == [], do: :ok, else: :error), summary}, opts)
+
+      {:error, :check_failed} ->
+        IO.puts("SUMMARY role group check failed: a tenant schema could not be read")
+
+        halt_or_return(
+          {:error, %{tenants: length(registrations), with_missing_role_groups: -1}},
+          opts
+        )
+    end
+  end
+
+  @doc """
+  T-0934 -- seeds the missing built-in role groups for every registered tenant (the same
+  `Letflow.Identity.RoleBackfill.run/1` as `mix letflow.backfill_platform_roles`), for a
+  release that has no Mix. `created` is the tenants seeded, `already_present` the tenants that
+  were complete. A tenant seeded here has its `role_claims_synced_at` markers reset, so the
+  next login re-syncs its roles (ISS-0910). Options: `:halt`, `:start`.
+  """
+  @spec backfill_platform_roles(keyword()) :: {:ok | :error, summary()}
+  def backfill_platform_roles(opts \\ []) do
+    maybe_start(opts)
+
+    case RoleBackfill.run() do
+      {:ok, %{seeded: seeded, unchanged: unchanged}} ->
+        summary = %{
+          processed: length(seeded) + length(unchanged),
+          created: length(seeded),
+          already_present: length(unchanged),
+          failed: 0
+        }
+
+        finish("platform role backfill", summary, opts)
+
+      {:error, {:backfill_failed, _tenant_id, _reason}} ->
+        finish("platform role backfill", empty_summary(1), opts)
     end
   end
 
