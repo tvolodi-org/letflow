@@ -920,7 +920,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-558 / GH #3188 part 1: two empty per-tenant tables for the procurement line events and the
     # per-line fulfilled quantity. No existing row altered.
     {20_261_028_500_001, Letflow.Repo.Migrations.CreateProcurementLineTables,
-     "20261028500001_create_procurement_line_tables.exs"}
+     "20261028500001_create_procurement_line_tables.exs"},
+    # REQ-596 / GH #3353 part A: one new empty per-tenant table for solution-pack overrides.
+    # No existing row altered.
+    {20_261_029_100_001, Letflow.Repo.Migrations.CreateSolutionPackOverrides,
+     "20261029100001_create_solution_pack_overrides.exs"}
   ]
 
   @doc """
