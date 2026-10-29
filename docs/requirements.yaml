@@ -44631,7 +44631,7 @@ requirements:
       - "0068 D3 says the pre-check runs before the numbering transaction; in the code the number is taken inside the issue transaction (number_of!/3), so this entry puts the pre-check inside that transaction before any write to document_sequences, which has the same effect (a refusal rolls back with no number). The gate confirms or changes this."
     depends_on: [REQ-564, REQ-550, REQ-542, REQ-571, REQ-579, REQ-622, REQ-623]
 
-  - id: REQ-625
+  - id: REQ-626
     title: "WMS procurement slice 3: purchase-request attachments stored in the document byte store, listed per document version, replaced only by a new version that keeps the submitted one (PR-02)"
     owner: ELIXIR-DEV
     status: pending
@@ -44692,7 +44692,7 @@ requirements:
       Out of scope, named so it is not lost: removing an attachment, the retention period and legal hold of
       attachment bytes (decisions 0063 and 0074 own retention of documents; whether they cover module
       attachments is an open question), a count or total-size limit per request, a per-attachment access
-      restriction beyond the request, the audit-history half of PR-06 beyond the events below, and web or mobile
+      restriction beyond the request, the per-tenant storage allowance of REQ-390 (Attachments.check_storage_quota/3 and get_storage_usage/1 in lib/letflow/repository/attachments.ex, which sums instance_attachments only: procurement attachments are neither refused by the allowance nor counted in the usage figure in this slice; whether they should be is an open question), the audit-history half of PR-06 beyond the events below, and web or mobile
       screens. If the implementer finds another core change is needed beyond the one allowed in criterion 11,
       that is a finding and the slice is split.
     acceptance_criteria:
@@ -44712,5 +44712,6 @@ requirements:
       - "Process owner: when an attachment is added or replaced after submission, must that always create a new document version (this requirement: yes, so a decision on the earlier version no longer authorizes the current one), or may an attachment-only change leave the submitted version current and ask BPM for a new approval task only when the configuration says so (draft PR-06: BPM configuration determines whether a material change creates a new approval task)? The draft marks PR-02 S/C/P, so this needs customer validation before contract baseline."
       - "Process owner: may a requester or an officer remove an attachment (this requirement has no removal, so a wrong file can only be replaced), and which roles may attach after approval (this requirement: only the requester, through a new version)?"
       - "Process owner: retention and access of attachment bytes (draft PR-02 names retention). Whether decisions 0063 and 0074 (document retention and legal hold) must also cover module attachments is not settled here; this requirement stores bytes in the shared byte store, which 0056 D7 says purge must not destroy while referenced."
+      - "Process owner: must procurement attachments count toward the tenant storage allowance (tenants.storage_allowance_bytes, REQ-390) and be refused with the quota error when it is exceeded? This requirement applies no quota and adds nothing to the usage figure, so the allowance can be exceeded through procurement uploads until the owner decides."
       - "Process owner: is there a limit on the number or total size of attachments per request (none is set here beyond the 25 MiB per file of the existing upload rules), and is the allowed content-type list of the free-form attachments right for procurement (quotes, specifications, drawings)?"
     depends_on: [REQ-543, REQ-544]
