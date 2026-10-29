@@ -268,6 +268,7 @@ defmodule Letflow.Modules.Procurement.RouterTest do
              {"GET", "/purchase-requests/:id/lines/:line_no", :ProcurementRequestRead},
              {"POST", "/purchase-requests", :ProcurementRequestWrite},
              {"POST", "/purchase-requests/:id/decisions", :ProcurementRequestDecide},
+             {"POST", "/purchase-requests/:id/lines/:line_no/cancel", :ProcurementLineRecord},
              {"POST", "/purchase-requests/:id/lines/:line_no/officer", :ProcurementLineRecord},
              {"POST", "/purchase-requests/:id/lines/:line_no/reference", :ProcurementLineRecord},
              {"POST", "/purchase-requests/:id/lines/:line_no/supplier", :ProcurementLineRecord},

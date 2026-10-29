@@ -96,6 +96,7 @@ POST /modules/exam/exam-sessions/:id/submit ExamSessionSubmit
 POST /modules/exam/grading-queue/:session_id/:question_id/grade ExamGradingWrite
 POST /modules/procurement/purchase-requests ProcurementRequestWrite
 POST /modules/procurement/purchase-requests/:id/decisions ProcurementRequestDecide
+POST /modules/procurement/purchase-requests/:id/lines/:line_no/cancel ProcurementLineRecord
 POST /modules/procurement/purchase-requests/:id/lines/:line_no/officer ProcurementLineRecord
 POST /modules/procurement/purchase-requests/:id/lines/:line_no/reference ProcurementLineRecord
 POST /modules/procurement/purchase-requests/:id/lines/:line_no/supplier ProcurementLineRecord
