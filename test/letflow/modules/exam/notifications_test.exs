@@ -308,4 +308,342 @@ defmodule Letflow.Modules.Exam.NotificationsTest do
       refute_received {:deliver_message, _}
     end
   end
+
+  # Part B (T-0759): a tenant with an exam and a candidate, no session.
+  defp setup_assignee!(slug, user_attrs \\ %{}) do
+    %{schema_name: schema} = fx = ExamFixtures.provisioned_tenant_with_exam_definitions(slug)
+
+    exam =
+      ExamFixtures.create_record!(schema, "exam", %{
+        "title" => %{"en" => "Safety Basics"},
+        "status" => "active",
+        "time_limit_minutes" => 30,
+        "passing_score_pct" => 60.0,
+        "max_attempts" => 1,
+        "shuffle_questions" => false,
+        "shuffle_options" => false,
+        "show_answers" => "never",
+        "on_tab_switch" => "log",
+        "certificate_enabled" => false
+      })
+
+    user = RSG.user!(schema)
+
+    if user_attrs != %{} do
+      user |> Ecto.Changeset.change(user_attrs) |> Repo.update!(prefix: schema)
+    end
+
+    user = Repo.get!(Letflow.Identity.User, user.id, prefix: schema)
+    Map.merge(fx, %{user: user, exam: exam})
+  end
+
+  defp assign_user!(fx, opts \\ []),
+    do: ExamFixtures.assign!(fx.schema_name, fx.exam.record_id, "user", fx.user.id, opts)
+
+  defp iso(dt), do: DateTime.to_iso8601(dt)
+  defp now!, do: DateTime.utc_now() |> DateTime.truncate(:second)
+
+  describe "A1..A3 assigned/2" do
+    test "A1 an active user assignment sends one mail with the deadline and logs ids only" do
+      enable!()
+      fx = setup_assignee!("r597-a1")
+      assignment = assign_user!(fx, deadline: "2026-11-01T10:00:00Z")
+
+      assert :ok = ExamNotifications.assigned(fx.schema_name, assignment)
+      assert_receive {:deliver_message, msg}, 2000
+      assert msg.to == fx.user.email
+      assert msg.subject =~ "Safety Basics"
+      assert msg.body =~ "2026-11-01T10:00:00Z"
+
+      assert [row] = await_rows(fx.schema_name)
+      assert row.template_key == "exam_assigned"
+      assert row.trigger_ref == assignment.record_id
+      assert row.recipient_user_id == fx.user.id
+      assert row.status == "sent"
+    end
+
+    test "A2 no deadline gives an empty deadline text; an offset is normalised to UTC" do
+      enable!()
+      fx = setup_assignee!("r597-a2")
+      assert :ok = ExamNotifications.assigned(fx.schema_name, assign_user!(fx))
+      assert_receive {:deliver_message, msg}, 2000
+      assert msg.body =~ "Deadline: ."
+      await_rows(fx.schema_name)
+
+      assert :ok =
+               ExamNotifications.assigned(
+                 fx.schema_name,
+                 assign_user!(fx, deadline: "2026-11-01T12:00:00+02:00")
+               )
+
+      assert_receive {:deliver_message, msg2}, 2000
+      assert msg2.body =~ "2026-11-01T10:00:00Z"
+    end
+
+    test "A3 all, group, org_unit and inactive assignments send nothing" do
+      enable!()
+      fx = setup_assignee!("r597-a3")
+      schema = fx.schema_name
+      exam_id = fx.exam.record_id
+
+      for assignment <- [
+            ExamFixtures.assign!(schema, exam_id, "all"),
+            ExamFixtures.assign!(schema, exam_id, "group", Ecto.UUID.generate()),
+            ExamFixtures.assign!(schema, exam_id, "org_unit", Ecto.UUID.generate()),
+            assign_user!(fx, active: false)
+          ] do
+        assert :ok = ExamNotifications.assigned(schema, assignment)
+      end
+
+      Process.sleep(100)
+      refute_received {:deliver_message, _}
+      assert rows(schema) == []
+    end
+  end
+
+  describe "A4 flag off" do
+    for value <- [:unset, false, "true"] do
+      test "assigned/2 and send_reminders/2 do nothing with the flag #{inspect(value)}" do
+        fx = setup_assignee!("r597-a4")
+        now = now!()
+        assignment = assign_user!(fx, deadline: iso(DateTime.add(now, 23 * 3600)))
+
+        case unquote(value) do
+          :unset -> Application.delete_env(:letflow, :exam_notifications_enabled)
+          other -> Application.put_env(:letflow, :exam_notifications_enabled, other)
+        end
+
+        assert :ok = ExamNotifications.assigned(fx.schema_name, assignment)
+        assert :ok = ExamNotifications.send_reminders(fx.schema_name, now)
+        Process.sleep(100)
+        refute_received {:deliver_message, _}
+        assert rows(fx.schema_name) == []
+      end
+    end
+  end
+
+  describe "A5 INV-8 assigned/2" do
+    for behaviour <- [{:error, :boom}, :raise, {:sleep, 1000}] do
+      test "adapter #{inspect(behaviour)} yields :ok and one failed row" do
+        enable!()
+        fx = setup_assignee!("r597-a5")
+        assignment = assign_user!(fx)
+        Double.set_behaviour(unquote(Macro.escape(behaviour)))
+
+        capture_log(fn ->
+          assert :ok = ExamNotifications.assigned(fx.schema_name, assignment)
+          assert [row] = await_rows(fx.schema_name)
+          assert row.status == "failed"
+          assert row.reason == "adapter_error"
+        end)
+      end
+    end
+
+    test "an empty address is skipped without an adapter call" do
+      enable!()
+      fx = setup_assignee!("r597-a5e", %{email: ""})
+      assert :ok = ExamNotifications.assigned(fx.schema_name, assign_user!(fx))
+      assert [row] = await_rows(fx.schema_name)
+      assert {row.status, row.reason} == {"skipped", "no_email"}
+      refute_received {:deliver_message, _}
+    end
+
+    test "malformed arguments return :ok" do
+      enable!()
+      assert :ok = ExamNotifications.assigned("nope", nil)
+      assert :ok = ExamNotifications.assigned(nil, %{record_id: 1, field_values: %{"x" => 1}})
+
+      assert :ok =
+               ExamNotifications.assigned("nope", %{
+                 record_id: Ecto.UUID.generate(),
+                 field_values: %{"assignee_type" => "user", "active" => true, "assignee_id" => 5}
+               })
+
+      assert :ok = ExamNotifications.send_reminders("nope", now!())
+      assert :ok = ExamNotifications.send_reminders(nil, nil)
+    end
+  end
+
+  describe "A6 INV-4 both triggers" do
+    test "rows and log lines hold none of the personal or template text" do
+      enable!()
+      fx = setup_assignee!("r597-a6")
+      now = now!()
+      deadline = iso(DateTime.add(now, 23 * 3600))
+      assignment = assign_user!(fx, deadline: deadline)
+
+      log =
+        capture_log([level: :info], fn ->
+          assert :ok = ExamNotifications.assigned(fx.schema_name, assignment)
+          assert_receive {:deliver_message, _}, 2000
+          assert [_] = await_rows(fx.schema_name)
+          assert :ok = ExamNotifications.send_reminders(fx.schema_name, now)
+          assert_receive {:deliver_message, _}, 2000
+          assert [_, _] = await_rows(fx.schema_name, 2)
+        end)
+
+      dump = inspect(rows(fx.schema_name)) <> log
+
+      for secret <- [fx.user.email, fx.user.display_name, "Safety Basics", deadline, "Hello"] do
+        refute dump =~ secret
+      end
+    end
+  end
+
+  describe "A7 INV-1 / INV-10 two tenants" do
+    test "tenant B never sees or logs tenant A's assignment" do
+      enable!()
+      a = setup_assignee!("r597-a7a")
+      b_schema = ExamFixtures.provisioned_tenant_with_exam_definitions("r597-a7b").schema_name
+      now = now!()
+      assignment = assign_user!(a, deadline: iso(DateTime.add(now, 23 * 3600)))
+
+      assert :ok = ExamNotifications.assigned(a.schema_name, assignment)
+      assert_receive {:deliver_message, _}, 2000
+      assert [_row] = await_rows(a.schema_name)
+
+      assert rows(b_schema) == []
+      assert {:ok, []} = Notifications.list_deliveries(b_schema)
+      assert {:ok, [_]} = Notifications.list_deliveries(a.schema_name)
+
+      assert :ok = ExamNotifications.send_reminders(b_schema, now)
+      Process.sleep(100)
+      refute_received {:deliver_message, _}
+      assert rows(b_schema) == []
+
+      # A's record through B's prefix: the user does not exist there, a skipped row in B only.
+      assert :ok = ExamNotifications.assigned(b_schema, assignment)
+      assert [row] = await_rows(b_schema)
+      assert {row.status, row.reason} == {"skipped", "no_email"}
+      assert length(rows(a.schema_name)) == 1
+      refute_received {:deliver_message, _}
+    end
+  end
+
+  describe "R1..R4 send_reminders/2" do
+    test "R1 only a deadline within the next 24 hours sends" do
+      enable!()
+      fx = setup_assignee!("r597-r1")
+      schema = fx.schema_name
+      exam_id = fx.exam.record_id
+      now = now!()
+      hours = fn h -> iso(DateTime.add(now, round(h * 3600))) end
+
+      for deadline <- [hours.(25), hours.(-1), iso(now), nil] do
+        assign_user!(fx, deadline: deadline)
+      end
+
+      assign_user!(fx, deadline: hours.(23), active: false)
+
+      for type <- ["all", "group", "org_unit"] do
+        ExamFixtures.assign!(schema, exam_id, type, Ecto.UUID.generate(), deadline: hours.(23))
+      end
+
+      assert :ok = ExamNotifications.send_reminders(schema, now)
+      Process.sleep(150)
+      refute_received {:deliver_message, _}
+      assert rows(schema) == []
+
+      hit = assign_user!(fx, deadline: hours.(23))
+      assert :ok = ExamNotifications.send_reminders(schema, now)
+      assert_receive {:deliver_message, msg}, 2000
+      assert msg.subject =~ "Safety Basics"
+      refute_received {:deliver_message, _}
+      assert [row] = await_rows(schema)
+      assert row.template_key == "exam_reminder"
+      assert row.trigger_ref == hit.record_id
+
+      edge = assign_user!(fx, deadline: hours.(24))
+      assert :ok = ExamNotifications.send_reminders(schema, now)
+      assert_receive {:deliver_message, _}, 2000
+      assert [_, second] = Enum.sort_by(await_rows(schema, 2), & &1.inserted_at)
+      assert second.trigger_ref in [edge.record_id, hit.record_id]
+    end
+
+    test "R2 a finished session of the exam blocks the reminder, an open one does not" do
+      enable!()
+      fx = setup_session!("r597-r2")
+      schema = fx.schema_name
+      now = now!()
+      assign_user!(fx, deadline: iso(DateTime.add(now, 23 * 3600)))
+
+      for status <- ["submitted", "auto_submitted", "grading_pending"] do
+        ExamFixtures.force_field!(schema, "session", fx.session_id, "status", {:put, status})
+        assert :ok = ExamNotifications.send_reminders(schema, now)
+      end
+
+      Process.sleep(150)
+      refute_received {:deliver_message, _}
+      assert rows(schema) == []
+
+      ExamFixtures.force_field!(schema, "session", fx.session_id, "status", {:put, "in_progress"})
+      assert :ok = ExamNotifications.send_reminders(schema, now)
+      assert_receive {:deliver_message, _}, 2000
+      assert [_] = await_rows(schema)
+    end
+
+    test "R3 a second call sends nothing, also after a failed first attempt" do
+      enable!()
+      fx = setup_assignee!("r597-r3")
+      schema = fx.schema_name
+      now = now!()
+      assign_user!(fx, deadline: iso(DateTime.add(now, 23 * 3600)))
+      Double.set_behaviour({:error, :boom})
+
+      capture_log(fn ->
+        assert :ok = ExamNotifications.send_reminders(schema, now)
+        assert [%{status: "failed"}] = await_rows(schema)
+        assert_received {:deliver_message, _first_attempt}
+        Double.set_behaviour(:ok)
+        assert :ok = ExamNotifications.send_reminders(schema, now)
+        Process.sleep(150)
+      end)
+
+      refute_received {:deliver_message, _}
+      assert length(rows(schema)) == 1
+    end
+
+    test "R4 one unparseable deadline does not stop the others and nothing raises" do
+      enable!()
+      fx = setup_assignee!("r597-r4")
+      schema = fx.schema_name
+      now = now!()
+      bad = assign_user!(fx, deadline: iso(DateTime.add(now, 3600)))
+
+      ExamFixtures.force_field!(
+        schema,
+        "exam_assignment",
+        bad.record_id,
+        "deadline",
+        {:put, "soon"}
+      )
+
+      naive = assign_user!(fx, deadline: iso(DateTime.add(now, 3600)))
+
+      ExamFixtures.force_field!(
+        schema,
+        "exam_assignment",
+        naive.record_id,
+        "deadline",
+        {:put, "2026-11-01T10:00:00"}
+      )
+
+      ExamFixtures.force_field!(
+        schema,
+        "exam_assignment",
+        bad.record_id,
+        "assignee_id",
+        {:put, 7}
+      )
+
+      good = assign_user!(fx, deadline: iso(DateTime.add(now, 23 * 3600)))
+
+      assert :ok = ExamNotifications.send_reminders(schema, now)
+      assert_receive {:deliver_message, _}, 2000
+      assert [row] = await_rows(schema)
+      assert row.trigger_ref == good.record_id
+      Process.sleep(100)
+      refute_received {:deliver_message, _}
+    end
+  end
 end
