@@ -44969,7 +44969,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-605 -- F-3 (REQ-605) is the slice this one finishes
+    gh: 3524
     # Source: docs/migration/decisions/0067-form-hook-script-validation.md (D5 "Failure mapping (INV-8)" with its table and the audit paragraph, D6 "When exceeded", D7 INV-10 test, D8 "Refusal shape" bullet 2, D9 slice F-4, "Not decided here"); docs/migration/decisions/0053-tenant-scripted-rules.md (D7 "Only script_busy is retriable; the rest are not."); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-3, INV-5, INV-8, INV-10); REQ-605 (F-3) and REQ-581 (F-2) in docs/requirements.yaml. Code read: lib/letflow/engine.ex (run_form_hook/7, interpret_complete_result/3 clauses for :form_hook_refused and :form_hook_failed, record_completion_refusal_audit/6, run_complete_task/9 with @form_hook_busy_attempts), lib/letflow/routers/tasks.ex (handle_complete_result/2 and its comment "falls to the generic clause (500) until F-4"), lib/letflow/api/error.ex (form_hook_refused/2, service_unavailable/1, internal/1), lib/letflow/api/response.ex (form_hook_refused/3, service_unavailable/2), lib/letflow/scripts/form_validation.ex (run/4, check_flag/0, load_row/2, @runner_errors, @not_started stats, form_validation_script_runner), lib/letflow/scripts.ex (form_validation_enabled?/0), lib/letflow/engine/script_task_dispatcher/run_record.ex (build/1), lib/letflow/audit.ex (append_multi/4, insert_entry/3), config/config.exs (:form_validation_hook_enabled false). Written by the business analyst (T-0952) 2026-10-30. Not yet validated.
     description: >
       Slice F-4 of decision 0067 (docs/migration/decisions/0067-form-hook-script-validation.md, D9), after the
