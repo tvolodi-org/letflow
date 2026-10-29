@@ -44549,3 +44549,84 @@ requirements:
       - "OQ-10 (quantity type numeric(30,9) provisional), OQ-18 (keyed digest, default unkeyed) and OQ-23 (tenant-wide serial uniqueness) of the note stay at the note's defaults; if the owner changes OQ-10 or OQ-18 the L1 migration changes first, because the tables are append-only."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-620, REQ-616, REQ-499, REQ-501, REQ-502, REQ-503, REQ-504]
+
+  - id: REQ-624
+    title: "Per-tenant print-template overrides (decision 0068 D8) slice S3: resolution at issue, pre-check before the number, pinned columns on the version and in document.issued, fail closed"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3485
+    # Source: docs/migration/decisions/0068-per-tenant-print-template-overrides.md (D3 "Resolution order at issue" and "Invalid override at issue: fail closed", D4 binding to document versions, D5 later restriction, D8 "S3 Resolution and issue integration", "Tests the implementation slices must add", Threats for SECURITY-REVIEWER); docs/migration/decisions/0056-versioned-documents.md D2 (all refusals before any write to document_sequences), D3, D4, D5, D8, D9; docs/requirements.yaml REQ-571 (Letflow.Documents.PrintLayout.validate/3 and render/4, lib/letflow/documents/print_layout.ex), REQ-579 (Letflow.Documents.PrintOverrides and the table document_print_overrides, lib/letflow/documents/print_overrides.ex), REQ-622 and REQ-623 (render record and build slice); lib/letflow/documents.ex (issue/2, check_issuable!/5, check_restricted/3, number_of!/3, count_refusal/3); priv/repo/migrations/20261022100002_create_document_immutability_triggers.exs (guard_document_versions()). Written by the business analyst (T-0886) 2026-10-28. Not yet validated.
+    description: >
+      Slice S3 of decision 0068 (docs/migration/decisions/0068-per-tenant-print-template-overrides.md, D8).
+      S1 (REQ-571) is the pure layout validator and renderer, S2 (REQ-579) stores and manages overrides, S4 is
+      the web editor and S5 the Kazakhstan forms. This slice is the first tenant-aware render path: it makes
+      Letflow.Documents.issue/2 (lib/letflow/documents.ex) resolve the tenant's override for the document,
+      refuse before the number when it is no longer valid, pin it on the issued version, and lets the render
+      of REQ-623 use the pinned layout.
+      RESOLUTION (0068 D3). For the document's type_key and the locale of the document, the active row of
+      document_print_overrides for (type_key, locale); else the active row for (type_key, "default"); else no
+      override and the module default named by the type's template_ref is used. The locale of the document is
+      the locale key of the draft content when it is "ru" or "kk"; any other or missing value resolves as
+      "default". (UAT assumption, to be confirmed by the process owner: 0068 says "locale" and names no
+      source field for it; the draft content key "locale" is the one this entry fixes.) A retired or draft row
+      is never resolved. Every read takes the tenant :prefix (INV-1); the tenant comes from the issue/2
+      prefix argument and no request field.
+      PRE-CHECK BEFORE THE NUMBER. In issue/2, inside the existing transaction, in check_issuable!/5 after the
+      existing refusals and before number_of!/3 (so before any write to document_sequences, 0056 D2), the
+      resolved override is validated again with Letflow.Documents.PrintLayout.validate/3 against the type's
+      declared_fields and the tenant's entity_field_restrictions (the same call and the restricted option
+      that PrintOverrides.validate_layout uses at save). If it does not validate, issue/2 returns
+      {:error, :print_override_invalid} and rolls back: no number allocated, no row changed, no audit entry,
+      and the refusal is counted by count_refusal/3 as every issue refusal is. The job of this pre-check is a
+      stored layout that fails PrintLayout.validate/3 for a reason other than a restriction (an unknown block, an
+      unsupported layout_schema_version). A restriction added after the override was activated is not covered by
+      it: a layout can name only declared fields, so the existing check_restricted/3 clause of check_issuable!/5,
+      which runs first, already refuses with {:error, {:restricted_field, entity_type, field}} (0068 D5,
+      D5-later-restriction is met by that existing refusal in this slice). There is no fallback to the module
+      default: an invalid override never prints (0068 D3).
+      PINNED COLUMNS (0068 D4). One new tenant migration (next free version at implement time, in
+      @tenant_scoped_migration_manifest of lib/letflow/tenant_provisioning.ex, replayed into existing
+      tenants, triggers ENABLE ALWAYS) adds to document_versions the nullable columns template_version,
+      print_override_id, print_override_version and print_override_layout_hash, and replaces
+      guard_document_versions() so that on the draft-to-issued transition these four columns may be set, and
+      on every other transition and on an issued row they may not change. If the decision record of REQ-622
+      already placed template_version on the version row (REQ-623), this slice adds only the three
+      print_override_* columns and reuses that column. The four columns are written in the same UPDATE that
+      sets status issued; they are null when no override applies. The guard function replaced is the one in
+      force after REQ-623's migration, so artefact_hash from NULL to a value stays allowed. The audit entry
+      document.issued gains the keys print_override_id, print_override_version and print_override_layout_hash
+      (ids, versions and hashes only; no layout text).
+      RENDER. The renderer of REQ-623 (Letflow.Documents.Renderer behaviour and attach_artefact/2, or the
+      names of the REQ-622 record where they differ) calls Letflow.Documents.PrintLayout.render/4 with the
+      layout of the row named by print_override_id on the version, whatever its current status (a retired
+      row is still read, since retired rows are never deleted), over the declared_fields projection (0056
+      D8) and never over full content. Rows of other tenants are never read (prefix). If that render fails,
+      attach_artefact/2 returns the error of REQ-623 and the version stays issued with the artefact pending;
+      a later call renders again against the same pinned row, never against a newer active override.
+      A later activation, retirement or save of an override never changes an issued version or its stored
+      artefact and nothing re-renders it (0068 D4 and 0056 D3 primary rule).
+      OUT OF SCOPE. Questions Q1 to Q5 of 0068 are not on this slice's path: no official Kazakhstan wording
+      ships (Q1), the layout form is the closed declarative layout of S1 (Q2), the activation rule is S2's
+      (Q3), no reprint route or labelled copy exists (Q4), and the core-locked block set is not touched (Q5).
+      No route, no permission, no web screen, no new table.
+      SECURITY-REVIEWER IS A MANDATORY GATE for this slice (0068 D8, common rule): the change reads tenant
+      data on a render path (INV-1), feeds a tenant-authored layout only the declared_fields projection
+      (INV-2) and adds no route that takes a tenant identifier (INV-10, nothing to cross; the cross-tenant
+      render test is C3-render below).
+    acceptance_criteria:
+      - "1. Resolution order. Tests (tenant fixture, a type with declared_fields, overrides saved and activated through Letflow.Documents.PrintOverrides): with an active override for (type_key, locale) and one for (type_key, default), issue pins the locale one; with only the default-locale one active, issue pins it; with only draft or retired rows, issue pins nothing and the four columns are NULL; the locale comes from the draft content key locale and any value other than ru or kk resolves as default."
+      - "2. C3-render. Two tenants with the same type_key and locale: tenant A has an active override whose layout contains a distinguishing literal text; tenant B has none. A document issued and attached in tenant B shows the module default: its print_override_id is NULL, its document.issued entry carries no print_override_id, and the rendered PDF text does not contain A's literal. A's document pins A's override and its PDF text contains the literal. Tenant isolation of the resolve path: a query of tenant B's prefix for tenant A's override id resolves no row."
+      - "3. D5-later-restriction. A test activates a valid override, then adds a row to entity_field_restrictions for a field the layout names (a layout can name only declared fields, so the restriction is on a declared field): Documents.issue/2 returns {:error, {:restricted_field, entity_type, field}} from the existing check_restricted/3 clause of check_issuable!/5, not {:error, :print_override_invalid}; the document_sequences counter, documents.number, documents.current_version, the draft status and the audit chain length are unchanged. Removing the restriction row makes the same issue succeed. This is how D5-later-restriction is met in this slice."
+      - "4. S3-invalid-fails-closed. A test makes the active layout fail PrintLayout.validate/3 by inserting an invalid layout through the test seam that bypasses PrintOverrides (a direct Repo insert of an active row with an unknown block type, in the throwaway tenant): issue/2 returns {:error, :print_override_invalid}, no number is allocated (counter unchanged, a following valid issue receives the next number with no gap), and the module default is NOT used (no version is issued). The error term and the captured log contain no layout text and no field value (a sentinel in the layout is absent from both)."
+      - "5. Pinned columns, D4-pinned. After issue with an override, the version row has print_override_id, print_override_version and print_override_layout_hash equal to the row's id, version_no and layout_hash, and document.issued carries the same three values and no layout content. Database tests on the replaced guard: setting any of the four columns on the draft-to-issued transition succeeds; changing any of them on an issued row, or setting them on a draft row without issuing, fails; the artefact_hash NULL-to-value change of REQ-623 still succeeds and the existing triggers_test.exs and constraints_test.exs cases pass unchanged apart from the pinned set of columns."
+      - "6. D4-pinned, later change. After issue and attach, the override is retired and a new one activated: the issued version's four columns and artefact_hash are unchanged, the stored artefact bytes are unchanged, and a second attach_artefact/2 returns the REQ-623 already-attached result with the renderer not called. A new version issued afterwards pins the new override."
+      - "7. Render uses the pinned row. With the version issued and its artefact pending, retire the pinned override and activate another, then call attach_artefact/2: the PDF text contains the literal of the pinned (retired) layout and not that of the new active one. If the REQ-622 record confirms that attach_artefact/2 re-validates at render (as REQ-623 criterion 8 does), then a restriction added before the attach makes it return {:error, :render_failed} with artefact_hash NULL and no number released; if the record does not confirm it, this sentence is dropped."
+      - "8. Projection only. The render of an override receives only the declared_fields projection: a content key outside declared_fields and a restricted field are absent from the PDF text (byte-level search for a sentinel value), with a layout that names neither."
+      - "9. No override means no change. A type with no active override issues exactly as before this slice: the four columns NULL, document.issued without the three new keys, and every existing test of issue/2 passes unchanged."
+      - "10. Security and pins (INV-1, INV-2, INV-6, INV-7, INV-8). Every new query takes the tenant schema prefix and interpolates no value; a renderer or layout failure is rescued and returns an error tuple. The change adds no route, permission or table, so route-scope, permission-matrix and tenant table-list pins do not move; the migration version and the tenant-provisioning manifest count move by +1 from the values on origin/main at implement time, with the tests that pin them updated. The change passes a SECURITY-REVIEWER gate as a stated step. No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Names depend on the REQ-622 record: attach_artefact/2, Letflow.Documents.Renderer, :render_failed and whether template_version is recorded in REQ-623 or here. Where the record differs, the record wins."
+      - "To be put to the owner or settled in the REQ-622 record before implementation, since it decides which legal layout prints: where the document's locale is stored is not settled by 0068; this entry fixes the draft content key locale as a UAT assumption, to be confirmed by the process owner."
+      - "0068 D3 says the pre-check runs before the numbering transaction; in the code the number is taken inside the issue transaction (number_of!/3), so this entry puts the pre-check inside that transaction before any write to document_sequences, which has the same effect (a refusal rolls back with no number). The gate confirms or changes this."
+    depends_on: [REQ-564, REQ-550, REQ-542, REQ-571, REQ-579, REQ-622, REQ-623]

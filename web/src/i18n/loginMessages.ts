@@ -12,6 +12,7 @@ import type { EntitiesUiLocale } from './entitiesMessages'
 export const loginMessages: Record<EntitiesUiLocale, Record<string, string>> = {
   en: {
     'login.title': 'Sign in',
+    'login.skipToContent': 'Skip to main content',
     'login.intro': 'Enter your work email address to continue to your organisation sign-in.',
     'login.email.label': 'Email address',
     'login.email.placeholder': 'name@example.com',
@@ -34,6 +35,7 @@ export const loginMessages: Record<EntitiesUiLocale, Record<string, string>> = {
   },
   ru: {
     'login.title': 'Вход',
+    'login.skipToContent': 'Перейти к основному содержимому',
     'login.intro': 'Введите рабочий адрес электронной почты, чтобы перейти ко входу в вашу организацию.',
     'login.email.label': 'Адрес электронной почты',
     'login.email.placeholder': 'name@example.com',
@@ -56,6 +58,7 @@ export const loginMessages: Record<EntitiesUiLocale, Record<string, string>> = {
   },
   kk: {
     'login.title': 'Кіру',
+    'login.skipToContent': 'Негізгі мазмұнға өту',
     'login.intro': 'Ұйымыңызға кіруге өту үшін жұмыс электрондық поштаңызды енгізіңіз.',
     'login.email.label': 'Электрондық пошта мекенжайы',
     'login.email.placeholder': 'name@example.com',

@@ -15,4 +15,10 @@ defmodule Letflow.LoginDiscovery.Notifier.Noop do
     Logger.debug("login discovery: tenant list delivery skipped (noop notifier)")
     :ok
   end
+
+  @impl true
+  def deliver_message(_message) do
+    Logger.debug("notifications: message delivery skipped (noop notifier)")
+    :ok
+  end
 end

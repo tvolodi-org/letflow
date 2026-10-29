@@ -1,0 +1,283 @@
+# T-0901 (BA): TENANT ADMIN group, scenario 52: saved report definitions, who may write them, who sees them, how a replay is treated for a
+# caller who may not read the type or a field, and that one company never sees or changes another's.
+# Covers REQ-619 criteria 5 (a report is returned to every reader who may read the type and not to a caller who may not), 6 (a caller without
+# the view permission is refused on create, change and delete of a report, with the same 403 for an existing and an absent id; reading needs
+# only the query permission), 7 (the replay of a stored report is refused or redacted for a caller with no grant on a field the report names,
+# exactly as the hand-typed request; for a type the caller may not read, as not found), 8 (a report of a type the caller may not read, a
+# report of another company and an absent id give the same 404) and 9 (cross-company negative: read, change and delete by another company's
+# administrator give the absent-id answer, the report is unchanged, and a company named in the request is ignored).
+# Sources: docs/requirements.yaml REQ-619 (criteria 5 to 9); docs/roles.md (EntitiesViewsManage: TENANT_ADMIN and PLATFORM_ADMIN only;
+# EntitiesQuery and EntitiesAggregate: PLATFORM_ADMIN, PROCESS_DESIGNER, PROCESS_OPERATOR, TASK_WORKER, TENANT_ADMIN, TENANT_AUDITOR);
+# test/fixtures/uat/actors.yaml (alice, lena, auditor of SwiftRoute; ben of Meridian; actor-bilimbaga-admin of Bilimbaga, whose token needs a
+# qa-login mapping that is not yet approved); the pattern of scenario 35 (same rules for the pivot kind) and of tenant-administration matrix-0
+# and restricted-fields-1 for the "UAT payee" type with the protected "bank account" field; lib/letflow/routers/entities.ex (a type-denied or
+# absent type gives the not-found 404; a single restricted field reference rejects the whole request with 403).
+# Not UAT-observable by an outside user, so not covered by any scenario (REQ-619 criteria 1, 10 in part, 11): the migration and the fact that
+# existing list and pivot rows are unchanged after it, and that a report is absent from another company's tenant schema as a table row (the
+# visible effect, no report in the other company's list, is checked here); the audit entry being written in the same transaction (scenario 50
+# checks that the entries exist); the unchanged permission matrix golden, the absence of a new permission, the route-count and route-scope
+# pins; the reviewer verdicts and build commands. The statement that no refusal writes an audit entry is checked in scenario 50 for the
+# not-found deletion and in scenario 51 (step 16) for the validation and name refusals.
+# The four sensitive actions: "change users" and "approve, pay or release" are not in this flow; "see sensitive data" is the type-hidden and
+# field-protected replay steps.
+---
+id: tenant-administration-52-saved-report-definitions-access-and-other-company
+scope: tenant-administration
+title: Only the administrator may write saved reports, with one refusal for a missing or existing report, a report over a hidden type is not found, a replay over a protected field is refused, and another company never sees or changes a report
+version: "1.0"
+tags: [tenant-admin, saved-views, report, access, cross-tenant, refusal, isolation]
+
+description: >
+  The administrator of SwiftRoute saves the report "UAT private report" over the record type "UAT report ticket". A task worker and the read-only
+  auditor of SwiftRoute can read the report but are refused when they create, change or delete one; the refusal is the same for the existing
+  report and for an identifier that no view has. A Meridian user and the administrator of Bilimbaga do not see the report. The Bilimbaga
+  administrator tries to read, change and delete it by its id, and to save a report over a record type that exists only in SwiftRoute: every
+  answer is the answer for a view that does not exist, and SwiftRoute's report is unchanged. A request that names SwiftRoute as the company is
+  ignored. Then the administrator of SwiftRoute saves a report over a separate record type "UAT report restricted ticket" and restricts that
+  type so that only the administrator keeps access (the API can add a restriction but not remove one). The task worker then no longer sees that
+  report, reading it gives the same answer as for an identifier no view has, and the worker's summary query and detail query built from the
+  stored report and the same queries over a record type that does not exist give the same not-found answer. Finally the administrator saves a
+  report over the readable type "UAT payee" with the grouping by the protected field "bank account", the filter on it and the sort on it; the
+  worker can list and read it, but the summary query and the detail query built from it are refused exactly as the same queries typed by hand.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+  auditor_a: actor-swiftroute-auditor
+  reader_b: actor-meridian-ben
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute, Meridian and Bilimbaga are set up; the record type "UAT report ticket" is active in SwiftRoute with the fields title, status, region and amount, carries no access restriction, and does not exist in Meridian or in Bilimbaga; no saved view exists in any of the three companies
+    check: system_seeded
+    detail: The record type "UAT report restricted ticket" may already exist in SwiftRoute, restricted with the administrator's grant, from an earlier run; step 12 then uses it as it is. If the Bilimbaga administrator cannot sign in (no approved test token), report BLOCKED for steps 7 to 10 and run the others; EO-004 is then BLOCKED, EO-003 is judged on step 6 (the Meridian user) and step 11 alone and reported as partial. If a run finds that the task worker or the auditor may not read the record type "UAT report ticket", the precondition has failed and the scenario is BLOCKED; it is not a pass with an empty list.
+  - description: The tenant administrator of SwiftRoute holds the view permission and no other SwiftRoute actor of this scenario does
+    check: system_seeded
+    detail: Per the role matrix, only the tenant administrator (and the platform operator) holds it.
+  - description: tenant-administration matrix-0 passed in this run (the record type "UAT payee" with two payee records and the protected field "bank account", values invented), in SwiftRoute
+    check: system_seeded
+    detail: UAT assumption, to be confirmed by the process owner - matrix-0 prepares "UAT payee" in SwiftRoute, the company of the task worker used in restricted-fields-1. The task worker holds no grant on the bank account field. If matrix-0 did not pass, steps 17 to 19 and EO-007 are BLOCKED and the others still run.
+  - description: The record type "UAT report ticket" of scenario 50 exists in SwiftRoute
+    check: system_seeded
+    detail: If it is missing, create it as in scenario 50 step 1 and say so in the report.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute saves the report "UAT private report" over "UAT report ticket" with the filter "status equals open", the
+      grouping by region, the aggregate "count of records", the column title and the sort "title ascending", and notes its id and a second
+      identifier that no view has (a well-formed one made up for the test).
+    via: api
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker lists the views and reads the report of step 1 by its id. The answers are noted.
+    via: api
+  - step: 3
+    actor: worker_a
+    action: >
+      The task worker tries to create a report, to change the report of step 1 and to delete it, and tries to change and delete the made-up
+      identifier. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: auditor_a
+    action: >
+      The read-only auditor lists the views and reads the report of step 1 by its id. The answers are noted.
+    via: api
+  - step: 5
+    actor: auditor_a
+    action: >
+      The auditor tries to create a report, to change the report of step 1 and to delete it, and tries to change and delete the made-up
+      identifier. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: reader_b
+    action: >
+      A Meridian user lists the views, searches the answer for "SwiftRoute", and reads the report of step 1 by its id. The answers are noted.
+    via: api
+  - step: 7
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator lists the views and searches the answer for "SwiftRoute". The answers are noted.
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator reads, changes (new name "UAT taken over") and deletes the report of step 1 by its id. Then the administrator
+      reads, changes and deletes the made-up identifier of step 1. All six answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to save a report over the record type "UAT report ticket", which exists only in SwiftRoute, and notes the
+      answer.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator reads the report of step 1 by its id with the company SwiftRoute named in the address, and changes the report
+      of step 1 by its id with a new name next to the body key tenant_id set to SwiftRoute's company id. Both answers are noted and compared with
+      the absent-id answers of step 8.
+    expect_refusal: true
+    via: api
+    input:
+      company_named_in_request: SwiftRoute
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute reads the report of step 1 and lists the views, and compares them with step 1.
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute creates the record type "UAT report restricted ticket" with the fields title (text) and amount (whole
+      number) (if it already exists restricted from an earlier run, it is used as it is), saves the report "UAT restricted report" over it with
+      the aggregate "count of records", no grouping, the column title and the sort "title ascending", and notes the report's id and the two query
+      bodies that the report stores (the summary query and the detail query). The administrator then sends one restriction import that restricts
+      "UAT report restricted ticket" and grants access to it to the administrator's own user only, and notes the answer.
+    via: api
+  - step: 13
+    actor: worker_a
+    action: >
+      The task worker lists the views. The answer is noted.
+    via: api
+  - step: 14
+    actor: worker_a
+    action: >
+      The task worker reads the report of step 12 by its id, and reads the made-up identifier of step 1. The answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: worker_a
+    action: >
+      The task worker sends the summary query built from the stored report of step 12 exactly as the administrator noted it in step 12, and
+      then the same summary query over a record type that does not exist. Both answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 16
+    actor: worker_a
+    action: >
+      The task worker sends the detail query built from the stored report of step 12 exactly as noted, and then the same detail query over a
+      record type that does not exist. Both answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 17
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute, who holds the access grant, reads the report of step 12 to confirm it is unchanged, and sends the summary
+      query and the detail query built from the stored report, to confirm that both are answered for a caller who holds the grant. Then the
+      administrator deletes the report of step 12.
+    via: api
+  - step: 18
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute saves the report "UAT payee by bank account" over "UAT payee" with the filter "bank account is not empty",
+      the grouping by bank account, the aggregate "count of records", the column bank account and the sort "bank account ascending", and notes
+      its id and the summary query body and the detail query body that the report stores.
+    via: api
+  - step: 19
+    actor: worker_a
+    action: >
+      The task worker lists the views and reads the report of step 18 by its id (the record type is readable; only the field is protected). The
+      answers are noted.
+    via: api
+  - step: 20
+    actor: worker_a
+    action: >
+      The task worker sends the summary query built from the stored report of step 18 exactly as noted, and then the same summary query typed
+      by hand (a count of payees grouped by bank account, with the filter "bank account is not empty"). Both answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 21
+    actor: worker_a
+    action: >
+      The task worker sends the detail query built from the stored report of step 18 (the stored filter and sort), and then the same detail
+      query typed by hand (payees with the filter "bank account is not empty" and the sort "bank account ascending"). Both answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 22
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute deletes the reports of steps 18 and 1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A task worker and the read-only auditor can read reports, which are listed to them because the record type is unrestricted.
+    verification:
+      method: http_status
+      detail: In steps 2 and 4 the list is 200 and contains the report of step 1 with its content, and the reading by id is 200 with the same content. An empty list or a 404 for the worker or the auditor on this unrestricted type fails this outcome.
+      evidence: The lists and readings of steps 2 and 4, and the report read in step 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Users who may read the records cannot see the saved reports of their company.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A task worker and the read-only auditor are refused when they create, change or delete, with one refusal for an existing and for a missing view.
+    verification:
+      method: http_status
+      detail: Every create, change and delete in steps 3 and 5 is 403; for each caller the 403 for the existing report and for the made-up identifier have the same status, the same body byte for byte, and the same headers apart from per-request ones (date, request id); the report read in step 11 is unchanged.
+      evidence: The five refusals of each of steps 3 and 5, and the report read in step 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee, or an outside auditor, could rewrite or delete the saved reports of the company, or learn which reports exist.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Another company sees no report of SwiftRoute, in a list or by id, and cannot change or delete it; every answer equals the answer for a view that does not exist.
+    verification:
+      method: http_status
+      detail: The lists of steps 6 and 7 are empty and contain no part of the name or the word "SwiftRoute"; the reading by id in step 6 is 404; in step 8 the read, change and delete of the real id and of the made-up id are all 404 with the same body byte for byte and the same headers apart from per-request ones (date, request id); in step 11 the report of SwiftRoute has its original name, filter, grouping, aggregates, columns, sort and times.
+      evidence: The lists of steps 6 and 7, the reading of step 6, the six answers of step 8 compared byte for byte, and the report of step 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer could see, delete or rewrite another customer's saved reports, or find out which reports exist.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A record type that exists only in another company is answered as not found, and a company named in the request is ignored.
+    verification:
+      method: http_status
+      detail: In step 9 the creation over the SwiftRoute-only type is 404; in step 10 both the read with SwiftRoute named and the change with tenant_id set to SwiftRoute's company id are 404 with the same status and body byte for byte as the absent-id answers of step 8, and the change does not rename SwiftRoute's report; the report of SwiftRoute is unchanged in step 11.
+      evidence: The answers of steps 9 and 10, the answers of step 8, and the report of step 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be pointed at another customer's data by naming the customer, or reveal which record types it has.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: A report over a record type the caller may not read is not listed and is answered as not found, the same as a view that does not exist.
+    verification:
+      method: http_status
+      detail: In step 13 the task worker's list does not contain the report of step 12; in step 14 the reading of the real id and of the made-up id are both 404 with the same status, the same body byte for byte and the same headers apart from per-request ones (date, request id). In step 17 the administrator, who holds the grant, still reads the report with its original content.
+      evidence: The list of step 13, the two answers of step 14 and the reading of step 17.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A user who may not see a kind of record can still see that reports over it exist and what they group, total and list.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: The summary query and the detail query built from a stored report over a type the caller may not read are answered as not found, the same as a query over a type that does not exist, and are answered for the caller who holds the grant.
+    verification:
+      method: http_status
+      detail: In steps 15 and 16 each pair of answers is 404 with the same status, the same body byte for byte and the same headers apart from per-request ones (date, request id), and no count and no record is returned; in step 17 the administrator's two replays are 200, the summary with a count and the detail with the records of the type.
+      evidence: The four answers of steps 15 and 16 and the two replays of step 17.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A saved report could become a way to total up or list records that a user is not allowed to see, or to learn that a hidden record type exists.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: The replay of a report that names a protected field is refused for a caller with no grant on the field exactly as the hand-typed request is, for the summary part and for the detail part.
+    verification:
+      method: http_status
+      detail: In step 19 the report is listed and readable (200) by the task worker; in step 20 both the replayed summary query and the hand-typed one are 403 with the same status, the same body byte for byte and the same headers apart from per-request ones (date, request id); in step 21 the replayed detail query and the hand-typed one are each either refused with the same status, body and headers as each other, or answered with the bank account value hidden in exactly the same way in both (the platform's rule for the protected field decides which); no count or bank account value is shown in step 20, and no bank account value is shown in step 21.
+      evidence: The list and reading of step 19 and the four answers of steps 20 and 21.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A saved report could be used to total up, group by, filter on, sort by or list a protected field such as a bank account for a user who has no grant on it.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the reports "UAT private report" and "UAT payee by bank account" in SwiftRoute and any report created in Bilimbaga, if they still exist. The record types "UAT report ticket" (retire it if retirement is possible, otherwise it stays for the test customer's retirement) and "UAT report restricted ticket" stay, because the API cannot remove a restriction; they are retired with the test customer and a later run reuses them as they are.

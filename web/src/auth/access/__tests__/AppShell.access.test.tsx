@@ -50,7 +50,8 @@ function renderShell(state: AccessState) {
 }
 
 function navLabels(): string[] {
-  return screen.queryAllByRole('link').map(a => a.textContent ?? '')
+  // The skip link (REQ-608) is not a nav entry.
+  return screen.queryAllByRole('link').filter(a => a.getAttribute('href') !== '#main-content').map(a => a.textContent ?? '')
 }
 
 describe('AppShell nav from /me/access', () => {
