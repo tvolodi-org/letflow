@@ -44636,7 +44636,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-544 -- extends the procurement module that REQ-544 builds; the engine files the issue
+    gh: 3503
     # Source: docs/WMS/WMS_Procurement_Requirements_Draft.md section 3 (PR-02, and PR-06 for the attachment-history half only as far as stated below) and section 1 "Implementation boundary"; docs/migration/decisions/0056-versioned-documents.md D7 (artefacts use the content-addressed store, no new byte store), D10 (an attachment may be linked to a document as supporting material but is not part of its hash) and D9 (refusals are telemetry, not audit rows); docs/migration/decisions/0057-wms-customer-draft-reconciliation.md; REQ-544 (purchase request, versions, decisions) and REQ-558 (the router pattern this slice follows). Written by the business analyst (T-0913) 2026-10-29. Not yet validated.
     description: >
       Third procurement slice of the WMS module family (draft section 3, PR-02). The draft row reads: use BPM
