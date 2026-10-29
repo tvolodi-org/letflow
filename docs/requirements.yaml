@@ -44884,7 +44884,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S8
-    # impl_order: UNREGISTERED -- blocked-by: REQ-627 -- slice 2 (open_work_exists, uniform 404) is still pending; the screen shows its answers
+    gh: 3518
     # Source: docs/migration/decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md (D4 "Running work" table, "Open work" paragraph, D5 item 3, D6 "Who", D8 slice 5 row "SPA admin screen to uninstall/reactivate ... frontend unit tests; npm run check", the flag sentence of D8); REQ-578 (routes POST /tenant/modules/:module_id/uninstall and /reactivate, body {"rationale"}, answers 200 {module_id, status}, 404, 409 dependents_installed and upgrade_required, 422); REQ-627 (409 open_work_exists with the counts open_instances and open_tasks, no ids; the start-after-uninstall 404); code read: lib/letflow/routers/tenant_modules.ex (handle_transition, run_transition), lib/letflow/api/error.ex (module_dependents_installed/1, module_upgrade_required/0 extensions), lib/letflow/routers/me.ex (handle_list_modules lists only installed modules), web/src/api/client.ts (409 and error mapping), web/src/api/me.ts, web/src/hooks/useInstalledModules.ts, web/src/router.tsx and web/src/components/layout/AppShell.tsx (solution-packs route and nav item gated by P.ModulesManage), web/src/pages/solution-packs/SolutionPackUpdateLauncherPage.tsx (access.can(P.ModulesManage), Navigate, AccessPending), web/src/auth/emailFirstFlag.ts with web/src/vite-env.d.ts and web/.env.example (the build-flag precedent). Written by the business analyst (T-0942) 2026-10-30. Not yet validated.
     description: >
       Slice 5 of decision 0066 (D8): the SPA admin screen that calls the two routes REQ-578 added. It depends
