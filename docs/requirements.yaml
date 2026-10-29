@@ -44636,7 +44636,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-615 -- the run replaces the stub of the T-3 claim worker, which is a register entry only until REQ-615 merges
+    gh: 3507
     # Source: docs/migration/decisions/0067-after-commit-trigger-outbox.md D9 slice T-4 (copied in the description), D2 ("Lock position (against 0061)"), D3 (idempotency key, write entry points, result transaction, second terminal transaction, "What a script author may assume", retriable causes, "CAS on attempt"), D4 (Tests, Slice T-4), D5 (principal, input, output, application), D7 (failure table), D8 (INV-3), "Not decided here", "Threat cases for SECURITY-REVIEWER"; docs/migration/decisions/0061-engine-lock-order-platform-invariant.md rule 5; docs/agents/instructions/security-invariants.md INV-1, INV-3, INV-5, INV-8, INV-10; REQ-615 (T-3, the stub run), REQ-606 (T-2, the outbox table and the :trigger_lineage opt), REQ-570 (T-1, bindings and the flag :record_triggers_enabled). Code read: lib/letflow/scripts/runtime.ex (prepare_run/3, check_output/2), lib/letflow/scripts/entity_write.ex (build_input/5, run/4, the output_invalid mapping), lib/letflow/entities/records.ex (create_record/3, update_record/2-3, upsert_record_by_external_ref/3, the private reject_step_key/1, step_key_prefix/0, the idempotency_key_reuse replay rule), lib/letflow/engine/script_task_dispatcher.ex (run_claimed/2, the pattern for the run), test/letflow/engine/number_sequence_lock_order_test.exs (precedent for the forced-overlap shape). Written by the business analyst (T-0921) 2026-10-29.
     description: >
       Decision 0067 D9 slice T-4 only. D9 text, copied: "T-4 script run and result application:
