@@ -213,6 +213,8 @@ defmodule Letflow.Entities.Records do
   alias Letflow.EventStore.Registry
   alias Letflow.EventStore.StoredPayload
   alias Letflow.NumberSequences
+  alias Letflow.RecordTriggers
+  alias Letflow.RecordTriggers.Outbox
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.ColumnPromotion
@@ -416,16 +418,34 @@ defmodule Letflow.Entities.Records do
           {:ok, command_result()} | command_error()
   def create_record(%{entity_type: _, field_values: _} = attrs, prefix, authority)
       when is_binary(prefix) and is_authority(authority),
-      do: do_create_record(attrs, prefix, authority, nil)
+      do: create_record(attrs, prefix, authority, [])
+
+  @doc """
+  `create_record/3` with options. The only key is `:trigger_lineage` (REQ-606, decision 0067 D4):
+  `nil` or `%{depth: non_neg_integer, chain: [binding_id]}`, the lineage of the trigger run that
+  makes this write. It is read from here only, never from `attrs` or a field value. Any other key,
+  a non-list, or a malformed lineage raises `ArgumentError`.
+  """
+  @spec create_record(
+          create_attrs(),
+          prefix :: String.t(),
+          ManagedTypes.owner(),
+          trigger_lineage: Outbox.lineage() | nil
+        ) :: {:ok, command_result()} | command_error()
+  def create_record(%{entity_type: _, field_values: _} = attrs, prefix, authority, opts)
+      when is_binary(prefix) and is_authority(authority) and is_list(opts),
+      do: do_create_record(attrs, prefix, authority, nil, trigger_opts!(opts))
 
   # The shared create pipeline. `external_ref` is nil for `create_record/3` and the PARSED
   # `ExternalRef.t()` for the upsert primitive (GH #2659): it never comes from `attrs`, so no
   # caller-supplied map reaches the payload or the columns without `ExternalRef.parse/1`.
+  # `lineage` is the validated `:trigger_lineage` option (REQ-606), nil for a root write.
   defp do_create_record(
          %{entity_type: entity_type, field_values: field_values} = attrs,
          prefix,
          authority,
-         external_ref
+         external_ref,
+         lineage
        ) do
     match = idempotency_match(attrs)
 
@@ -457,6 +477,7 @@ defmodule Letflow.Entities.Records do
               authority: authority,
               # GH #2659: set only by `upsert_record_by_external_ref/3` (parsed); nil otherwise.
               external_ref: external_ref,
+              trigger_lineage: lineage,
               # REQ-541: the number sequence bound to the type (read once, before the transaction).
               number_binding: NumberSequences.fetch_binding(entity_type, prefix)
             })
@@ -563,7 +584,7 @@ defmodule Letflow.Entities.Records do
         opts
       )
       when is_binary(prefix) and is_authority(authority) and is_list(opts) do
-    schema_checked = upsert_opts!(opts)
+    {schema_checked, lineage} = upsert_opts!(opts)
 
     # The definition is resolved and the values validated here (to compare before writing) and
     # again inside create_record/update_record: two cheap reads kept so the write path stays the
@@ -586,7 +607,8 @@ defmodule Letflow.Entities.Records do
           normalised: normalised,
           prefix: prefix,
           authority: authority,
-          schema_checked: schema_checked
+          schema_checked: schema_checked,
+          lineage: lineage
         },
         @upsert_max_attempts
       )
@@ -609,14 +631,27 @@ defmodule Letflow.Entities.Records do
   end
 
   defp upsert_opts!(opts) do
-    case Keyword.pop(opts, :schema_checked, false) do
+    {lineage, rest} = Keyword.pop(opts, :trigger_lineage)
+
+    case Keyword.pop(rest, :schema_checked, false) do
       {checked, []} when is_boolean(checked) ->
-        checked
+        {checked, Outbox.parse_lineage!(lineage)}
 
       _invalid ->
         raise ArgumentError,
-              "upsert_record_by_external_ref/4 accepts only schema_checked: boolean, got: " <>
-                inspect(opts)
+              "upsert_record_by_external_ref/4 accepts only schema_checked: boolean and " <>
+                "trigger_lineage, got: " <> inspect(opts)
+    end
+  end
+
+  # The options of create_record/4 and update_record/4: `:trigger_lineage` only.
+  defp trigger_opts!(opts) do
+    case Keyword.pop(opts, :trigger_lineage) do
+      {lineage, []} ->
+        Outbox.parse_lineage!(lineage)
+
+      _invalid ->
+        raise ArgumentError, "accepts only the trigger_lineage option, got: " <> inspect(opts)
     end
   end
 
@@ -647,8 +682,14 @@ defmodule Letflow.Entities.Records do
     is_integer(version) and version >= @min_ref_schema_version
   end
 
-  defp upsert_create_checked(%{attrs: attrs, ref: ref, prefix: prefix, authority: authority}) do
-    case do_create_record(attrs, prefix, authority, ref) do
+  defp upsert_create_checked(%{
+         attrs: attrs,
+         ref: ref,
+         prefix: prefix,
+         authority: authority,
+         lineage: lineage
+       }) do
+    case do_create_record(attrs, prefix, authority, ref, lineage) do
       {:ok, %{record: record, is_duplicate: false}} ->
         {:ok, %{record: record, outcome: :created, is_duplicate: false}}
 
@@ -674,7 +715,7 @@ defmodule Letflow.Entities.Records do
         |> Map.put(:record_id, existing.record_id)
         |> Map.put(:expected_last_event_global_seq, existing.last_event_global_seq)
 
-      case update_record(update_attrs, run.prefix, run.authority) do
+      case update_record(update_attrs, run.prefix, run.authority, trigger_lineage: run.lineage) do
         {:ok, %{record: record, is_duplicate: duplicate?}} ->
           {:ok, %{record: record, outcome: :updated, is_duplicate: duplicate?}}
 
@@ -752,11 +793,28 @@ defmodule Letflow.Entities.Records do
   @spec update_record(update_attrs(), prefix :: String.t(), ManagedTypes.owner()) ::
           {:ok, command_result()} | command_error()
   def update_record(
-        %{entity_type: entity_type, record_id: record_id, field_values: field_values} = attrs,
+        %{entity_type: _, record_id: _, field_values: _} = attrs,
         prefix,
         authority
       )
-      when is_binary(prefix) and is_authority(authority) do
+      when is_binary(prefix) and is_authority(authority),
+      do: update_record(attrs, prefix, authority, [])
+
+  @doc "`update_record/3` with the `:trigger_lineage` option, as `create_record/4`."
+  @spec update_record(
+          update_attrs(),
+          prefix :: String.t(),
+          ManagedTypes.owner(),
+          trigger_lineage: Outbox.lineage() | nil
+        ) :: {:ok, command_result()} | command_error()
+  def update_record(
+        %{entity_type: entity_type, record_id: record_id, field_values: field_values} = attrs,
+        prefix,
+        authority,
+        opts
+      )
+      when is_binary(prefix) and is_authority(authority) and is_list(opts) do
+    lineage = trigger_opts!(opts)
     expected = expected_seq(attrs)
 
     with :ok <- reject_reserved_attributes(attrs),
@@ -770,7 +828,7 @@ defmodule Letflow.Entities.Records do
          :ok <- ensure_not_deleted(existing_record, record_id),
          preserve = preserve_keys(attrs),
          merged = merge_preserved(field_values, existing_record, preserve) do
-      # See `do_create_record/4`: the same pipeline from validation on, once per hook attempt.
+      # See `do_create_record/5`: the same pipeline from validation on, once per hook attempt.
       finish = fn values, hook_ctx ->
         with {:ok, values} <-
                validate_merged(
@@ -795,7 +853,8 @@ defmodule Letflow.Entities.Records do
               expected_last_event_global_seq: expected,
               idempotency_match: :request,
               prefix: prefix,
-              authority: authority
+              authority: authority,
+              trigger_lineage: lineage
             })
             |> put_hook(hook_ctx)
 
@@ -982,6 +1041,7 @@ defmodule Letflow.Entities.Records do
            recheck_definition(definition, line.entity_type, prefix, authority)
          end)
          |> maybe_allocate_line_number(line.line_key, number_binding, line.entity_type, ctx)
+         |> maybe_enqueue_trigger(namespace, ctx, event_attrs.actor_id)
          |> run_line_step(namespace, :upsert_record_latest, fn repo, changes ->
            upsert_record_latest(repo, changes, ctx)
          end)
@@ -1274,6 +1334,8 @@ defmodule Letflow.Entities.Records do
         # REQ-541: allocated after the idempotency check and the type's sequence row, before the
         # record write; a replay failed at `:idempotency` and allocates nothing.
         |> maybe_allocate_number(ctx)
+        # REQ-606: the trigger outbox row, same transaction, flag on only; no lock on an existing row.
+        |> maybe_enqueue_trigger(ctx, event_attrs.actor_id)
         # REQ-618: the accepted hook audit row, after the sequence locks and the number counter
         # (decision 0061 items 5, 5a, 6), before the record write so a failure there rolls it back.
         |> WriteHookAudit.audit_step(ctx)
@@ -1385,6 +1447,21 @@ defmodule Letflow.Entities.Records do
   end
 
   defp maybe_allocate_number(multi, _ctx), do: multi
+
+  # REQ-606 / decision 0067 D1: one `:enqueue_trigger` step (`{:line, i, :enqueue_trigger}` for a
+  # step line) after the sequence assignment and the number allocation, before the hook audit and
+  # the record write. Flag off: the Multi is returned unchanged, so nothing reads the bindings.
+  defp maybe_enqueue_trigger(multi, namespace \\ nil, ctx, actor_id) do
+    if RecordTriggers.enabled?() do
+      step = fn repo, changes -> Outbox.run(repo, changes, ctx, actor_id) end
+
+      if namespace,
+        do: run_line_step(multi, namespace, :enqueue_trigger, step),
+        else: Multi.run(multi, :enqueue_trigger, step)
+    else
+      multi
+    end
+  end
 
   # The `command_multi/3` line form. A plain `Multi.run` (not `run_line_step/4`) because it reads the
   # transaction's whole `changes`: the engine's type-lock step already locked the counter row of a

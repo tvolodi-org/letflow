@@ -188,6 +188,7 @@ defmodule Letflow.TenantFixture do
     "promotion_assertion_runs",
     "promotion_reviews",
     "record_trigger_bindings",
+    "record_trigger_outbox",
     "repository_artifacts",
     "role_scope_grants",
     "scheduled_jobs",

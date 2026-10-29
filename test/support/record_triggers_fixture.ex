@@ -9,6 +9,33 @@ defmodule Letflow.RecordTriggersFixture do
   alias Letflow.Scripts.ScriptRule
   alias Letflow.Support.ScriptTaskFixture, as: F
 
+  @doc "Every `record_trigger_outbox` row of `schema`, oldest first (REQ-606)."
+  @spec outbox_rows(String.t()) :: [Letflow.RecordTriggers.OutboxRow.t()]
+  def outbox_rows(schema) do
+    import Ecto.Query
+
+    Repo.all(
+      from(r in Letflow.RecordTriggers.OutboxRow, order_by: [asc: r.source_seq, asc: r.id]),
+      prefix: schema
+    )
+  end
+
+  @doc "Binds a fresh published `entity_event` script to (`type`, `event`); returns the binding."
+  @spec bind!(String.t(), String.t(), String.t()) :: Letflow.RecordTriggers.Binding.t()
+  def bind!(schema, type, event) do
+    rule = script!(schema, "entity_event", :published)
+
+    pin = %{
+      "script_key" => rule.key,
+      "script_version" => rule.version,
+      "script_sha256" => rule.sha256
+    }
+
+    actor = %{user_id: Ecto.UUID.generate(), credential: :oidc, trace_id: "req606-trace"}
+    {:ok, binding} = Letflow.RecordTriggers.bind(schema, type, event, pin, actor)
+    binding
+  end
+
   @doc "A script row of `hook_kind` and `status` in `schema`; `manifest` defaults to a closed one."
   @spec script!(String.t(), String.t(), atom(), map() | nil) :: ScriptRule.t()
   def script!(schema, hook_kind, status, manifest \\ nil) do

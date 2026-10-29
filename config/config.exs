@@ -154,6 +154,11 @@ config :letflow, :modules_uninstall_enabled, false
 # only by Letflow.RecordTriggers.enabled?/0.
 config :letflow, :record_triggers_enabled, false
 
+# REQ-606 / GH #3411 (decision 0067 D4): the deepest trigger chain a write may extend; a trigger whose
+# lineage depth + 1 would exceed it is suppressed. Normative default 3. Set only here by operators:
+# it is never read from tenant data. Read by Letflow.RecordTriggers.Outbox.
+config :letflow, :record_trigger_depth_cap, 3
+
 # REQ-597 / GH #3363: exam notification mails (the exam_result mail after a scored submit). Default
 # off. Read only by Letflow.Modules.Exam.Notifications.enabled?/0.
 config :letflow, :exam_notifications_enabled, false
