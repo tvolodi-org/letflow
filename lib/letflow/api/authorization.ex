@@ -357,6 +357,7 @@ defmodule Letflow.Api.Authorization do
           | :NumberSequencesManage
           | :ScheduledJobsManage
           | :DocumentPrintTemplatesManage
+          | :SolutionOverridesManage
           | :IntegrationMappingsManage
           | :EntitiesViewsManage
 
@@ -435,6 +436,7 @@ defmodule Letflow.Api.Authorization do
           | :NumberSequencesManage
           | :ScheduledJobsManage
           | :DocumentPrintTemplatesManage
+          | :SolutionOverridesManage
           | :IntegrationMappingsManage
           | :EntitiesViewsManage
           | :ScriptRulesList
@@ -528,7 +530,9 @@ defmodule Letflow.Api.Authorization do
     # REQ-561 (GH #3194): tenant scheduled jobs. Tenant scope; TENANT_ADMIN through the derived rule.
     :ScheduledJobsManage,
     # REQ-579 (GH #3289): tenant print-template overrides. Tenant scope; TENANT_ADMIN through the derived rule.
-    :DocumentPrintTemplatesManage
+    :DocumentPrintTemplatesManage,
+    # REQ-596 (GH #3353): tenant solution-pack overrides. Tenant scope; TENANT_ADMIN through the derived rule.
+    :SolutionOverridesManage
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -551,7 +555,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All fifty-three core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All fifty-four core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -583,7 +587,8 @@ defmodule Letflow.Api.Authorization do
   REQ-561's
   `:ScheduledJobsManage` (the tenant scheduled-job routes under `/scheduled-jobs`) and
   REQ-579's `:DocumentPrintTemplatesManage` (tenant print-template overrides under
-  `/documents/print-overrides`),
+  `/documents/print-overrides`) and REQ-596's `:SolutionOverridesManage` (tenant solution-pack
+  overrides under `/solution-packs/:pack_id/overrides`),
   each TENANT_ADMIN through the derived rule.
   Each has exactly one scope, see `permission_scope/1`.
 
@@ -1271,6 +1276,18 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/documents/print-overrides/:id/retire"),
     do: :DocumentPrintTemplatesManage
 
+  # REQ-596 (GH #3353): tenant solution-pack overrides; reads need :DefinitionsRead, writes the Manage key.
+  def endpoint_policy_key("GET", "/solution-packs/:pack_id/overrides"), do: :DefinitionsRead
+
+  def endpoint_policy_key("POST", "/solution-packs/:pack_id/overrides"),
+    do: :SolutionOverridesManage
+
+  def endpoint_policy_key("POST", "/solution-packs/:pack_id/overrides/:override_id/versions"),
+    do: :SolutionOverridesManage
+
+  def endpoint_policy_key("POST", "/solution-packs/:pack_id/overrides/:override_id/retire"),
+    do: :SolutionOverridesManage
+
   # REQ-565 (GH #3201): tenant integration mappings; one permission for all five routes.
   def endpoint_policy_key("POST", "/integration-mappings"), do: :IntegrationMappingsManage
   def endpoint_policy_key("GET", "/integration-mappings"), do: :IntegrationMappingsManage
@@ -1593,6 +1610,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:NumberSequencesManage), do: :NumberSequencesManage
   def required_permission(:ScheduledJobsManage), do: :ScheduledJobsManage
   def required_permission(:DocumentPrintTemplatesManage), do: :DocumentPrintTemplatesManage
+  def required_permission(:SolutionOverridesManage), do: :SolutionOverridesManage
   # REQ-555: identity clause for the saved-view write routes.
   def required_permission(:EntitiesViewsManage), do: :EntitiesViewsManage
   # GH 2534 PR 7b-2a (design P3): script policy route keys over the script permissions.

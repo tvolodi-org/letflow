@@ -21,7 +21,7 @@ defmodule Letflow.Api.EntityViewsRouteClassesTest do
 
   describe "M1 permission" do
     test "a core permission of tenant scope, fourth to last" do
-      assert Authorization.core_permissions() |> Enum.take(-5) |> hd() == :EntitiesViewsManage
+      assert Authorization.core_permissions() |> Enum.take(-6) |> hd() == :EntitiesViewsManage
       assert Authorization.permission_scope(:EntitiesViewsManage) == :tenant
       assert Authorization.required_permission(:EntitiesViewsManage) == :EntitiesViewsManage
     end
