@@ -42,6 +42,10 @@ actors:
 preconditions:
   - description: The visitor has no session and the keyboard focus is at the start of the page
     check: custom
+  - description: >
+      The test browser's preferred language can be changed (the login page takes its language from the
+      browser, it has no language control of its own)
+    check: custom
 
 steps:
   - step: 1
@@ -78,8 +82,8 @@ steps:
   - step: 6
     actor: visitor
     action: >
-      Switches the page language to Russian, opens the login page, presses Tab once and reads the link text;
-      then does the same in Kazakh
+      Sets the browser's preferred language to Russian (ru), opens the login page in a fresh tab, presses Tab
+      once and reads the link text; then sets the browser's preferred language to Kazakh (kk) and does the same
     via: gui
 
 expected_outcomes:
@@ -166,4 +170,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: Nothing was created; the language switch is set back to English.
+  description: Nothing was created; the browser's preferred language is set back to English.

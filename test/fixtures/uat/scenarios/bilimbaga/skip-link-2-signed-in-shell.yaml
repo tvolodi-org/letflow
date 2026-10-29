@@ -34,11 +34,12 @@ description: >
   link "Skip to main content", ahead of the side menu; it is hidden until focused; activating it with Enter or a
   click moves focus into the page content area without changing the page or the address; pressing Tab then
   goes to the first control inside the content, so the link is not a dead stop. The same holds on the pages for
-  users, questions, exams and tags, which show no error text.
+  Users, Question Bank, exams (/admin/bilimbaga/exam) and tags (/admin/bilimbaga/tag), which show no error text.
   Preconditions: the browser is English (en), because the link text on the signed-in screens is English only;
   the administrator (the roster's bilimbaga administrator) is signed in; the keyboard focus starts at the top
   of the page after the page has loaded (nothing clicked); the exam module is installed so that the pages for
-  questions, exams and tags exist.
+  questions, exams and tags exist; the administrator belongs to one organisation only, so the side menu shows
+  no organisation switcher.
 
 actors:
   admin: actor-bilimbaga-admin
@@ -47,6 +48,8 @@ preconditions:
   - description: A bilimbaga tenant exists with the exam solution pack installed
     check: process_definition_active
   - description: The administrator is signed in and the page has fresh keyboard focus
+    check: custom
+  - description: The administrator belongs to one organisation only (no organisation switcher in the side menu)
     check: custom
 
 steps:
@@ -82,8 +85,9 @@ steps:
   - step: 6
     actor: admin
     action: >
-      Opens in turn the administration pages for users, questions, exams and tags; on each presses Tab once and
-      reads the link, and reads the page for error text
+      Opens in turn the pages Users (/admin/users), Question Bank (/admin/questions), exams
+      (/admin/bilimbaga/exam) and tags (/admin/bilimbaga/tag); on each presses Tab once and reads the link,
+      and reads the page for error text
     via: gui
 
 expected_outcomes:
@@ -96,7 +100,8 @@ expected_outcomes:
       detail: >
         Step 1 shows no skip link. Step 2 shows a visible link "Skip to main content" at the top left with
         the focus ring, and no other control had the focus before it; pressing Tab again (step 4, second
-        part) moves the focus on to the first link of the side menu, after the skip link
+        part) moves the focus on to the first link of the side menu (the administrator has one organisation, so there is no
+        organisation switcher in between), after the skip link
     on_fail:
       severity: MAJOR
       business_impact: >
@@ -156,7 +161,8 @@ expected_outcomes:
     verification:
       method: gui_screen
       detail: >
-        Step 6: on the pages for users, questions, exams and tags, Tab once shows the skip link, the browser's
+        Step 6: on the pages Users, Question Bank, exams (/admin/bilimbaga/exam) and tags
+        (/admin/bilimbaga/tag), Tab once shows the skip link, the browser's
         accessibility view lists exactly one main region, and the text "unexpected error" or "something went
         wrong" does not appear
     on_fail:
