@@ -44879,3 +44879,73 @@ requirements:
       - "10. Tenant isolation and limits (INV-1, INV-5, INV-10): in a two-tenant test a location written under tenant A is not returned by lookup/2 or active?/2 called with tenant B's prefix, and gives the same answer as an absent id; the change adds no route, no permission and no role grant. The runbook docs/runbooks/wms-foundation.md gains a section \"Locations module limits\", a numbered list of the limits as on main when this is done (managed type, owner path only, no tree-rule check, no org_site_id check, no both-or-neither external_ref rule, no capacity or compatibility fields, generic import refuses the managed type), each naming a GH number or code path that exists; a runbook test as test/letflow/modules/org/runbook_test.exs reads it."
       - "11. SECURITY-REVIEWER (new tenant entity type, managed lock, module-to-module read surface) and REVIEWER verdicts recorded; mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/modules/locations/ and test/letflow/modules/catalog_test.exs, mix letflow.check_boundaries and mix letflow.check_requirements_registration pass, real output quoted. git diff shows no change under lib/letflow/modules/procurement/, org or catalog_items and no seed data."
     depends_on: [REQ-473, REQ-474, REQ-505, REQ-506, REQ-507]
+  - id: REQ-629
+    title: "Solution-pack overrides web screen, slice S5: list, create, edit and retire a tenant's overrides and show the update report outcomes (decision 0069 D8 S5)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-596 -- the screen calls the REQ-596 routes and reads the REQ-617 override field; neither is on main yet
+    # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D8 slice S5 ("Web screen (FRONTEND-DEV). List and edit overrides, show the update report. After S2 and S4."), D3 (kept, re-checked, orphaned, property gone; history never deleted), D5 (permission, INV-2), "Threats for SECURITY-REVIEWER"; docs/requirements.yaml REQ-596 (routes, permissions SolutionOverridesManage and :DefinitionsRead, append-only versions, closed property list, reason mandatory, 422 detail texts property_not_overridable, override_exists), REQ-617 (override object of a review entry, override_action of an applied entry, 409 unresolved conflict, 403 without SolutionOverridesManage, override_merge_unsupported), REQ-381 (existing update-review screen); code read: web/src/api/solutionPacks.ts (solutionPacksApi, PackUpdateReviewEntry, PackUpdateAppliedEntry), web/src/pages/solution-packs/SolutionPackUpdateReviewPage.tsx, web/src/pages/solution-packs/SolutionPackUpdateLauncherPage.tsx, web/src/components/solution-packs/UpdateReviewGroupList.tsx, web/src/router.tsx, web/src/components/layout/AppShell.tsx, web/src/auth/access/types.ts (P), web/src/i18n/entitiesMessages.ts (ENTITIES_UI_LOCALES en, ru, kk).
+    description: >
+      Slice S5 of decision 0069 D8 (core roadmap Wave 3, "Solution versioning and per-tenant overrides"). S2 is
+      REQ-596 (override storage and management API), S4 is REQ-617 (plan and apply read overrides). Decision 0069
+      is PROPOSED and its sign-off is pending (REQ-562); this slice is implemented only once REQ-596 and REQ-617 are
+      on main and REQ-562 records the sign-off.
+      What main does today. web/ has the solution-pack update screens of REQ-381 (SolutionPackUpdateLauncherPage,
+      SolutionPackUpdateReviewPage, UpdateReviewGroupList), which show the four classifications and take a
+      resolution per conflict, through solutionPacksApi in web/src/api/solutionPacks.ts. There is no screen for
+      overrides and the review entry type has no override key.
+      What this slice builds, and nothing else. It adds NO backend route, permission, table or field: it uses only
+      the four routes of REQ-596 (list, create, new version, retire, all under /solution-packs/:pack_id/overrides)
+      and the override object of REQ-617 on the two existing update routes (update-review, update-apply).
+      (1) API CLIENT. web/src/api/solutionPacks.ts gains functions for the four REQ-596 routes and the types of the
+      REQ-596 and REQ-617 wire shapes; PackUpdateReviewEntry gains the optional override object (override_id,
+      override_version, made_against, outcome, optional warning) and PackUpdateAppliedEntry the optional
+      override_action. The tenant is never sent (the token carries it).
+      (2) OVERRIDES SCREEN for one installed pack, reached from the pack row on the existing /solution-packs
+      launcher page. States: list (latest version per override: artefact type, artefact id, override version, made
+      against pack version, status active, retired or orphaned, reason), loading, empty, error (a 404 shows the
+      same not-found text whether the pack or the override is unknown or foreign); create (artefact type, artefact
+      id, patch, mandatory reason); edit (writes the next version: the form loads the latest patch and sends the
+      whole patch back, since a version replaces the previous patch; reason mandatory); retire (confirmation,
+      mandatory reason). A server 422 is shown as a field-level message for property_not_overridable (patch
+      untouched, nothing saved), override_exists and a missing reason; no row is shown as changed until the server
+      accepted it. No edit or delete of an earlier version is offered (history is append-only). A retired override
+      shows read-only; an orphaned one shows read-only with the orphaned label and a retire action only.
+      (3) UPDATE REPORT. The existing update-review screen shows, per entry that has an override object, the
+      outcome: kept (with the warning text when the warning is override_kept_pack_changed), override_conflict
+      (counted as unresolved until a resolution is chosen, like a conflict today, offering keep_local and
+      take_incoming only, never merged), orphaned and property_gone (shown as non-blocking). After apply, each
+      applied entry with an override_action shows advanced, retired, orphaned, property_gone or left_unchanged.
+      The "advance" of D3 is shown as advanced. Entries with no override object render exactly as today. The
+      screen shows no patch path or value in the report (REQ-617 sends none). A 409 unresolved-conflict reply and
+      a 403 on apply (caller lacks SolutionOverridesManage while an override_conflict entry exists) each show a
+      stated message and leave the screen state unchanged.
+      (4) PERMISSION GATING (REQ-596, REQ-617). The list view needs DefinitionsRead. The create, edit and retire
+      controls are rendered only for a caller who holds SolutionOverridesManage (granted to TENANT_ADMIN only);
+      without it they are absent, not disabled-with-data. The permission atom is added to P in
+      web/src/auth/access/types.ts and the access fixtures; the server stays the authority (a 403 is shown, never
+      assumed away). The apply control on an update report holding an override_conflict entry is shown only to a
+      holder of SolutionOverridesManage.
+      (5) I18N. Every new visible string, including the outcome, status and error texts, is in the en, ru and kk
+      catalogs in the pattern of web/src/i18n/entitiesMessages.ts (ENTITIES_UI_LOCALES); a missing key in any of
+      the three fails a test.
+      NOT IN THIS SLICE: any backend change; adopt local edit (S6); the effective definition (S3); pack rollback;
+      a merged resolution of an override_conflict; a diff view of patch against base.
+    acceptance_criteria:
+      - "1. No new backend: git diff of the change touches nothing under lib/, priv/ or config/; the api module calls only the four REQ-596 paths under /solution-packs/:pack_id/overrides and the two existing update paths; a unit test of the api module asserts each method, path and that no request carries a tenant id."
+      - "2. List states: component tests render the overrides screen for a mocked list in states loading, empty, error, 404 and populated; the populated list shows, per override, artefact type, artefact id, override version, made_against, status (active, retired, orphaned) and reason, and shows one row per override_id (the latest version)."
+      - "3. Create and edit: a test submits create with artefact type, artefact id, patch and reason and asserts the request body; a test opens edit, asserts the form is filled with the latest patch, changes one property and asserts the request to the new-version route carries the complete patch and the reason; a submission without a reason is blocked in the form and sends no request; a mocked 422 property_not_overridable, override_exists and a missing reason each show their own message and leave the list unchanged."
+      - "4. Retire and history: a test retires an override after a confirmation with a reason and asserts the request to the retire route; after success the row shows status retired read-only with no edit control; an orphaned row offers retire only; no control and no request in the screen uses PATCH, PUT or DELETE."
+      - "5. Update report outcomes: tests render update-review replies with entries whose override outcome is kept (with and without warning override_kept_pack_changed), override_conflict, orphaned and property_gone and assert each label; an override_conflict entry counts as unresolved until keep_local or take_incoming is chosen and offers no merged choice; orphaned and property_gone do not block apply; after a mocked apply, override_action advanced, retired, orphaned, property_gone and left_unchanged each show their label; an entry without an override key renders identically to a snapshot of today's render."
+      - "6. Error replies: a mocked 409 unresolved-conflict reply and a mocked 403 on apply each show their stated message, keep the chosen resolutions in the form, and do not mark the apply as done; a mocked 422 override_merge_unsupported shows its message."
+      - "7. Permission gating: with a session holding DefinitionsRead and not SolutionOverridesManage the list is shown and no create, edit, retire or override-conflict apply control is in the DOM; with TENANT_ADMIN's permissions all of them are shown; with neither permission the screen shows the not-allowed state of the existing launcher page; SolutionOverridesManage is a member of P and of the access fixtures."
+      - "8. No data in the report: a test feeds a review reply and an apply reply and asserts the distinctive value 987654.321 given only in the overrides list mock appears nowhere in the rendered update-review or apply output."
+      - "9. I18N: a test asserts every message key of the new screen and report exists in en, ru and kk with a non-empty string, and that switching the session locale to kk and to ru renders the outcome and status labels in that language."
+      - "10. Gates: cd web && npm run check passes with real output quoted; REVIEWER verdict recorded; SECURITY-REVIEWER verdict recorded (a tenant-data screen and a permission-gated write surface, even with no new route)."
+    depends_on: [REQ-596, REQ-617, REQ-381]
+    open_questions:
+      - "1. Decision 0069 sign-off (REQ-562) is pending; if the owner changes D2 (what an override is), D3 (outcomes) or D5 (permission), the screen's states and gating change with it."
+      - "2. Q5 of decision 0069: the closed property path list is the REQ-596 design's. The create and edit form is a patch editor over whatever paths the server accepts; whether the screen offers a path picker from a fixed list or a free JSON patch is decided once the REQ-596 design names the list, and no route to fetch the list exists, so a free patch with the server's 422 is assumed."
+      - "3. Where the overrides screen is entered: this entry assumes a link on the pack row of the existing /solution-packs page, whose nav item is gated by ModulesManage today; REQ-596 lets a DefinitionsRead caller list overrides, so a caller with DefinitionsRead but not ModulesManage cannot reach the launcher. The owner decides whether the nav gate changes."
+      - "4. REQ-617 open question 2 (merged resolution of an override_conflict) is open; this entry offers keep_local and take_incoming only."
