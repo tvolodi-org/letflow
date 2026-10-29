@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Procurement.LineEvent do
     field(:document_id, :binary_id)
     field(:line_no, :integer)
     field(:version_no, :integer)
-    field(:kind, Ecto.Enum, values: [:officer, :supplier, :reference])
+    field(:kind, Ecto.Enum, values: [:officer, :supplier, :reference, :cancel])
     field(:data, :map)
     field(:performer, :binary_id)
     field(:recorded_at, :utc_datetime_usec)

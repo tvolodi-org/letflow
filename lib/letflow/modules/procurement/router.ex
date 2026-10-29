@@ -16,6 +16,7 @@ defmodule Letflow.Modules.Procurement.Router do
   | `POST /purchase-requests/:id/lines/:line_no/officer` | `ProcurementLineRecord` | `LineEvents.record_officer/3` | 201 / 200 replay / 403 / 404 / 409 / 422 / 503 |
   | `POST /purchase-requests/:id/lines/:line_no/supplier` | `ProcurementLineRecord` | `LineEvents.record_supplier/3` | same |
   | `POST /purchase-requests/:id/lines/:line_no/reference` | `ProcurementLineRecord` | `LineEvents.record_reference/3` | same |
+  | `POST /purchase-requests/:id/lines/:line_no/cancel` | `ProcurementLineRecord` | `LineEvents.cancel_line/3` | same (409 `request_closed` on a Closed or Cancelled request) |
 
   The caller is `conn.assigns.auth_context.user_id` and the tenant is `conn.assigns.scoped_opts`
   (INV-1, INV-10): no route takes a performer, requester, actor or tenant from the body or path. The
@@ -59,7 +60,10 @@ defmodule Letflow.Modules.Procurement.Router do
          true <-
            Decisions.requester_of(prefix, status.document_id) == actor or
              holds?(conn, :ProcurementRequestDecide) do
-      Response.ok(conn, status)
+      Response.ok(
+        conn,
+        Map.put(status, :fulfilment_status, LineEvents.request_status(prefix, status.document_id))
+      )
     else
       _other -> Response.not_found(conn)
     end
@@ -124,6 +128,10 @@ defmodule Letflow.Modules.Procurement.Router do
     record_line(conn, :record_reference, ~w(source_system identifier kind idempotency_key))
   end
 
+  authz_post "/purchase-requests/:id/lines/:line_no/cancel", :ProcurementLineRecord do
+    record_line(conn, :cancel_line, ~w(reason idempotency_key))
+  end
+
   authz_unmatched(:ordinary)
 
   # -- rendering --------------------------------------------------------------------------------
@@ -153,7 +161,7 @@ defmodule Letflow.Modules.Procurement.Router do
       )
 
   defp render(conn, {:error, reason}, _status, _shape)
-       when reason in [:idempotency_key_reused, :version_closed, :not_approved],
+       when reason in [:idempotency_key_reused, :version_closed, :not_approved, :request_closed],
        do:
          Response.send_problem(
            conn,
