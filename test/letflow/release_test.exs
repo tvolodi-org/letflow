@@ -114,7 +114,6 @@ defmodule Letflow.ReleaseTest do
 
     alias Letflow.Identity.Tenant
     alias Letflow.TenantOnboarding
-    alias Letflow.TenantProvisioning
     alias Letflow.TenantProvisioning.Registration
 
     # The real onboarding path (`POST /onboarding` creates the row `migrating`); the pooled
