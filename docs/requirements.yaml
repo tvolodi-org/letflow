@@ -44964,6 +44964,76 @@ requirements:
       - "10. Tenant isolation and limits (INV-1, INV-5, INV-10): in a two-tenant test a location written under tenant A is not returned by lookup/2 or active?/2 called with tenant B's prefix, and gives the same answer as an absent id; the change adds no route, no permission and no role grant. The runbook docs/runbooks/wms-foundation.md gains a section \"Locations module limits\", a numbered list of the limits as on main when this is done (managed type, owner path only, no tree-rule check, no org_site_id check, no both-or-neither external_ref rule, no capacity or compatibility fields, generic import refuses the managed type), each naming a GH number or code path that exists; a runbook test as test/letflow/modules/org/runbook_test.exs reads it."
       - "11. SECURITY-REVIEWER (new tenant entity type, managed lock, module-to-module read surface) and REVIEWER verdicts recorded; mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/modules/locations/ and test/letflow/modules/catalog_test.exs, mix letflow.check_boundaries and mix letflow.check_requirements_registration pass, real output quoted. git diff shows no change under lib/letflow/modules/procurement/, org or catalog_items and no seed data."
     depends_on: [REQ-473, REQ-474, REQ-505, REQ-506, REQ-507]
+  - id: REQ-630
+    title: "Module uninstall slice 5: SPA admin screen to uninstall and reactivate a module, behind a build flag and the ModulesManage permission (decision 0066 D8 slice 5)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S8
+    gh: 3518
+    # Source: docs/migration/decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md (D4 "Running work" table, "Open work" paragraph, D5 item 3, D6 "Who", D8 slice 5 row "SPA admin screen to uninstall/reactivate ... frontend unit tests; npm run check", the flag sentence of D8); REQ-578 (routes POST /tenant/modules/:module_id/uninstall and /reactivate, body {"rationale"}, answers 200 {module_id, status}, 404, 409 dependents_installed and upgrade_required, 422); REQ-627 (409 open_work_exists with the counts open_instances and open_tasks, no ids; the start-after-uninstall 404); code read: lib/letflow/routers/tenant_modules.ex (handle_transition, run_transition), lib/letflow/api/error.ex (module_dependents_installed/1, module_upgrade_required/0 extensions), lib/letflow/routers/me.ex (handle_list_modules lists only installed modules), web/src/api/client.ts (409 and error mapping), web/src/api/me.ts, web/src/hooks/useInstalledModules.ts, web/src/router.tsx and web/src/components/layout/AppShell.tsx (solution-packs route and nav item gated by P.ModulesManage), web/src/pages/solution-packs/SolutionPackUpdateLauncherPage.tsx (access.can(P.ModulesManage), Navigate, AccessPending), web/src/auth/emailFirstFlag.ts with web/src/vite-env.d.ts and web/.env.example (the build-flag precedent). Written by the business analyst (T-0942) 2026-10-30. Not yet validated.
+    description: >
+      Slice 5 of decision 0066 (D8): the SPA admin screen that calls the two routes REQ-578 added. It depends
+      on REQ-578 (routes, merged, GH 3267) and REQ-627 (slice 2: the open_work_exists answer and the uniform
+      404 on start; its entry is on main, its code is pending). Frontend only: no backend, route, permission
+      or migration change; nothing under lib/ or priv/ changes.
+      (1) Where. A new page web/src/pages/admin/modules/ModuleUninstallPage.tsx at the route
+      admin/module-lifecycle in web/src/router.tsx, wrapped in RequirePermission with P.ModulesManage (the
+      pattern of admin/print-templates there), and a nav item in the tenantAdmin group of
+      web/src/components/layout/AppShell.tsx with permission P.ModulesManage, label "Module lifecycle". The
+      permission is the existing ModulesManage (TENANT_ADMIN, and the platform tenant's PLATFORM_ADMIN,
+      docs/roles.md); no new permission is added. A caller without it sees the same redirect or
+      access-denied behaviour as the other P.ModulesManage pages; the server still decides (403).
+      (2) Flag. The SPA cannot read the application env key modules_uninstall_enabled of :letflow (no route
+      exposes it, and adding one is out of scope). The screen is therefore gated by a build-time Vite
+      variable VITE_MODULES_UNINSTALL_ENABLED, read by one helper isModulesUninstallEnabled() in
+      web/src/modules/uninstallFlag.ts on the model of web/src/auth/emailFirstFlag.ts: only the exact value
+      "true" enables it; absent, empty or anything else is off. Off: the nav item is not rendered and the
+      route renders NotFoundPage. The variable is declared in web/src/vite-env.d.ts and listed in
+      web/.env.example as false; no committed non-dev env file or vite config sets it to true. The flag
+      is a visibility switch only: the server flag still decides, and with the server flag off the routes
+      answer 404 (see (4)).
+      (3) API wrapper. web/src/api/tenantModules.ts exports tenantModulesApi.uninstall(moduleId, rationale)
+      and tenantModulesApi.reactivate(moduleId, rationale): POST /api/v1/tenant/modules/{moduleId}/uninstall
+      and /reactivate with body {"rationale": rationale}; the path segment is encodeURIComponent(moduleId);
+      the response type is {module_id: string, status: string}. No tenant id, tenant or prefix is sent.
+      (4) Screen. Two sections, each with a module id field, a mandatory rationale textarea and a submit
+      button disabled while the rationale is blank. Section "Installed modules" lists the modules from
+      useInstalledModules() (GET /me/modules, which returns active modules only) with an Uninstall button
+      per row that opens a confirmation dialog stating that running work blocks the uninstall and that data
+      is kept. Section "Reactivate" takes a module id typed by the admin, because no route lists uninstalled
+      modules (GET /me/modules omits them, REQ-578 criterion 5); this is stated on the screen. After a 200
+      the installed-modules query is invalidated and a success message names the module id and the new
+      status. Answers shown as user-facing states, distinguished by status and by the body field code
+      (read from the error's details.code, since web/src/api/client.ts keeps the whole 409 body in
+      details):
+        - 409 code open_work_exists: message "This module still has running work and cannot be uninstalled",
+          with the counts of open instances and open tasks read from the body fields open_instances and
+          open_tasks (the names of the REQ-627 error tuple; no id is shown or requested), and the advice to
+          finish or cancel the work and try again. Nothing is changed by the screen.
+        - 404: one message "Module not found, or this action is not available" for every 404, for uninstall
+          and reactivate, whatever the cause (unknown, not installed, not uninstalled, or the server flag
+          off). The screen never says "feature disabled" or "flag" and never guesses the cause, because the
+          server answers all of them identically (INV-5, decision 0066 D4).
+        - 409 code dependents_installed: lists the dependent module ids from the body field dependents.
+        - 409 code upgrade_required: message that the installed module differs from the current version and
+          must be upgraded instead.
+        - 422: shows the server detail text (rationale is required, or the missing dependency).
+        - 403: the shared forbidden message of the other admin pages.
+        - Any other error: the shared generic error message; the form keeps its input.
+      Out of scope: a read route or screen section that lists uninstalled modules or exposes the server
+      flag, a purge, any change to the exam module nav, the orphaned-data read proof (slice 3), journal
+      kinds (slice 4), cancelling open work from this screen, apps/mobile.
+    acceptance_criteria:
+      - "1. API wrapper: in web/src/api/__tests__/tenantModules.test.ts, with fetch mocked, tenantModulesApi.uninstall('exam', 'closing the pilot') issues POST /api/v1/tenant/modules/exam/uninstall with the JSON body {\"rationale\":\"closing the pilot\"} and nothing else in the body; tenantModulesApi.reactivate issues the same on /reactivate; a module id 'a/b' is sent as 'a%2Fb'; the body of neither call has a key tenant_id, tenant or prefix."
+      - "2. Flag helper: in web/src/modules/__tests__/uninstallFlag.test.ts, isModulesUninstallEnabled() is true only when VITE_MODULES_UNINSTALL_ENABLED is the exact string 'true' and false for undefined, '', 'false', 'TRUE' and '1'; web/.env.example lists VITE_MODULES_UNINSTALL_ENABLED=false and the test reads every committed env file under web/ (the pattern of web/src/auth/__tests__/emailFirstFlag.test.ts) and asserts none sets it to true."
+      - "3. Gating: in web/src/pages/admin/modules/__tests__/ModuleUninstallPage.test.tsx, a user holding P.ModulesManage with the flag on sees the page and the nav item 'Module lifecycle'; a user without P.ModulesManage does not get the page content (the redirect or denied state the sibling P.ModulesManage pages give, asserted the same way) and no nav item; with the flag off the nav item is absent and the route renders NotFoundPage for a user who holds P.ModulesManage. No new permission atom is added in web/src/auth/access/types.ts."
+      - "4. Uninstall happy path: with GET /me/modules mocked to two modules, the page lists both with an Uninstall button; the submit stays disabled while the rationale is blank or whitespace; after confirming with the rationale 'closing the pilot' the mock receives exactly one uninstall call with that rationale, and on a 200 {module_id, status: 'uninstalled'} the success message names the module id and 'uninstalled' and the installed-modules query is invalidated (the mocked list is fetched again)."
+      - "5. open_work_exists state: a mocked 409 whose body has code 'open_work_exists', open_instances 2 and open_tasks 3 shows the running-work message with 2 and 3 on screen, no other number, no instance or task id, and no success message; the module stays listed; the rationale the admin typed is still in the field."
+      - "6. Uniform 404 state: a mocked 404 on uninstall and a mocked 404 on reactivate each show exactly the same single message 'Module not found, or this action is not available'; the rendered text of the two 404 cases is identical, and contains none of the words 'flag', 'disabled', 'uninstalled' (as a cause) or 'not installed'. A second test feeds a 404 with a different body text and asserts the same message."
+      - "7. Other answers: a mocked 409 dependents_installed with dependents ['exam-reports'] shows that id; a mocked 409 upgrade_required shows the upgrade message; a mocked 422 with detail 'rationale is required' shows that text; a mocked 403 shows the shared forbidden message; a mocked 500 shows the generic error; in every case no success message is shown and the form input is kept."
+      - "8. Reactivate path: typing the module id 'exam' and the rationale 'pilot resumed' in the Reactivate section and submitting sends one reactivate call; a 200 {module_id: 'exam', status: 'active'} shows the success message and invalidates the installed-modules query; the section shows the text that uninstalled modules are not listed and the id must be typed."
+      - "9. Gate: cd web && npm run check (type-check, lint, unit tests, guards) passes with the new tests included, real output quoted in the change summary; git diff shows no change under lib/, priv/ or apps/, and web/src/modules/exam/ is unchanged."
+    depends_on: [REQ-578, REQ-627]
 
   - id: REQ-629
     title: "Module uninstall slice 3: orphaned-read proof tests for the exam answer keys, before and after uninstall and reactivate (decision 0066 D8 slice 3)"
