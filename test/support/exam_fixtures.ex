@@ -340,7 +340,7 @@ defmodule Letflow.ExamFixtures do
   definition (`AssignmentDefinition.run_tenant/2`, then activating the pack's inactive row on a
   really installed tenant). Must run outside a transaction (ExamFixtures tenants run the sandbox
   in `:auto`). On a tenant without the exam module installed nothing can be written: returns nil.
-  `opts`: `:active` (default true).
+  `opts`: `:active` (default true), `:deadline` (ISO 8601 string, default none).
   """
   @spec assign!(String.t(), String.t(), String.t(), String.t() | nil, keyword()) ::
           Letflow.Entities.Record.Latest.t() | nil
@@ -361,6 +361,12 @@ defmodule Letflow.ExamFixtures do
         "active" => Keyword.get(opts, :active, true)
       }
       |> then(fn fv -> if assignee_id, do: Map.put(fv, "assignee_id", assignee_id), else: fv end)
+      |> then(fn fv ->
+        case Keyword.get(opts, :deadline) do
+          nil -> fv
+          deadline -> Map.put(fv, "deadline", deadline)
+        end
+      end)
 
     assert {:ok, %{record: record}} =
              Letflow.Modules.Exam.Authoring.create_assignment(

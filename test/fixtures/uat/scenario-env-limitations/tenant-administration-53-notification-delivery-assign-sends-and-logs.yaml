@@ -1,0 +1,17 @@
+scenario_id: tenant-administration-53-notification-delivery-assign-sends-and-logs
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "REQ-584 criteria 2 (message text in the fr wording, default wording, empty-name cases), 3 (adapter error, raise, timeout), 4 (no_email), 5 (adapter reasons, closed sets) and the log-capture part of 6"
+reason: >
+  These criteria need the capturing test adapter of the backend tests, direct database writes
+  (an empty email, an invalid default_locale, an assignee with no user row) or a mail adapter
+  that fails on demand. A QA user has none of them. The send, the sent / skipped row, the
+  reassignment row and the content-free row are covered in the scenario; the rest is covered
+  by the REQ-584 backend tests. The Keycloak-versus-Letflow reset and welcome mail question
+  (T5c) is undecided and has no scenario.
+recorded_by: business-analyst
+recorded_at: "2026-10-29"
+issue_ref: "GH #3310"
+review: >
+  Revisit if QA gains a test mail adapter that can be told to fail, or a seeded user with an
+  empty email address.
