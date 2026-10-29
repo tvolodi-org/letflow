@@ -4,11 +4,11 @@
 #  C3 "...typing JSON that does not parse shows an error in the editor and makes zero requests; valid JSON with locale ru, kk or default and a type_key
 #     calls the save function...; a locale outside ru, kk and default cannot be selected; Activate is offered only for a row with status draft and
 #     Retire only for a row with status active; a reason_code that does not match the format [a-z][a-z0-9_]{0,63} makes zero requests and shows a
-#     validation message, a matching one calls the route." : steps 3 to 5 (invalid JSON, not an object, empty type key), 6 (locale choices), 12 to 15
+#     validation message, a matching one calls the route." : steps 3 to 5 (invalid JSON, not an object, empty type key), 7 (locale choices), 12 to 15
 #     (reason code format and boundary 64/65), 9 (Activate offered for a draft, no Retire). Retire offered only for an active row: scenario 59.
 #  C5 (preview) "...contains the literal text, the label with the placeholder [entity_type.field_name], the hidden-when-empty marker, the two column
 #     headers with exactly three placeholder rows, and the spacer; a text block containing the string <script>alert(1)</script> is rendered as visible
-#     text and the container has no script element." : steps 2 and 7.
+#     text and the container has no script element." : steps 2 and 10.
 #  C7 (page) "...the list shows the metadata columns of the REQ-579 list reply and never a layout; opening a row calls the get route and fills the
 #     editor and the preview with the returned layout; saving from an opened row calls the save function (a new draft) and does not call any other
 #     write route; after a successful save, activate or retire the list is fetched again." : steps 8 to 11 (the list showing the new row is the

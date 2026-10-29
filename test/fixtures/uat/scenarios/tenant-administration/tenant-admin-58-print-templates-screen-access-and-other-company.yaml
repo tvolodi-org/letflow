@@ -15,8 +15,8 @@
 # (entry "Print Templates", group "Tenant administration"), web/src/auth/access/RequirePermission.tsx and web/src/components/ui/PermissionDenied.tsx
 # (text "You do not have access to this area. Contact your tenant administrator."); docs/roles.md; test/fixtures/uat/actors.yaml.
 # Platform operator on an own-tenant route: step 6 is a no-data-leak check, not a refusal.
-# Sensitive actions: see-sensitive-data and change-users are the refusals of steps 3 to 6 (a company's print layouts are not for these roles); approve and
-# pay or release do not occur here (activation is scenarios 56 and 59).
+# Sensitive actions: see-sensitive-data: the refusals of steps 3 and 5 and the no-leak check of step 6; approve is scenarios 56 and 59; pay or release and
+# change-users do not occur in this flow.
 ---
 id: tenant-administration-58-print-templates-screen-access-and-other-company
 scope: tenant-administration

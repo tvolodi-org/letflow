@@ -15,8 +15,7 @@
 # (projection: field_restricted before field_not_projected; check_block: unknown_block_type at path + type; unknown_key at path + key);
 # lib/letflow/routers/documents.ex (unprocessable_detail "unknown type_key", "layout failed validation").
 # UAT assumption, to be confirmed by the process owner: the order of the rule lines is the order of the blocks; the checks below do not depend on it.
-# Hidden values: the layout literal "SENTINEL-print-9f3a" and the protected field's sample value "SECRET-cost-4471" must not appear on the screen
-# (outside the editor's own text area, where the administrator typed the layout), in any stored row, the service log or any audit entry.
+# Hidden values: the layout literal "SENTINEL-print-9f3a" and the protected field's sample value "SECRET-cost-4471" must not appear in any error message line of steps 2 to 5 (the editor's text area and the preview show the layout by design), in any stored row, the service log or any audit entry.
 # Sensitive actions: see-sensitive-data is the protected field internal_cost (steps 3, 6); approve is scenario 56 step 15; pay or release and
 # change-users do not occur in this flow.
 ---
@@ -133,7 +132,7 @@ expected_outcomes:
       method: gui_screen
       detail: >
         Step 3 shows two lines, "field_not_projected at blocks[3].field_name" and "field_restricted at blocks[4].field_name" (in either order) and no other
-        text. Step 4 shows one line "unknown_key at blocks[1].script". Step 5 shows one line "unknown_block_type at blocks[2].type" and the preview of
+        text. Step 4 shows one line "unknown_key at blocks[1]._key" (the server replaces the caller-chosen key name by _key; the key name "script" must not appear in the message). Step 5 shows one line "unknown_block_type at blocks[2].type" and the preview of
         step 5 shows the page, the text and a short notice "Unsupported block (index 2)" in place of the unknown block, without an error page.
       evidence: The messages of steps 3 to 5 and the preview of step 5.
     on_fail:
