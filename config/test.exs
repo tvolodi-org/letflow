@@ -386,3 +386,7 @@ config :letflow, :document_resolver_test_seam, true
 
 # REQ-570 / GH #3248: record triggers stay off in tests unless a test flips the flag itself.
 config :letflow, :record_triggers_enabled, false
+
+# REQ-597 / GH #3363: exam notification mails (the exam_result mail after a scored submit). Default
+# off. Read only by Letflow.Modules.Exam.Notifications.enabled?/0.
+config :letflow, :exam_notifications_enabled, false

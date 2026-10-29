@@ -40,7 +40,6 @@ defmodule Letflow.Notifications do
   alias Letflow.TenantProvisioning
 
   @supervisor Letflow.Notifications.TaskSupervisor
-  @template_key "task_assigned"
   @default_locale "en"
   @max_value_chars 500
 
@@ -73,25 +72,71 @@ defmodule Letflow.Notifications do
   def after_assignment(_task, _user_id, _prefix), do: :ok
 
   @doc """
+  Starts ONE delivery of any registered template on the delivery supervisor; the generic form
+  of `after_assignment/3`. `values_fun` is `(User.t(), prefix, Tenant.t() | nil -> %{String.t() =>
+  String.t()})`; it runs inside the delivery task, so any lookup it makes is off the caller's
+  path, and a raise there logs `failed` / `adapter_error`. `trigger_ref` must be a UUID. Never
+  raises; returns `:ok` (a refused start writes no row).
+  """
+  @spec start_delivery(String.t(), term(), term(), function(), String.t()) :: :ok
+  def start_delivery(template_key, user_id, trigger_ref, values_fun, prefix)
+      when is_binary(template_key) and is_function(values_fun, 3) do
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         {:ok, _pid} <-
+           Task.Supervisor.start_child(@supervisor, fn ->
+             deliver(template_key, user_id, trigger_ref, values_fun, prefix, tenant_id)
+           end) do
+      :ok
+    else
+      _other ->
+        Logger.warning("notifications: delivery not started")
+        :ok
+    end
+  rescue
+    _exception ->
+      Logger.warning("notifications: delivery not started")
+      :ok
+  catch
+    _kind, _reason ->
+      Logger.warning("notifications: delivery not started")
+      :ok
+  end
+
+  def start_delivery(_template_key, _user_id, _trigger_ref, _values_fun, _prefix), do: :ok
+
+  @doc """
   Renders, sends and logs one `task_assigned` mail; writes exactly one log row. Runs inside the
   delivery task; public for tests. Never raises.
   """
   @spec deliver_task_assigned(EngineTask.t(), term(), String.t(), String.t()) :: :ok
   def deliver_task_assigned(task, user_id, prefix, tenant_id) do
+    deliver(
+      "task_assigned",
+      user_id,
+      task.id,
+      fn user, prefix, tenant -> values(task, user, prefix, tenant) end,
+      prefix,
+      tenant_id
+    )
+  end
+
+  @doc false
+  @spec deliver(String.t(), term(), term(), function(), String.t(), String.t()) :: :ok
+  def deliver(template_key, user_id, trigger_ref, values_fun, prefix, tenant_id) do
     tenant = safe(fn -> Repo.get(Tenant, tenant_id) end)
     locale = locale_of(tenant)
 
-    {status, reason} = outcome(task, user_id, prefix, tenant, locale)
+    {status, reason} = outcome(template_key, values_fun, user_id, prefix, tenant, locale)
 
     log(
       %{
         tenant_id: tenant_id,
-        template_key: @template_key,
+        template_key: template_key,
         locale: locale_string(locale),
         recipient_user_id: cast_uuid(user_id),
         status: status,
         reason: reason,
-        trigger_ref: task.id
+        trigger_ref: trigger_ref
       },
       prefix
     )
@@ -101,9 +146,9 @@ defmodule Letflow.Notifications do
     _kind, _reason -> warn_write_failed()
   end
 
-  defp outcome(task, user_id, prefix, tenant, locale) do
+  defp outcome(template_key, values_fun, user_id, prefix, tenant, locale) do
     case recipient(user_id, prefix) do
-      {:ok, user} -> render_and_send(task, user, prefix, tenant, locale)
+      {:ok, user} -> render_and_send(template_key, values_fun, user, prefix, tenant, locale)
       :none -> {"skipped", "no_email"}
     end
   end
@@ -118,15 +163,13 @@ defmodule Letflow.Notifications do
     end
   end
 
-  defp render_and_send(task, user, prefix, tenant, locale) do
-    values = values(task, user, prefix, tenant)
-
-    case NotificationTemplates.preview(prefix, @template_key, locale, nil, nil, values) do
-      {:ok, %{subject: subject, body: body}} ->
-        send_message(%{to: user.email, subject: subject, body: body})
-
-      _error ->
-        {"failed", "adapter_error"}
+  defp render_and_send(template_key, values_fun, user, prefix, tenant, locale) do
+    with values when is_map(values) <- safe(fn -> values_fun.(user, prefix, tenant) end),
+         {:ok, %{subject: subject, body: body}} <-
+           NotificationTemplates.preview(prefix, template_key, locale, nil, nil, values) do
+      send_message(%{to: user.email, subject: subject, body: body})
+    else
+      _error -> {"failed", "adapter_error"}
     end
   end
 
@@ -188,13 +231,16 @@ defmodule Letflow.Notifications do
     end)
   end
 
-  defp text(value) when is_binary(value), do: String.slice(value, 0, @max_value_chars)
-  defp text(_other), do: ""
+  @doc false
+  @spec text(term()) :: String.t()
+  def text(value) when is_binary(value), do: String.slice(value, 0, @max_value_chars)
+  def text(_other), do: ""
 
-  defp locale_of(%Tenant{settings: %{"default_locale" => locale}}) when not is_nil(locale),
+  @doc false
+  def locale_of(%Tenant{settings: %{"default_locale" => locale}}) when not is_nil(locale),
     do: locale
 
-  defp locale_of(_tenant), do: @default_locale
+  def locale_of(_tenant), do: @default_locale
 
   # The row's locale column is text NOT NULL: a non-binary stored value (raw write only) is
   # logged as the default locale name after the template render refused it.
