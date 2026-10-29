@@ -1,0 +1,213 @@
+# T-0826 (BA): WMS procurement slice 2, scenario 3: the line view of a submitted (not yet approved) request, and the refusals of the four line records (officer, supplier, purchase-order reference, cancel).
+# Covers REQ-558 criterion 4 (line view: absent values are null, three histories), criterion 3 (reference shape: each missing or wrong field named, nothing stored), criterion 5 (records only for an approved
+# request: typed refusal; the requester holding the permission is not refused for being the requester), criterion 6/7 (no fulfilment status before approval), criterion 8 (cancel needs a reason; refused
+# on a request that is not approved), criterion 1 (officer must be a known user of the company).
+# Sources: docs/requirements.yaml REQ-558 criteria 1, 3, 4, 5, 6, 7, 8; lib/letflow/modules/procurement/router.ex (moduledoc table: line read 200 / 404; the four line records 201 / 200 replay / 403 / 404 / 409 /
+# 422 / 503; a refusal "not_approved" is 409 with reason "not_approved"; a validation refusal is 422 with reason "validation" and one entry per problem, each with a field and a code);
+# lib/letflow/modules/procurement/line_events.ex (moduledoc order of checks: input shape (1) and officer known (2) come BEFORE the approval check (6); shape(): fields in the order of the record, then the
+# idempotency key; codes "required", "invalid", "unknown"; the key pattern allows letters, digits and . _ : -, 1 to 128 characters; reference kinds purchase_order and contract; line_view(): officer, supplier and
+# procurement_document are null when absent, history has three lists, status is null before approval, fulfilled_quantity "0"); docs/roles.md.
+#
+# SCREEN GAP (stated, not invented): no procurement screen exists in web/src (grep "procurement" finds nothing): no line view, no officer / supplier / reference / cancel form. Every step is an API step (via: api);
+# the owner cannot click through slice 2 in a browser on QA today. Screenshots cannot be taken of screens that do not exist; the acceptance run attaches the API answers as evidence.
+# ROSTER GAP, blocks the whole APPROVED half of slice 2 (not written, on purpose): recording an officer, a supplier, a purchase-order reference, the line view with an officer / supplier / reference shown and a
+# history of two suppliers, the derived line status Open, the cancel of a line (status Cancelled, repeat cancel replays), the request status Cancelled / Closed, and the refusal of a record on a closed request
+# all need a request whose latest version carries an approve decision. Approving needs a SECOND person with the decide permission in SwiftRoute (the requester cannot approve their own request, see scenario 2).
+# The roster has one TENANT_ADMIN in SwiftRoute (actor-swiftroute-alice); the other SwiftRoute actors hold no procurement permission. Asking infra for a second SwiftRoute administrator account is the owner's
+# decision (new account on QA). Until then those criteria are checked by the product's own tests only.
+# NOT UAT-observable here: a fulfilled quantity above zero (nothing in this slice records one; derived statuses Partial and Fulfilled cannot be reached, REQ-558 criterion 10); the audit event written with each record
+# (no audit read route is part of this scenario); the telemetry counter of refusals (criterion 9, first half).
+---
+id: wms-procurement-3-line-view-and-line-records-before-approval
+scope: wms-procurement
+title: The line of a submitted request shows nothing recorded and no status; officer, supplier, reference and cancel are refused before approval, and wrong input is named
+version: "1.0"
+tags: [wms, procurement, purchase-request, line-view, officer, supplier, reference, cancel, validation]
+
+description: >
+  Continuing with the SwiftRoute procurement module installed (see scenario 1), the requester saves a request with two material lines and submits it for approval. The request is not approved. The requester
+  reads line 1: nothing is recorded yet, so the responsible officer, the supplier and the purchase-order reference are shown as absent (not as empty text), the three histories are empty, the fulfilled
+  quantity is 0 and the line has no status yet, because a line gets a status only once its request is approved. The request itself shows no fulfilment status. The company administrator, who holds the permission to
+  record on lines and is also the requester, tries to record a supplier, a purchase-order reference, a responsible officer and a cancel on line 1: each is refused because the request is not approved (the
+  administrator is not refused for being the requester). Input that is wrong in shape is refused with each problem named, even before approval: a supplier without identifier and display name, a reference of a
+  kind that does not exist, an officer that is not a user id or is no user of the company, a cancel without a reason, and an idempotency key with a forbidden character. A line number the request does not have is
+  answered as not found. After all refusals, line 1 reads exactly as before: nothing was stored.
+
+actors:
+  requester: actor-swiftroute-alice
+  worker: actor-swiftroute-marco
+
+preconditions:
+  - description: Scenario 1's preconditions hold (procurement installed for SwiftRoute; unit UNIT and organisation unit DEPT exist).
+    check: system_seeded
+    detail: If not, report BLOCKED for the whole scenario.
+  - description: The worker (Marco) has a user record in the SwiftRoute company, so the company's user list shows his user id. The runner notes it as WORKER_ID from the company's own user list (read by the administrator).
+    check: system_seeded
+    detail: If the user list does not show him, report BLOCKED for step 8 only; the other steps do not need it.
+  - description: The request used here is NOT approved by anyone before or during this scenario.
+    check: system_seeded
+    detail: The scenario creates its own request; no second administrator exists in the roster, so no decision can be recorded.
+
+steps:
+  - step: 1
+    actor: requester
+    action: >
+      The requester saves a request: department DEPT, justification "UAT slice 2 line view", required date 2026-12-15, priority "normal", two material lines. Line 1 "Pallet label", quantity 10, unit UNIT,
+      estimated unit cost 2.50. Line 2 "Strapping band", quantity 4, unit UNIT, estimated unit cost 7.00. The answer is noted as D1 (document id, version 1).
+    via: api
+  - step: 2
+    actor: requester
+    action: >
+      The requester submits D1, version 1, with the content hash from step 1 as the saved answer gives it (or from the read of D1 if the save answer has none), and the idempotency key "uat-s2-submit-1". The answer
+      is noted as S1. Nobody approves the request.
+    via: api
+  - step: 3
+    actor: requester
+    action: >
+      The requester reads line 1 of D1 (line number 1). The answer is noted as L1.
+    via: api
+  - step: 4
+    actor: requester
+    action: >
+      The requester reads D1 itself. The answer is noted as D1a.
+    via: api
+  - step: 5
+    actor: requester
+    action: >
+      The requester records the supplier of line 1: source system "ERP-UAT", identifier "SUP-100", display name "UAT Supplier One", idempotency key "uat-s2-sup-1". The answer (status, decoded body without trace id) is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: requester
+    action: >
+      The requester records the purchase-order reference of line 1: source system "ERP-UAT", identifier "PO-2001", kind "purchase_order", idempotency key "uat-s2-ref-1". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: requester
+    action: >
+      The requester cancels line 1 with the reason "UAT not needed" and the idempotency key "uat-s2-cancel-1". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: requester
+    action: >
+      The requester records the responsible officer of line 1: the user id WORKER_ID (a known user of the company), idempotency key "uat-s2-off-1". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: requester
+    action: >
+      The requester records a supplier for line 1 with source system "ERP-UAT" only: no identifier, no display name, and no idempotency key. The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: requester
+    action: >
+      The requester records a purchase-order reference for line 1 with source system "ERP-UAT", identifier "PO-2002", kind "invoice" and idempotency key "uat-s2-ref-2". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: requester
+    action: >
+      The requester records the officer of line 1 with the officer id "not-a-user-id" and idempotency key "uat-s2-off-2". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: requester
+    action: >
+      The requester records the officer of line 1 with the officer id "00000000-0000-4000-8000-000000000000" (well formed, no user of the company) and idempotency key "uat-s2-off-3". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: requester
+    action: >
+      The requester cancels line 1 with no reason at all and the idempotency key "uat-s2-cancel-2". The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: requester
+    action: >
+      The requester records a supplier for line 1 (source system "ERP-UAT", identifier "SUP-101", display name "UAT Supplier Two") with the idempotency key "bad key" (it contains a space). The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: requester
+    action: >
+      The requester records a supplier for line 99, which D1 does not have (source system "ERP-UAT", identifier "SUP-102", display name "UAT Supplier Three", idempotency key "uat-s2-sup-99"). The answer is
+      noted next to the answer for the same record on a document id that exists nowhere.
+    expect_refusal: true
+    via: api
+  - step: 16
+    actor: requester
+    action: >
+      The requester reads line 1 of D1 again. The answer is noted as L1b.
+    via: api
+  - step: 17
+    actor: requester
+    action: >
+      The requester reads line 99 of D1. The answer is noted.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A line of a submitted, not yet approved request shows nothing recorded and no status; absent values are null, not empty text.
+    verification:
+      method: api_response
+      detail: Step 3 answers 200 with line_no 1, the quantity equal to ten, fulfilled_quantity "0", status null, cancelled null, officer null, supplier null, procurement_document null, and a history with three lists (officer, supplier, procurement_document), each empty. None of the three values is an empty string.
+      evidence: The answer L1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The officer cannot tell what is already recorded for a line, or an empty text is read as a recorded value.
+      suggested_action: route_to_elixir_dev
+  - id: EO-002
+    description: The request shows no fulfilment status before it is approved.
+    verification:
+      method: api_response
+      detail: Step 4 answers 200 with document id of D1 and fulfilment_status null.
+      evidence: The answer D1a.
+    on_fail:
+      severity: MAJOR
+      business_impact: A request that nobody approved appears partly fulfilled or closed.
+      suggested_action: route_to_elixir_dev
+  - id: EO-003
+    description: Supplier, purchase-order reference, cancel and officer are refused before approval with the typed reason, and the requester holding the permission is not refused for being the requester.
+    verification:
+      method: http_status
+      detail: Steps 5, 6, 7 and 8 each answer 409 with the reason "not_approved" (not 403; the body shows no id, hash or content). If WORKER_ID could not be found, step 8 is reported BLOCKED, not failed.
+      evidence: The answers of steps 5 to 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A supplier or purchase order could be attached to a request nobody approved, or the administrator is wrongly blocked by a requester-versus-officer rule.
+      suggested_action: route_to_elixir_dev
+  - id: EO-004
+    description: Wrong or missing parts are refused with every problem named, and the idempotency key is checked.
+    verification:
+      method: http_status
+      detail: Step 9 answers 422 with the reason "validation" and entries for the fields identifier (required), display_name (required) and idempotency_key (required). Step 10 answers 422 with an entry for the field kind (invalid). Step 11 answers 422 with an entry for officer_id (invalid). Step 12 answers 422 with an entry for officer_id (unknown). Step 13 answers 422 with an entry for reason (required). Step 14 answers 422 with an entry for idempotency_key (invalid). No answer echoes a submitted value.
+      evidence: The answers of steps 9 to 14.
+    on_fail:
+      severity: MAJOR
+      business_impact: Officers get unclear refusals, or a malformed reference is accepted once approval exists.
+      suggested_action: route_to_elixir_dev
+  - id: EO-005
+    description: A line number the request does not have is answered as not found, for a record and for a read, like a document that does not exist.
+    verification:
+      method: http_status
+      detail: Step 15 answers 404, and its headers (except the per-request trace id) and decoded body equal those of the same record on a document id that exists nowhere. Step 17 answers 404.
+      evidence: Both answers of step 15, and the answer of step 17.
+    on_fail:
+      severity: MAJOR
+      business_impact: A mistyped line number is answered with a misleading refusal, or the existence of lines is leaked.
+      suggested_action: route_to_elixir_dev
+  - id: EO-006
+    description: Nothing was stored by any refusal.
+    verification:
+      method: api_response
+      detail: Step 16 answers 200 and equals L1 in every field (status null, cancelled null, officer null, supplier null, procurement_document null, three empty histories, fulfilled_quantity "0").
+      evidence: The answers L1 and L1b.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused record changed the line, so the line view cannot be trusted.
+      suggested_action: route_to_elixir_dev
