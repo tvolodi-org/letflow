@@ -1,0 +1,102 @@
+# T-0919 (BA): TENANT ADMIN group, scenario 55: one company never sees another company's delivery log.
+# Covers REQ-584 criterion 7 (rows of tenant A are in tenant A only; the administrator of tenant B gets an empty list; the route takes
+# no company in path, query or body; B cannot read, filter to or count A's rows).
+# Sources: docs/requirements.yaml REQ-584 criterion 7 (quoted, origin/main); lib/letflow/routers/notification_deliveries.ex ("a tenant_id
+# anywhere is ignored", tenant from the sign-in only); test/fixtures/uat/actors.yaml (alice: SwiftRoute TENANT_ADMIN; actor-bilimbaga-admin:
+# Bilimbaga TENANT_ADMIN, whose token needs a qa-login mapping that is not yet approved).
+# Precondition: scenario 53 has run in SwiftRoute; Bilimbaga has had no task assigned, so its log is empty.
+# NOT COVERED HERE: the check that the table of company B is empty at database level (needs database access; the API view of company B
+# stands for it); the Keycloak-versus-Letflow mail question (T5c) is undecided.
+# NOT COVERED HERE (also): the platform operator (second half of criterion 7: a PLATFORM_ADMIN token gets only its own tenant's rows). The roster actor
+# actor-platform-admin is allowed only in scope platform (SCHEMA-10), and the criterion is covered by the backend tests.
+# Sensitive actions: read-only; no approval, payment or user change is in this flow.
+---
+id: tenant-administration-55-notification-delivery-other-company
+scope: tenant-administration
+title: Another company's administrator sees none of SwiftRoute's delivery rows, and naming a company changes nothing
+version: "1.0"
+tags: [tenant-admin, notification-delivery, cross-tenant, isolation, inv-1, inv-10]
+
+description: >
+  SwiftRoute has delivery rows from scenario 53. The administrator of Bilimbaga lists the log and gets an empty list; filtering by
+  each status gives empty lists too. Naming SwiftRoute's company identifier in the address of the request, as a query value or as a
+  body value, changes nothing: the answer is still Bilimbaga's own (empty) log. The SwiftRoute administrator still sees the same rows afterwards.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute holds at least one delivery row and Bilimbaga holds none
+    check: system_seeded
+    detail: Scenario 53 ran in SwiftRoute. If Bilimbaga holds rows, report BLOCKED for the empty-list outcomes and note the rows; the SwiftRoute identifiers are then searched for in them.
+  - description: The Bilimbaga administrator can sign in
+    check: system_seeded
+    detail: If the Bilimbaga administrator has no approved test token, report BLOCKED for steps 2 and 3 and run steps 1 and 4; EO-001 and EO-002 are then BLOCKED.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute lists the delivery log and notes the rows (identifiers, recipients, task references) as the
+      baseline, and notes SwiftRoute's company identifier.
+    via: api
+  - step: 2
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator lists the delivery log without a filter, and then filtered to "sent", "skipped" and "failed", each in
+      its own request. This is a check that nothing of SwiftRoute is shown; all requests are answered normally. The answers are noted
+      and searched for the SwiftRoute row identifiers and task references of step 1.
+    via: api
+    input:
+      status: none, sent, skipped, failed (one request each)
+  - step: 3
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator repeats the unfiltered list with tenant_id set to SwiftRoute's company identifier in the address,
+      then sends the same request with tenant_id set to SwiftRoute's company identifier in a body. All requests are answered normally;
+      the answers are noted and it is noted whose rows they are.
+    via: api
+    input:
+      tenant_id: SwiftRoute's company identifier (once as a query value, once in a body)
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator of SwiftRoute lists the delivery log again and compares it with the baseline of step 1.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Another company's administrator gets an empty log and no SwiftRoute row, unfiltered or filtered.
+    verification:
+      method: api_response
+      detail: All four answers of step 2 are 200 with an empty list of deliveries; no row identifier or task reference of step 1 appears in them.
+      evidence: The four answers of step 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer could read the notification history of another customer.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: Naming SwiftRoute's company in the request is ignored; the company of the sign-in is used.
+    verification:
+      method: api_response
+      detail: Both answers of step 3 are 200 with the same empty list as step 2; no row of SwiftRoute is returned, so there is no way to read, filter to or count another company's rows by naming it.
+      evidence: The two answers of step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be pointed at another customer's data by naming the customer.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: SwiftRoute's own log is unchanged by the other companies' requests.
+    verification:
+      method: api_response
+      detail: The list of step 4 holds the same rows as the baseline of step 1, plus only rows made by assignments after step 1 (none are expected).
+      evidence: The lists of steps 1 and 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: Requests of another company changed or removed a customer's log.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing is changed by this scenario; nothing to clean up.
