@@ -179,7 +179,10 @@ defmodule Letflow.Modules.Exam.Certificate do
   already-issued certificate's `branding_snapshot` field, matching the
   source's own `TemplateSnapshot` comment ("captures tenant branding at the
   time of first certificate issuance ... so later branding changes do not
-  alter existing certificates"). Proven by
+  alter existing certificates"). REQ-595: the snapshot also carries
+  `signatory_name` / `signatory_title` copied from the tenant settings, each
+  only when set to a non-blank string; the snapshot is the sole source of the
+  PDF signatory block afterwards. Proven by
   `test/letflow/exam/certificate_test.exs`'s branding-mutation test.
 
   ## Scope fence (REQ-355's own, restated here)
@@ -386,9 +389,29 @@ defmodule Letflow.Modules.Exam.Certificate do
           nil -> nil
         end
 
-      {:ok, TenantConfig.branding_from_settings(settings)}
+      branding = TenantConfig.branding_from_settings(settings)
+
+      {:ok,
+       branding
+       |> put_signatory(settings, "signatory_name")
+       |> put_signatory(settings, "signatory_title")}
     end
   end
+
+  # REQ-595: two explicit named reads (no wholesale copy of settings, INV-2).
+  # A key is added only when the stored value is a non-blank string; nil,
+  # null, blank and non-string values add nothing.
+  defp put_signatory(branding, %{} = settings, key) do
+    case Map.get(settings, key) do
+      value when is_binary(value) ->
+        if String.trim(value) == "", do: branding, else: Map.put(branding, key, value)
+
+      _ ->
+        branding
+    end
+  end
+
+  defp put_signatory(branding, _settings, _key), do: branding
 
   # -----------------------------------------------------------------------
   # View projection

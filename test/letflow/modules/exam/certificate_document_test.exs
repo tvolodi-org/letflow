@@ -212,6 +212,84 @@ defmodule Letflow.Modules.Exam.CertificateDocumentTest do
     end
   end
 
+  # REQ-595 part B: the signatory block reads the snapshot's two keys, each
+  # line falling back on its own to the placeholder.
+  describe "render/2 -- signatory block" do
+    defp signed_cert(extra) do
+      fixture_certificate(%{
+        branding_snapshot: Map.merge(%{"app_name" => "Acme Testing Co"}, extra)
+      })
+    end
+
+    defp rendered_text(cert) do
+      assert {:ok, bytes} = CertificateDocument.render(cert, fixture_verification())
+      pdf_text_ops(bytes)
+    end
+
+    test "D10a: both keys are printed and the placeholder is gone" do
+      text =
+        rendered_text(
+          signed_cert(%{
+            "signatory_name" => "Dr. Jane Doe",
+            "signatory_title" => "Chief Examiner"
+          })
+        )
+
+      assert text =~ "Dr. Jane Doe"
+      assert text =~ "Chief Examiner"
+      refute text =~ "Certification Authority"
+      refute text =~ "Automated Issuance"
+    end
+
+    test "D10b: neither key prints the placeholder" do
+      text = rendered_text(signed_cert(%{}))
+
+      assert text =~ "Acme Testing Co Certification Authority"
+      assert text =~ "Automated Issuance"
+    end
+
+    test "D10c: only the name prints the name and the placeholder title" do
+      text = rendered_text(signed_cert(%{"signatory_name" => "Dr. Jane Doe"}))
+
+      assert text =~ "Dr. Jane Doe"
+      assert text =~ "Automated Issuance"
+      refute text =~ "Certification Authority"
+    end
+
+    test "D11a: a legacy snapshot without the keys prints the placeholder" do
+      for snapshot <- [%{"app_name" => "Acme Testing Co"}, %{}] do
+        text = rendered_text(fixture_certificate(%{branding_snapshot: snapshot}))
+
+        assert text =~ "Certification Authority"
+        assert text =~ "Automated Issuance"
+      end
+    end
+
+    test "D11b: Latin-1 characters survive and Cyrillic degrades to ? without a crash" do
+      text = rendered_text(signed_cert(%{"signatory_name" => "Aygül Айгул"}))
+
+      assert text =~ "Ayg"
+      # the Latin-1 prefix is followed by a space and exactly five '?'
+      assert text =~ "l ?????)"
+      refute text =~ "Certification Authority"
+    end
+
+    test "D11c: blank and non-string values fall back to the placeholder (INV-8)" do
+      for bad <- [123, ["x"], nil, "   ", %{"a" => 1}] do
+        text =
+          rendered_text(signed_cert(%{"signatory_name" => bad, "signatory_title" => bad}))
+
+        assert text =~ "Certification Authority"
+        assert text =~ "Automated Issuance"
+      end
+
+      for snapshot <- [nil, 5, ["x"]] do
+        text = rendered_text(fixture_certificate(%{branding_snapshot: snapshot}))
+        assert text =~ "Automated Issuance"
+      end
+    end
+  end
+
   # ---------------------------------------------------------------------
   # SECURITY REGRESSION -- `deps/pdf`'s own `Pdf.Text.escape/1`
   # (`deps/pdf/lib/pdf/text.ex:8-12`) escapes `(` and `)` but never a

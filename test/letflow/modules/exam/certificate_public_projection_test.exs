@@ -104,6 +104,34 @@ defmodule Letflow.Modules.Exam.CertificatePublicProjectionTest do
     end
   end
 
+  # ── REQ-595 part B: signatory fields on the public verify projection ─────
+
+  describe "project/2 -- signatory fields in branding_snapshot" do
+    test "P12a: both signatory keys in the snapshot are exposed" do
+      snapshot = %{"signatory_name" => "Dr. Jane Doe", "signatory_title" => "Chief Examiner"}
+      fv = Map.put(@field_values, "branding_snapshot", snapshot)
+
+      assert {:ok, data} = Projection.project(record(fv), %{})
+      assert data["branding_snapshot"]["signatory_name"] == "Dr. Jane Doe"
+      assert data["branding_snapshot"]["signatory_title"] == "Chief Examiner"
+    end
+
+    test "P12b: a snapshot without them exposes no signatory key and the top-level set is unchanged" do
+      assert {:ok, data} = Projection.project(record(@field_values), %{})
+
+      refute Map.has_key?(data["branding_snapshot"], "signatory_name")
+      refute Map.has_key?(data["branding_snapshot"], "signatory_title")
+      assert map_size(data) == 5
+    end
+
+    test "P12c: the moduledoc names both fields" do
+      {:docs_v1, _, _, _, %{"en" => moduledoc}, _, _} = Code.fetch_docs(Projection)
+
+      assert moduledoc =~ "signatory_name"
+      assert moduledoc =~ "signatory_title"
+    end
+  end
+
   # ── AC-4: publishability predicate ───────────────────────────────────────
 
   describe "project/2 -- :skip on a soft-deleted certificate record" do
