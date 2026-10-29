@@ -44885,7 +44885,7 @@ requirements:
     owner: TEST-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-578 -- slice 3 pins the uninstall and reactivate paths of slice 1; its status is still pending in the register
+    gh: 3515
     # Source: docs/migration/decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md (D3 "Orphaned-data reads", including "INV-2 property for the exam answer keys" and "INV-5"; D8 slice 3 row); docs/migration/core-roadmap-20261014.md Wave 3 row "Module uninstall"; code read: lib/letflow/modules/exam/exam.ex (@answer_key_fields, on_install/2, ensure_answer_key_restrictions/1), lib/letflow/modules/installs.ex (uninstall/3, reactivate/3), lib/letflow/entities/type_access.ex (authorized?/3, denied_types/3), lib/letflow/routers/entities.ex (POST /query and POST /query/aggregate), test/letflow/modules/installs_uninstall_test.exs (existing counted-tables harness, @counted_tables). Written by the business analyst (T-0916) 2026-10-30. Not yet validated.
     description: >
       Slice 3 of decision 0066 (D8). The D8 slice 3 row reads: "Orphaned-read proof: tests that pin D3
