@@ -1,0 +1,130 @@
+# Authored by BA-BILIMBAGA for GH #3355 / REQ-602 (UAT design task T-0906).
+# Covers REQ-602 criterion 1 (load) and criterion 6 (navigation).
+# Not covered here (code-only, no UAT-observable behaviour): criterion 7 (every on-screen text sits in the
+# messages file; checked by a source scan) and criterion 8 (the change touches only the web folder; checked
+# on the diff). The server-side wording of the three languages is not checked either.
+---
+id: bilimbaga-exam-builder-1-load-and-navigation
+scope: bilimbaga
+title: The exam builder shows one exam with its sections and question rules together, and is reached from the administration page
+version: "1.0"
+tags: [exam_builder, gui, navigation]
+
+description: >
+  An exam administrator builds an exam in one screen that shows the exam settings, its sections in
+  their order, and the question-selection rules under the section they belong to; rules that belong to
+  no section are shown in their own group. The screen is reached from the exam administration page by one
+  extra link and from the side menu; the ten existing administration pages keep working.
+  Preconditions: the bilimbaga tenant has the exam module installed; the administrator holds the
+  exam content writing permission (the roster's bilimbaga administrator). The exam used here is made in
+  step 2 with the builder itself and saved; if the saving does not work, the scenario is BLOCKED, and
+  the edit scenario reports it.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The administrator holds the exam content writing permission
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: Opens the exam administration page and reads which links it offers
+    via: gui
+    produces:
+      links: "the ten existing links to exam content pages and one link to the exam builder"
+
+  - step: 2
+    actor: admin
+    action: >
+      Follows the link to the exam builder, presses the create-exam action, and in the new exam
+      sets the title to "UAT builder load", adds a section with order 1 and a section with order 2,
+      adds one rule under each section and one rule without a section, giving the rules the
+      orders 1, 2 and 3, and presses Save
+    via: gui
+    produces:
+      exam_title: "UAT builder load"
+
+  - step: 3
+    actor: admin
+    action: Goes back to the list of exams in the builder and opens the exam "UAT builder load" again from the list
+    via: gui
+
+  - step: 4
+    actor: admin
+    action: Reads the exam settings, the order of the sections and under which section each rule stands
+    via: gui
+
+  - step: 5
+    actor: admin
+    action: Opens the generic administration page for exam sections and the one for exam question rules and reads the records shown for the exam
+    via: gui
+
+  - step: 6
+    actor: admin
+    action: Looks at the side menu and uses its exam-builder entry
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The exam administration page offers one extra link to the exam builder next to the ten existing
+      links, and the existing links are unchanged
+    verification:
+      method: gui_screen
+      detail: "Step 1 shows the ten existing links and one more link named 'Open the exam builder'"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Administrators cannot find the builder from the page they already use, or an existing page was lost.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      Reopening the exam shows its settings, the two sections in the order 1 then 2, and each rule under
+      the section it was saved in; the rule without a section is in the group "Rules without a section"
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 shows the title "UAT builder load", the sections headed Section 1 and Section 2 in that order,
+        one rule under each, and one rule in the group "Rules without a section"; all values equal those
+        entered in step 2
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An exam shown with rules under the wrong section, or with sections out of order, is edited
+        and saved wrongly and candidates get the wrong questions.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: >
+      The sections and rules shown in the builder are the same records the generic pages show
+    verification:
+      method: gui_screen
+      detail: "Step 5 lists two sections and three rules for the exam, with the orders entered in step 2"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        If the two views disagree, administrators cannot trust either.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      The side menu offers the exam builder to this administrator and opens the exam list of the builder
+    verification:
+      method: gui_screen
+      detail: "Step 6 shows a menu entry 'Exam builder' that opens the page 'Exam builder: choose an exam'"
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        The builder is reachable only through the link on the administration page.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove the exam "UAT builder load" with its sections and rules (rules first, then sections, then the
+    exam) through the generic administration pages.

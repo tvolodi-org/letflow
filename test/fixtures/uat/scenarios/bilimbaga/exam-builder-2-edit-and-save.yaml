@@ -1,0 +1,128 @@
+# Authored by BA-BILIMBAGA for GH #3355 / REQ-602 (UAT design task T-0906).
+# Covers REQ-602 criterion 2 (edit and save).
+# Not covered here (code-only): criterion 7 (messages file) and criterion 8 (diff scope). The order and body of
+# the calls the screen sends (sections before rules, deletes last) is not visible to a UAT actor; the scenario
+# checks the outcome that order guarantees: a new rule can name a new section, and a section with rules can be removed.
+---
+id: bilimbaga-exam-builder-2-edit-and-save
+scope: bilimbaga
+title: An exam administrator changes an exam, adds and edits sections and rules, removes some, saves once, and sees the result after a reload
+version: "1.0"
+tags: [exam_builder, gui, exam_authoring]
+
+description: >
+  In one session on the builder screen the administrator changes an exam setting, adds a section,
+  adds a rule inside that new section, edits an existing rule, and presses Save once. Afterwards the
+  administrator removes a rule and then a whole section that still has a rule, and saves again. After each
+  save the screen says the changes are saved, and reloading the page shows exactly the saved state.
+  Preconditions: the bilimbaga tenant has the exam module; the administrator is the roster's
+  bilimbaga administrator. The exam "UAT builder edit" is created in step 1 with the builder's create action.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The administrator holds the exam content writing permission
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      Opens the exam builder list, presses the create-exam action, sets the title to "UAT builder edit",
+      the time limit to 45, the passing score to 60 and the maximum attempts to 2, adds one section with
+      order 1 and one rule under it with order 1 (mode random, 5 questions), and presses Save
+    via: gui
+
+  - step: 2
+    actor: admin
+    action: >
+      Changes the time limit to 50, adds a second section with order 2, adds a rule under that new section
+      with order 2 (mode random, 3 questions), changes the first rule to 7 questions, and presses Save
+    via: gui
+    produces:
+      saved_state: "time limit 50; section 1 with one rule of 7 questions; section 2 with one rule of 3 questions"
+
+  - step: 3
+    actor: admin
+    action: Reads the save result list shown after the Save and reloads the page
+    via: gui
+
+  - step: 4
+    actor: admin
+    action: Removes the rule under section 2 and presses Save, then reloads the page
+    via: gui
+
+  - step: 5
+    actor: admin
+    action: Removes section 1 together with its rule (the screen warns that the rules of that section go too) and presses Save, then reloads the page
+    via: gui
+
+  - step: 6
+    actor: admin
+    action: Opens the generic administration pages for exam sections and exam question rules and reads the records of this exam
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      One Save applies the exam change, the new section, the new rule inside the new section and the
+      edited rule, and the screen reports each change as saved
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 shows the message 'Saved.' and a save result list whose entries (exam, sections, rules) all
+        read 'Saved'; none reads 'Failed' or 'Not saved'
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A save that drops or reorders changes leaves an exam different from what the administrator
+        approved; candidates would sit a different exam.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      After the reload the exam holds exactly the saved state of step 2
+    verification:
+      method: gui_screen
+      detail: >
+        After the reload in step 3 the time limit is 50, section 1 holds one rule of 7 questions, section 2 holds one
+        rule of 3 questions, and the title and the passing score are unchanged
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        The administrator believes a change is stored when it is not.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      A rule can be removed, and a section with a rule can be removed together with that rule, in one save
+    verification:
+      method: gui_screen
+      detail: >
+        After step 4 the reloaded exam has section 1 with its rule and a section 2 without rules; after step 5 the
+        reloaded exam has only section 2 without rules, and every entry in the save result reads 'Saved'
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Administrators cannot remove obsolete sections, or a removal leaves rules pointing at a missing section.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: >
+      The generic pages show the same final records as the builder, with no leftover rule of the removed section
+    verification:
+      method: gui_screen
+      detail: "Step 6 lists one section (order 2) and no rule for the exam 'UAT builder edit'"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A leftover rule would still draw questions for a section that no longer exists.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove the exam "UAT builder edit" and its remaining section through the generic administration pages.

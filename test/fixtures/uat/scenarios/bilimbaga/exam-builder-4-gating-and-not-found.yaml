@@ -1,0 +1,153 @@
+# Authored by BA-BILIMBAGA for GH #3355 / REQ-602 (UAT design task T-0906).
+# Covers REQ-602 criterion 5 (gating and 404), with refusal steps for a person without the exam content writing permission.
+# Roster note: the candidate is the only bilimbaga actor without that permission (actors.yaml). The roles process
+# designer and tenant auditor also lack it but have no bilimbaga roster actor, so they are not exercised.
+# Not UAT-observable here: "the exam module is not installed renders the standard not-found page" needs a tenant
+# without the module; the roster has none, so that case is left to the component tests (listed in the summary).
+# Not covered here (code-only): criterion 7 (messages file) and criterion 8 (diff scope).
+---
+id: bilimbaga-exam-builder-4-gating-and-not-found
+scope: bilimbaga
+title: Only a person with the exam content writing permission gets the exam builder, and an unknown exam shows not found
+version: "1.0"
+tags: [refusal, access_control, exam_builder, gui]
+
+description: >
+  The exam builder is for the exam administrator. A candidate sees no menu entry, no link and no screen of the
+  builder, and the server refuses the candidate's attempts to change exam content (the screen is only a view; the
+  server decides). The administrator who asks for an exam that does not exist, or whose address is not a valid exam
+  identifier, sees a plain not-found page, never an empty form to fill in.
+  Preconditions: bilimbaga tenant with the exam module; an exam "UAT builder gate" with one section exists (the
+  administrator makes it in step 1). The candidate is the roster's least-privileged bilimbaga actor.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The candidate does not hold the exam content writing permission
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      Creates the exam "UAT builder gate" in the builder, adds one section with order 1, saves, and notes the exam's
+      address in the builder and the section's title
+    via: gui
+    produces:
+      builder_address: "the address of the builder page of this exam"
+
+  - step: 2
+    actor: candidate
+    action: Looks at the side menu for an exam-builder entry
+    via: gui
+    expect_refusal: true
+
+  - step: 3
+    actor: candidate
+    action: Tries to open the exam builder list by its address
+    via: gui
+    expect_refusal: true
+
+  - step: 4
+    actor: candidate
+    action: Tries to open the builder page of the exam from step 1 by its address
+    via: gui
+    expect_refusal: true
+
+  - step: 5
+    actor: candidate
+    action: Tries to change the time limit of the exam from step 1 through the exam module's content maintenance
+    via: api
+    expect_refusal: true
+
+  - step: 6
+    actor: candidate
+    action: Tries to add a section to the exam from step 1 through the exam module's content maintenance
+    via: api
+    expect_refusal: true
+
+  - step: 7
+    actor: candidate
+    action: Tries to remove the section of the exam from step 1 through the exam module's content maintenance
+    via: api
+    expect_refusal: true
+
+  - step: 8
+    actor: admin
+    action: Opens the builder page of the exam from step 1 and compares it with the notes
+    via: gui
+
+  - step: 9
+    actor: admin
+    action: Opens the builder at an address whose exam identifier is not a valid identifier (for example the word "abc")
+    via: gui
+
+  - step: 10
+    actor: admin
+    action: Opens the builder at the address of a well-formed identifier that belongs to no exam (all zeros except the last digit 1)
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The candidate is offered no exam-builder entry in the menu, and the builder screens show the forbidden page
+      instead of the exam or any edit control
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 shows no 'Exam builder' menu entry; steps 3 and 4 show the shell's forbidden page, with no exam
+        title, section or edit control
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Controls or exam settings shown to a person who may not use them confuse users and disclose how exams
+        are built.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      The candidate's attempts to change or remove exam content are refused as forbidden and nothing is stored
+    verification:
+      method: http_status
+      detail: "Steps 5, 6 and 7 are each refused as forbidden; none returns success"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        If the screen is the only guard, any candidate can edit the exam they sit, including pass marks.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      The exam and its section are exactly as the administrator left them
+    verification:
+      method: system_state
+      detail: "Step 8 shows the title, time limit and the one section with order 1 and the title noted in step 1"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A refused attempt that still changed the exam means the refusal is not real.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      An address with a malformed exam identifier, and an address of an exam that does not exist, both show the
+      same not-found message, never an empty form, and the administrator can go back to the list
+    verification:
+      method: gui_screen
+      detail: >
+        Steps 9 and 10 each show 'This exam was not found.' and a link 'Back to the exam list'; no field, Save
+        button or empty form is shown
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An empty form for a missing exam invites the administrator to create something that is then saved against nothing.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove the exam "UAT builder gate" and its section through the generic administration pages (the administrator).

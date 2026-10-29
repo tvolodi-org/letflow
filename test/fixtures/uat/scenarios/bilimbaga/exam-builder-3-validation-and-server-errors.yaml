@@ -1,0 +1,184 @@
+# Authored by BA-BILIMBAGA for GH #3355 / REQ-602 (UAT design task T-0906).
+# Covers REQ-602 criterion 3 (validation before send) and criterion 4 (server errors 422 and 409, stop after the first failure).
+# The 403 message of criterion 4 is reached by a caller who lacks the permission; that is checked in
+# bilimbaga-exam-builder-4-gating-and-not-found (the screen is not shown to such a person, so the 403 path of the
+# screen itself is not UAT-observable and is left to the component tests).
+# Not covered here (code-only): criterion 7 (messages file) and criterion 8 (diff scope).
+# UAT assumption, to be confirmed by the process owner: the server refuses a second section with an order that
+# the exam already uses with a 422 field error. The refusal text itself is the server's and is not asserted, only
+# that the save is refused, nothing is stored for the refused row, and the screen shows a message at the order control
+# or in the banner. The 'changed elsewhere' 409 is produced with a second browser window of the same administrator.
+---
+id: bilimbaga-exam-builder-3-validation-and-server-errors
+scope: bilimbaga
+title: The exam builder refuses bad input before sending and shows server refusals without losing track of what was saved
+version: "1.0"
+tags: [exam_builder, gui, validation, error_handling]
+
+description: >
+  Part A: input the screen can check itself (a rule with fewer than 1 question, a missing required setting,
+  two sections or two rules with the same order) is marked next to the control and nothing is sent.
+  Part B: a refusal by the server (a section order the exam already uses, set by someone else after the page
+  was opened) is shown against the order control; a record removed in another window gives the message that the
+  record was changed or removed elsewhere with a Reload action; after the first refused change the remaining
+  changes are not sent and the screen lists which were saved and which were not.
+  Preconditions: bilimbaga tenant with the exam module; the roster's bilimbaga administrator, who works in two
+  browser windows (window A and window B). The exam "UAT builder errors" is made in step 1.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The administrator holds the exam content writing permission
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      In window A creates the exam "UAT builder errors" in the builder with time limit 30, passing score 50,
+      maximum attempts 1, two sections (orders 1 and 2) and under section 1 one rule (order 1, random, 2 questions) and
+      under section 2 one rule (order 2, random, 2 questions); presses Save and reloads
+    via: gui
+
+  - step: 2
+    actor: admin
+    action: Sets the number of questions of the rule under section 1 to 0 and presses Save
+    via: gui
+
+  - step: 3
+    actor: admin
+    action: Restores that rule to 2 questions, empties the exam title and the time limit, and presses Save
+    via: gui
+
+  - step: 4
+    actor: admin
+    action: Restores the title and the time limit, gives section 2 the order 1 and the rule under section 2 the order 1, and presses Save
+    via: gui
+
+  - step: 5
+    actor: admin
+    action: Restores both orders to 2 and presses Save, then reloads the page and notes the exam as stored
+    via: gui
+    produces:
+      stored_after_part_a: "title, time limit 30, sections 1 and 2, rules with 2 questions"
+
+  - step: 6
+    actor: admin
+    action: >
+      Window A stays open on the exam. In window B the administrator opens the same exam, adds a section with
+      order 3 and presses Save
+    via: gui
+
+  - step: 7
+    actor: admin
+    action: In window A adds a section (the screen proposes order 3) and presses Save
+    via: gui
+
+  - step: 8
+    actor: admin
+    action: In window A reloads the page and notes the sections shown
+    via: gui
+
+  - step: 9
+    actor: admin
+    action: In window B removes section 2 and its rule and presses Save
+    via: gui
+
+  - step: 10
+    actor: admin
+    action: >
+      In window A (which still shows section 2) changes the time limit to 40, changes the title of section 2
+      to a new text, changes the rule under section 1 to 4 questions, and presses Save
+    via: gui
+
+  - step: 11
+    actor: admin
+    action: In window A presses the Reload action shown with the message and reads the exam
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      A rule with fewer than 1 question, and a missing required setting, are each marked next to their control
+      and nothing is sent to the server
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 shows 'Enter a whole number of at least 1.' at the question count and the banner 'Fix the marked
+        fields before saving.'; step 3 shows 'This field is required.' at the title and at the time limit;
+        in both steps nothing is sent; the reload in step 5 shows the stored count still 2 and the stored title and time limit as in step 1
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An invalid exam setting reaches the server or is stored, and a candidate may meet an exam with no time limit
+        or a rule that draws no questions.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      Two sections with the same order, and two rules with the same order, are marked at the order control and
+      nothing is sent
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 shows 'This order is already used.' at the order of section 2 and at the order of the rule under
+        section 2; after the reload in step 5 the stored orders are still 1 and 2 and the stored title and time limit are as in step 1
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A duplicate order makes the sequence of sections or rules undefined for candidates.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: >
+      A section order that another window already stored is refused by the server and the screen shows the refusal;
+      the refused row is not stored
+    verification:
+      method: gui_screen
+      detail: >
+        Step 7 shows a message at the order of the new section (or in the banner above the form) and no entry
+        'Saved' for that section; step 8 shows exactly the sections 1, 2 and the one added in window B (order 3), with no second
+        section of order 3
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Two sections with the same order would be stored, or the administrator is told the save worked when it did not.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      Changing a record that was removed elsewhere gives the conflict message with a Reload action; changes
+      after the first refused one are not sent, and the screen lists what was saved and what was not
+    verification:
+      method: gui_screen
+      detail: >
+        Step 10 shows 'The record was changed or removed elsewhere. Reload to see the current state; your unsaved
+        edits are discarded.' with a Reload action, and a save result list in which the exam reads 'Saved', the
+        change to section 2 reads 'Failed' and the rule change reads 'Not saved'
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        The administrator cannot tell which changes are in force and may assume the whole save was applied.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-005
+    description: >
+      Reload repeats the load and shows the current exam: section 2 and its rule are gone, the time limit is 40
+      (saved before the failure), the rule under section 1 still has its earlier count
+    verification:
+      method: gui_screen
+      detail: "Step 11 shows time limit 40, no section 2, and the rule under section 1 with 2 questions (the 4 was not sent)"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A screen that keeps unsaved edits after a conflict may later overwrite another person's work.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove the exam "UAT builder errors" with its remaining sections and rules (rules first) through the generic
+    administration pages.
