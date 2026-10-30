@@ -347,6 +347,7 @@ defmodule Letflow.Entities.Records do
           | :validation_failed
           | :idempotency_conflict
           | :entity_type_inactive
+          | :trigger_backlog_full
 
   @type command_multi_error ::
           {:error, {:command_kind_not_supported, atom()}}
@@ -1105,6 +1106,9 @@ defmodule Letflow.Entities.Records do
 
   defp line_failure(i, :dual_write_promoted_columns, {:record_payload_invalid, _}),
     do: {:entity_write_refused, i, :validation_failed}
+
+  defp line_failure(i, :enqueue_trigger, :trigger_backlog_full),
+    do: {:entity_write_refused, i, :trigger_backlog_full}
 
   defp line_failure(i, step, _reason), do: {:entity_write_failed, i, step}
 

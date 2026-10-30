@@ -588,6 +588,12 @@ defmodule Letflow.Routers.Entities.RecordWrites do
   defp render_record_command(conn, {:error, :entity_write_contention}, _status),
     do: Response.service_unavailable(conn, @hook_unavailable)
 
+  # REQ-606 (decision 0067 D6): the tenant's trigger backlog is full; nothing was committed and a
+  # retry after the drain is safe. 503 + Retry-After, PROVISIONAL (REQ-606 open_questions). A
+  # `:trigger_enqueue_failed` is deliberately not mapped here: it keeps the logged 500.
+  defp render_record_command(conn, {:error, :trigger_backlog_full}, _status),
+    do: conn |> Response.put_backlog_retry_after() |> hook_error(503, :trigger_backlog_full)
+
   # REQ-618 (decision 0065 D6, slice E-4): one constant `{"error": "<code>"}` body per hook code,
   # nothing else in it. Placed before the logged 500, so none of these codes reaches it.
   defp render_record_command(conn, {:error, code}, _status)

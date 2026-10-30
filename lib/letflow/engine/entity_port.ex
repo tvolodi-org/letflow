@@ -190,6 +190,7 @@ defmodule Letflow.Engine.EntityPort do
           | :record_version_conflict
           | :entity_type_inactive
           | :entity_write_contention
+          | :trigger_backlog_full
 
   @event_type "TASK_ENTITY_WRITES_APPLIED"
 

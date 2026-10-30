@@ -25,7 +25,14 @@ defmodule Letflow.RecordTriggers.Outbox do
   Tenant scope: every `Repo` call passes `prefix: ctx.prefix`; the table has no `tenant_id` column
   (decision 0006 D2). A failure of the step is rescued and returned as `{:error,
   :trigger_enqueue_failed}`, which rolls the write back (INV-8); only the exception module is logged
-  (INV-4). Part 2 adds the backlog count and cap at the top of the insert.
+  (INV-4).
+
+  **Backlog cap** (part 2, D6): before the first insert, and only when at least one row would be
+  inserted (a write whose matching bindings are all suppressed still commits, D4), `backlog_full?/2`
+  counts the tenant's `pending` and `running` rows (bounded `LIMIT cap`, served by the partial index,
+  no lock). At or above `backlog_cap/0` the step returns `{:error, :trigger_backlog_full}` with nothing
+  written. The cap is soft under concurrent writers (read committed, no lock). A fault of the count or
+  the insert stays `:trigger_enqueue_failed`.
   """
 
   import Ecto.Query
@@ -37,6 +44,7 @@ defmodule Letflow.RecordTriggers.Outbox do
   require Logger
 
   @default_depth_cap 3
+  @default_backlog_cap 10_000
   @events %{create: :created, update: :updated, delete: :deleted}
 
   @type lineage :: %{depth: non_neg_integer(), chain: [binary()]}
@@ -44,7 +52,7 @@ defmodule Letflow.RecordTriggers.Outbox do
   @doc "The step body. `changes` must hold `:assign_sequence` (for a line, the line's own view)."
   @spec run(module(), map(), map(), binary() | nil) ::
           {:ok, %{inserted: non_neg_integer(), suppressed: non_neg_integer()}}
-          | {:error, :trigger_enqueue_failed}
+          | {:error, :trigger_enqueue_failed | :trigger_backlog_full}
   def run(repo, changes, ctx, actor_id) do
     enqueue(repo, changes, ctx, actor_id)
   rescue
@@ -73,6 +81,33 @@ defmodule Letflow.RecordTriggers.Outbox do
       bindings
       |> Enum.map(&decide(&1, lineage))
       |> Enum.split_with(&match?({:insert, _, _}, &1))
+
+    if rows != [] and backlog_full?(repo, prefix) do
+      {:error, :trigger_backlog_full}
+    else
+      insert_rows(repo, rows, suppressed, changes, ctx, actor_id)
+    end
+  end
+
+  # Bounded count over the partial index (literal status list so the planner can prove the index
+  # predicate), no lock: a soft cap under concurrent writers.
+  defp backlog_full?(repo, prefix) do
+    cap = backlog_cap()
+
+    pending =
+      from(o in OutboxRow,
+        where: fragment("? IN ('pending', 'running')", o.status),
+        select: o.id,
+        limit: ^cap
+      )
+
+    repo.one(from(s in subquery(pending), select: count()), prefix: prefix) >= cap
+  end
+
+  defp insert_rows(repo, rows, suppressed, changes, ctx, actor_id) do
+    event = Map.fetch!(@events, ctx.kind)
+    entity_type = ctx.entity_type
+    prefix = ctx.prefix
 
     Enum.each(rows, fn {:insert, binding, {depth, chain}} ->
       occurred_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
@@ -173,6 +208,15 @@ defmodule Letflow.RecordTriggers.Outbox do
     case Application.get_env(:letflow, :record_trigger_depth_cap, @default_depth_cap) do
       cap when is_integer(cap) and cap > 0 -> cap
       _ -> @default_depth_cap
+    end
+  end
+
+  @doc false
+  @spec backlog_cap() :: pos_integer()
+  def backlog_cap do
+    case Application.get_env(:letflow, :record_trigger_backlog_cap, @default_backlog_cap) do
+      cap when is_integer(cap) and cap > 0 -> cap
+      _ -> @default_backlog_cap
     end
   end
 end
