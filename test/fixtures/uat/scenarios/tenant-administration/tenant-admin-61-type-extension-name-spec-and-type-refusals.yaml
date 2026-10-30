@@ -1,0 +1,195 @@
+# T-0967 (BA): TENANT ADMIN group, scenario 61: which names, definitions and record types are refused when adding an extra field, and that the refusals look the same where they must.
+# Covers REQ-609 criterion 1 (name refusals: no x_ prefix, bad characters, 65 characters, a name the module already uses, a repeated name active or retired; valid names accepted), criterion 2 (the
+# one not-found answer for the four record types that cannot be extended, identical to retiring an entry that does not exist, for add and for list) and criterion 3 (definition rules, 422 without the submitted value).
+# Sources: docs/requirements.yaml REQ-609 description "THE D4 REFUSALS", "THE SPEC" and criteria 1 to 3; docs/migration/decisions/0067-tenant-x-extension-layer-over-module-entity-types.md D4.
+# Check order (REQ-609): type visibility first (404), then name (422 invalid_extension_key), then reserved name, then taken name, then definition (422 invalid_extension_spec). Every 422 request therefore names a
+# visible module type; every 404 request carries an otherwise valid name and definition, so the answer proves the type check and not a 422.
+# The reserved-name refusal needs a module type whose field list holds "x_reserved_probe"; the requirement says no module uses an x_ field name yet, so this is setup-prepared (step 6 is BLOCKED if the environment cannot provide it).
+# NOT UAT-OBSERVABLE (system_state): that no entry and no audit entry is written by a refusal (EO-006 reads the database).
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals here are input refusals.
+---
+id: tenant-administration-61-type-extension-name-spec-and-type-refusals
+scope: tenant-administration
+title: A bad name, a bad definition or a record type that cannot be extended is refused when adding an extra field, and the four unusable record types all get the same not-found answer
+version: "1.0"
+tags: [tenant-admin, type-extension, refusal, validation, not-found]
+
+description: >
+  SwiftRoute's administrator tries to add extra fields to the module record type "ext_module_item" with names and definitions that are not allowed: a name without the "x_" start ("foo"), names with
+  capital letters, a hyphen or quote characters, a name of 65 characters, a name the module itself uses ("x_reserved_probe"), and an already added name, active and retired. Each is refused with the
+  reason named for it. Names "x_amount", "x_a1_b2" and one of exactly 64 characters are accepted. Definitions with an unknown kind (json, localized text, decimal, "blob"), an unknown setting
+  ("unique", "promoted"), a choice without values, a required field without a default, or a definition that is not an object are refused and the answer does not repeat what was sent. Then the
+  administrator tries to add a field to four record types that cannot be extended - one that exists nowhere, one of the company's own (not from a module), one that is append-only, and one the
+  administrator is restricted from - and also asks for their lists. All give one identical not-found answer, equal to retiring an entry number that does not exist.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the module-installed record type "ext_module_item" (visible to the administrator, not append-only) with one retired extra field "x_old_retired" and no other extra fields.
+    check: system_seeded
+    detail: Setup-prepared. If the retired field is missing, add "x_old_retired" and retire it first and note that in the report.
+  - description: The active definition of "ext_module_item" lists a field named "x_reserved_probe".
+    check: system_seeded
+    detail: Setup-prepared (see header). If the environment cannot provide it, report BLOCKED for step 6 and the reserved-name part of EO-002; the other steps run.
+  - description: SwiftRoute also has these record types - "ext_own_type" (a type of the company's own, not from a module), "ext_module_log" (from a module, append-only) and "ext_module_secret" (from a module, with an access restriction that the administrator's user does not satisfy and no grant for them) - and no record type named "ext_nowhere".
+    check: system_seeded
+    detail: Setup-prepared. If one of the three cannot be provided, report BLOCKED for that input in step 14 and 15 and the matching part of EO-005; the others run.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator adds to "ext_module_item" the extra field "x_amount" (type whole number), then "x_a1_b2" (type text), then a field named "x_" followed by 62 letters "a" (64 characters in all, type text).
+      Each answer is noted; then the list is asked for and noted as list L1.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add a field named "foo" (no "x_" start, type text). The answer is noted as NK1.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add a field named "x_Bad", then one named "x_a-b", then one named with the characters x, underscore, a double quote, a semicolon, a space and the word drop (a quote-and-semicolon injection try),
+      then one named "x_" followed by 63 letters "a" (65 characters). Each is a request on its own, with a valid text definition. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add a field named "x_amount" again (the name from step 1, still active). The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add a field named "x_old_retired" (the retired name from the preconditions). The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add a field named "x_reserved_probe" (a name the module itself uses). The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add a field "x_bad_kind" with the kind "json", then another request "x_bad_kind" with "localized_text", then "decimal", then "blob". Each is a request on its own. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add "x_bad_key" (type text) with an unknown setting "unique" true, then the same with an unknown setting "promoted" true. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add "x_bad_enum" with type choice and no values, then "x_bad_req" with type text and required true and no default. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add "x_bad_body" with a definition that is the text "string" instead of an object, then with a definition that is a list. Each answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of "ext_module_item" and notes it as list L2.
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The administrator retires an entry number that does not exist (a number that was never issued). The answer (status, content-type header and decoded body without the per-request trace_id member) is noted as NF0.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add the valid field "x_ok" (type text, not required) to "ext_nowhere", a record type that exists in no form. The answer is noted as NF1.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: tenant_admin_a
+    action: >
+      The administrator tries the same valid request for "ext_own_type" (noted NF2), "ext_module_log" (noted NF3) and "ext_module_secret" (noted NF4). Each is a request on its own.
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of extra fields of each of "ext_nowhere", "ext_own_type", "ext_module_log" and "ext_module_secret". Each answer is noted as NL1 to NL4. The administrator also asks for the list without naming any record type, noted as NL5.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Valid names are accepted, including the longest allowed.
+    verification:
+      method: api_response
+      detail: Step 1 answers 201 three times for "x_amount", "x_a1_b2" and the 64-character name; list L1 holds the retired "x_old_retired" first (it keeps its earlier place number) and the three new fields after it in the order added, each with the next place number and status "active".
+      evidence: The three answers of step 1 and list L1.
+    on_fail:
+      severity: MAJOR
+      business_impact: Legitimate field names are refused.
+      suggested_action: route_to_developer
+  - id: EO-002
+    description: A name without the x_ start, with forbidden characters or longer than 64 characters is refused with the reason "invalid_extension_key"; a name the module uses is refused with "extension_key_reserved"; an existing name, active or retired, is refused with "extension_key_taken".
+    verification:
+      method: http_status
+      detail: Step 2 (NK1) and the four requests of step 3 answer 422 with the reason "invalid_extension_key" and the answer does not contain the submitted name. Steps 4 and 5 answer 422 "extension_key_taken". Step 6 answers 422 "extension_key_reserved". The 422 answers of step 2 and of step 3 are equal to each other in status and content-type header.
+      evidence: The answers of steps 2 to 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A field could be added that collides with the module's own field, a reused retired name, or text that is unsafe to store.
+      suggested_action: route_to_developer
+  - id: EO-003
+    description: A definition that is not allowed is refused with "invalid_extension_spec" and the answer repeats nothing that was sent.
+    verification:
+      method: http_status
+      detail: Each request of steps 7 to 10 (four kinds, two settings, a choice without values, a required field without a default, two non-object definitions - ten requests) answers 422 with the reason "invalid_extension_spec". No answer contains the submitted name, kind, setting or text.
+      evidence: The ten answers of steps 7 to 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: A field with a kind the platform does not support is stored, or the answer leaks what a caller sent.
+      suggested_action: route_to_developer
+  - id: EO-004
+    description: Nothing was stored by a refusal.
+    verification:
+      method: api_response
+      detail: List L2 (step 11) equals list L1 plus nothing; it has the same entries as L1 and the retired "x_old_retired", with the same place numbers and no entry named "foo", "x_Bad", "x_bad_kind", "x_bad_key", "x_bad_enum", "x_bad_req", "x_bad_body" or "x_reserved_probe".
+      evidence: Lists L1 and L2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A refused request still changed the record structure.
+      suggested_action: route_to_developer
+  - id: EO-005
+    description: A record type that does not exist, one of the company's own, an append-only one and one the administrator is restricted from all give the same not-found answer, equal to retiring an entry that does not exist, for adding and for listing.
+    verification:
+      method: http_status
+      detail: NF1, NF2, NF3 and NF4 all answer 404 and are equal to NF0 in status, content-type header and decoded body after removing the per-request trace_id member (four pairs). NL1 to NL4 are the same 404 as NF0 (four more). NL5 (no record type named) answers 422, not 404, and does not name a record type.
+      evidence: The answers NF0 to NF4 and NL1 to NL5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The answer tells a caller which record types exist, which belong to modules, and which they are restricted from.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: No refusal wrote an entry or an audit record.
+    verification:
+      method: system_state
+      detail: The audit trail of SwiftRoute between step 1 and the end has exactly three "entity_type_extension.create" entries (step 1) and none for steps 2 to 15. The entries are read from the database (UAT assumption, to be confirmed by the process owner - no tenant-user route lists them).
+      evidence: The audit entries of the company between step 1 and the end.
+    on_fail:
+      severity: MAJOR
+      business_impact: Refused requests leave traces or half-written changes.
+      suggested_action: route_to_developer
+
+cleanup:
+  cancel_open_instances: false
+  description: Retire "x_amount", "x_a1_b2" and the 64-character field if the environment is to be reused; their names stay reserved (use new names on the next run).
