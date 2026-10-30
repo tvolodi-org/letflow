@@ -433,9 +433,11 @@ defmodule Letflow.RecordTriggersTest do
       assert readers == [
                "lib/letflow/entities/records.ex",
                "lib/letflow/record_triggers.ex",
+               "lib/letflow/record_triggers/apply.ex",
                "lib/letflow/record_triggers/binding.ex",
                "lib/letflow/record_triggers/outbox.ex",
                "lib/letflow/record_triggers/outbox_row.ex",
+               "lib/letflow/record_triggers/runner.ex",
                "lib/letflow/record_triggers/worker.ex",
                "lib/letflow/routers/record_trigger_bindings.ex",
                "lib/letflow/supervisor/pollers.ex",

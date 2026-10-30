@@ -55,10 +55,13 @@ defmodule Letflow.Scripts.Runtime do
           | :script_output_restriction_widened
           | :service_task_restricted_variable_reference
 
+  # `:hook_kind` is optional (REQ-628): the record-trigger worker pins an `entity_event` version;
+  # every other caller leaves it out and gets the service-task kind.
   @type binding :: %{
-          script_key: String.t(),
-          script_version: pos_integer(),
-          script_sha256: String.t()
+          required(:script_key) => String.t(),
+          required(:script_version) => pos_integer(),
+          required(:script_sha256) => String.t(),
+          optional(:hook_kind) => String.t()
         }
 
   # Only what the pipeline reads (REVIEWER R3): the principal is derived by RunRecord from the
@@ -495,7 +498,10 @@ defmodule Letflow.Scripts.Runtime do
     end
   end
 
-  defp load_version(prefix, %{script_key: key, script_version: version, script_sha256: sha}) do
+  defp load_version(
+         prefix,
+         %{script_key: key, script_version: version, script_sha256: sha} = binding
+       ) do
     rule =
       if Validation.key?(key) and is_integer(version) and version > 0,
         do: Repo.get_by(ScriptRule, [key: key, version: version], prefix: prefix)
@@ -505,7 +511,7 @@ defmodule Letflow.Scripts.Runtime do
         {:rejected, :script_revoked}
 
       %ScriptRule{status: status} = rule when status in [:published, :retired] ->
-        if rule.sha256 == sha and rule.hook_kind == @hook_kind,
+        if rule.sha256 == sha and rule.hook_kind == Map.get(binding, :hook_kind, @hook_kind),
           do: {:ok, rule},
           else: {:rejected, :pin_mismatch}
 

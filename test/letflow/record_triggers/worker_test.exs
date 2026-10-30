@@ -22,6 +22,9 @@ defmodule Letflow.RecordTriggers.WorkerTest do
     previous = Application.fetch_env(:letflow, :record_triggers_enabled)
     Application.put_env(:letflow, :record_triggers_enabled, true)
 
+    # The T-3 tests exercise claim, order and lease, not the script run (REQ-628 replaced the stub).
+    Application.put_env(:letflow, :record_trigger_run_fun, &done_fun/2)
+
     on_exit(fn ->
       case previous do
         {:ok, old} -> Application.put_env(:letflow, :record_triggers_enabled, old)
@@ -29,6 +32,7 @@ defmodule Letflow.RecordTriggers.WorkerTest do
       end
 
       Application.delete_env(:letflow, :record_trigger_worker)
+      Application.delete_env(:letflow, :record_trigger_run_fun)
     end)
 
     {:ok, schema: ScriptTaskFixture.tenant!("r615a").schema_name}
@@ -52,6 +56,17 @@ defmodule Letflow.RecordTriggers.WorkerTest do
     }
 
     Repo.insert!(struct(base, attrs), prefix: schema)
+  end
+
+  # What the T-3 stub did: mark the claimed row done, checked on id, attempt and status.
+  def done_fun(row, prefix) do
+    {count, _} =
+      from(r in OutboxRow,
+        where: r.id == ^row.id and r.attempt == ^row.attempt and r.status == :running
+      )
+      |> Repo.update_all([set: [status: :done, done_at: DateTime.utc_now()]], prefix: prefix)
+
+    if count == 1, do: :done, else: :stale
   end
 
   defp fetch(schema, id), do: Repo.get!(OutboxRow, id, prefix: schema)
@@ -435,9 +450,9 @@ defmodule Letflow.RecordTriggers.WorkerTest do
       assert second.attempt == 2
 
       before = fetch(schema, row.id)
-      assert Worker.mark_done_stub(first, schema) == :stale
+      assert done_fun(first, schema) == :stale
       assert fetch(schema, row.id) == before
-      assert Worker.mark_done_stub(second, schema) == :done
+      assert done_fun(second, schema) == :done
     end
   end
 
@@ -578,7 +593,7 @@ defmodule Letflow.RecordTriggers.WorkerTest do
         nil
       )
 
-      assert Worker.mark_done_stub(claimed, schema) == :done
+      assert done_fun(claimed, schema) == :done
       :telemetry.detach({__MODULE__, ref})
 
       queries = collect(ref, [])

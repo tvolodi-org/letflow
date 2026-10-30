@@ -211,7 +211,7 @@ defmodule Letflow.Idempotency.SquatAuditTest do
     "definition_promoted:" => "DEFINITION_PROMOTED",
     "definition_version_rolled_back:" => "DEFINITION_VERSION_ROLLED_BACK"
   }
-  @report_only_families ~w(entities-record-import: req345-seed- sys:)
+  @report_only_families ~w(entities-record-import: record_trigger: req345-seed- sys:)
 
   describe "T3 families" do
     test "the table below covers exactly every audited family (a new prefix needs a rule here)" do

@@ -26,6 +26,7 @@ defmodule Letflow.IdempotencyTest do
     "service_task:" => ["lib/letflow/engine/service_task.ex"],
     "script_task_dispatch:" => ["lib/letflow/engine.ex"],
     "script_run:" => ["lib/letflow/engine.ex"],
+    "record_trigger:" => ["lib/letflow/record_triggers/apply.ex"],
     "certificate:issue:" => ["lib/letflow/modules/exam/certificate.ex"],
     "entities-record-import:" => ["lib/letflow/routers/entities/record_import.ex"],
     "attachment_attached:" => ["lib/letflow/repository/attachments.ex"],
