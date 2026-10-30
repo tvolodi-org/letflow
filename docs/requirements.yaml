@@ -45465,7 +45465,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-635 -- depends on slice B (REQ-635), which is still pending
+    gh: 3556
     # Source: docs/migration/decisions/0070-tenant-owned-record-types.md (D1 "Expected new data-access paths", D4, D6 slice C, "Open owner questions" Q4, "Tests the implementation slices must add" D4-*, "Threats for SECURITY-REVIEWER"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D2 public read API, D3.1 to D3.6 reference contract, D8 core must not reach into a module table); docs/migration/decisions/0006 (D2, no tenant_id column in a schema-isolated table); code read: lib/letflow/modules/read_api.ex (lookup/3, active?/3, the uniform {:error, :not_found}), lib/letflow/modules/org/org.ex and lib/letflow/modules/catalog_items/catalog_items.ex (lookup/2, active?/2), lib/letflow/modules/module.ex (the manifest type, optional keys), lib/letflow/modules/catalog.ex (validate/2, rules 10 to 13), lib/letflow/modules/manifest_hash.ex, lib/letflow/entities/managed_types.ex (owner_of/2), lib/letflow/entities/record_access.ex (write/3), lib/letflow/routers/entities/record_writes.ex (handle_create_record/2, handle_update_record/3), lib/letflow/routers/entities/record_import.ex (handle_import_records/2), lib/letflow/entities/step_writes.ex (prepare/2, validate_lines/2), lib/letflow/entities/handler_writes.ex (create/3), lib/letflow/api/error.ex. Written by the business analyst (T-0980) 2026-10-30. Not yet validated.
     description: >
       Slice C of decision 0070 (D6 "Slice C, module references (D4)"); the decision record is the product of
