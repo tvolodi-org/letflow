@@ -436,7 +436,9 @@ defmodule Letflow.RecordTriggersTest do
                "lib/letflow/record_triggers/binding.ex",
                "lib/letflow/record_triggers/outbox.ex",
                "lib/letflow/record_triggers/outbox_row.ex",
+               "lib/letflow/record_triggers/worker.ex",
                "lib/letflow/routers/record_trigger_bindings.ex",
+               "lib/letflow/supervisor/pollers.ex",
                "lib/letflow/tenant_provisioning.ex"
              ]
 
