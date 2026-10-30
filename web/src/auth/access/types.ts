@@ -31,6 +31,8 @@ export const P = {
   EntitiesDefinitionsRead: 'EntitiesDefinitionsRead',
   EntitiesRecordsWrite: 'EntitiesRecordsWrite',
   EntitiesViewsManage: 'EntitiesViewsManage',
+  EntitiesQuery: 'EntitiesQuery',
+  EntitiesAggregate: 'EntitiesAggregate',
 } as const
 
 /** Body of GET /api/v1/me/access. */

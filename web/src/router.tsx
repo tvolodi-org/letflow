@@ -43,6 +43,7 @@ import PrintTemplatesPage from '@/pages/admin/PrintTemplatesPage'
 import ModuleUninstallPage from '@/pages/admin/moduleLifecycle/ModuleUninstallPage'
 import { isModulesUninstallEnabled } from '@/config/modulesUninstallFlag'
 import EntityListBrowserPage from '@/pages/entities/EntityListBrowserPage'
+import ReportBuilderPage from '@/pages/entities/ReportBuilderPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 import { REGISTERED_MODULE_ROUTE_OBJECTS } from '@/modules/registry'
@@ -147,6 +148,15 @@ export const router = createBrowserRouter([
       { path: 'webhooks', element: <WebhooksPage /> },
       // REQ-393: tenant-agnostic entity-list browse screen (filter/sort/page-size)
       { path: 'entities/:entityType', element: <EntityListBrowserPage /> },
+      // REQ-634: saved report builder; EntitiesQuery is the read permission of the report routes
+      {
+        path: 'entities/:entityType/reports',
+        element: (
+          <RequirePermission permission={P.EntitiesQuery}>
+            <ReportBuilderPage />
+          </RequirePermission>
+        ),
+      },
       // REQ-412 / ISS-0844: module-provided routes, wrapped in ModuleGuard by registry.ts.
       // Paths only render when the module is installed; uninstalled routes fall through.
       ...REGISTERED_MODULE_ROUTE_OBJECTS,
