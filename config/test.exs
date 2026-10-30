@@ -394,3 +394,7 @@ config :letflow, :record_triggers_enabled, false
 # REQ-597 / GH #3363: exam notification mails (the exam_result mail after a scored submit). Default
 # off. Read only by Letflow.Modules.Exam.Notifications.enabled?/0.
 config :letflow, :exam_notifications_enabled, false
+
+# REQ-620 / GH #3463: same as config/dev.exs -- lets CreateLedgerTables.down run. Not set in
+# config/prod.exs or config/runtime.exs.
+config :letflow, :allow_ledger_migration_down, true
