@@ -355,6 +355,346 @@ defmodule Letflow.RecordTriggers.WorkerTest do
     end
   end
 
+  describe "D6: crash, restart, lease expiry" do
+    test "D6a: a restarted worker claims and finishes a due row with a 30 s lease", %{
+      schema: schema
+    } do
+      row = insert_row(schema)
+
+      start_supervised!(Worker)
+      done = await_status(schema, row.id, :done, 100)
+
+      assert done.attempt == 1
+      assert DateTime.diff(done.lease_expires_at, done.claimed_at, :millisecond) == 30_000
+      # next_attempt_at is NOT NULL in the table (C2b); the row keeps its due time.
+      assert %DateTime{} = done.next_attempt_at
+    end
+
+    test "D6b: a claimer killed mid-run leaves a running row; the sweep re-queues it with backoff",
+         %{schema: schema} do
+      row = insert_row(schema)
+      parent = self()
+
+      pid =
+        spawn(fn ->
+          {:ok, _} = Worker.claim_next(schema)
+          send(parent, :claimed)
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive :claimed, 5_000
+      Process.exit(pid, :kill)
+      assert fetch(schema, row.id).status == :running
+      assert fetch(schema, row.id).attempt == 1
+
+      ref = make_ref()
+
+      :telemetry.attach(
+        {__MODULE__, ref},
+        [:letflow, :record_trigger, :lease_expired],
+        fn _event, measure, meta, _config -> send(parent, {ref, measure, meta}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach({__MODULE__, ref}) end)
+
+      # Lease still valid: nothing is swept or claimed.
+      {summary, _} = Worker.run_tick([schema], 0)
+      assert summary.swept == 0 and summary.claimed == 0
+      assert fetch(schema, row.id).status == :running
+
+      expire(schema, row.id)
+      {summary, _} = Worker.run_tick([schema], 0)
+
+      assert summary.swept == 1 and summary.dead == 0 and summary.claimed == 0
+      assert_receive {^ref, %{count: 1}, %{tenant_schema: ^schema}}
+
+      swept = fetch(schema, row.id)
+      assert swept.status == :pending
+      assert swept.last_code == "lease_expired"
+      wait = DateTime.diff(swept.next_attempt_at, DateTime.utc_now(), :millisecond)
+      assert wait > -1_000 and wait <= 1_500
+
+      due(schema, row.id)
+      {summary, _} = Worker.run_tick([schema], 0)
+      assert summary.claimed == 1 and summary.done == 1
+      done = fetch(schema, row.id)
+      assert done.status == :done
+      assert done.attempt == 2
+    end
+
+    test "D6c: the first claim's stub run after the sweep and re-claim is stale", %{
+      schema: schema
+    } do
+      row = insert_row(schema)
+      {:ok, first} = Worker.claim_next(schema)
+      expire(schema, row.id)
+      assert %{swept: 1} = Worker.sweep_expired_leases(schema, 64)
+      due(schema, row.id)
+      {:ok, second} = Worker.claim_next(schema)
+      assert second.attempt == 2
+
+      before = fetch(schema, row.id)
+      assert Worker.mark_done_stub(first, schema) == :stale
+      assert fetch(schema, row.id) == before
+      assert Worker.mark_done_stub(second, schema) == :done
+    end
+  end
+
+  describe "D7: tenant isolation of claim and sweep" do
+    setup do
+      {:ok,
+       b: ScriptTaskFixture.tenant!("r615d").schema_name,
+       c: ScriptTaskFixture.tenant!("r615e").schema_name}
+    end
+
+    test "D7a: B's pass never counts or returns A's row", %{schema: a, b: b, c: c} do
+      row = insert_row(a)
+
+      assert Worker.claim_next(b) == :none
+      {summary_b, _} = Worker.run_tick([b], 0)
+      {summary_c, _} = Worker.run_tick([c], 0)
+
+      assert summary_b == summary_c
+      assert summary_b.claimed == 0 and summary_b.swept == 0
+      assert fetch(a, row.id).status == :pending
+
+      {summary_a, _} = Worker.run_tick([a], 0)
+      assert summary_a.claimed == 1
+    end
+
+    test "D7b: an expired lease of A is swept only through A's schema", %{schema: a, b: b} do
+      row = insert_row(a)
+      other = insert_row(b)
+      {:ok, _} = Worker.claim_next(a)
+      expire(a, row.id)
+      b_before = fetch(b, other.id)
+
+      assert Worker.sweep_expired_leases(b, 64) == %{swept: 0, dead: 0, failed: 0}
+      assert fetch(a, row.id).status == :running
+      assert fetch(b, other.id) == b_before
+
+      assert Worker.sweep_expired_leases(a, 64) == %{swept: 1, dead: 0, failed: 0}
+      assert fetch(a, row.id).status == :pending
+      assert fetch(b, other.id) == b_before
+    end
+  end
+
+  describe "D8: backoff and retry cap" do
+    test "D8a: backoff doubles from 500 ms and is capped at 30 s" do
+      assert Worker.backoff_ms(1) == 500
+      assert Worker.backoff_ms(2) == 1_000
+      assert Worker.backoff_ms(3) == 2_000
+      assert Worker.backoff_ms(6) == 16_000
+      assert Worker.backoff_ms(12) == 30_000
+      assert Worker.backoff_ms(500) == 30_000
+
+      Application.put_env(:letflow, :record_trigger_worker,
+        backoff_base_ms: 100,
+        backoff_cap_ms: 250
+      )
+
+      assert Worker.backoff_ms(1) == 100
+      assert Worker.backoff_ms(2) == 200
+      assert Worker.backoff_ms(3) == 250
+    end
+
+    test "D8b: attempt 9 expired goes back to pending and is claimed as attempt 10", %{
+      schema: schema
+    } do
+      row = insert_row(schema, status: :running, attempt: 9, lease_expires_at: ago(60))
+
+      assert %{swept: 1, dead: 0} = Worker.sweep_expired_leases(schema, 64)
+      swept = fetch(schema, row.id)
+      assert swept.status == :pending and swept.last_code == "lease_expired"
+      wait = DateTime.diff(swept.next_attempt_at, DateTime.utc_now(), :millisecond)
+      assert wait > 29_000 and wait <= 30_500
+
+      due(schema, row.id)
+      assert {:ok, %{attempt: 10}} = Worker.claim_next(schema)
+    end
+
+    test "D8c: attempt 10 expired is dead and is never claimed again", %{schema: schema} do
+      record = Ecto.UUID.generate()
+
+      row =
+        insert_row(schema,
+          record_id: record,
+          source_seq: 1,
+          status: :running,
+          attempt: 10,
+          lease_expires_at: ago(60)
+        )
+
+      later = insert_row(schema, record_id: record, source_seq: 2)
+
+      {summary, _} = Worker.run_tick([schema], 0)
+
+      assert summary.swept == 1 and summary.dead == 1
+      dead = fetch(schema, row.id)
+      assert dead.status == :dead
+      assert dead.last_code == "retries_exhausted"
+      assert dead.done_at == nil
+      # A dead row does not block the later row of the same record (C3c).
+      assert fetch(schema, later.id).status == :done
+
+      due(schema, row.id)
+      assert Worker.claim_next(schema) == :none
+      assert fetch(schema, row.id).status == :dead
+    end
+
+    test "D8d: the sweep limit bounds one call", %{schema: schema} do
+      for _ <- 1..3,
+          do: insert_row(schema, status: :running, attempt: 1, lease_expires_at: ago(60))
+
+      assert %{swept: 2} = Worker.sweep_expired_leases(schema, 2)
+      assert %{swept: 1} = Worker.sweep_expired_leases(schema, 2)
+    end
+
+    test "D8e: unexpired running rows and done rows are ignored", %{schema: schema} do
+      live = insert_row(schema, status: :running, attempt: 1, lease_expires_at: future(60))
+      done = insert_row(schema, status: :done, attempt: 1, lease_expires_at: ago(60))
+
+      assert Worker.sweep_expired_leases(schema, 64) == %{swept: 0, dead: 0, failed: 0}
+      assert fetch(schema, live.id).status == :running
+      assert fetch(schema, done.id).status == :done
+    end
+  end
+
+  describe "D9: the stub run" do
+    test "D9a: marks done under CAS and writes nothing but the outbox row", %{schema: schema} do
+      row = insert_row(schema)
+      {:ok, claimed} = Worker.claim_next(schema)
+      before = fetch(schema, row.id)
+      counts_before = side_effect_counts(schema)
+
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        {__MODULE__, ref},
+        [:letflow, :repo, :query],
+        fn _event, _measure, %{query: query}, _config -> send(parent, {ref, query}) end,
+        nil
+      )
+
+      assert Worker.mark_done_stub(claimed, schema) == :done
+      :telemetry.detach({__MODULE__, ref})
+
+      queries = collect(ref, [])
+      assert queries != []
+      assert Enum.all?(queries, &(&1 =~ "record_trigger_outbox"))
+      assert Enum.all?(queries, &(&1 =~ "UPDATE"))
+
+      done = fetch(schema, row.id)
+      assert done.status == :done and done.done_at != nil and done.last_code == nil
+
+      for field <-
+            ~w(binding_id entity_type record_id event source_seq occurred_at script_key script_version script_sha256 depth chain actor_id)a do
+        assert Map.fetch!(done, field) == Map.fetch!(before, field)
+      end
+
+      assert side_effect_counts(schema) == counts_before
+    end
+
+    test "D9b: a failing database write is caught: tick returns, worker lives, row stays running",
+         %{schema: schema} do
+      row = insert_row(schema)
+
+      Repo.query!(
+        ~s|ALTER TABLE "#{schema}".record_trigger_outbox ADD CONSTRAINT no_done CHECK (status <> 'done') NOT VALID|
+      )
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          {summary, _} = Worker.run_tick([schema], 0)
+          assert summary.claimed == 1 and summary.skipped == 1 and summary.done == 0
+        end)
+
+      assert fetch(schema, row.id).status == :running
+      assert length(Regex.scan(~r/record trigger step caught/, log)) == 1
+      refute log =~ "Postgrex"
+      refute log =~ "** ("
+      refute log =~ "stacktrace"
+
+      Application.put_env(:letflow, :record_trigger_worker, poll_interval_ms: 60_000)
+      pid = start_supervised!(Worker)
+      send(pid, :tick)
+      Process.sleep(100)
+      assert Process.alive?(pid)
+
+      expire(schema, row.id)
+      assert %{swept: 1} = Worker.sweep_expired_leases(schema, 64)
+      assert fetch(schema, row.id).status == :pending
+    end
+
+    test "D9c: an exception inside the run function is caught and its text is not logged",
+         %{schema: schema} do
+      row = insert_row(schema)
+      previous = Application.fetch_env(:letflow, :scripts_test_hooks)
+      Application.put_env(:letflow, :scripts_test_hooks, true)
+
+      Application.put_env(:letflow, :record_trigger_run_fun, fn _row, _prefix ->
+        raise "SECRET-MARKER-615"
+      end)
+
+      on_exit(fn ->
+        Application.delete_env(:letflow, :record_trigger_run_fun)
+
+        case previous do
+          {:ok, old} -> Application.put_env(:letflow, :scripts_test_hooks, old)
+          :error -> Application.delete_env(:letflow, :scripts_test_hooks)
+        end
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          {summary, _} = Worker.run_tick([schema], 0)
+          assert summary.claimed == 1 and summary.skipped == 1
+        end)
+
+      assert fetch(schema, row.id).status == :running
+      assert length(Regex.scan(~r/record trigger step caught/, log)) == 1
+      assert log =~ schema
+      refute log =~ "SECRET-MARKER-615"
+    end
+  end
+
+  defp ago(seconds), do: DateTime.add(DateTime.utc_now(), -seconds, :second)
+  defp future(seconds), do: DateTime.add(DateTime.utc_now(), seconds, :second)
+
+  defp expire(schema, id), do: set_columns(schema, id, lease_expires_at: ago(60))
+  defp due(schema, id), do: set_columns(schema, id, next_attempt_at: ago(60))
+
+  defp set_columns(schema, id, set) do
+    {1, _} = Repo.update_all(from(r in OutboxRow, where: r.id == ^id), [set: set], prefix: schema)
+    :ok
+  end
+
+  defp await_status(schema, id, status, tries) do
+    row = fetch(schema, id)
+
+    cond do
+      row.status == status ->
+        row
+
+      tries == 0 ->
+        flunk("row stayed #{row.status}, wanted #{status}")
+
+      true ->
+        Process.sleep(50)
+        await_status(schema, id, status, tries - 1)
+    end
+  end
+
+  defp side_effect_counts(schema) do
+    for table <- ~w(entity_record_latest audit_entries events dlq_entries event_idempotency),
+        into: %{} do
+      %{rows: [[n]]} = Repo.query!(~s|SELECT count(*) FROM "#{schema}"."#{table}"|)
+      {table, n}
+    end
+  end
+
   defp claim_all(schema, acc) do
     case Worker.claim_next(schema) do
       {:ok, row} -> claim_all(schema, [row | acc])
