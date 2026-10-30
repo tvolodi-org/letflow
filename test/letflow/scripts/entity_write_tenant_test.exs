@@ -110,8 +110,9 @@ defmodule Letflow.Scripts.EntityWriteTenantTest do
         for f <- files, File.read!(f) =~ needle, do: Path.basename(f)
       end
 
-      # E-3 part A (REQ-607): Entities.WriteHook is the one production caller of EntityWrite.run.
-      assert hits.("EntityWrite.run") == ["write_hook.ex"]
+      # E-3 part A (REQ-607): Entities.WriteHook is a production caller of EntityWrite.run;
+      # REQ-633 (GH #3530): EntityTypeHooks.dry_run/4 is the second (run_audited, substring match).
+      assert Enum.sort(hits.("EntityWrite.run")) == ["entity_type_hooks.ex", "write_hook.ex"]
 
       assert Enum.sort(hits.("prefetch_with_fingerprint")) == [
                "entity_write.ex",

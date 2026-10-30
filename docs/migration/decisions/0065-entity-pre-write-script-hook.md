@@ -233,7 +233,7 @@ Each slice is its own requirement and change.
   text. Depends on E-3. `[SECURITY-REVIEWER: mandatory]`
 - **E-5 dry-run and UAT**: dry-run of an `entity_write` script against a draft record (no write, reads tenant
   data) and `uat_design` scenarios. Depends on E-4. `[SECURITY-REVIEWER: mandatory]` (dry-run reads tenant
-  data)
+  data). The dry-run part is delivered by REQ-633 (GH #3530); the `uat_design` scenarios remain a later task.
 
 Not in the list: step-path support and bulk-import budgeting (separate later records).
 

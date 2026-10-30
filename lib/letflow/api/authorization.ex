@@ -449,6 +449,7 @@ defmodule Letflow.Api.Authorization do
           | :ScriptRulesConfirm
           | :EntityTypeHooksList
           | :EntityTypeHooksManage
+          | :EntityTypeHooksDryRun
           | :RecordTriggerBindingsList
           | :RecordTriggerBindingsManage
           | :UnmatchedPlatformPath
@@ -1223,6 +1224,10 @@ defmodule Letflow.Api.Authorization do
   # need :ScriptsPublish.
   def endpoint_policy_key("GET", "/entity-type-hooks"), do: :EntityTypeHooksList
 
+  # REQ-633 (GH #3530, decision 0065 D9 E-5): dry-run of the bound script against a draft record.
+  def endpoint_policy_key("POST", "/entity-type-hooks/:entity_type/dry-run"),
+    do: :EntityTypeHooksDryRun
+
   def endpoint_policy_key(method, "/entity-type-hooks/:entity_type")
       when method in ["PUT", "DELETE"],
       do: :EntityTypeHooksManage
@@ -1635,6 +1640,7 @@ defmodule Letflow.Api.Authorization do
   # REQ-567 part 2: entity pre-write hook binding routes over the script permissions.
   def required_permission(:EntityTypeHooksList), do: :ScriptsWrite
   def required_permission(:EntityTypeHooksManage), do: :ScriptsPublish
+  def required_permission(:EntityTypeHooksDryRun), do: :ScriptsWrite
   def required_permission(:RecordTriggerBindingsList), do: :ScriptsWrite
   def required_permission(:RecordTriggerBindingsManage), do: :ScriptsPublish
   def required_permission(:MyModulesRead), do: :MyModulesRead
