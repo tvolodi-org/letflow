@@ -164,7 +164,10 @@ defmodule Letflow.Engine.CompleteTaskFormHookBusyTest do
     assert F.event_types(t.schema_name, id) == events
     assert F.projection(t.schema_name, id).last_event_seq == projection.last_event_seq
     assert F.projection(t.schema_name, id).variables == projection.variables
-    assert table_counts(t) == counts
+    # GH #3524 (F-4 part B): a failed run commits exactly one audit row, task.form_hook_run.
+    after_counts = table_counts(t)
+    assert Map.delete(after_counts, "audit_entries") == Map.delete(counts, "audit_entries")
+    assert after_counts["audit_entries"] == counts["audit_entries"] + 1
   end
 
   describe "script_busy (criterion 8)" do
