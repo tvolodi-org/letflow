@@ -21,9 +21,9 @@ actors:
   ops_manager: actor-swiftroute-marco
 
 preconditions:
-  - description: The switch for form validation scripts is ON in the test environment at the time of step 2.
+  - description: The switch for form validation scripts is ON in the test environment at the time of step 3.
     check: system_seeded
-    detail: Setup-prepared. If step 2 answers 503 with the code script_rejected, the switch is off; report BLOCKED and run definitions-8 instead. Not a product failure.
+    detail: Setup-prepared. If step 3 answers 503 with the code script_rejected, the switch is off; report BLOCKED and run definitions-8 instead. Not a product failure.
   - description: SwiftRoute has the published form validation script fv_ok_total version 1 that accepts total = 100, and the active process fv_ks_on naming it on its human task "review_total".
     check: system_seeded
     detail: Setup-prepared. If it cannot be arranged, the scenario is BLOCKED.
@@ -35,16 +35,24 @@ steps:
       The dispatcher starts an instance of fv_ks_on. The instance and its task are noted.
     via: api
   - step: 2
-    actor: ops_manager
+    actor: dispatcher
     action: >
-      The Ops Manager completes the task with the answer total = 100.
+      The dispatcher, who holds no operations manager role, tries to complete the same task with the answer total = 100.
+    expect_refusal: true
     via: api
     input:
       total: 100
   - step: 3
     actor: ops_manager
     action: >
-      The Ops Manager reads the task and notes its status and the stored answer.
+      The Ops Manager completes the task with the answer total = 100.
+    via: api
+    input:
+      total: 100
+  - step: 4
+    actor: ops_manager
+    action: >
+      The Ops Manager reads the task and notes its status.
     via: api
 
 expected_outcomes:
@@ -52,11 +60,21 @@ expected_outcomes:
     description: With the switch on and an accepting script the completion succeeds.
     verification:
       method: http_status
-      detail: Step 2 answers a success status (not 503, not 422). Step 3 shows the task completed with total = 100, and the instance has left the human task.
-      evidence: The answers of steps 2 and 3.
+      detail: Step 3 answers a success status (not 503, not 422); its answer carries the variables with total = 100 and shows the instance has left the human task. Step 4 shows the task completed.
+      evidence: The answers of steps 3 and 4.
     on_fail:
       severity: BLOCKER
       business_impact: Turning the check on stops tasks from being completed, so work halts.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The dispatcher cannot complete the Ops Manager's task.
+    verification:
+      method: http_status
+      detail: Step 2 is refused (a 4xx answer, not a success) and the task is still open when step 3 begins; the success of step 3 is the first completion.
+      evidence: The answer of step 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person without the approving role could complete an approval task.
       suggested_action: route_to_wf03
 
 cleanup:

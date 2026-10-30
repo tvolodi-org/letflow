@@ -48,7 +48,7 @@ steps:
   - step: 3
     actor: ops_manager
     action: >
-      The Ops Manager reads the task and notes its status and whether an answer is stored.
+      The Ops Manager reads the task and notes its status, then reads the instance and notes its status and whether its variables hold a total.
     via: api
 
 expected_outcomes:
@@ -66,8 +66,8 @@ expected_outcomes:
     description: The refusal names nothing of the script and saves nothing.
     verification:
       method: api_response
-      detail: The body of step 2 holds no script source, key (fv_ok_total), version, sha256, the value 100, module name or error text. Step 3 shows the task still open and no stored answer.
-      evidence: The body of step 2 read in full, and the task read of step 3.
+      detail: The body of step 2 holds no script source, key (fv_ok_total), version, sha256, the value 100, module name or error text. Step 3 shows the task still open, the instance still active and no total in its variables.
+      evidence: The body of step 2 read in full, and the task and instance reads of step 3.
     on_fail:
       severity: MAJOR
       business_impact: Internal details leak to a task worker, or a half-saved task blocks the process.

@@ -110,7 +110,7 @@ steps:
   - step: 11
     actor: ops_manager
     action: >
-      The Ops Manager reads each of the five tasks and notes its status and whether any answer value is stored.
+      The Ops Manager reads each of the five tasks and notes its status, then reads each of the five instances and notes its status and whether its variables hold a total.
     via: api
 
 expected_outcomes:
@@ -138,8 +138,8 @@ expected_outcomes:
     description: A failed check saves nothing and leaves the task open.
     verification:
       method: http_status
-      detail: Step 11 shows all five tasks still open (not completed) and no stored answer value, and the five instances still waiting at the human task.
-      evidence: The task reads of step 11.
+      detail: Step 11 shows all five tasks still open (not completed); the instance reads show all five instances still active and none of their variables holds a total.
+      evidence: The task and instance reads of step 11.
     on_fail:
       severity: MAJOR
       business_impact: A task could be closed or half-saved although the check never gave a verdict.

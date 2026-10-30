@@ -56,7 +56,7 @@ steps:
   - step: 4
     actor: ops_manager
     action: >
-      The Ops Manager reads the task of step 1 and notes its status and whether an answer is stored.
+      The Ops Manager reads the task of step 1 and notes its status, then reads the instance and notes its status and whether its variables hold a total.
     via: api
   - step: 5
     actor: ops_manager
@@ -71,8 +71,8 @@ expected_outcomes:
     description: Ben's attempt on another company's task is answered exactly as an attempt on an unknown task.
     verification:
       method: api_response
-      detail: Steps 2 and 3 both answer 404 with the same body, byte for byte, which does not contain the task number or any text of the script, and neither answer is 403 or 503.
-      evidence: Status and full body of steps 2 and 3, compared.
+      detail: Steps 2 and 3 both answer 404 with the same body once the per-request trace_id member (which differs on every request) is left out of the comparison; the body does not contain the task number or any text of the script, and neither answer is 403 or 503.
+      evidence: Status and full body of steps 2 and 3, compared with the trace_id member left out.
     on_fail:
       severity: BLOCKER
       business_impact: A user of one company can tell which tasks of another company exist and which ones carry a check script.
@@ -81,8 +81,8 @@ expected_outcomes:
     description: The refused attempt changes nothing in SwiftRoute.
     verification:
       method: http_status
-      detail: Step 4 shows the task open with no stored answer.
-      evidence: The task read of step 4.
+      detail: Step 4 shows the task open, the instance still active and no total in its variables.
+      evidence: The task and instance reads of step 4.
     on_fail:
       severity: BLOCKER
       business_impact: Another company's user changed or closed a SwiftRoute task.
