@@ -12,6 +12,7 @@
 #     so no declared key exists to submit. Step 14 checks case (c) for a pack no module wraps (every settings key refused) and a refusal of a settings key; the accepted settings case stays with the backend test.
 #   - criterion 3 "the closed list is in one module attribute whose content is pinned by a test": a code check.
 #   - criterion 5 "the number 987654.321 appears in no audit entry, no log line and no row of the three global pack tables" and the DROP TABLE audit test: database, log capture and fault injection; scenario 64 EO-007 carries the audit half as system_state.
+#   - criterion 8 (pins re-derived: __authz_routes__ of Letflow.Routers.SolutionPacks, route_scope snapshot, tenant_wide_default_routes.txt, length(snapshot) pins, @expected_tenant_tables, migration version) and criterion 9 (SECURITY-REVIEWER and REVIEWER verdicts, mix letflow.check.static, changed test files, PR statement about existing QA tenants): build and review gates of the implementing change, not actions of a user.
 ---
 id: tenant-administration-65-solution-pack-override-closed-list-and-reason-refusals
 scope: tenant-administration
@@ -33,7 +34,7 @@ preconditions:
       SwiftRoute has an active installation of pack P that contains the process definition D with a task step S1 and a gateway G1 with a condition, and a variable schema VS (an artefact of the pack of kind variable schema).
     check: system_seeded
     detail: >
-      Setup-prepared as for scenario 64. If P has no variable schema, steps 11 to 13 still run: they are refused by the closed list before the artefact is looked up, but say so in the report. If the company has no pack with a process definition, BLOCKED.
+      Setup-prepared as for scenario 64 (pack P installed through the install route; D_ID is the id of the definition that installation created for D, used as the artefact id in every step input; BLOCKED if no artefact base was recorded for it). If P has no variable schema, steps 11 to 13 still run: they are refused by the closed list before the artefact is looked up, but say so in the report. If the company has no pack with a process definition, BLOCKED.
   - description: No pack that a module wraps is needed. Pack P is installed directly (not through a module), so no setting key is declared for it.
     check: system_seeded
     detail: If P is the pack of a module that declares a settings schema, step 14 may be accepted; report that and mark step 14 and EO-005 not run.
@@ -55,7 +56,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.type": "serviceTask"
       reason: "UAT: type"
@@ -67,7 +68,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "edges.0.target": "S9"
       reason: "UAT: edge"
@@ -79,7 +80,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.id": "S9"
       reason: "UAT: id"
@@ -91,7 +92,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.G1.attributes.condition": "amount > 100"
       reason: "UAT: condition"
@@ -103,7 +104,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "variables.order_total.type": "string"
       reason: "UAT: variable"
@@ -115,7 +116,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.attributes.script": "return 1"
       reason: "UAT: script"
@@ -127,7 +128,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "name": "Renamed process"
       reason: "UAT: rename"
@@ -140,7 +141,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.label": "Zq987654 mixed"
         "nodes.S1.type": "serviceTask"
@@ -195,7 +196,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "settings.credit_limit": 5000
       reason: "UAT: threshold"
@@ -219,7 +220,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.label": "Zq987654 no reason"
   - step: 17
@@ -230,7 +231,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.label": "Zq987654 blank reason"
       reason: "   "
@@ -255,7 +256,7 @@ steps:
     input:
       pack: pack-never-installed
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.label": "Zq987654 unknown pack"
       reason: "UAT: unknown pack"
@@ -267,7 +268,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.label": "Zq987654 listed only"
         "nodes.S1.attributes.role": "role-ops-manager"
@@ -338,6 +339,18 @@ expected_outcomes:
       severity: MAJOR
       business_impact: A change to company configuration could be made with no recorded reason.
       suggested_action: route_to_developer
+  - id: EO-006b
+    description: A missing or blank reason leaves no audit entry, and no refused step of this scenario leaves one.
+    verification:
+      method: system_state
+      detail: >
+        SwiftRoute's audit trail holds no solution_pack_override entry for steps 16 and 17, none for any other refused step 2 to 19, and the text "Zq987654" occurs in no entry.
+        Read from the database (UAT assumption, to be confirmed by the process owner: no tenant-user route lists these entries; same as scenario 64 EO-007).
+      evidence: The audit entries of SwiftRoute between step 2 and step 19.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused change could still be recorded, or the trail could leak configuration values.
+      suggested_action: route_to_security_review
   - id: EO-007
     description: An artefact the pack does not cover, and a pack the company has not installed, answer the not-found reply.
     verification:

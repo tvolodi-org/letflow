@@ -10,6 +10,8 @@
 #   - criterion 4 "two requests at the same moment both write version 2": a UAT actor cannot send two simultaneous requests; step 5 checks the same refusal for a request that names an older version.
 #   - criterion 4 "no Repo.update/delete in the code" (source scan) and "every earlier row byte-identical": no route lists old versions (the list shows the latest only), so only the absence of any change route (steps 11 to 13) and the version numbers are observable.
 #   - criterion 5 audit entries (one per write, with the fields, never a patch value) and the DROP TABLE audit test: read from the database by the developer's tests; scenario 65 covers the refused-request half. EO-007 below is system_state.
+#   - criterion 8 (pins re-derived: __authz_routes__ of Letflow.Routers.SolutionPacks, the route_scope snapshot and tenant_wide_default_routes.txt, the length(snapshot) pins, @expected_tenant_tables and its length pin, the migration version): a build gate of the implementing change, not an action of a user.
+#   - criterion 9 (SECURITY-REVIEWER and REVIEWER verdicts, mix letflow.check.static and the changed test files, the PR statement about existing QA tenants): review gates of the implementing change, not an action of a user.
 # The pack update review route (steps 1 and 14) only reads; it is used here as the "nothing else changed" witness.
 ---
 id: tenant-administration-64-solution-pack-override-create-version-retire-and-list
@@ -29,9 +31,9 @@ actors:
   tenant_admin: actor-swiftroute-alice
 
 preconditions:
-  - description: SwiftRoute has an active installation of pack P (note its installed version as V) that contains the process definition D with a task step S1.
+  - description: SwiftRoute has an active installation of pack P (note its installed version as V) that contains the process definition D with a task step S1. Pack P was installed through the install route, so its artefact bases were recorded. D_ID is the id of the definition that installation created for D (not the process key); every step input uses D_ID as the artefact id.
     check: system_seeded
-    detail: Setup-prepared from the pack scenario 1 of this group. If the company has no active installation of a pack with a process definition, the scenario is BLOCKED.
+    detail: Setup-prepared as the install preconditions of solution-pack-version-2-update-refusals (an active SwiftRoute installation of one process pack). If the company has no such installation, or the installation recorded no artefact base for D_ID, the scenario is BLOCKED.
   - description: SwiftRoute has no active adjustment (override) of D at the start, and no adjustment of any pack contains the words "Zq987654" in a label.
     check: system_seeded
     detail: If one exists, retire it first (step 7 shows how) and say so in the report.
@@ -55,7 +57,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.label": "Zq987654 check the order"
         "nodes.S1.attributes.escalation_role": "role-ceo"
@@ -70,7 +72,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.label": "Zq987654 second"
       reason: "UAT: second"
@@ -159,19 +161,22 @@ steps:
   - step: 11
     actor: tenant_admin
     action: >
-      The administrator tries to change ID1 with a PATCH request on its address, with the body {"reason":"UAT: patch"}. The answer is noted as M1.
+      The administrator sends a PATCH request, with the body {"reason":"UAT: patch"}, to each of the three paths of the override routes: /solution-packs/P/overrides, /solution-packs/P/overrides/ID1/versions
+      and /solution-packs/P/overrides/ID1/retire (P is the pack name). The three answers are noted as M1a, M1b and M1c.
     expect_refusal: true
     via: api
   - step: 12
     actor: tenant_admin
     action: >
-      The administrator tries to replace ID1 with a PUT request on its address, with the body {"reason":"UAT: put"}. The answer is noted as M2.
+      The administrator sends a PUT request, with the body {"reason":"UAT: put"}, to the same three paths (/solution-packs/P/overrides, /solution-packs/P/overrides/ID1/versions,
+      /solution-packs/P/overrides/ID1/retire). The three answers are noted as M2a, M2b and M2c.
     expect_refusal: true
     via: api
   - step: 13
     actor: tenant_admin
     action: >
-      The administrator tries to delete ID1 with a DELETE request on its address. The answer is noted as M3.
+      The administrator sends a DELETE request to the same three paths (/solution-packs/P/overrides, /solution-packs/P/overrides/ID1/versions, /solution-packs/P/overrides/ID1/retire).
+      The three answers are noted as M3a, M3b and M3c.
     expect_refusal: true
     via: api
   - step: 14
@@ -186,7 +191,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.label": "Zq987654 restart"
       reason: "UAT: restart"
@@ -255,9 +260,9 @@ expected_outcomes:
     verification:
       method: http_status
       detail: >
-        M1, M2 and M3 are all the router's unmatched reply: the same status, content-type header and body (without trace_id) in all three, and none of them is 200, 201 or 204. LIST3 equals LIST2
-        (ID1 still version 4, status retired, empty patch).
-      evidence: M1, M2, M3 and LIST3.
+        All nine answers (M1a to M1c, M2a to M2c, M3a to M3c) are the router's unmatched reply: 404 with the same body as for any unknown resource, without a trace_id member, identical in all nine,
+        and none of them is 200, 201 or 204. LIST3 equals LIST2 (ID1 still version 4, status retired, empty patch).
+      evidence: M1a to M3c and LIST3.
     on_fail:
       severity: BLOCKER
       business_impact: The audit history of local adjustments could be rewritten or erased.

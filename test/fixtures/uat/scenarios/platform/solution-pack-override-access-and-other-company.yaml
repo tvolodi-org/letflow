@@ -9,6 +9,7 @@
 # Limit, written here so it survives the merge (see also the sidecar test/fixtures/uat/scenario-env-limitations/platform-solution-pack-override-access-and-other-company.yaml): the roster has no company other than SwiftRoute
 # with a process designer, and Bilimbaga has not installed pack P, so for Bilimbaga the pack check answers not-found before the override is looked up. The case "another company's override number under that company's OWN installed pack" is covered by the backend test C-manage only.
 # NOT UAT-OBSERVABLE: "no new database call is without a company prefix" (source-scanning test); "the tenant-auditor refused-set literal, the number-word tables and the permission golden file" (code and files); the audit-trail check of refused requests (database, as scenario 64 EO-007).
+# NOT UAT-OBSERVABLE (criteria 8 and 9): criterion 8 (pins re-derived: route table, route_scope snapshot, tenant table list, migration version) and criterion 9 (SECURITY-REVIEWER and REVIEWER verdicts, static checks, PR statement about existing QA tenants) are build and review gates of the implementing change, not actions of a user.
 # The platform operator (actor-platform-admin) is on routes that take the company from the sign-in: it gets its own company's data, so step 15 is a no-data-leak check, not a refusal.
 ---
 id: platform-solution-pack-override-access-and-other-company
@@ -35,7 +36,7 @@ actors:
 preconditions:
   - description: SwiftRoute has an active installation of pack P that contains the process definition D with a task step S1, and no active adjustment of D.
     check: system_seeded
-    detail: Setup-prepared as for scenario 64. If an adjustment exists, retire it first and say so in the report.
+    detail: Setup-prepared as for scenario 64 (pack P installed through the install route; D_ID is the id of the definition that installation created for D, used as the artefact id in every step input; BLOCKED if no artefact base was recorded for it). If an adjustment exists, retire it first and say so in the report.
   - description: Bilimbaga and the platform company have not installed pack P, and neither has an adjustment of any pack named P.
     check: system_seeded
     detail: If either has installed it, say so; steps 9 to 14 are then judged BLOCKED, since the answer would no longer be not-found for the pack.
@@ -52,7 +53,7 @@ steps:
     via: api
     input:
       artefact_type: process_definition
-      artefact_id: D
+      artefact_id: D_ID
       patch:
         "nodes.S1.label": "Zq987654 access probe"
       reason: "UAT: access"
