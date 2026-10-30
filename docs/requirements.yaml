@@ -45143,7 +45143,7 @@ requirements:
       - "5. REQ-596 states the reply fields of each route in its design, which is not on main yet; the wire types of this screen follow that design."
       - "4. REQ-617 open question 2 (merged resolution of an override_conflict) is open; this entry offers keep_local and take_incoming only."
   - id: REQ-633
-    title: "Record E slice E-5: dry-run of the bound pre-write script against a draft record (POST /entity-type-hooks/:entity_type/dry-run, reads tenant data, writes no record, one audit row)"
+    title: "Record E slice E-5: dry-run of the bound pre-write script against a draft record (reads tenant data, writes no record, one audit row)"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
