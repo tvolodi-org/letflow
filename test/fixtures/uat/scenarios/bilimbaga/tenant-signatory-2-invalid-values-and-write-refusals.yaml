@@ -1,0 +1,196 @@
+# Authored by BA-BILIMBAGA for the tenant signatory settings (BilimBaga study T4c gap 4, GH #3355).
+# Requirement: REQ-595 criterion 3 (refused values) and criterion 4 (invalid value answers 422 and
+# stores nothing); the permission that gates the save is in docs/roles.md (TenantSettingsManage:
+# held by TENANT_ADMIN and PLATFORM_ADMIN only).
+# Refusal inputs are checked against validate_signatory_value in lib/letflow/identity/tenant.ex: a
+# non-empty string after trimming, at most 100 characters, no code point below 0x20 and not 0x7F.
+# A 100-character value is the accepted boundary and sits in its own step (step 9), not in a refusal step.
+# Roster note: the actor with a role that may not write tenant settings is actor-bilimbaga-candidate
+# (CANDIDATE: TenantSettingsManage "no"). No other bilimbaga actor is in the roster.
+---
+id: bilimbaga-tenant-signatory-2-invalid-values-and-write-refusals
+scope: bilimbaga
+title: Invalid signatory values and a save by a candidate are refused and nothing is stored
+version: "1.0"
+tags: [tenant-settings, signatory, refusal, access]
+
+description: >
+  The signatory name and title are texts that will be printed on certificates
+  and shown to anyone who verifies one, so the platform refuses a value that
+  would print badly: an empty text, a text of only spaces, a text longer than
+  100 characters (101 characters), a text with a line break or a tab, and a
+  number instead of a text. Each refusal tells the administrator in plain
+  words which setting is wrong ("signatory_name must be a non-empty string of
+  at most 100 characters without control characters", and the same with
+  signatory_title), and nothing is stored: the settings read back through the
+  administrator's configuration export are the ones from before. A text of
+  exactly 100 characters is accepted.
+  A candidate holds no right to change organisation settings; the candidate's
+  attempt, and an attempt with no sign-in at all, are refused and store
+  nothing.
+  Sensitive actions: changing organisation settings (admin write, refused for
+  the candidate in steps 10 and 11). Approve, pay and see-sensitive-data do not
+  occur in this flow.
+  Source: REQ-595 criteria 3 and 4; docs/roles.md row TenantSettingsManage.
+  Precondition for the readings: the signatory name is "Aigul Nurpeisova" and
+  the title is "Director of Certification" (set at the end of step 1 here, so
+  the scenario does not depend on another one).
+
+actors:
+  admin: actor-bilimbaga-admin
+  candidate: actor-bilimbaga-candidate
+  visitor: actor-any
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+
+steps:
+  - step: 1
+    actor: admin
+    action: Saves the organisation settings with the signatory name "Aigul Nurpeisova" and the signatory title "Director of Certification", then exports the organisation configuration and keeps the stored settings as baseline
+    via: api
+    produces:
+      baseline: "the stored organisation settings read from the export"
+
+  - step: 2
+    actor: admin
+    action: Saves the organisation settings with the signatory name set to the empty text ""
+    via: api
+    expect_refusal: true
+
+  - step: 3
+    actor: admin
+    action: Saves the organisation settings with the signatory title set to a text of three spaces
+    via: api
+    expect_refusal: true
+
+  - step: 4
+    actor: admin
+    action: Saves the organisation settings with the signatory name set to a text of 101 characters, the letter A repeated 101 times
+    via: api
+    expect_refusal: true
+
+  - step: 5
+    actor: admin
+    action: Saves the organisation settings with the signatory title set to the text "Director" followed by a line break and the text "of Certification"
+    via: api
+    expect_refusal: true
+
+  - step: 6
+    actor: admin
+    action: Saves the organisation settings with the signatory name set to the text "Aigul" followed by a tab character and the text "Nurpeisova"
+    via: api
+    expect_refusal: true
+
+  - step: 7
+    actor: admin
+    action: Saves the organisation settings with the signatory name set to the number 42 (not a text)
+    via: api
+    expect_refusal: true
+
+  - step: 8
+    actor: admin
+    action: Exports the organisation configuration and compares the stored organisation settings with baseline
+    via: api
+
+  - step: 9
+    actor: admin
+    action: Saves the organisation settings with the signatory name set to a text of exactly 100 characters, the letter A repeated 100 times, then saves the signatory name again as "Aigul Nurpeisova"
+    via: api
+
+  - step: 10
+    actor: candidate
+    action: Saves the organisation settings with the signatory name "Candidate Name"
+    via: api
+    expect_refusal: true
+
+  - step: 11
+    actor: visitor
+    action: Saves the organisation settings with the signatory name "Visitor Name", without signing in
+    via: api
+    expect_refusal: true
+
+  - step: 12
+    actor: admin
+    action: Exports the organisation configuration and reads the stored signatory name and title
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Each of the steps 2 to 7 is refused as an invalid value (the request is
+      understood but the value is not allowed), and the answer's message names
+      the setting, signatory_name for steps 2, 4, 6 and 7 and signatory_title
+      for steps 3 and 5
+    verification:
+      method: http_status
+      detail: "Each of steps 2-7 answers 422 with an error message containing 'signatory_name must be a non-empty string of at most 100 characters without control characters' (steps 2, 4, 6, 7) or the same text with signatory_title (steps 3, 5)"
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A signatory such as a blank line, a number or a text with a line break
+        could be printed on every certificate of the organisation.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      After the six refused saves nothing has changed: the stored name and
+      title equal the baseline from step 1
+    verification:
+      method: api_response
+      detail: "Step 8 export: signatory_name 'Aigul Nurpeisova', signatory_title 'Director of Certification', equal to baseline in every setting"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A refused request that still stores a value, or wipes the stored one,
+        corrupts what is printed on certificates.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: >
+      A signatory name of exactly 100 characters is accepted and then replaced
+      by "Aigul Nurpeisova"
+    verification:
+      method: http_status
+      detail: "Both saves of step 9 answer 200; the first answer's settings.signatory_name has 100 characters; the second answer's settings.signatory_name is 'Aigul Nurpeisova'"
+    on_fail:
+      severity: MINOR
+      business_impact: >
+        The limit is stricter than agreed, so a long but legitimate name cannot
+        be stored.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-004
+    description: >
+      The candidate's save and the save without sign-in are each refused: the
+      candidate has no right to change organisation settings, and the
+      anonymous caller is not signed in
+    verification:
+      method: http_status
+      detail: "Step 10 answers 403; step 11 answers 401"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A candidate or an unknown caller could rename the person who signs
+        every certificate of the organisation.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-005
+    description: >
+      After the two refused access attempts the signatory name is still
+      "Aigul Nurpeisova" and the title "Director of Certification"
+    verification:
+      method: api_response
+      detail: "Step 12 export: signatory_name 'Aigul Nurpeisova', signatory_title 'Director of Certification'; neither 'Candidate Name' nor 'Visitor Name' appears"
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A refused change that was stored anyway makes the refusal worthless.
+      suggested_action: route_to_backend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    The administrator saves the signatory name and the signatory title as null
+    to leave the organisation without a signatory (null reads as not set).
