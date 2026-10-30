@@ -88,7 +88,7 @@ defmodule Letflow.Routers.SolutionPacksUpdateOverridesTest do
     :ok
   end
 
-  defp call(method, path, token, fx, body \\ nil) do
+  defp call(method, path, token, fx, body) do
     method |> Fixture.api_conn(path, token, fx.tenant.slug, body) |> Fixture.dispatch_api()
   end
 
