@@ -180,7 +180,7 @@ defmodule Letflow.Supervisor.Pollers do
 
   # REQ-615 (GH #3434): the record-trigger outbox worker, a third poller beside the HTTP and script
   # ones. Its own key, :start_record_trigger_worker (false in config/test.exs: the same
-  # OwnershipError hazard). While :record_triggers_enabled is false a tick reads nothing.
+  # OwnershipError hazard). While the record-trigger feature flag is off a tick reads nothing.
   defp record_trigger_worker_children do
     if Application.get_env(:letflow, :start_record_trigger_worker, true) do
       [{Letflow.RecordTriggers.Worker, []}]

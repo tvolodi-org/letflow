@@ -8,7 +8,7 @@ defmodule Letflow.RecordTriggers.Worker do
 
   Child of `Letflow.Supervisor.Pollers`, gated by `:start_record_trigger_worker` (false in
   `config/test.exs`, the same OwnershipError hazard as the other pollers). It does nothing while
-  `:record_triggers_enabled` is false: no tenant is listed and no outbox table is read.
+  the record-trigger feature flag is off: no tenant is listed and no outbox table is read.
 
   **Claim.** One transaction: an unlocked candidate read (`pending`, due, and no lower-`source_seq`
   row of the same record that is still `pending` or `running`), then the first candidate still
@@ -17,7 +17,7 @@ defmodule Letflow.RecordTriggers.Worker do
 
   **Run.** The only run is `mark_done_stub/2`, the single function the script-running slice (T-4)
   replaces. Sweep of expired leases, retry cap and backoff are part B (REQ-615 criteria 6-9): a row
-  left `running` after a crash stays so until then, and `:record_triggers_enabled` stays off by
+  left `running` after a crash stays so until then, and the record-trigger feature flag stays off by
   default until B lands.
 
   The tenant comes only from the schema list passed in (`Registration`), never from a row column.
@@ -115,7 +115,7 @@ defmodule Letflow.RecordTriggers.Worker do
   One tick over `schemas`, starting at `offset rem length(schemas)`: passes serving each tenant at
   most one row per pass (and at most `max_claims_per_cycle` rows per tenant per tick), stopping once
   `tick_budget_ms` has elapsed (checked before each claim). Returns the summary and `offset + 1`.
-  With `:record_triggers_enabled` false it returns at once and reads nothing. Never raises.
+  With the record-trigger feature flag off it returns at once and reads nothing. Never raises.
   """
   @spec run_tick([String.t()], non_neg_integer()) :: {tick_summary(), non_neg_integer()}
   def run_tick(schemas, offset) when is_list(schemas) and is_integer(offset) and offset >= 0 do
