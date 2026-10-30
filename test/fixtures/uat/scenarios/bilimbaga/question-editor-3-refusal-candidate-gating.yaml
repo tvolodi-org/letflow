@@ -3,13 +3,13 @@
 # steps for a person without that permission. Roster note: the candidate is the only bilimbaga actor without the
 # permission (actors.yaml). The roles process designer and tenant auditor also lack it but have no bilimbaga roster
 # actor, so they are not exercised.
-# Not UAT-observable: the pages for a tenant without the exam module (roster has none; component test).
+# Criterion 1 module guard: actor-swiftroute-alice (TENANT_ADMIN, SwiftRoute has no exam module) gets the not-found page on the three routes (steps 11 to 14).
 # Not asserted: whether a candidate who opens the bank by address sees an error or an empty list; only that no
 # question text, answer-key data or authoring action is shown (a candidate is refused the question records).
 ---
 id: bilimbaga-question-editor-3-refusal-candidate-gating
 scope: bilimbaga
-title: A candidate gets no question-bank entry or authoring action, and the server refuses the candidate's attempts to write questions and answer options
+title: A candidate gets no authoring action and the server refuses writes; a tenant without the exam module gets not-found on the question pages
 version: "1.0"
 tags: [refusal, access_control, question_bank, question_editor]
 
@@ -24,10 +24,14 @@ description: >
 actors:
   admin: actor-bilimbaga-admin
   candidate: actor-bilimbaga-candidate
+  other_admin: actor-swiftroute-alice
 
 preconditions:
   - description: A bilimbaga tenant exists with the exam solution pack installed
     check: process_definition_active
+  - description: SwiftRoute does not have the exam module installed
+    check: system_seeded
+    detail: Per the QA environment notes no other QA company has the exam module (as in exam-grading-5). If SwiftRoute has it, this scenario is BLOCKED for steps 11 to 14.
   - description: The candidate does not hold the exam content writing permission
     check: custom
 
@@ -55,9 +59,8 @@ steps:
 
   - step: 4
     actor: candidate
-    action: Tries to open the new-question page by its address
+    action: Opens the new-question page by its address and looks for any way to save a question
     via: gui
-    expect_refusal: true
 
   - step: 5
     actor: candidate
@@ -94,20 +97,74 @@ steps:
     action: Opens the edit page of the question from step 1 and compares it with step 1
     via: gui
 
+  - step: 11
+    actor: other_admin
+    action: Looks at the side menu for a question-bank entry
+    via: gui
+    expect_refusal: true
+
+  - step: 12
+    actor: other_admin
+    action: Tries to open the question bank by its address
+    via: gui
+    expect_refusal: true
+
+  - step: 13
+    actor: other_admin
+    action: Tries to open the new-question page by its address
+    via: gui
+    expect_refusal: true
+
+  - step: 14
+    actor: other_admin
+    action: Tries to open the edit page of the question from step 1 by its address
+    via: gui
+    expect_refusal: true
+
 expected_outcomes:
   - id: EO-001
     description: >
-      The candidate is offered no question-bank entry, and the three pages show none of the actions New Question,
-      Edit or Save Draft, no question text and no marking of correct options
+      The candidate is offered no question-bank entry, and the bank and edit pages show none of the actions New
+      Question, Edit or Save Draft, no question text and no marking of correct options
     verification:
       method: gui_screen
       detail: >
-        Step 2 shows no 'Question Bank' menu entry; steps 3, 4 and 5 show no 'New Question' button, no 'Edit'
-        button, no 'Save Draft' button, no text 'UAT Q612 gate' and no 'Correct answer' control
+        Step 2 shows no 'Question Bank' menu entry; steps 3 and 5 show no 'New Question' button, no 'Edit' button,
+        no 'Save Draft' button, no text 'UAT Q612 gate' and no 'Correct answer' control
     on_fail:
       severity: MAJOR
       business_impact: >
         Controls or answer keys shown to a candidate disclose how exams are built and invite cheating.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-004
+    description: >
+      The new-question page opens read-only for the candidate: authoring is refused, nothing can be saved
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 shows the text 'You may not edit questions.', no 'Save Draft' button, and every field disabled. The
+        default option rows with their 'Correct answer' choices may be shown, but they are disabled and empty
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        A candidate who can fill in and save the editor could author questions.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-005
+    description: >
+      For a company without the exam module the three question pages do not exist: not-found, no menu entry, and no
+      question text of Bilimbaga
+    verification:
+      method: gui_screen
+      detail: >
+        Step 11 shows no 'Question Bank' menu entry; steps 12, 13 and 14 each show the not-found page and no text
+        'UAT Q612 gate'
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        Pages of a module the company does not have, or another company's questions, shown to it break the module
+        boundary and tenant isolation.
       suggested_action: route_to_frontend_dev
 
   - id: EO-002

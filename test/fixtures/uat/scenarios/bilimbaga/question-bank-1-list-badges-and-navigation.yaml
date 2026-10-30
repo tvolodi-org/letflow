@@ -2,10 +2,8 @@
 # Covers REQ-612 criterion 1 (the page is inside the exam module and its actions show for the writer),
 # criterion 2 (bank list, difficulty badges, soft-deleted questions left out) and criterion 4 (New Question
 # and Edit navigation targets).
-# Not UAT-observable (left to the component tests, listed in the task summary): the routes sitting behind the module guard
-# for a tenant WITHOUT the exam module (the roster has no bilimbaga-like tenant without the module); the
-# distinct visual style of each badge (only the text is checked here); the messages files (criterion 8) and the
-# diff scope (criterion 10).
+# Not UAT-observable (left to the component tests): the distinct visual style of each badge (only the text is checked here); the messages files (criterion 8) and the
+# diff scope (criterion 10). The module-guard check for a tenant without the exam module is in question-editor-3 (steps 11 to 14).
 ---
 id: bilimbaga-question-bank-1-list-badges-and-navigation
 scope: bilimbaga
