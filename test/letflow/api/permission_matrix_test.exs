@@ -151,7 +151,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
                "exam" => Letflow.Modules.Exam.manifest().version,
                "org" => Letflow.Modules.Org.manifest().version,
                "catalog_items" => Letflow.Modules.CatalogItems.manifest().version,
-               "procurement" => Letflow.Modules.Procurement.manifest().version
+               "procurement" => Letflow.Modules.Procurement.manifest().version,
+               "locations" => Letflow.Modules.Locations.manifest().version
              }
 
       for role <- golden.roles do
@@ -957,7 +958,7 @@ defmodule Letflow.Api.PermissionMatrixTest do
   end
 
   describe "T28 F1: the real config files" do
-    test "the source scan passes and the :prod config list is [Exam, Org, CatalogItems, Procurement]" do
+    test "the source scan passes and the :prod config list is [Exam, Org, CatalogItems, Procurement, Locations]" do
       sources =
         "config/*.exs" |> Path.wildcard() |> Enum.sort() |> Enum.map(&{&1, File.read!(&1)})
 
@@ -970,7 +971,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
                Letflow.Modules.Exam,
                Letflow.Modules.Org,
                Letflow.Modules.CatalogItems,
-               Letflow.Modules.Procurement
+               Letflow.Modules.Procurement,
+               Letflow.Modules.Locations
              ]
 
       # The :dev read is done by the CI step itself: config/dev.exs raises when
@@ -979,7 +981,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
         Letflow.Modules.Exam,
         Letflow.Modules.Org,
         Letflow.Modules.CatalogItems,
-        Letflow.Modules.Procurement
+        Letflow.Modules.Procurement,
+        Letflow.Modules.Locations
       ]
 
       assert PermissionMatrix.check_module_list(

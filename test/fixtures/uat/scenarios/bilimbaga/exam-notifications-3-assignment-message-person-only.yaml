@@ -1,0 +1,98 @@
+# Authored by BA-BILIMBAGA for T-0993 (REQ-597 criterion 5, the exam_assigned message).
+# Sources: docs/requirements.yaml REQ-597 description (Triggers 1 and its stated WIRING GAP) and criterion 5; REQ-582 (assignment
+# kinds all, group, department, person; active flag); lib/letflow/modules/exam/authoring.ex (create_assignment is a system path
+# for the seed task, "no route writes it yet"); lib/letflow/modules/exam/notifications.ex (assigned/2 is called by no product code).
+# FINDING: the task text speaks of "assignment routes", but none exists on main, and nothing calls the assignment notice. So no UAT
+# actor can create the assignments of this scenario and no assignment produces a message. The scenario is written for the day an
+# assignment route calls the notice; today it is BLOCKED. See the sidecar in
+# test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-notifications-3-assignment-message-person-only.yaml.
+# Needs the exam notifications switch ON (platform configuration). The deadline text in the message is not UAT-observable (the log
+# does not hold it, by design).
+---
+id: bilimbaga-exam-notifications-3-assignment-message-person-only
+scope: bilimbaga
+title: Assigning an exam to one named person starts one assignment message for that person, and an assignment to everyone, a group, a department, or one that is withdrawn starts none
+version: "1.0"
+tags: [notifications, access_control]
+
+description: >
+  With the platform switch on, assigning an exam to a named candidate who has an email address starts one "you have been assigned an
+  exam" message to that person, and the delivery log row names the assignment. Assigning an exam to all candidates, to a group or to
+  a department starts no message (a group is not expanded into people in this release), and neither does an assignment that is
+  already withdrawn when it is written. The assignments are written by the environment, because no screen or route lets a UAT
+  actor assign an exam yet.
+
+actors:
+  tenant_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed and the exam notifications switch is ON for this run
+    check: process_definition_active
+  - description: >
+      The environment writes five assignments, one after the other, each by the path that sends the assignment message: (a) one
+      active assignment of an exam to the candidate named in the roster, with a deadline; (b) one active assignment to all
+      candidates; (c) one active assignment to a group; (d) one active assignment to a department; (e) one assignment to the same
+      candidate that is already withdrawn. The environment records the identifier of each assignment. The environment cannot do this
+      today, so the run is BLOCKED, not PASS
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: The administrator reads the company's delivery log and notes the rows that exist for assignment messages (the baseline)
+    via: api
+
+  - step: 2
+    actor: tenant_admin
+    action: After the environment has written assignments (a) to (e), the administrator reads the delivery log with no filter and picks the rows for assignment messages
+    via: api
+
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator searches the rows of step 2 for the identifiers of assignments (b), (c), (d) and (e); each must be absent.
+      The administrator also checks that the row for assignment (a) appears only once
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The assignment to a named person started one message
+    verification:
+      method: api_response
+      detail: >
+        In step 2 there is exactly one new row (compared with step 1) with template key exam_assigned, trigger reference equal to the
+        identifier of assignment (a) and recipient equal to the user identifier of the named candidate; its status is sent or
+        skipped (adapter_noop), not failed
+      evidence: The baseline of step 1 and the list of step 2
+    on_fail:
+      severity: MAJOR
+      business_impact: A candidate assigned an exam is not told, and misses the deadline.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: Assignments to everyone, to a group, to a department and a withdrawn one started no message
+    verification:
+      method: api_response
+      detail: >
+        In step 3 no row of the list has a trigger reference equal to the identifier of assignment (b), (c), (d) or (e), and the
+        number of new rows in step 2 is exactly one
+      evidence: The list of step 2 and the searches of step 3
+    on_fail:
+      severity: MAJOR
+      business_impact: Candidates would be mailed for assignments that are not theirs, or for ones already withdrawn.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: The row holds identifiers only
+    verification:
+      method: api_response
+      detail: The row of assignment (a) holds no email, name, exam title or deadline text
+      evidence: The row of step 2
+    on_fail:
+      severity: BLOCKER
+      business_impact: The log would hold candidates' personal data and deadlines in plain view of administrators.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: The environment withdraws the assignments it wrote
