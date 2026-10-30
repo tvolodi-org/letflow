@@ -1,0 +1,161 @@
+# T-0990 (BA): DEFINITIONS group, scenario 7: who may try out the record script, and which bad requests are refused without running anything or leaving an audit row.
+# Covers REQ-633 criterion 2 (a caller without the script-writing permission gets the same 403 as the bindings list gives; the administrator gets 200), criterion 10 (a body that is not an object, a candidate that is not an
+# object and an extra top-level key each answer 422 invalid_input, with no run and no audit row, for a bound, an unbound and an absent type), criterion 9 (a call refused with 403 or 422 writes no audit row),
+# criterion 5 last clause (a body field naming a tenant is refused as 422).
+# Sources: docs/requirements.yaml REQ-633 criteria 2, 5, 9, 10 (read from origin/main); lib/letflow/routers/entity_type_hooks.ex (candidate/1: body exactly one key "candidate" holding an object, else 422 invalid_input before any lookup;
+# bindings list is GET / with :EntityTypeHooksList / :ScriptsWrite, dry-run is :EntityTypeHooksDryRun / :ScriptsWrite); docs/roles.md (ScriptsWrite: PLATFORM_ADMIN, PROCESS_DESIGNER, TENANT_ADMIN yes; TASK_WORKER, PROCESS_OPERATOR, TENANT_AUDITOR no; AuditRead: tenant administrator yes);
+# lib/letflow/routers/audit.ex; test/fixtures/uat/actors.yaml (actor-swiftroute-alice TENANT_ADMIN, actor-swiftroute-auditor TENANT_AUDITOR, actor-swiftroute-lena TASK_WORKER and PROCESS_OPERATOR).
+# Not observable through the API of a running QA, so not checked here: criterion 2 third clause (a call by an API token answers 403 api_token_not_allowed) because the roster has no API-token actor and a test token is an interactive sign-in;
+#   criterion 2 last clause (the auditor route inventory test) and criterion 10 last sentence (a non-string key in the draft, which cannot be sent as JSON); the 403 for the missing permission is compared with the 403 of the bindings list.
+# Each refusal step holds exactly one request. The boundary case that is accepted (the administrator's good call) is in its own step. The sensitive action "change users" is not in this flow; "see sensitive data" is in definitions-8.
+---
+id: definitions-7-record-script-dry-run-access-and-validation
+scope: definitions
+title: Only holders of the script-writing permission may try out the record script, and bad requests are refused before anything runs
+version: "1.0"
+tags: [definitions, scripts, entity-write, dry-run, access, validation, audit, refusal]
+
+description: >
+  SwiftRoute has the record type dry_quote with a bound record script, the record type dry_unbound that has no script bound, and no type called dry_absent_type. The read-only auditor and a dispatcher
+  (task worker and process operator) try to try out the script and are refused with the same 403 that the list of bindings gives them. The administrator is refused with 422 for a request body that is
+  not an object, for a draft that is not an object, and for an extra key next to the draft, each time for the bound type, and for the unbound and the absent type. A body that names a tenant is refused the same way.
+  The administrator's correct call on the bound type is accepted. At the end the audit list holds exactly one try-out row from this whole scenario, the one of the accepted call.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  auditor_a: actor-swiftroute-auditor
+  dispatcher_a: actor-swiftroute-lena
+
+preconditions:
+  - description: SwiftRoute has the record type dry_quote with a published record script bound to it, and the record type dry_unbound with no binding. SwiftRoute has no record type dry_absent_type.
+    check: system_seeded
+    detail: Setup-prepared (see definitions-6 for the master data of dry_quote). If dry_quote has no binding, report BLOCKED for the whole scenario.
+  - description: The auditor and the dispatcher of SwiftRoute can sign in with approved test tokens (interactive sign-ins).
+    check: system_seeded
+    detail: See the roster notes of actor-swiftroute-auditor and actor-swiftroute-lena. If one cannot sign in, report BLOCKED for the steps of that actor and PASS the rest.
+  - description: The accepted draft DRAFT-OK for dry_quote is {region R-NORTH plus the other fields dry_quote requires}. R-NORTH has a rate_card record (as in definitions-6).
+    check: system_seeded
+    detail: Setup-prepared.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the audit list filtered to the type names dry_quote, dry_unbound and dry_absent_type and notes the number of rows with the action "entity_write_hook.dry_run" for each (BEFORE-A, BEFORE-U, BEFORE-X).
+    via: api
+  - step: 2
+    actor: auditor_a
+    action: >
+      The auditor asks for the list of record-script bindings. The answer (status and full body) is noted as L1.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor_a
+    action: >
+      The auditor tries to try out the script bound to dry_quote on DRAFT-OK. The answer (status and full body) is noted as D1.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: dispatcher_a
+    action: >
+      The dispatcher tries to try out the script bound to dry_quote on DRAFT-OK. The answer is noted as D2.
+    expect_refusal: true
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to try out the script bound to dry_quote with a request whose body is a list of two values instead of an object.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to try out the script bound to dry_quote with a body whose draft is the text "R-NORTH" instead of an object.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to try out the script bound to dry_quote with a body that holds DRAFT-OK and, next to it, a second key "script_version" with the value 1.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to try out the script bound to dry_quote with a body that holds DRAFT-OK and, next to it, a key "tenant_id" naming another company (Bilimbaga).
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to try out the unbound type dry_unbound with a body whose draft is the text "R-NORTH".
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to try out the absent type dry_absent_type with a body whose draft is the text "R-NORTH".
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to try out the unbound type dry_unbound with a body that holds DRAFT-OK and an extra key "script_version" with the value 1.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to try out the script bound to dry_quote on DRAFT-OK (the correct request: the body holds the draft and nothing else). The answer is noted as R1.
+    via: api
+  - step: 13
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the audit list filtered to dry_quote, dry_unbound and dry_absent_type again and notes the rows with the action "entity_write_hook.dry_run".
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A caller without the script-writing permission is refused the try-out with the same 403 that the list of bindings gives.
+    verification:
+      method: http_status
+      detail: Step 2 answers 403 (L1). Step 3 answers 403 (D1) and step 4 answers 403 (D2). D1 and D2 have the same status and the same body as L1. No derived value and no outcome is in any of them.
+      evidence: L1, D1 and D2 as received.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A read-only auditor or a task worker could run company scripts on company data.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A body that is not an object, a draft that is not an object and an extra key are each refused with 422 invalid_input, before the type is looked up.
+    verification:
+      method: http_status
+      detail: Steps 5, 6, 7 and 8 answer 422 with the reason "invalid_input". Steps 9 and 10 answer 422 with the reason "invalid_input" (not 404), for the unbound and for the absent type. Step 11 answers 422 with the reason "invalid_input" (not 404). The body of the step 8 refusal (a tenant name in the body) is the same as that of step 7, so the named tenant has no effect.
+      evidence: The answers of steps 5 to 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: Bad requests are run, or the answer tells whether a type exists before the request is checked.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The administrator's correct request is accepted.
+    verification:
+      method: http_status
+      detail: Step 12 answers 200 and the body has the outcome "ok" (R1).
+      evidence: R1 as received.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot try out a record script at all.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: A refused request leaves no audit row; only the accepted request leaves one.
+    verification:
+      method: api_response
+      detail: In step 13 the number of try-out rows for dry_quote is BEFORE-A plus 1 (the row of step 12, with the SwiftRoute administrator as actor), for dry_unbound it is BEFORE-U and for dry_absent_type it is BEFORE-X. No row has the auditor or the dispatcher as actor.
+      evidence: The audit list of step 13 against step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The audit trail holds entries for requests that were never run, or lacks the one that was.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing was created except the audit row of step 12, which is never deleted.

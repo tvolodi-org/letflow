@@ -1,0 +1,150 @@
+# T-0990 (BA): DEFINITIONS group, scenario 8: the try-out of a record script reads only the caller's own company data, and another company's record type is the same not-found as a type that does not exist.
+# Covers REQ-633 criterion 5 (each company's try-out returns its own master-record value; a tenant named in the query is ignored; a tenant named in the body is refused 422) and criterion 6 (INV-5 and INV-10: a type that exists and is bound
+# only in the other company, a type that exists nowhere and an existing but unbound type of the caller's own company answer a byte-identical plain 404; none writes an audit row in either company; a malformed body sent for another company's type answers 422, not 404).
+# Sources: docs/requirements.yaml REQ-633 criteria 5, 6 (read from origin/main); docs/agents/instructions/security-invariants.md (INV-1, INV-5, INV-10); lib/letflow/entity_type_hooks.ex (dry_run: the binding is looked up in the caller's prefix only; no binding gives {:error, :not_found});
+# lib/letflow/routers/entity_type_hooks.ex (dry_run_reply: not_found answers Response.not_found; the path carries the record type name only); lib/letflow/api/response.ex (not_found takes no detail); test/fixtures/uat/actors.yaml
+# (actor-swiftroute-alice and actor-bilimbaga-admin are both TENANT_ADMIN, the roster note of the Bilimbaga administrator says a test token needs an approved mapping).
+# The route takes the company from the sign-in; no request value selects one. Neither administrator is a platform operator, so the platform-operator case of the route rule is not part of this scenario.
+# Not observable through the API of a running QA, so not checked here: criterion 5 first clause as an internal prefix assertion (shown here by the two different answers); criterion 6 "no audit row in either company" is checked through each company's own audit list.
+# Each refusal step holds exactly one request. The sensitive action "see sensitive data" is the other company's master data; approve, pay or release, change users are not in this flow.
+---
+id: definitions-8-record-script-dry-run-other-company
+scope: definitions
+title: The try-out of a record script uses only the caller's own company data, and another company's record type answers the same not-found as a type that does not exist
+version: "1.0"
+tags: [definitions, scripts, entity-write, dry-run, other-company, isolation, inv-5, inv-10]
+
+description: >
+  SwiftRoute and Bilimbaga both have a record type dry_quote with a bound record script, and both hold a rate_card master record for the region R-NORTH, with different rates. Each administrator tries out
+  its own script and sees only its own company's value, also when the request carries the other company's name in the address query. A request body that names a company is refused. SwiftRoute also has a record type
+  dry_swift_only with a bound script (Bilimbaga has no such type), and a record type dry_unbound with no binding. The Bilimbaga administrator tries out dry_swift_only, and a type that exists in no company, and the SwiftRoute
+  administrator tries out dry_unbound: the three answers are the same plain not-found, byte for byte, and no company gets an audit row for any of them. A badly formed request for dry_swift_only from Bilimbaga is still refused as 422, because the form
+  is checked before the type is looked up.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  tenant_admin_b: actor-bilimbaga-admin
+
+preconditions:
+  - description: SwiftRoute has dry_quote with a bound record script, dry_swift_only with a bound record script and dry_unbound with no binding. Bilimbaga has dry_quote with a bound record script (same script text, own copy), no record type dry_swift_only and no record type dry_nowhere_type.
+    check: system_seeded
+    detail: Setup-prepared (the switch of decision 0065 is ON in both companies). If Bilimbaga cannot be given dry_quote, report BLOCKED for steps 2, 4 and 5 and PASS the rest. If Bilimbaga has a type dry_swift_only, use another name that only SwiftRoute has and note that in the report.
+  - description: Both companies hold a rate_card master record for the region R-NORTH. SwiftRoute's rate is RATE-A, Bilimbaga's is RATE-B, and the two differ so that the derived values SURCHARGE-A and SURCHARGE-B differ.
+    check: system_seeded
+    detail: Setup-prepared. The draft DRAFT-OK is {region R-NORTH plus the other fields dry_quote requires}, the same in both companies.
+  - description: The administrator of Bilimbaga can sign in with an approved test token (an interactive sign-in).
+    check: system_seeded
+    detail: See the roster note of actor-bilimbaga-admin. If it cannot sign in, report BLOCKED for the whole scenario.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator reads the audit list filtered to the type names dry_quote, dry_swift_only and dry_unbound and notes the number of rows with the action "entity_write_hook.dry_run" for each (A-BEFORE). The Bilimbaga administrator does the same for Bilimbaga, for the type names dry_quote, dry_swift_only and dry_nowhere_type (B-BEFORE).
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator tries out the script bound to dry_quote on DRAFT-OK. The answer is noted as RA.
+    via: api
+  - step: 3
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries out the script bound to dry_quote on DRAFT-OK. The answer is noted as RB.
+    via: api
+  - step: 4
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries out the script bound to dry_quote on DRAFT-OK again, with the address carrying the query "tenant_id=swiftroute". The answer is noted as RB2. The request is correct; the query value is expected to be ignored.
+    via: api
+  - step: 5
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to try out the script bound to dry_quote with a body that holds DRAFT-OK and a key "tenant_id" with the value "swiftroute".
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to try out the type dry_swift_only (it exists only in SwiftRoute) on DRAFT-OK. The answer (status and full body) is noted as N1.
+    expect_refusal: true
+    via: api
+  - step: 7
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to try out the type dry_nowhere_type (it exists in no company) on DRAFT-OK. The answer (status and full body) is noted as N2.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator tries to try out the type dry_unbound (it exists in SwiftRoute and has no binding) on DRAFT-OK. The answer (status and full body) is noted as N3.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to try out the type dry_swift_only with a body whose draft is the text "R-NORTH" instead of an object.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator reads the audit list for the three type names of step 1 again. The Bilimbaga administrator reads the audit list for the three Bilimbaga type names of step 1 again.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Each company's try-out returns the value computed from its own master record.
+    verification:
+      method: api_response
+      detail: RA is 200, outcome "ok", derived surcharge SURCHARGE-A. RB is 200, outcome "ok", derived surcharge SURCHARGE-B, which differs from SURCHARGE-A. Neither answer holds a value of the other company.
+      evidence: RA and RB as received.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company's script reads or shows the data of another company.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A company named in the address query has no effect; a company named in the body is refused.
+    verification:
+      method: api_response
+      detail: Step 4 answers 200 with the outcome "ok" and the surcharge SURCHARGE-B (the same as RB, not SURCHARGE-A). Step 5 answers 422 with the reason "invalid_input".
+      evidence: RB2 and the answer of step 5.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A caller can steer the try-out into another company by a request value.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Another company's record type, a type that exists nowhere and an unbound type of the caller's own company all answer the same plain not-found.
+    verification:
+      method: api_response
+      detail: Steps 6, 7 and 8 each answer 404. N1, N2 and N3 are byte for byte the same (status, content headers that carry meaning, and body); the body does not name the record type and gives no reason beyond not found.
+      evidence: N1, N2 and N3 as received.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company could find out which record types and bound scripts other companies keep.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: A badly formed request is refused as 422 whatever the type is.
+    verification:
+      method: http_status
+      detail: Step 9 answers 422 with the reason "invalid_input", not 404, although dry_swift_only is another company's type.
+      evidence: The answer of step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: The order of the checks tells a caller whether another company's type exists.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: The not-found answers write no audit row in either company; the accepted try-outs write one each in the company that made them.
+    verification:
+      method: api_response
+      detail: In step 10 SwiftRoute's count of try-out rows is A-BEFORE plus 1 for dry_quote (step 2), and unchanged for dry_swift_only and dry_unbound. Bilimbaga's count is B-BEFORE plus 2 for dry_quote (steps 3 and 4), and unchanged for dry_swift_only and dry_nowhere_type. No Bilimbaga call appears in SwiftRoute's audit list and no SwiftRoute call in Bilimbaga's.
+      evidence: The audit lists of step 10 against step 1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Probing another company's types leaves traces in the wrong audit trail, or the audit trail shows other companies' calls.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing was created except audit rows, which are never deleted.
