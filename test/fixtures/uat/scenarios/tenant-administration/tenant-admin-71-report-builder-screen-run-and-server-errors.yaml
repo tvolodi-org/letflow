@@ -1,0 +1,183 @@
+# T-0989 (BA): TENANT ADMIN group, scenario 71: the Reports screen runs a stored report (summary table plus detail table) and shows the server's
+# refusals as an alert without keeping a partial result.
+# Covers REQ-634 criteria 6 (run) and 7 (server errors, in part) and 9 (the loading and empty parts that a person can see). Quoted from origin/main:
+# 6. "Run: a test runs a stored report and asserts one POST to the aggregate route with the stored group_by and aggregates and the stored filter under
+#    the key `filters`, one POST to the query route with the stored filter under `filters` and the stored sort (no columns key), the summary shown as a
+#    table, and the detail shown as a table limited to the stored columns. A report with no columns sends no query call and shows no detail table."
+# 7. "Server errors: for each of 400, 403, 404, 409 and 422 on a save, and for 403, 404 and 422 on either run call, a test shows an error message in an
+#    element with role alert, keeps the editor input unchanged, shows no partial summary or detail, and for 422 shows the server's reason code text mapped
+#    through the i18n catalogue (an unmapped code shows a generic message). A network failure shows the generic message and a retry control; a 404 on open
+#    shows the not-found state of the page, the same for an absent and a denied report."
+# The key `filters` and the absence of a columns key are request details a person cannot see; their visible effect is checked: the closed record D is
+# in neither table, the detail rows follow the stored sort and show only the stored columns.
+# Reachable by a person (this scenario): 409 on a save (a name already taken), 422 on a save for a grouping on a field the type does not have (reason
+# code field_not_allowed) and for a column not on the type (reason code column_not_on_type), both unmapped in the catalogue and so shown as the generic
+# message "The report is not valid. Check it and try again."; 404 on open (the report was deleted by another session while the list was on the screen);
+# the editor input kept after each refusal; no partial result after a refused save.
+# Not covered here (unit or mocked-client checks in web/src/pages/entities/__tests__/ReportBuilderPage.test.tsx): 400 and 403 on a save (the screen only
+# offers Save to a caller who holds the permission and builds a well-formed body, so a person cannot provoke them), 403/404/422 on a run call (a person
+# cannot make the server refuse a run of a report just opened without breaking the type; the 422 text "The stored report could not be run against the
+# current definition." is a vitest check), the mapped 422 reason-code texts (the screen cannot send an input that reaches them: a sort without columns,
+# a name or aggregate problem is stopped on the screen first), the network failure with its Retry control, and the 404 for a denied report (a type that
+# the caller may not read; the API cannot remove a type restriction once set, see scenario 35).
+# Sources: docs/requirements.yaml REQ-634 (criteria 6, 7, 9), REQ-619; lib/letflow/entities/views/clauses.ex (field_not_allowed, column_not_on_type,
+# invalid/1); lib/letflow/routers/entity_views.ex (render_error: name_taken 409, unprocessable 422); web/src/pages/entities/ReportBuilderPage.tsx (failure,
+# runFailure, handleRun) and web/src/i18n/entitiesMessages.ts; scenario 50 for the record type, the records and the expected numbers.
+# The four sensitive actions: "change users", "approve, pay or release" and "see sensitive data" are not in this flow; missing-permission refusals are in
+# scenario 72.
+---
+id: tenant-administration-71-report-builder-screen-run-and-server-errors
+scope: tenant-administration
+title: Running a stored report on the Reports screen shows a summary table and a detail table with the stored filter, sort and columns, and a refused save or an open of a deleted report shows an alert and no result
+version: "1.0"
+tags: [tenant-admin, saved-views, report, gui, run, summary, detail, errors, alert]
+
+description: >
+  The administrator of SwiftRoute has the record type "UAT report ticket" with the four records of scenario 50: (A, open, north, 10), (B, open, north,
+  20), (C, open, south, 5), (D, closed, north, 100), and two saved reports made through the API: "UAT open report" (filter status equals open, grouping
+  by region, aggregates count and sum of amount, columns title and amount, sort amount descending) and "UAT summary only" (no filter, no grouping, the
+  aggregate count, no columns, no sort). On the Reports screen the administrator opens "UAT open report" and presses Run: the summary table shows north
+  with count 2 and sum 30 and south with count 1 and sum 5, the detail table has the columns title and amount only and the rows B (20), A (10), C (5)
+  in this order, and the closed record D is in neither table. Opening "UAT summary only" and running it shows a summary of one row with count 4 and no
+  detail table. The administrator then tries to save a report that groups by a field the type does not have, a report with a column the type does not
+  have, and a report with the name of an existing view: each is refused, the screen shows an alert, keeps what was typed and shows no result, and
+  nothing is stored. Finally a second session (the API) deletes a report while the list is still on the screen; opening it shows "This report was not
+  found." in an alert.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator, who can sign in to the web application; the record type "UAT report ticket" is active with the four records of scenario 50; no saved view named "UAT open report", "UAT summary only", "UAT bad grouping", "UAT bad column" or "UAT vanishing report" exists
+    check: system_seeded
+    detail: If views exist from an earlier run, delete them first and note it in the report. If the record type or its records differ from the description, EO-001 and EO-002 are BLOCKED (the numbers cannot be judged). If the administrator cannot sign in to the web application the scenario is BLOCKED, not FAIL.
+  - description: The administrator holds the report-management, query and aggregate-query permissions
+    check: system_seeded
+    detail: Per the role matrix, the tenant administrator holds all three.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator makes sure the record type "UAT report ticket" and its four records exist (see scenario 50), and saves through the API the two
+      reports "UAT open report" and "UAT summary only" as described. The ids are noted.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator opens the Reports screen of "UAT report ticket", opens "UAT open report" from the list and presses "Run". The summary table and
+      the detail table are noted: headings, rows and their order.
+    via: gui
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator presses "Close", opens "UAT summary only" and presses "Run". The screen is noted.
+    via: gui
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator presses "Close" and "New report" and fills the name "UAT bad grouping", the aggregate count and the grouping "no_such_field",
+      and presses "Save report". The screen is noted. Then the administrator lists the saved views of the type through the API.
+    expect_refusal: true
+    via: gui
+    input:
+      name: UAT bad grouping
+      group_by: [no_such_field]
+  - step: 5
+    actor: tenant_admin
+    action: >
+      On the same editor the administrator clears the grouping, sets the name "UAT bad column", sets the columns to "title, no_such_column" and
+      presses "Save report". The screen is noted. Then the administrator lists the saved views of the type through the API.
+    expect_refusal: true
+    via: gui
+    input:
+      name: UAT bad column
+      columns: "title, no_such_column"
+  - step: 6
+    actor: tenant_admin
+    action: >
+      On the same editor the administrator sets the columns to "title", the name to "UAT summary only" (the name of a report that exists) and presses
+      "Save report". The screen is noted. Then the administrator lists the saved views of the type through the API.
+    expect_refusal: true
+    via: gui
+    input:
+      name: UAT summary only
+      columns: title
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator changes the name to "UAT vanishing report" and presses "Save report". The screen is noted: the report appears in the list.
+    via: gui
+    input:
+      name: UAT vanishing report
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator presses "Close" and, without reloading the page, deletes "UAT vanishing report" through the API (a second session). Then the
+      administrator clicks "UAT vanishing report" in the list that is still on the screen. The screen is noted; the list is then reloaded and noted.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: Running a report shows a summary table with the stored grouping and aggregates and a detail table limited to the stored columns in the stored order, over the records that match the stored filter.
+    verification:
+      method: gui_screen
+      detail: >
+        In step 2 the summary has a column for region and columns holding the count and the sum; it has exactly two rows, north (count 2, sum 30) and
+        south (count 1, sum 5). The detail table has exactly the columns title and amount and exactly three rows in the order B (amount 20), A (10), C (5).
+        Record D (closed) is in neither table, and no other record field is shown.
+      evidence: The tables noted in step 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A report shows numbers that differ from the records, or ignores its own filter, so decisions are made on wrong totals.
+      suggested_action: route_to_frontend
+  - id: EO-002
+    description: A report with no columns shows a summary only, with no detail table.
+    verification:
+      method: gui_screen
+      detail: In step 3 the summary has exactly one row with the count 4 (all four records, no filter) and the screen shows no "Detail" heading and no detail table.
+      evidence: The screen of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A summary-only report shows an empty or invented detail list, or fails to show its total.
+      suggested_action: route_to_frontend
+  - id: EO-003
+    description: A report refused on save for a grouping or a column that the type does not have shows an alert, keeps what was typed, shows no result and stores nothing.
+    verification:
+      method: gui_screen
+      detail: >
+        In steps 4 and 5 the screen shows one message "The report is not valid. Check it and try again." in an element announced as an alert; the
+        name, grouping, aggregates and columns typed are still in the editor; no summary or detail table is on the screen; the API list of each step
+        holds neither "UAT bad grouping" nor "UAT bad column". The message does not repeat the typed text "no_such_field" or "no_such_column".
+      evidence: The screens and the API lists of steps 4 and 5.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator is not told that the report was not saved, or loses the input, or sees a half result.
+      suggested_action: route_to_frontend
+  - id: EO-004
+    description: A report whose name is already taken is refused with its own alert and stores nothing.
+    verification:
+      method: gui_screen
+      detail: >
+        In step 6 the screen shows the message "A report with this name already exists." in an alert; the editor keeps the name "UAT summary only" and
+        the column title; the API list has exactly one view named "UAT summary only" (the original, with no columns). Step 7 then saves the same input
+        under a free name and the list shows "UAT vanishing report".
+      evidence: The screen and the API list of step 6 and the screen of step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A report could overwrite or duplicate another, or the administrator gets a silent failure.
+      suggested_action: route_to_frontend
+  - id: EO-005
+    description: Opening a report that no longer exists shows the not-found state in an alert and no stale report.
+    verification:
+      method: gui_screen
+      detail: In step 8 the click on the vanished report shows "This report was not found." in an alert and no editor with that report's content; after the list is reloaded it no longer holds "UAT vanishing report" and holds "UAT open report" and "UAT summary only".
+      evidence: The screens of step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A deleted report stays on screen, or the administrator sees an unexplained blank.
+      suggested_action: route_to_frontend
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the reports "UAT open report", "UAT summary only", "UAT bad grouping", "UAT bad column" and "UAT vanishing report" if they still exist. The record type and its records stay.
