@@ -275,6 +275,26 @@ defmodule Letflow.Api.Error do
   end
 
   @doc """
+  HTTP 409 — Module Has Open Work (REQ-627). An uninstall was refused because an active instance or a
+  pending task of the module's definitions exists. Constant `code` `"open_work_exists"` and the two counts
+  of the caller's own tenant; no ids.
+  """
+  @spec module_open_work_exists(non_neg_integer(), non_neg_integer()) :: t()
+  def module_open_work_exists(open_instances, open_tasks) do
+    %__MODULE__{
+      type: @problems_base <> "module-open-work-exists",
+      title: "Module Has Open Work",
+      status: 409,
+      detail: "running instances or open tasks of this module exist; finish or cancel them first",
+      extensions: %{
+        "code" => "open_work_exists",
+        "open_instances" => open_instances,
+        "open_tasks" => open_tasks
+      }
+    }
+  end
+
+  @doc """
   HTTP 409 — Module Upgrade Required (REQ-578). A reactivate was refused because the stored
   manifest hash is missing or differs from the compiled module. Constant `code`
   `"upgrade_required"`.
@@ -490,6 +510,37 @@ defmodule Letflow.Api.Error do
         "hook_code" => code,
         "fields" => Enum.map(fields, fn %{field: f, code: c} -> %{"field" => f, "code" => c} end)
       }
+    }
+  end
+
+  @form_hook_failed_codes [
+    :script_rejected,
+    :input_invalid,
+    :script_error,
+    :budget_exceeded,
+    :memory_limit_exceeded,
+    :timeout,
+    :output_invalid,
+    :script_busy
+  ]
+
+  @doc """
+  HTTP 503 — Service Unavailable (GH #3524, decision 0067 D8, F-4). The node's `form_validation`
+  hook could not give a verdict (one of the eight infrastructure codes); nothing was written.
+
+  The body carries the constant detail and the `code` extension, the atom's name. The constructor
+  takes only one of the eight atoms, so no source, key, version, sha256, submitted value or
+  exception text can reach the body (INV-2, INV-4, INV-8).
+  """
+  @spec form_hook_failed(atom()) :: t()
+  def form_hook_failed(code) when code in @form_hook_failed_codes do
+    %__MODULE__{
+      type: @problems_base <> "service-unavailable",
+      title: "Service Unavailable",
+      status: 503,
+      detail:
+        "the form validation could not give a verdict; resubmit later or ask an administrator",
+      extensions: %{"code" => Atom.to_string(code)}
     }
   end
 

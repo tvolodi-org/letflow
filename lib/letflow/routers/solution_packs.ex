@@ -121,6 +121,12 @@ defmodule Letflow.Routers.SolutionPacks do
   to `SolutionPack.install/3` as `:process_writable_authorized`); otherwise the
   install is refused with the generic 422 and nothing is written.
 
+  ## Overrides (REQ-596 part B)
+
+  `GET|POST /:pack_id/overrides`, `POST /:pack_id/overrides/:override_id/versions`, `/retire` and `/activate` (REQ-610: merge into a new
+  definition version, see `Letflow.Definitions.SolutionPackOverrideActivation`) expose
+  `Letflow.Definitions.SolutionPackOverrides`; see the handlers below the update routes.
+
   ## Ordering guarantee
 
   Honours the contract stated in `Letflow.Routers.Tenants`'s moduledoc section
@@ -169,6 +175,8 @@ defmodule Letflow.Routers.SolutionPacks do
   alias Letflow.Api.Validation.FieldError
   alias Letflow.Definitions
   alias Letflow.Definitions.SolutionPack
+  alias Letflow.Definitions.SolutionPackOverrideActivation, as: OverrideActivation
+  alias Letflow.Definitions.SolutionPackOverrides, as: Overrides
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.Catalog
   alias Letflow.PlatformTenant
@@ -198,14 +206,40 @@ defmodule Letflow.Routers.SolutionPacks do
   # judgment call as /export and /install above -- update-review reads and
   # classifies only (:DefinitionsRead), update-apply mutates
   # pack_update_resolutions/solution_pack_artefact_bases
-  # (:DefinitionsCreate -> :DefinitionsWrite). Flagged for REVIEWER, not
-  # silently decided (design §3.1/§4.1, OQ-1).
+  # (:DefinitionsCreate -> :DefinitionsWrite). REQ-617: when the computed plan holds an
+  # override_conflict entry, update-apply also needs :SolutionOverridesManage (checked in the
+  # handler, and again inside the transaction); decision 0069 Q4 stays open. Flagged for
+  # REVIEWER, not silently decided (design §3.1/§4.1, OQ-1).
   authz_post "/:pack_id/update-review", :DefinitionsRead do
     handle_update_review(conn, conn.params["pack_id"])
   end
 
   authz_post "/:pack_id/update-apply", :DefinitionsCreate do
     handle_update_apply(conn, conn.params["pack_id"])
+  end
+
+  # REQ-596 (GH #3353): tenant solution-pack overrides. Reads need :DefinitionsRead (the artefact
+  # readers' permission), the three writes the TENANT_ADMIN-only :SolutionOverridesManage. No
+  # PATCH/PUT/DELETE: an override is append-only, authz_unmatched answers them.
+  authz_get "/:pack_id/overrides", :DefinitionsRead do
+    handle_overrides_list(conn, conn.params["pack_id"])
+  end
+
+  authz_post "/:pack_id/overrides", :SolutionOverridesManage do
+    handle_override_create(conn, conn.params["pack_id"])
+  end
+
+  authz_post "/:pack_id/overrides/:override_id/versions", :SolutionOverridesManage do
+    handle_override_version(conn, conn.params["pack_id"], conn.params["override_id"])
+  end
+
+  authz_post "/:pack_id/overrides/:override_id/retire", :SolutionOverridesManage do
+    handle_override_retire(conn, conn.params["pack_id"], conn.params["override_id"])
+  end
+
+  # REQ-610 (GH #3419): activates the latest override version as a new definition version.
+  authz_post "/:pack_id/overrides/:override_id/activate", :SolutionOverridesManage do
+    handle_override_activate(conn, conn.params["pack_id"], conn.params["override_id"])
   end
 
   authz_unmatched(:ordinary)
@@ -308,7 +342,7 @@ defmodule Letflow.Routers.SolutionPacks do
             Keyword.put(
               conn.assigns.scoped_opts,
               :process_writable_authorized,
-              holds_entities_definitions_write?(conn)
+              holds_permission?(conn, :EntitiesDefinitionsWrite)
             )
 
           render_install(conn, SolutionPack.install(document, actor_id, opts))
@@ -326,13 +360,13 @@ defmodule Letflow.Routers.SolutionPacks do
   # `writable_by_process` only when the installer holds
   # `:EntitiesDefinitionsWrite`. Derived from the DB-resolved auth context
   # (never the body or a header), same recipe as `Routers.ScriptRules.holds?/2`.
-  defp holds_entities_definitions_write?(conn) do
+  defp holds_permission?(conn, permission) do
     context = conn.assigns.auth_context
     platform_tenant? = PlatformTenant.platform_tenant?(Map.get(context, :tenant_id))
 
     Authorization.has_permission_in_scope?(
       Authorization.effective_roles(Map.get(context, :roles, []), platform_tenant?),
-      :EntitiesDefinitionsWrite,
+      permission,
       platform_tenant?
     ) == true
   end
@@ -663,22 +697,58 @@ defmodule Letflow.Routers.SolutionPacks do
   defp apply_with_actor(conn, pack_id, target_version, theirs, incoming, resolutions) do
     case actor_id(conn) do
       actor_id when is_binary(actor_id) ->
-        opts = Keyword.put(conn.assigns.scoped_opts, :actor_id, actor_id)
+        manage? = holds_permission?(conn, :SolutionOverridesManage)
 
-        render_update_apply(
-          conn,
-          SolutionPack.apply_pack_update(
-            pack_id,
-            target_version,
-            theirs,
-            incoming,
-            resolutions,
-            opts
+        opts =
+          conn.assigns.scoped_opts
+          |> Keyword.put(:actor_id, actor_id)
+          |> Keyword.put(:override_manage_authorized, manage?)
+
+        # REQ-617: the version refusals come first, before any override is read; then a read-only
+        # plan decides whether this apply needs :SolutionOverridesManage. The transaction checks
+        # the same flag again, for an override created in between.
+        with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix(conn)),
+             :ok <- SolutionPack.check_target_version(tenant_id, pack_id, target_version),
+             :ok <-
+               override_permission(manage?, tenant_id, pack_id, target_version, theirs, incoming) do
+          render_update_apply(
+            conn,
+            SolutionPack.apply_pack_update(
+              pack_id,
+              target_version,
+              theirs,
+              incoming,
+              resolutions,
+              opts
+            )
           )
-        )
+        else
+          {:error, _reason} = error -> render_update_apply(conn, error)
+        end
 
       nil ->
         Response.internal_error(conn)
+    end
+  end
+
+  defp override_permission(true, _tenant_id, _pack_id, _target_version, _theirs, _incoming),
+    do: :ok
+
+  defp override_permission(false, tenant_id, pack_id, target_version, theirs, incoming) do
+    case Definitions.compute_pack_update_plan(
+           tenant_id,
+           pack_id,
+           target_version,
+           theirs,
+           incoming
+         ) do
+      {:ok, plan} ->
+        if Enum.any?(plan.entries, &match?(%{override: %{outcome: :override_conflict}}, &1)),
+          do: {:error, :override_permission_required},
+          else: :ok
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -699,6 +769,21 @@ defmodule Letflow.Routers.SolutionPacks do
 
   defp render_update_apply(conn, {:error, :version_downgrade}),
     do: Response.unprocessable(conn, "version_downgrade")
+
+  # REQ-617: the route-level refusal text, whether or not a resolution was supplied.
+  defp render_update_apply(conn, {:error, :override_permission_required}),
+    do: Response.forbidden(conn, "insufficient permissions")
+
+  defp render_update_apply(conn, {:error, {:override_merge_unsupported, _type, _id}}),
+    do: Response.unprocessable(conn, "override_merge_unsupported")
+
+  defp render_update_apply(conn, {:error, :override_version_taken}),
+    do: Response.conflict(conn, "override_version_taken")
+
+  defp render_update_apply(conn, {:error, :busy}), do: Response.service_unavailable(conn, "busy")
+
+  defp render_update_apply(conn, {:error, :audit_failed}),
+    do: Response.service_unavailable(conn, "audit_unavailable")
 
   # Route-level pre-check above makes this unreachable in practice --
   # defensive only, same as compute_and_render_review/5's own clause.
@@ -901,6 +986,27 @@ defmodule Letflow.Routers.SolutionPacks do
       "classification" => classification_wire(entry.classification),
       "resolved" => entry.resolved
     }
+    |> put_override(entry.override)
+  end
+
+  # REQ-617: explicit keys only (INV-2) -- ids, version, outcome; never the patch, a path or a value.
+  defp put_override(map, nil), do: map
+
+  defp put_override(map, override) do
+    wire = %{
+      "override_id" => override.override_id,
+      "override_version" => override.override_version,
+      "made_against" => override.made_against,
+      "outcome" => Atom.to_string(override.outcome)
+    }
+
+    wire =
+      case Map.fetch(override, :warning) do
+        {:ok, warning} -> Map.put(wire, "warning", Atom.to_string(warning))
+        :error -> wire
+      end
+
+    Map.put(map, "override", wire)
   end
 
   # Hand-built, explicit key list (INV-2) -- never a bare pass-through of
@@ -921,6 +1027,210 @@ defmodule Letflow.Routers.SolutionPacks do
       "artefact_id" => entry.artefact_id,
       "classification" => classification_wire(entry.classification),
       "action" => action_wire(entry.action)
+    }
+    |> then(fn map ->
+      case Map.fetch(entry, :override_action) do
+        {:ok, action} -> Map.put(map, "override_action", Atom.to_string(action))
+        :error -> map
+      end
+    end)
+  end
+
+  # ── Solution-pack overrides (REQ-596 part B) ──────────────────────────────
+
+  # The tenant comes only from the auth context; the body is read by explicit key, so a tenant
+  # id in the path, query or body is never looked at. Replies carry fixed strings only: no patch
+  # value, id or reason is echoed or logged (INV-4).
+  defp handle_overrides_list(conn, pack_id) do
+    case Overrides.list(prefix(conn), tenant_id(conn), pack_id) do
+      {:ok, rows} -> Response.ok(conn, %{"overrides" => Enum.map(rows, &override_map/1)})
+      {:error, reason} -> render_override_error(conn, reason)
+    end
+  end
+
+  defp handle_override_create(conn, pack_id) do
+    with_override_body(conn, fn body, actor ->
+      input = %{
+        pack_id: pack_id,
+        artefact_type: Map.get(body, "artefact_type"),
+        artefact_id: Map.get(body, "artefact_id"),
+        patch: Map.get(body, "patch"),
+        reason: Map.get(body, "reason")
+      }
+
+      case Overrides.create(prefix(conn), tenant_id(conn), actor, input) do
+        {:ok, row} -> Response.created(conn, override_map(row))
+        {:error, reason} -> render_override_error(conn, reason)
+      end
+    end)
+  end
+
+  defp handle_override_version(conn, pack_id, override_id) do
+    with_override_body(conn, fn body, actor ->
+      with {:ok, fetched} <- Overrides.fetch(prefix(conn), tenant_id(conn), pack_id, override_id),
+           {:ok, base} <- base_version(body, fetched),
+           input = %{
+             patch: Map.get(body, "patch"),
+             reason: Map.get(body, "reason"),
+             base_version: base
+           },
+           {:ok, row} <-
+             Overrides.new_version(prefix(conn), tenant_id(conn), actor, override_id, input) do
+        Response.ok(conn, override_map(row))
+      else
+        {:error, reason} -> render_override_error(conn, reason)
+      end
+    end)
+  end
+
+  defp handle_override_retire(conn, pack_id, override_id) do
+    with_override_body(conn, fn body, actor ->
+      with {:ok, fetched} <- Overrides.fetch(prefix(conn), tenant_id(conn), pack_id, override_id),
+           {:ok, base} <- base_version(body, fetched),
+           input = %{reason: Map.get(body, "reason"), base_version: base},
+           {:ok, row} <- Overrides.retire(prefix(conn), actor, override_id, input) do
+        Response.ok(conn, override_map(row))
+      else
+        {:error, reason} -> render_override_error(conn, reason)
+      end
+    end)
+  end
+
+  defp handle_override_activate(conn, pack_id, override_id) do
+    with_override_body(conn, fn body, actor ->
+      validator = Application.get_env(:letflow, :definitions_service_scope_validator, nil)
+
+      result =
+        OverrideActivation.activate(
+          prefix(conn),
+          tenant_id(conn),
+          actor,
+          Letflow.Api.Context.activator(conn),
+          pack_id,
+          override_id,
+          %{reason: Map.get(body, "reason")},
+          service_scope_validator: validator
+        )
+
+      case result do
+        {:ok, %{definition: definition, previous_id: previous_id, override_version: version}} ->
+          Response.ok(conn, %{
+            "definition_id" => definition.id,
+            "name" => definition.name,
+            "version" => definition.version,
+            "override_version" => version,
+            "previous_definition_id" => previous_id
+          })
+
+        {:error, reason} ->
+          render_override_activate_error(conn, reason)
+      end
+    end)
+  end
+
+  @activate_refusals [
+    :reason_required,
+    :property_not_overridable,
+    :override_changes_structure,
+    :artefact_type_not_supported,
+    :module_owned_definition_not_supported,
+    :override_already_activated,
+    :override_version_clash
+  ]
+
+  # Definitions-path failures keep their meaning but never echo violation detail: the effective
+  # graph carries patch values (REQ-610: never a patch value in a reply).
+  defp render_override_activate_error(conn, :not_found), do: Response.not_found(conn)
+
+  defp render_override_activate_error(conn, reason) when reason in @activate_refusals,
+    do: Response.unprocessable(conn, Atom.to_string(reason))
+
+  defp render_override_activate_error(conn, {:script_binding_invalid, node_id, reason}),
+    do: Response.script_binding_invalid(conn, node_id, reason)
+
+  defp render_override_activate_error(conn, {:expression_references_reserved_variable, refs}),
+    do: Response.expression_references_reserved_variable(conn, refs)
+
+  defp render_override_activate_error(conn, {:entity_writes_invalid, violations}),
+    do: Response.entity_writes_invalid(conn, violations)
+
+  defp render_override_activate_error(conn, {kind, _detail})
+       when kind in [
+              :graph_validation_failed,
+              :semantic_validation_failed,
+              :semantic_validation_precondition_failed
+            ],
+       do: Response.unprocessable(conn, "effective definition failed validation")
+
+  defp render_override_activate_error(conn, :graph_structure_invalid),
+    do: Response.unprocessable(conn, "effective definition failed validation")
+
+  defp render_override_activate_error(conn, :busy), do: Response.service_unavailable(conn, "busy")
+
+  defp render_override_activate_error(conn, reason) when reason in [:audit_failed],
+    do: Response.service_unavailable(conn, "audit_unavailable")
+
+  defp render_override_activate_error(conn, {:transaction_failed, _exception}),
+    do: Response.service_unavailable(conn, "audit_unavailable")
+
+  defp render_override_activate_error(conn, _unexpected), do: Response.internal_error(conn)
+
+  defp with_override_body(conn, fun) do
+    case {object_body(conn), actor_id(conn)} do
+      {:error, _actor} -> Response.bad_request(conn, "invalid body")
+      {{:ok, _body}, nil} -> Response.internal_error(conn)
+      {{:ok, body}, actor} -> fun.(body, actor)
+    end
+  end
+
+  # A client that sends base_version gets the optimistic check; one that omits it is bound to the
+  # version just read (last-writer-wins against a write committed in between). A wrong type is a
+  # 422, never passed on as something else.
+  defp base_version(body, fetched) do
+    case Map.fetch(body, "base_version") do
+      :error -> {:ok, fetched.override_version}
+      {:ok, nil} -> {:ok, fetched.override_version}
+      {:ok, v} when is_integer(v) and v > 0 -> {:ok, v}
+      {:ok, _other} -> {:error, :invalid_input}
+    end
+  end
+
+  defp tenant_id(conn), do: conn.assigns.auth_context.tenant_id
+
+  defp render_override_error(conn, :not_found), do: Response.not_found(conn)
+
+  defp render_override_error(conn, reason)
+       when reason in [
+              :reason_required,
+              :property_not_overridable,
+              :override_exists,
+              :override_version_taken,
+              :override_retired,
+              :invalid_patch_value,
+              :invalid_input
+            ],
+       do: Response.unprocessable(conn, Atom.to_string(reason))
+
+  defp render_override_error(conn, :busy), do: Response.service_unavailable(conn, "busy")
+
+  defp render_override_error(conn, :audit_failed),
+    do: Response.service_unavailable(conn, "audit_unavailable")
+
+  defp render_override_error(conn, _unexpected), do: Response.internal_error(conn)
+
+  defp override_map(row) do
+    %{
+      "override_id" => row.override_id,
+      "override_version" => row.override_version,
+      "pack_id" => row.pack_id,
+      "artefact_type" => row.artefact_type,
+      "artefact_id" => row.artefact_id,
+      "made_against" => row.made_against,
+      "status" => row.status,
+      "reason" => row.reason,
+      "created_by" => row.created_by,
+      "inserted_at" => DateTime.to_iso8601(row.inserted_at),
+      "patch" => row.patch
     }
   end
 

@@ -2,7 +2,8 @@ defmodule Letflow.Definitions.SolutionPackOverride do
   @moduledoc """
   Ecto schema for the per-tenant table `solution_pack_overrides` (REQ-596 / GH #3353 part A,
   decision 0069 D2/D3). One row per `(override_id, override_version)`; rows are only ever
-  inserted (see `Letflow.Definitions.SolutionPackOverrides`).
+  inserted (see `Letflow.Definitions.SolutionPackOverrides`). `status` is `active`, `retired` or
+  `orphaned` (REQ-617: the artefact left the pack or the property is no longer overridable).
 
   There is no `tenant_id` column: the tenant is the schema `:prefix` (decision 0006 D2), and the
   schema carries no `@schema_prefix`, so every call must pass `prefix:`.

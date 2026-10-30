@@ -157,6 +157,36 @@ defmodule Letflow.Identity.RoleBackfill do
     end)
   end
 
+  @doc """
+  T-0934: read-only detection. For every registered tenant (or `opts[:registrations]`), the
+  names of `RoleRegistry.seedable_role_names/1` that have no `:platform_role` row in the
+  tenant's schema. Returns `{:ok, [%{tenant_id, schema_name, missing: [name]}]}` listing only
+  tenants with a gap, or `{:error, :check_failed}` when a tenant schema
+  cannot be read. Writes nothing; `run/1` is the heal.
+  """
+  @spec missing_role_groups(keyword()) ::
+          {:ok, [%{tenant_id: Ecto.UUID.t(), schema_name: String.t(), missing: [String.t()]}]}
+          | {:error, :check_failed}
+  def missing_role_groups(opts \\ []) do
+    registrations =
+      Keyword.get_lazy(opts, :registrations, &TenantProvisioning.list_registrations/0)
+
+    Enum.reduce_while(registrations, {:ok, []}, fn %{tenant_id: tenant_id, schema_name: schema},
+                                                   {:ok, acc} ->
+      held = held_platform_role_names(schema)
+
+      case Enum.reject(RoleRegistry.seedable_role_names(schema), &(&1 in held)) do
+        [] ->
+          {:cont, {:ok, acc}}
+
+        missing ->
+          {:cont, {:ok, acc ++ [%{tenant_id: tenant_id, schema_name: schema, missing: missing}]}}
+      end
+    end)
+  rescue
+    _exception -> {:error, :check_failed}
+  end
+
   @spec process_registration(Registration.t(), map(), (term() -> any())) ::
           {:cont, {:ok, map()}} | {:halt, {:error, {:backfill_failed, Ecto.UUID.t(), term()}}}
   defp process_registration(

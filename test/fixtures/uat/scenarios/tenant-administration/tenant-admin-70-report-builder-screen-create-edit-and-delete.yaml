@@ -1,0 +1,174 @@
+# T-0989 (BA): TENANT ADMIN group, scenario 70: the Reports screen, the administrator creates, changes and deletes a saved report.
+# Covers REQ-634 criteria 4 (create), 5 (edit and delete with a confirmation step) and, in part, 9 (the empty state of a record type with no
+# reports shows a create control to a caller who may manage reports). Quoted from origin/main:
+# 4. "Create: a test fills name, picks an entity type, adds one aggregate (and optionally group_by, columns, sort) and saves; the mocked client
+#    receives one POST with kind `report` and those fields; the new report appears in the list. A save without any aggregate is blocked on the screen
+#    with a field message and sends no request."
+# 5. "Edit and delete: a test opens a report from the list, changes the name, saves and sees one PUT to the report's id (the kind is not editable); a
+#    test deletes with a confirmation step and sees one DELETE; cancelling the confirmation sends none."
+# Sources: docs/requirements.yaml REQ-634 (criteria 4, 5, 9) and REQ-619; web/src/pages/entities/ReportBuilderPage.tsx (button, field and message
+# texts) and web/src/i18n/entitiesMessages.ts (English texts quoted below); docs/roles.md (EntitiesViewsManage: TENANT_ADMIN and PLATFORM_ADMIN
+# only); test/fixtures/uat/actors.yaml (actor-swiftroute-alice holds TENANT_ADMIN). The record type and its four records are those of scenario 50.
+# Not UAT-observable by an outside user, so not covered by any scenario (REQ-634 criteria 1, 2, 3, 10, 11 and parts of 4, 5, 9): the unit tests of
+# the client functions, the permission table, the route guard, the language catalogue and the diff scope (criteria 1, 2, 3, 10, 11, unit or guard
+# checks); the exact number of requests the screen sends (one POST, one PUT, one DELETE, none on cancel) is not seen by a person, so the visible effect
+# is checked (the list and a reading by the API); the loading indicators and the blocked second submission of criterion 9 last a fraction of a second.
+# The four sensitive actions: "change users", "approve, pay or release" and "see sensitive data" are not in this flow; the refusals for a missing
+# permission are in scenario 72.
+---
+id: tenant-administration-70-report-builder-screen-create-edit-and-delete
+scope: tenant-administration
+title: The administrator creates, renames and deletes a saved report on the Reports screen, an incomplete report is stopped on the screen, and deleting asks for a confirmation
+version: "1.0"
+tags: [tenant-admin, saved-views, report, gui, crud, confirmation, empty-state]
+
+description: >
+  The administrator of SwiftRoute has the record type "UAT report ticket" with the fields title (text, required), status (text), region (text) and
+  amount (whole number) and four records (A, open, north, 10), (B, open, north, 20), (C, open, south, 5), (D, closed, north, 100). No saved report
+  exists. The administrator opens the Reports screen of that record type: it shows the empty-list message and a button "Create the first report".
+  A new report with no name, and a new report whose only aggregate was removed, are stopped on the screen with a message, and the API list stays
+  empty. The administrator saves the report "UAT open report" (filter status equals open, grouping by region, the aggregates count and sum of
+  amount, the columns title and amount, the sort amount descending); it appears in the list and the API shows it with the kind report and those
+  parts. The administrator opens it, renames it "UAT open report v2" (the record type field is not editable), saves, and the list shows the new name
+  for the same report. The administrator asks to delete it, cancels the confirmation (the report stays), asks again, confirms, and the report is
+  gone from the list and from the API.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator, who can sign in to the web application; the record type "UAT report ticket" is active with its four records; no saved view named "UAT open report", "UAT open report v2" or "UAT summary only" exists
+    check: system_seeded
+    detail: If reports exist from an earlier run, delete them first and note it in the report; the record type and its records may stay if they are as described. If the administrator cannot sign in to the web application the scenario is BLOCKED, not FAIL. The Reports screen is opened by the address of the record type followed by /reports (the screen has no menu entry yet, REQ-634 open question).
+  - description: The administrator holds the report-management and query permissions
+    check: system_seeded
+    detail: Per the role matrix, the tenant administrator holds both.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator creates the record type "UAT report ticket" with the fields title (text, required), status (text), region (text) and amount
+      (whole number), makes it active, and creates the four records (A, open, north, 10), (B, open, north, 20), (C, open, south, 5) and (D, closed,
+      north, 100), unless they exist as described. The administrator lists the saved views of the type through the API and notes that none is named
+      as in the preconditions.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator opens the Reports screen of "UAT report ticket". The screen is noted: its title, the list area, and the button "New report".
+    via: gui
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator presses "New report" and presses "Save report" with the name left empty. The message is noted. Then the administrator types
+      the name "UAT stopped report", removes the only aggregate row with "Remove aggregate", and presses "Save report". The message is noted. Then the
+      administrator lists the saved views of the type through the API.
+    expect_refusal: true
+    via: gui
+    input:
+      name_first_attempt: ""
+      name_second_attempt: UAT stopped report
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator fills the new report: name "UAT open report", filter "status equals open", group by region, the aggregates "count" (no field)
+      and "sum" of amount (added with "Add aggregate"), the columns "title, amount", and the sort field amount with the direction Descending.
+      The administrator presses "Save report". The screen is noted. Then the administrator reads the saved views of the type through the API and
+      notes the report's id, kind, type, name, filter, grouping, aggregates in order, columns and sort.
+    via: gui
+    input:
+      name: UAT open report
+      filter: status equals open
+      group_by: [region]
+      aggregates: [count, sum of amount]
+      columns: "title, amount"
+      sort: amount descending
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator presses "Close", opens "UAT open report" from the list, and notes that the field "Entity type" shows "UAT report ticket" and
+      cannot be edited. The administrator changes the name to "UAT open report v2" and presses "Save report". The screen is noted. Then the
+      administrator reads the saved views through the API and compares the id, kind, type, filter, grouping, aggregates, columns and sort with step 4.
+    via: gui
+    input:
+      name: UAT open report v2
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator presses "Delete report". A confirmation titled "Delete this report?" with the text "The saved report is removed. Records are
+      not affected." appears. The administrator presses "Cancel". The screen is noted, and the report is read through the API.
+    via: gui
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator presses "Delete report" again and presses "Delete" in the confirmation. The screen is noted. Then the administrator reads the
+      report by its id and lists the saved views of the type through the API, and the four records of the type are listed.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: A record type with no reports shows the empty-list message and a create button to the administrator.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 shows the title "Reports: UAT report ticket", the area "Saved reports" with the text "No reports have been saved for this entity type yet." and a button "Create the first report", and also the button "New report".
+      evidence: The screen of step 2.
+    on_fail:
+      severity: MINOR
+      business_impact: The administrator is not told that no report exists, or has no way to start the first one.
+      suggested_action: route_to_frontend
+  - id: EO-002
+    description: A report with no name, or with no aggregate, is stopped on the screen with a field message and nothing is stored.
+    verification:
+      method: gui_screen
+      detail: >
+        Step 3 first shows the message "Enter a report name." and then, after the aggregate row is removed, the message "Add at least one aggregate (a
+        function, and a field unless it is a count)." in elements the screen announces as alerts; the saved-view list read through the API is empty
+        after both attempts (no report named "UAT stopped report").
+      evidence: The two messages of step 3 and the API list of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: An unusable report could be stored, or the administrator gets no hint why Save does nothing.
+      suggested_action: route_to_frontend
+  - id: EO-003
+    description: A new report is saved with exactly what was entered and appears in the list.
+    verification:
+      method: gui_screen
+      detail: >
+        After step 4 the list shows "UAT open report", and the API shows one report with kind report, type "UAT report ticket", the filter status
+        equals open, the grouping by region, the aggregates count and sum of amount in that order, the columns title and amount, and the sort amount
+        descending.
+      evidence: The screen and the API reading of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: The report the administrator built is not the report that is stored, so a later run gives other numbers.
+      suggested_action: route_to_frontend
+  - id: EO-004
+    description: Changing the name changes only the name of the same report; the record type cannot be changed.
+    verification:
+      method: gui_screen
+      detail: In step 5 the field "Entity type" is shown with the value "UAT report ticket" and cannot be edited; after saving, the list shows "UAT open report v2" and no "UAT open report"; the API reading has the same id as in step 4, kind report, and the same filter, grouping, aggregates, columns and sort, and only the name and the change time differ.
+      evidence: The screen of step 5 and the two API readings.
+    on_fail:
+      severity: MAJOR
+      business_impact: A rename could create a second report, drop parts of the report, or move it to another record type.
+      suggested_action: route_to_frontend
+  - id: EO-005
+    description: Deleting asks for a confirmation; cancelling keeps the report and confirming removes it.
+    verification:
+      method: gui_screen
+      detail: >
+        In step 6 the confirmation "Delete this report?" with the text "The saved report is removed. Records are not affected." and the buttons
+        "Delete" and "Cancel" is shown; after "Cancel" the list still shows "UAT open report v2" and the API reading is 200. In step 7, after "Delete",
+        the list no longer shows the report, the API reading by id is 404 and the saved-view list does not contain it; the four records of the type are
+        still listed.
+      evidence: The screens of steps 6 and 7 and the API answers.
+    on_fail:
+      severity: MAJOR
+      business_impact: A report could be deleted by one mistaken click, or a delete could remove records.
+      suggested_action: route_to_frontend
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the reports "UAT open report", "UAT open report v2" and "UAT stopped report" if they still exist. The record type "UAT report ticket" and its four records stay for scenarios 50 to 52, 71 and 72 and are retired with the test customer.

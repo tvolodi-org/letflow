@@ -38,6 +38,8 @@
 
 import { client } from './client'
 import type {
+  EntityAggregateRequest,
+  EntityAggregateResponse,
   EntityDefinition,
   EntityQueryRequest,
   EntityRecord,
@@ -57,6 +59,10 @@ export const entitiesApi = {
    *  comment above. */
   queryRecords: (entityType: string, query: Omit<EntityQueryRequest, 'entity_type'> = {}) =>
     client.post<EntityRecordsPage>('/api/v1/entities/query', { entity_type: entityType, ...query }),
+
+  /** `POST /entities/query/aggregate` (REQ-634): grouped aggregates over the same filters. */
+  aggregateRecords: (entityType: string, body: Omit<EntityAggregateRequest, 'entity_type'>) =>
+    client.post<EntityAggregateResponse>('/api/v1/entities/query/aggregate', { entity_type: entityType, ...body }),
 
   /** `POST /entities/records/:entity_type`. */
   createRecord: (entityType: string, fieldValues: Record<string, unknown>) =>

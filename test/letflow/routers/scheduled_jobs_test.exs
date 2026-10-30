@@ -106,9 +106,9 @@ defmodule Letflow.Routers.ScheduledJobsTest do
   # ── P: permission ──────────────────────────────────────────────────────────
 
   describe "P permission" do
-    test "P1 tenant scope, last of the core permissions, identity required_permission" do
+    test "P1 tenant scope, fourth to last of the core permissions, identity required_permission" do
       assert Authorization.permission_scope(:ScheduledJobsManage) == :tenant
-      assert Authorization.core_permissions() |> Enum.take(-2) |> hd() == :ScheduledJobsManage
+      assert Authorization.core_permissions() |> Enum.take(-4) |> hd() == :ScheduledJobsManage
       assert Authorization.required_permission(:ScheduledJobsManage) == :ScheduledJobsManage
     end
 

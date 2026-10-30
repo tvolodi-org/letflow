@@ -152,3 +152,7 @@ config :letflow, :sandbox_pool, max_concurrent_sandboxes: 5
 # OTP default_handler only). Not set in config/test.exs so CaptureLog works.
 config :logger, backends: []
 config :logger, :default_handler, formatter: {Letflow.Obs.Logger, []}
+
+# REQ-620 / GH #3463: lets CreateLedgerTables.down run (it drops append-only ledger tables). Dev/test
+# only; not set in config/prod.exs or config/runtime.exs, so down refuses there.
+config :letflow, :allow_ledger_migration_down, true

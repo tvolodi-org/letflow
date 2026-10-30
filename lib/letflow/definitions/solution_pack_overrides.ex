@@ -2,8 +2,8 @@ defmodule Letflow.Definitions.SolutionPackOverrides do
   @moduledoc """
   A tenant's named, versioned, append-only deviation from an installed solution pack
   (REQ-596 / GH #3353 part A, decision 0069 D2/D3/D5). This slice is storage and the writer only:
-  no route, no permission, no HTTP, and nothing reads the table yet (the merge and the update plan
-  are later slices). HTTP mapping of the error tuples below is part B.
+  no route, no permission, no HTTP, and the REQ-610 activation and the REQ-617 update plan read the table
+  (`apply_update_outcomes/4` writes the update outcomes). HTTP mapping of the error tuples below is part B.
 
   Functions (every one takes the tenant schema name `prefix` first, INV-1):
 
@@ -16,8 +16,8 @@ defmodule Letflow.Definitions.SolutionPackOverrides do
   `:reason_required`, `:property_not_overridable`, `:invalid_patch_value`, `:not_found`,
   `:override_exists`, `:override_version_taken`, `:override_retired`, `:busy`, `:invalid_input`,
   `:audit_failed`. `:audit_failed` covers EVERY write-transaction failure (the audit table being
-  gone is the usual cause, but any other database error maps to it too); part B maps it to a 500,
-  not a 422. `new_version`/`retire` serialise on a per-artefact advisory lock; with
+  gone is the usual cause, but any other database error maps to it too); part B maps it to a 503,
+  not a 422 or a 500. `new_version`/`retire` serialise on a per-artefact advisory lock; with
   `base_version: nil` two concurrent callers write consecutive versions, so part B must always send
   `base_version` to get `:override_version_taken` for the loser.
 
@@ -118,6 +118,70 @@ defmodule Letflow.Definitions.SolutionPackOverrides do
 
       :error ->
         []
+    end
+  end
+
+  @doc """
+  The newest row per `override_id` of `pack_id` (retired ones included, with their status), oldest
+  override first. `{:error, :not_found}` when `tenant_id` has no active install of `pack_id`.
+  """
+  @spec list(String.t(), term(), String.t()) ::
+          {:ok, [SolutionPackOverride.t()]} | {:error, :not_found}
+  def list(prefix, tenant_id, pack_id) when is_binary(prefix) and is_binary(pack_id) do
+    with {:ok, tenant} <- cast_tenant(tenant_id),
+         {:ok, _version} <- active_install_version(tenant, pack_id) do
+      rows =
+        Repo.all(
+          from(o in SolutionPackOverride,
+            where: o.pack_id == ^pack_id,
+            distinct: o.override_id,
+            order_by: [asc: o.override_id, desc: o.override_version]
+          ),
+          prefix: prefix
+        )
+
+      first_inserted =
+        Map.new(
+          Repo.all(
+            from(o in SolutionPackOverride,
+              where: o.pack_id == ^pack_id and o.override_version == 1,
+              select: {o.override_id, o.inserted_at}
+            ),
+            prefix: prefix
+          )
+        )
+
+      {:ok, Enum.sort_by(rows, &{Map.get(first_inserted, &1.override_id), &1.override_id})}
+    end
+  end
+
+  def list(_prefix, _tenant_id, _pack_id), do: {:error, :not_found}
+
+  @doc """
+  The newest row of `override_id`, only when it belongs to `pack_id` and `tenant_id` has an active
+  install of that pack; otherwise `{:error, :not_found}` (an absent id, another pack's override and
+  a pack without install are indistinguishable, INV-5).
+  """
+  @spec fetch(String.t(), term(), String.t(), term()) ::
+          {:ok, SolutionPackOverride.t()} | {:error, :not_found}
+  def fetch(prefix, tenant_id, pack_id, override_id)
+      when is_binary(prefix) and is_binary(pack_id) do
+    with {:ok, tenant} <- cast_tenant(tenant_id),
+         {:ok, row} <- latest(prefix, override_id),
+         true <- row.pack_id == pack_id,
+         {:ok, _version} <- active_install_version(tenant, pack_id) do
+      {:ok, row}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def fetch(_prefix, _tenant_id, _pack_id, _override_id), do: {:error, :not_found}
+
+  defp cast_tenant(tenant_id) do
+    case cast_uuid(tenant_id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :not_found}
     end
   end
 
@@ -229,6 +293,108 @@ defmodule Letflow.Definitions.SolutionPackOverrides do
     end
   end
 
+  @doc """
+  Writes the override rows of one pack update (REQ-617 / GH #3443, decision 0069 D4/D5), INSIDE the
+  caller's open transaction: the caller (`SolutionPack.apply_pack_update/6`) rolls back on an error,
+  so nothing is partial. `items` are `%{override_id, read_version, pack_id, artefact_type,
+  artefact_id, action}` with `action` one of `:advanced`, `:retired`, `:orphaned`,
+  `:property_gone`.
+
+  All per-artefact advisory locks are taken first, in ascending key order (REQ-596 writers take the
+  artefact lock and then the audit chain row, so this order cannot deadlock with them). Each
+  override is re-read under its lock: a newer version or a non-active status returns
+  `{:error, :override_version_taken}`. Each item inserts one new version row (insert only, the
+  patch is kept, except `:retired` which writes the empty patch) and one audit entry with the
+  REQ-596 keys plus `target_version` and `action`; never a patch value. Errors are tuples:
+  `:busy`, `:override_version_taken`, `:audit_failed`.
+  """
+  @spec apply_update_outcomes(String.t(), term(), String.t(), [map()]) ::
+          {:ok, [SolutionPackOverride.t()]} | {:error, error()}
+  def apply_update_outcomes(prefix, actor, target_version, items)
+      when is_binary(prefix) and is_binary(target_version) and is_list(items) do
+    with {:ok, actor} <- cast_uuid_input(actor) do
+      sorted = Enum.sort_by(items, &{&1.pack_id, &1.artefact_type, &1.artefact_id})
+
+      SQL.query!(Repo, "SET LOCAL lock_timeout = '2s'")
+      Enum.each(sorted, &lock!(prefix, [&1.pack_id, &1.artefact_type, &1.artefact_id]))
+
+      Enum.reduce_while(sorted, {:ok, []}, fn item, {:ok, acc} ->
+        case apply_update_item(prefix, actor, target_version, item) do
+          {:ok, row} -> {:cont, {:ok, [row | acc]}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, rows} -> {:ok, Enum.reverse(rows)}
+        {:error, _reason} = error -> error
+      end
+    end
+  rescue
+    error in Postgrex.Error ->
+      case error.postgres do
+        %{code: code} when code in [:lock_not_available, :query_canceled] ->
+          {:error, :busy}
+
+        other ->
+          # only the code is logged (INV-4); the caller rolls the transaction back
+          Logger.error("solution pack override update failed: #{inspect(Map.get(other, :code))}")
+          {:error, :audit_failed}
+      end
+
+    error in Ecto.ConstraintError ->
+      Logger.error("solution pack override update failed: #{error.type}")
+      {:error, :audit_failed}
+  end
+
+  defp apply_update_item(prefix, actor, target_version, item) do
+    case latest_row(prefix, item.override_id) do
+      %SolutionPackOverride{status: "active", override_version: version} = current
+      when version == item.read_version ->
+        extra = %{"target_version" => target_version, "action" => Atom.to_string(item.action)}
+
+        write(
+          prefix,
+          actor,
+          "solution_pack.override_update_#{item.action}",
+          update_attrs(current, target_version, item.action),
+          extra
+        )
+        |> case do
+          {:error, {:audit_failed, _reason}} -> {:error, :audit_failed}
+          other -> other
+        end
+
+      _taken_or_not_active ->
+        {:error, :override_version_taken}
+    end
+  end
+
+  defp update_attrs(current, target_version, action) do
+    {patch, status, made_against} =
+      case action do
+        :advanced ->
+          {current.patch, "active", target_version}
+
+        :retired ->
+          {%{}, "retired", current.made_against}
+
+        orphaned when orphaned in [:orphaned, :property_gone] ->
+          {current.patch, "orphaned", current.made_against}
+      end
+
+    %{
+      override_id: current.override_id,
+      override_version: current.override_version + 1,
+      pack_id: current.pack_id,
+      artefact_type: current.artefact_type,
+      artefact_id: current.artefact_id,
+      made_against: made_against,
+      patch: patch,
+      status: status,
+      reason: "pack update to #{target_version}: #{action}"
+    }
+  end
+
   # -- the transaction ----------------------------------------------------------------------
 
   defp transact(prefix, fun) do
@@ -290,7 +456,7 @@ defmodule Letflow.Definitions.SolutionPackOverrides do
     end
   end
 
-  defp write(prefix, actor, action, attrs) do
+  defp write(prefix, actor, action, attrs, extra_after_state \\ %{}) do
     patch_hash = hash_patch(attrs.patch)
 
     row =
@@ -312,29 +478,30 @@ defmodule Letflow.Definitions.SolutionPackOverrides do
 
     case Repo.insert(changeset, prefix: prefix) do
       {:ok, inserted} ->
-        audit(prefix, actor, action, inserted)
+        audit(prefix, actor, action, inserted, extra_after_state)
 
       {:error, _changeset} ->
         {:error, :override_version_taken}
     end
   end
 
-  defp audit(prefix, actor, action, row) do
+  defp audit(prefix, actor, action, row, extra_after_state) do
     entry = %{
       actor_id: actor,
       action: action,
       resource_type: "solution_pack_override",
       resource_id: row.override_id,
       before_state: nil,
-      after_state: %{
-        "pack_id" => row.pack_id,
-        "artefact_type" => row.artefact_type,
-        "artefact_id" => row.artefact_id,
-        "override_id" => row.override_id,
-        "override_version" => row.override_version,
-        "patch_hash" => row.patch_hash,
-        "reason" => row.reason
-      }
+      after_state:
+        Map.merge(extra_after_state, %{
+          "pack_id" => row.pack_id,
+          "artefact_type" => row.artefact_type,
+          "artefact_id" => row.artefact_id,
+          "override_id" => row.override_id,
+          "override_version" => row.override_version,
+          "patch_hash" => row.patch_hash,
+          "reason" => row.reason
+        })
     }
 
     case Audit.insert_entry(Repo, entry, prefix) do

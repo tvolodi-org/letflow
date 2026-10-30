@@ -55,6 +55,7 @@ GET /script-rules ScriptRulesList
 GET /script-rules/:key/versions/:version ScriptRulesRead
 GET /script-rules/:key/versions/:version/audit ScriptRulesAuditRead
 GET /services ServicesRead
+GET /solution-packs/:pack_id/overrides DefinitionsRead
 GET /tenant/config-bundle TenantSettingsManage
 GET /tenants TenantsManage
 GET /tenants/:slug TenantsManage
@@ -80,6 +81,7 @@ POST /definitions/:process_key/rollback DefinitionsRollback
 POST /definitions/import DefinitionsImport
 POST /dlq/:id/discard DlqReadRetryDiscard
 POST /dlq/:id/retry DlqReadRetryDiscard
+POST /entity-type-hooks/:entity_type/dry-run EntityTypeHooksDryRun
 POST /event-retention/retirements TenantsManage
 POST /instances InstancesStart
 POST /instances/:id/advance-timer InstancesAdvanceTimer
@@ -123,6 +125,10 @@ POST /script-rules/:key/versions/:version/confirm ScriptRulesConfirm
 POST /script-rules/:key/versions/:version/publish ScriptsPublish
 POST /script-rules/:key/versions/:version/retire ScriptsPublish
 POST /script-rules/:key/versions/:version/revoke ScriptsPublish
+POST /solution-packs/:pack_id/overrides SolutionOverridesManage
+POST /solution-packs/:pack_id/overrides/:override_id/activate SolutionOverridesManage
+POST /solution-packs/:pack_id/overrides/:override_id/retire SolutionOverridesManage
+POST /solution-packs/:pack_id/overrides/:override_id/versions SolutionOverridesManage
 POST /solution-packs/:pack_id/update-apply DefinitionsCreate
 POST /solution-packs/:pack_id/update-review DefinitionsRead
 POST /solution-packs/export DefinitionsRead

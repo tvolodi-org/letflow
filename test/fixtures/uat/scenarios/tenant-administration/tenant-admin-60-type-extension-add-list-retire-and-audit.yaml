@@ -1,0 +1,137 @@
+# T-0967 (BA): TENANT ADMIN group, scenario 60: the administrator adds, lists and retires own extra fields on a record type that comes from an installed module, and each change is recorded.
+# Covers REQ-609 criterion 5 (create gives position and status, the list is in position order and shows retired entries, retire keeps the entry, a second retire changes nothing, no edit route),
+# criterion 7 (the audit entries of a create and of a retire; a refusal writes none) and the accepted names and kinds of fields of criteria 1 and 3.
+# Sources: docs/requirements.yaml REQ-609 (description: routes, 201/200 answers, position = largest + 1, no PUT or PATCH, audit actions; criteria 1, 3, 5, 7); docs/migration/decisions/0067-tenant-x-extension-layer-over-module-entity-types.md D3 (retire keeps the entry and reserves the name).
+# NOT UAT-OBSERVABLE (system_state, read from the database): the audit entries (no tenant-user route lists them) and "the entry still exists after retire" beyond what the list shows.
+# NOT COVERED here: the failure of the audit write itself rolling the change back (criterion 7, last part) and the 500 answer with no detail: it needs a broken audit table and is a test-environment case, not a UAT step.
+# A PUT or PATCH is a request for a route that does not exist; step 9 only asks that it is not answered as a success. It is not a write probe: the expected answer is the unmatched-route answer.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are in scenarios 61 to 63.
+---
+id: tenant-administration-60-type-extension-add-list-retire-and-audit
+scope: tenant-administration
+title: The administrator adds extra fields to a module record type, sees them in order with retired ones, retires one without losing its name, and every change is recorded
+version: "1.0"
+tags: [tenant-admin, type-extension, audit, retire]
+
+description: >
+  SwiftRoute's administrator takes the module-supplied record type "ext_module_item" and adds extra fields of their own: "x_amount" (a whole number), "x_note" (text), "x_state" (a choice of
+  "new" and "done", default "new", required), "x_due" (a date), "x_flag" (yes/no) and "x_seen_at" (date and time). Each is accepted with its place number (1 to 6). The list shows them in that order. The administrator retires "x_note": it
+  stays in the list marked retired, and retiring it a second time answers the same and adds no second audit entry. Asking to change an extra field (replace or edit) is not answered as a success.
+  The audit trail holds one "create" entry per added field and one "retire" entry for the retired one, with the administrator as the actor and no company identifier in the stored states.
+  The record type of the module itself is not changed.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has the module-installed record type "ext_module_item" (a type that came with an installed module, not a type of the company's own, and not append-only), visible to the administrator, with no extra fields yet.
+    check: system_seeded
+    detail: Setup-prepared. If extra fields already exist for it, remove the left-over test by noting them and starting with new names; report BLOCKED if the type cannot be provided.
+  - description: The administrator is signed in with the tenant administrator role of SwiftRoute (the roster note of actor-swiftroute-alice gives TASK_WORKER and TENANT_ADMIN).
+    check: system_seeded
+    detail: The audit trail is read from the database by the test operator.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of extra fields of "ext_module_item" and notes it as list L0.
+    via: api
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator adds the extra field "x_amount" to "ext_module_item" with the definition: type whole number, not required. The answer is noted.
+    via: api
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator adds "x_note" (type text, not required), then "x_state" (type choice with the values "new" and "done", required, default "new"), then "x_due" (type date, not required), then "x_flag" (type yes/no, not required), then "x_seen_at" (type date and time, not required). Each answer is noted.
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list of extra fields of "ext_module_item" and notes it as list L1.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator retires "x_note" (by its entry number from step 3). The answer is noted.
+    via: api
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator asks for the list again and notes it as list L2.
+    via: api
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator retires "x_note" a second time. The answer is noted and compared with the answer of step 5.
+    via: api
+  - step: 8
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to add a new extra field with the name "x_note" again (the retired name). The answer is noted.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_a
+    action: >
+      The administrator tries to replace the definition of the extra field "x_amount" with the type text, and then tries to edit it in part. Both requests are for a route that does not exist. Each answer is noted.
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Each valid extra field is accepted with its place number and the status active, and the answer shows no company identifier.
+    verification:
+      method: api_response
+      detail: Step 2 answers 201 with an entry number, entity type "ext_module_item", kind "field", name "x_amount", the definition as sent, position 1 and status "active". Step 3 answers 201 five times with positions 2 to 6 in the order sent (x_note, x_state, x_due, x_flag, x_seen_at), and the "x_state" definition keeps its values, required flag and default. No answer contains a company identifier. The names are valid names; all six kinds (whole number, text, choice with values, date, yes/no, date and time) and a required field with a default are accepted.
+      evidence: The four answers of steps 2 and 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot extend a module record type with their own fields.
+      suggested_action: route_to_developer
+  - id: EO-002
+    description: The list is in place order, includes retired entries with their status, and a retired entry keeps its name.
+    verification:
+      method: api_response
+      detail: List L0 (step 1) answers 200 with no items. List L1 (step 4) has six items in the order x_amount, x_note, x_state, x_due, x_flag, x_seen_at with positions 1 to 6 and status "active". After step 5, list L2 (step 6) still has six items in the same order and "x_note" has status "retired" and the same name and definition; the other five are "active". No item contains a company identifier.
+      evidence: Lists L0, L1 and L2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot see which extra fields exist or which were retired.
+      suggested_action: route_to_developer
+  - id: EO-003
+    description: Retiring answers with the entry marked retired, a second retire answers the same and changes nothing, and the retired name stays reserved.
+    verification:
+      method: api_response
+      detail: Step 5 answers 200 with "x_note" status "retired". Step 7 answers 200 with the same entry, equal to the step 5 answer in every member except the per-request trace_id. Step 8 answers 422 with the reason "extension_key_taken" and does not repeat the submitted name. A list after step 8 still has six items.
+      evidence: The answers of steps 5, 7 and 8 and a list after step 8.
+    on_fail:
+      severity: MAJOR
+      business_impact: A retired name can be reused with another meaning, or a repeated retire changes data.
+      suggested_action: route_to_developer
+  - id: EO-004
+    description: An extra field cannot be edited or retyped in place.
+    verification:
+      method: http_status
+      detail: Both requests of step 9 are answered as an unmatched route (not 200, not 201, not 204), and list after step 9 shows "x_amount" with type whole number as before.
+      evidence: The two answers of step 9 and the list after step 9.
+    on_fail:
+      severity: MAJOR
+      business_impact: A field could change type under existing data; the rule is retire and add a new name.
+      suggested_action: route_to_developer
+  - id: EO-005
+    description: Every create and the first retire are recorded once, and a repeated retire and a refusal record nothing.
+    verification:
+      method: system_state
+      detail: The audit trail of SwiftRoute between step 2 and the end has exactly six entries with action "entity_type_extension.create" (steps 2 and 3), whose actor is the administrator, resource type "entity_type_extension", resource the entry number, no earlier state, and a later state holding entity type, name, kind, definition, position and status without a company identifier; and exactly one entry "entity_type_extension.retire" (step 5) whose earlier state has status "active" and later state status "retired". Steps 7, 8 and 9 add no entry. The entries are read from the database (UAT assumption, to be confirmed by the process owner - no tenant-user route lists them).
+      evidence: The audit entries of the company between step 2 and the end.
+    on_fail:
+      severity: MAJOR
+      business_impact: Changes to the record structure are not traceable, or the trail gains duplicate entries.
+      suggested_action: route_to_developer
+
+cleanup:
+  cancel_open_instances: false
+  description: Extra fields cannot be deleted; retire "x_amount", "x_state", "x_due", "x_flag" and "x_seen_at" if the environment is to be reused, and note that their names stay reserved (use new names on the next run).

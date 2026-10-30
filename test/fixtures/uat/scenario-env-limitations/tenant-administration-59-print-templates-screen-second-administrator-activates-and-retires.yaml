@@ -1,0 +1,13 @@
+scenario_id: tenant-administration-59-print-templates-screen-second-administrator-activates-and-retires
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: |
+  The scenario needs a second TENANT_ADMIN of the same company (activation needs a person other than the one who saved the draft). The actor
+  roster (test/fixtures/uat/actors.yaml) has one TENANT_ADMIN per company (actor-swiftroute-alice for SwiftRoute), and a second test account is
+  UAT-class, so it needs the owner's approval. The BA does not invent an actor. Until a second SwiftRoute administrator account is approved and
+  added to the roster, the outcomes are verified by: backend activation, retirement and audit (REQ-579 tests S2-sod-1..3, S2-audit-1..3 in
+  test/letflow/documents/print_overrides_test.exs, as for scenario 31) and the screen side (buttons by status, list fetched again after activate and
+  retire) by the REQ-614 page tests in web/ (vitest). The creator's refusal (step 1, EO-001) is also checked on the screen in scenario 56 step 15.
+recorded_by: BUSINESS-ANALYST
+recorded_at: "2026-10-30"
+issue_ref: "GH #3436"

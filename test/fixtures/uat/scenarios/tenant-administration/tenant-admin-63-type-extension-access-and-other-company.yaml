@@ -1,0 +1,183 @@
+# T-0967 (BA): TENANT ADMIN group, scenario 63: who may add, list and retire extra fields of a module record type, and that one company never sees or changes another's.
+# Covers REQ-609 criterion 6 (administrator succeeds; task worker and read-only auditor get an identical 403 on all three requests, for a valid and for an invalid body) and criterion 8 (a company
+# identifier in the request is ignored; the other company sees none of the rows and gets the one not-found answer when retiring them; the same name in two companies; the platform operator).
+# Sources: docs/requirements.yaml REQ-609 criteria 6 and 8; docs/roles.md matrix (the right to manage extra fields is held by the tenant administrator; the platform administrator through its unconditional clause; not by process designer, task worker or auditor).
+# NOT COVERED - missing actor: REQ-609 criterion 6 also says a PROCESS_DESIGNER gets 403 on all three requests. test/fixtures/uat/actors.yaml has no PROCESS_DESIGNER account in any company, and an actor must not be invented.
+# That part is BLOCKED until the roster has such an actor; the BA reports it in findings.
+# The platform operator (actor-platform-admin, realm bpm-default) is on a route that takes the company from the sign-in: it gets its own company's data (none), so step 12 is a no-data-leak check, not a refusal.
+# Order of checks: the permission is checked before the body, so the worker's and auditor's valid and invalid bodies get the same answer; the other company's administrator sends a complete, valid body so that a 422 does not hide the 404.
+# NOT UAT-OBSERVABLE (system_state): "the other company's audit trail is unchanged" and where a row was stored; read from the database.
+---
+id: tenant-administration-63-type-extension-access-and-other-company
+scope: tenant-administration
+title: Only the administrator may manage extra fields of a record type, staff without the right are refused identically, and one company never sees or changes another's
+version: "1.0"
+tags: [tenant-admin, type-extension, refusal, access, cross-tenant, isolation]
+
+description: >
+  SwiftRoute's administrator adds the extra field "x_amount" to the module record type "ext_module_item". A task worker and the read-only auditor try to add a valid field, add an invalid one, list and retire,
+  and are refused on every request with the same status, body and content type, whether the body is valid or not. The administrator adds a field with a request that also carries a company identifier
+  naming Bilimbaga (in the body, in the query and as a header): it is ignored and the field is stored for SwiftRoute only. The Bilimbaga administrator lists their "ext_module_item" and sees none of
+  SwiftRoute's fields; tries to retire SwiftRoute's entry and gets the same not-found answer as for an entry number that never existed; SwiftRoute's field stays active. Bilimbaga adds "x_amount" itself
+  and neither sees the other's. The platform operator lists the same record type and sees only the platform company's own (none).
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-marco
+  auditor_a: actor-swiftroute-auditor
+  tenant_admin_b: actor-bilimbaga-admin
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: SwiftRoute and Bilimbaga each have the module-installed record type "ext_module_item" (visible to their administrators, not append-only) with no extra fields.
+    check: system_seeded
+    detail: Setup-prepared. If extra fields exist, note them and use new names.
+  - description: The platform company also has a record type "ext_module_item" or none; either way it has no extra fields.
+    check: system_seeded
+    detail: If the platform operator's list answers 404 because the type does not exist there, step 12 is judged as "no row of SwiftRoute or Bilimbaga is shown" and the 404 is accepted.
+  - description: The Bilimbaga administrator can sign in with an approved test token.
+    check: system_seeded
+    detail: If not (roster note of actor-bilimbaga-admin), report BLOCKED for steps 6 to 11 and EO-003 to EO-005; steps 1 to 5 and 12 run.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator adds "x_amount" (type whole number, not required) to "ext_module_item" and notes the answer, including the entry number, as AR1. Then the administrator lists "ext_module_item" and notes it as list LA.
+    via: api
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker tries to add the valid field "x_w_ok" (type text) to "ext_module_item", then to add the invalid field "foo" with the kind "json", then to list "ext_module_item", then to retire AR1's entry.
+      The answers (status, content-type header and decoded body without the per-request trace_id member) are noted as W1 to W4.
+    expect_refusal: true
+    via: api
+  - step: 3
+    actor: auditor_a
+    action: >
+      The read-only auditor tries the same four requests as the task worker in step 2 (valid field "x_u_ok", invalid field "foo", list, retire). The answers are noted as U1 to U4.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator lists "ext_module_item" again and notes it as list LA2.
+    via: api
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator adds "x_scope_probe" (type text) to "ext_module_item" with a request that also carries Bilimbaga's company id three times: as the body member "tenant_id", as the query parameter tenant_id, and as a request header named "x-tenant-id". No other header or member is added. The answer is noted.
+    via: api
+  - step: 6
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator lists "ext_module_item", with the query parameter company=swiftroute added, and notes it as list LB.
+    via: api
+  - step: 7
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to retire the entry AR1 of SwiftRoute. The answer is noted as DB1.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to retire an entry number that was never issued in any company. The answer is noted as DN1.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator adds "x_amount" (type text) to their own "ext_module_item" and lists it. The answer and the list are noted.
+    via: api
+  - step: 10
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator lists "ext_module_item" and notes whether "x_amount" is still active with the whole-number type, and whether "x_scope_probe" is present.
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator lists "ext_module_item" again and notes whether "x_scope_probe" is present.
+    via: api
+  - step: 12
+    actor: platform_operator
+    action: >
+      The platform operator lists "ext_module_item". The answer is noted. (This is a check that no row of another company is shown, not an expected refusal.)
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator can add a field; the task worker and the read-only auditor are refused on add, invalid add, list and retire, identically.
+    verification:
+      method: http_status
+      detail: Step 1 answers 201 and list LA holds "x_amount" active. W1 to W4 and U1 to U4 all answer 403. W1 equals W2, and U1 equals U2, in status, content-type header and decoded body (the permission is checked before the body); W1 equals U1, W3 equals U3 and W4 equals U4 in the same way. No answer contains the submitted name or kind.
+      evidence: AR1, list LA and the answers W1 to W4 and U1 to U4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Staff without the right could change the record structure, or learn from the answer whether a body was valid.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The refusals changed nothing.
+    verification:
+      method: api_response
+      detail: List LA2 (step 4) equals list LA, with one item, "x_amount", active, no "x_w_ok" and no "x_u_ok".
+      evidence: Lists LA and LA2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused request still changed the record structure.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: A company identifier in the request is ignored; the field is stored for the signed-in company only and the other company does not see it.
+    verification:
+      method: api_response
+      detail: Step 5 answers 201 (the field belongs to SwiftRoute). List LB (step 6) answers 200 with no items; the query parameter company=swiftroute is ignored. Step 11 shows no "x_scope_probe" for Bilimbaga, and step 10 shows it for SwiftRoute.
+      evidence: The answer of step 5, list LB and the lists of steps 10 and 11.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A caller could write into, or read from, another company by naming it.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: For the administrator of another company, SwiftRoute's entry gets the same not-found answer as an entry that never existed, and stays active.
+    verification:
+      method: http_status
+      detail: DB1 and DN1 answer 404 and are equal in status, content-type header and decoded body after removing the per-request trace_id member. In step 10 "x_amount" is still active with the whole-number type.
+      evidence: The answers DB1 and DN1 and the list of step 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could find out about, or retire, another company's extra fields.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: The same field name can be used independently in two companies.
+    verification:
+      method: api_response
+      detail: Step 9 answers 201 with place number 1, and Bilimbaga's list holds only its own "x_amount" (text) at that moment. SwiftRoute's "x_amount" in step 10 is still the whole-number type.
+      evidence: The answer and list of step 9 and the list of step 10.
+    on_fail:
+      severity: MAJOR
+      business_impact: A name used by one company blocks or alters another's.
+      suggested_action: route_to_developer
+  - id: EO-006
+    description: The platform operator gets only the platform company's own data, none of SwiftRoute's or Bilimbaga's.
+    verification:
+      method: api_response
+      detail: Step 12 answers 200 with no items (or 404 if the record type does not exist in the platform company, see the precondition); no item named x_amount, x_scope_probe is shown.
+      evidence: The answer of step 12.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The platform operator's token would be a route to customers' record structure.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: Another company's audit trail is not touched by SwiftRoute's changes, and each company's trail records only its own.
+    verification:
+      method: system_state
+      detail: The audit trail of Bilimbaga between step 5 and the end has exactly one "entity_type_extension.create" entry (step 9) and none for step 5 or the refusals of steps 7 and 8; SwiftRoute's trail has the creates of steps 1 and 5 only, and none for steps 2 and 3. The entries are read from the database (UAT assumption, to be confirmed by the process owner - no tenant-user route lists them).
+      evidence: The audit entries of both companies between step 1 and the end.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Changes are traced to the wrong company, or a refused request leaves a trace.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Extra fields cannot be deleted. Retire "x_amount" and "x_scope_probe" in SwiftRoute and "x_amount" in Bilimbaga if the environment is to be reused; their names stay reserved (use new names on the next run).

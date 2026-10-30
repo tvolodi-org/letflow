@@ -1,0 +1,135 @@
+# T-0977 (BA): TENANT ADMIN group, scenario 68: the "Module lifecycle" screen shows why a module cannot be taken out of use or brought back, and changes nothing when it is refused.
+# Covers REQ-630 criterion 5 (running work: message with the number of running instances and open tasks, no other number or id, no success message, module stays listed, typed reason kept)
+# and criterion 7 (dependents listed by name; module changed since install: upgrade message; missing dependency on reactivate: the server's text; no success message and the typed input kept).
+# Sources: docs/requirements.yaml REQ-630 criteria 5, 7 and REQ-627 (open work refusal, counts of open instances and open tasks); web/src/pages/admin/moduleLifecycle/ModuleUninstallPage.tsx and
+# moduleLifecycleErrors.ts (texts: "This module still has running work and cannot be uninstalled.", "Open instances: N", "Open tasks: N", "Finish or cancel the work and try again.",
+# "Other installed modules depend on this one:", "This module needs an upgrade before this action can be done."); lib/letflow/routers/tenant_modules.ex (422 "missing dependency: <name>").
+# Environment: SPA screen ON and server uninstall feature ON (as scenario 66); if the menu entry is absent, BLOCKED for the whole scenario.
+# NOT UAT-OBSERVABLE: criterion 7's 422 "rationale is required" (the screen keeps the button unavailable while the reason is blank, so the server answer cannot be provoked; a write route is not probed),
+# and its 500 (cannot be provoked on a real environment). These are unit tests of the page. Criterion 7's 403 IS observable (screen on, server uninstall feature off) and is covered in scenario 69, steps 3 and 4.
+# Criterion 5's "no instance or task id is shown" is read on the screen (EO-001); "nothing is changed" is read from the list and the audit trail.
+# The four sensitive actions are not in this flow; every step but the setup checks is a refusal of the screen.
+---
+id: tenant-administration-68-module-lifecycle-screen-refusals-running-work-dependents-upgrade
+scope: tenant-administration
+title: The Module lifecycle screen explains a refusal - running work, dependent modules, a changed module, a missing dependency - and changes nothing
+version: "1.0"
+tags: [tenant-admin, modules, uninstall, reactivate, gui, refusal, dependents, open-work]
+
+description: >
+  SwiftRoute's administrator tries on the Module lifecycle screen to take module M1 out of use while M1 has running work (a running instance and open tasks). The screen says the module still has
+  running work, shows the number of running instances and of open tasks and nothing else, advises to finish or cancel the work, shows no success message, M1 stays in the list and the reason typed stays in the box.
+  The administrator tries to take the base module B1 out of use while D2 depends on it and the screen names D2. The administrator tries to bring back the module S1, which has changed since it was
+  installed, and the screen says it needs an upgrade. The administrator tries to bring back D2 while its base B1 is out of use and the screen shows the server's text about the missing dependency.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The SPA build has the module lifecycle screen ON and the server uninstall feature is ON.
+    check: system_seeded
+    detail: If the menu entry "Module lifecycle" is absent for the administrator, report BLOCKED for the whole scenario.
+  - description: SwiftRoute has a module M1 installed and active with at least one running instance and at least one open task of M1's own process definitions.
+    check: system_seeded
+    detail: Setup-prepared; the runner records the number of running instances and open tasks it prepared (R and T) at setup and uses only those numbers. If it cannot be prepared, report BLOCKED for step 1 and EO-001.
+  - description: SwiftRoute has two further modules B1 and D2 installed and active, where D2 declares B1 in its dependencies, and no running work of either.
+    check: system_seeded
+    detail: The shipped catalog may not contain such a pair. If it does not, report BLOCKED for steps 2 to 5 and EO-002, EO-004; the other steps run.
+  - description: SwiftRoute has a module S1 that is out of use and whose recorded version differs from the version the product now ships, or has no recorded fingerprint.
+    check: system_seeded
+    detail: Setup-prepared. If it cannot be prepared, report BLOCKED for step 6 and EO-003.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      On the Module lifecycle screen the administrator types the reason "UAT - try to remove a busy module" and presses Uninstall on the row of M1 and confirms. The text under the section,
+      the table and the reason box are noted.
+    expect_refusal: true
+    via: gui
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator types the reason "UAT - try to remove the base module" and presses Uninstall on the row of B1 and confirms, while D2 is active. The text under the section, the table and the reason box are noted.
+    expect_refusal: true
+    via: gui
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator types the reason "UAT - dependent first", uninstalls D2 and then, with the reason "UAT - base after dependent", uninstalls B1; both messages are read. (Accepted, set-up for step 4.)
+    via: gui
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      In the section "Reactivate" the administrator types D2's name and the reason "UAT - wrong order" and presses Reactivate, while B1 is still out of use. The text under the section and both boxes are noted.
+    expect_refusal: true
+    via: gui
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      Clean-up: in the section "Reactivate" the administrator brings B1 back and then D2 back, each with the reason "UAT - restore", and reads the table.
+    via: gui
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      In the section "Reactivate" the administrator types S1's name and the reason "UAT - stale module" and presses Reactivate. The text under the section and both boxes are noted.
+    expect_refusal: true
+    via: gui
+  - step: 7
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the audit trail filtered by resource type "tenant_module" and the table of installed modules.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: A module with running work is refused with the two counts and nothing else, and nothing changes.
+    verification:
+      method: gui_screen
+      detail: >-
+        After step 1 the screen shows "This module still has running work and cannot be uninstalled.", "Open instances: R", "Open tasks: T" with the numbers R and T of the precondition, and "Finish or cancel the work and try again."; no instance or task identifier and no other number than R and T is shown (the module's version in the table is not part of this message); no message "is now uninstalled"; M1 is still in the table; the reason box still holds "UAT - try to remove a busy module".
+      evidence: Screen after step 1 and the numbers recorded at setup.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Running work could be cut off by taking its module out of use, or the administrator is told something false about it.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: A module that others depend on is refused and the dependent is named.
+    verification:
+      method: gui_screen
+      detail: After step 2 the screen shows "Other installed modules depend on this one:" followed by D2's name as a list entry; no success message; B1 is still in the table; the reason box keeps its text.
+      evidence: Screen after step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A module can be removed under another module that needs it, or the administrator cannot tell why not.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A module that changed since it was installed cannot be brought back from the screen and the screen says it needs an upgrade.
+    verification:
+      method: gui_screen
+      detail: After step 6 the screen shows "This module needs an upgrade before this action can be done."; no message "is now active"; S1 is not in the table; the Module id and reason boxes still hold what was typed.
+      evidence: Screen after step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: An outdated module comes back into use, or the administrator gets no reason.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Bringing a dependent module back before its base is refused with the server's text about the missing dependency.
+    verification:
+      method: gui_screen
+      detail: After step 4 the screen shows a text that names B1 as the missing dependency (the server text "missing dependency:" followed by B1's name); no message "is now active"; D2 is not in the table; the boxes keep their text.
+      evidence: Screen after step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A module is brought back without what it needs, or the administrator cannot tell what is missing.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The accepted steps worked and the refusals wrote nothing to the audit trail.
+    verification:
+      method: api_response
+      detail: The audit trail (resource type "tenant_module") holds entries only for the accepted changes of steps 3 and 5 (D2 and B1 uninstalled, B1 and D2 reactivated), none for M1 and none for S1 from steps 1 and 6; after step 5 the table lists B1 and D2 again.
+      evidence: Audit list and table of step 7.
+    on_fail:
+      severity: MAJOR
+      business_impact: A refused change is recorded as if it happened, or an accepted change is missing from the trail.
+      suggested_action: route_to_wf03

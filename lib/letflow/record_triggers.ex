@@ -4,10 +4,12 @@ defmodule Letflow.RecordTriggers do
   `entity_event` script version to one (entity type, record event) pair: a record trigger.
 
   **Nothing runs and nothing is queued.** This module stores, replaces, removes and lists pins and
-  refuses a bad pin at bind time. No record write, step write or handler write reads the table yet
-  (later slices), and the routes are part 2. `enabled?/0` is the single reader of the
-  `:record_triggers_enabled` flag; `bind/5`, `rebind/5`, `unbind/4` and `list/1` do not call it, the
-  router of part 2 (`Letflow.Routers.RecordTriggerBindings`) acts on it.
+  refuses a bad pin at bind time. With the flag on, every record write reads the bindings through
+  `Letflow.RecordTriggers.Outbox` and leaves a `record_trigger_outbox` row in its own transaction
+  (REQ-606); `Letflow.RecordTriggers.Worker` (REQ-615) claims a row and marks it done (a stub; the script run is a later slice). `enabled?/0` is the single reader of the
+  `:record_triggers_enabled` flag (the binding router and the Outbox step); `bind/5`, `rebind/5`,
+  `unbind/4` and `list/1` do not call it, the router of part 2 (`Letflow.Routers.RecordTriggerBindings`)
+  acts on it.
 
   `bind/5`, `rebind/5` and `unbind/4` each run one `Ecto.Multi`: the checks first, the row change
   second, `Letflow.Audit.append_multi/4` last, so the audit entry and the row change commit or roll

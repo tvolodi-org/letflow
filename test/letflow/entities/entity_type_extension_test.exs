@@ -90,6 +90,7 @@ defmodule Letflow.Entities.EntityTypeExtensionTest do
   test "C7c no other lib file references the module or the table" do
     own = "lib/letflow/entities/entity_type_extension.ex"
     manifest = "lib/letflow/tenant_provisioning.ex"
+    ctx = "lib/letflow/entities/type_extensions.ex"
 
     files = Path.wildcard("lib/**/*.ex") |> Enum.map(&String.replace(&1, "\\", "/"))
 
@@ -99,7 +100,7 @@ defmodule Letflow.Entities.EntityTypeExtensionTest do
     table_hits =
       Enum.filter(files, fn f -> File.read!(f) =~ "entity_type_extensions" end)
 
-    assert alias_hits == [own]
-    assert Enum.sort(table_hits) == Enum.sort([own, manifest])
+    assert Enum.sort(alias_hits) == Enum.sort([own, ctx])
+    assert Enum.sort(table_hits) == Enum.sort([own, manifest, ctx])
   end
 end

@@ -40,10 +40,24 @@ import SolutionPackUpdateLauncherPage from '@/pages/solution-packs/SolutionPackU
 import SolutionPackUpdateReviewPage from '@/pages/solution-packs/SolutionPackUpdateReviewPage'
 import EventRetentionPage from '@/pages/admin/event-retention/EventRetentionPage'
 import PrintTemplatesPage from '@/pages/admin/PrintTemplatesPage'
+import ModuleUninstallPage from '@/pages/admin/moduleLifecycle/ModuleUninstallPage'
+import { isModulesUninstallEnabled } from '@/config/modulesUninstallFlag'
 import EntityListBrowserPage from '@/pages/entities/EntityListBrowserPage'
+import ReportBuilderPage from '@/pages/entities/ReportBuilderPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 import { REGISTERED_MODULE_ROUTE_OBJECTS } from '@/modules/registry'
+
+/** REQ-630: the flag is read at render time (not import time) so a test can stub the env. */
+function ModuleLifecycleRoute() {
+  return isModulesUninstallEnabled() ? (
+    <RequirePermission permission={P.ModulesManage}>
+      <ModuleUninstallPage />
+    </RequirePermission>
+  ) : (
+    <NotFoundPage />
+  )
+}
 
 /**
  * GH #2238 slice 2a (REQ-450): a platform page mounts only when the server-reported permission
@@ -107,6 +121,7 @@ export const router = createBrowserRouter([
       { path: 'admin/audit', element: <AuditLogPage /> },
       { path: 'admin/appearance', element: <AppearanceSettingsPage /> },
       { path: 'admin/print-templates', element: <RequirePermission permission={P.DocumentPrintTemplatesManage}><PrintTemplatesPage /></RequirePermission> },
+      { path: 'admin/module-lifecycle', element: <ModuleLifecycleRoute /> },
       { path: 'admin/health', element: platformPage(P.TenantsManage, <HealthDashboardPage />) },
       { path: 'admin/metrics', element: <MetricsPage /> },
       { path: 'admin/onboarding', element: platformPage(P.TenantsManage, <RegisterTenantPage />) },
@@ -133,6 +148,15 @@ export const router = createBrowserRouter([
       { path: 'webhooks', element: <WebhooksPage /> },
       // REQ-393: tenant-agnostic entity-list browse screen (filter/sort/page-size)
       { path: 'entities/:entityType', element: <EntityListBrowserPage /> },
+      // REQ-634: saved report builder; EntitiesQuery is the read permission of the report routes
+      {
+        path: 'entities/:entityType/reports',
+        element: (
+          <RequirePermission permission={P.EntitiesQuery}>
+            <ReportBuilderPage />
+          </RequirePermission>
+        ),
+      },
       // REQ-412 / ISS-0844: module-provided routes, wrapped in ModuleGuard by registry.ts.
       // Paths only render when the module is installed; uninstalled routes fall through.
       ...REGISTERED_MODULE_ROUTE_OBJECTS,

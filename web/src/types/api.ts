@@ -711,6 +711,10 @@ export interface EntityView {
   columns: string[]
   filter: EntityQueryFilterClause[]
   sort: EntityQuerySortClause[]
+  kind?: EntityViewKind
+  group_by?: EntityGroupByClause[]
+  aggregates?: EntityAggregateClause[]
+  chart_type?: string | null
 }
 
 export interface EntityViewCreateRequest {
@@ -719,4 +723,52 @@ export interface EntityViewCreateRequest {
   columns: string[]
   filter: EntityQueryFilterClause[]
   sort: EntityQuerySortClause[]
+}
+
+// ── Saved reports (REQ-619 / REQ-634) ─────────────────────────────────────────
+
+export type EntityViewKind = 'list' | 'pivot' | 'graph' | 'report'
+
+export type EntityAggregateFn = 'count' | 'sum' | 'avg' | 'min' | 'max'
+
+export interface EntityAggregateClause {
+  fn: EntityAggregateFn
+  field?: string
+}
+
+export interface EntityGroupByClause {
+  field: string
+}
+
+/** A saved report: `kind: "report"` of `/api/v1/entity-views`. */
+export interface ReportView extends EntityView {
+  kind: 'report'
+  group_by: EntityGroupByClause[]
+  aggregates: EntityAggregateClause[]
+}
+
+/** POST body; the client adds `kind: "report"`. `columns` / `sort` are omitted when empty. */
+export interface ReportCreateRequest {
+  entity_type: string
+  name: string
+  filter: EntityQueryFilterClause[]
+  group_by: EntityGroupByClause[]
+  aggregates: EntityAggregateClause[]
+  columns?: string[]
+  sort?: EntityQuerySortClause[]
+}
+
+/** PUT body: replaces the whole definition; kind and entity type are immutable and never sent. */
+export type ReportUpdateRequest = Omit<ReportCreateRequest, 'entity_type'>
+
+/** `POST /entities/query/aggregate` request body. */
+export interface EntityAggregateRequest {
+  entity_type: string
+  aggregates: EntityAggregateClause[]
+  group_by?: EntityGroupByClause[]
+  filters?: EntityQueryFilterClause[]
+}
+
+export interface EntityAggregateResponse {
+  results: { group?: Record<string, unknown>; values: Record<string, unknown> }[]
 }

@@ -224,6 +224,13 @@ defmodule Letflow.LockOrderHelpers do
     end
   end
 
+  @doc "The statement text backend `pid` is running or last ran (`pg_stat_activity.query`)."
+  @spec backend_query(pos_integer()) :: String.t()
+  def backend_query(pid) do
+    %{rows: [[query]]} = Repo.query!("SELECT query FROM pg_stat_activity WHERE pid = $1", [pid])
+    query
+  end
+
   @doc "The backend pids blocking `pid`."
   @spec blockers(pos_integer()) :: [pos_integer()]
   def blockers(pid) do

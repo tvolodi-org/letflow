@@ -69,6 +69,15 @@ defmodule Letflow.Modules.Installs do
   `install/3` of it stays `{:error, :already_installed}` (reactivate, not reinstall).
   `list_all/1` reads rows of any status (scope declarations keep their pre-uninstall filters, D3).
 
+  ## Open work (REQ-627, decision 0066 D8 slice 2)
+
+  `uninstall/3` refuses with `{:open_work_exists, %{open_instances: n, open_tasks: m}}` while an `:active`
+  instance projection or a `:pending` task of an `:active` instance belongs to a definition whose
+  `owner_module` is this module (the stamp decides, not the name). The counts are plain reads taken after
+  the row is locked FOR UPDATE; a start of a stamped definition share-locks the same row (see
+  `Letflow.Modules.StartGate`), so start and uninstall serialize on it. Both take the `tenant_modules` lock
+  before the audit chain (decision 0061 class 6), so no order is added. Nothing is deleted.
+
   The HTTP routes for both transitions are gated by `uninstall_enabled?/0` (default off); the two
   functions themselves do not read the flag.
   """
@@ -80,7 +89,10 @@ defmodule Letflow.Modules.Installs do
   alias Ecto.Multi
   alias Letflow.Audit
   alias Letflow.Definitions.SolutionPack
+  alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Entities.ManagedTypes
+  alias Letflow.Engine.Task
+  alias Letflow.EventStore.InstanceProjection
   alias Letflow.EventStore.Registry.JsonSchema
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.InstallContext
@@ -142,12 +154,17 @@ defmodule Letflow.Modules.Installs do
           | {:error, :not_installed}
           | {:error, :upgrade_required}
           | {:error, {:dependents_installed, [String.t()]}}
+          | {:error,
+             {:open_work_exists,
+              %{open_instances: non_neg_integer(), open_tasks: non_neg_integer()}}}
           | {:error, {:dependency_not_installed, module_id :: String.t()}}
 
   @doc """
   Soft-uninstalls `module_id` (decision 0066 D2): the row stays, its status becomes
   `:uninstalled`. `{:error, :not_installed}` when there is no active row;
   `{:error, {:dependents_installed, ids}}` (sorted) when an active module depends on it.
+  `{:error, {:open_work_exists, %{open_instances: n, open_tasks: m}}}` when an active instance or a pending
+  task of a definition stamped with this module exists (REQ-627).
   Needs a non-blank `opts[:rationale]`. Writes exactly one audit entry in the same transaction.
   """
   @spec uninstall(String.t(), Ecto.UUID.t(), opts()) ::
@@ -159,7 +176,7 @@ defmodule Letflow.Modules.Installs do
       opts,
       :active,
       :uninstalled,
-      &check_no_dependents/2,
+      &check_uninstallable/2,
       "module.uninstall"
     )
   end
@@ -234,6 +251,40 @@ defmodule Letflow.Modules.Installs do
       nil -> {:error, :not_installed}
       %TenantModule{} = row -> {:ok, row}
     end
+  end
+
+  defp check_uninstallable(row, prefix) do
+    with {:ok, _} <- check_no_dependents(row, prefix), do: check_no_open_work(row, prefix)
+  end
+
+  # REQ-627: open work is decided by the ownership stamp (`process_definitions.owner_module`), never
+  # by a definition name. Plain count reads after the `:row` step holds the module row FOR UPDATE; each
+  # is its own READ COMMITTED statement, so a start that held the share lock and committed while this
+  # transaction waited is visible. They take no row lock (decision 0061: no `P_x` lock from here).
+  defp check_no_open_work(%TenantModule{module_id: module_id}, prefix) do
+    instances =
+      from(p in InstanceProjection,
+        join: d in ProcessDefinition,
+        on: d.id == p.definition_id,
+        where: p.status == :active and d.owner_module == ^module_id,
+        select: count(p.instance_id)
+      )
+      |> Repo.one(prefix: prefix)
+
+    tasks =
+      from(t in Task,
+        join: p in InstanceProjection,
+        on: p.instance_id == t.instance_id,
+        join: d in ProcessDefinition,
+        on: d.id == p.definition_id,
+        where: t.status == :pending and p.status == :active and d.owner_module == ^module_id,
+        select: count(t.id)
+      )
+      |> Repo.one(prefix: prefix)
+
+    if instances + tasks > 0,
+      do: {:error, {:open_work_exists, %{open_instances: instances, open_tasks: tasks}}},
+      else: {:ok, :no_open_work}
   end
 
   # An active row whose module left the catalog contributes nothing: its depends_on is unknown.

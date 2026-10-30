@@ -83,6 +83,10 @@ config :letflow, scripts_test_hooks: true
 # run_claimed/2 directly.
 config :letflow, start_script_task_dispatcher: false
 
+# REQ-615 (GH #3434): the record-trigger worker's zero-delay first tick queries Letflow.Repo from a
+# process no test owns (the same OwnershipError hazard). Tests call Worker.run_tick/2 and claim_next/1.
+config :letflow, start_record_trigger_worker: false
+
 # GH #3292: the provisioner sweep (Letflow.TenantProvisioner.Sweep) is timer-driven and queries
 # Letflow.Repo from a process no test is an ancestor of (the same OwnershipError hazard as the pollers
 # above). Tests call Sweep.run/1 directly or start their own instance.
@@ -390,3 +394,7 @@ config :letflow, :record_triggers_enabled, false
 # REQ-597 / GH #3363: exam notification mails (the exam_result mail after a scored submit). Default
 # off. Read only by Letflow.Modules.Exam.Notifications.enabled?/0.
 config :letflow, :exam_notifications_enabled, false
+
+# REQ-620 / GH #3463: same as config/dev.exs -- lets CreateLedgerTables.down run. Not set in
+# config/prod.exs or config/runtime.exs.
+config :letflow, :allow_ledger_migration_down, true

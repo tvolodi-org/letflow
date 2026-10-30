@@ -103,7 +103,8 @@ defmodule Letflow.Api.TasksRouteClassesTest do
       # GH #3324 (REQ-588 part A) added the two exam grading-queue read lines (140).
       # GH #3338 (REQ-590) added the two tenant logo lines (142).
       # GH #3162 (REQ-544 part 2) added the five procurement lines; with #3324 part B (grade POST) 149.
-      assert length(snapshot) == 154
+      # REQ-633 (GH #3530) added the entity-type-hooks dry-run line (160).
+      assert length(snapshot) == 160
 
       for line <- @filter_lines ++ @resolver_lines do
         refute line in snapshot, line

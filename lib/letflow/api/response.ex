@@ -266,6 +266,12 @@ defmodule Letflow.Api.Response do
   def module_dependents_installed(conn, ids),
     do: send_problem(conn, Error.module_dependents_installed(ids))
 
+  @doc "HTTP 409 — Module Has Open Work (REQ-627). See `Error.module_open_work_exists/2`."
+  @spec module_open_work_exists(Plug.Conn.t(), non_neg_integer(), non_neg_integer()) ::
+          Plug.Conn.t()
+  def module_open_work_exists(conn, instances, tasks),
+    do: send_problem(conn, Error.module_open_work_exists(instances, tasks))
+
   @doc "HTTP 409 — Module Upgrade Required (REQ-578). See `Error.module_upgrade_required/0`."
   @spec module_upgrade_required(Plug.Conn.t()) :: Plug.Conn.t()
   def module_upgrade_required(conn), do: send_problem(conn, Error.module_upgrade_required())
@@ -306,6 +312,12 @@ defmodule Letflow.Api.Response do
     do: send_problem(conn, Error.form_hook_refused(code, fields))
 
   @doc """
+  HTTP 503 — the form validation hook gave no verdict (GH #3524); see `Error.form_hook_failed/1`.
+  """
+  @spec form_hook_failed(Plug.Conn.t(), atom()) :: Plug.Conn.t()
+  def form_hook_failed(conn, code), do: send_problem(conn, Error.form_hook_failed(code))
+
+  @doc """
   HTTP 422 — a definition binding a tenant script that is not runnable as bound (GH 2534 PR
   7c-1, design gh2534-7c-script-handler.md 4.5). The node id is the caller's own graph; the
   reason is a closed code. One body for every route that activates a definition (activate,
@@ -332,15 +344,35 @@ defmodule Letflow.Api.Response do
   @spec entity_write_refused(Plug.Conn.t(), atom(), non_neg_integer() | nil) :: Plug.Conn.t()
   def entity_write_refused(conn, code, index)
       when is_atom(code) and (is_nil(index) or is_integer(index)) do
+    conn = if code == :trigger_backlog_full, do: put_backlog_retry_after(conn), else: conn
+
     send_json(conn, entity_write_status(code), %{
       "error" => Atom.to_string(code),
       "line_index" => index
     })
   end
 
+  @doc """
+  The `Retry-After` seconds of a `trigger_backlog_full` answer (REQ-606, decision 0067 D6).
+  PROVISIONAL, like the 503 itself, pending the owner's decision (REQ-606 open_questions).
+  """
+  @spec backlog_retry_after_seconds() :: pos_integer()
+  def backlog_retry_after_seconds, do: 30
+
+  @doc false
+  @spec put_backlog_retry_after(Plug.Conn.t()) :: Plug.Conn.t()
+  def put_backlog_retry_after(conn),
+    do:
+      Plug.Conn.put_resp_header(
+        conn,
+        "retry-after",
+        Integer.to_string(backlog_retry_after_seconds())
+      )
+
   defp entity_write_status(:write_not_permitted), do: 403
   defp entity_write_status(:record_version_conflict), do: 409
   defp entity_write_status(:entity_write_contention), do: 503
+  defp entity_write_status(:trigger_backlog_full), do: 503
   defp entity_write_status(_validation_class), do: 422
 
   @doc """

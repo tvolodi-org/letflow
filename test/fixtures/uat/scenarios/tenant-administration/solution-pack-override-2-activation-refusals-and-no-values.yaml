@@ -1,0 +1,178 @@
+# REQ-610 slice S3 (BA-TENANT-ADMINISTRATION): refusals of an activation request and the answer that never carries the company's values.
+# Criteria covered, by REQ-610 number:
+#   5 (a request without a reason is refused and writes no version: EO-001; an unknown change number and a pack the company has not installed
+#     answer the same not-found reply: EO-002; no stray version after the refusals: EO-003),
+#   6 (the success answer carries identifier, name and version only, never a stored value: EO-004; the audit entry has the fixed items and no stored value: EO-005),
+#   2 (an activation that is accepted after the refusals still works: EO-004).
+# Not UAT-observable here (stay with the backend tests S3-refusals, S3-audit-no-values; the reason is written in each case):
+#   - a variable-schema change refused artefact_type_not_supported: the write route cannot store one (the closed list of changeable properties has no
+#     entry for a variable schema), so there is nothing to activate;
+#   - a change whose installed process was deleted, and a change on a module-owned process (module_owned_definition_not_supported): they need
+#     test setup that no route offers (deleting a version, installing a module-wrapped pack);
+#   - a merged graph that fails validation: the closed list cannot produce one through the routes;
+#   - two concurrent calls; the captured log lines and the DROP TABLE case (criterion 6): log and database access (the audit entry itself is read in step 6).
+# Sensitive actions: change process definitions is refused in steps 2 to 4; see sensitive data: step 5 (a stored value is not echoed).
+#   approve, pay or release, change users: not part of this flow. Who may activate at all, and the other company: scenario 3.
+# Steps 2, 3 and 4 are expected to be REFUSED (one request each). Steps 1 and 5 are accepted cases in their own steps.
+---
+id: tenant-administration-solution-pack-override-activation-refusals-and-no-values
+scope: tenant-administration
+title: An activation without a reason or for an unknown change is refused, and a successful one never repeats the company's values
+version: "1.0"
+tags: [solution-pack, override, activation, refusal, sensitive-data]
+
+description: >
+  SwiftRoute has an installed pack process and its administrator stores a change that gives the second step the distinctive label
+  "Zebra 987654 check". Activating the change without a reason is refused and no new version appears. Activating a change number that does not
+  exist, and activating the stored change under a pack the company has not installed, are both refused with the same not-found answer: nothing
+  tells the two cases apart. After these refusals the process versions of the company are exactly what they were. The administrator then
+  activates the change properly with a reason; the answer names the new version and the identifiers, and does not contain the label text.
+
+actors:
+  swiftroute_admin: actor-swiftroute-alice
+  swiftroute_auditor: actor-swiftroute-auditor
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator and its read-only auditor
+    check: system_seeded
+  - description: >
+      SwiftRoute has an active installation of a process pack with a process that has at least two steps; the administrator can read the pack, the
+      process and the identifier of the process; no change has been stored for this pack yet; the run knows one pack identifier that SwiftRoute
+      has not installed
+    check: custom
+    detail: Set up by the platform team. If the pack has no process with two steps, or SwiftRoute has installed the "not installed" pack, the scenario is BLOCKED.
+  - description: The run can read the process versions of SwiftRoute (name, version, status)
+    check: custom
+    detail: Needed for the outcomes that compare versions before and after; otherwise those outcomes are BLOCKED.
+
+steps:
+  - step: 1
+    actor: swiftroute_admin
+    action: >
+      Stores a change (version 1) for the installed process with the reason "Rename step two" that sets the label of the second step to
+      "Zebra 987654 check", and reads the process versions of the company.
+    via: api
+    input:
+      change_properties: second step label
+      reason: Rename step two
+    produces:
+      change_1: change 1 stored, status active
+      versions_before: the process versions of the company before any activation
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: swiftroute_admin
+    action: Asks to activate change 1 and brings no reason.
+    via: api
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: swiftroute_admin
+    action: Asks to activate a change number that does not exist, with the reason "Roll out".
+    via: api
+    input:
+      override: an identifier no change of the company has
+      reason: Roll out
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: swiftroute_admin
+    action: Asks to activate change 1 under the pack identifier that SwiftRoute has not installed, with the reason "Roll out".
+    via: api
+    input:
+      pack: the pack identifier that SwiftRoute has not installed
+      reason: Roll out
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: swiftroute_admin
+    action: Activates change 1 under its own pack with the reason "Roll out the new label", then reads the process versions of the company.
+    via: api
+    input:
+      reason: Roll out the new label
+    produces:
+      activation: the new process version, its identifier, name, change version 1 and previous version identifier
+      versions_after: the new version active, the installed version deprecated
+    sla_context:
+      expected_within_hours: null
+
+  - step: 6
+    actor: swiftroute_auditor
+    action: >
+      Reads the audit trail of SwiftRoute for the entries of the kind "pack process change activated" that belong to change 1, and searches every
+      audit entry for the texts "Zebra" and "987654".
+    via: api
+    produces:
+      audit_entries: the activation entries for change 1 and their recorded content
+    sla_context:
+      expected_within_hours: null
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The request in step 2 is refused with the validation answer whose detail is exactly reason_required, not as a server fault.
+    verification:
+      method: api_response
+      detail: Status 422, detail reason_required; nothing of the stored change in the answer.
+      evidence: The answer.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A process could be changed without anyone stating why.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      The answers of steps 3 and 4 are the same not-found answer, identical in status, headers and body, and identical to what a call for any other
+      unknown identifier gives; nothing reveals whether the change or the pack exists.
+    verification:
+      method: api_response
+      detail: Both answers have status 404; status, headers and body of the two compared with each other.
+      evidence: The two answers side by side.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Callers could probe which changes and packs exist.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      After steps 2 to 4 the process versions of the company are exactly those read in step 1: no new version, no draft, no status change.
+    verification:
+      method: system_state
+      detail: Process versions of the company read before step 2 and after step 4 are identical in count, names, versions and statuses.
+      evidence: The two readings compared.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused activation left traces, so the company's processes are not what they were.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      Step 5 succeeds with status 200; the answer holds the identifier, name and version of the new process version, the change version and the
+      previous version identifier, and the text "Zebra 987654 check" does not appear in it; the new version is the only active one of its name.
+    verification:
+      method: api_response
+      detail: Status 200; the answer searched for "Zebra" and "987654" finds nothing; the versions read afterwards show one active version.
+      evidence: The answer and the version reading.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Stored company values would leak into answers, or an accepted activation would not work after refused attempts.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      The audit trail holds exactly one entry for the activation of change 1 (from step 5) and none for the refused requests of steps 2 to 4. Its
+      recorded content has exactly these items: the pack, the kind of artefact, the artefact, the change, the change version, the content fingerprint,
+      the new process version identifier, the new process version and the reason; and the texts "Zebra" and "987654" appear in no audit entry.
+    verification:
+      method: api_response
+      detail: >
+        Audit trail read by the auditor (action solution_pack.override_activated, resource type solution_pack_override, resource the change): one entry;
+        its after-state keys are pack_id, artefact_type, artefact_id, override_id, override_version, patch_hash, definition_id, definition_version and
+        reason, and no others; the search for the two texts over all entries finds nothing.
+      evidence: The audit entries read in step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The change is not traceable, or the audit trail carries the company's stored wording.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: The platform team removes or deactivates the process versions, stored changes and installation created for the scenario; otherwise later runs use a fresh pack.
