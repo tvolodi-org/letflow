@@ -275,6 +275,26 @@ defmodule Letflow.Api.Error do
   end
 
   @doc """
+  HTTP 409 — Module Has Open Work (REQ-627). An uninstall was refused because an active instance or a
+  pending task of the module's definitions exists. Constant `code` `"open_work_exists"` and the two counts
+  of the caller's own tenant; no ids.
+  """
+  @spec module_open_work_exists(non_neg_integer(), non_neg_integer()) :: t()
+  def module_open_work_exists(open_instances, open_tasks) do
+    %__MODULE__{
+      type: @problems_base <> "module-open-work-exists",
+      title: "Module Has Open Work",
+      status: 409,
+      detail: "running instances or open tasks of this module exist; finish or cancel them first",
+      extensions: %{
+        "code" => "open_work_exists",
+        "open_instances" => open_instances,
+        "open_tasks" => open_tasks
+      }
+    }
+  end
+
+  @doc """
   HTTP 409 — Module Upgrade Required (REQ-578). A reactivate was refused because the stored
   manifest hash is missing or differs from the compiled module. Constant `code`
   `"upgrade_required"`.

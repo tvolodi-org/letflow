@@ -172,6 +172,14 @@ defmodule Letflow.Api.ErrorTest do
       assert upgrade["status"] == 409
       assert upgrade["code"] == "upgrade_required"
     end
+
+    test "E2: open_work_exists is 409 with a constant code and two counts, no ids" do
+      open_work = decode(Error.module_open_work_exists(2, 3))
+      assert open_work["status"] == 409
+      assert open_work["code"] == "open_work_exists"
+      assert open_work["open_instances"] == 2
+      assert open_work["open_tasks"] == 3
+    end
   end
 
   describe "serialisation contract" do
