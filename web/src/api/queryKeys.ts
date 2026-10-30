@@ -202,6 +202,9 @@ export const queryKeys = {
     /** REQ-556 saved list views of one entity type. */
     views: (tenantId: string, entityType: string) =>
       [...queryKeys.entities.all(tenantId), 'views', entityType] as const,
+    /** REQ-634 saved report definitions of one entity type. */
+    reports: (tenantId: string, entityType: string) =>
+      [...queryKeys.entities.all(tenantId), 'reports', entityType] as const,
   },
 
   modules: {
