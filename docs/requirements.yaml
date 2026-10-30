@@ -45361,3 +45361,101 @@ requirements:
       - "OPEN (process owner, from decision 0066): D1 tenant-wide sharing and D4 TENANT_ADMIN-only writes are assumptions to be confirmed; the screen follows the permissions the server enforces."
       - "OPEN: whether the screen is reached from the entity list browser (a link beside the saved-view bar) or from the navigation; not decided, the route is reachable by URL and the placement is a later UX choice."
     depends_on: [REQ-619]
+
+  - id: REQ-635
+    title: "Tenant-owned record types slice B: scope declaration table, admin-plane routes and the third source of ScopeDeclaration (decision 0070 D3 and D6 slice B)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-518 -- the scope declaration it extends (REQ-518, 0051 D6) is still pending in the register
+    # Source: docs/migration/decisions/0070-tenant-owned-record-types.md (D1, D3, D6 slice B, "Open owner questions" Q1, "Tests the implementation slices must add" D3-*, "Threats for SECURITY-REVIEWER"); docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md (D5, D6, D7, D11, D12); docs/migration/decisions/0006 (D2, no tenant_id column in a schema-isolated table); code read: lib/letflow/entities/scope_declaration.ex (for_type/2, for_types/2, resolve_candidate/4, valid_declaration?/1), lib/letflow/entities/managed_types.ex (owner_of/2, managed_name?/1), lib/letflow/entities/definition.ex (constraint_def, constraints), lib/letflow/entities/definitions.ex (get_active_definition_by_name/2), lib/letflow/entities/query/compiler.ex (the :undeclared consumer), lib/letflow/routers/number_sequences.ex (the nearest router with scope: :tenant_wide and one management permission), lib/letflow/routers/entities.ex (restrictions import, EntitiesRestrictionsManage), lib/letflow/audit.ex (append_multi/4), lib/letflow/plugs/api_pipeline.ex (forward list), priv/repo/migrations/20261029200001_create_record_trigger_outbox.exs (tenant-table migration convention, TenantProvisioning manifest), test/support/tenant_fixture.ex (@expected_tenant_tables), docs/roles.md (EntitiesRestrictionsManage: TENANT_ADMIN only). Written by the business analyst (T-0979) 2026-10-30. Not yet validated.
+    description: >
+      Slice B of decision 0070 (D6 "Slice B, scope declaration (D3)"); the decision record is the product of
+      REQ-566. Today lib/letflow/entities/scope_declaration.ex reads module manifests only (the optional
+      :scope_declarations key), so a tenant-owned record type, which no manifest names, is :undeclared and
+      returns no data to a scoped caller (lib/letflow/entities/query/compiler.ex). That is safe but leaves a
+      tenant-owned type unusable once scope enforcement is on. This slice adds a core-owned way for a
+      tenant-wide TENANT_ADMIN to declare how one tenant-owned type is scoped, and makes ScopeDeclaration read
+      it as a third source. It does not touch write permission (slice A, REQ-577, independent of this entry),
+      module references (slice C) or the web (slice D); those are other entries. The record's slice order says
+      A and B may go in either order.
+      OPEN OWNER QUESTION (0070 "Open owner questions" Q1, scope declaration route; NOT decided by this entry
+      or by the business analyst). Options: (a) a core table of declarations set by a tenant-wide
+      TENANT_ADMIN, :undeclared until set (recommended by the record); (b) a fixed :tenant_wide for every
+      tenant-owned type (rejected in the record: it lets a scoped caller read everything, widening what 0051
+      D6 forbids); (c) never declare, :undeclared for ever (rejected as an end state). THIS ENTRY ASSUMES
+      option (a) (assumption, to be confirmed by the owner). If the owner chooses (b) or (c) the text below is
+      REWRITTEN after the answer, no table and no route are built, and the feature task does not start on this
+      text. A second assumption, made only so that the entry has one implementation: the routes use the
+      existing permission EntitiesRestrictionsManage (TENANT_ADMIN only, docs/roles.md) and no new permission,
+      as slice A does for Q3; a new permission would move priv/permission_matrix/effective.golden and the
+      tenant-auditor refused set and is for the owner to ask for.
+      WHAT THE SLICE BUILDS (assuming option (a)).
+      (1) Migration: one tenant table, the scope declarations of tenant-owned types, created under the
+      migration prefix with the mandatory if prefix() guard, registered in the TenantProvisioning manifest,
+      with no tenant_id column (decision 0006 D2: the tenant is the schema; INV-1) and no foreign key. One row
+      holds the entity type name (unique), the kind (column or tenant_wide), the field name (present only for
+      column), who set it and when. It starts empty: no existing row changes and no tenant changes behaviour on
+      deploy.
+      (2) Routes, in a new router mounted by one forward in lib/letflow/plugs/api_pipeline.ex, using
+      Letflow.Api.AuthorizedRouter like lib/letflow/routers/number_sequences.ex, every route with
+      scope: :tenant_wide (0051 D11, the admin plane is tenant-wide only, so a scoped TENANT_ADMIN is refused)
+      and the permission EntitiesRestrictionsManage: PUT /api/v1/entity-scope-declarations/:entity_type with
+      body kind (column or tenant_wide) and, for column, field, sets or replaces the declaration of that
+      type and answers 200 with the stored declaration (entity type, kind, field, set_at; no tenant_id);
+      GET /api/v1/entity-scope-declarations answers 200 with the declarations of the caller's tenant ordered by
+      entity type. There is no delete route: a declaration is immutable once set except by an audited replace
+      (0070 D3). The tenant comes only from the DB-resolved auth_context and conn.assigns.scoped_opts (INV-1);
+      neither route takes a tenant identifier and a tenant_id in query or body is ignored (INV-10).
+      (3) Refusals of the PUT, each one uniform error body of the neighbouring routers, nothing stored: (i) a
+      type name for which ManagedTypes.owner_of/2 returns a module id, or which a manifest :scope_declarations
+      names, answers the managed 403 (Letflow.Api.Error.entity_type_managed/0), so a tenant can never declare,
+      widen or remove the declaration of a module-managed type; (ii) a type with no active definition in the
+      caller's tenant answers 404 (INV-5: the same answer as for a type of another tenant); (iii) kind column
+      with a field that no entry of the active definition's constraints names in its fields list answers 422
+      (activation promotes only those fields to indexed columns, 0070 D3); (iv) a malformed kind, a malformed
+      type name or field name (ManagedTypes.managed_name?/1), kind tenant_wide with a field, or kind column
+      without one answers 422.
+      (4) Audit: each set or replace writes one audit entry in the same transaction as the upsert through
+      Letflow.Audit.append_multi/4 (lib/letflow/audit.ex), carrying the old and new kind and field and the actor
+      and no record value. A refusal writes no declaration row.
+      (5) The third source: Letflow.Entities.ScopeDeclaration.for_types/2 reads the core table only for a type
+      that no manifest names and no module manages (ManagedTypes.owner_of/2 returns :unmanaged); a type any
+      manifest names or any module manages keeps exactly today's resolution. Reads stay inside the tenant
+      schema given by prefix (INV-6). The moduledoc sentence "never read from a tenant definition" stays true
+      (the table is not definition_json) and the moduledoc is updated to name the third source. A type with no
+      row stays :undeclared; unscoped callers and tenants with enforcement off are unaffected (0051 D12). The
+      404 for an out-of-scope record is unchanged (0051 D7).
+      (6) Pins. The routes move pins that the implementer finds with the greps named in the criteria and states
+      as +N from the value on origin/main at implement time: the tenant table-list pin
+      (@expected_tenant_tables in test/support/tenant_fixture.ex, read through
+      TenantFixture.expected_tenant_tables/0) and its count in test/letflow/support/tenant_fixture_test.exs
+      (+1; grep the previous migration's table name across test/); the named-routes pins in
+      test/letflow/routers/tenant_auditor_routes_test.exs (@named_routes and length(named), +1 for the new
+      forward); the route-inventory pins (length(snapshot) in route_scope_resolver_test.exs,
+      route_scope_self_service_test.exs and tasks_route_classes_test.exs, and
+      test/fixtures/route_scope/tenant_wide_default_routes.txt), which stay unchanged only if every route
+      declares scope: :tenant_wide, which this entry requires, and which the implementer re-derives rather than
+      assumes; the route-count pins found by grep __authz_routes__ across test/; the migration version against
+      the files in priv/repo/migrations at implement time. The permission golden and the tenant-auditor
+      refused set stay unchanged because no permission is added.
+      (7) SECURITY-REVIEWER is mandatory (tenant data path, INV-1, INV-5, INV-6, INV-10). Its threats are those
+      of 0070 "Threats for SECURITY-REVIEWER" for D3: a tenant declaring or widening the scope of a
+      module-managed type, and a tenant-wide declaration exposing records to a scoped caller.
+      NOT IN THIS ENTRY: slices A, C and D; any change to a module manifest declaration or to the managed_by
+      lock; a delete route; any UI; any change to the 0051 scope filter beyond where a declaration is read.
+      FEATURE-TASK GATE: the feature task for this entry must NOT start before the owner has confirmed Q1 in
+      writing (recorded on the tracker issue or in 0070's open-question section) and REQ-566 has merged.
+    acceptance_criteria:
+      - "1. The entry text names 0070 Q1 (scope declaration route) as an open owner question, states that it assumes option (a) (core table set by a tenant-wide TENANT_ADMIN, :undeclared until set) and the reuse of EntitiesRestrictionsManage, and states that the business analyst does not decide them."
+      - "2. D3-undeclared: with no declaration row for a tenant-owned type, ScopeDeclaration.for_type/2 returns :undeclared and a scoped caller of POST /query on that type gets no data; an unscoped caller and a tenant with enforcement off see no change. After the PUT sets kind tenant_wide, the same scoped caller gets the data the 0051 scope filter allows, and after kind column with a constrained field the filter applies on that field."
+      - "3. D3-managed: a PUT naming a module-managed type, or a type that a manifest :scope_declarations names, is refused with the managed 403 and stores no row; the declaration that ScopeDeclaration returns for that type is the same before and after the request. One test per case (managed by a module; named by a manifest)."
+      - "4. D3-column: a PUT with kind column and a field that no entry of the active definition's constraints names in its fields list is refused with 422 and stores nothing; the same PUT with a field that a constraints entry names is accepted with 200 and the stored declaration is returned by GET. A PUT for a type with no active definition in the caller's tenant is refused with 404."
+      - "5. Refusal inputs of the PUT are each refused with 422 and store nothing: an unknown kind, a type name or field name failing ManagedTypes.managed_name?/1, kind tenant_wide with a field, kind column without a field. A replace of an existing declaration is accepted with 200, overwrites the row (one row per type) and writes one audit entry with the old and the new kind and field in the same transaction (a forced audit failure leaves the old row)."
+      - "6. D3-xtenant (INV-1, INV-6, INV-10): with the same type name in tenants A and B, a declaration set in tenant A is not read by ScopeDeclaration.for_types/2 for tenant B (B stays :undeclared), and GET in tenant B does not list it. A PUT or GET carrying another tenant's identifier in query or body, or a token of tenant B naming tenant A's type, changes and shows nothing of tenant A (the identifier is ignored). A PLATFORM_ADMIN token of the platform tenant on these routes gets its own tenant's data only, not tenant A's. The table exists only in the tenant schema, created under the migration prefix with no tenant_id column (decision 0006 D2)."
+      - "7. Access: both routes are refused with 403 for every role that lacks EntitiesRestrictionsManage, including PROCESS_DESIGNER and the tenant auditor, and for a TENANT_ADMIN whose grant is scoped (0051 D11); a request without a token is refused with 401. A route that a tenant-wide TENANT_ADMIN calls answers 200."
+      - "8. ScopeDeclaration third source: for_types/2 still returns, for a type named by one manifest, the same declaration as before, and for a type named by two manifests :undeclared; the table is read only for types that no manifest names and no module manages. A test with the table holding a row for a managed type name (inserted directly, not through the route) shows that the row is ignored."
+      - "9. Pins: the tenant table-list pin and its count are +1 from the value on origin/main at implement time; @named_routes and length(named) in tenant_auditor_routes_test.exs are +1; every route-inventory pin found by grep __authz_routes__ and length(snapshot) across test/ is re-derived and its new value stated in the pull request (unchanged for the snapshot pins and tenant_wide_default_routes.txt only because both routes declare scope: :tenant_wide); priv/permission_matrix/effective.golden and the tenant-auditor refused set are byte-for-byte unchanged and MIX_ENV=dev mix letflow.permission_matrix --check reports no difference. If the owner chooses a new permission instead, this criterion is replaced by the owner's answer before the feature task starts."
+      - "10. The migration is registered in the TenantProvisioning manifest, starts empty, and the pull request states how existing QA tenants are handled (no row is created, so none changes behaviour)."
+      - "11. The pull request carries a SECURITY-REVIEWER verdict (mandatory) and names slices A (REQ-577), C and D of 0070 D6 as other requirements that this change does not build."
+    depends_on: [REQ-517, REQ-518, REQ-519, REQ-566, "owner confirmation of decision 0070 Q1 (scope declaration route): the feature task must not start before it"]
