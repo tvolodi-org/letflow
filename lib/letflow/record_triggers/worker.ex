@@ -15,17 +15,18 @@ defmodule Letflow.RecordTriggers.Worker do
   `pending` locked `FOR UPDATE SKIP LOCKED` on the outbox row only, then set `running` with
   `attempt + 1`, `claimed_at` and the lease. No record row and no sequence row is touched.
 
-  **Run.** The only run is `mark_done_stub/2`, the single function the script-running slice (T-4)
-  replaces. A test-only hook (`:record_trigger_run_fun`, honoured only while the scripts test hooks
-  are on) can swap it to force an exception.
+  **Run.** `run_row/2` (REQ-628): `Runner.run/2` builds the input and runs the pinned script,
+  `Apply.apply_result/3` writes its lines and sets the row `done` in one transaction, `Apply.finish/3`
+  sets a closed failure code (`dead`, or `pending` with a backoff). A test-only hook
+  (`:record_trigger_run_fun`, honoured only while the scripts test hooks are on) can swap it.
 
   **Sweep, cap, backoff (part B).** Each tick first sweeps expired leases per tenant
   (`sweep_expired_leases/2`, bounded by `sweep_limit`): a `running` row whose lease ran out goes back
   to `pending` with `last_code` `lease_expired` and `next_attempt_at = now + backoff_ms/1`, or to
   `dead` with `retries_exhausted` once its `attempt` (the claim count) has reached `max_attempts`.
   Every swept row counts in `swept` and in the `[:letflow, :record_trigger, :lease_expired]`
-  telemetry event; `dead` is the subset that ended dead. The sweep and the stub both check
-  (id, attempt, status = running), so a late stub and the sweep have exactly one winner.
+  telemetry event; `dead` is the subset that ended dead. The sweep and the run both check
+  (id, attempt, status = running), so a late run and the sweep have exactly one winner.
 
   The tenant comes only from the schema list passed in (`Registration`), never from a row column.
   """
@@ -37,7 +38,9 @@ defmodule Letflow.RecordTriggers.Worker do
   require Logger
 
   alias Letflow.RecordTriggers
+  alias Letflow.RecordTriggers.Apply
   alias Letflow.RecordTriggers.OutboxRow
+  alias Letflow.RecordTriggers.Runner
   alias Letflow.Repo
   alias Letflow.TenantProvisioning.Registration
 
@@ -64,6 +67,7 @@ defmodule Letflow.RecordTriggers.Worker do
           skipped: non_neg_integer(),
           swept: non_neg_integer(),
           dead: non_neg_integer(),
+          retried: non_neg_integer(),
           sweep_failed: non_neg_integer(),
           budget_exhausted: boolean()
         }
@@ -156,6 +160,7 @@ defmodule Letflow.RecordTriggers.Worker do
       skipped: 0,
       swept: 0,
       dead: 0,
+      retried: 0,
       sweep_failed: 0,
       budget_exhausted: false
     }
@@ -228,8 +233,8 @@ defmodule Letflow.RecordTriggers.Worker do
 
   defp run_fun do
     if Letflow.Scripts.Runtime.test_hooks?(),
-      do: Application.get_env(:letflow, :record_trigger_run_fun, &mark_done_stub/2),
-      else: &mark_done_stub/2
+      do: Application.get_env(:letflow, :record_trigger_run_fun, &run_row/2),
+      else: &run_row/2
   end
 
   defp safe_claim(prefix) do
@@ -250,6 +255,8 @@ defmodule Letflow.RecordTriggers.Worker do
     case outcome do
       :done -> %{summary | done: summary.done + 1}
       :stale -> %{summary | stale: summary.stale + 1}
+      :dead -> %{summary | dead: summary.dead + 1}
+      :retry -> %{summary | retried: summary.retried + 1}
       :caught -> %{summary | skipped: summary.skipped + 1}
     end
   end
@@ -457,21 +464,25 @@ defmodule Letflow.RecordTriggers.Worker do
       :error
   end
 
-  # ── run (stub) ───────────────────────────────────────────────────────────────
+  # ── run ──────────────────────────────────────────────────────────────────────
 
   @doc """
-  The single stub run T-4 replaces: marks the claimed row `done`, checked on id, attempt and
-  status. Returns `:done`, or `:stale` when the row is no longer this claim.
+  The run of one claimed row (REQ-628): `Runner.run/2`, then `Apply.apply_result/3` for its lines or
+  `Apply.finish/3` for a closed failure code. Returns `:done`, `:retry` (back to `pending`), `:dead`,
+  or `:stale` when the row is no longer this claim.
   """
-  @spec mark_done_stub(OutboxRow.t(), String.t()) :: :done | :stale
-  def mark_done_stub(%OutboxRow{} = row, prefix) when is_binary(prefix) do
-    {count, _} =
-      from(r in OutboxRow,
-        where: r.id == ^row.id and r.attempt == ^row.attempt and r.status == :running
-      )
-      |> Repo.update_all([set: [status: :done, done_at: now()]], prefix: prefix)
+  @spec run_row(OutboxRow.t(), String.t()) :: :done | :retry | :dead | :stale
+  def run_row(%OutboxRow{} = row, prefix) when is_binary(prefix) do
+    result =
+      case Runner.run(row, prefix) do
+        {:ok, lines} -> Apply.apply_result(row, lines, prefix)
+        failure -> failure
+      end
 
-    if count == 1, do: :done, else: :stale
+    case result do
+      {kind, _code} = failure when kind in [:dead, :retry] -> Apply.finish(row, prefix, failure)
+      outcome -> outcome
+    end
   end
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
