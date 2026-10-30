@@ -2,7 +2,7 @@
 # Sources: docs/requirements.yaml REQ-597 description (Flag and default) and criterion 3; config/config.exs sets
 # :exam_notifications_enabled to false; docs/roles.md (NotificationTemplatesManage: TENANT_ADMIN and PLATFORM_ADMIN only, which
 # also gates the delivery log read); test/fixtures/uat/actors.yaml (actor-bilimbaga-candidate, actor-bilimbaga-admin).
-# The admin's token needs a qa-login mapping that is not yet approved (roster note): if it cannot sign in, steps 3 and 4 are
+# The admin's token needs a qa-login mapping that is not yet approved (roster note): if it cannot sign in, steps 1 and 3 are
 # BLOCKED and EO-001 is BLOCKED, not PASS.
 # Observed only through the company's delivery log and the exam-taking answers. The "same return value as before" part of
 # criterion 3, and the string "true" counting as off, have no HTTP surface and are not UAT-observable (see "Not covered here" in
