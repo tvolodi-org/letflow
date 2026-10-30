@@ -66,7 +66,7 @@ steps:
   - step: 5
     actor: tenant_admin_a
     action: >
-      The administrator adds "x_scope_probe" (type text) to "ext_module_item" with a request that also names the company Bilimbaga as the company identifier in the body, in the query and as a request header. The answer is noted.
+      The administrator adds "x_scope_probe" (type text) to "ext_module_item" with a request that also carries Bilimbaga's company id three times: as the body member "tenant_id", as the query parameter tenant_id, and as a request header named "x-tenant-id". No other header or member is added. The answer is noted.
     via: api
   - step: 6
     actor: tenant_admin_b

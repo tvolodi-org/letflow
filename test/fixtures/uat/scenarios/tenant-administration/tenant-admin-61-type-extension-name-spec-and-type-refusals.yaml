@@ -59,19 +59,19 @@ steps:
   - step: 4
     actor: tenant_admin_a
     action: >
-      The administrator tries to add a field named "x_amount" again (the name from step 1, still active). The answer is noted.
+      The administrator tries to add a field named "x_amount" again, type text (the name from step 1, still active). The answer is noted.
     expect_refusal: true
     via: api
   - step: 5
     actor: tenant_admin_a
     action: >
-      The administrator tries to add a field named "x_old_retired" (the retired name from the preconditions). The answer is noted.
+      The administrator tries to add a field named "x_old_retired", type text (the retired name from the preconditions). The answer is noted.
     expect_refusal: true
     via: api
   - step: 6
     actor: tenant_admin_a
     action: >
-      The administrator tries to add a field named "x_reserved_probe" (a name the module itself uses). The answer is noted.
+      The administrator tries to add a field named "x_reserved_probe", type text (a name the module itself uses). The answer is noted.
     expect_refusal: true
     via: api
   - step: 7

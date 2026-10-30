@@ -2,10 +2,10 @@
 # Covers REQ-609 criterion 4 (50 can be created, the 51st is refused with extension_limit_reached, the other record type of the same company and the same record type of another company are unaffected).
 # Sources: docs/requirements.yaml REQ-609 description "THE CAP" and criterion 4; docs/migration/decisions/0067-tenant-x-extension-layer-over-module-entity-types.md D3/D4 ("for example 50").
 # UAT assumption, to be confirmed by the process owner: whether RETIRED entries count toward the 50. REQ-609 states that they count (and its open_questions list this as an assumption), but decision 0067 says only "for
-# example 50" and does not say so. This scenario therefore does NOT assert it as behaviour: step 3 records what the system answers after one retirement as an observation (EO-003), and the sign-off
+# example 50" and does not say so. This scenario therefore does NOT assert it as behaviour: step 4 records what the system answers after one retirement as an observation (EO-003), and the sign-off
 # is the process owner's. The number 50 itself is the requirement's; the UAT environment is assumed not to change it.
 # NOT COVERED: two simultaneous creates at 49 (criterion 4, last sentence) need two database connections and a controlled race; it is a test-environment case, not a UAT step.
-# The other company's administrator is the Bilimbaga administrator; if no approved test token exists for them (roster note of actor-bilimbaga-admin), step 5 is BLOCKED.
+# The other company's administrator is the Bilimbaga administrator; if no approved test token exists for them (roster note of actor-bilimbaga-admin), step 6 is BLOCKED.
 # The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals are the limit refusals.
 ---
 id: tenant-administration-62-type-extension-limit-of-fifty-per-record-type
@@ -30,7 +30,7 @@ preconditions:
     detail: Setup-prepared. If extra fields exist, use a record type with none, or report BLOCKED.
   - description: Bilimbaga has a module-installed record type named "ext_module_item" (visible to its administrator, not append-only) with no extra fields.
     check: system_seeded
-    detail: If the Bilimbaga administrator cannot sign in, report BLOCKED for step 5 and the Bilimbaga part of EO-004; the other steps run.
+    detail: If the Bilimbaga administrator cannot sign in, report BLOCKED for step 6 and the Bilimbaga part of EO-004; the other steps run.
   - description: The limit is the product's own number (fifty) and has not been changed in the environment.
     check: system_seeded
     detail: If a different limit is configured, report BLOCKED and the number found.
@@ -44,25 +44,30 @@ steps:
   - step: 2
     actor: tenant_admin_a
     action: >
-      The administrator tries to add "x_cap_51" (text) to "ext_module_item". The answer is noted as C51, and the list is asked for again and noted as list L50b.
+      The administrator tries to add "x_cap_51" (text) to "ext_module_item". The answer is noted as C51.
     expect_refusal: true
     via: api
   - step: 3
     actor: tenant_admin_a
     action: >
-      The administrator retires "x_cap_50", then tries to add "x_cap_52" (text) to "ext_module_item". The answer is noted as C52 and the list is asked for and noted as list L50c. This step is an observation for the open question in the header; it is not asserted as behaviour.
+      The administrator asks for the list of "ext_module_item" again and notes it as list L50b.
     via: api
   - step: 4
     actor: tenant_admin_a
     action: >
-      The administrator adds "x_cap_01" (text) to the other record type "ext_module_other". The answer is noted.
+      The administrator retires "x_cap_50", then tries to add "x_cap_52" (text) to "ext_module_item". The answer is noted as C52 and the list is asked for and noted as list L50c. This step is an observation for the open question in the header; it is not asserted as behaviour.
     via: api
   - step: 5
+    actor: tenant_admin_a
+    action: >
+      The administrator adds "x_cap_01" (text) to the other record type "ext_module_other". The answer is noted.
+    via: api
+  - step: 6
     actor: tenant_admin_b
     action: >
       The Bilimbaga administrator adds "x_cap_01" (text) to their own "ext_module_item", and then asks for the list. The answer and the list are noted.
     via: api
-  - step: 6
+  - step: 7
     actor: tenant_admin_a
     action: >
       The SwiftRoute administrator asks again for the list of "ext_module_item" and notes it as list L50d.
@@ -83,7 +88,7 @@ expected_outcomes:
     description: The fifty-first extra field is refused with the reason "extension_limit_reached" and nothing is stored.
     verification:
       method: http_status
-      detail: Step 2 answers 422 with the reason "extension_limit_reached"; the answer does not repeat the submitted name. List L50b equals list L50.
+      detail: Step 2 answers 422 with the reason "extension_limit_reached"; the answer does not repeat the submitted name. List L50b (step 3) equals list L50.
       evidence: Answer C51 and lists L50 and L50b.
     on_fail:
       severity: MAJOR
@@ -93,7 +98,7 @@ expected_outcomes:
     description: Whether a retired entry still counts toward the limit is recorded as observed. Not settled by the source beyond the requirement's own statement; the process owner confirms.
     verification:
       method: api_response
-      detail: Step 3's retirement answers 200 with "x_cap_50" retired. Record C52 and list L50c. The requirement REQ-609 says retired entries count, so the expected answer is 422 "extension_limit_reached" and a list of fifty entries (one retired); any other answer is reported to the BA as a difference from the requirement, with severity MINOR, not as a failure of the platform, until the process owner decides.
+      detail: Step 4's retirement answers 200 with "x_cap_50" retired. Record C52 and list L50c. The requirement REQ-609 says retired entries count, so the expected answer is 422 "extension_limit_reached" and a list of fifty entries (one retired); any other answer is reported to the BA as a difference from the requirement, with severity MINOR, not as a failure of the platform, until the process owner decides.
       evidence: Answer C52 and list L50c.
     on_fail:
       severity: MINOR
@@ -103,8 +108,8 @@ expected_outcomes:
     description: The limit is per record type and per company.
     verification:
       method: api_response
-      detail: Step 4 answers 201 with place number 1 for "ext_module_other" although "ext_module_item" is full. Step 5 answers 201 with place number 1 for Bilimbaga's "ext_module_item", and Bilimbaga's list holds only that one entry. List L50d (step 6) is unchanged from list L50c.
-      evidence: The answers of steps 4 and 5, Bilimbaga's list and list L50d.
+      detail: Step 5 answers 201 with place number 1 for "ext_module_other" although "ext_module_item" is full. Step 6 answers 201 with place number 1 for Bilimbaga's "ext_module_item", and Bilimbaga's list holds only that one entry. List L50d (step 7) is unchanged from list L50c.
+      evidence: The answers of steps 5 and 6, Bilimbaga's list and list L50d.
     on_fail:
       severity: MAJOR
       business_impact: One company's or one record type's extra fields use up another's allowance.

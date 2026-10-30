@@ -15,7 +15,7 @@ tags: [tenant-admin, type-extension, audit, retire]
 
 description: >
   SwiftRoute's administrator takes the module-supplied record type "ext_module_item" and adds extra fields of their own: "x_amount" (a whole number), "x_note" (text), "x_state" (a choice of
-  "new" and "done", default "new", required) and "x_due" (a date). Each is accepted with its place number (1, 2, 3, 4). The list shows them in that order. The administrator retires "x_note": it
+  "new" and "done", default "new", required), "x_due" (a date), "x_flag" (yes/no) and "x_seen_at" (date and time). Each is accepted with its place number (1 to 6). The list shows them in that order. The administrator retires "x_note": it
   stays in the list marked retired, and retiring it a second time answers the same and adds no second audit entry. Asking to change an extra field (replace or edit) is not answered as a success.
   The audit trail holds one "create" entry per added field and one "retire" entry for the retired one, with the administrator as the actor and no company identifier in the stored states.
   The record type of the module itself is not changed.
@@ -45,7 +45,7 @@ steps:
   - step: 3
     actor: tenant_admin_a
     action: >
-      The administrator adds "x_note" (type text, not required), then "x_state" (type choice with the values "new" and "done", required, default "new"), then "x_due" (type date, not required). Each answer is noted.
+      The administrator adds "x_note" (type text, not required), then "x_state" (type choice with the values "new" and "done", required, default "new"), then "x_due" (type date, not required), then "x_flag" (type yes/no, not required), then "x_seen_at" (type date and time, not required). Each answer is noted.
     via: api
   - step: 4
     actor: tenant_admin_a
@@ -85,7 +85,7 @@ expected_outcomes:
     description: Each valid extra field is accepted with its place number and the status active, and the answer shows no company identifier.
     verification:
       method: api_response
-      detail: Step 2 answers 201 with an entry number, entity type "ext_module_item", kind "field", name "x_amount", the definition as sent, position 1 and status "active". Step 3 answers 201 three times with positions 2, 3 and 4 in the order sent, and the "x_state" definition keeps its values, required flag and default. No answer contains a company identifier. The names x_amount, x_note, x_state and x_due are valid names; the kinds whole number, text, choice with values, date and a required field with a default are accepted.
+      detail: Step 2 answers 201 with an entry number, entity type "ext_module_item", kind "field", name "x_amount", the definition as sent, position 1 and status "active". Step 3 answers 201 five times with positions 2 to 6 in the order sent (x_note, x_state, x_due, x_flag, x_seen_at), and the "x_state" definition keeps its values, required flag and default. No answer contains a company identifier. The names are valid names; all six kinds (whole number, text, choice with values, date, yes/no, date and time) and a required field with a default are accepted.
       evidence: The four answers of steps 2 and 3.
     on_fail:
       severity: MAJOR
@@ -95,7 +95,7 @@ expected_outcomes:
     description: The list is in place order, includes retired entries with their status, and a retired entry keeps its name.
     verification:
       method: api_response
-      detail: List L0 (step 1) answers 200 with no items. List L1 (step 4) has four items in the order x_amount, x_note, x_state, x_due with positions 1 to 4 and status "active". After step 5, list L2 (step 6) still has four items in the same order and "x_note" has status "retired" and the same name and definition; the other three are "active". No item contains a company identifier.
+      detail: List L0 (step 1) answers 200 with no items. List L1 (step 4) has six items in the order x_amount, x_note, x_state, x_due, x_flag, x_seen_at with positions 1 to 6 and status "active". After step 5, list L2 (step 6) still has six items in the same order and "x_note" has status "retired" and the same name and definition; the other five are "active". No item contains a company identifier.
       evidence: Lists L0, L1 and L2.
     on_fail:
       severity: MAJOR
@@ -105,7 +105,7 @@ expected_outcomes:
     description: Retiring answers with the entry marked retired, a second retire answers the same and changes nothing, and the retired name stays reserved.
     verification:
       method: api_response
-      detail: Step 5 answers 200 with "x_note" status "retired". Step 7 answers 200 with the same entry, equal to the step 5 answer in every member except the per-request trace_id. Step 8 answers 422 with the reason "extension_key_taken" and does not repeat the submitted name. A list after step 8 still has four items.
+      detail: Step 5 answers 200 with "x_note" status "retired". Step 7 answers 200 with the same entry, equal to the step 5 answer in every member except the per-request trace_id. Step 8 answers 422 with the reason "extension_key_taken" and does not repeat the submitted name. A list after step 8 still has six items.
       evidence: The answers of steps 5, 7 and 8 and a list after step 8.
     on_fail:
       severity: MAJOR
@@ -125,7 +125,7 @@ expected_outcomes:
     description: Every create and the first retire are recorded once, and a repeated retire and a refusal record nothing.
     verification:
       method: system_state
-      detail: The audit trail of SwiftRoute between step 2 and the end has exactly four entries with action "entity_type_extension.create" (steps 2 and 3), whose actor is the administrator, resource type "entity_type_extension", resource the entry number, no earlier state, and a later state holding entity type, name, kind, definition, position and status without a company identifier; and exactly one entry "entity_type_extension.retire" (step 5) whose earlier state has status "active" and later state status "retired". Steps 7, 8 and 9 add no entry. The entries are read from the database (UAT assumption, to be confirmed by the process owner - no tenant-user route lists them).
+      detail: The audit trail of SwiftRoute between step 2 and the end has exactly six entries with action "entity_type_extension.create" (steps 2 and 3), whose actor is the administrator, resource type "entity_type_extension", resource the entry number, no earlier state, and a later state holding entity type, name, kind, definition, position and status without a company identifier; and exactly one entry "entity_type_extension.retire" (step 5) whose earlier state has status "active" and later state status "retired". Steps 7, 8 and 9 add no entry. The entries are read from the database (UAT assumption, to be confirmed by the process owner - no tenant-user route lists them).
       evidence: The audit entries of the company between step 2 and the end.
     on_fail:
       severity: MAJOR
@@ -134,4 +134,4 @@ expected_outcomes:
 
 cleanup:
   cancel_open_instances: false
-  description: Extra fields cannot be deleted; retire "x_amount", "x_state" and "x_due" if the environment is to be reused, and note that their names stay reserved (use new names on the next run).
+  description: Extra fields cannot be deleted; retire "x_amount", "x_state", "x_due", "x_flag" and "x_seen_at" if the environment is to be reused, and note that their names stay reserved (use new names on the next run).
