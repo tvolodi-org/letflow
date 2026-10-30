@@ -206,8 +206,10 @@ defmodule Letflow.Routers.SolutionPacks do
   # judgment call as /export and /install above -- update-review reads and
   # classifies only (:DefinitionsRead), update-apply mutates
   # pack_update_resolutions/solution_pack_artefact_bases
-  # (:DefinitionsCreate -> :DefinitionsWrite). Flagged for REVIEWER, not
-  # silently decided (design §3.1/§4.1, OQ-1).
+  # (:DefinitionsCreate -> :DefinitionsWrite). REQ-617: when the computed plan holds an
+  # override_conflict entry, update-apply also needs :SolutionOverridesManage (checked in the
+  # handler, and again inside the transaction); decision 0069 Q4 stays open. Flagged for
+  # REVIEWER, not silently decided (design §3.1/§4.1, OQ-1).
   authz_post "/:pack_id/update-review", :DefinitionsRead do
     handle_update_review(conn, conn.params["pack_id"])
   end
@@ -340,7 +342,7 @@ defmodule Letflow.Routers.SolutionPacks do
             Keyword.put(
               conn.assigns.scoped_opts,
               :process_writable_authorized,
-              holds_entities_definitions_write?(conn)
+              holds_permission?(conn, :EntitiesDefinitionsWrite)
             )
 
           render_install(conn, SolutionPack.install(document, actor_id, opts))
@@ -358,13 +360,13 @@ defmodule Letflow.Routers.SolutionPacks do
   # `writable_by_process` only when the installer holds
   # `:EntitiesDefinitionsWrite`. Derived from the DB-resolved auth context
   # (never the body or a header), same recipe as `Routers.ScriptRules.holds?/2`.
-  defp holds_entities_definitions_write?(conn) do
+  defp holds_permission?(conn, permission) do
     context = conn.assigns.auth_context
     platform_tenant? = PlatformTenant.platform_tenant?(Map.get(context, :tenant_id))
 
     Authorization.has_permission_in_scope?(
       Authorization.effective_roles(Map.get(context, :roles, []), platform_tenant?),
-      :EntitiesDefinitionsWrite,
+      permission,
       platform_tenant?
     ) == true
   end
@@ -695,22 +697,58 @@ defmodule Letflow.Routers.SolutionPacks do
   defp apply_with_actor(conn, pack_id, target_version, theirs, incoming, resolutions) do
     case actor_id(conn) do
       actor_id when is_binary(actor_id) ->
-        opts = Keyword.put(conn.assigns.scoped_opts, :actor_id, actor_id)
+        manage? = holds_permission?(conn, :SolutionOverridesManage)
 
-        render_update_apply(
-          conn,
-          SolutionPack.apply_pack_update(
-            pack_id,
-            target_version,
-            theirs,
-            incoming,
-            resolutions,
-            opts
+        opts =
+          conn.assigns.scoped_opts
+          |> Keyword.put(:actor_id, actor_id)
+          |> Keyword.put(:override_manage_authorized, manage?)
+
+        # REQ-617: the version refusals come first, before any override is read; then a read-only
+        # plan decides whether this apply needs :SolutionOverridesManage. The transaction checks
+        # the same flag again, for an override created in between.
+        with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix(conn)),
+             :ok <- SolutionPack.check_target_version(tenant_id, pack_id, target_version),
+             :ok <-
+               override_permission(manage?, tenant_id, pack_id, target_version, theirs, incoming) do
+          render_update_apply(
+            conn,
+            SolutionPack.apply_pack_update(
+              pack_id,
+              target_version,
+              theirs,
+              incoming,
+              resolutions,
+              opts
+            )
           )
-        )
+        else
+          {:error, _reason} = error -> render_update_apply(conn, error)
+        end
 
       nil ->
         Response.internal_error(conn)
+    end
+  end
+
+  defp override_permission(true, _tenant_id, _pack_id, _target_version, _theirs, _incoming),
+    do: :ok
+
+  defp override_permission(false, tenant_id, pack_id, target_version, theirs, incoming) do
+    case Definitions.compute_pack_update_plan(
+           tenant_id,
+           pack_id,
+           target_version,
+           theirs,
+           incoming
+         ) do
+      {:ok, plan} ->
+        if Enum.any?(plan.entries, &match?(%{override: %{outcome: :override_conflict}}, &1)),
+          do: {:error, :override_permission_required},
+          else: :ok
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -731,6 +769,21 @@ defmodule Letflow.Routers.SolutionPacks do
 
   defp render_update_apply(conn, {:error, :version_downgrade}),
     do: Response.unprocessable(conn, "version_downgrade")
+
+  # REQ-617: the route-level refusal text, whether or not a resolution was supplied.
+  defp render_update_apply(conn, {:error, :override_permission_required}),
+    do: Response.forbidden(conn, "insufficient permissions")
+
+  defp render_update_apply(conn, {:error, {:override_merge_unsupported, _type, _id}}),
+    do: Response.unprocessable(conn, "override_merge_unsupported")
+
+  defp render_update_apply(conn, {:error, :override_version_taken}),
+    do: Response.conflict(conn, "override_version_taken")
+
+  defp render_update_apply(conn, {:error, :busy}), do: Response.service_unavailable(conn, "busy")
+
+  defp render_update_apply(conn, {:error, :audit_failed}),
+    do: Response.service_unavailable(conn, "audit_unavailable")
 
   # Route-level pre-check above makes this unreachable in practice --
   # defensive only, same as compute_and_render_review/5's own clause.
@@ -933,6 +986,27 @@ defmodule Letflow.Routers.SolutionPacks do
       "classification" => classification_wire(entry.classification),
       "resolved" => entry.resolved
     }
+    |> put_override(entry.override)
+  end
+
+  # REQ-617: explicit keys only (INV-2) -- ids, version, outcome; never the patch, a path or a value.
+  defp put_override(map, nil), do: map
+
+  defp put_override(map, override) do
+    wire = %{
+      "override_id" => override.override_id,
+      "override_version" => override.override_version,
+      "made_against" => override.made_against,
+      "outcome" => Atom.to_string(override.outcome)
+    }
+
+    wire =
+      case Map.fetch(override, :warning) do
+        {:ok, warning} -> Map.put(wire, "warning", Atom.to_string(warning))
+        :error -> wire
+      end
+
+    Map.put(map, "override", wire)
   end
 
   # Hand-built, explicit key list (INV-2) -- never a bare pass-through of
@@ -954,6 +1028,12 @@ defmodule Letflow.Routers.SolutionPacks do
       "classification" => classification_wire(entry.classification),
       "action" => action_wire(entry.action)
     }
+    |> then(fn map ->
+      case Map.fetch(entry, :override_action) do
+        {:ok, action} -> Map.put(map, "override_action", Atom.to_string(action))
+        :error -> map
+      end
+    end)
   end
 
   # ── Solution-pack overrides (REQ-596 part B) ──────────────────────────────

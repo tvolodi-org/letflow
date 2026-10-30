@@ -134,6 +134,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Definitions.JsonSchemaShape
   alias Letflow.Definitions.ModuleWrites
   alias Letflow.Definitions.OwnerStamp
+  alias Letflow.Definitions.PackUpdateOverrides
   alias Letflow.Definitions.PackUpdateResolution
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.PromotionArtifact
@@ -175,8 +176,14 @@ defmodule Letflow.Definitions do
           incoming: String.t() | nil,
           # only meaningful when classification == :conflict; true iff a
           # matching pack_update_resolutions row exists (AC4) -- always false
-          # for non-conflict entries.
-          resolved: boolean()
+          # for non-conflict entries. An `:override_conflict` override (REQ-617) is resolved by
+          # the same resolution row. An entry whose override is `:orphaned` may read
+          # `classification: :conflict, resolved: false` while `has_unresolved_conflicts` is
+          # false: an orphaned override never blocks apply and its base row is left as it is.
+          resolved: boolean(),
+          # nil when the tenant has no active override on the artefact (REQ-617); otherwise ids,
+          # version, outcome and an optional warning, never the patch.
+          override: PackUpdateOverrides.plan_override() | nil
         }
 
   @type plan :: %{
@@ -391,6 +398,9 @@ defmodule Letflow.Definitions do
   `has_unresolved_conflicts` lookup, by `(tenant_id, pack_id, target_version:
   incoming_version, artefact_type, artefact_id)`) but writes neither those nor
   `solution_pack_installs`.
+  It also reads the tenant's active solution-pack overrides (REQ-617,
+  `Letflow.Definitions.PackUpdateOverrides.read_active/3`, the prefix derived from `tenant_id`) and
+  gives each entry an `override` (`nil` when there is none); the override patch never enters the plan.
 
   `theirs_artefacts`/`incoming_artefacts` are caller-supplied — no real
   install/export path exists yet to source them from (SOL-01/02/03, unscoped).
@@ -438,6 +448,8 @@ defmodule Letflow.Definitions do
       |> Enum.map(&{&1.artefact_type, &1.artefact_id})
       |> Enum.uniq()
 
+    overrides = PackUpdateOverrides.read_active(tenant_id, pack_id, keys)
+
     entries =
       Enum.map(keys, fn {artefact_type, artefact_id} = key ->
         base = fetch_base(tenant_id, pack_id, artefact_type, artefact_id)
@@ -445,8 +457,20 @@ defmodule Letflow.Definitions do
         incoming = Map.get(incoming_by_key, key)
         classification = classify_artefact(base, theirs, incoming)
 
+        override =
+          case Map.get(overrides, key) do
+            nil ->
+              nil
+
+            row ->
+              PackUpdateOverrides.override_map(
+                row,
+                PackUpdateOverrides.evaluate(row, classification, base, incoming)
+              )
+          end
+
         resolved =
-          classification == :conflict and
+          (classification == :conflict or override_outcome(override) == :override_conflict) and
             resolution_exists?(tenant_id, pack_id, incoming_version, artefact_type, artefact_id)
 
         %{
@@ -456,12 +480,12 @@ defmodule Letflow.Definitions do
           base: base,
           theirs: theirs,
           incoming: incoming,
-          resolved: resolved
+          resolved: resolved,
+          override: override
         }
       end)
 
-    has_unresolved_conflicts =
-      Enum.any?(entries, &(&1.classification == :conflict and not &1.resolved))
+    has_unresolved_conflicts = Enum.any?(entries, &blocking_conflict?/1)
 
     {:ok,
      %{
@@ -472,6 +496,23 @@ defmodule Letflow.Definitions do
        has_unresolved_conflicts: has_unresolved_conflicts
      }}
   end
+
+  @doc """
+  True when a plan entry blocks apply until it is resolved: a base `:conflict`, or an active
+  override whose outcome is `:override_conflict` (REQ-617), that has no resolution yet. An entry
+  whose override is `:orphaned` never blocks. One predicate for the plan and for apply, so the two
+  cannot drift.
+  """
+  @spec blocking_conflict?(plan_entry()) :: boolean()
+  def blocking_conflict?(entry) do
+    outcome = override_outcome(Map.get(entry, :override))
+
+    (entry.classification == :conflict or outcome == :override_conflict) and not entry.resolved and
+      outcome != :orphaned
+  end
+
+  defp override_outcome(nil), do: nil
+  defp override_outcome(%{outcome: outcome}), do: outcome
 
   @doc """
   Classifies one artefact's three-way diff, per

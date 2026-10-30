@@ -932,7 +932,11 @@ defmodule Letflow.TenantProvisioning do
     # REQ-606 / GH #3411 part 1: one new empty per-tenant table, the record-trigger outbox.
     # No existing row altered.
     {20_261_029_200_001, Letflow.Repo.Migrations.CreateRecordTriggerOutbox,
-     "20261029200001_create_record_trigger_outbox.exs"}
+     "20261029200001_create_record_trigger_outbox.exs"},
+    # REQ-617 / GH #3443: the override status CHECK also allows `orphaned`. No table or column
+    # added, no existing row altered.
+    {20_261_030_100_001, Letflow.Repo.Migrations.AllowOrphanedOverrideStatus,
+     "20261030100001_allow_orphaned_override_status.exs"}
   ]
 
   @doc """
