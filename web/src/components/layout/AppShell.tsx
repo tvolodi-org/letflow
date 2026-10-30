@@ -12,6 +12,7 @@ import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
 import { useBranding } from '@/theming/BrandingContext'
 import { useInstalledModules } from '@/hooks/useInstalledModules'
 import { getInstalledModuleNavItems } from '@/modules/registry'
+import { isModulesUninstallEnabled } from '@/config/modulesUninstallFlag'
 
 export type NavGroup = 'work' | 'tenantAdmin' | 'platform'
 
@@ -31,6 +32,8 @@ interface NavItem {
   permission: Permission
   /** Also require the platform tenant (platform-only entries). */
   platformOnly?: boolean
+  /** Build-time visibility switch, read when the nav is built (REQ-630). */
+  enabled?: () => boolean
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -53,6 +56,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/admin/tokens', group: 'tenantAdmin', label: 'Tokens', permission: P.TokensManage },
   { to: '/admin/audit', group: 'tenantAdmin', label: 'Audit', permission: P.AuditRead },
   { to: '/admin/print-templates', group: 'tenantAdmin', label: 'Print Templates', permission: P.DocumentPrintTemplatesManage },
+  { to: '/admin/module-lifecycle', group: 'tenantAdmin', label: 'Module lifecycle', permission: P.ModulesManage, enabled: isModulesUninstallEnabled },
   { to: '/admin/health', group: 'platform', label: 'Health', permission: P.TenantsManage, platformOnly: true },
   { to: '/admin/metrics', group: 'tenantAdmin', label: 'Metrics', permission: P.MetricsRead },
   { to: '/admin/onboarding/new', group: 'platform', label: 'Register Tenant', permission: P.TenantsManage, platformOnly: true },
@@ -98,7 +102,7 @@ export function AppShell() {
   const visibleNav = [
     ...NAV_ITEMS,
     ...moduleNavItems.map((n) => ({ ...n, group: 'work' as const })),
-  ].filter((n) => access.can(n.permission) && (!n.platformOnly || access.isPlatformTenant))
+  ].filter((n) => access.can(n.permission) && (!('enabled' in n) || !n.enabled || n.enabled()) && (!n.platformOnly || access.isPlatformTenant))
   const visibleGroups = NAV_GROUPS
     .map((g) => ({ ...g, items: visibleNav.filter((n) => n.group === g.id) }))
     .filter((g) => g.items.length > 0)
