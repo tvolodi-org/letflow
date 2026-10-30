@@ -430,12 +430,28 @@ defmodule Letflow.Routers.Tasks do
   end
 
   # GH #3409 (decision 0067 D8, F-3): the node's form validation script refused. 422 with the
-  # manifest's codes only. `{:form_hook_failed, _}` falls to the generic clause (500) until F-4.
+  # manifest's codes only.
   defp handle_complete_result(
          {:error, {:form_hook_refused, %{code: code, fields: fields}}},
          conn
        ) do
     Response.form_hook_refused(conn, code, fields)
+  end
+
+  # GH #3524 (decision 0067 D8, F-4): the hook gave no verdict (one of the eight infrastructure
+  # codes). 503 with the code only, never the generic 500; nothing was written.
+  defp handle_complete_result({:error, {:form_hook_failed, code}}, conn)
+       when code in [
+              :script_rejected,
+              :input_invalid,
+              :script_error,
+              :budget_exceeded,
+              :memory_limit_exceeded,
+              :timeout,
+              :output_invalid,
+              :script_busy
+            ] do
+    Response.form_hook_failed(conn, code)
   end
 
   # REQ-463 (design req459 §4): separation of duties -- the caller most recently
