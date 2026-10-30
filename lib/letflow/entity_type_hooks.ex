@@ -3,9 +3,9 @@ defmodule Letflow.EntityTypeHooks do
   REQ-567 slice E-1 part 1 (GH #3217, decision 0065 D4/D8) -- the pin of one published
   `entity_write` script version to one entity type: its pre-write hook.
 
-  **Nothing runs.** This module stores, replaces, removes and lists pins and refuses a bad pin at
-  bind time. No record write, step write or handler write reads the table yet (later slices),
-  and the routes are `Letflow.Routers.EntityTypeHooks` (part 2).
+  **Nothing is written by a run.** This module stores, replaces, removes and lists pins and refuses a
+  bad pin at bind time. `dry_run/4` is the one function that runs a bound script (REQ-633); it writes
+  nothing. The routes are `Letflow.Routers.EntityTypeHooks`.
 
   `bind/4`, `rebind/4` and `unbind/3` each run one `Ecto.Multi` whose last step is
   `Letflow.Audit.append_multi/4`, so the audit entry and the row change commit or roll back together.
@@ -40,6 +40,7 @@ defmodule Letflow.EntityTypeHooks do
   alias Letflow.Entities.ManagedTypes
   alias Letflow.EntityTypeHooks.Binding
   alias Letflow.Repo
+  alias Letflow.Scripts.EntityWrite
   alias Letflow.Scripts.ScriptRule
   alias Letflow.TenantProvisioning
 
@@ -97,6 +98,73 @@ defmodule Letflow.EntityTypeHooks do
   @doc "Removes the pin of `entity_type`; `{:error, :not_found}` when none exists."
   @spec unbind(String.t(), term(), actor()) :: {:ok, Binding.t()} | {:error, error()}
   def unbind(prefix, entity_type, actor), do: write(:unbind, prefix, entity_type, nil, actor)
+
+  @stat_keys [:instructions_used, :heap_words_at_end, :duration_us]
+
+  @doc """
+  REQ-633 (GH #3530, decision 0065 D9 E-5): runs the script bound to `entity_type` on the draft
+  `candidate`, with real reads under `prefix`, and returns what it derived. Writes nothing: no
+  record, event, sequence or audit row (the audit row is part B). The binding is read without a
+  lock or a transaction (`EntityWrite.run_audited/4` must not run inside one when it declares reads).
+
+  `{:error, :api_token_not_allowed}` for a non-OIDC credential (the script reads tenant rows);
+  `{:error, :not_found}` for an absent, unbound or foreign type alike (only `prefix` is queried).
+  A script outcome other than success is still `{:ok, _}` with the outcome name.
+  """
+  @spec dry_run(String.t(), term(), map(), actor()) ::
+          {:ok,
+           %{outcome: String.t(), derived: map() | nil, fail_code: String.t() | nil, stats: map()}}
+          | {:error, :api_token_not_allowed | :not_found}
+  def dry_run(prefix, entity_type, candidate, actor)
+      when is_binary(prefix) and is_map(candidate) do
+    with :ok <- require_interactive(actor),
+         {:ok, type} <- type_name(entity_type),
+         %Binding{} = binding <- Repo.get_by(Binding, [entity_type: type], prefix: prefix) do
+      pin = %{
+        script_key: binding.script_key,
+        script_version: binding.script_version,
+        script_sha256: binding.script_sha256
+      }
+
+      facts = %{entity_type: type, candidate: candidate, now: DateTime.utc_now()}
+
+      {result, _hmac} =
+        EntityWrite.run_audited(prefix, pin, facts, publisher_may_restricted?: false)
+
+      {:ok, dry_run_result(result)}
+    else
+      nil -> {:error, :not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp dry_run_result({:ok, %{derived: derived, stats: stats}}),
+    do: %{outcome: "ok", derived: derived, fail_code: nil, stats: Map.take(stats, @stat_keys)}
+
+  defp dry_run_result({:error, {:script_failed, code}, stats}),
+    do: %{
+      outcome: "script_failed",
+      derived: nil,
+      fail_code: code,
+      stats: Map.take(stats, @stat_keys)
+    }
+
+  # D6 has no tenant code for `input_invalid`; `Entities.WriteHook` normalises it the same way.
+  defp dry_run_result({:error, :input_invalid, stats}),
+    do: %{
+      outcome: "script_rejected",
+      derived: nil,
+      fail_code: nil,
+      stats: Map.take(stats, @stat_keys)
+    }
+
+  defp dry_run_result({:error, code, stats}) when is_atom(code),
+    do: %{
+      outcome: Atom.to_string(code),
+      derived: nil,
+      fail_code: nil,
+      stats: Map.take(stats, @stat_keys)
+    }
 
   # ── shared path ──────────────────────────────────────────────────────────────
 

@@ -121,6 +121,8 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
 
   # Additional named routes (design 7.2 "also" column and the supervisor's decisions).
   @extra_routes [
+    # REQ-633: the dry-run runs a script on tenant rows; :ScriptsWrite is not an auditor permission.
+    {Letflow.Routers.EntityTypeHooks, :post, "/:entity_type/dry-run"},
     {Letflow.Routers.Identity, :get, "/users"},
     {Letflow.Routers.Identity, :post, "/tokens"},
     {Letflow.Routers.Identity, :post, "/roles"},
