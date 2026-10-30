@@ -16,9 +16,16 @@ defmodule Letflow.RecordTriggers.Worker do
   `attempt + 1`, `claimed_at` and the lease. No record row and no sequence row is touched.
 
   **Run.** The only run is `mark_done_stub/2`, the single function the script-running slice (T-4)
-  replaces. Sweep of expired leases, retry cap and backoff are part B (REQ-615 criteria 6-9): a row
-  left `running` after a crash stays so until then, and the record-trigger feature flag stays off by
-  default until B lands.
+  replaces. A test-only hook (`:record_trigger_run_fun`, honoured only while the scripts test hooks
+  are on) can swap it to force an exception.
+
+  **Sweep, cap, backoff (part B).** Each tick first sweeps expired leases per tenant
+  (`sweep_expired_leases/2`, bounded by `sweep_limit`): a `running` row whose lease ran out goes back
+  to `pending` with `last_code` `lease_expired` and `next_attempt_at = now + backoff_ms/1`, or to
+  `dead` with `retries_exhausted` once its `attempt` (the claim count) has reached `max_attempts`.
+  Every swept row counts in `swept` and in the `[:letflow, :record_trigger, :lease_expired]`
+  telemetry event; `dead` is the subset that ended dead. The sweep and the stub both check
+  (id, attempt, status = running), so a late stub and the sweep have exactly one winner.
 
   The tenant comes only from the schema list passed in (`Registration`), never from a row column.
   """
@@ -39,7 +46,11 @@ defmodule Letflow.RecordTriggers.Worker do
     poll_interval_ms: 1_000,
     tick_budget_ms: 10_000,
     max_claims_per_cycle: 16,
-    lease_margin_ms: 23_000
+    lease_margin_ms: 23_000,
+    sweep_limit: 64,
+    max_attempts: 10,
+    backoff_base_ms: 500,
+    backoff_cap_ms: 30_000
   ]
   @platform_max_wall_ms 5_000
   @caller_margin_ms 2_000
@@ -51,6 +62,9 @@ defmodule Letflow.RecordTriggers.Worker do
           done: non_neg_integer(),
           stale: non_neg_integer(),
           skipped: non_neg_integer(),
+          swept: non_neg_integer(),
+          dead: non_neg_integer(),
+          sweep_failed: non_neg_integer(),
           budget_exhausted: boolean()
         }
 
@@ -127,6 +141,7 @@ defmodule Letflow.RecordTriggers.Worker do
       start = rem(offset, length(schemas))
       rotated = Enum.drop(schemas, start) ++ Enum.take(schemas, start)
       deadline = System.monotonic_time(:millisecond) + config(:tick_budget_ms)
+      summary = Enum.reduce(rotated, summary, &sweep_tenant/2)
       {run_passes(rotated, deadline, %{}, MapSet.new(), summary), offset + 1}
     end
   end
@@ -139,6 +154,9 @@ defmodule Letflow.RecordTriggers.Worker do
       done: 0,
       stale: 0,
       skipped: 0,
+      swept: 0,
+      dead: 0,
+      sweep_failed: 0,
       budget_exhausted: false
     }
   end
@@ -193,7 +211,7 @@ defmodule Letflow.RecordTriggers.Worker do
       {:ok, row} ->
         outcome =
           try do
-            mark_done_stub(row, prefix)
+            run_fun().(row, prefix)
           rescue
             _ ->
               log_caught(prefix, "raised")
@@ -206,6 +224,12 @@ defmodule Letflow.RecordTriggers.Worker do
 
         {:claimed, outcome}
     end
+  end
+
+  defp run_fun do
+    if Letflow.Scripts.Runtime.test_hooks?(),
+      do: Application.get_env(:letflow, :record_trigger_run_fun, &mark_done_stub/2),
+      else: &mark_done_stub/2
   end
 
   defp safe_claim(prefix) do
@@ -323,6 +347,114 @@ defmodule Letflow.RecordTriggers.Worker do
 
         {:ok, row}
     end
+  end
+
+  # ── sweep, cap, backoff ──────────────────────────────────────────────────────
+
+  @doc """
+  The wait after claim number `attempt` expired: `min(backoff_base_ms * 2^(attempt - 1),
+  backoff_cap_ms)`, so 500 ms, 1 s, ... 16 s at 6, 30 s from 8 on by default.
+  """
+  @spec backoff_ms(pos_integer()) :: pos_integer()
+  def backoff_ms(attempt) when is_integer(attempt) and attempt >= 1 do
+    cap = config(:backoff_cap_ms)
+    # Past 2^30 the cap is reached for any sane base; avoids building a huge integer.
+    min(config(:backoff_base_ms) * Integer.pow(2, min(attempt - 1, 30)), cap)
+  end
+
+  defp sweep_tenant(prefix, summary) do
+    %{swept: swept, dead: dead, failed: failed} =
+      sweep_expired_leases(prefix, config(:sweep_limit))
+
+    %{
+      summary
+      | swept: summary.swept + swept,
+        dead: summary.dead + dead,
+        sweep_failed: summary.sweep_failed + failed
+    }
+  rescue
+    _ ->
+      log_caught(prefix, "raised")
+      %{summary | sweep_failed: summary.sweep_failed + 1}
+  catch
+    kind, _ ->
+      log_caught(prefix, class_tag(kind))
+      %{summary | sweep_failed: summary.sweep_failed + 1}
+  end
+
+  @doc """
+  Sweeps up to `limit` expired leases of `prefix` (`running`, `lease_expires_at` before now). Each row
+  is changed by one compare-and-set on (id, attempt, status = running), so a stub finishing first wins
+  and the row is skipped. A row at `max_attempts` claims becomes `dead` (`retries_exhausted`); any
+  other goes back to `pending` (`lease_expired`) with a `backoff_ms/1` wait. Returns
+  `%{swept: n, dead: n, failed: n}`: `swept` counts every expired lease, `dead` is the subset that
+  ended dead, `failed` the rows whose update raised (logged by schema and tag only, never the error).
+  """
+  @spec sweep_expired_leases(String.t(), pos_integer()) :: %{
+          swept: non_neg_integer(),
+          dead: non_neg_integer(),
+          failed: non_neg_integer()
+        }
+  def sweep_expired_leases(prefix, limit)
+      when is_binary(prefix) and is_integer(limit) and limit > 0 do
+    now = now()
+
+    rows =
+      from(r in OutboxRow,
+        where: r.status == :running and r.lease_expires_at < ^now,
+        order_by: [asc: r.lease_expires_at, asc: r.id],
+        limit: ^limit,
+        select: %{id: r.id, attempt: r.attempt}
+      )
+      |> Repo.all(prefix: prefix)
+
+    result =
+      Enum.reduce(rows, %{swept: 0, dead: 0, failed: 0}, fn row, acc ->
+        case sweep_row(row, prefix, now) do
+          :pending -> %{acc | swept: acc.swept + 1}
+          :dead -> %{acc | swept: acc.swept + 1, dead: acc.dead + 1}
+          :stale -> acc
+          :error -> %{acc | failed: acc.failed + 1}
+        end
+      end)
+
+    if result.swept > 0 do
+      :telemetry.execute(
+        [:letflow, :record_trigger, :lease_expired],
+        %{count: result.swept},
+        %{tenant_schema: prefix}
+      )
+    end
+
+    result
+  end
+
+  defp sweep_row(%{id: id, attempt: attempt}, prefix, now) do
+    {outcome, set} =
+      if attempt >= config(:max_attempts) do
+        {:dead, [status: :dead, last_code: "retries_exhausted"]}
+      else
+        {:pending,
+         [
+           status: :pending,
+           last_code: "lease_expired",
+           next_attempt_at: DateTime.add(now, backoff_ms(attempt), :millisecond)
+         ]}
+      end
+
+    {count, _} =
+      from(r in OutboxRow, where: r.id == ^id and r.attempt == ^attempt and r.status == :running)
+      |> Repo.update_all([set: set], prefix: prefix)
+
+    if count == 1, do: outcome, else: :stale
+  rescue
+    _ ->
+      log_caught(prefix, "raised")
+      :error
+  catch
+    kind, _ ->
+      log_caught(prefix, class_tag(kind))
+      :error
   end
 
   # ── run (stub) ───────────────────────────────────────────────────────────────

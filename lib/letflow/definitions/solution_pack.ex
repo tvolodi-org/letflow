@@ -182,6 +182,7 @@ defmodule Letflow.Definitions.SolutionPack do
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.SolutionPackArtefactBase
   alias Letflow.Definitions.SolutionPackInstall
+  alias Letflow.Definitions.SolutionPackOverrides
   alias Letflow.Definitions.ValidationWarnings
   alias Letflow.Engine.VariableSchema
   alias Letflow.Entities.EntityDefinition
@@ -321,10 +322,13 @@ defmodule Letflow.Definitions.SolutionPack do
 
   @typedoc "One entry of `apply_pack_update/6`'s `apply_result()` (REQ-380 design §4.3)."
   @type applied_entry :: %{
-          artefact_type: String.t(),
-          artefact_id: String.t(),
-          classification: Definitions.classification(),
-          action: :advanced_to_incoming | :advanced_to_merged | :left_unchanged
+          required(:artefact_type) => String.t(),
+          required(:artefact_id) => String.t(),
+          required(:classification) => Definitions.classification(),
+          required(:action) => :advanced_to_incoming | :advanced_to_merged | :left_unchanged,
+          # only for an artefact with an active override (REQ-617)
+          optional(:override_action) =>
+            :advanced | :retired | :orphaned | :property_gone | :left_unchanged
         }
 
   @type apply_result :: %{
@@ -342,6 +346,11 @@ defmodule Letflow.Definitions.SolutionPack do
           | {:error, :empty_artefact_set}
           | {:error, :version_not_newer}
           | {:error, :version_downgrade}
+          | {:error, :override_permission_required}
+          | {:error, {:override_merge_unsupported, String.t(), String.t()}}
+          | {:error, :override_version_taken}
+          | {:error, :busy}
+          | {:error, :audit_failed}
           | Definitions.common_error()
 
   @default_pack_version "1.0.0"
@@ -616,6 +625,14 @@ defmodule Letflow.Definitions.SolutionPack do
        value for that artefact -- step 3's insert is visible here via
        same-transaction read-your-writes) -- and advance the base per
        `:take_incoming`/`:merged`, or leave it untouched per `:keep_local`.
+    6a. REQ-617 (decision 0069 D4/D5), the tenant's active solution-pack overrides: before step 5,
+       an `override_conflict` entry needs `opts[:override_manage_authorized] == true`
+       (`{:error, :override_permission_required}`), and it counts as an unresolved conflict
+       like a base `:conflict`; an orphaned override never blocks. A `:merged` resolution of an
+       `override_conflict` is refused `{:error, {:override_merge_unsupported, type, id}}`. After the
+       base rows, `SolutionPackOverrides.apply_update_outcomes/4` appends one new version row per
+       override (advanced, retired, orphaned or property_gone) with one audit entry each; the
+       applied entry gets `override_action`. Entries with no override are untouched.
     7. Commit; return `{:ok, apply_result()}`.
 
   `theirs_artefacts`/`incoming_artefacts` are caller-supplied, same
@@ -665,7 +682,8 @@ defmodule Letflow.Definitions.SolutionPack do
                resolutions,
                tenant_id,
                actor_id,
-               now
+               now,
+               opts
              ) do
           {:ok, result} -> result
           {:error, reason} -> Repo.rollback(reason)
@@ -756,7 +774,8 @@ defmodule Letflow.Definitions.SolutionPack do
          resolutions,
          tenant_id,
          actor_id,
-         now
+         now,
+         opts
        ) do
     with {:ok, recorded_count} <-
            insert_submitted_resolutions(
@@ -775,9 +794,21 @@ defmodule Letflow.Definitions.SolutionPack do
              theirs_artefacts,
              incoming_artefacts
            ),
+         :ok <- check_override_permission(plan, opts),
          :ok <- check_no_unresolved_conflicts(plan),
+         :ok <- check_override_merge(plan, tenant_id, pack_id, target_version),
          {:ok, applied_entries} <-
-           apply_plan_entries(plan.entries, tenant_id, pack_id, target_version, resolutions, now) do
+           apply_plan_entries(plan.entries, tenant_id, pack_id, target_version, resolutions, now),
+         {:ok, applied_entries} <-
+           apply_override_actions(
+             applied_entries,
+             plan.entries,
+             tenant_id,
+             pack_id,
+             target_version,
+             actor_id,
+             opts
+           ) do
       {:ok,
        %{
          pack_id: pack_id,
@@ -836,12 +867,119 @@ defmodule Letflow.Definitions.SolutionPack do
   # deterministic first-seen order.
   defp check_no_unresolved_conflicts(plan) do
     if plan.has_unresolved_conflicts do
-      entry = Enum.find(plan.entries, &(&1.classification == :conflict and not &1.resolved))
+      entry = Enum.find(plan.entries, &Definitions.blocking_conflict?/1)
       {:error, {:unresolved_conflict, entry.artefact_type, entry.artefact_id}}
     else
       :ok
     end
   end
+
+  # REQ-617: resolving an `override_conflict` needs `:SolutionOverridesManage`. The router checks it
+  # before the transaction; this is the race-proof twin (an override created in between).
+  defp check_override_permission(plan, opts) do
+    if Enum.any?(plan.entries, &(override_outcome(&1) == :override_conflict)) and
+         Keyword.get(opts, :override_manage_authorized, false) != true do
+      {:error, :override_permission_required}
+    else
+      :ok
+    end
+  end
+
+  # REQ-617 open question 2: a hand-merged artefact cannot carry an override_conflict forward.
+  defp check_override_merge(plan, tenant_id, pack_id, target_version) do
+    plan.entries
+    |> Enum.find(fn entry ->
+      override_outcome(entry) == :override_conflict and
+        match?(
+          %PackUpdateResolution{resolution: :merged},
+          persisted_resolution(tenant_id, pack_id, target_version, entry)
+        )
+    end)
+    |> case do
+      nil -> :ok
+      entry -> {:error, {:override_merge_unsupported, entry.artefact_type, entry.artefact_id}}
+    end
+  end
+
+  defp override_outcome(%{override: %{outcome: outcome}}), do: outcome
+  defp override_outcome(_entry), do: nil
+
+  defp persisted_resolution(tenant_id, pack_id, target_version, entry) do
+    Repo.get_by(PackUpdateResolution,
+      tenant_id: tenant_id,
+      pack_id: pack_id,
+      target_version: target_version,
+      artefact_type: entry.artefact_type,
+      artefact_id: entry.artefact_id
+    )
+  end
+
+  # REQ-617 (decision 0069 D4/D5): one new version row per override, in one call, after the base
+  # rows. `applied` and `entries` are in the same order.
+  defp apply_override_actions(
+         applied,
+         entries,
+         tenant_id,
+         pack_id,
+         target_version,
+         actor_id,
+         opts
+       ) do
+    decided =
+      Enum.zip_with(applied, entries, fn applied_entry, entry ->
+        {applied_entry, entry, override_action(entry, tenant_id, pack_id, target_version)}
+      end)
+
+    items =
+      for {_applied, entry, action} <- decided, action != nil and action != :left_unchanged do
+        %{
+          override_id: entry.override.override_id,
+          read_version: entry.override.override_version,
+          pack_id: pack_id,
+          artefact_type: entry.artefact_type,
+          artefact_id: entry.artefact_id,
+          action: action
+        }
+      end
+
+    with {:ok, _rows} <- write_override_items(items, actor_id, target_version, opts) do
+      {:ok,
+       Enum.map(decided, fn
+         {applied_entry, _entry, nil} -> applied_entry
+         {applied_entry, _entry, action} -> Map.put(applied_entry, :override_action, action)
+       end)}
+    end
+  end
+
+  defp write_override_items([], _actor_id, _target_version, _opts), do: {:ok, []}
+
+  defp write_override_items(items, actor_id, target_version, opts) do
+    SolutionPackOverrides.apply_update_outcomes(prefix(opts), actor_id, target_version, items)
+  end
+
+  defp override_action(%{override: nil}, _tenant_id, _pack_id, _target_version), do: nil
+
+  defp override_action(%{override: override} = entry, tenant_id, pack_id, target_version) do
+    case override.outcome do
+      :kept ->
+        advance_or_leave(override, target_version)
+
+      :override_conflict ->
+        case persisted_resolution(tenant_id, pack_id, target_version, entry) do
+          %PackUpdateResolution{resolution: :take_incoming} -> :retired
+          _keep_local -> advance_or_leave(override, target_version)
+        end
+
+      :orphaned ->
+        :orphaned
+
+      :property_gone ->
+        :property_gone
+    end
+  end
+
+  defp advance_or_leave(%{made_against: target_version}, target_version), do: :left_unchanged
+  defp advance_or_leave(_override, _target_version), do: :advanced
 
   # Design §4.3 step 6. All-or-nothing: the first base-advancement failure
   # aborts the whole reduce, flowing into `run_apply_update/8`'s `with` ->
@@ -858,6 +996,20 @@ defmodule Letflow.Definitions.SolutionPack do
       {:ok, acc} -> {:ok, Enum.reverse(acc)}
       {:error, _reason} = error -> error
     end
+  end
+
+  # REQ-617: an entry whose active override is orphaned (the artefact left the incoming pack) leaves
+  # its base row as it is, whatever its classification; advancing the base to a missing incoming
+  # would write nil content. A submitted resolution for it is recorded but not applied.
+  defp apply_entry(
+         %{override: %{outcome: :orphaned}} = entry,
+         _tenant_id,
+         _pack_id,
+         _target_version,
+         _resolutions,
+         _now
+       ) do
+    {:ok, applied_entry_map(entry, :left_unchanged)}
   end
 
   defp apply_entry(
