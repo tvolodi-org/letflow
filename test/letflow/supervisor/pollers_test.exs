@@ -46,6 +46,7 @@ defmodule Letflow.Supervisor.PollersTest do
     refute Application.get_env(:letflow, :start_scheduler, true)
     refute Application.get_env(:letflow, :start_service_task_dispatcher, true)
     refute Application.get_env(:letflow, :start_script_task_dispatcher, true)
+    refute Application.get_env(:letflow, :start_record_trigger_worker, true)
 
     assert Process.whereis(Letflow.Supervisor.Pollers) != nil
     assert Supervisor.which_children(Letflow.Supervisor.Pollers) == []
@@ -101,6 +102,20 @@ defmodule Letflow.Supervisor.PollersTest do
     Application.put_env(:letflow, :start_script_task_dispatcher, false)
     {:ok, {_flags, children}} = Letflow.Supervisor.Pollers.init(nil)
     refute Letflow.Engine.ScriptTaskDispatcher.Poller in Enum.map(children, & &1.id)
+  end
+
+  test "REQ-615: the record-trigger worker is started only with :start_record_trigger_worker (pure init/1)" do
+    key = :start_record_trigger_worker
+    original = Application.get_env(:letflow, key, true)
+    on_exit(fn -> Application.put_env(:letflow, key, original) end)
+
+    Application.put_env(:letflow, key, true)
+    {:ok, {_flags, children}} = Letflow.Supervisor.Pollers.init(nil)
+    assert Letflow.RecordTriggers.Worker in Enum.map(children, & &1.id)
+
+    Application.put_env(:letflow, key, false)
+    {:ok, {_flags, children}} = Letflow.Supervisor.Pollers.init(nil)
+    refute Letflow.RecordTriggers.Worker in Enum.map(children, & &1.id)
   end
 
   test "GH 3292: the provisioner sweep is a fourth, independently gated child (pure init/1)" do

@@ -83,6 +83,10 @@ config :letflow, scripts_test_hooks: true
 # run_claimed/2 directly.
 config :letflow, start_script_task_dispatcher: false
 
+# REQ-615 (GH #3434): the record-trigger worker's zero-delay first tick queries Letflow.Repo from a
+# process no test owns (the same OwnershipError hazard). Tests call Worker.run_tick/2 and claim_next/1.
+config :letflow, start_record_trigger_worker: false
+
 # GH #3292: the provisioner sweep (Letflow.TenantProvisioner.Sweep) is timer-driven and queries
 # Letflow.Repo from a process no test is an ancestor of (the same OwnershipError hazard as the pollers
 # above). Tests call Sweep.run/1 directly or start their own instance.

@@ -312,6 +312,12 @@ defmodule Letflow.Api.Response do
     do: send_problem(conn, Error.form_hook_refused(code, fields))
 
   @doc """
+  HTTP 503 — the form validation hook gave no verdict (GH #3524); see `Error.form_hook_failed/1`.
+  """
+  @spec form_hook_failed(Plug.Conn.t(), atom()) :: Plug.Conn.t()
+  def form_hook_failed(conn, code), do: send_problem(conn, Error.form_hook_failed(code))
+
+  @doc """
   HTTP 422 — a definition binding a tenant script that is not runnable as bound (GH 2534 PR
   7c-1, design gh2534-7c-script-handler.md 4.5). The node id is the caller's own graph; the
   reason is a closed code. One body for every route that activates a definition (activate,

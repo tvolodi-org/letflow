@@ -513,6 +513,37 @@ defmodule Letflow.Api.Error do
     }
   end
 
+  @form_hook_failed_codes [
+    :script_rejected,
+    :input_invalid,
+    :script_error,
+    :budget_exceeded,
+    :memory_limit_exceeded,
+    :timeout,
+    :output_invalid,
+    :script_busy
+  ]
+
+  @doc """
+  HTTP 503 — Service Unavailable (GH #3524, decision 0067 D8, F-4). The node's `form_validation`
+  hook could not give a verdict (one of the eight infrastructure codes); nothing was written.
+
+  The body carries the constant detail and the `code` extension, the atom's name. The constructor
+  takes only one of the eight atoms, so no source, key, version, sha256, submitted value or
+  exception text can reach the body (INV-2, INV-4, INV-8).
+  """
+  @spec form_hook_failed(atom()) :: t()
+  def form_hook_failed(code) when code in @form_hook_failed_codes do
+    %__MODULE__{
+      type: @problems_base <> "service-unavailable",
+      title: "Service Unavailable",
+      status: 503,
+      detail:
+        "the form validation could not give a verdict; resubmit later or ask an administrator",
+      extensions: %{"code" => Atom.to_string(code)}
+    }
+  end
+
   @doc """
   HTTP 422 — a completion submitted the redaction sentinel for a restricted variable the caller
   cannot read (decision 0062 R8/R9). Nothing was written. The body carries the constant `code`
