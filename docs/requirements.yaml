@@ -45459,3 +45459,82 @@ requirements:
       - "10. The migration is registered in the TenantProvisioning manifest, starts empty, and the pull request states how existing QA tenants are handled (no row is created, so none changes behaviour)."
       - "11. The pull request carries a SECURITY-REVIEWER verdict (mandatory) and names slices A (REQ-577), C and D of 0070 D6 as other requirements that this change does not build."
     depends_on: [REQ-517, REQ-518, REQ-519, REQ-566, "owner confirmation of decision 0070 Q1 (scope declaration route): the feature task must not start before it"]
+
+  - id: REQ-639
+    title: "WMS catalog_items: item tracking policy (none, lot, serial, expiry) on the item master and a capture-validation rule (item-policy half of draft MD-04)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- every dependency is already built on main; the register has not flipped their status, so no blocked-by is named. check_deferral_staleness S1 may flag this marker while stage S7 is active.
+    # Source: docs/WMS/WMS_Procurement_Requirements_Draft.md section 4 MD-04 (line 63: "Support lot, serial, expiration and receipt-date capture according to item policy. Enforce unique serial ownership and prevent duplicate active serials"; evidence: "An item configured as serial-tracked cannot be received or shipped without a serial; duplicate serial receipt is rejected") and MD-01 (line 61: the item master stores "tracking policy, shelf-life rules"); lib/letflow/design/gh2658-wms-stock-dimensions.md (REQ-503 design) sections 1 (V2, V4), 2 ("Required is static": lot or serial required for a tracked item is an ITEM POLICY that needs the item master read), 3 (expiry is a property of the lot, receipt date is the posting time) and 5 (serial uniqueness: gaps A and B stay with the ledger); docs/migration/decisions/0057-wms-customer-draft-reconciliation.md D1 (the module owns items; no inbound master sync; nullable external_ref) and D12 (seed data); docs/migration/decisions/0060-decimal-strict-exact-string-fields.md and docs/requirements.yaml REQ-528 (activation of a changed definition on a tenant that already has records); REQ-474 (catalog_item definition), REQ-507 (read API) and REQ-604 (third type, fixture and runbook shape this entry copies). Files read on main: lib/letflow/modules/catalog_items/catalog_items.ex, priv/modules/catalog_items/entity_definitions/catalog_item.json, lib/letflow/modules/read_api.ex, lib/letflow/entities/record/latest.ex (get_live/3), test/letflow/modules/catalog_items/catalog_items_fixture.exs (create/3, create/4). Checked before writing: no tracking field exists on catalog_item on main, none in REQ-620 or REQ-621, and git log has no earlier item-policy work. Written by the business analyst (T-0981) 2026-10-30. Not yet validated.
+    description: >
+      Item-policy half of draft requirement MD-04, Phase 2 group 4 (WMS). Today a catalog_item
+      (priv/modules/catalog_items/entity_definitions/catalog_item.json) has code, name, base_uom_id, kind, active and the
+      external_ref pair, and nothing says whether the item is tracked by lot, serial or expiry. This change adds that
+      policy to the item master and one read-only rule that says what a receipt or an issue must capture for an item.
+
+      Change. (1) catalog_item gains the field tracking_policy: enum none | lot | serial | expiry, not required, queried
+      (a queried column lets a later list or report filter by it). A record with no value, which includes every record
+      that exists today, is read as none; there is no backfill. (2) The module Letflow.Modules.CatalogItems
+      (lib/letflow/modules/catalog_items/catalog_items.ex) gains validate_capture(prefix, item_id, capture), a read-only
+      function in the style of item_uom_valid?/3. prefix comes from the caller, derived server-side from the
+      authenticated tenant, as for the other read functions. capture is a map with the optional string keys "lot",
+      "serial" and "expiry". It returns :ok or {:error, reason}. It never raises and writes nothing.
+
+      Meaning of the four policies (UAT assumption, to be confirmed by the process owner: the draft names lot, serial,
+      expiration and receipt-date capture but does not say which combinations an item may have; one value per item is the
+      smallest reading of the task, and a combined policy such as serial together with expiry is an open question for the
+      owner). none: nothing is captured. lot: a lot code is captured. serial: a serial number is captured. expiry: a lot
+      code and an expiry date are captured, because the REQ-503 design (section 3) makes expiry a property of the lot.
+      Receipt date is not a captured field: it is the posting time of the movement (same design, section 3).
+
+      Rule of validate_capture, in this order. a) item_id is not a uuid, or names no live catalog_item in the tenant
+      schema given by prefix (unknown, deleted, or in another tenant): {:error, :item_not_found}. b) The item has active
+      false: {:error, :item_inactive}. c) capture is not a map: {:error, :invalid_capture}. d) For each of "lot",
+      "serial", "expiry", in that order, and stopping at the first failure: a value that is nil, "" or only whitespace
+      counts as not supplied; a supplied value that is not a string is {:error, {:capture_invalid, field}}; a field that
+      the policy requires and that is not supplied is {:error, {:capture_required, field}}; a field that the policy does
+      not use and that is supplied is {:error, {:capture_not_allowed, field}}; a supplied expiry that Date.from_iso8601/1
+      does not accept (the form YYYY-MM-DD, the form the REQ-503 design stores) is {:error, {:capture_invalid, "expiry"}}.
+      Lot and serial text are not format-checked here; their character set and length belong to the ledger slot
+      registration (REQ-503 design section 2, open question OQ-3).
+
+      Boundary to the ledger (stays there, not built here). Unique serial ownership and the refusal of a duplicate active
+      serial are ledger rules: REQ-503 (design lib/letflow/design/gh2658-wms-stock-dimensions.md section 5, key_bounds
+      on the serial slot, and the open gaps A and B for the same serial at another location or status) and the ledger
+      slices of REQ-502. This change reads and stores no serial, creates no ledger type, no posting and no balance, and
+      does not make a receipt or an issue call validate_capture. Wiring the function into receiving and shipping (the
+      draft's evidence "cannot be received or shipped without a serial") belongs to the receipt and ledger slices that
+      follow; this change delivers the policy and the rule they call, so the draft's evidence for MD-04 is met only when
+      those slices have merged.
+
+      Boundary to MD-01 (item-master synchronisation). MD-01 asks for synchronisation with a designated source (1C, SAP
+      or module administration), source and version visibility, an exception queue for rejected records, shelf-life
+      rules, storage class, dimensions, packaging and barcodes. None of that is built here. Decision 0057 D1 says the
+      module owns the items and there is no inbound master sync; this change takes that as given and neither contradicts
+      nor extends it. tracking_policy is one master attribute of MD-01's list. The module ships no write functions and
+      the generic import answers 403 entity_type_managed for a managed type (REQ-604 criterion 7), so today the field can be
+      set only through the owner path used by the test fixture; how a pilot tenant gets real policies loaded is the open
+      seeding question of decision 0057 D12 and a separate requirement. The runbook says so (criterion 8).
+
+      Existing tenants. A tenant that installed catalog_items earlier keeps the old catalog_item definition until a new
+      version is activated; module install on main is first-install only (REQ-528 criterion 9, decision 0060). The
+      implementer states in the runbook how an installed tenant receives the field, reading the module upgrade path, and
+      records it as a finding if none exists. REQ-528 (pending on the register, its issue closed with the label
+      state:blocked) would add rounding_mode and tolerance_abs to the same definition file: if it lands first, this
+      change re-takes the literal field lists in entity_definitions_test.exs and regenerates pack.json from it.
+
+      Not in this change. Any route, permission or role grant (permissions stays []); a write function; the ledger, a lot
+      master, a serial master or an expiry master; shelf-life rules; receipt-date capture; FEFO or expiry alerts; the
+      receive and ship wiring; the item-master sync; seed data or a QA script.
+    acceptance_criteria:
+      - "1. Definition: priv/modules/catalog_items/entity_definitions/catalog_item.json gains exactly one field, tracking_policy, type enum with the values none, lot, serial, expiry in this order, not required, queried; no other field, constraint or file of the three definitions changes; priv/modules/catalog_items/pack.json is regenerated by priv/modules/catalog_items/generate_pack.exs; a test that reads the file asserts each of these (as entity_definitions_test.exs does for the existing fields), its literal field list for catalog_item is updated, and pack_drift_test.exs passes."
+      - "2. Owner-path writes, through Letflow.CatalogItemsFixture.create/3 in test/letflow/modules/catalog_items/catalog_items_fixture.exs: an item with each of none, lot, serial and expiry is accepted and stored; an item with no tracking_policy is accepted; a value outside the four (for example the text batch) is refused naming the field tracking_policy. A generic POST /entities/records/catalog_item is still 403 entity_type_managed."
+      - "3. Install and existing tenants: on real Postgres the module install as TENANT_ADMIN with a rationale still activates and promotes the three types, with one promotion row per promoted column of catalog_item including tracking_policy (the install test of REQ-474 extended). On a tenant that already holds a catalog_item record written without the field, a test calls activate_definition/4 (lib/letflow/entities/definitions.ex) with the new catalog_item definition and asserts the result: it succeeds because no strict decimal field is added, the old record is still returned by lookup/2 and has no tracking_policy key. If the call is refused, the PR reports the refusal as a finding and does not weaken this criterion."
+      - "4. Read API: lookup/2 of Letflow.Modules.CatalogItems for an item written with tracking_policy serial returns a map that holds tracking_policy with the value serial; for an item written without it the map has no tracking_policy key and validate_capture treats it as none (criterion 5, row none)."
+      - "5. validate_capture/3 accepts exactly these combinations and nothing else, one test per row, each with a real item written through the owner path. none (and no value stored): capture %{} is :ok; capture with only blank values (nil, empty text, spaces) is :ok. lot: %{\"lot\" => \"L1\"} is :ok. serial: %{\"serial\" => \"S1\"} is :ok. expiry: %{\"lot\" => \"L1\", \"expiry\" => \"2027-03-31\"} is :ok."
+      - "6. validate_capture/3 refusals, one test per row, each asserting the exact returned tuple and that the function writes nothing (the record count of the tenant is the same before and after). Item: a text that is not a uuid, an unknown uuid and a soft-deleted item are each {:error, :item_not_found}; an item with active false is {:error, :item_inactive}; capture given as a list is {:error, :invalid_capture}. Required: policy lot with %{} is {:error, {:capture_required, \"lot\"}}; policy serial with a serial of spaces only is {:error, {:capture_required, \"serial\"}}; policy expiry with a lot and no expiry is {:error, {:capture_required, \"expiry\"}} and with an expiry and no lot is {:error, {:capture_required, \"lot\"}}. Not allowed: policy none with %{\"lot\" => \"L1\"} is {:error, {:capture_not_allowed, \"lot\"}}; policy lot with a serial is {:error, {:capture_not_allowed, \"serial\"}}; policy serial with a lot is {:error, {:capture_not_allowed, \"lot\"}}. Invalid: a lot given as the number 5 is {:error, {:capture_invalid, \"lot\"}}; policy expiry with expiry \"31/03/2027\" and with \"2027-02-30\" is each {:error, {:capture_invalid, \"expiry\"}}. Order: policy expiry with both an invalid expiry and no lot is {:error, {:capture_required, \"lot\"}}, because lot is checked first."
+      - "7. Tenancy (INV-1, INV-5, INV-6): validate_capture/3 and the new field live in the tenant schema given by prefix and the function takes no tenant identifier from its arguments. Cross-tenant negative test, named tracking_policy_cross_tenant_test: in a two-tenant test an item of tenant A with policy serial, validated with tenant B's prefix and the capture %{\"serial\" => \"S1\"}, returns {:error, :item_not_found}, the same tuple as a uuid that exists in neither tenant; the same item validated with tenant A's prefix returns :ok; two tenants holding items with different policies are each validated by their own policy. The change adds no route, no permission and no role grant (permissions stays [] in the manifest), so priv/permission_matrix/effective.golden is unchanged, shown by mix letflow.permission_matrix --check with the real output quoted."
+      - "8. Boundaries and runbook: docs/runbooks/wms-foundation.md, section Catalog module limits (read by test/letflow/modules/catalog_items/runbook_test.exs), gains numbered items that state: the four policies and what each requires; that unique serial ownership and the duplicate active serial refusal stay in the stock ledger (REQ-503 design section 5, gaps A and B); that validate_capture is not yet called by any receipt or issue, so the draft's MD-04 evidence is open until the receipt and ledger slices; that MD-01 synchronisation is not built (decision 0057 D1); that today the field is settable only through the owner path because the generic import refuses a managed type; and how an already installed tenant receives the field (criterion 3). Symbols are cited, not line numbers. The runbook test passes."
+      - "9. Scope and gates: git diff shows no change under lib/letflow/modules/procurement/, no new migration, no new route, no ledger type, no seed data and no QA script; the catalog_items.ex moduledoc is updated to name the new field and function. SECURITY-REVIEWER (the function reads tenant data) and REVIEWER verdicts are recorded. mix format --check-formatted, mix compile --warnings-as-errors, the scoped mix test over test/letflow/modules/catalog_items/ and mix letflow.check_requirements_registration pass, real output quoted."
+    depends_on: [REQ-474, REQ-507, REQ-604, REQ-503]
