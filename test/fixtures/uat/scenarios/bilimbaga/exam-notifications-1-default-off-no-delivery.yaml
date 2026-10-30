@@ -1,0 +1,102 @@
+# Authored by BA-BILIMBAGA for T-0993 (REQ-597 criterion 3: exam notifications are off unless the platform switch is on).
+# Sources: docs/requirements.yaml REQ-597 description (Flag and default) and criterion 3; config/config.exs sets
+# :exam_notifications_enabled to false; docs/roles.md (NotificationTemplatesManage: TENANT_ADMIN and PLATFORM_ADMIN only, which
+# also gates the delivery log read); test/fixtures/uat/actors.yaml (actor-bilimbaga-candidate, actor-bilimbaga-admin).
+# The admin's token needs a qa-login mapping that is not yet approved (roster note): if it cannot sign in, steps 3 and 4 are
+# BLOCKED and EO-001 is BLOCKED, not PASS.
+# Observed only through the company's delivery log and the exam-taking answers. The "same return value as before" part of
+# criterion 3, and the string "true" counting as off, have no HTTP surface and are not UAT-observable (see "Not covered here" in
+# exam-notifications-5-ids-only-in-delivery-log.yaml header).
+---
+id: bilimbaga-exam-notifications-1-default-off-no-delivery
+scope: bilimbaga
+title: With exam notifications switched off, a candidate who submits an exam causes no message and no row in the delivery log
+version: "1.0"
+tags: [notifications, default_off, access_control, refusal]
+
+description: >
+  Exam messages reach real candidates, so they are off unless the platform operator turns them on. On the environment as shipped
+  (switch off), a candidate starts and submits an exam. The exam is scored as always, and the company's delivery log gains no row for
+  it. A candidate cannot read the delivery log.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  tenant_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed and the exam notifications switch is off (the shipped default; not turned on for this run)
+    check: process_definition_active
+  - description: >
+      UAT assumption, to be confirmed by the process owner: the exam used is one of the QA fixture exams, assigned to all
+      candidates by the fixture seed, and the candidate has an email address on the account, so that a message WOULD be sent if
+      the switch were on
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: The administrator reads the company's delivery log and notes how many rows it holds and that none is for an exam result
+    via: api
+
+  - step: 2
+    actor: candidate
+    action: The candidate starts the exam assigned to all candidates, answers at least one question and submits the exam; the identifier of the session is noted
+    via: api
+    produces:
+      instance_id: "the exam session's own identifier"
+
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator reads the company's delivery log again, once with no filter, once for each of the three statuses
+      sent, failed and skipped, and searches every answer for the session identifier noted in step 2
+    via: api
+
+  - step: 4
+    actor: candidate
+    action: The candidate tries to read the company's delivery log
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The submitted exam started no message, so the delivery log is unchanged
+    verification:
+      method: api_response
+      detail: >
+        Every answer of step 3 is 200; the unfiltered list has the same number of rows as in step 1; no row has the
+        session identifier of step 2 as its trigger reference and no row has the template key exam_result; each of the
+        three filtered lists holds no such row either
+      evidence: The list of step 1 and the four lists of step 3
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        Candidates would receive mail the platform operator never switched on, and a company's log would fill with
+        rows for messages nobody approved.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: The exam itself behaves as before, the submit is accepted and the session is scored
+    verification:
+      method: api_response
+      detail: The submit in step 2 answers 200 and the session is shown as submitted (or awaiting manual grading) with its score or pending state
+      evidence: The submit answer of step 2
+    on_fail:
+      severity: MAJOR
+      business_impact: A switch that is off must not change how an exam is submitted or scored.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-003
+    description: A candidate is refused the delivery log
+    verification:
+      method: http_status
+      detail: The request of step 4 answers 403 and the body holds no delivery row, no template key and no identifier of another user
+      evidence: The answer of step 4
+    on_fail:
+      severity: BLOCKER
+      business_impact: Candidates could see which messages the company sends and to whom.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: true
+  description: The submitted session needs no cleanup; cancel the session if step 2 did not finish
