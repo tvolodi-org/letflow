@@ -9,10 +9,12 @@ defmodule Letflow.Routers.EntityTypeHooks do
   | `GET /` (the tenant's bindings) | `:EntityTypeHooksList` | `:ScriptsWrite` |
   | `PUT /:entity_type` (bind; rebind with body `"rebind": true`) | `:EntityTypeHooksManage` | `:ScriptsPublish` |
   | `DELETE /:entity_type` (unbind) | `:EntityTypeHooksManage` | `:ScriptsPublish` |
-  | `POST /:entity_type/dry-run` (run the bound script on a draft, writes nothing; REQ-633) | `:EntityTypeHooksDryRun` | `:ScriptsWrite` |
+  | `POST /:entity_type/dry-run` (run the bound script on a draft, writes no record; REQ-633) | `:EntityTypeHooksDryRun` | `:ScriptsWrite` |
 
   The dry-run body is exactly `{"candidate": {...}}`; anything else answers 422 `invalid_input`
-  before any lookup. A script outcome (also a failed one) is a plain 200 with `outcome`.
+  before any lookup. A script outcome (also a failed one) is a plain 200 with `outcome`. Each call
+  that reaches the runner appends one `entity_write_hook.dry_run` audit row (a call refused with
+  403, 404 or 422 appends none); a row that cannot be written answers 500 with no detail.
 
   The tenant comes only from `conn.assigns.scoped_opts` (INV-1); the path, query and body carry no
   tenant. Every write requires an OIDC credential (403 `api_token_not_allowed`). An absent type,
