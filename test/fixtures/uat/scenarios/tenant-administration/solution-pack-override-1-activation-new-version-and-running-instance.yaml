@@ -1,19 +1,21 @@
 # REQ-610 slice S3 (BA-TENANT-ADMINISTRATION): a company's stored change to an installed pack process is activated as a new process version;
 # a process already running keeps the old version.
 # Criteria covered, by REQ-610 number:
-#   1 (the new version holds exactly the changed label, responsible role and reminder duration, everything else as installed; a pack-setting key
-#     inside the stored change leaves the process unchanged: EO-002; the empty change of a retired override equals the installed process: EO-007),
-#   2 (new version "<installed version>+ov1", only active one of its name, previous one deprecated and unchanged, second call refused
-#     override_already_activated: EO-005, version 2 built from the installed process and not from version 1: EO-006),
+#   1 (the new version holds exactly the changed label, responsible role and reminder duration, everything else as installed;
+#     the empty change of a retired override equals the installed process: EO-007),
+#   2 (new version "<installed version>+ov1", only active one of its name, previous one deprecated and unchanged, second call refused and writing no audit entry:
+#     override_already_activated: EO-005 and EO-008, version 2 built from the installed process and not from version 1: EO-006),
 #   3 (running instance unchanged, new instance follows the new assignment: EO-003, EO-004),
 #   4 (retire, then activate: back to the installed content as a new version: EO-007).
 # Not UAT-observable (stay with the backend tests S3-merge, S3-activation, S3-audit-no-values, C-activate):
 #   - the pure merge with injected structure changes (criterion 1: property_not_overridable and override_changes_structure cannot be reached
 #     through the route, because the write route already refuses a path outside the list and a list path cannot change the structure);
-#   - the audit entry, the captured log lines and the DROP TABLE case (criterion 6); source scans and pins (criteria 8, 9); two concurrent calls (criterion 5).
+#   - a settings.<key> patch key leaves the graph unchanged (criterion 1): no module declares a settings schema, so the write route refuses every
+#     settings path (property_not_overridable) and such a change cannot be stored; the audit entry itself is read in scenario 2, the captured log lines
+#     and the DROP TABLE case (criterion 6) need log and database access; source scans and pins (criteria 8, 9); two concurrent calls (criterion 5).
 # Sensitive actions: change process definitions (the activation) is done by the administrator here; its refusals are in scenarios 2 and 3.
 #   approve, pay or release, see sensitive data (values in answers: scenario 2 step 6), change users: not part of this flow.
-# Step 9 is expected to be REFUSED (one request). Every other step is an accepted case.
+# Step 10 is expected to be REFUSED (one request). Every other step is an accepted case.
 ---
 id: tenant-administration-solution-pack-override-activation-new-version-and-running-instance
 scope: tenant-administration
@@ -25,7 +27,7 @@ description: >
   SwiftRoute installed a process pack. The pack's process has a first step for the Ops Manager and a second step with its own label, its own
   role and a reminder timer. Dispatcher Lena starts one run (run A) and Ops Manager Marco completes its first step, so run A waits at the second
   step. The administrator then stores a change for the second step: another label, the Ops Manager role as responsible role and a longer
-  reminder duration, together with one pack setting that is not part of the process. Nothing happens until the administrator activates the change.
+  reminder duration. Nothing happens until the administrator activates the change.
   After activation the company has a new version of the process, named after the installed version plus the change number; it is the only active
   one, the previous one is retired from use but unchanged, and every other part is as installed. Run A still follows the old version. A new run
   (run B) follows the new version, so its second step goes to the Ops Manager. Activating the same change again is refused. A second version of
@@ -37,9 +39,10 @@ actors:
   swiftroute_admin: actor-swiftroute-alice
   swiftroute_dispatcher: actor-swiftroute-lena
   swiftroute_ops_manager: actor-swiftroute-marco
+  swiftroute_auditor: actor-swiftroute-auditor
 
 preconditions:
-  - description: SwiftRoute is set up with its administrator, its dispatcher and its Ops Manager
+  - description: SwiftRoute is set up with its administrator, its dispatcher, its Ops Manager and its read-only auditor
     check: system_seeded
   - description: >
       SwiftRoute has an active installation of a process pack whose process is the only active process of its name, with a first step routed to the
@@ -74,11 +77,10 @@ steps:
     actor: swiftroute_admin
     action: >
       Stores a change (change 1, version 1) for the installed process with the reason "Move step two to the Ops Manager". It sets, for the second
-      step, the label "Review with Ops Manager", the responsible role to the Ops Manager role and the reminder duration to 3 days (P3D); and it sets
-      one pack setting (a threshold) that is not a part of the process.
+      step, the label "Review with Ops Manager", the responsible role to the Ops Manager role and the reminder duration to 3 days (P3D).
     via: api
     input:
-      change_properties: second step label, second step responsible role, second step reminder duration, one pack setting
+      change_properties: second step label, second step responsible role, second step reminder duration
       reason: Move step two to the Ops Manager
     produces:
       change_1: change 1 stored at version 1, status active
@@ -127,6 +129,16 @@ steps:
     sla_context:
       expected_within_hours: null
   - step: 9
+    actor: swiftroute_auditor
+    action: >
+      Reads the audit trail of SwiftRoute and counts the entries of the kind "pack process change activated" that belong to change 1 (expected: one,
+      from step 5).
+    via: api
+    produces:
+      audit_before: the count of activation entries for change 1
+    sla_context:
+      expected_within_hours: null
+  - step: 10
     actor: swiftroute_admin
     action: Activates change 1 a second time with the reason "Roll out again".
     via: api
@@ -135,7 +147,15 @@ steps:
     expect_refusal: true
     sla_context:
       expected_within_hours: null
-  - step: 10
+  - step: 11
+    actor: swiftroute_auditor
+    action: Reads the audit trail of SwiftRoute again and counts the activation entries for change 1.
+    via: api
+    produces:
+      audit_after: the count of activation entries for change 1 after the refused call
+    sla_context:
+      expected_within_hours: null
+  - step: 12
     actor: swiftroute_admin
     action: >
       Writes version 2 of change 1 that sets only the label of the second step to "Second look" (no role, no duration, no setting) with the reason
@@ -148,7 +168,7 @@ steps:
       activation_2: the new process version "<installed version>+ov2" whose second step has the label "Second look", the installed role and the installed reminder duration
     sla_context:
       expected_within_hours: null
-  - step: 11
+  - step: 13
     actor: swiftroute_admin
     action: >
       Retires change 1 with the reason "Back to the vendor process", activates it with the reason "Return to installed", and reads the process versions.
@@ -177,8 +197,8 @@ expected_outcomes:
     description: >
       After step 5 the new version is the only active process of that name; the installed version is deprecated and its identifier, version and
       content are exactly as read in step 4; the new version differs from the installed content only in the second step's label, role and reminder
-      duration, which carry the three values of step 3; every other step, connection, condition and variable is identical, and the pack setting of the
-      change appears nowhere in the process content.
+      duration, which carry the three values of step 3; every other step, connection, condition and variable is identical, and nothing
+      else differs.
     verification:
       method: system_state
       detail: Versions read in steps 4 and 6; one active before and one active after (the new one); the installed row identical; the new content compared as a whole with the installed content, differing only in the three properties.
@@ -213,11 +233,11 @@ expected_outcomes:
       suggested_action: route_to_wf03
   - id: EO-005
     description: >
-      The second activation in step 9 is refused with the validation answer whose detail is exactly override_already_activated; no process version
+      The second activation in step 10 is refused with the validation answer whose detail is exactly override_already_activated; no process version
       is added and none is changed.
     verification:
       method: api_response
-      detail: Status 422, detail override_already_activated; the process versions of that name read before and after step 9 are identical.
+      detail: Status 422, detail override_already_activated; the process versions of that name read before and after step 10 are identical, and the audit counts of steps 9 and 11 are equal.
       evidence: The answer and the two readings.
     on_fail:
       severity: BLOCKER
@@ -225,11 +245,11 @@ expected_outcomes:
       suggested_action: route_to_wf03
   - id: EO-006
     description: >
-      Step 10 activates "<installed version>+ov2" built from the installed process plus version 2 of the change only: the second step has the label
+      Step 12 activates "<installed version>+ov2" built from the installed process plus version 2 of the change only: the second step has the label
       "Second look", and its role and reminder duration are back at the installed values, not those of version 1. The version from step 5 is unchanged.
     verification:
       method: system_state
-      detail: Content of the +ov2 version read after step 10 shows label "Second look", installed role and installed duration; the +ov1 version is identical to its reading in step 6.
+      detail: Content of the +ov2 version read after step 12 shows label "Second look", installed role and installed duration; the +ov1 version is identical to its reading in step 6.
       evidence: The version readings compared with the installed content.
     on_fail:
       severity: BLOCKER
@@ -237,16 +257,29 @@ expected_outcomes:
       suggested_action: route_to_wf03
   - id: EO-007
     description: >
-      After step 11 the new version "<installed version>+ov3" has content equal to the installed content in every part; the installed version and
-      the versions made in steps 5 and 10 are unchanged, and the +ov3 version is the only active one.
+      After step 13 the new version "<installed version>+ov3" has content equal to the installed content in every part; the installed version and
+      the versions made in steps 5 and 12 are unchanged, and the +ov3 version is the only active one.
     verification:
       method: system_state
-      detail: Content of the +ov3 version equals the installed content; the earlier versions read before and after step 11 are identical except for their status.
+      detail: Content of the +ov3 version equals the installed content; the earlier versions read before and after step 13 are identical except for their status.
       evidence: The version readings compared.
     on_fail:
       severity: MAJOR
       business_impact: A company could not return to the vendor process, or its history would be rewritten.
       suggested_action: route_to_wf03
+  - id: EO-008
+    description: >
+      The refused second activation writes no audit entry: the number of activation entries for change 1 counted in step 11 equals the number counted
+      in step 9, and step 9 counted exactly one (from step 5).
+    verification:
+      method: api_response
+      detail: The audit trail of SwiftRoute read by the auditor in steps 9 and 11 (action solution_pack.override_activated, resource the change); both counts equal, the first one being 1.
+      evidence: The two counts and the entries behind them.
+    on_fail:
+      severity: MAJOR
+      business_impact: The audit trail would hold activations that never happened, or miss the real one.
+      suggested_action: route_to_wf03
+
 
 cleanup:
   cancel_open_instances: true

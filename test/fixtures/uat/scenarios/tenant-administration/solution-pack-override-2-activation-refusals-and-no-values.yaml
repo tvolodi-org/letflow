@@ -2,7 +2,7 @@
 # Criteria covered, by REQ-610 number:
 #   5 (a request without a reason is refused and writes no version: EO-001; an unknown change number and a pack the company has not installed
 #     answer the same not-found reply: EO-002; no stray version after the refusals: EO-003),
-#   6 (the success answer carries identifier, name and version only, never a stored value: EO-004),
+#   6 (the success answer carries identifier, name and version only, never a stored value: EO-004; the audit entry has the fixed items and no stored value: EO-005),
 #   2 (an activation that is accepted after the refusals still works: EO-004).
 # Not UAT-observable here (stay with the backend tests S3-refusals, S3-audit-no-values; the reason is written in each case):
 #   - a variable-schema change refused artefact_type_not_supported: the write route cannot store one (the closed list of changeable properties has no
@@ -10,7 +10,7 @@
 #   - a change whose installed process was deleted, and a change on a module-owned process (module_owned_definition_not_supported): they need
 #     test setup that no route offers (deleting a version, installing a module-wrapped pack);
 #   - a merged graph that fails validation: the closed list cannot produce one through the routes;
-#   - two concurrent calls; the audit entry, captured log lines and the DROP TABLE case (criterion 6): database and log access.
+#   - two concurrent calls; the captured log lines and the DROP TABLE case (criterion 6): log and database access (the audit entry itself is read in step 6).
 # Sensitive actions: change process definitions is refused in steps 2 to 4; see sensitive data: step 5 (a stored value is not echoed).
 #   approve, pay or release, change users: not part of this flow. Who may activate at all, and the other company: scenario 3.
 # Steps 2, 3 and 4 are expected to be REFUSED (one request each). Steps 1 and 5 are accepted cases in their own steps.
@@ -30,9 +30,10 @@ description: >
 
 actors:
   swiftroute_admin: actor-swiftroute-alice
+  swiftroute_auditor: actor-swiftroute-auditor
 
 preconditions:
-  - description: SwiftRoute is set up with its administrator
+  - description: SwiftRoute is set up with its administrator and its read-only auditor
     check: system_seeded
   - description: >
       SwiftRoute has an active installation of a process pack with a process that has at least two steps; the administrator can read the pack, the
@@ -98,6 +99,16 @@ steps:
     sla_context:
       expected_within_hours: null
 
+  - step: 6
+    actor: swiftroute_auditor
+    action: >
+      Reads the audit trail of SwiftRoute for the entries of the kind "pack process change activated" that belong to change 1, and searches every
+      audit entry for the texts "Zebra" and "987654".
+    via: api
+    produces:
+      audit_entries: the activation entries for change 1 and their recorded content
+    sla_context:
+      expected_within_hours: null
 expected_outcomes:
   - id: EO-001
     description: >
@@ -144,6 +155,22 @@ expected_outcomes:
     on_fail:
       severity: BLOCKER
       business_impact: Stored company values would leak into answers, or an accepted activation would not work after refused attempts.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      The audit trail holds exactly one entry for the activation of change 1 (from step 5) and none for the refused requests of steps 2 to 4. Its
+      recorded content has exactly these items: the pack, the kind of artefact, the artefact, the change, the change version, the content fingerprint,
+      the new process version identifier, the new process version and the reason; and the texts "Zebra" and "987654" appear in no audit entry.
+    verification:
+      method: api_response
+      detail: >
+        Audit trail read by the auditor (action solution_pack.override_activated, resource type solution_pack_override, resource the change): one entry;
+        its after-state keys are pack_id, artefact_type, artefact_id, override_id, override_version, patch_hash, definition_id, definition_version and
+        reason, and no others; the search for the two texts over all entries finds nothing.
+      evidence: The audit entries read in step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The change is not traceable, or the audit trail carries the company's stored wording.
       suggested_action: route_to_wf03
 
 cleanup:

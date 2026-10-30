@@ -1,9 +1,9 @@
 # REQ-610 slice S3 (BA-TENANT-ADMINISTRATION, platform scope because the platform operator takes part): who may activate a stored change, and that another company can neither activate nor see it.
 # Criterion covered, by REQ-610 number: 7 (a user with a company role other than administrator and the read-only auditor are refused 403: EO-001;
 # the administrator of another company gets the same not-found answer as for an unknown change, nothing is written in either company: EO-002;
-# a company number sent in the body is ignored: EO-004; the platform operator gets only its own company's data: EO-003).
+# a company number sent in the body or the query string is ignored: EO-004; the platform operator gets only its own company's data: EO-003).
 # Not UAT-observable here (stay with backend test C-activate): the source scan that every database call of the slice passes the company prefix;
-#   a company number sent in the path or the query string (the path of this route holds the pack and the change only; the body case is step 9).
+#   a company number sent in the path (the path of this route holds the pack and the change only; the body and query string cases are step 9).
 # Sensitive actions: change process definitions (the activation) is refused in steps 3 to 6. approve, pay or release, see sensitive data
 #   (another company's change: steps 5 and 6), change users: not part of this flow.
 # Route behaviour: the platform operator's token resolves to the platform's own company, so step 7 is an accepted request answered from the operator's
@@ -22,7 +22,7 @@ description: >
   and gets the same not-found answer as for an identifier that exists nowhere; BilimBaga's process versions do not change. The platform operator,
   whose own company holds no such change, asks the same and gets that company's not-found answer, with nothing of SwiftRoute in it. Back with
   SwiftRoute's administrator, nothing has been activated by all this. The administrator then activates the change while sending BilimBaga's company
-  number along in the request: the number is ignored, the activation happens in SwiftRoute, and BilimBaga's process versions still have not changed.
+  number along in the body and in the query string of the request: the number is ignored, the activation happens in SwiftRoute, and BilimBaga's process versions still have not changed.
 
 actors:
   swiftroute_admin: actor-swiftroute-alice
@@ -118,11 +118,13 @@ steps:
   - step: 9
     actor: swiftroute_admin
     action: >
-      Activates change 1 with the reason "Roll out the new label" and also puts BilimBaga's company number into the body of the request.
+      Activates change 1 with the reason "Roll out the new label" and also puts BilimBaga's company (tenant) identifier into the request twice:
+      as the body field tenant_id and as the query parameter tenant_id.
     via: api
     input:
       reason: Roll out the new label
-      extra_body_field: BilimBaga's company number
+      body_field_tenant_id: BilimBaga's company (tenant) identifier
+      query_parameter_tenant_id: BilimBaga's company (tenant) identifier
     produces:
       activation: the new process version in SwiftRoute
     sla_context:
@@ -176,7 +178,7 @@ expected_outcomes:
       suggested_action: route_to_wf03
   - id: EO-004
     description: >
-      Step 9 succeeds in SwiftRoute with a new process version although the body carried BilimBaga's company number; the number is ignored, no
+      Step 9 succeeds in SwiftRoute with a new process version although the body field tenant_id and the query parameter tenant_id both carried BilimBaga's identifier; both are ignored, no
       version appears in BilimBaga (step 10 equals step 2).
     verification:
       method: system_state
