@@ -1,0 +1,64 @@
+# T-0996 (BA): DEFINITIONS group, scenario 7: with the switch for form validation scripts ON, a task whose check script accepts the answer is completed.
+# Covers REQ-632 criterion 7, second sentence, quoted: "The same completion with the flag set true and a published accepting script succeeds."
+# The first sentence of criterion 7 (flag off, script_rejected) is scenario definitions-8. The statement "The default in config/config.exs stays false and a test reads
+# Letflow.Scripts.form_validation_enabled?/0 in a fresh configuration" is a property of the configuration; no route shows it (see definitions-5 header). Not UAT-observable: the runner stub that counts zero runs.
+# Sources: docs/requirements.yaml REQ-632 criterion 7; docs/migration/decisions/0067-form-hook-script-validation.md (D5 row 10 kill switch); lib/letflow/scripts/form_validation.ex (check_flag/0 is read at run time);
+# test/fixtures/uat/actors.yaml.
+# Needs the switch ON at run time. The accepting script fv_ok_total and the process fv_ks_on (one human task "review_total", role "role-ops-manager", naming fv_ok_total version 1) are setup-prepared.
+---
+id: definitions-7-form-hook-switch-on-completion-succeeds
+scope: definitions
+title: With the switch on, a task whose check script accepts the answer is completed
+version: "1.0"
+tags: [definitions, scripts, form-validation, task-completion, switch-on, accept]
+
+description: >
+  The dispatcher starts an instance of fv_ks_on. The Ops Manager completes its task with the answer total = 100, which the published check script accepts. The completion succeeds, the answer is stored,
+  and the instance moves on to its end. This is the other half of definitions-8: the same completion is refused there when the switch is off.
+
+actors:
+  dispatcher: actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+
+preconditions:
+  - description: The switch for form validation scripts is ON in the test environment at the time of step 2.
+    check: system_seeded
+    detail: Setup-prepared. If step 2 answers 503 with the code script_rejected, the switch is off; report BLOCKED and run definitions-8 instead. Not a product failure.
+  - description: SwiftRoute has the published form validation script fv_ok_total version 1 that accepts total = 100, and the active process fv_ks_on naming it on its human task "review_total".
+    check: system_seeded
+    detail: Setup-prepared. If it cannot be arranged, the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      The dispatcher starts an instance of fv_ks_on. The instance and its task are noted.
+    via: api
+  - step: 2
+    actor: ops_manager
+    action: >
+      The Ops Manager completes the task with the answer total = 100.
+    via: api
+    input:
+      total: 100
+  - step: 3
+    actor: ops_manager
+    action: >
+      The Ops Manager reads the task and notes its status and the stored answer.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: With the switch on and an accepting script the completion succeeds.
+    verification:
+      method: http_status
+      detail: Step 2 answers a success status (not 503, not 422). Step 3 shows the task completed with total = 100, and the instance has left the human task.
+      evidence: The answers of steps 2 and 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Turning the check on stops tasks from being completed, so work halts.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: None; the instance ends by itself.
