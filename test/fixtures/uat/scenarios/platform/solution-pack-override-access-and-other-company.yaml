@@ -1,0 +1,231 @@
+# T-0975 (BA): platform group, solution-pack override access: who may write and read pack adjustments, and that one company never sees or changes another's.
+# Covers REQ-596 criterion 6 (a company administrator of another company cannot list, add a version to or retire the first company's adjustment: the same not-found answer as for one that does not exist;
+# a company identifier in the path, query or body is ignored; the platform operator on these routes gets its own company's data) and criterion 7 (users with a tenant role other than administrator, and the read-only auditor, are refused on the three write requests;
+# a caller with the right to read definitions gets the list; a caller without it is refused).
+# Sources: docs/requirements.yaml REQ-596 criteria 6, 7; docs/roles.md matrix row SolutionOverridesManage (TENANT_ADMIN yes, PLATFORM_ADMIN yes, every other role no) and row DefinitionsRead (yes for TASK_WORKER, PROCESS_OPERATOR, TENANT_AUDITOR;
+# no for CANDIDATE); priv/permission_matrix/effective.golden lines for those rows; lib/letflow/routers/solution_packs.ex (write routes need SolutionOverridesManage, list needs DefinitionsRead).
+# Sensitive actions: change process definitions (the three writes, refused in steps 3 to 5); see sensitive data / another company's data (steps 8 to 15); approve, pay or release and change users do not occur in this flow.
+# Order of checks: the permission is checked before the body, so the refused worker's, operator's and auditor's valid and invalid bodies get the same answer. The other company's administrator sends complete, valid bodies, so a 422 cannot hide the 404.
+# Limit, written here so it survives the merge (see also the sidecar test/fixtures/uat/scenario-env-limitations/platform-solution-pack-override-access-and-other-company.yaml): the roster has no company other than SwiftRoute
+# with a process designer, and Bilimbaga has not installed pack P, so for Bilimbaga the pack check answers not-found before the override is looked up. The case "another company's override number under that company's OWN installed pack" is covered by the backend test C-manage only.
+# NOT UAT-OBSERVABLE: "no new database call is without a company prefix" (source-scanning test); "the tenant-auditor refused-set literal, the number-word tables and the permission golden file" (code and files); the audit-trail check of refused requests (database, as scenario 64 EO-007).
+# NOT UAT-OBSERVABLE (criteria 8 and 9): criterion 8 (pins re-derived: route table, route_scope snapshot, tenant table list, migration version) and criterion 9 (SECURITY-REVIEWER and REVIEWER verdicts, static checks, PR statement about existing QA tenants) are build and review gates of the implementing change, not actions of a user.
+# The platform operator (actor-platform-admin) is on routes that take the company from the sign-in: it gets its own company's data, so step 15 is a no-data-leak check, not a refusal.
+---
+id: platform-solution-pack-override-access-and-other-company
+scope: platform
+title: Only the company administrator may write pack adjustments, others may read at most, and one company never sees or changes another's
+version: "1.0"
+tags: [solution-pack, override, access, refusal, cross-tenant, isolation]
+
+description: >
+  SwiftRoute's administrator writes a pack adjustment and tries to steer it to Bilimbaga by naming Bilimbaga's company id in the body, in the query and in a header; the id is ignored and the adjustment belongs to SwiftRoute. A task worker, a process operator
+  and the read-only auditor of SwiftRoute try to add an adjustment (valid and invalid), write a new version and retire it, and are refused on every request identically; all three can read the list. A Bilimbaga candidate, who may not read definitions at all, is refused the list.
+  Bilimbaga's administrator, who has not installed the pack, tries to list, add a version to, retire and create adjustments by naming SwiftRoute's pack and adjustment, and gets the same not-found answer as for a pack and an adjustment that never existed;
+  SwiftRoute's adjustment is unchanged. The platform operator lists the same pack and sees only the platform company's own data (none of SwiftRoute's).
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-marco
+  operator_a: actor-swiftroute-lena
+  auditor_a: actor-swiftroute-auditor
+  tenant_admin_b: actor-bilimbaga-admin
+  candidate_b: actor-bilimbaga-candidate
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: SwiftRoute has an active installation of pack P that contains the process definition D with a task step S1, and no active adjustment of D.
+    check: system_seeded
+    detail: Setup-prepared as for scenario 64 (pack P installed through the install route; D_ID is the id of the definition that installation created for D, used as the artefact id in every step input; BLOCKED if no artefact base was recorded for it). If an adjustment exists, retire it first and say so in the report.
+  - description: Bilimbaga and the platform company have not installed pack P, and neither has an adjustment of any pack named P.
+    check: system_seeded
+    detail: If either has installed it, say so; steps 9 to 14 are then judged BLOCKED, since the answer would no longer be not-found for the pack.
+  - description: The Bilimbaga administrator and the Bilimbaga candidate can sign in with approved test tokens.
+    check: system_seeded
+    detail: If not (roster note of actor-bilimbaga-admin), report BLOCKED for the steps of that actor and for EO-005 and EO-006; steps 1 to 7, 15 and 16 run.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator creates an adjustment for D with the label of S1 "Zq987654 access probe" and the reason "UAT: access", with a request that also carries Bilimbaga's company id three times: as the body member "tenant_id",
+      as the query parameter tenant_id, and as a header named "x-tenant-id". No other header or member is added. The answer is noted as O1 with its adjustment number ID1. Then the administrator lists the adjustments of pack P and notes it as LIST1.
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq987654 access probe"
+      reason: "UAT: access"
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker lists the adjustments of pack P and notes the answer as WL.
+    via: api
+  - step: 3
+    actor: worker_a
+    action: >
+      The task worker tries four requests: to create a valid adjustment (label of S1 "Zq987654 worker", reason "UAT: worker"), to create an invalid one (an empty body), to write a new version of ID1 (label "Zq987654 worker v2", reason "UAT: worker") and to retire ID1 (reason "UAT: worker").
+      The answers (status, content-type header and decoded body without the per-request trace_id member) are noted as W1 to W4.
+    expect_refusal: true
+    via: api
+  - step: 4
+    actor: operator_a
+    action: >
+      The process operator lists the adjustments of pack P and notes the answer as PL. This is an accepted request (the operator may read definitions).
+    via: api
+  - step: 5
+    actor: operator_a
+    action: >
+      The process operator tries to create a valid adjustment (label of S1 "Zq987654 operator", reason "UAT: operator"), to create an invalid one (an empty body), to write a new version of ID1 (label "Zq987654 operator v2", reason "UAT: operator") and to retire ID1 (reason "UAT: operator").
+      The answers are noted as P1 to P4.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: auditor_a
+    action: >
+      The read-only auditor lists the adjustments of pack P and notes the answer as AL. This is an accepted request (the auditor may read definitions).
+    via: api
+  - step: 7
+    actor: auditor_a
+    action: >
+      The read-only auditor tries the same four requests as the task worker in step 3 (valid create with the label "Zq987654 auditor", empty body, new version of ID1 with the label "Zq987654 auditor v2", retire of ID1). The answers are noted as U1 to U4.
+    expect_refusal: true
+    via: api
+  - step: 8
+    actor: candidate_b
+    action: >
+      The Bilimbaga candidate, who may not read definitions, tries to list the adjustments of pack P.
+    expect_refusal: true
+    via: api
+  - step: 9
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to list the adjustments of pack P, with the query parameter company=swiftroute added. The answer is noted as DB1.
+    expect_refusal: true
+    via: api
+  - step: 10
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to list the adjustments of a pack name that nobody installed ("pack-never-installed"). The answer is noted as DN1.
+    expect_refusal: true
+    via: api
+  - step: 11
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to write a new version of ID1 under pack P (label of S1 "Zq987654 other company", reason "UAT: other company", base version 1). The answer is noted as VB1.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to write a new version of an adjustment number that was never issued in any company, under pack "pack-never-installed" (same body as step 11). The answer is noted as VN1.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to retire ID1 under pack P (reason "UAT: other company", base version 1). The answer is noted as RB1.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: tenant_admin_b
+    action: >
+      The Bilimbaga administrator tries to create an adjustment for D under pack P (label of S1 "Zq987654 foreign create", reason "UAT: foreign create"), with SwiftRoute's company id in the body member "tenant_id", in the query parameter tenant_id and in the header "x-tenant-id".
+      The answer is noted as CB1.
+    expect_refusal: true
+    via: api
+  - step: 15
+    actor: platform_operator
+    action: >
+      The platform operator lists the adjustments of pack P and notes the answer as PO1. (This is a check that nothing of SwiftRoute is shown, not an expected refusal.)
+    via: api
+  - step: 16
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator lists the adjustments of pack P and notes it as LIST2. Then the administrator retires ID1 with the reason "UAT: cleanup" (base version 1).
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A company identifier in the request is ignored; the adjustment belongs to the signed-in company only.
+    verification:
+      method: api_response
+      detail: >
+        Step 1 answers 201 and LIST1 shows ID1 for SwiftRoute (version 1, status active, label "Zq987654 access probe"). Bilimbaga's answers CB1 and DB1 (below) show nothing of it.
+      evidence: O1, LIST1, DB1 and CB1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A caller could write into, or read from, another company by naming it.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: The task worker, the process operator and the read-only auditor are refused on add, invalid add, new version and retire, identically.
+    verification:
+      method: http_status
+      detail: >
+        W1 to W4, P1 to P4 and U1 to U4 all answer 403. W1 equals W2, P1 equals P2 and U1 equals U2 in status, content-type header and decoded body (the permission is checked before the body); W1 equals P1 equals U1,
+        W3 equals P3 equals U3 and W4 equals P4 equals U4 in the same way. No answer contains the submitted label, reason or adjustment number.
+      evidence: The answers W1 to W4, P1 to P4 and U1 to U4.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Staff without the right could change how an installed pack behaves, or learn from the answer whether a body was valid.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: Those same three, who may read definitions, can list; and the refused requests changed nothing.
+    verification:
+      method: api_response
+      detail: >
+        Step 2 (WL), step 4 (PL) and step 6 (AL) each answer 200 and each shows ID1 once with override_version 1, status active. LIST2 (step 16) equals WL, PL and AL in the lines it shows: ID1 still version 1, active, label "Zq987654 access probe",
+        no line with "worker", "operator" or "auditor" in its label.
+      evidence: WL, PL, AL and LIST2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Read-only staff cannot see the adjustments they need to review, or a refused request still changed an adjustment.
+      suggested_action: route_to_developer
+  - id: EO-004
+    description: A caller without the right to read definitions is refused the list.
+    verification:
+      method: http_status
+      detail: Step 8 answers 403, with no adjustment, pack or company name in the body.
+      evidence: The answer of step 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A user with no access to definitions could read configuration of another area.
+      suggested_action: route_to_security_review
+  - id: EO-005
+    description: For another company's administrator, SwiftRoute's pack and adjustment get the same not-found answer as ones that never existed.
+    verification:
+      method: http_status
+      detail: >
+        DB1 and DN1 answer 404 and are equal in status, content-type header and decoded body after removing the per-request trace_id member. VB1 and VN1 answer 404 and are equal in the same way. RB1 and CB1 answer 404 with the same body as DB1.
+        None of the answers contains the name of the pack, the adjustment number or SwiftRoute.
+      evidence: The answers DB1, DN1, VB1, VN1, RB1 and CB1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could find out whether another company has installed a pack, or has adjustments of it.
+      suggested_action: route_to_security_review
+  - id: EO-006
+    description: Nothing of SwiftRoute's changed by the other company's attempts.
+    verification:
+      method: api_response
+      detail: LIST2 (step 16) shows ID1 for D at override_version 1, status active, label "Zq987654 access probe"; there is no line "Zq987654 other company" or "Zq987654 foreign create". The retire of step 16 answers 200 with override_version 2, status retired.
+      evidence: LIST2 and the answer of the retire.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Another company's request altered or retired this company's adjustment.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: The platform operator gets only the platform company's own data and none of SwiftRoute's.
+    verification:
+      method: api_response
+      detail: >
+        PO1 (step 15) answers 404 (the platform company has not installed pack P, the same not-found reply as for any unknown pack) or 200 with no line; in neither case is ID1, the label "Zq987654 access probe" or any SwiftRoute data shown.
+      evidence: The answer of step 15.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The platform operator's token would be a route to customers' pack configuration.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Adjustments cannot be deleted. Step 16 retires ID1; if it did not run, retire any active adjustment of D in SwiftRoute whose label starts with "Zq987654".
