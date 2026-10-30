@@ -394,6 +394,10 @@ defmodule Letflow.Engine do
       or statement cancel raised from its `Repo.transaction` is reported the same way
       (`entity_write_contention`, 503, retryable, nothing committed). Post-commit failures stay
       `{:transaction_failed, _}`.
+      GH #3524: an accepted form hook run writes its `task.form_hook_run` audit row right after
+      `task.complete` (advanced tail; the order above is unchanged). On the execution-error tail,
+      which writes no audit row of its own, that row is the last step and the only audit-chain
+      lock (8) of the path, taken after every other write; nothing follows it.
     * GH #2590 / REQ-501 R4b: a node that also declares `module_writes` takes, after
       `:entity_writes_started` and before any write, one `{:type_lock, type}` per type in the
       ascending union of the line types and the handlers' registered targets
@@ -3025,7 +3029,8 @@ defmodule Letflow.Engine do
         completed_at,
         prefix,
         f1,
-        hidden_check
+        hidden_check,
+        attempt
       )
 
     case result do
@@ -3057,7 +3062,8 @@ defmodule Letflow.Engine do
          completed_at,
          prefix,
          f1,
-         hidden_check
+         hidden_check,
+         attempt
        ) do
     try do
       # GH #2587 PR B2 (design 7.3, P0/P1): the read-only plan phase and `prepare/2` run
@@ -3073,7 +3079,8 @@ defmodule Letflow.Engine do
             completed_at,
             prefix,
             f1,
-            hidden_check
+            hidden_check,
+            attempt
           )
 
         {:error, _reason} = error ->
@@ -3093,7 +3100,8 @@ defmodule Letflow.Engine do
          completed_at,
          prefix,
          f1,
-         hidden_check
+         hidden_check,
+         attempt
        ) do
     plan
     |> build_complete_task_multi(
@@ -3108,6 +3116,7 @@ defmodule Letflow.Engine do
       hook
     )
     |> run_transaction(plan)
+    |> audit_form_hook_refusal(actor_id, prefix, attempt >= @form_hook_busy_attempts)
     |> fold_sys_into_transition()
     |> maybe_snapshot_after_complete_task(prefix)
     |> emit_task_completed_telemetry(prefix)
@@ -3176,8 +3185,10 @@ defmodule Letflow.Engine do
 
   # GH #3409 (decision 0067 D1/D9, F-3 part A): hook 3, the node's `form_validation` script, runs
   # after the guards and the sentinel check (a refused completion never starts the sandbox) and
-  # before the reevaluation and the merge. It only reads; a refusal rolls the transaction back and
-  # writes no audit row (F-4). A node without a hook gets no step.
+  # before the reevaluation and the merge. It only reads; a refusal rolls the transaction back. Its
+  # `task.form_hook_run` audit row (GH #3524): an accepted run writes it in the completion Multi
+  # (`form_hook_run_audit_multi/3`), a refused or failed run after the rollback
+  # (`audit_form_hook_refusal/4`). A node without a hook gets no step.
   defp maybe_form_validation_hook(multi, nil, _output_variables, _completed_at, _prefix),
     do: multi
 
@@ -3200,8 +3211,20 @@ defmodule Letflow.Engine do
     end)
   end
 
-  defp run_form_hook(%{pin: :unresolved}, _task, _projection, _snap, _vars, _at, _prefix),
-    do: {:error, {:completion_refused, {:form_hook_failed, :script_rejected}}}
+  # GH #3524 (F-4 part B): a hook with no resolved pin never reaches the sandbox, but it is still
+  # one hook run: it carries a run audit like every other outcome (outcome `script_rejected`).
+  defp run_form_hook(%{pin: :unresolved} = hook, _task, _projection, _snap, _vars, _at, _prefix) do
+    run_audit = %{
+      script_key: hook.key,
+      script_version: hook.version,
+      script_sha256: nil,
+      outcome: :script_rejected,
+      stats: %{duration_us: 0, instructions_used: nil, heap_words_at_end: nil},
+      hmac: nil
+    }
+
+    {:error, {:completion_refused, {:form_hook_failed, :script_rejected, run_audit}}}
+  end
 
   defp run_form_hook(
          hook,
@@ -3240,17 +3263,163 @@ defmodule Letflow.Engine do
 
     pin = %{script_key: hook.key, script_version: hook.version, script_sha256: sha256}
 
-    case Letflow.Scripts.FormValidation.run(prefix, pin, facts, publisher_may_restricted?: false) do
+    %{result: result, stats: stats, canonical: canonical} =
+      Letflow.Scripts.FormValidation.run_measured(prefix, pin, facts,
+        publisher_may_restricted?: false
+      )
+
+    run_audit = %{
+      script_key: hook.key,
+      script_version: hook.version,
+      script_sha256: sha256,
+      outcome: form_hook_outcome(result),
+      stats: stats,
+      hmac: form_hook_hmac(canonical, prefix)
+    }
+
+    case result do
       {:ok, :accepted} ->
-        {:ok, :accepted}
+        {:ok, {:accepted, run_audit}}
 
       {:ok, {:refused, %{code: _, fields: _} = verdict}} ->
-        {:error, {:completion_refused, {:form_hook_refused, verdict}}}
+        {:error, {:completion_refused, {:form_hook_refused, verdict, run_audit}}}
 
       {:error, code, _stats} ->
-        {:error, {:completion_refused, {:form_hook_failed, code}}}
+        {:error, {:completion_refused, {:form_hook_failed, code, run_audit}}}
     end
   end
+
+  defp form_hook_outcome({:ok, :accepted}), do: :accepted
+  defp form_hook_outcome({:ok, {:refused, _verdict}}), do: :refused
+  defp form_hook_outcome({:error, code, _stats}), do: code
+
+  # The HMAC of the canonical sandbox input, same key resolution as `Scripts.EntityWrite`. Nothing
+  # to hash (not started), no key, a failed fun or any raise gives nil: a missing key is not a
+  # refusal reason of the hook. The key stays inside the closure.
+  defp form_hook_hmac(nil, _prefix), do: nil
+
+  defp form_hook_hmac(canonical, prefix) when is_binary(canonical) do
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         {:ok, hmac_fun} <- form_hook_hmac_fun(tenant_id),
+         {:ok, {_key_version, _hex} = hmac} <- hmac_fun.(canonical) do
+      hmac
+    else
+      _no_key_or_failed -> nil
+    end
+  rescue
+    _error -> nil
+  end
+
+  defp form_hook_hmac_fun(tenant_id) do
+    override = Application.get_env(:letflow, :script_task_hmac_fun_override)
+
+    result =
+      if Letflow.Scripts.Runtime.test_hooks?() and is_function(override, 1),
+        do: override.(tenant_id),
+        else: Letflow.Scripts.HmacSecret.hmac_fun(tenant_id)
+
+    case result do
+      {:ok, fun} when is_function(fun, 1) -> {:ok, fun}
+      _missing -> :error
+    end
+  end
+
+  # GH #3524: the 9-key `after_state` of a `task.form_hook_run` row. A nil stat is stored as 0.
+  # Ids, hashes and counters only: no value, refusal code, field name, source or error text.
+  defp form_hook_run_attrs(task_id, actor_id, run_audit) do
+    {key_version, hex} =
+      case run_audit.hmac do
+        {version, hex} -> {version, hex}
+        nil -> {nil, nil}
+      end
+
+    %{
+      actor_id: actor_id,
+      action: "task.form_hook_run",
+      resource_type: "task",
+      resource_id: task_id,
+      before_state: nil,
+      after_state: %{
+        "script_key" => run_audit.script_key,
+        "script_version" => run_audit.script_version,
+        "script_sha256" => run_audit.script_sha256,
+        "input_hmac" => hex,
+        "input_hmac_key_version" => key_version,
+        "outcome" => Atom.to_string(run_audit.outcome),
+        "duration_us" => run_audit.stats.duration_us || 0,
+        "instructions_used" => run_audit.stats.instructions_used || 0,
+        "heap_words_at_end" => run_audit.stats.heap_words_at_end || 0
+      },
+      trace_id: nil
+    }
+  end
+
+  # The accepted run's row, inside the completion's own transaction (a failure aborts the
+  # completion). `changes` are those of the whole completion (the tail multi is built inside a merge
+  # and does not see them). A node without a hook has no `:form_validation_hook` change: an empty
+  # Multi.
+  defp form_hook_run_audit_multi(changes, actor_id, prefix) do
+    case Map.get(changes, :form_validation_hook) do
+      {:accepted, run_audit} ->
+        Audit.append_multi(
+          Multi.new(),
+          :form_hook_audit,
+          form_hook_run_attrs(changes.task.id, actor_id, run_audit),
+          prefix
+        )
+
+      _no_hook ->
+        Multi.new()
+    end
+  end
+
+  # The row of a refused or failed run, after the rollback, in its own transaction. Same rules as
+  # `record_completion_refusal_audit/6`: log-and-swallow, always `:ok`, the answer never changes.
+  # The warning names the task and the failure kind only.
+  @doc false
+  @spec record_form_hook_run_audit(Ecto.UUID.t(), Ecto.UUID.t() | nil, map(), String.t()) :: :ok
+  def record_form_hook_run_audit(task_id, actor_id, run_audit, prefix) do
+    attrs = form_hook_run_attrs(task_id, actor_id, run_audit)
+
+    case Repo.transaction(fn -> Audit.insert_entry(Repo, attrs, prefix) end) do
+      {:ok, {:ok, _entry}} ->
+        :ok
+
+      {:ok, {:error, _insert_reason}} ->
+        Logger.warning("recording task.form_hook_run failed for task #{task_id}: insert_error")
+        :ok
+
+      {:error, _rollback_reason} ->
+        Logger.warning("recording task.form_hook_run failed for task #{task_id}: rollback")
+        :ok
+    end
+  rescue
+    exception ->
+      Logger.warning(
+        "recording task.form_hook_run raised for task #{task_id}: " <>
+          inspect(exception.__struct__)
+      )
+
+      :ok
+  end
+
+  # Writes the row of a refused or failed hook run and hands the 2-element refusal on. A busy
+  # attempt that will be retried writes nothing (only the final attempt does).
+  defp audit_form_hook_refusal(
+         {:error, step, {:completion_refused, {kind, x, run_audit}}, changes},
+         actor_id,
+         prefix,
+         final_attempt?
+       )
+       when kind in [:form_hook_refused, :form_hook_failed] do
+    unless x == :script_busy and not final_attempt? do
+      record_form_hook_run_audit(changes.task.id, actor_id, run_audit, prefix)
+    end
+
+    {:error, step, {:completion_refused, {kind, x}}, changes}
+  end
+
+  defp audit_form_hook_refusal(result, _actor_id, _prefix, _final_attempt?), do: result
 
   defp redacted_sentinel_keys(output_variables, labels, hidden) do
     placeholder = Atom.to_string(VariableLabels.representation())
@@ -8312,8 +8481,8 @@ defmodule Letflow.Engine do
   # without re-deriving it from which optional keys are present in the final
   # changes map.
   defp build_complete_task_tail_multi(
-         %{transition: {:execution_error, error_args}, instance_projection: projection},
-         _actor_id,
+         %{transition: {:execution_error, error_args}, instance_projection: projection} = changes,
+         actor_id,
          _output_variables,
          _completed_at,
          _idempotency_key,
@@ -8322,6 +8491,7 @@ defmodule Letflow.Engine do
        ) do
     Multi.new()
     |> ExecutionError.append_multi(error_args, prefix: prefix, locked_projection: projection)
+    |> Multi.merge(fn _tail_changes -> form_hook_run_audit_multi(changes, actor_id, prefix) end)
     |> Multi.run(:complete_task_outcome, fn _repo, _changes ->
       {:ok, {:execution_error, error_args}}
     end)
@@ -8502,6 +8672,7 @@ defmodule Letflow.Engine do
     |> Multi.merge(fn changes ->
       record_task_complete_audit(normalized_changes.task, changes, actor_id, prefix)
     end)
+    |> Multi.merge(fn _tail_changes -> form_hook_run_audit_multi(changes, actor_id, prefix) end)
     |> append_entity_write_tail(
       Map.get(changes, :entity_writes),
       plan,
@@ -9449,7 +9620,8 @@ defmodule Letflow.Engine do
   end
 
   # GH #3409 (F-3): the form validation hook refused, or could not give a verdict. Nothing
-  # committed, no audit row (F-4). Neither internal term may leave this module.
+  # committed; its audit row was written by audit_form_hook_refusal/4 (GH #3524). Neither
+  # internal term may leave this module.
   defp interpret_complete_result(
          {:error, _failed_step, {:completion_refused, {:form_hook_refused, verdict}}, _changes},
          _actor_id,
