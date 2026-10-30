@@ -250,7 +250,9 @@ defmodule Letflow.Engine.CompleteTaskFormHookTest do
 
       # The pins exist only in the INSTANCE_STARTED payload, so they are read (before the
       # transaction) in addition to the one ScriptRule row load: see the design, finding 1.
-      assert with_hook == without_hook + reconstruct_alone + 1
+      # GH #3524 (F-4 part B): the hook run also writes its audit row and looks up the HMAC key: 7
+      # more queries (audit chain lock and tail reads, the insert, tenant and secret reads; measured).
+      assert with_hook == without_hook + reconstruct_alone + 1 + 7
 
       assert [{"return { ok = true }", input, opts}] = StubRunner.calls()
       assert opts[:tenant] == t.schema_name
@@ -277,7 +279,9 @@ defmodule Letflow.Engine.CompleteTaskFormHookTest do
 
       strip = &Map.drop(&1, [:task_id, :instance_id, :completed_at])
       assert strip.(hook_result) == strip.(plain_result)
-      assert hook_delta == plain_delta
+      # GH #3524 (F-4 part B): the accepted run adds exactly one audit row (task.form_hook_run).
+      assert Map.delete(hook_delta, "audit_entries") == Map.delete(plain_delta, "audit_entries")
+      assert hook_delta["audit_entries"] == plain_delta["audit_entries"] + 1
 
       {hooked_before, plain_before} = events_before
 
@@ -327,7 +331,7 @@ defmodule Letflow.Engine.CompleteTaskFormHookTest do
   end
 
   describe "refuse (criterion 4)" do
-    test "T4 the refusing verdict is returned; the task stays pending, no audit row",
+    test "T4 the refusing verdict is returned; the task stays pending, one hook audit row",
          %{t: t, rule: rule} do
       StubRunner.reply(refuse())
       id = start!(t, hook_attrs(rule))
@@ -344,7 +348,8 @@ defmodule Letflow.Engine.CompleteTaskFormHookTest do
       assert F.event_types(t.schema_name, id) == events
       assert F.projection(t.schema_name, id).last_event_seq == projection.last_event_seq
       assert F.projection(t.schema_name, id).variables == projection.variables
-      assert table_counts(t)["audit_entries"] == audit_before
+      # GH #3524 (F-4 part B): a refused run writes exactly one task.form_hook_run row.
+      assert table_counts(t)["audit_entries"] == audit_before + 1
     end
   end
 

@@ -97,6 +97,11 @@ defmodule Letflow.Scripts.FormValidation do
           | {:ok,
              {:refused, %{code: String.t(), fields: [%{field: String.t(), code: String.t()}]}}}
           | {:error, error_code(), stats()}
+  @type measured_result :: %{
+          result: result(),
+          stats: stats(),
+          canonical: binary() | nil
+        }
 
   @doc "The wall clock (ms) a manifest without `limits.timeout_ms` gets."
   @spec default_timeout_ms() :: pos_integer()
@@ -114,13 +119,25 @@ defmodule Letflow.Scripts.FormValidation do
   `restricted_inputs` label cover.
   """
   @spec run(String.t(), map(), map(), keyword()) :: result()
-  def run(prefix, pin, facts, opts \\ []) when is_binary(prefix) and is_list(opts) do
+  def run(prefix, pin, facts, opts \\ []) when is_binary(prefix) and is_list(opts),
+    do: run_measured(prefix, pin, facts, opts).result
+
+  @doc """
+  GH #3524 (F-4 part B): `run/4` plus what the audit row of the engine needs. `:stats` is the
+  stats of every outcome (accepted and refused included; `@not_started` when nothing ran) and
+  `:canonical` the canonical `{ctx, input}` the sandbox received (`nil` when it did not start).
+  The canonical input is already restriction-filtered; the caller may only hash it.
+  """
+  @spec run_measured(String.t(), map(), map(), keyword()) :: measured_result()
+  def run_measured(prefix, pin, facts, opts \\ []) when is_binary(prefix) and is_list(opts) do
     with :ok <- check_flag(),
          {:ok, rule} <- load_row(prefix, pin),
          :ok <- check_manifest(prefix, rule.manifest),
          :ok <- check_facts(facts),
          {:ok, input} <- build_input(rule.manifest, facts, opts) do
       execute(rule, input, prefix, facts)
+    else
+      {:error, _code, stats} = error -> %{result: error, stats: stats, canonical: nil}
     end
   end
 
@@ -224,6 +241,7 @@ defmodule Letflow.Scripts.FormValidation do
       timeout_ms: min(limits["timeout_ms"] || @default_timeout_ms, @max_timeout_ms)
     ]
 
+    canonical = canonical_input(input, facts)
     started = System.monotonic_time(:microsecond)
 
     outcome =
@@ -239,7 +257,20 @@ defmodule Letflow.Scripts.FormValidation do
       heap_words_at_end: nil
     }
 
-    convert(outcome, manifest, measured)
+    {result, stats} = convert(outcome, manifest, measured)
+    %{result: result, stats: stats, canonical: canonical}
+  end
+
+  # The bytes the HMAC of the audit row covers; the same ctx shape as the SERVICE_TASK path.
+  defp canonical_input(input, facts) do
+    ScriptInput.canonical(input, %{
+      "instance_id" => facts.instance_id,
+      "node_id" => facts.form.node_id,
+      "token_id" => facts.token_id,
+      "now" => DateTime.to_iso8601(facts.task.now)
+    })
+  rescue
+    _error -> nil
   end
 
   defp convert({:ok, %{output: output, stats: stats}}, manifest, measured) do
@@ -248,17 +279,17 @@ defmodule Letflow.Scripts.FormValidation do
     with true <- oversized?(output) == false,
          {:ok, checked} <- Runtime.check_output(empty_fields_as_list(output), manifest),
          {:ok, verdict} <- verdict(checked, manifest) do
-      {:ok, verdict}
+      {{:ok, verdict}, stats}
     else
-      _invalid -> {:error, :output_invalid, stats}
+      _invalid -> {{:error, :output_invalid, stats}, stats}
     end
   end
 
   defp convert({:error, code, _detail}, _manifest, measured) when code in @runner_errors,
-    do: {:error, code, measured}
+    do: {{:error, code, measured}, measured}
 
   defp convert(_script_failed_or_unknown, _manifest, measured),
-    do: {:error, :script_error, measured}
+    do: {{:error, :script_error, measured}, measured}
 
   # A Lua empty table decodes as `%{}` (`ScriptValue.decode/2`), so it is the only way a script
   # can write an empty `fields` list; read it as `[]` before the schema check.
