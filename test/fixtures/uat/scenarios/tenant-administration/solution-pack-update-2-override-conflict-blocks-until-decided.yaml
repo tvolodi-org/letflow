@@ -14,7 +14,8 @@
 # Steps 2 and 3 are expected to be REFUSED (one request each; step 2 brings no decision at all, step 3 brings a decision "merged" for the clean-update entry
 #   and valid decisions for the other conflict entry, so the only thing wrong is "merged"). Every other step is an accepted case.
 # Order of checks in step 3: the merged-for-override-conflict refusal is answered 422; the scenario relies on the other entries having valid decisions so
-#   that the 409 cannot hide the 422.
+#   that the 409 cannot hide the 422. The "merged" decision carries a resolved_content (a JSON object text), as the route requires, so the refusal is for
+#   merged on an override_conflict and not for a malformed decision.
 ---
 id: tenant-administration-solution-pack-update-override-conflict-blocks-until-decided
 scope: tenant-administration
@@ -75,6 +76,14 @@ steps:
     via: api
     input:
       target_version: "2.1.0"
+      resolutions:
+        - artefact_type: process_definition
+          artefact_id: "<D1 id>"
+          resolution: merged
+          resolved_content: "{\"label\":\"merged label\"}"
+        - artefact_type: process_definition
+          artefact_id: "<D2 id>"
+          resolution: keep_local
     expect_refusal: true
     sla_context:
       expected_within_hours: null
@@ -168,10 +177,10 @@ expected_outcomes:
   - id: EO-005
     description: >
       D2 has exactly one more version than N_D2, with an empty change and the status retired, one audit entry with the reason "pack update to 2.1.0: retired" and action retired, and the applied entry of D2 carries override_action retired;
-      the incoming pack's label of D2 is now what the company's process shows. (REQ-617 criterion 3: "with take_incoming it succeeds and a new version row with an empty patch and status retired exists with an audit entry action retired".)
+      the applied entry of D2 has action advanced_to_incoming (the pack's record of what D2 was last taken from moves to 2.1.0; no company process is rewritten by this decision). (REQ-617 criterion 3: "with take_incoming it succeeds and a new version row with an empty patch and status retired exists with an audit entry action retired".)
     verification:
       method: api_response
-      detail: List of step 7 for D2; audit entry; the applied entry of D2.
+      detail: List of step 7 for D2; audit entry; the applied entry of D2 (override_action retired, action advanced_to_incoming).
       evidence: The list, the audit entry, the apply answer.
     on_fail:
       severity: BLOCKER

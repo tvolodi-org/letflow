@@ -15,9 +15,9 @@
 #   which is a different cause and does not replace the designer case. It is recorded as a GAP, not a pass.
 # NOT UAT-OBSERVABLE: source scans for a missing company prefix, the global pack tables (criterion 7, 6); criteria 9 and 10 are build and review gates.
 # The platform operator (actor-platform-admin) is on routes that take the company from the sign-in: it gets its own company's data, so step 8 is a no-data-leak check, not a refusal.
-# Steps 2, 3 and 4 are expected to be REFUSED (one request each). Every other step is an accepted case.
+# Steps 2 and 3 are expected to be REFUSED (each step holds two requests, both must be refused). Every other step is an accepted case.
 ---
-id: platform-solution-pack-update-access-and-other-company
+id: platform-solution-pack-update-3-access-and-other-company
 scope: platform
 title: Only a user who may manage stored pack changes can apply an update that overrides one, and one company never sees another's stored changes in an update
 version: "1.0"
@@ -28,7 +28,7 @@ description: >
   would run over the stored change. A SwiftRoute task worker and a process operator cannot apply the update at all and are refused, before and independent of any stored change.
   SwiftRoute's administrator applies it, with the decision to keep the company's own, and succeeds. Bilimbaga installed the same pack P without any stored change: its administrator reviews
   and applies 2.1.0, naming SwiftRoute's company id in the body, the query and a header, and gets the plain answers of today, with no override key and nothing of SwiftRoute's stored change.
-  The platform operator asks for a review of pack P and sees only the platform company's own plan.
+  The platform operator asks for a review with lists of its own and gets a plan built only from those lists, with nothing of the two companies.
 
 actors:
   tenant_admin_a: actor-swiftroute-alice
@@ -120,11 +120,14 @@ steps:
   - step: 8
     actor: platform_operator
     action: >
-      The platform operator asks for a review of what version 2.1.0 of pack P would change. The platform company has not installed P, so the answer is the one for a pack that is not
-      installed in its own company; nothing of SwiftRoute's or Bilimbaga's installation or stored change is in it. This is a no-data-leak check, not a refusal test.
+      The platform operator asks for a review of what version 2.1.0 of pack P would change, sending two artefact lists of its own: the platform company's current list with one process
+      "Platform probe Q" and the incoming list with the same process id and a different label. The platform company has not installed P; the product does not refuse this, it builds the plan from
+      the two lists the operator sent. Nothing of SwiftRoute's or Bilimbaga's installation or stored change is in the answer. This is a no-data-leak check, not a refusal test.
     via: api
     input:
       target_version: "2.1.0"
+      theirs_artefacts: "the platform operator's own list: one process_definition with its own id and label Platform probe Q"
+      incoming_artefacts: "the same id with label Platform probe Q2"
     produces:
       update_review: the platform company's own answer
     sla_context:
@@ -179,10 +182,10 @@ expected_outcomes:
       suggested_action: route_to_wf03
   - id: EO-005
     description: >
-      The platform operator's answer in step 8 is the answer for its own company only (the pack is not installed there, so it is answered as a pack that does not exist), with nothing of SwiftRoute's or Bilimbaga's plan, pack content or stored change. (REQ-617 criterion 7: "a PLATFORM_ADMIN token receives its own tenant's plan only".)
+      The platform operator's answer in step 8 is the answer for its own company only (the pack is not installed there; the answer is 200 with a plan built only from the lists the operator sent, every entry classified conflict because there is no base record), with no override or override_action key on any entry and nothing of SwiftRoute's or Bilimbaga's plan, pack content or stored change. (REQ-617 criterion 7: "a PLATFORM_ADMIN token receives its own tenant's plan only".)
     verification:
       method: api_response
-      detail: Answer of step 8 searched for Zq987654, D1's definition ids and any override key; no hit.
+      detail: Answer of step 8 has status 200 and lists only the operator's own artefact id; searched for Zq987654, SwiftRoute's and Bilimbaga's override ids and any override or override_action key; no hit.
       evidence: The answer.
     on_fail:
       severity: BLOCKER

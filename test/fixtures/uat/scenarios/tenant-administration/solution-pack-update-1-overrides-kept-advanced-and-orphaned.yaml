@@ -4,7 +4,7 @@
 #   2 (kept with no warning, kept with warning override_kept_pack_changed, advanced as a new version with the same change, one audit entry
 #     with reason "pack update to <target version>: advanced", a second identical apply writes nothing more: EO-003 to EO-006),
 #   5 (orphaned: the artefact is missing from the incoming pack; it does not block the apply; the new version keeps the original change, audit
-#     action orphaned: EO-004, EO-005; the property_gone case needs a shortened property list that only a backend test can pass: not observable),
+#     action orphaned: EO-004, EO-005; the local_only kept case: EO-010; the property_gone case needs a shortened property list that only a backend test can pass: not observable),
 #   4 (the first half: no stored version is changed or deleted, the count of versions only grows: EO-007),
 #   6 (the last half: the distinctive value 987654.321 is in no reply and no audit entry: EO-008),
 #   8 (an older or an equal target is refused before anything about the change is read; the review of an equal target still answers the plan
@@ -36,6 +36,8 @@ description: >
   none of the three blocks the update. The administrator applies 2.1.0: A and B get a new version of their stored change that belongs to 2.1.0 (same change, still active),
   C gets a new version with the same change marked orphaned, and each of the three writes one audit entry that names the ids, the actor and the reason but not the change itself.
   Applying 2.1.0 a second time writes nothing more. No earlier version of any stored change is touched or deleted.
+  A process F has an active stored change too, the company also edited its installed copy (the label of its last step), and version 2.1.0 contains F exactly as installed (the company's copy differs from the
+  pack, the incoming pack equals the installed pack): the review shows F as kept with no warning, and the apply gives F one new version of its stored change and one audit entry "pack update to 2.1.0: advanced".
   A fourth process D, with no stored change, appears in the same replies exactly as it did before this feature: with no override key.
 
 actors:
@@ -59,6 +61,11 @@ preconditions:
     detail: >
       Created by the administrator in setup with the routes of scenario tenant-admin-64. The label paths are on the closed list of properties (see scenario 65).
       If any stored change cannot be created, the scenario is BLOCKED.
+  - description: >
+      Pack P also contains process F (installed at 2.0.0); the company's installed copy of F was edited after the installation (a different label of its last step), version 2.1.0 holds F as installed,
+      and F has an active stored change written through the stored-change route
+    check: custom
+    detail: Setup-prepared as for A to D. If the company's copy of F cannot be edited, EO-010 is BLOCKED, not passed.
   - description: The run can read the stored-change versions, the audit trail and the pack-update decision tables of SwiftRoute
     check: custom
     detail: Needed for EO-003 to EO-009 outcomes that count rows; otherwise those are BLOCKED (the replies of the list route still serve the counts of versions).
@@ -228,7 +235,7 @@ expected_outcomes:
       suggested_action: route_to_wf03
   - id: EO-006
     description: >
-      The second apply in step 9 does not write another version row for A, B or C and no further audit entry; its applied entries carry override_action left_unchanged for the three. The list read afterwards equals the list of step 8.
+      The second apply in step 9 does not write another version row for A, B or C and no further audit entry; its applied entries for A and B carry override_action left_unchanged, and the entry for C has no key named override_action and no key named override (C's newest stored change is orphaned, which counts as none, as in EO-009). The list read afterwards equals the list of step 8.
       (REQ-617 criterion 2: "a second identical apply writes no further row and no entry".)
     verification:
       method: system_state
@@ -273,6 +280,20 @@ expected_outcomes:
     on_fail:
       severity: MAJOR
       business_impact: An orphaned change would keep appearing as live and mislead the administrator.
+      suggested_action: route_to_wf03
+  - id: EO-010
+    description: >
+      The company-edited process F (incoming content equals the installed one, so the update classifies it as a change only the company made): the review of step 6 shows F with outcome kept and no warning
+      key and no unresolved conflict; step 7 gives F's applied entry override_action advanced; the list of step 8 has exactly one more version of F's stored change than step 4, with the same change, status active and
+      made against 2.1.0; exactly one audit entry for F, with the reason "pack update to 2.1.0: advanced". The second apply of step 9 adds nothing for F.
+      (REQ-617 criterion 2: "with an active override on a process_definition artefact whose incoming content equals its base (classification unchanged, and a second case local_only), the review shows outcome kept without warning".)
+    verification:
+      method: api_response
+      detail: Entry F in steps 6 and 7; step 4 and step 8 lists (read F too); the audit entries for F; counts before and after step 9.
+      evidence: The review, the apply answer, the lists, the audit entry.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company's change on a process it also edited could be lost or flagged wrongly when the pack is updated.
       suggested_action: route_to_wf03
 
 cleanup:
