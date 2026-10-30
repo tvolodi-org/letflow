@@ -45,7 +45,7 @@ steps:
 expected_outcomes:
   - id: EO-001
     description: >
-      The Meridian user is shown no exam question, no flag button and no flagged line, and nothing of the Bilimbaga exam, only the application's own not-found or not-available page
+      The Meridian user is shown no exam question, no flag button and no flagged line, and nothing of the Bilimbaga exam, only the application's not-found page
     verification:
       method: page_state
       detail: "Step 1: no element of the exam-taking screen; no Bilimbaga exam title or question text"
