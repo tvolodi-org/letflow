@@ -103,7 +103,8 @@ defmodule Letflow.Supervisor.Pollers do
     children =
       scheduler_children() ++
         service_task_dispatcher_children() ++
-        script_task_dispatcher_children() ++ provisioner_sweep_children()
+        script_task_dispatcher_children() ++
+        record_trigger_worker_children() ++ provisioner_sweep_children()
 
     Supervisor.init(children, strategy: :one_for_one, max_restarts: 5, max_seconds: 60)
   end
@@ -172,6 +173,17 @@ defmodule Letflow.Supervisor.Pollers do
   defp script_task_dispatcher_children do
     if Application.get_env(:letflow, :start_script_task_dispatcher, true) do
       [{Letflow.Engine.ScriptTaskDispatcher.Poller, []}]
+    else
+      []
+    end
+  end
+
+  # REQ-615 (GH #3434): the record-trigger outbox worker, a third poller beside the HTTP and script
+  # ones. Its own key, :start_record_trigger_worker (false in config/test.exs: the same
+  # OwnershipError hazard). While the record-trigger feature flag is off a tick reads nothing.
+  defp record_trigger_worker_children do
+    if Application.get_env(:letflow, :start_record_trigger_worker, true) do
+      [{Letflow.RecordTriggers.Worker, []}]
     else
       []
     end
