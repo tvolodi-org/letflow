@@ -63,8 +63,8 @@ steps:
   - step: 3
     actor: auditor
     action: >
-      The auditor reloads the Reports screen, notes the list, opens "UAT open report" and notes the editor: whether each input can be edited, the notice
-      and every button. The auditor presses "Run" and notes the tables.
+      The auditor reloads the Reports screen, notes the list, opens "UAT open report" and notes the editor: whether each input can be edited (the name, group, aggregate, columns, sort and the filter row's field, operator and value), the notice
+      and every button (including "Add filter" and the filter row's remove control). The auditor presses "Run" and notes the tables.
     via: gui
   - step: 4
     actor: worker
@@ -102,8 +102,8 @@ expected_outcomes:
       method: gui_screen
       detail: >
         Steps 3 and 4 list "UAT open report" and open it with the notice "You can view reports but not change them."; the name, group, aggregate, columns
-        and sort inputs cannot be edited; there is no "Save report", no "Delete report", no "New report", no "Add aggregate", "Add group" or remove
-        control. In step 3 "Run" is available and shows a summary of north (count 2, sum 30) and south (count 1, sum 5) and a detail with the columns
+        and sort inputs and the filter row's field, operator and value inputs cannot be edited; there is no "Save report", no "Delete report", no "New report",
+        no "Add aggregate", "Add group", no "Add filter", and no remove control, including the filter row's remove control (a cross mark). In step 3 "Run" is available and shows a summary of north (count 2, sum 30) and south (count 1, sum 5) and a detail with the columns
         title and amount and the rows B, A, C.
       evidence: The screens of steps 3 and 4.
     on_fail:

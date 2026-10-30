@@ -114,7 +114,9 @@ steps:
     actor: tenant_admin
     action: >
       The administrator presses "Close" and, without reloading the page, deletes "UAT vanishing report" through the API (a second session). Then the
-      administrator clicks "UAT vanishing report" in the list that is still on the screen. The screen is noted; the list is then reloaded and noted.
+      administrator clicks "UAT vanishing report" in the list that is still on the screen. The API delete and the click must both happen within
+      30 seconds of the save in step 7 (the screen refreshes its list by itself after that, or when the window regains focus). If the report has already
+      left the list before the click, EO-005 is BLOCKED and steps 7 and 8 are repeated; it is not PASS or FAIL. The screen is noted; the list is then reloaded and noted.
     via: gui
 
 expected_outcomes:
@@ -171,7 +173,7 @@ expected_outcomes:
     description: Opening a report that no longer exists shows the not-found state in an alert and no stale report.
     verification:
       method: gui_screen
-      detail: In step 8 the click on the vanished report shows "This report was not found." in an alert and no editor with that report's content; after the list is reloaded it no longer holds "UAT vanishing report" and holds "UAT open report" and "UAT summary only".
+      detail: If the list was still stale (see step 8), in step 8 the click on the vanished report shows "This report was not found." in an alert and no editor with that report's content; after the list is reloaded it no longer holds "UAT vanishing report" and holds "UAT open report" and "UAT summary only".
       evidence: The screens of step 8.
     on_fail:
       severity: MAJOR
