@@ -1,0 +1,13 @@
+scenario_id: platform-solution-pack-update-3-access-and-other-company
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the refusal of a PROCESS_DESIGNER (holds DefinitionsCreate, not SolutionOverridesManage) on update-apply when the plan holds an override_conflict entry, whether or not a decision is supplied (403, nothing written), and the success of the same user on an update with no override_conflict entry (REQ-617 criterion 6); the worker, operator, administrator, other-company and platform-operator checks run"
+reason: >
+  The roster (test/fixtures/uat/actors.yaml) has no PROCESS_DESIGNER account in any company, and no actor may be invented. The task worker and process operator the scenario uses lack
+  the right to create definitions, so their 403 is a different cause (the route-level permission) and cannot show that the extra check for managing stored changes works. Nothing a UAT actor
+  can do provides a user who holds exactly DefinitionsCreate, so the case is not run, not passed.
+recorded_by: BA
+recorded_at: "2026-10-30"
+issue_ref: "GH #3443"
+review: >
+  Revisit when the roster has a process designer actor in a company that can install a pack and where the administrator can store a change for it.
