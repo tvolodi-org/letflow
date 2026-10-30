@@ -8,8 +8,8 @@ defmodule Letflow.Entities.EntityTypeExtension do
   in the row as well (INV-1). The database enforces the shape (`x_` name, `field` kind, object
   spec, `active`/`retired` status, unique `(tenant_id, entity_type, name)`).
 
-  Deliberately no changeset and no Repo call here: nothing writes or reads this table yet. The
-  write path, validation and caps arrive with the following slices.
+  Deliberately no changeset and no query here: the one writer and reader is the context module
+  `Letflow.Entities.TypeExtensions` (slice I2); validation, caps and every database call live there.
   """
 
   use Ecto.Schema
