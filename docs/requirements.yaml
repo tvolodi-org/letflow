@@ -45142,3 +45142,62 @@ requirements:
       - "3. Where the overrides screen is entered: the route itself is guarded by DefinitionsRead (criterion 7), but the only link is on the /solution-packs launcher, whose nav item is gated by ModulesManage today, so a DefinitionsRead-only caller reaches the screen by URL only. The owner decides whether the nav gate or an extra entry point changes."
       - "5. REQ-596 states the reply fields of each route in its design, which is not on main yet; the wire types of this screen follow that design."
       - "4. REQ-617 open question 2 (merged resolution of an override_conflict) is open; this entry offers keep_local and take_incoming only."
+
+  - id: REQ-634
+    title: "Web report builder screen: create, edit, run and delete a saved report definition over the REQ-619 view routes (generic views, slice 4, web)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-619 -- the screen calls the report kind of the view routes that REQ-619 adds
+    # Source: docs/requirements.yaml REQ-619 ("Out of scope: the web report builder screen (a later web requirement)"), docs/migration/decisions/0066-generic-saved-views-over-records.md ("Deferred slices", slice 4; D3 replay, D4 permissions); code read: lib/letflow/routers/entity_views.ex (authz_get "/" and "/:id" with :EntitiesQuery, authz_post "/", authz_put "/:id" and authz_delete "/:id" with :EntitiesViewsManage; forward "/entity-views" in lib/letflow/plugs/api_pipeline.ex), lib/letflow/routers/entities.ex (authz_post "/query" :EntitiesQuery, authz_post "/query/aggregate" :EntitiesAggregate), lib/letflow/entities/views/clauses.ex (kind "report" accepted), web/src/api/entityViews.ts and web/src/api/entities.ts (existing clients), web/src/types/api.ts (EntityView, EntityViewCreateRequest), web/src/auth/access/types.ts (P has EntitiesViewsManage; no EntitiesQuery and no EntitiesAggregate entry yet), web/src/router.tsx (route table, RequirePermission), docs/roles.md rows EntitiesQuery, EntitiesAggregate, EntitiesViewsManage. Written by the business analyst (T-0954) 2026-10-30. Not yet validated.
+    description: >
+      Web part of slice 4 of generic views (decision 0066, "Deferred slices": report builder). REQ-619
+      stores a saved report as the kind `report` of the existing view routes mounted at /api/v1/entity-views and adds no
+      route; this requirement adds one screen in web/ that creates, edits, runs and deletes such a report, and adds no
+      backend change. A report is one named definition over one entity type: a filter, a summary part (group_by and a
+      non-empty aggregates list) and an optional detail part (columns and sort).
+
+      Routes used (all quoted from origin/main, nothing new): GET /api/v1/entity-views?entity_type= and
+      GET /api/v1/entity-views/:id (permission EntitiesQuery), POST /api/v1/entity-views, PUT /api/v1/entity-views/:id
+      and DELETE /api/v1/entity-views/:id (permission EntitiesViewsManage), all in lib/letflow/routers/entity_views.ex.
+      Running a report replays the stored definition as two ordinary calls, as REQ-619 describes: the summary as
+      POST /api/v1/entities/query/aggregate (permission EntitiesAggregate) and the detail as POST /api/v1/entities/query
+      (permission EntitiesQuery), both in lib/letflow/routers/entities.ex, with the stored filter sent under the request
+      key `filters`. The screen shows no value that those two routes did not return; it stores no result.
+
+      Web work. Extend web/src/api/entityViews.ts (list is typed for list views only today) and web/src/types/api.ts with
+      the report kind and its fields; add the aggregate call next to the query call in web/src/api/entities.ts; add
+      EntitiesQuery and EntitiesAggregate to the P table in web/src/auth/access/types.ts (EntitiesViewsManage exists);
+      add a page under web/src/pages/entities/ and a route in web/src/router.tsx guarded with RequirePermission on
+      EntitiesQuery. The screen has a list of the reports of one entity type, an editor (name, filter, group_by,
+      aggregates, columns, sort) and a run panel with the summary table and the detail table. User-visible text goes
+      through the existing entities message catalogue (web/src/i18n/entitiesMessages.ts, provided by EntitiesIntlProvider.tsx) in every locale it holds. Reuse the filter and sort editing
+      the entity list browser already has (web/src/pages/entities/EntityListBrowserPage.tsx) where it fits.
+
+      Users without the permission: the route renders the existing PermissionDenied state when the caller lacks
+      EntitiesQuery, so no data hook runs. Without EntitiesViewsManage the screen is read and run only: the create,
+      save and delete controls are not rendered. Without EntitiesAggregate the saved definition can be read but Run is
+      disabled with a message that names the missing access, and no aggregate call is sent. The server remains the
+      authority (INV-2); the hiding is a convenience.
+
+      Out of scope: the decisions left open by REQ-619 (see open_questions), the graph view (REQ-613), export, scheduling,
+      reports over joined types, and any change to the view routes.
+    acceptance_criteria:
+      - "1. Client and types: web/src/api/entityViews.ts has list, get, create, update and remove for kind `report`, calling only the five view routes quoted in the description; web/src/api/entities.ts has one aggregate function calling POST /api/v1/entities/query/aggregate; types in web/src/types/api.ts carry kind, group_by, aggregates, columns, sort and filter. A vitest test per function asserts method, path and body with a mocked client, and `npm run check` (type-check, lint, unit tests, guards) passes."
+      - "2. Permissions table: P in web/src/auth/access/types.ts gains EntitiesQuery and EntitiesAggregate with the same string as the backend atom; a vitest test checks both against the permission list the access fixtures use (web/src/auth/access/fixtures.ts)."
+      - "3. Route guard: the new route in web/src/router.tsx is wrapped in RequirePermission with P.EntitiesQuery. A vitest test renders the route for a caller without EntitiesQuery and expects the PermissionDenied state and zero calls to the mocked client."
+      - "4. Create: a test fills name, picks an entity type, adds one aggregate (and optionally group_by, columns, sort) and saves; the mocked client receives one POST with kind `report` and those fields; the new report appears in the list. A save without any aggregate is blocked on the screen with a field message and sends no request."
+      - "5. Edit and delete: a test opens a report from the list, changes the name, saves and sees one PUT to the report's id (the kind is not editable); a test deletes with a confirmation step and sees one DELETE; cancelling the confirmation sends none."
+      - "6. Run: a test runs a stored report and asserts one POST to the aggregate route with the stored group_by and aggregates and the stored filter under the key `filters`, one POST to the query route with the stored filter under `filters` and the stored sort (no columns key), the summary shown as a table, and the detail shown as a table limited to the stored columns. A report with no columns sends no query call and shows no detail table."
+      - "7. Server errors: for each of 400, 403, 404, 409 and 422 on a save, and for 403, 404 and 422 on either run call, a test shows an error message in an element with role alert, keeps the editor input unchanged, shows no partial summary or detail, and for 422 shows the server's reason code text mapped through the i18n catalogue (an unmapped code shows a generic message). A network failure shows the generic message and a retry control; a 404 on open shows the not-found state of the page, the same for an absent and a denied report."
+      - "8. Without EntitiesViewsManage (caller holds EntitiesQuery and EntitiesAggregate): the list, the editor in read-only form and Run work; create, save and delete controls are not in the document. Without EntitiesAggregate (caller holds EntitiesQuery): Run is disabled with the missing-access message and the test asserts zero aggregate calls. Without EntitiesQuery see criterion 3."
+      - "9. Empty and loading states: a type with no reports shows an empty state with a create control only for a caller holding EntitiesViewsManage; list, open and run each show a loading indicator and block a second submission while a request is pending."
+      - "10. i18n and guards: every new user-visible string is in every locale of web/src/i18n/entitiesMessages.ts and the existing i18n grep test (web/src/__tests__/entities-i18n-grep.test.ts) passes; no hard-coded string is added to the page."
+      - "11. Scope: the diff touches only web/ (and no backend file, no migration, no change to docs/roles.md or the permission matrix); `cd web && npm run check` passes and the real output is quoted. FRONTEND-DEV reads web/src/pages/entities/__tests__/EntityListBrowserPage.views.test.tsx and keeps it green."
+    open_questions:
+      - "OPEN (owner, from REQ-619): several named sections in one report, or exactly one summary and one detail? Not decided here; the screen shows one summary and one detail as REQ-619 stores them."
+      - "OPEN (owner, from REQ-619): a stored row limit for the detail part and what the screen does when the replayed detail exceeds one page of POST /entities/query. Not decided here; the screen pages as the entity list browser does and stores no limit."
+      - "OPEN (owner, from REQ-619): export (CSV, PDF) and scheduled delivery of a report. Not decided here and not built."
+      - "OPEN (process owner, from decision 0066): D1 tenant-wide sharing and D4 TENANT_ADMIN-only writes are assumptions to be confirmed; the screen follows the permissions the server enforces."
+      - "OPEN: whether the screen is reached from the entity list browser (a link beside the saved-view bar) or from the navigation; not decided, the route is reachable by URL and the placement is a later UX choice."
+    depends_on: [REQ-619]
