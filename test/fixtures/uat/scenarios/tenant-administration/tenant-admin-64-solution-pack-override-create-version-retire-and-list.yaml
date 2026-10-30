@@ -1,0 +1,305 @@
+# T-0975 (BA): TENANT ADMIN group, scenario 64: a company administrator keeps a local adjustment (an "override") of an installed solution pack: create, write newer versions, retire, list.
+# Covers REQ-596 criterion 1 (last sentence: the pack update review answers the same before and after), criterion 2 (create, new version, retire, latest-per-override list,
+# second active override refused, unknown override and pack without an installation answer not-found, no change/replace/delete method), criterion 4 (history kept: version numbers 1 to 4,
+# stale version refused, made_against is the installed pack version) and the first half of criterion 5 (nothing is written by a refused request).
+# Sources: docs/requirements.yaml REQ-596 criteria 1, 2, 4, 5; lib/letflow/routers/solution_packs.ex (routes, reply fields, fixed reason texts); docs/roles.md (the right to manage overrides is held by the tenant administrator).
+# Reasons quoted from the router: override_exists, override_version_taken, override_retired (all 422). Create answers 201; new version and retire answer 200; an unknown pack or override answers the not-found reply.
+# Sensitive actions: change process definitions (the override itself, steps 2 to 7); refusals of those who may not write are in the platform scenario solution-pack-override-access-and-other-company; approve, pay or release, see sensitive data, change users do not occur in this flow.
+# NOT UAT-OBSERVABLE (system_state, written in this header so it survives the merge):
+#   - criterion 1 migration/provisioning tests (table exists for a new tenant, empty for an existing one, no row of the three global pack tables changes): a test of the code and the database, not an action of a user.
+#   - criterion 4 "two requests at the same moment both write version 2": a UAT actor cannot send two simultaneous requests; step 5 checks the same refusal for a request that names an older version.
+#   - criterion 4 "no Repo.update/delete in the code" (source scan) and "every earlier row byte-identical": no route lists old versions (the list shows the latest only), so only the absence of any change route (steps 11 to 13) and the version numbers are observable.
+#   - criterion 5 audit entries (one per write, with the fields, never a patch value) and the DROP TABLE audit test: read from the database by the developer's tests; scenario 65 covers the refused-request half. EO-007 below is system_state.
+#   - criterion 8 (pins re-derived: __authz_routes__ of Letflow.Routers.SolutionPacks, the route_scope snapshot and tenant_wide_default_routes.txt, the length(snapshot) pins, @expected_tenant_tables and its length pin, the migration version): a build gate of the implementing change, not an action of a user.
+#   - criterion 9 (SECURITY-REVIEWER and REVIEWER verdicts, mix letflow.check.static and the changed test files, the PR statement about existing QA tenants): review gates of the implementing change, not an action of a user.
+# The pack update review route (steps 1 and 14) only reads; it is used here as the "nothing else changed" witness.
+---
+id: tenant-administration-64-solution-pack-override-create-version-retire-and-list
+scope: tenant-administration
+title: A company administrator creates, updates and retires a local adjustment of an installed pack, and history is kept
+version: "1.0"
+tags: [solution-pack, override, versioning, tenant-admin, lifecycle, refusal]
+
+description: >
+  SwiftRoute has installed a process pack and wants to relabel and re-time one step of one of its processes without editing the process itself. The administrator
+  writes the adjustment (version 1), a second adjustment for the same step is refused while the first is active, then writes version 2 and version 3 and finally retires it as version 4.
+  An attempt to write a version that names an older version than the latest is refused. The list always shows one line per adjustment, the latest version, with its status. A retired adjustment
+  accepts no new version, but a new adjustment for the same step can be started. A retire or new version for an adjustment that does not exist, or for a pack the company has not installed,
+  gets the not-found answer. Changing, replacing or deleting an adjustment by any other request type is not possible. The review of a pack update answers the same before and after all this.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute has an active installation of pack P (note its installed version as V) that contains the process definition D with a task step S1. Pack P was installed through the install route, so its artefact bases were recorded. D_ID is the id of the definition that installation created for D (not the process key); every step input uses D_ID as the artefact id.
+    check: system_seeded
+    detail: Setup-prepared as the install preconditions of solution-pack-version-2-update-refusals (an active SwiftRoute installation of one process pack). If the company has no such installation, or the installation recorded no artefact base for D_ID, the scenario is BLOCKED.
+  - description: SwiftRoute has no active adjustment (override) of D at the start, and no adjustment of any pack contains the words "Zq987654" in a label.
+    check: system_seeded
+    detail: If one exists, retire it first (step 7 shows how) and say so in the report.
+  - description: A request document for a review of the update of pack P exists (target version newer than V, the company's current and the incoming artefact lists), prepared as for the pack-update scenarios.
+    check: custom
+    detail: Needed for steps 1 and 14. If it cannot be prepared, report BLOCKED for steps 1, 14 and EO-008; the other steps run.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator asks for the review of the update of pack P with the prepared request document and notes the whole answer as REVIEW1.
+    via: api
+    produces:
+      review: the plan, answered as before this change
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator lists the adjustments of pack P and notes the answer as LIST0. Then the administrator creates an adjustment for the process definition D: it changes the label of step S1 to
+      "Zq987654 check the order" and the escalation role of S1 to "role-ceo", with the reason "UAT: relabel S1". The answer is noted as O1, with its adjustment number as ID1.
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq987654 check the order"
+        "nodes.S1.attributes.escalation_role": "role-ceo"
+      reason: "UAT: relabel S1"
+    produces:
+      override: version 1, status active
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator tries to create a second adjustment for the same process definition D with the label of S1 set to "Zq987654 second", with the reason "UAT: second".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq987654 second"
+      reason: "UAT: second"
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator writes the next version of ID1 with the base version 1: the label of S1 "Zq987654 check the order twice" and the escalation timer of S1 "PT4H", reason "UAT: add a timer". The answer is noted as O2.
+    via: api
+    input:
+      override: ID1
+      base_version: 1
+      patch:
+        "nodes.S1.label": "Zq987654 check the order twice"
+        "nodes.S1.attributes.escalation_timer_duration": "PT4H"
+      reason: "UAT: add a timer"
+    produces:
+      override: version 2, status active
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator tries to write a new version of ID1 that names the base version 1, which is no longer the latest: the label of S1 "Zq987654 stale", reason "UAT: stale".
+    expect_refusal: true
+    via: api
+    input:
+      override: ID1
+      base_version: 1
+      patch:
+        "nodes.S1.label": "Zq987654 stale"
+      reason: "UAT: stale"
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator writes the next version of ID1 with the base version 2: the label of S1 "Zq987654 final", reason "UAT: final wording". The answer is noted as O3. Then the administrator lists the adjustments of pack P and notes it as LIST1.
+    via: api
+    input:
+      override: ID1
+      base_version: 2
+      patch:
+        "nodes.S1.label": "Zq987654 final"
+      reason: "UAT: final wording"
+    produces:
+      override: version 3, status active
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator retires ID1 with the base version 3 and the reason "UAT: no longer needed". The answer is noted as O4. Then the administrator lists the adjustments of pack P and notes it as LIST2.
+    via: api
+    input:
+      override: ID1
+      base_version: 3
+      reason: "UAT: no longer needed"
+    produces:
+      override: version 4, status retired
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator tries to write a new version of the retired ID1 (the label of S1 "Zq987654 after retire", reason "UAT: after retire").
+    expect_refusal: true
+    via: api
+    input:
+      override: ID1
+      patch:
+        "nodes.S1.label": "Zq987654 after retire"
+      reason: "UAT: after retire"
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator tries to retire an adjustment number that was never issued in any company (reason "UAT: unknown").
+    expect_refusal: true
+    via: api
+    input:
+      override: an adjustment number that was never issued
+      reason: "UAT: unknown"
+  - step: 10
+    actor: tenant_admin
+    action: >
+      The administrator tries to write a new version of ID1 under a pack name that SwiftRoute has not installed (the name "pack-never-installed"), with the label of S1 "Zq987654 other pack" and the reason "UAT: other pack".
+    expect_refusal: true
+    via: api
+    input:
+      pack: pack-never-installed
+      override: ID1
+      patch:
+        "nodes.S1.label": "Zq987654 other pack"
+      reason: "UAT: other pack"
+  - step: 11
+    actor: tenant_admin
+    action: >
+      The administrator sends a PATCH request, with the body {"reason":"UAT: patch"}, to each of the three paths of the override routes: /solution-packs/P/overrides, /solution-packs/P/overrides/ID1/versions
+      and /solution-packs/P/overrides/ID1/retire (P is the pack name). The three answers are noted as M1a, M1b and M1c.
+    expect_refusal: true
+    via: api
+  - step: 12
+    actor: tenant_admin
+    action: >
+      The administrator sends a PUT request, with the body {"reason":"UAT: put"}, to the same three paths (/solution-packs/P/overrides, /solution-packs/P/overrides/ID1/versions,
+      /solution-packs/P/overrides/ID1/retire). The three answers are noted as M2a, M2b and M2c.
+    expect_refusal: true
+    via: api
+  - step: 13
+    actor: tenant_admin
+    action: >
+      The administrator sends a DELETE request to the same three paths (/solution-packs/P/overrides, /solution-packs/P/overrides/ID1/versions, /solution-packs/P/overrides/ID1/retire).
+      The three answers are noted as M3a, M3b and M3c.
+    expect_refusal: true
+    via: api
+  - step: 14
+    actor: tenant_admin
+    action: >
+      The administrator lists the adjustments of pack P and notes it as LIST3. Then the administrator asks again for the review of the update of pack P with the same request document and notes it as REVIEW2.
+    via: api
+  - step: 15
+    actor: tenant_admin
+    action: >
+      The administrator creates a new adjustment for D after the retirement: the label of S1 "Zq987654 restart", reason "UAT: restart". The answer is noted as O5 with its adjustment number ID2. Then the administrator retires ID2 with the reason "UAT: cleanup" (base version 1).
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq987654 restart"
+      reason: "UAT: restart"
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator creates version 1; the answer shows the installed pack version it was made against.
+    verification:
+      method: http_status
+      detail: >
+        LIST0 (step 2) answers 200 with no line for D. Step 2 answers 201. O1 shows pack_id P, artefact_type process_definition, artefact_id D_ID, override_version 1, status active, reason "UAT: relabel S1",
+        made_against equal to V (as text), a created_by that is the administrator's user id, and the patch with the two submitted paths.
+      evidence: LIST0 and O1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot record a local adjustment, or the adjustment is not tied to the pack version it was made for.
+      suggested_action: route_to_developer
+  - id: EO-002
+    description: A second active adjustment for the same artefact is refused with the stable reason text, and nothing is written.
+    verification:
+      method: http_status
+      detail: Step 3 answers 422 with the detail text override_exists. LIST1 (step 6) holds exactly one line for D (ID1).
+      evidence: The answer of step 3 and LIST1.
+    on_fail:
+      severity: MAJOR
+      business_impact: Two competing adjustments could exist for one step, so the effective result would be undefined.
+      suggested_action: route_to_developer
+  - id: EO-003
+    description: New versions get the next number, and a version that names an older latest version is refused.
+    verification:
+      method: http_status
+      detail: >
+        Step 4 answers 200: O2 has the same adjustment number ID1, override_version 2, status active and the new patch (label "Zq987654 check the order twice", escalation timer PT4H).
+        Step 5 answers 422 with the detail text override_version_taken. Step 6 answers 200: O3 has override_version 3 (not 4, so the refused step 5 wrote nothing) with the one-key patch.
+      evidence: O2, the answer of step 5, O3.
+    on_fail:
+      severity: MAJOR
+      business_impact: A stale edit could silently overwrite a newer one, or a refused edit could still consume a version number.
+      suggested_action: route_to_developer
+  - id: EO-004
+    description: Retiring writes a retiring version; the list shows only the latest version of each adjustment with its status.
+    verification:
+      method: api_response
+      detail: >
+        Step 7 answers 200: O4 has ID1, override_version 4, status retired, an empty patch and the reason "UAT: no longer needed". LIST1 shows ID1 once with override_version 3, status active, and the label "Zq987654 final".
+        LIST2 shows ID1 once with override_version 4, status retired. Neither list shows a line for version 1 or 2.
+      evidence: O4, LIST1, LIST2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot see which adjustments are in force, or sees old versions as current.
+      suggested_action: route_to_developer
+  - id: EO-005
+    description: A retired adjustment accepts no new version; an unknown adjustment and a pack the company has not installed both answer not-found; and nothing changed.
+    verification:
+      method: http_status
+      detail: >
+        Step 8 answers 422 with the detail text override_retired. Steps 9 and 10 answer 404 with the not-found reply of the product (the same status, content-type header and body, without the per-request trace_id member, as for any unknown resource).
+        LIST3 (step 14) equals LIST2: ID1 version 4, status retired, one line for D, no line for pack-never-installed.
+      evidence: The answers of steps 8 to 10 and LIST3 compared with LIST2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A retired adjustment could be revived by mistake, or a wrong address would write into an unrelated place.
+      suggested_action: route_to_developer
+  - id: EO-006
+    description: History cannot be changed or deleted by any request type; the product has no such address.
+    verification:
+      method: http_status
+      detail: >
+        All nine answers (M1a to M1c, M2a to M2c, M3a to M3c) are the router's unmatched reply: 404 with the same body as for any unknown resource, without a trace_id member, identical in all nine,
+        and none of them is 200, 201 or 204. LIST3 equals LIST2 (ID1 still version 4, status retired, empty patch).
+      evidence: M1a to M3c and LIST3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The audit history of local adjustments could be rewritten or erased.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: Every write left exactly one audit entry carrying the identifying fields and never a patch value.
+    verification:
+      method: system_state
+      detail: >
+        The audit trail of SwiftRoute between step 2 and step 15 holds, for ID1, exactly four entries (one create, two new versions, one retire) and none for the refused steps 3, 5 and 8 to 13;
+        each entry carries pack, artefact type, artefact, adjustment number, version, a hash of the patch, the actor and the reason, and the text "Zq987654" occurs in no entry. Read from the database (UAT assumption, to be confirmed by the process owner: no tenant-user route lists these entries).
+      evidence: The audit entries of SwiftRoute between step 2 and the end.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Changes to a company's process configuration are not traceable, or the trail leaks configuration values.
+      suggested_action: route_to_security_review
+  - id: EO-008
+    description: The pack update review does not change because adjustments exist.
+    verification:
+      method: api_response
+      detail: REVIEW2 (step 14) equals REVIEW1 (step 1) in status and decoded body (after removing a per-request trace_id member if present).
+      evidence: REVIEW1 and REVIEW2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Existing update behaviour changed for companies that start using adjustments.
+      suggested_action: route_to_developer
+  - id: EO-009
+    description: After a retirement a new adjustment for the same step can be started.
+    verification:
+      method: http_status
+      detail: Step 15 answers 201 with a new adjustment number ID2 different from ID1, override_version 1, status active; the retire of ID2 answers 200 with override_version 2, status retired.
+      evidence: O5 and the answer to the retire of ID2.
+    on_fail:
+      severity: MINOR
+      business_impact: A step that once had an adjustment can never get another one.
+      suggested_action: route_to_developer
+
+cleanup:
+  cancel_open_instances: false
+  description: Adjustments cannot be deleted. Step 15 retires the last one; if a step failed earlier, retire any active adjustment of D whose label starts with "Zq987654" before the next run.

@@ -1,0 +1,12 @@
+scenario_id: tenant-administration-65-solution-pack-override-closed-list-and-reason-refusals
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "REQ-596 criterion 3 cases (a) a settings key declared by a module is accepted and (b) an undeclared settings key is refused for a pack that a module wraps; the settings key refusal for a pack no module wraps (case c) runs"
+reason: >
+  No module shipped with the product declares a settings schema (every module manifest has settings_schema nil), so no declared settings key exists that a UAT actor could submit, and no pack is wrapped by a module with settings.
+  The accepted and the undeclared-key cases need such a module and cannot be set up by an admin-driven UAT. Not run, not passed.
+recorded_by: BA
+recorded_at: "2026-10-30"
+issue_ref: "GH #3353"
+review: >
+  Revisit when a shipped module declares a settings schema.

@@ -1,0 +1,380 @@
+# T-0975 (BA): TENANT ADMIN group, scenario 65: a local adjustment of an installed pack may only touch the listed properties, must give a reason, and must name something the pack covers.
+# Covers REQ-596 criterion 3 (process definition: graph structure, gateway condition, variable name or type, script and any unlisted path refused with the stable text and nothing written; a patch of only listed paths accepted;
+# a patch mixing a listed and an unlisted path refused whole; variable schema: the same three cases; threshold keys "settings.<key>" for a pack that no module wraps; another artefact type refused),
+# criterion 2 (an artefact the pack does not cover, or a pack the company has not installed, answers the not-found reply) and criterion 5 (a request without a reason is refused and writes nothing).
+# Sources: docs/requirements.yaml REQ-596 criteria 2, 3, 5; lib/letflow/definitions/solution_pack_overrides.ex (the closed list @overridable: for a process definition only the label of a node, its role, escalation role, escalation timer duration and duration,
+# and "settings.<key>"; for a variable schema no path at all; check order: reason, artefact type, patch, then the pack and the artefact); lib/letflow/routers/solution_packs.ex (422 reason texts property_not_overridable and reason_required; 404 not-found reply).
+# Sensitive actions: change process definitions (every step here is a write attempt); who may write is in the platform scenario solution-pack-override-access-and-other-company.
+# Closed-list check: every refused patch below was run through the list. A patch key must match a listed path in full; "nodes.S1.type", "nodes.S1.id", "edges.0.target", "nodes.G1.attributes.condition", "variables.order_total.type",
+# "nodes.S1.attributes.script" and "name" match none of them. Every step refused by the list is refused BEFORE the pack and the artefact are looked up, so an unlisted path answers 422 even for a variable schema that does not exist.
+# NOT UAT-OBSERVABLE (written here so it survives the merge; the permanent exclusions are also in the sidecar test/fixtures/uat/scenario-env-limitations/tenant-administration-65-solution-pack-override-closed-list-and-reason-refusals.yaml):
+#   - criterion 3 case (a) "settings.<declared key> is accepted" and case (b) "settings.<key not declared> is refused for a pack that a module wraps": no module shipped with the product declares a settings schema,
+#     so no declared key exists to submit. Step 14 checks case (c) for a pack no module wraps (every settings key refused) and a refusal of a settings key; the accepted settings case stays with the backend test.
+#   - criterion 3 "the closed list is in one module attribute whose content is pinned by a test": a code check.
+#   - criterion 5 "the number 987654.321 appears in no audit entry, no log line and no row of the three global pack tables" and the DROP TABLE audit test: database, log capture and fault injection; scenario 64 EO-007 carries the audit half as system_state.
+#   - criterion 8 (pins re-derived: __authz_routes__ of Letflow.Routers.SolutionPacks, route_scope snapshot, tenant_wide_default_routes.txt, length(snapshot) pins, @expected_tenant_tables, migration version) and criterion 9 (SECURITY-REVIEWER and REVIEWER verdicts, mix letflow.check.static, changed test files, PR statement about existing QA tenants): build and review gates of the implementing change, not actions of a user.
+---
+id: tenant-administration-65-solution-pack-override-closed-list-and-reason-refusals
+scope: tenant-administration
+title: A pack adjustment may only touch listed properties, needs a reason and must name something the pack covers
+version: "1.0"
+tags: [solution-pack, override, refusal, validation, closed-list]
+
+description: >
+  SwiftRoute's administrator tries to adjust an installed pack in ways the product does not allow: changing the type or id of a step, an edge, the condition of a gateway, a variable name or type, a script,
+  a property that is not on the list, a company setting key, a variable schema, or an artefact kind other than process definition or variable schema. Every such attempt is refused with the stable reason text and nothing is stored.
+  A patch that mixes an allowed change (the label of a step) with a forbidden one is refused as a whole. A request without a reason, or with a blank one, is refused. A request that names an artefact the pack does not contain, or a pack the company has not installed, gets the not-found answer.
+  At the end a patch of listed properties only is accepted, which shows the refusals were about the content and not about the setup.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: >
+      SwiftRoute has an active installation of pack P that contains the process definition D with a task step S1 and a gateway G1 with a condition, and a variable schema VS (an artefact of the pack of kind variable schema).
+    check: system_seeded
+    detail: >
+      Setup-prepared as for scenario 64 (pack P installed through the install route; D_ID is the id of the definition that installation created for D, used as the artefact id in every step input; BLOCKED if no artefact base was recorded for it). If P has no variable schema, steps 11 to 13 still run: they are refused by the closed list before the artefact is looked up, but say so in the report. If the company has no pack with a process definition, BLOCKED.
+  - description: No pack that a module wraps is needed. Pack P is installed directly (not through a module), so no setting key is declared for it.
+    check: system_seeded
+    detail: If P is the pack of a module that declares a settings schema, step 14 may be accepted; report that and mark step 14 and EO-005 not run.
+  - description: SwiftRoute has no active adjustment of D at the start.
+    check: system_seeded
+    detail: If one exists, retire it first and say so in the report.
+
+steps:
+  - step: 1
+    actor: tenant_admin
+    action: >
+      The administrator lists the adjustments of pack P and notes the answer as LIST0.
+    via: api
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D that changes the type of step S1 to "serviceTask", with the reason "UAT: type".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.type": "serviceTask"
+      reason: "UAT: type"
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D that changes the target of the first edge to "S9" (graph structure), with the reason "UAT: edge".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "edges.0.target": "S9"
+      reason: "UAT: edge"
+  - step: 4
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D that changes the id of step S1 to "S9" (node id), with the reason "UAT: id".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.id": "S9"
+      reason: "UAT: id"
+  - step: 5
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D that changes the condition of gateway G1 to "amount > 100", with the reason "UAT: condition".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.G1.attributes.condition": "amount > 100"
+      reason: "UAT: condition"
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D that changes the type of the variable "order_total" to "string" (variable name or type), with the reason "UAT: variable".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "variables.order_total.type": "string"
+      reason: "UAT: variable"
+  - step: 7
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D that sets a script on step S1 to the text "return 1", with the reason "UAT: script".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.attributes.script": "return 1"
+      reason: "UAT: script"
+  - step: 8
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D that renames the process with the path "name" (a path that is not on the list), with the reason "UAT: rename".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "name": "Renamed process"
+      reason: "UAT: rename"
+  - step: 9
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D whose patch holds the listed path "nodes.S1.label" (value "Zq987654 mixed") and the unlisted path "nodes.S1.type" (value "serviceTask"), with the reason "UAT: mixed".
+      The whole request must be refused.
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq987654 mixed"
+        "nodes.S1.type": "serviceTask"
+      reason: "UAT: mixed"
+  - step: 10
+    actor: tenant_admin
+    action: >
+      The administrator lists the adjustments of pack P and notes the answer as LIST1.
+    via: api
+  - step: 11
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for the variable schema VS that changes the property "properties.order_total.type" to "string", with the reason "UAT: schema type".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: variable_schema
+      artefact_id: VS
+      patch:
+        "properties.order_total.type": "string"
+      reason: "UAT: schema type"
+  - step: 12
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for the variable schema VS with the path "nodes.S1.label" (a path that is listed for process definitions only), value "Zq987654 schema label", with the reason "UAT: schema label".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: variable_schema
+      artefact_id: VS
+      patch:
+        "nodes.S1.label": "Zq987654 schema label"
+      reason: "UAT: schema label"
+  - step: 13
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for the variable schema VS whose patch holds "nodes.S1.label" (value "Zq987654 schema mixed") and "properties.order_total.type" (value "string"), with the reason "UAT: schema mixed".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: variable_schema
+      artefact_id: VS
+      patch:
+        "nodes.S1.label": "Zq987654 schema mixed"
+        "properties.order_total.type": "string"
+      reason: "UAT: schema mixed"
+  - step: 14
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D that sets the threshold key "settings.credit_limit" to 5000, with the reason "UAT: threshold". Pack P is not wrapped by any module, so no setting key is declared for it.
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "settings.credit_limit": 5000
+      reason: "UAT: threshold"
+  - step: 15
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment of the kind "entity_definition" for the artefact "any-artefact" with the label path "nodes.S1.label" (value "Zq987654 other kind"), with the reason "UAT: kind".
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: entity_definition
+      artefact_id: any-artefact
+      patch:
+        "nodes.S1.label": "Zq987654 other kind"
+      reason: "UAT: kind"
+  - step: 16
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D with the listed path "nodes.S1.label" (value "Zq987654 no reason") and no reason in the request at all.
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq987654 no reason"
+  - step: 17
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment for D with the listed path "nodes.S1.label" (value "Zq987654 blank reason") and the reason "   " (three spaces).
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq987654 blank reason"
+      reason: "   "
+  - step: 18
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment with the listed path "nodes.S1.label" (value "Zq987654 unknown artefact") and the reason "UAT: unknown artefact" for the process definition "artefact-not-in-pack", which pack P does not contain.
+    expect_refusal: true
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: artefact-not-in-pack
+      patch:
+        "nodes.S1.label": "Zq987654 unknown artefact"
+      reason: "UAT: unknown artefact"
+  - step: 19
+    actor: tenant_admin
+    action: >
+      The administrator tries to create an adjustment under the pack name "pack-never-installed" (not installed by SwiftRoute) for D with the listed path "nodes.S1.label" (value "Zq987654 unknown pack") and the reason "UAT: unknown pack".
+    expect_refusal: true
+    via: api
+    input:
+      pack: pack-never-installed
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq987654 unknown pack"
+      reason: "UAT: unknown pack"
+  - step: 20
+    actor: tenant_admin
+    action: >
+      The administrator lists the adjustments of pack P and notes it as LIST2. Then the administrator creates an adjustment for D with only listed paths: the label of S1 "Zq987654 listed only", the role of S1 "role-ops-manager" and the escalation timer of S1 "P1D",
+      with the reason "UAT: listed only". The answer is noted as O1 with its adjustment number ID1. Then the administrator retires ID1 with the reason "UAT: cleanup" (base version 1).
+    via: api
+    input:
+      artefact_type: process_definition
+      artefact_id: D_ID
+      patch:
+        "nodes.S1.label": "Zq987654 listed only"
+        "nodes.S1.attributes.role": "role-ops-manager"
+        "nodes.S1.attributes.escalation_timer_duration": "P1D"
+      reason: "UAT: listed only"
+
+expected_outcomes:
+  - id: EO-001
+    description: Graph structure, node ids, gateway conditions, variable names or types, scripts and any unlisted path are refused with the stable reason text.
+    verification:
+      method: http_status
+      detail: >
+        Steps 2 to 8 each answer 422 with the detail text property_not_overridable. The answers equal each other in status and content-type, and none echoes the submitted value ("serviceTask", "S9", "amount > 100", "return 1", "Renamed process").
+      evidence: The answers of steps 2 to 8.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A local adjustment could change the structure or logic of a process, or smuggle in a script, outside review.
+      suggested_action: route_to_security_review
+  - id: EO-002
+    description: A patch mixing a listed and an unlisted path is refused whole; nothing is stored by any refused request.
+    verification:
+      method: api_response
+      detail: >
+        Step 9 answers 422 with the detail text property_not_overridable. LIST1 (step 10) equals LIST0 (the same lines, none new, and in particular no line carrying the label "Zq987654 mixed"). LIST2 (step 20) equals LIST0 as well,
+        after all refusals of steps 2 to 19.
+      evidence: LIST0, LIST1, LIST2 and the answer of step 9.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused request partly took effect, so the stored adjustment is not what was reviewed.
+      suggested_action: route_to_developer
+  - id: EO-003
+    description: A variable schema has no property that may be adjusted; the same three cases are refused.
+    verification:
+      method: http_status
+      detail: Steps 11, 12 and 13 each answer 422 with the detail text property_not_overridable (a variable schema path, a path that is listed only for process definitions, and a mix). LIST1 and LIST2 show no line for VS.
+      evidence: The answers of steps 11 to 13 and the lists.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A variable schema, which other processes rely on, could be altered by a local adjustment.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: An artefact kind other than process definition or variable schema is refused.
+    verification:
+      method: http_status
+      detail: Step 15 answers 422 (the detail text property_not_overridable). LIST2 shows no line for "any-artefact".
+      evidence: The answer of step 15 and LIST2.
+    on_fail:
+      severity: MAJOR
+      business_impact: Adjustments could be stored for kinds of artefacts the product has not agreed to adjust.
+      suggested_action: route_to_developer
+  - id: EO-005
+    description: For a pack that no module wraps, a settings key is refused.
+    verification:
+      method: http_status
+      detail: Step 14 answers 422 with the detail text property_not_overridable. The accepted listed paths of step 20 show that the other listed paths still work for the same pack.
+      evidence: The answers of steps 14 and 20.
+    on_fail:
+      severity: MAJOR
+      business_impact: A threshold could be adjusted that no module declared as adjustable.
+      suggested_action: route_to_developer
+  - id: EO-006
+    description: A missing or blank reason is refused and writes nothing.
+    verification:
+      method: http_status
+      detail: Steps 16 and 17 each answer 422 with the detail text reason_required, with the same status, content-type and body as each other. LIST2 equals LIST0.
+      evidence: The answers of steps 16 and 17 and LIST2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A change to company configuration could be made with no recorded reason.
+      suggested_action: route_to_developer
+  - id: EO-006b
+    description: A missing or blank reason leaves no audit entry, and no refused step of this scenario leaves one.
+    verification:
+      method: system_state
+      detail: >
+        SwiftRoute's audit trail holds no solution_pack_override entry for steps 16 and 17, none for any other refused step 2 to 19, and the text "Zq987654" occurs in no entry.
+        Read from the database (UAT assumption, to be confirmed by the process owner: no tenant-user route lists these entries; same as scenario 64 EO-007).
+      evidence: The audit entries of SwiftRoute between step 2 and step 19.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused change could still be recorded, or the trail could leak configuration values.
+      suggested_action: route_to_security_review
+  - id: EO-007
+    description: An artefact the pack does not cover, and a pack the company has not installed, answer the not-found reply.
+    verification:
+      method: http_status
+      detail: >
+        Steps 18 and 19 answer 404 with the product's not-found reply (same status, content-type header and body, without the per-request trace_id member, as for any unknown resource).
+        Because the request is complete and valid otherwise, the answer is not hidden by a 422.
+      evidence: The answers of steps 18 and 19.
+    on_fail:
+      severity: MAJOR
+      business_impact: An adjustment could be stored against something the company has not installed, or the answer would reveal what exists.
+      suggested_action: route_to_developer
+  - id: EO-008
+    description: A patch of only listed paths is accepted for the same pack and process definition.
+    verification:
+      method: http_status
+      detail: >
+        Step 20 answers 201 for the create: O1 shows override_version 1, status active, artefact_type process_definition, artefact_id D_ID and the three submitted paths. The retire answers 200 with override_version 2, status retired.
+      evidence: O1 and the answer of the retire.
+    on_fail:
+      severity: MAJOR
+      business_impact: The refusals are about the setup, not about the content, so the feature is unusable.
+      suggested_action: route_to_developer
+
+cleanup:
+  cancel_open_instances: false
+  description: Adjustments cannot be deleted. Step 20 retires the only adjustment written; if it did not run, retire any active adjustment of D whose label starts with "Zq987654".

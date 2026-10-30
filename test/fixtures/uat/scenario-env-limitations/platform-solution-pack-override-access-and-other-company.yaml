@@ -1,0 +1,12 @@
+scenario_id: platform-solution-pack-override-access-and-other-company
+applies_to_environments: [qa]
+classification: GAP
+applies_to: "the refusal of a PROCESS_DESIGNER on the three write requests (the 'tenant role other than administrator' list of REQ-596 criterion 7), and the case of another company's adjustment number under that company's own installed pack (REQ-596 criterion 6); the worker, process operator, auditor, candidate, administrators and platform operator checks run"
+reason: >
+  The roster (test/fixtures/uat/actors.yaml) has no PROCESS_DESIGNER account in any company, and no actor may be invented. Bilimbaga, the only second company with an administrator, has not installed the pack, so its requests are answered by the pack check
+  before an adjustment number is looked up; a second company that has the same pack installed does not exist in the QA setup. Nothing a UAT actor can do provides these, so they are not run, not passed.
+recorded_by: BA
+recorded_at: "2026-10-30"
+issue_ref: "GH #3353"
+review: >
+  Revisit when the roster has a process designer actor, or a second QA company with an administrator and an installed pack is provisioned.
