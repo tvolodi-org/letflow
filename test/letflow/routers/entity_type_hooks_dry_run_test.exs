@@ -211,11 +211,14 @@ defmodule Letflow.Routers.EntityTypeHooksDryRunTest do
   # ── N: nothing is written ──────────────────────────────────────────────────
 
   describe "N no write" do
-    test "N1 every table of the tenant schema keeps its row count", %{a: a} do
+    # part B: the one write of a run is its `audit_entries` row (see the part B test file)
+    test "N1 every table but the audit log keeps its row count", %{a: a} do
       before = snapshot(a.schema_name)
       assert dry(a).status == 200
       assert dry(a, @type_name, %{"candidate" => %{"tier" => "none"}}).status == 200
-      assert snapshot(a.schema_name) == before
+      after_run = snapshot(a.schema_name)
+      assert Map.delete(after_run, "audit_entries") == Map.delete(before, "audit_entries")
+      assert after_run["audit_entries"] == before["audit_entries"] + 2
     end
 
     test "N2 the context function and the action reference no write path" do
