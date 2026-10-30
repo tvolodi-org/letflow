@@ -2,8 +2,8 @@ defmodule Letflow.Definitions.SolutionPackOverrides do
   @moduledoc """
   A tenant's named, versioned, append-only deviation from an installed solution pack
   (REQ-596 / GH #3353 part A, decision 0069 D2/D3/D5). This slice is storage and the writer only:
-  no route, no permission, no HTTP, and nothing reads the table yet (the merge and the update plan
-  are later slices). HTTP mapping of the error tuples below is part B.
+  no route, no permission, no HTTP, and only the REQ-610 activation reads the table (the update plan
+  is a later slice). HTTP mapping of the error tuples below is part B.
 
   Functions (every one takes the tenant schema name `prefix` first, INV-1):
 
