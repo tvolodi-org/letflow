@@ -67,7 +67,7 @@ defmodule Letflow.Routers.SolutionPackOverrideActivateTest do
   end
 
   # an active installed definition, plus the install and base rows of a pack covering it
-  defp installed!(fx, opts \\ []) do
+  defp installed!(fx, opts) do
     {:ok, draft} =
       Definitions.create(
         %{
@@ -114,7 +114,7 @@ defmodule Letflow.Routers.SolutionPackOverrideActivateTest do
 
   defp base_path(pack_id), do: "/api/v1/solution-packs/#{pack_id}/overrides"
 
-  defp call(method, path, token, fx, body \\ nil) do
+  defp call(method, path, token, fx, body) do
     method |> Fixture.api_conn(path, token, fx.tenant.slug, body) |> Fixture.dispatch_api()
   end
 
