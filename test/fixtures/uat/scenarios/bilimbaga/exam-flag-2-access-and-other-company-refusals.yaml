@@ -1,0 +1,70 @@
+# T-0938 (BA-BILIMBAGA): access side of the REQ-611 flag control. The flag has no route, no permission entry and no stored value, so there is no
+# "may flag / may not flag" permission to refuse; the control is part of the exam-taking screen, which only a person allowed to take an exam can open.
+# Sources: docs/requirements.yaml REQ-611 description ("Where the flag is stored: in the browser only, no backend route ... not shown to an examiner and is not part of any report");
+# priv/permission_matrix/effective.golden (ExamSessionStart granted to CANDIDATE, TENANT_ADMIN, PLATFORM_ADMIN; refused to TASK_WORKER); test/fixtures/uat/actors.yaml (actor-meridian-ben, TASK_WORKER in tenant meridian).
+# Criteria mapped: 8 (no new route or permission: the observable half is EO-002, the flag never appears in an examiner's data); description sentence "is not shown to an examiner".
+# Not covered here: the absence of a flag route or permission entry is a property of the code (REQ-611 criterion 8), not observable in a running product.
+# Not UAT-observable: a bilimbaga actor who may not take exams -- the roster has no such bilimbaga actor (actor-bilimbaga-admin holds TENANT_ADMIN, which may start a session). The refusal is therefore tested with a user of another company.
+# Preconditions that the setup must give: the Meridian company does not have the exam module installed. Otherwise step 1 is BLOCKED.
+---
+id: bilimbaga-exam-flag-2-access-and-other-company-refusals
+scope: bilimbaga
+title: A user of another company cannot reach the Bilimbaga exam-taking screen or its flag control, and an examiner never sees a candidate's flags
+version: "1.0"
+tags: [exam_taking, flag, refusal, cross_tenant, sensitive_data]
+
+description: >
+  A user of the Meridian company, who may not take exams, opens the address of an exam question screen of Bilimbaga in their own company's application:
+  no exam question and no flag button is shown. The Bilimbaga administrator opens the grading screen for an exam whose candidate flagged questions: nothing
+  in it shows which questions were flagged.
+  Preconditions: see below.
+
+actors:
+  outsider: actor-meridian-ben
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: Meridian does not have the exam module installed, and the Bilimbaga exam used in the scenario "bilimbaga-exam-flag-1" exists with a handed-in session in which the candidate flagged a question and gave a short text answer to another
+    check: custom
+    detail: Prepared by the test setup; without it the scenario is BLOCKED. The roster has no seeded token for the Bilimbaga administrator yet (see its note); without it step 2 is BLOCKED.
+
+steps:
+  - step: 1
+    actor: outsider
+    action: >
+      The Meridian user signs in to their own company's application and types the address of the exam question screen of the Bilimbaga exam in the browser.
+    via: gui
+    expect_refusal: true
+  - step: 2
+    actor: admin
+    action: >
+      The Bilimbaga administrator opens "Grading" in the exam menu, opens the waiting answer of the session in which the candidate flagged a question, and reads
+      the whole screen and the table.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The Meridian user is shown no exam question, no flag button and no flagged line, and nothing of the Bilimbaga exam, only the application's not-found page
+    verification:
+      method: page_state
+      detail: "Step 1: no element of the exam-taking screen; no Bilimbaga exam title or question text"
+    on_fail:
+      severity: BLOCKER
+      business_impact: Another company would see the questions of a Bilimbaga certification exam, which breaks tenant separation and exam secrecy.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: >
+      The grading screen of the examiner shows the question, the answer and the mark field, and nothing that tells which questions the candidate flagged
+    verification:
+      method: page_state
+      detail: "Step 2: no flagged marker, count or label anywhere on the grading table or the answer screen"
+    on_fail:
+      severity: MAJOR
+      business_impact: A candidate's private reminders would reach the examiner, which the requirement excludes and could influence marking.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: false
+  description: Nothing was created by this scenario.

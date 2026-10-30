@@ -126,3 +126,36 @@ this section was written. It covers the types `catalog_uom`, `catalog_item` and 
     refused too (`already_installed`), so there is no operator path today: such a tenant stays
     on the two types until a module-upgrade requirement is delivered. The behaviour is pinned
     by test U-01 in `test/letflow/modules/catalog_items/counterparty_test.exs` (T-0862).
+
+## Locations module limits
+
+Module `locations` (GH #3501 / REQ-625 skeleton, decision 0050, WMS draft item MD-02) as it is on
+main. It covers the one type `location_node` (site, zone and address in one tree). Each limit
+names the GH issue or the code that holds it; paths are cited without line numbers.
+
+1. **Generic writes to `location_node` are refused.** The type is in `manages_entity_types`, so
+   the generic entity routes answer 403 `entity_type_managed` (GH #2530), mapped in
+   `lib/letflow/routers/entities.ex` and decided per write by `Letflow.Entities.Records`
+   (`lib/letflow/entities/records.ex`, delegating to `ManagedTypes.check_record_write/3`).
+2. **Writes go through the module's own Owner only.** Module code writes with the `/3` arity,
+   `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.Locations)`
+   (`lib/letflow/modules/locations/locations.ex`). The module ships no write functions yet; the
+   tests write through the owner path (`test/letflow/modules/locations/locations_fixture.exs`).
+3. **No tree-rule check.** A zone's parent being a site, an address's parent being a zone, a site
+   having no parent and the absence of cycles are not enforced: `parent_id` is a declarative
+   string with no foreign key (decision 0050 D3.6;
+   `priv/modules/locations/entity_definitions/location_node.json`), as for `org_unit` (GH #2661).
+4. **No `org_site_id` check.** `org_site_id` is a plain string; it is not checked against the
+   `org_site` records of the org module, and the manifest does not depend on `org`
+   (GH #3501).
+5. **No both-or-neither rule for `external_ref`.** The unique constraint over
+   `external_ref_system` and `external_ref_id` only applies when both are set; a row with one of
+   the two is accepted (GH #3501, import key of decision 0057 D1).
+6. **No capacity, size or compatibility fields.** Location size, load limit, storage mode,
+   temperature band and item compatibility rules are not in the definition (GH #3501); they need
+   the exact-decimal quantity type (GH #2654) and the customer's values. There is no lookup by
+   `address` either: the read API is by record id only (`lib/letflow/modules/locations/locations.ex`).
+7. **The generic import refuses the managed type.** `POST /entities/records/location_node/import`
+   answers 403 `entity_type_managed` because the type is managed
+   (`lib/letflow/routers/entities/record_import.ex`), so test locations cannot be seeded that way
+   (GH #3407 records the same gap for suppliers against decision 0057 D12).

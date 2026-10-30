@@ -1,0 +1,126 @@
+# T-0989 (BA): TENANT ADMIN group, scenario 72: the Reports screen for a caller who may read reports but not manage them.
+# Covers REQ-634 criterion 8 (first half: without EntitiesViewsManage) and criterion 9 (the empty state shows a create control only to a caller who
+# manages reports). The second half of criterion 8 (without EntitiesAggregate) is NOT covered here: the role matrix gives EntitiesQuery and EntitiesAggregate to exactly the same roles, so no roster actor holds the first without the second; it is a vitest check (web/src/pages/entities/__tests__/ReportBuilderPage.test.tsx: Run disabled, the missing-access message "Running a report needs the aggregate-query permission.", zero aggregate calls). Quoted from origin/main:
+# 8. "Without EntitiesViewsManage (caller holds EntitiesQuery and EntitiesAggregate): the list, the editor in read-only form and Run work; create, save
+#    and delete controls are not in the document. Without EntitiesAggregate (caller holds EntitiesQuery): Run is disabled with the missing-access message
+#    and the test asserts zero aggregate calls. Without EntitiesQuery see criterion 3."
+# 9. "Empty and loading states: a type with no reports shows an empty state with a create control only for a caller holding EntitiesViewsManage; list,
+#    open and run each show a loading indicator and block a second submission while a request is pending."
+# Refusal steps: the auditor's direct calls to create, change and delete (the screen hides the controls, the server still refuses: INV-2).
+# Sources: docs/requirements.yaml REQ-634 (criteria 8, 9), REQ-619 (criterion 4: a caller without the view permission is refused on create, change and
+# delete, with one 403 for an existing and an absent id); docs/roles.md (EntitiesViewsManage: TENANT_ADMIN and PLATFORM_ADMIN only; EntitiesQuery and
+# EntitiesAggregate: PLATFORM_ADMIN, PROCESS_DESIGNER, PROCESS_OPERATOR, TASK_WORKER, TENANT_ADMIN, TENANT_AUDITOR);
+# test/fixtures/uat/actors.yaml (actor-swiftroute-auditor: TENANT_AUDITOR only, read-only); web/src/pages/entities/ReportBuilderPage.tsx (canManage hides
+# the New report, empty-state create, Save, Delete, group, aggregate controls; the editor inputs are disabled and the notice "You can view reports but not
+# change them." shows).
+# Not UAT-observable by an outside user (REQ-634 criteria 1, 2, 3, 10, 11): unit and guard checks, see scenario 70. The loading indicators of criterion 9
+# last a fraction of a second. The caller without EntitiesQuery (criterion 3, PermissionDenied) is not in this scenario's scope.
+# The four sensitive actions: "change users" and "approve, pay or release" are not in this flow; "see sensitive data" is not involved (the type has no
+# protected field); the refusals of the missing report-management permission are step 5.
+---
+id: tenant-administration-72-report-builder-screen-read-only-access
+scope: tenant-administration
+title: A read-only auditor sees the saved reports and runs them on the Reports screen but has no create, save or delete control, and the server refuses the same actions made directly
+version: "1.0"
+tags: [tenant-admin, saved-views, report, gui, access, refusal, read-only, empty-state]
+
+description: >
+  The read-only auditor of SwiftRoute opens the Reports screen of "UAT report ticket" while no report exists: the screen shows the empty-list message
+  and no "Create the first report" and no "New report" button. The administrator then saves the report "UAT open report" through the API. The auditor
+  reloads the screen: the report is listed; opened, it shows in a read-only form (the inputs cannot be edited, the notice "You can view reports but not
+  change them." is shown, there is no Save report, no Delete report, and no add or remove control for groups and aggregates); Run works and shows the
+  same summary and detail tables as for the administrator. The auditor's direct attempts to create, change and delete a report, for the existing report
+  and for an identifier no view has, are refused with the same answer, and the report is unchanged. A task worker, who also holds the query permissions
+  but not the management permission, sees the same read-only screen.
+
+actors:
+  tenant_admin: actor-swiftroute-alice
+  auditor: actor-swiftroute-auditor
+  worker: actor-swiftroute-lena
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator, the read-only auditor and a task worker; the record type "UAT report ticket" is active with the four records of scenario 50; no saved view named "UAT open report" or "UAT auditor report" exists
+    check: system_seeded
+    detail: If views exist from an earlier run, delete them first (the empty state of step 1 needs an empty list for this type) and note it in the report. If the auditor or the worker cannot sign in to the web application, the steps of that actor are BLOCKED, not FAIL. If either may not read the record type, the precondition has failed and the scenario is BLOCKED.
+  - description: Only the administrator holds the report-management permission; the auditor and the worker hold the query and aggregate-query permissions
+    check: system_seeded
+    detail: Per the role matrix; if the auditor's or worker's role was changed in the test company, the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: auditor
+    action: >
+      With no saved report in the type, the auditor opens the Reports screen of "UAT report ticket". The screen is noted: the title, the empty-list
+      text, and every button on the page.
+    via: gui
+  - step: 2
+    actor: tenant_admin
+    action: >
+      The administrator makes sure the record type and its four records exist (see scenario 50) and saves the report "UAT open report" through the API
+      (filter status equals open, grouping by region, aggregates count and sum of amount, columns title and amount, sort amount descending). The id is
+      noted.
+    via: api
+  - step: 3
+    actor: auditor
+    action: >
+      The auditor reloads the Reports screen, notes the list, opens "UAT open report" and notes the editor: whether each input can be edited (the name, group, aggregate, columns, sort and the filter row's field, operator and value), the notice
+      and every button (including "Add filter" and the filter row's remove control). The auditor presses "Run" and notes the tables.
+    via: gui
+  - step: 4
+    actor: worker
+    action: >
+      The task worker opens the Reports screen of "UAT report ticket", opens "UAT open report" and notes the editor and the buttons as in step 3.
+    via: gui
+  - step: 5
+    actor: auditor
+    action: >
+      The auditor tries directly, outside the screen, to create a report "UAT auditor report" over "UAT report ticket", to change the name of "UAT open
+      report" and to delete it, and tries to change and delete an identifier that no view has (a well-formed one made up for the test). The five
+      answers are noted.
+    expect_refusal: true
+    via: api
+  - step: 6
+    actor: tenant_admin
+    action: >
+      The administrator reads "UAT open report" and lists the saved views of the type through the API, and compares with step 2.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: A caller who cannot manage reports sees an empty list without any create control.
+    verification:
+      method: gui_screen
+      detail: Step 1 shows the text "No reports have been saved for this entity type yet." and no button "Create the first report", no button "New report" and no Save or Delete button.
+      evidence: The screen of step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: A read-only user is offered an action that the server will refuse, or the empty state hides the missing-permission fact.
+      suggested_action: route_to_frontend
+  - id: EO-002
+    description: A read-only caller sees the report, in a form that cannot be edited, and can run it.
+    verification:
+      method: gui_screen
+      detail: >
+        Steps 3 and 4 list "UAT open report" and open it with the notice "You can view reports but not change them."; the name, group, aggregate, columns
+        and sort inputs and the filter row's field, operator and value inputs cannot be edited; there is no "Save report", no "Delete report", no "New report",
+        no "Add aggregate", "Add group", no "Add filter", and no remove control, including the filter row's remove control (a cross mark). In step 3 "Run" is available and shows a summary of north (count 2, sum 30) and south (count 1, sum 5) and a detail with the columns
+        title and amount and the rows B, A, C.
+      evidence: The screens of steps 3 and 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A reader cannot see the reports of the company or run them, or is shown controls that change them.
+      suggested_action: route_to_frontend
+  - id: EO-003
+    description: The same create, change and delete made directly are refused with one answer for an existing and a missing report, and the report is unchanged.
+    verification:
+      method: http_status
+      detail: Every one of the five answers of step 5 is 403 with the same status, the same body byte for byte and the same headers apart from per-request ones (date, request id); in step 6 "UAT open report" has its original name, filter, grouping, aggregates, columns and sort, and the list holds no "UAT auditor report".
+      evidence: The five answers of step 5 and the readings of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A read-only user could rewrite or delete the saved reports of the company, or learn which exist.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: false
+  description: Delete the reports "UAT open report" and "UAT auditor report" if they still exist. The record type and its records stay.

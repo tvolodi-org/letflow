@@ -1,0 +1,10 @@
+scenario_id: bilimbaga-exam-notifications-4-other-company-sees-no-row
+applies_to_environments: [qa]
+classification: ENV_NOT_SUPPORTED
+reason: >
+  The scenario needs the exam notifications switch (application setting exam_notifications_enabled) turned on. It is false in the shipped configuration, is not a tenant setting and cannot be changed by any UAT actor or request, so the run is BLOCKED, not PASS. The same behaviour is covered by the backend tests of REQ-597.
+recorded_by: BA
+recorded_at: "2026-10-30"
+issue_ref: "GH #3363"
+review: >
+  Revisit when the QA environment runs with the switch on, or when a per-tenant switch exists (REQ-597 open question 3). The administrator token also needs an approved qa-login mapping (roster note).
