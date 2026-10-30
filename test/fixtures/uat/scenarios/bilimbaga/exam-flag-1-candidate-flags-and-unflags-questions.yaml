@@ -1,0 +1,155 @@
+# T-0938 (BA-BILIMBAGA): the flag/unflag control on the exam-taking screen. Covers REQ-611 criteria 1, 2, 3, 5, 6 and the screen part of 7.
+# Sources: docs/requirements.yaml REQ-611 (description and criteria 1 to 8); web/src/modules/exam/ExamSessionPage.tsx (toggle, count line, Previous/Next, Submit);
+# web/src/modules/exam/examMessages.ts (en "Flag question", "Remove flag", "Flagged: {count}"; ru "Отметить вопрос", "Снять отметку", "Отмечено: {count}";
+# kk "Сұрақты белгілеу", "Белгіні алу", "Белгіленген: {count}"); test/fixtures/uat/actors.yaml (actor-bilimbaga-candidate).
+# REQ-611 criteria, quoted from origin/main:
+#  1. "Toggle: on the first question the page shows a control with data-testid exam-flag-toggle and aria-pressed=false; clicking it sets aria-pressed=true; clicking it again sets aria-pressed=false. Vitest in a new file web/src/modules/exam/__tests__/ExamSessionPage.flag.test.tsx (mocked examApi as in ExamSessionPage.test.tsx) asserts both transitions."  -> steps 1, 2, 3 (EO-001)
+#  2. "Persistence while paging: flag question 1, press Next, then Previous; the control on question 1 has aria-pressed=true and the control on question 2 has aria-pressed=false. The same vitest file asserts it."  -> steps 2, 3 (EO-002)
+#  3. "Count: with no flags exam-flagged-count is not in the document; after flagging two questions it shows the number 2 in the active locale; after unflagging one it shows 1. The same vitest file asserts it."  -> steps 1 to 5 (EO-003)
+#  4. "No server effect: toggling a flag calls none of examApi.saveAnswer, examApi.submitSession, examApi.reportEvent or examApi.startSession beyond the calls made before the toggle, and examApi.submitSession is called with the same arguments (the session id only) with flagged questions as with none. The same vitest file asserts the mock call counts and arguments."  -> only the reload clause is visible to a person (step 6, EO-005); see Not covered here
+#  5. "Submit not blocked: with two questions flagged, clicking exam-submit-action calls examApi.submitSession once and the page moves to the result view with no confirmation step. The same vitest file asserts it."  -> step 5 (EO-004)
+#  6. "Texts: the toggle label (flag and unflag states) and the count text exist in examMessages.ts for kk, ru and en, and exam-i18n-grep.test.ts passes."  -> step 4 (EO-006), the on-screen part
+#  7. "E2E case: web/tests/e2e/exam-taking.e2e.spec.ts gains a case '07 — Flag/unflag' that flags question 1, sees aria-pressed true, moves Next and Previous, sees it still true, unflags and sees false; ..."  -> steps 2 and 3 are the same click-through by a person
+#  8. "Scope: git diff --stat shows only files under web/ and ..."
+# Not covered here:
+#  - Criterion 4, request counts and the submit arguments: the requests a page sends are not shown to a person; left to the Vitest file named in the criterion. Step 6 checks only the reload clause of the requirement text (a reload starts with no flags).
+#  - Criterion 6, the existence of the text keys for kk, ru and en and the exam-i18n-grep test: a source check. Step 4 checks only that the three texts show on screen.
+#  - Criterion 7, the Playwright case itself and the header comment of the e2e file: a source change, not a click-through; step 3 covers the same behaviour.
+#  - Criterion 8, the diff scope and `npm run check`: a property of the change, not of the running product.
+#  - Locale switching: if the QA application offers no interface language switch for the signed-in candidate, step 4 is BLOCKED.
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) do not occur in this flow; the refusal for the access side is in exam-flag-2.
+---
+id: bilimbaga-exam-flag-1-candidate-flags-and-unflags-questions
+scope: bilimbaga
+title: A candidate flags and unflags questions while sitting an exam, the flags stay while paging, are counted, and do not stop the submit
+version: "1.0"
+tags: [exam_taking, gui, flag, i18n]
+
+description: >
+  A candidate starts an exam that has at least three questions. On the first question there is a "Flag question" button and no line counting flagged
+  questions. The candidate presses the button: it shows as pressed and the label changes to "Remove flag". The candidate goes to the next question
+  (not flagged), flags it too, and a line "Flagged: 2" appears. Going back to the first question shows it still flagged. The candidate removes the flag
+  of one question and the line reads "Flagged: 1". The texts follow the interface language in Kazakh, Russian and English. The candidate submits the
+  exam with one question still flagged: the exam is submitted at once, with no confirmation question, and the result is shown. Opening a new exam
+  session after a page reload shows no flags.
+  Preconditions: see below.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+
+preconditions:
+  - description: Bilimbaga has the exam module installed and one active exam open to the candidate with at least three questions, with no short-answer question so that the result is shown at once
+    check: custom
+    detail: Prepared by the test setup; without such an exam the scenario is BLOCKED.
+  - description: The Bilimbaga candidate can sign in to the web application and has not yet started this exam
+    check: system_seeded
+    detail: Seeded account candidate-user (see the roster note); without it the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: candidate
+    action: >
+      The candidate signs in, starts the exam and reads the first question screen: the label of the flag button, whether it is pressed, and whether a line
+      about flagged questions is shown.
+    via: gui
+  - step: 2
+    actor: candidate
+    action: >
+      The candidate presses the flag button on the first question, reads the button, presses it again, reads the button, and presses it a third time
+      to leave question 1 flagged.
+    via: gui
+  - step: 3
+    actor: candidate
+    action: >
+      The candidate presses "Next", reads the flag button of question 2, flags question 2, then presses "Previous" and reads the flag button of question 1,
+      then "Next" again and reads question 2.
+    via: gui
+  - step: 4
+    actor: candidate
+    action: >
+      With two questions flagged the candidate reads the line about flagged questions, then removes the flag of question 2 and reads the line again.
+      Then the candidate switches the interface language to Kazakh, to Russian and to English in turn (ending on English) and reads the flag button label and
+      the flagged line in each.
+    via: gui
+  - step: 5
+    actor: candidate
+    action: >
+      With question 1 flagged, the candidate presses "Submit exam" once.
+    via: gui
+  - step: 6
+    actor: candidate
+    action: >
+      The candidate starts the same exam again if it can be taken again, or reloads the exam screen of a new session, and reads the first question screen.
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      Before any flag is set the first question shows the flag button as not pressed, labelled "Flag question", and no flagged line. Pressing it shows it
+      pressed with the label "Remove flag"; pressing again shows it not pressed; the third press leaves it pressed
+    verification:
+      method: page_state
+      detail: "Step 1: button not pressed, no flagged line. Step 2: pressed, not pressed, pressed again, label following the state"
+    on_fail:
+      severity: MAJOR
+      business_impact: A candidate cannot mark a question to come back to it, which is the reminder this control exists for (BilimBaga retirement criterion 3).
+      suggested_action: route_to_wf03
+
+  - id: EO-002
+    description: >
+      The flag stays on question 1 after moving to the next question and back, and question 2 is not flagged until the candidate flags it
+    verification:
+      method: page_state
+      detail: "Step 3: question 2 shows the button not pressed; after Previous question 1 shows it pressed"
+    on_fail:
+      severity: MAJOR
+      business_impact: The candidate loses the reminder when paging and may skip a question they meant to revisit.
+      suggested_action: route_to_wf03
+
+  - id: EO-003
+    description: >
+      The flagged line is absent with no flags, reads "Flagged: 2" with two flagged questions and "Flagged: 1" after one flag is removed
+    verification:
+      method: page_state
+      detail: "Steps 1 and 4: no line; then the count 2; then the count 1"
+    on_fail:
+      severity: MAJOR
+      business_impact: The candidate cannot tell how many questions they marked.
+      suggested_action: route_to_wf03
+
+  - id: EO-004
+    description: >
+      Submitting with a question still flagged is not blocked and not confirmed: one press of "Submit exam" moves the candidate to the result view
+    verification:
+      method: page_state
+      detail: "Step 5: the result view is shown after one press, with no confirmation question in between"
+    on_fail:
+      severity: MAJOR
+      business_impact: A reminder that blocks or delays submission could make a candidate miss the time limit.
+      suggested_action: route_to_wf03
+
+  - id: EO-005
+    description: >
+      A flag is only a personal reminder in the browser: a new session or a reload of the screen starts with the button not pressed on every question and no flagged line
+    verification:
+      method: page_state
+      detail: "Step 6: first question shows the button not pressed and no flagged line"
+    on_fail:
+      severity: MINOR
+      business_impact: The requirement says flags are not kept; a kept flag would mean a stored value that no one defined or protects.
+      suggested_action: route_to_wf03
+
+  - id: EO-006
+    description: >
+      The button label and the flagged line show real text in Kazakh ("Сұрақты белгілеу", "Белгіні алу", "Белгіленген: 2"), Russian ("Отметить вопрос", "Снять отметку", "Отмечено: 2") and English, never a raw text key
+    verification:
+      method: page_state
+      detail: "Step 4: the three texts in each language while two questions are flagged or one is flagged and the label is switched to its other state"
+    on_fail:
+      severity: MINOR
+      business_impact: Candidates in Kazakh or Russian see a broken label on an exam screen.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Close any exam session left open by the run so the exam can be taken again.
