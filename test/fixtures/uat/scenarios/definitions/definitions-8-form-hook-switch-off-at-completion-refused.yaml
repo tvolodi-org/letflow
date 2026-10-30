@@ -1,0 +1,78 @@
+# T-0996 (BA): DEFINITIONS group, scenario 8: the kill switch. A task created while the switch was on is refused when the switch is off at completion time.
+# Covers REQ-632 criterion 7, quoted: "with :form_validation_hook_enabled false at run time ... a task whose node names a script and whose instance carries a matching pin is refused with
+# {:error, {:form_hook_failed, :script_rejected}}, HTTP 503 with code script_rejected ... the task stays pending" and "A second test sets the flag true, creates the pin, then sets it false before the completion:
+# the completion is refused (the flag is read at run time, not at activation)". Also the script_rejected row of criterion 4 (503, top-level code script_rejected, no script source or key in the body).
+# Sources: docs/requirements.yaml REQ-632 criteria 4, 7; docs/migration/decisions/0067-form-hook-script-validation.md (D5 row 10); lib/letflow/scripts/form_validation.ex (check_flag/0);
+# lib/letflow/routers/tasks.ex (handle_complete_result/2); test/fixtures/uat/actors.yaml.
+# Not UAT-observable: that the sandbox is not started (a runner stub counts zero runs), the audit row with outcome script_rejected and zero instructions and heap (no read route established),
+#   and the five-way byte comparison of criterion 9 (a missing pin, sha256 mismatch, revoked version and a version of another company cannot be arranged through a step).
+# Setup-prepared state: the switch is ON when the instance fv_ks_off is started (so the pin exists); setup then turns the switch OFF before step 2. A step cannot change the switch.
+---
+id: definitions-8-form-hook-switch-off-at-completion-refused
+scope: definitions
+title: A task is refused with script_rejected when the switch is turned off after the instance started
+version: "1.0"
+tags: [definitions, scripts, form-validation, task-completion, kill-switch, 503, refusal]
+
+description: >
+  The dispatcher starts an instance of fv_ks_off while the switch for form validation scripts is on, so the instance holds its check script. Setup then turns the switch off. The Ops Manager tries
+  to complete the task with the answer total = 100, which the script would accept. The completion is refused with 503 and the code script_rejected, the answer names no script, key or version,
+  and the task stays open with nothing saved. The switch is read when the task is completed, not when the process was activated.
+
+actors:
+  dispatcher: actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+
+preconditions:
+  - description: The switch is ON when step 1 runs and OFF when step 2 runs; setup turns it off between the two.
+    check: system_seeded
+    detail: Setup-prepared. If the switch is already off at step 1 and step 1 is refused, or still on at step 2 and step 2 succeeds, report BLOCKED. Not a product failure.
+  - description: SwiftRoute has the published form validation script fv_ok_total version 1 and the active process fv_ks_off, whose human task "review_total" (role "role-ops-manager") names it.
+    check: system_seeded
+    detail: Setup-prepared. If it cannot be arranged, the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      The dispatcher starts an instance of fv_ks_off. The instance and its task are noted.
+    via: api
+  - step: 2
+    actor: ops_manager
+    action: >
+      The Ops Manager tries to complete the task with the answer total = 100.
+    expect_refusal: true
+    via: api
+    input:
+      total: 100
+  - step: 3
+    actor: ops_manager
+    action: >
+      The Ops Manager reads the task and notes its status, then reads the instance and notes its status and whether its variables hold a total.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: With the switch off at completion time the completion is refused with script_rejected, answered 503.
+    verification:
+      method: http_status
+      detail: Step 2 answers 503 with the top-level code "script_rejected", not 500 and not 422.
+      evidence: Status and code of the answer of step 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The switch cannot be used to stop the check in an emergency, or a task is completed without the check the company configured.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The refusal names nothing of the script and saves nothing.
+    verification:
+      method: api_response
+      detail: The body of step 2 holds no script source, key (fv_ok_total), version, sha256, the value 100, module name or error text. Step 3 shows the task still open, the instance still active and no total in its variables.
+      evidence: The body of step 2 read in full, and the task and instance reads of step 3.
+    on_fail:
+      severity: MAJOR
+      business_impact: Internal details leak to a task worker, or a half-saved task blocks the process.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the instance; setup restores the switch to its previous value.
