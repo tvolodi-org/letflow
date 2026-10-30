@@ -1,0 +1,150 @@
+# T-0996 (BA): DEFINITIONS group, scenario 6: when the check script of a form cannot give a verdict, completing the task is answered 503 with the stable code, and the task stays open.
+# Covers REQ-632 (GH #3524, Record F slice F-4) criterion 4, quoted: "for each of script_rejected, input_invalid, script_error, budget_exceeded, memory_limit_exceeded, timeout, output_invalid and
+# script_busy the router answers HTTP 503 (Letflow.Api.Error status 503, type ending service-unavailable) with a top-level "code" equal to that code ... no code is answered 500 ... asserts for the whole decoded body
+# that it contains no script source, key, version, sha256, submitted value, module name or inspect/Exception.format text".
+# This scenario covers script_error, budget_exceeded, memory_limit_exceeded, timeout and output_invalid. script_rejected is covered by definitions-8 (the kill switch).
+# Sources: docs/requirements.yaml REQ-632 criterion 4 and description part (1); docs/migration/decisions/0067-form-hook-script-validation.md (D5, D8); lib/letflow/routers/tasks.ex (handle_complete_result/2);
+# lib/letflow/api/error.ex (service_unavailable/1); docs/roles.md; test/fixtures/uat/actors.yaml.
+# Not UAT-observable (left to the product's own tests, F4-07 and the runner-stub tests): input_invalid (the sandbox runner answers it only for a malformed run request; no real form can provoke it) and
+#   script_busy (needs every sandbox slot of the company held at once, three attempts); criteria 1 (test IDs), 2 and 3 (killing the sandbox worker, the watchdog or the caller inside the locked transaction;
+#   lock and slot checks), 5 and 6 (audit rows "task.form_hook_run": no read route is established for them in the roster), 9 (a stub that raises), 10 (diff scope and review gate).
+# The scripts are setup-prepared (a script that fails on purpose cannot be created by a step): the test setup publishes one script per failure and a process per script; see preconditions.
+# The feature is behind the switch for form validation scripts (default OFF); this scenario needs it ON at run time.
+# Every human task carries the attribute "role" with the value "role-ops-manager", so that the Ops Manager can complete it. The four sensitive actions are not in this flow, except that completing a task is
+# the approval step of a form: each completion here is a refusal step.
+---
+id: definitions-6-form-hook-infrastructure-failures-503
+scope: definitions
+title: A task whose check script cannot give a verdict is answered 503 with the failure code and stays open
+version: "1.0"
+tags: [definitions, scripts, form-validation, task-completion, 503, refusal]
+
+description: >
+  SwiftRoute has five processes, each with one human task that names a check script (kind "form validation", published by setup) which fails on purpose in a different way: it stops with an error (fv_f_error),
+  it loops without end (fv_f_budget), it asks for more memory than allowed (fv_f_memory), it runs longer than the time limit (fv_f_timeout), and it answers with a verdict that its own description does not allow
+  (fv_f_output). The dispatcher starts one instance of each. The Ops Manager completes each task with the answer total = 100. Every completion is answered 503 whose code is the failure code
+  (script_error, budget_exceeded, memory_limit_exceeded, timeout, output_invalid), never 500, and the answer names no script, key, version, answer value or error text. The Ops Manager then reads all five tasks:
+  each is still open, because a failure of the check is not a fault of the form and nothing was saved.
+
+actors:
+  dispatcher: actor-swiftroute-lena
+  ops_manager: actor-swiftroute-marco
+
+preconditions:
+  - description: The switch for form validation scripts is ON in the test environment.
+    check: system_seeded
+    detail: Setup-prepared (application setting form_validation_hook_enabled, default off). If any completion answers 503 with the code script_rejected, the switch is off; report BLOCKED for the whole scenario and run definitions-8. Not a product failure.
+  - description: SwiftRoute has the five processes fv_f_error, fv_f_budget, fv_f_memory, fv_f_timeout and fv_f_output active, each with one human task "review_total" (role "role-ops-manager") naming its own published form validation script at version 1, as described above.
+    check: system_seeded
+    detail: Setup-prepared. A failure mode that setup cannot arrange (for example a script that fails its own publishing tests) makes that step BLOCKED; run the other steps and name the missing mode in the report.
+  - description: The dispatcher may start instances and the Ops Manager holds the routing role role-ops-manager (roster).
+    check: system_seeded
+    detail: If a start is refused for lack of the right, the scenario is BLOCKED, not PASS.
+
+steps:
+  - step: 1
+    actor: dispatcher
+    action: >
+      The dispatcher starts an instance of fv_f_error. The instance and its task are noted.
+    via: api
+  - step: 2
+    actor: dispatcher
+    action: >
+      The dispatcher starts an instance of fv_f_budget. The instance and its task are noted.
+    via: api
+  - step: 3
+    actor: dispatcher
+    action: >
+      The dispatcher starts an instance of fv_f_memory. The instance and its task are noted.
+    via: api
+  - step: 4
+    actor: dispatcher
+    action: >
+      The dispatcher starts an instance of fv_f_timeout. The instance and its task are noted.
+    via: api
+  - step: 5
+    actor: dispatcher
+    action: >
+      The dispatcher starts an instance of fv_f_output. The instance and its task are noted.
+    via: api
+  - step: 6
+    actor: ops_manager
+    action: >
+      The Ops Manager tries to complete the task of the fv_f_error instance with the answer total = 100.
+    expect_refusal: true
+    via: api
+    input:
+      total: 100
+  - step: 7
+    actor: ops_manager
+    action: >
+      The Ops Manager tries to complete the task of the fv_f_budget instance with the answer total = 100.
+    expect_refusal: true
+    via: api
+    input:
+      total: 100
+  - step: 8
+    actor: ops_manager
+    action: >
+      The Ops Manager tries to complete the task of the fv_f_memory instance with the answer total = 100.
+    expect_refusal: true
+    via: api
+    input:
+      total: 100
+  - step: 9
+    actor: ops_manager
+    action: >
+      The Ops Manager tries to complete the task of the fv_f_timeout instance with the answer total = 100.
+    expect_refusal: true
+    via: api
+    input:
+      total: 100
+  - step: 10
+    actor: ops_manager
+    action: >
+      The Ops Manager tries to complete the task of the fv_f_output instance with the answer total = 100.
+    expect_refusal: true
+    via: api
+    input:
+      total: 100
+  - step: 11
+    actor: ops_manager
+    action: >
+      The Ops Manager reads each of the five tasks and notes its status, then reads each of the five instances and notes its status and whether its variables hold a total.
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Each failure of the check script is answered 503 with a top-level code equal to the failure, and never 500.
+    verification:
+      method: http_status
+      detail: Step 6 answers 503 with the code "script_error". Step 7 answers 503 with "budget_exceeded". Step 8 answers 503 with "memory_limit_exceeded". Step 9 answers 503 with "timeout". Step 10 answers 503 with "output_invalid". No step answers 500 or 422.
+      evidence: Status and top-level code of the answers of steps 6 to 10.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A failure of the platform is shown to the Ops Manager as a server fault or as a fault of the form, so the person resubmits a correct form or gives up, instead of waiting or calling the administrator.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The 503 answers reveal nothing about the script or the form.
+    verification:
+      method: api_response
+      detail: In the whole body of each answer of steps 6 to 10 none of these appear - the script source, the script key (fv_f_error and the like), a version number of the script, a sha256 value, the answer value 100, a module name, or the text of an error or stack trace.
+      evidence: The five answer bodies, read in full.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person who may only complete a task learns how the company's check works, or sees internal error text.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: A failed check saves nothing and leaves the task open.
+    verification:
+      method: http_status
+      detail: Step 11 shows all five tasks still open (not completed); the instance reads show all five instances still active and none of their variables holds a total.
+      evidence: The task and instance reads of step 11.
+    on_fail:
+      severity: MAJOR
+      business_impact: A task could be closed or half-saved although the check never gave a verdict.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: Cancel the five instances; keep the setup-prepared scripts and processes for re-runs.
