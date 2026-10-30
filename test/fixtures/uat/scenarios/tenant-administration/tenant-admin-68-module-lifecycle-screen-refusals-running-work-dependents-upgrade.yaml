@@ -6,7 +6,7 @@
 # "Other installed modules depend on this one:", "This module needs an upgrade before this action can be done."); lib/letflow/routers/tenant_modules.ex (422 "missing dependency: <name>").
 # Environment: SPA screen ON and server uninstall feature ON (as scenario 66); if the menu entry is absent, BLOCKED for the whole scenario.
 # NOT UAT-OBSERVABLE: criterion 7's 422 "rationale is required" (the screen keeps the button unavailable while the reason is blank, so the server answer cannot be provoked; a write route is not probed),
-# its 403 (the screen is reachable only by a person the server also allows; no roster actor sees the screen and is refused), and its 500 (cannot be provoked on a real environment). These are unit tests of the page.
+# and its 500 (cannot be provoked on a real environment). These are unit tests of the page. Criterion 7's 403 IS observable (screen on, server uninstall feature off) and is covered in scenario 69, steps 3 and 4.
 # Criterion 5's "no instance or task id is shown" is read on the screen (EO-001); "nothing is changed" is read from the list and the audit trail.
 # The four sensitive actions are not in this flow; every step but the setup checks is a refusal of the screen.
 ---
@@ -31,7 +31,7 @@ preconditions:
     detail: If the menu entry "Module lifecycle" is absent for the administrator, report BLOCKED for the whole scenario.
   - description: SwiftRoute has a module M1 installed and active with at least one running instance and at least one open task of M1's own process definitions.
     check: system_seeded
-    detail: Setup-prepared; the runner notes the number of running instances and open tasks it prepared (R and T) from the task list. If it cannot be prepared, report BLOCKED for step 1 and EO-001.
+    detail: Setup-prepared; the runner records the number of running instances and open tasks it prepared (R and T) at setup and uses only those numbers. If it cannot be prepared, report BLOCKED for step 1 and EO-001.
   - description: SwiftRoute has two further modules B1 and D2 installed and active, where D2 declares B1 in its dependencies, and no running work of either.
     check: system_seeded
     detail: The shipped catalog may not contain such a pair. If it does not, report BLOCKED for steps 2 to 5 and EO-002, EO-004; the other steps run.
@@ -44,7 +44,7 @@ steps:
     actor: tenant_admin_a
     action: >
       On the Module lifecycle screen the administrator types the reason "UAT - try to remove a busy module" and presses Uninstall on the row of M1 and confirms. The text under the section,
-      the table and the reason box are noted. The administrator also notes the administrator's own task list count of M1's running instances and open tasks.
+      the table and the reason box are noted.
     expect_refusal: true
     via: gui
   - step: 2
@@ -88,7 +88,7 @@ expected_outcomes:
       method: gui_screen
       detail: >-
         After step 1 the screen shows "This module still has running work and cannot be uninstalled.", "Open instances: R", "Open tasks: T" with the numbers R and T of the precondition, and "Finish or cancel the work and try again."; no instance or task identifier and no other number than R and T is shown (the module's version in the table is not part of this message); no message "is now uninstalled"; M1 is still in the table; the reason box still holds "UAT - try to remove a busy module".
-      evidence: Screen after step 1 and the task list.
+      evidence: Screen after step 1 and the numbers recorded at setup.
     on_fail:
       severity: BLOCKER
       business_impact: Running work could be cut off by taking its module out of use, or the administrator is told something false about it.
