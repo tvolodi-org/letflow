@@ -36,6 +36,21 @@ defmodule Letflow.RecordTriggersFixture do
     binding
   end
 
+  @doc "Binds an already published `rule` to (`type`, `event`); returns the binding."
+  @spec bind_script!(String.t(), String.t(), String.t(), Letflow.Scripts.ScriptRule.t()) ::
+          Letflow.RecordTriggers.Binding.t()
+  def bind_script!(schema, type, event, rule) do
+    pin = %{
+      "script_key" => rule.key,
+      "script_version" => rule.version,
+      "script_sha256" => rule.sha256
+    }
+
+    actor = %{user_id: Ecto.UUID.generate(), credential: :oidc, trace_id: "req628-trace"}
+    {:ok, binding} = Letflow.RecordTriggers.bind(schema, type, event, pin, actor)
+    binding
+  end
+
   @doc """
   A script row of `hook_kind` and `status` in `schema`; `manifest` defaults to a closed one. `opts`:
   `:publisher` (a user id) for a published row.

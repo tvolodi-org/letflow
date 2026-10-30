@@ -468,7 +468,8 @@ defmodule Letflow.RecordTriggers.Worker do
 
   @doc """
   The run of one claimed row (REQ-628): `Runner.run/2`, then `Apply.apply_result/3` for its lines or
-  `Apply.finish/3` for a closed failure code. Returns `:done`, `:retry` (back to `pending`), `:dead`,
+  `Apply.finish/3` for a closed failure code. A `:stale` result emits `[:letflow, :record_trigger, :stale]`.
+  Returns `:done`, `:retry` (back to `pending`), `:dead`,
   or `:stale` when the row is no longer this claim.
   """
   @spec run_row(OutboxRow.t(), String.t()) :: :done | :retry | :dead | :stale
@@ -479,10 +480,20 @@ defmodule Letflow.RecordTriggers.Worker do
         failure -> failure
       end
 
-    case result do
-      {kind, _code} = failure when kind in [:dead, :retry] -> Apply.finish(row, prefix, failure)
-      outcome -> outcome
-    end
+    outcome =
+      case result do
+        {kind, _code} = failure when kind in [:dead, :retry] -> Apply.finish(row, prefix, failure)
+        outcome -> outcome
+      end
+
+    # the one stale counter: this claim lost to a sweep or a newer claim and wrote nothing
+    if outcome == :stale,
+      do:
+        :telemetry.execute([:letflow, :record_trigger, :stale], %{count: 1}, %{
+          tenant_schema: prefix
+        })
+
+    outcome
   end
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)

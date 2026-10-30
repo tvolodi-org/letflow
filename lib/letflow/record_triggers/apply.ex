@@ -16,7 +16,8 @@ defmodule Letflow.RecordTriggers.Apply do
        suppressed);
     4. the row is set `done`, again checked on (id, attempt, status = running).
 
-  Any refused line rolls the whole transaction back. `finish/3` is the second, terminal
+  Any refused line rolls the whole transaction back and emits `[:letflow, :record_trigger, :write_refused]`
+  with the decision 0067 D7 reason (`last_code` stays `trigger_write_refused`). `finish/3` is the second, terminal
   transaction: `dead`, or back to `pending` with `Worker.backoff_ms/1`, or `dead`
   (`retries_exhausted`) once the retry would pass `max_attempts` (`claim_next/1` does not filter on
   `attempt`, so the cap is enforced here as well as in the sweep). Only closed codes are stored.
@@ -43,15 +44,23 @@ defmodule Letflow.RecordTriggers.Apply do
       Repo.transaction(fn ->
         lock_row(row, prefix)
         lock_sequences(lines, prefix)
-        Enum.each(lines, &apply_line(&1, row, prefix))
+        apply_lines(row, lines, prefix)
         mark_done(row, prefix)
       end)
 
     case result do
-      {:ok, :done} -> :done
-      {:error, :stale} -> :stale
-      {:error, {:line, reason}} -> line_failure(reason)
-      {:error, _other} -> {:dead, "trigger_write_refused"}
+      {:ok, :done} ->
+        :done
+
+      {:error, :stale} ->
+        :stale
+
+      {:error, {:line, reason}} ->
+        emit_refused(reason)
+        line_failure_class(reason)
+
+      {:error, _other} ->
+        {:dead, "trigger_write_refused"}
     end
   rescue
     _error in [DBConnection.ConnectionError, Postgrex.Error] ->
@@ -64,10 +73,37 @@ defmodule Letflow.RecordTriggers.Apply do
         else: reraise(error, __STACKTRACE__)
   end
 
-  defp line_failure(reason) when reason in [:record_version_conflict, :external_ref_contention],
+  @retriable_reasons [
+    :record_version_conflict,
+    :external_ref_contention,
+    :entity_write_contention
+  ]
+
+  @doc false
+  @spec line_failure_class(term()) :: {:dead, String.t()} | {:retry, String.t()}
+  def line_failure_class(reason) when reason in @retriable_reasons,
     do: {:retry, "entity_write_contention"}
 
-  defp line_failure(_reason), do: {:dead, "trigger_write_refused"}
+  def line_failure_class(_reason), do: {:dead, "trigger_write_refused"}
+
+  # The reason of a refused line (decision 0067 D7). `last_code` stays `trigger_write_refused`: the
+  # row has one code column, so the reason is a telemetry counter until T-5 gives it a DLQ entry.
+  defp emit_refused(reason) when reason in @retriable_reasons, do: :ok
+
+  defp emit_refused(reason) do
+    :telemetry.execute([:letflow, :record_trigger, :write_refused], %{count: 1}, %{
+      reason: refusal_reason(reason)
+    })
+  end
+
+  @doc false
+  @spec refusal_reason(term()) :: String.t()
+  def refusal_reason(:entity_type_managed), do: "entity_type_managed"
+  def refusal_reason(:idempotency_key_reuse), do: "idempotency_conflict"
+  def refusal_reason({:record_payload_invalid, _}), do: "validation"
+  def refusal_reason({:record_size_exceeded, _}), do: "validation"
+  def refusal_reason(:record_not_encodable), do: "validation"
+  def refusal_reason(_other), do: "write_not_permitted"
 
   defp lock_row(row, prefix) do
     locked =
@@ -95,13 +131,18 @@ defmodule Letflow.RecordTriggers.Apply do
     end)
   end
 
+  @doc false
+  @spec apply_lines(OutboxRow.t(), [map()], String.t()) :: [map()]
+  def apply_lines(%OutboxRow{} = row, lines, prefix),
+    do: Enum.map(lines, &apply_line(&1, row, prefix))
+
   defp apply_line(line, row, prefix) do
     key = "record_trigger:" <> row.id <> ":" <> Integer.to_string(line.index)
     lineage = %{depth: row.depth, chain: row.chain ++ [row.binding_id]}
     base = %{entity_type: line.entity_type, actor_id: row.actor_id, idempotency_key: key}
 
     case write(line, base, row, prefix, lineage) do
-      {:ok, _result} -> :ok
+      {:ok, result} -> result
       {:error, reason} -> Repo.rollback({:line, reason})
     end
   end

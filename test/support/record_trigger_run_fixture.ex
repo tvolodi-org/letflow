@@ -162,4 +162,104 @@ defmodule Letflow.RecordTriggerRunFixture do
         :id,
         prefix: schema
       )
+
+  @chain ~w(r628_a r628_b r628_c r628_d r628_e)
+
+  @doc "The five chain type names `r628_a`..`r628_e` (loop and depth tests)."
+  def chain_types, do: @chain
+
+  @doc "Like `tenant!/1`, with the five chain types (fields `label`, `cid`) and the stub runner."
+  @spec chain_tenant!(String.t()) :: String.t()
+  def chain_tenant!(slug) do
+    schema = F.tenant!(slug).schema_name
+    {:ok, _seeded} = Letflow.Entities.EventTypes.seed!(schema)
+    Enum.each(@chain, &P.active_definition!(schema, &1, ["label", "cid"]))
+    put_env(:record_trigger_script_runner, StubRunner)
+    schema
+  end
+
+  @doc """
+  Publishes one script per chain type and binds each on (type, `created`). The script of type N
+  declares exactly one `create` of type N+1 (`label`, `cid`); E has a script that writes nothing.
+  The stub reply (see `chain_reply/0`) is a function of the record's `cid`.
+  """
+  @spec bind_chain!(String.t()) :: [Letflow.RecordTriggers.Binding.t()]
+  def bind_chain!(schema) do
+    @chain
+    |> Enum.with_index()
+    |> Enum.map(fn {type, i} ->
+      lines =
+        case Enum.at(@chain, i + 1) do
+          nil -> []
+          next -> [%{"entity_type" => next, "mode" => "create", "fields" => ["label", "cid"]}]
+        end
+
+      manifest =
+        manifest(
+          %{
+            "input_schema" => %{
+              "type" => "object",
+              "properties" => %{"label" => %{"type" => "string"}, "cid" => %{"type" => "string"}}
+            }
+          },
+          lines
+        )
+
+      RF.bind_script!(schema, type, "created", publish!(schema, manifest))
+    end)
+  end
+
+  @doc "The chain's stub reply: cid `a` writes `r628_b` with cid `b`, and so on; `e` writes nothing."
+  def chain_reply do
+    fn input ->
+      case input["record"]["cid"] do
+        "e" ->
+          ok(%{"writes" => []})
+
+        cid ->
+          next = <<List.first(String.to_charlist(cid)) + 1>>
+
+          ok(%{
+            "writes" => [
+              %{
+                "entity_type" => "r628_" <> next,
+                "mode" => "create",
+                "fields" => %{"label" => "x", "cid" => next}
+              }
+            ]
+          })
+      end
+    end
+  end
+
+  @doc "Forwards the telemetry `event` to the calling process as `{:telemetry, event, metadata}`."
+  def forward(event) do
+    id = {__MODULE__, make_ref()}
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      event,
+      fn e, _m, meta, _ -> send(parent, {:telemetry, e, meta}) end,
+      nil
+    )
+
+    ExUnit.Callbacks.on_exit(fn -> :telemetry.detach(id) end)
+  end
+
+  @doc "Runs ticks until one claims nothing (at most 12); returns the number of ticks run."
+  def drain!(schema) do
+    Enum.reduce_while(1..12, 0, fn n, _ ->
+      {summary, _} = Worker.run_tick([schema], 0)
+      if summary.claimed == 0, do: {:halt, n}, else: {:cont, n}
+    end)
+  end
+
+  @doc "Every outbox row of `schema`, oldest first by depth then source_seq."
+  def rows(schema) do
+    schema |> RF.outbox_rows() |> Enum.sort_by(&{&1.depth, &1.source_seq})
+  end
+
+  @doc "Appended event count of `schema` (all instances)."
+  def event_count(schema), do: Repo.aggregate(Letflow.EventStore.Event, :count, prefix: schema)
 end
