@@ -368,7 +368,7 @@ expected_outcomes:
     verification:
       method: http_status
       detail: >
-        Step 20 answers 201 for the create: O1 shows override_version 1, status active, artefact_type process_definition, artefact_id D and the three submitted paths. The retire answers 200 with override_version 2, status retired.
+        Step 20 answers 201 for the create: O1 shows override_version 1, status active, artefact_type process_definition, artefact_id D_ID and the three submitted paths. The retire answers 200 with override_version 2, status retired.
       evidence: O1 and the answer of the retire.
     on_fail:
       severity: MAJOR

@@ -202,7 +202,7 @@ expected_outcomes:
     verification:
       method: http_status
       detail: >
-        LIST0 (step 2) answers 200 with no line for D. Step 2 answers 201. O1 shows pack_id P, artefact_type process_definition, artefact_id D, override_version 1, status active, reason "UAT: relabel S1",
+        LIST0 (step 2) answers 200 with no line for D. Step 2 answers 201. O1 shows pack_id P, artefact_type process_definition, artefact_id D_ID, override_version 1, status active, reason "UAT: relabel S1",
         made_against equal to V (as text), a created_by that is the administrator's user id, and the patch with the two submitted paths.
       evidence: LIST0 and O1.
     on_fail:
