@@ -45,6 +45,9 @@ preconditions:
   - description: The Bilimbaga candidate can sign in to the web application and has not yet started this exam
     check: system_seeded
     detail: Seeded account candidate-user (see the roster note); without it the scenario is BLOCKED.
+  - description: The tab-switch setting of the exam (on_tab_switch) is log, so leaving the exam tab to change the browser language does not hand the exam in
+    check: custom
+    detail: Prepared by the test setup; on an exam set to submit, step 6 would hand in the session and steps 6 and 7 would be BLOCKED.
   - description: The browser of the candidate has English as its preferred language at the start; the exam screen has no language switch and takes its language from the browser, so step 6 changes the browser's preferred language and reloads
     check: custom
     detail: Prepared by the tester; the English texts quoted in steps 1 to 5 and 7 assume it.
@@ -83,7 +86,7 @@ steps:
   - step: 6
     actor: candidate
     action: >
-      The candidate sets the browser's preferred language to Kazakh and reloads the exam screen. On question 1 the candidate flags it, goes to question 2 and
+      The candidate sets the browser's preferred language to Kazakh (this may be done in another window) and reloads the exam screen. On question 1 the candidate flags it, goes to question 2 and
       flags it, goes back to question 1 and reads the flag button label and the flagged line (two flagged), then goes to question 2, removes its flag and reads
       the flag button label and the flagged line (one flagged). The candidate repeats this with the browser language Russian and then with English, each time
       after a reload, which clears the flags.
