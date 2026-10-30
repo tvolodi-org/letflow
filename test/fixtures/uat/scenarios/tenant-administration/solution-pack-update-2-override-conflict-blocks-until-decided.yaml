@@ -1,0 +1,224 @@
+# T-0986 (BA-TENANT-ADMINISTRATION): REQ-617 slice S4, a pack update that would change what the company changed on purpose is blocked until the administrator decides.
+# Criteria covered, by REQ-617 number:
+#   3 (outcome override_conflict, not resolved, plan has unresolved conflicts, for an entry that is a clean update and for one that is a conflict: EO-001;
+#     apply without a decision answers 409 and writes nothing: EO-002; "merged" is refused 422 override_merge_unsupported: EO-003;
+#     keep_local advances the stored change, take_incoming retires it with reason "pack update to <target version>: retired": EO-004, EO-005;
+#     a repeated review shows resolved true: EO-006),
+#   4 (the rollback half: when the apply is refused because of one artefact, nothing is written for the others either: EO-002;
+#     no earlier version row is changed or deleted: EO-007),
+#   6 (first half, TENANT_ADMIN succeeds: step 6; the value 987654.321 leaks nowhere: EO-008).
+# Scenario 1 holds criteria 1, 2, 5, 8; scenario 3 (platform group) holds who may apply (the PROCESS_DESIGNER refusal, see its sidecar) and other-company isolation.
+# NOT UAT-OBSERVABLE: the byte comparison of rows, the source scans, the global pack tables and captured log lines (criteria 4, 6, 7); criterion 9 and 10 gates.
+# Sensitive actions: change process definitions (the apply) is refused in steps 2 and 3; approve, pay or release, see sensitive data (EO-008),
+#   change users: not part of this flow. Who may apply when a conflict exists: scenario 3.
+# Steps 2 and 3 are expected to be REFUSED (one request each; step 2 brings no decision at all, step 3 brings a decision "merged" for the clean-update entry
+#   and valid decisions for the other conflict entry, so the only thing wrong is "merged"). Every other step is an accepted case.
+# Order of checks in step 3: the merged-for-override-conflict refusal is answered 422; the scenario relies on the other entries having valid decisions so
+#   that the 409 cannot hide the 422. The "merged" decision carries a resolved_content (a JSON object text), as the route requires, so the refusal is for
+#   merged on an override_conflict and not for a malformed decision.
+---
+id: tenant-administration-solution-pack-update-override-conflict-blocks-until-decided
+scope: tenant-administration
+title: A pack update that would change what the company deliberately changed is blocked until the administrator decides to keep or take
+version: "1.0"
+tags: [solution-pack, override, update, conflict, refusal, audit]
+
+description: >
+  SwiftRoute installed pack P at 2.0.0 with processes D1, D2 and E. The administrator stored a change for each; the one for D1 has the first-step label
+  "Zq987654 keep D1" (text includes the number 987654.321). Version 2.1.0 of the pack changes the label of the first step of D1 (a clean update for the company, which never edited
+  D1's installed copy), changes the same label of D2 (and the company also edited D2's installed copy, so D2 is a conflict even without the stored change), and leaves E
+  as installed. The review shows D1 and D2 as override_conflict and not decided, E as kept, and says there are unresolved conflicts. Applying without a decision is refused
+  and writes nothing, not even for E. Applying with the decision "merged" for D1 is refused. The administrator then decides: keep the company's change for D1 and take the incoming
+  pack for D2. The update succeeds; D1's change moves to 2.1.0, D2's change is retired by a new empty version, E's change moves to 2.1.0, and a repeated review shows both conflicts decided.
+
+actors:
+  swiftroute_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator
+    check: system_seeded
+  - description: >
+      SwiftRoute has an active installation of pack P at version 2.0.0 with processes D1, D2 and E, and the run holds the two artefact lists of version 2.1.0 as described above
+      (D1: label of the first step differs between installed and incoming, the company's copy equals the installed one; D2: the same, and the company's copy was edited; E equal)
+    check: custom
+    detail: Setup-prepared as in solution-pack-version-2. If the pack cannot be installed at 2.0.0 or the company's copy of D2 cannot be edited, the scenario is BLOCKED. No update has been applied yet.
+  - description: SwiftRoute has an active stored change for each of D1, D2 and E, each with a label of the first step that starts with "Zq987654"; D1's contains 987654.321; the change of D1 and D2 is on the first-step label path
+    check: custom
+    detail: Created in setup with the routes of scenario tenant-admin-64. If any cannot be created, the scenario is BLOCKED.
+  - description: The run can read the stored-change versions, the audit trail and the conflict-decision records of SwiftRoute
+    check: custom
+    detail: Needed for the outcomes that count rows; otherwise those are BLOCKED.
+
+steps:
+  - step: 1
+    actor: swiftroute_admin
+    action: Asks for a review of what version 2.1.0 of pack P would change, and notes how many versions the stored changes of D1, D2 and E have (N_D1, N_D2, N_E) from the list of stored changes.
+    via: api
+    input:
+      target_version: "2.1.0"
+    produces:
+      update_review: the plan for 2.1.0
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: swiftroute_admin
+    action: Asks to apply version 2.1.0 of pack P without any decision about the conflicts.
+    via: api
+    input:
+      target_version: "2.1.0"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: swiftroute_admin
+    action: >
+      Asks to apply version 2.1.0 of pack P with the decision "merged" for D1 and the decision "keep the company's own" for D2.
+    via: api
+    input:
+      target_version: "2.1.0"
+      resolutions:
+        - artefact_type: process_definition
+          artefact_id: "<D1 id>"
+          resolution: merged
+          resolved_content: "{\"label\":\"merged label\"}"
+        - artefact_type: process_definition
+          artefact_id: "<D2 id>"
+          resolution: keep_local
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: swiftroute_admin
+    action: Reads the list of stored changes of pack P and the audit trail, and compares the versions of D1, D2, E with the counts of step 1.
+    via: api
+    produces:
+      override_list_after_refusals: the stored changes as they were
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: swiftroute_admin
+    action: Asks for a review of version 2.1.0 once more (a plain read, accepted) to see that the plan still blocks.
+    via: api
+    input:
+      target_version: "2.1.0"
+    produces:
+      update_review: the same plan as in step 1, still not decided
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: swiftroute_admin
+    action: Applies version 2.1.0 of pack P with the decision "keep the company's own" for D1 and the decision "take the incoming" for D2.
+    via: api
+    input:
+      target_version: "2.1.0"
+    produces:
+      update_result: the update is applied
+    sla_context:
+      expected_within_hours: null
+  - step: 7
+    actor: swiftroute_admin
+    action: Reads the list of stored changes of pack P and the audit trail, then asks for a repeated review of 2.1.0.
+    via: api
+    produces:
+      override_list_after: the stored changes after the apply
+      update_review: the plan after the apply
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The review in step 1 shows D1 with outcome override_conflict (classification clean update) and D2 with outcome override_conflict (classification conflict), each not decided, and E with
+      outcome kept; the plan says there are unresolved conflicts. The override object of each entry has exactly the keys override_id, override_version, made_against, outcome (and no warning for these),
+      and no change, path or value. (REQ-617 criterion 3: "the review shows outcome override_conflict, resolved false and has_unresolved_conflicts true, for classification clean_update and for classification conflict".)
+    verification:
+      method: api_response
+      detail: Entries D1, D2, E as stated; key set of each override object compared exactly.
+      evidence: The answer of step 1.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The administrator would not be warned that the update runs over the company's deliberate change.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      Step 2 is refused with status 409 and the same unresolved-conflict text the product gives today for an undecided conflict; nothing is written: no new version of any stored change (not for E either), no changed base,
+      no decision record, no audit entry of an update. (REQ-617 criterion 3 and 4: "writes nothing (no override row, no base row, no resolution row)"; "no override row and no audit entry of that call exists".)
+    verification:
+      method: http_status
+      detail: Status 409; counts of stored-change versions, bases, decision records and update audit entries read before and after the step are equal.
+      evidence: The answer and the two readings.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A pack update could overwrite a deliberate company change without anyone deciding, or leave half an update behind.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      Step 3 is refused with status 422 and the detail text override_merge_unsupported; nothing is written, as in EO-002. (REQ-617 criterion 3: "with merged it is refused 422 override_merge_unsupported and nothing is written".)
+    verification:
+      method: api_response
+      detail: Status 422, detail text override_merge_unsupported; same unchanged counts as EO-002.
+      evidence: The answer and the readings of step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A "merged" decision would be accepted with no way to say what the merged change is, and could store the wrong content.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      Step 6 succeeds. In the list of step 7, D1 has exactly one more version than N_D1 with the same change, status active and made against 2.1.0, and one audit entry with reason "pack update to 2.1.0: advanced";
+      E has exactly one more version, advanced in the same way. The applied entry of D1 carries override_action advanced, E's carries advanced. (REQ-617 criterion 3: "With keep_local the apply succeeds and the override is advanced as in criterion 2".)
+    verification:
+      method: api_response
+      detail: Apply answer's override_action for D1 and E; list of step 7 compared with the counts of step 1; audit entries for D1 and E.
+      evidence: The apply answer, the list, the audit entries.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The company's decision to keep its change would be lost or unrecorded.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      D2 has exactly one more version than N_D2, with an empty change and the status retired, one audit entry with the reason "pack update to 2.1.0: retired" and action retired, and the applied entry of D2 carries override_action retired;
+      the applied entry of D2 has action advanced_to_incoming (the pack's record of what D2 was last taken from moves to 2.1.0; no company process is rewritten by this decision). (REQ-617 criterion 3: "with take_incoming it succeeds and a new version row with an empty patch and status retired exists with an audit entry action retired".)
+    verification:
+      method: api_response
+      detail: List of step 7 for D2; audit entry; the applied entry of D2 (override_action retired, action advanced_to_incoming).
+      evidence: The list, the audit entry, the apply answer.
+    on_fail:
+      severity: BLOCKER
+      business_impact: Taking the incoming pack would leave a stale company change that later overrides the pack again, or would not be recorded.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: The repeated review in step 7 shows D1 and D2 as decided (resolved true) and the plan no longer says there are unresolved conflicts. (REQ-617 criterion 3, "After the apply a repeated review shows resolved true".)
+    verification:
+      method: api_response
+      detail: Entries D1 and D2 resolved true; plan has no unresolved conflicts.
+      evidence: The answer of the repeated review.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator could not see that the decisions took effect and might decide twice.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: >
+      Every version of the stored changes of D1, D2 and E that existed in step 1 is still in the lists of step 4 and step 7 with the same content; the number of versions only grew. (REQ-617 criterion 4.)
+    verification:
+      method: system_state
+      detail: Each earlier row compared field by field with the later readings.
+      evidence: The step 1 reading and the later readings.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The history of the company's own changes could be rewritten or lost by a pack update.
+      suggested_action: route_to_wf03
+  - id: EO-008
+    description: >
+      The number 987654.321 and the text Zq987654 appear in no reply of steps 1 to 3, 5 to 7 and in no audit entry or conflict-decision record of the scenario; they appear only in the stored change shown by the list route. (REQ-617 criterion 6.)
+    verification:
+      method: audit_event
+      detail: Replies, audit entries and conflict-decision records searched for both texts; no hit.
+      evidence: The searched answers and records.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company's private change text would leak through the update screens, the audit trail or a table shared by all companies.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: The platform team removes or deactivates the installation, base, stored-change and conflict-decision records created for the scenario, directly (no route uninstalls a pack); otherwise later runs use fresh pack ids.

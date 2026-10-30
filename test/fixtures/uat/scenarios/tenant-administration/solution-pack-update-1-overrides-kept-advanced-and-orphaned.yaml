@@ -1,0 +1,301 @@
+# T-0986 (BA-TENANT-ADMINISTRATION): REQ-617 slice S4, update review and update apply of a pack read the company's stored changes (overrides).
+# Criteria covered, by REQ-617 number (quoted in the outcomes where it matters):
+#   1 (a company with no stored change gets the replies of today, no override key: EO-001; a retired or an orphaned change counts as none: EO-009),
+#   2 (kept with no warning, kept with warning override_kept_pack_changed, advanced as a new version with the same change, one audit entry
+#     with reason "pack update to <target version>: advanced", a second identical apply writes nothing more: EO-003 to EO-006),
+#   5 (orphaned: the artefact is missing from the incoming pack; it does not block the apply; the new version keeps the original change, audit
+#     action orphaned: EO-004, EO-005; the local_only kept case: EO-010; the property_gone case needs a shortened property list that only a backend test can pass: not observable),
+#   4 (the first half: no stored version is changed or deleted, the count of versions only grows: EO-007),
+#   6 (the last half: the distinctive value 987654.321 is in no reply and no audit entry: EO-008),
+#   8 (an older or an equal target is refused before anything about the change is read; the review of an equal target still answers the plan
+#     with the override field: EO-002).
+# Scenario 2 holds criterion 3 and the rest of criterion 4; scenario 3 (platform group) holds criterion 6 (who may apply) and criterion 7 (other company).
+# NOT UAT-OBSERVABLE: the property_gone outcome (criterion 5, needs a shorter closed list passed to a function); a source scan for update or delete calls on the
+#   stored-change table, and for calls without a company prefix (criteria 4, 7); the captured log lines and the global pack tables (criterion 6) need database
+#   and log access; criterion 9 (arity pins, route and permission pins) and criterion 10 (SECURITY-REVIEWER and REVIEWER verdicts, static checks, PR statement)
+#   are build and review gates, not actions of a user; "byte-identical to origin/main" in criterion 1 is judged here by the absence of the override keys and by
+#   the shape the earlier scenarios (solution-pack-version-2) record, not by a recorded body.
+# Sensitive actions: change process definitions (the apply) is done by the administrator here; steps 1 to 3 are refusals of it. who may apply: scenario 3.
+#   approve, pay or release, see sensitive data (values in replies: EO-008), change users: not part of this flow.
+# Steps 1 to 3 are expected to be REFUSED (one request each). Every other step is an accepted case.
+# Known limit (as in solution-pack-version-2): the product compares the target with the version recorded when the pack was INSTALLED, so the second apply of the
+#   same target in step 9 is not refused as "not newer"; it is answered as a success that leaves every stored change as it is.
+---
+id: tenant-administration-solution-pack-update-overrides-kept-advanced-and-orphaned
+scope: tenant-administration
+title: A pack update keeps the company's stored changes, moves them to the new pack version, and marks one orphaned when its process left the pack
+version: "1.0"
+tags: [solution-pack, override, update, versioning, audit]
+
+description: >
+  SwiftRoute installed process pack P at version 2.0.0 with three processes: A, B and C. The administrator stored a change for each of them
+  (for example a new label of the first step; the label of A's change is "Zq987654 keep A" and carries the number 987654.321 in its text). Version 2.1.0 of the pack
+  leaves A exactly as installed, changes B in a part the company did not touch (the responsible role) and no longer contains C.
+  Asking for a review of 1.9.0 and applying 1.9.0 are refused, and so is applying 2.0.0 (the version that is installed); the review of 2.0.0 still answers
+  the plan, and each entry that has a stored change shows it. The review of 2.1.0 shows A as kept, B as kept with the warning that the pack changed, and C as orphaned;
+  none of the three blocks the update. The administrator applies 2.1.0: A and B get a new version of their stored change that belongs to 2.1.0 (same change, still active),
+  C gets a new version with the same change marked orphaned, and each of the three writes one audit entry that names the ids, the actor and the reason but not the change itself.
+  Applying 2.1.0 a second time writes nothing more. No earlier version of any stored change is touched or deleted.
+  A process F has an active stored change too, the company also edited its installed copy (the label of its last step), and version 2.1.0 contains F exactly as installed (the company's copy differs from the
+  pack, the incoming pack equals the installed pack): the review shows F as kept with no warning, and the apply gives F one new version of its stored change and one audit entry "pack update to 2.1.0: advanced".
+  A fourth process D, with no stored change, appears in the same replies exactly as it did before this feature: with no override key.
+
+actors:
+  swiftroute_admin: actor-swiftroute-alice
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator
+    check: system_seeded
+  - description: >
+      SwiftRoute has an active installation of pack P at version 2.0.0 with processes A, B, C and D, and the run holds the two artefact lists
+      an update request needs: the company's current ones and the incoming ones of version 2.1.0 (A equal to the installed one; B differs only in the responsible role;
+      C absent; D equal to the installed one)
+    check: custom
+    detail: >
+      Setup-prepared as in solution-pack-version-2 (pack installed through the install route at 2.0.0; ids of the definitions the installation created are the artefact ids of the
+      steps). If the pack cannot be installed at 2.0.0 in the test company, the scenario is BLOCKED. No update has been applied to this pack yet.
+  - description: >
+      SwiftRoute has an active stored change (an override) for each of A, B and C, written through the stored-change route, each with a label of the first step
+      that starts with "Zq987654" (A: "Zq987654 keep A", containing the text 987654.321); and no stored change for D
+    check: custom
+    detail: >
+      Created by the administrator in setup with the routes of scenario tenant-admin-64. The label paths are on the closed list of properties (see scenario 65).
+      If any stored change cannot be created, the scenario is BLOCKED.
+  - description: >
+      Pack P also contains process F (installed at 2.0.0); the company's installed copy of F was edited after the installation (a different label of its last step), version 2.1.0 holds F as installed,
+      and F has an active stored change written through the stored-change route
+    check: custom
+    detail: Setup-prepared as for A to D. If the company's copy of F cannot be edited, EO-010 is BLOCKED, not passed.
+  - description: The run can read the stored-change versions, the audit trail and the pack-update decision tables of SwiftRoute
+    check: custom
+    detail: Needed for EO-003 to EO-009 outcomes that count rows; otherwise those are BLOCKED (the replies of the list route still serve the counts of versions).
+
+steps:
+  - step: 1
+    actor: swiftroute_admin
+    action: Asks for a review of what version 1.9.0 of pack P would change.
+    via: api
+    input:
+      target_version: "1.9.0"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: swiftroute_admin
+    action: Asks to apply version 1.9.0 of pack P.
+    via: api
+    input:
+      target_version: "1.9.0"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: swiftroute_admin
+    action: Asks to apply version 2.0.0 of pack P, the version that is already installed.
+    via: api
+    input:
+      target_version: "2.0.0"
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: swiftroute_admin
+    action: >
+      Reads the list of stored changes of pack P and notes, for A, B and C, how many versions each has (N_A, N_B, N_C) and the text of each version. This is the reading
+      that shows nothing was written by steps 1 to 3 (a read, accepted).
+    via: api
+    produces:
+      override_list_before: versions of the stored changes of A, B and C before any successful apply
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: swiftroute_admin
+    action: Asks for a review of what version 2.0.0 of pack P would change (an accepted request, an equal version is reviewable).
+    via: api
+    input:
+      target_version: "2.0.0"
+    produces:
+      update_review: the plan for 2.0.0; entries with a stored change carry it
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: swiftroute_admin
+    action: Asks for a review of what version 2.1.0 of pack P would change.
+    via: api
+    input:
+      target_version: "2.1.0"
+    produces:
+      update_review: the plan for 2.1.0 with the outcome of each stored change
+    sla_context:
+      expected_within_hours: null
+  - step: 7
+    actor: swiftroute_admin
+    action: Applies version 2.1.0 of pack P, with no decision brought along (none is needed).
+    via: api
+    input:
+      target_version: "2.1.0"
+    produces:
+      update_result: the update is applied; the applied entries of A, B and C say what was done to the stored change
+    sla_context:
+      expected_within_hours: null
+  - step: 8
+    actor: swiftroute_admin
+    action: Reads the list of stored changes of pack P again and compares it with step 4.
+    via: api
+    produces:
+      override_list_after: versions of the stored changes of A, B and C after the apply
+    sla_context:
+      expected_within_hours: null
+  - step: 9
+    actor: swiftroute_admin
+    action: Applies version 2.1.0 of pack P a second time, with the same request as in step 7, then reads the list of stored changes once more.
+    via: api
+    input:
+      target_version: "2.1.0"
+    produces:
+      update_result: no further change to any stored change
+    sla_context:
+      expected_within_hours: null
+  - step: 10
+    actor: swiftroute_admin
+    action: >
+      Asks for a review of what version 2.2.0 of pack P would change, where A is again equal to the installed one and C is still absent (an accepted request;
+      the incoming lists for this step are prepared in setup).
+    via: api
+    input:
+      target_version: "2.2.0"
+    produces:
+      update_review: the plan for 2.2.0; C no longer shows a live stored change
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      For D, which has no stored change, the entry in the review of step 5 and 6 and in the applied entries of step 7 has no key named override and no key named override_action; in a
+      company where no pack has any stored change the replies are those of today. (REQ-617 criterion 1: "no reply carries the key override or override_action".)
+    verification:
+      method: api_response
+      detail: Entry D in steps 5, 6, 7 contains neither key; the other keys are those of the solution-pack-version-2 scenario's recorded answers.
+      evidence: The three answers.
+    on_fail:
+      severity: MAJOR
+      business_impact: Companies that never used stored changes would see a changed reply and tools that read it could break.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      Steps 1 and 2 are refused with status 422 and detail version_downgrade; step 3 is refused with 422 and detail version_not_newer; the review in step 5 answers 200 with the plan
+      and the entries of A, B and C carry the override object. (REQ-617 criterion 8: "refuses a target equal to the installed version with version_not_newer and a lower target
+      with version_downgrade, before any override is read ... for an equal target, answers the plan including the override field".)
+    verification:
+      method: api_response
+      detail: Three refusals with the stated detail text and nothing of the change in them; step 5 status 200 with the override object on A, B and C.
+      evidence: The four answers.
+    on_fail:
+      severity: BLOCKER
+      business_impact: An old or repeated pack version could be applied over the company's processes and its stored changes.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      After steps 1 to 3 the stored changes of A, B and C have exactly the versions they had before: step 4 and the list read after step 3 agree, and no audit entry about a pack update exists for them.
+    verification:
+      method: system_state
+      detail: Version rows and audit entries read before step 1 and after step 3 are identical.
+      evidence: The two readings compared.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A refused update left traces in the company's stored changes.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      The review in step 6 shows A with outcome kept and no warning; B with outcome kept and the warning override_kept_pack_changed; C with outcome orphaned. The override object of each entry has exactly
+      the keys override_id, override_version, made_against, outcome and (for B) warning, and nothing else: no change, no path, no value. None of the three is an unresolved conflict:
+      the plan says there are no unresolved conflicts. (REQ-617 criteria 2 and 5.)
+    verification:
+      method: api_response
+      detail: Entries A, B, C as stated; key set compared exactly; has_unresolved_conflicts false.
+      evidence: The answer of step 6.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The administrator could not tell which stored changes the update keeps and which it drops, or an orphaned change would block every update.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: >
+      Step 7 succeeds. Its applied entries for A and B carry override_action advanced, the one for C carries override_action orphaned. In the list of step 8, A and B each have exactly one more version than
+      in step 4, with the same change and the status active and made against 2.1.0; C has exactly one more version with the same change as before (the label text is still there, not removed) and the status orphaned.
+      Each of the three has exactly one audit entry written by the apply, with the reasons "pack update to 2.1.0: advanced" (A, B) and "pack update to 2.1.0: orphaned" (C), the ids, the new version number, the actor
+      and a hash of the change.
+    verification:
+      method: api_response
+      detail: Apply answer with the three override_action values; list of step 8 compared with step 4; audit trail read for the three ids.
+      evidence: The apply answer, the two lists, the three audit entries.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A pack update would silently lose or leave behind the company's own changes, or leave no trace of what it did to them.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: >
+      The second apply in step 9 does not write another version row for A, B or C and no further audit entry; its applied entries for A and B carry override_action left_unchanged, and the entry for C has no key named override_action and no key named override (C's newest stored change is orphaned, which counts as none, as in EO-009). The list read afterwards equals the list of step 8.
+      (REQ-617 criterion 2: "a second identical apply writes no further row and no entry".)
+    verification:
+      method: system_state
+      detail: Version rows and audit entries counted before and after step 9; the apply answer's override_action values.
+      evidence: The two counts and the answer.
+    on_fail:
+      severity: MAJOR
+      business_impact: Every repeated apply would add versions and audit noise to the company's stored changes.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: >
+      Every version of a stored change that existed in step 4 is still in the list of step 8 and 9, with the same content as in step 4 (change, reason, status, who and when wrote it); the number of versions of A, B and C only grew.
+      (REQ-617 criterion 4: "the number of rows for the override_id only grows".)
+    verification:
+      method: system_state
+      detail: Each earlier row of A, B, C compared field by field with its row in the later readings.
+      evidence: The step 4 reading and the later readings.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The history of the company's own changes could be rewritten or lost by a pack update.
+      suggested_action: route_to_wf03
+  - id: EO-008
+    description: >
+      The distinctive number 987654.321 appears in none of the replies of steps 1 to 3, 5 to 7 and 9 and in none of the audit entries of this scenario (it may appear only in the stored change itself, which the list in steps 4 and 8 shows).
+      (REQ-617 criterion 6: "appears in no reply, no audit payload".)
+    verification:
+      method: audit_event
+      detail: The replies of the review and the apply and the audit entries of the apply searched for the text 987654.321 and for the text Zq987654; no hit.
+      evidence: The searched answers and entries.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A company's private change text would leak through the update screens and the audit trail.
+      suggested_action: route_to_wf03
+  - id: EO-009
+    description: >
+      After step 8, A and B have a newest version whose status is active, and C's newest version has status orphaned. The review in step 10 lists C
+      (whose stored change is orphaned, not active) with no override key, and A with the override object. (REQ-617 criterion 1, last sentence: "the same holds for an override row whose status is retired or orphaned".)
+    verification:
+      method: api_response
+      detail: Review of 2.2.0 (an accepted request); entry C without override key; entry A with the override object.
+      evidence: The answer of the extra review.
+    on_fail:
+      severity: MAJOR
+      business_impact: An orphaned change would keep appearing as live and mislead the administrator.
+      suggested_action: route_to_wf03
+  - id: EO-010
+    description: >
+      The company-edited process F (incoming content equals the installed one, so the update classifies it as a change only the company made): the review of step 6 shows F with outcome kept and no warning
+      key and no unresolved conflict; step 7 gives F's applied entry override_action advanced; the list of step 8 has exactly one more version of F's stored change than step 4, with the same change, status active and
+      made against 2.1.0; exactly one audit entry for F, with the reason "pack update to 2.1.0: advanced". The second apply of step 9 adds nothing for F.
+      (REQ-617 criterion 2: "with an active override on a process_definition artefact whose incoming content equals its base (classification unchanged, and a second case local_only), the review shows outcome kept without warning".)
+    verification:
+      method: api_response
+      detail: Entry F in steps 6 and 7; step 4 and step 8 lists (read F too); the audit entries for F; counts before and after step 9.
+      evidence: The review, the apply answer, the lists, the audit entry.
+    on_fail:
+      severity: MAJOR
+      business_impact: A company's change on a process it also edited could be lost or flagged wrongly when the pack is updated.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: The platform team removes or deactivates the installation, base, stored-change and conflict-decision records created for the scenario, directly (no route uninstalls a pack); otherwise later runs use fresh pack ids.

@@ -3,9 +3,9 @@ defmodule Letflow.EntityTypeHooks do
   REQ-567 slice E-1 part 1 (GH #3217, decision 0065 D4/D8) -- the pin of one published
   `entity_write` script version to one entity type: its pre-write hook.
 
-  **Nothing is written by a run.** This module stores, replaces, removes and lists pins and refuses a
-  bad pin at bind time. `dry_run/4` is the one function that runs a bound script (REQ-633); it writes
-  nothing. The routes are `Letflow.Routers.EntityTypeHooks`.
+  **No record is written by a run.** This module stores, replaces, removes and lists pins and refuses a
+  bad pin at bind time. `dry_run/4` is the one function that runs a bound script (REQ-633); it writes no record, event
+  or sequence, only one `entity_write_hook.dry_run` audit row. The routes are `Letflow.Routers.EntityTypeHooks`.
 
   `bind/4`, `rebind/4` and `unbind/3` each run one `Ecto.Multi` whose last step is
   `Letflow.Audit.append_multi/4`, so the audit entry and the row change commit or roll back together.
@@ -103,18 +103,20 @@ defmodule Letflow.EntityTypeHooks do
 
   @doc """
   REQ-633 (GH #3530, decision 0065 D9 E-5): runs the script bound to `entity_type` on the draft
-  `candidate`, with real reads under `prefix`, and returns what it derived. Writes nothing: no
-  record, event, sequence or audit row (the audit row is part B). The binding is read without a
-  lock or a transaction (`EntityWrite.run_audited/4` must not run inside one when it declares reads).
+  `candidate`, with real reads under `prefix`, and returns what it derived. Writes no record, event
+  or sequence; appends one `entity_write_hook.dry_run` audit row per call that reaches the runner
+  (a call refused before it appends none). The binding is read without a lock or a transaction
+  (`EntityWrite.run_audited/4` must not run inside one when it declares reads).
 
   `{:error, :api_token_not_allowed}` for a non-OIDC credential (the script reads tenant rows);
-  `{:error, :not_found}` for an absent, unbound or foreign type alike (only `prefix` is queried).
-  A script outcome other than success is still `{:ok, _}` with the outcome name.
+  `{:error, :not_found}` for an absent, unbound or foreign type alike (only `prefix` is queried);
+  `{:error, :audit_failed}` when the audit row could not be written (no detail). A script outcome
+  other than success is still `{:ok, _}` with the outcome name.
   """
   @spec dry_run(String.t(), term(), map(), actor()) ::
           {:ok,
            %{outcome: String.t(), derived: map() | nil, fail_code: String.t() | nil, stats: map()}}
-          | {:error, :api_token_not_allowed | :not_found}
+          | {:error, :api_token_not_allowed | :not_found | :audit_failed}
   def dry_run(prefix, entity_type, candidate, actor)
       when is_binary(prefix) and is_map(candidate) do
     with :ok <- require_interactive(actor),
@@ -128,14 +130,62 @@ defmodule Letflow.EntityTypeHooks do
 
       facts = %{entity_type: type, candidate: candidate, now: DateTime.utc_now()}
 
-      {result, _hmac} =
+      {result, hmac} =
         EntityWrite.run_audited(prefix, pin, facts, publisher_may_restricted?: false)
 
-      {:ok, dry_run_result(result)}
+      reply = dry_run_result(result)
+
+      case audit_dry_run(prefix, type, pin, reply, hmac, actor) do
+        :ok -> {:ok, reply}
+        :error -> {:error, :audit_failed}
+      end
     else
       nil -> {:error, :not_found}
       {:error, _} = error -> error
     end
+  end
+
+  # One row per call that reached the runner: the pin, the HMAC of the canonical input (never the
+  # input), the outcome and the counters. No derived value, fail detail or candidate (INV-2, INV-4).
+  # `Audit.insert_entry/3` RAISES on a DB failure, so it is rescued (INV-8); nothing of the
+  # exception is logged or returned.
+  defp audit_dry_run(prefix, type, pin, reply, hmac, actor) do
+    {key_version, hex} = hmac || {nil, nil}
+
+    attrs = %{
+      actor_id: actor.user_id,
+      action: "entity_write_hook.dry_run",
+      resource_type: type,
+      resource_id: type,
+      before_state: nil,
+      after_state: %{
+        script_key: pin.script_key,
+        script_version: pin.script_version,
+        script_sha256: pin.script_sha256,
+        hmac_key_version: key_version,
+        hmac_hex: hex,
+        outcome_class: reply.outcome,
+        duration_us: reply.stats[:duration_us],
+        instructions_used: reply.stats[:instructions_used],
+        heap_words_at_end: reply.stats[:heap_words_at_end],
+        principal: "tenant_wide"
+      },
+      trace_id: Map.get(actor, :trace_id)
+    }
+
+    case Audit.insert_entry(Repo, attrs, prefix) do
+      {:ok, _entry} -> :ok
+      _other -> audit_not_written()
+    end
+  rescue
+    _error -> audit_not_written()
+  catch
+    _kind, _reason -> audit_not_written()
+  end
+
+  defp audit_not_written do
+    Logger.warning("entity write hook dry-run audit row not written")
+    :error
   end
 
   defp dry_run_result({:ok, %{derived: derived, stats: stats}}),
