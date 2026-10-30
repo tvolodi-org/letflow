@@ -45367,7 +45367,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-518 -- the scope declaration it extends (REQ-518, 0051 D6) is still pending in the register
+    gh: 3549
     # Source: docs/migration/decisions/0070-tenant-owned-record-types.md (D1, D3, D6 slice B, "Open owner questions" Q1, "Tests the implementation slices must add" D3-*, "Threats for SECURITY-REVIEWER"); docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md (D5, D6, D7, D11, D12); docs/migration/decisions/0006 (D2, no tenant_id column in a schema-isolated table); code read: lib/letflow/entities/scope_declaration.ex (for_type/2, for_types/2, resolve_candidate/4, valid_declaration?/1), lib/letflow/entities/managed_types.ex (owner_of/2, managed_name?/1), lib/letflow/entities/definition.ex (constraint_def, constraints), lib/letflow/entities/definitions.ex (get_active_definition_by_name/2), lib/letflow/entities/query/compiler.ex (the :undeclared consumer), lib/letflow/routers/number_sequences.ex (the nearest router with scope: :tenant_wide and one management permission), lib/letflow/routers/entities.ex (restrictions import, EntitiesRestrictionsManage), lib/letflow/audit.ex (append_multi/4), lib/letflow/plugs/api_pipeline.ex (forward list), priv/repo/migrations/20261029200001_create_record_trigger_outbox.exs (tenant-table migration convention, TenantProvisioning manifest), test/support/tenant_fixture.ex (@expected_tenant_tables), docs/roles.md (EntitiesRestrictionsManage: TENANT_ADMIN only). Written by the business analyst (T-0979) 2026-10-30. Not yet validated.
     description: >
       Slice B of decision 0070 (D6 "Slice B, scope declaration (D3)"); the decision record is the product of
