@@ -30,7 +30,7 @@ describe('REQ-631 part B S0', () => {
         entries={entries}
         resolutionChoices={new Map<string, PackResolutionChoice>([['process_definition:d', 'keep_local']])}
         onChooseResolution={vi.fn()}
-        attribution={new Map([['process_definition:d', { resolvedBy: 'Ann', resolvedAt: '2026-10-30T10:00:00Z' }]])}
+        attribution={new Map()}
         appliedEntries={applied}
       />,
     )
