@@ -1,0 +1,112 @@
+# Authored by BA-BILIMBAGA for T-0993 (REQ-597 criterion 8, the delivery log holds identifiers only).
+# Sources: docs/requirements.yaml REQ-597 description (Log content) and criterion 8; lib/letflow/routers/notification_deliveries.ex
+# ("A row carries no recipient address, subject, body or error text"); docs/agents/instructions/security-invariants.md INV-4.
+# Needs the exam notifications switch ON (platform configuration): see the sidecar in
+# test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-notifications-5-ids-only-in-delivery-log.yaml.
+#
+# Not covered here (REQ-597 criteria that have no HTTP surface a UAT actor can reach):
+#  - Criterion 1 (registry key list and allow-lists): code and unit test of the key registry. The only HTTP part, storing a wording
+#    for a key, is covered by tenant-administration notification-template scenarios for REQ-563 and does not name the new keys here.
+#  - Criterion 2 (no new sender, no dependency): a grep of source files and of the dependency list; nothing a user can see.
+#  - Criterion 7 (adapter failure, timeout, empty email never reach the exam path): needs a mail adapter that fails, raises or
+#    sleeps, and a user with an empty email; UAT cannot make the environment's adapter fail, and the unit test drives it.
+#  - Criterion 10 (scope: no route, permission, migration or table added; checks pass): a statement about the pull request and its
+#    checks.
+#  - Criterion 11 (bucket C placement; no exam word in the platform notification module): a grep of source files and a document row.
+#  - Also: criterion 6 (reminders) is outside this task's list; nothing calls the reminder function yet, so no row can appear.
+#  - The log-output (captured server log) half of criterion 8 and the mail server username and password: server logs are not
+#    readable by a UAT actor; only the delivery rows are checked here.
+---
+id: bilimbaga-exam-notifications-5-ids-only-in-delivery-log
+scope: bilimbaga
+title: The delivery log row of an exam result message holds identifiers and codes only, with no name, address, exam title, score or deadline
+version: "1.0"
+tags: [notifications, sensitive_data, refusal]
+
+description: >
+  With the platform switch on, a candidate with a known name and address submits an exam with a known title. The administrator reads
+  the delivery log and searches every row, as plain text, for the candidate's name, email address, the exam's title, the score and
+  the deadline. None appears: the row holds the template key, language, user identifier, status, reason, session identifier and
+  time. A candidate, who is not allowed to read the log, is refused.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  tenant_admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed and the exam notifications switch is ON for this run
+    check: process_definition_active
+  - description: >
+      UAT assumption, to be confirmed by the process owner: the candidate's display name, email address, the exam's title in each
+      language, and the exam's deadline (if the assignment has one) are known to the tester before the run and written down for the
+      searches of step 3; the exam is an auto-graded QA fixture exam
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: candidate
+    action: The candidate starts the exam and submits it; the session identifier is noted and the score shown to the candidate is noted
+    via: api
+    produces:
+      instance_id: "the exam session's own identifier"
+
+  - step: 2
+    actor: tenant_admin
+    action: The administrator reads the company's delivery log with no filter and picks the row for the session of step 1
+    via: api
+
+  - step: 3
+    actor: tenant_admin
+    action: >
+      The administrator searches the whole answer of step 2, as text, for the candidate's display name, the candidate's email address,
+      the exam title in every language, the score as noted in step 1 (as a number, as a percentage and as the words passed and
+      failed), and the deadline text
+    via: api
+
+  - step: 4
+    actor: candidate
+    action: The candidate tries to read the delivery log, to see the row the administrator saw
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: The row has only the agreed fields
+    verification:
+      method: api_response
+      detail: >
+        The row of step 2 has exactly the fields id, template key, locale, recipient user id, status, reason, trigger reference and
+        time; the template key is exam_result and the trigger reference is the session identifier
+      evidence: The row of step 2
+    on_fail:
+      severity: BLOCKER
+      business_impact: The log would carry fields that were never approved for storage.
+      suggested_action: route_to_security_review
+
+  - id: EO-002
+    description: None of the candidate's personal data, the exam title, the score or the deadline appears anywhere in the answer
+    verification:
+      method: api_response
+      detail: Each search of step 3 over the whole answer of step 2 finds nothing, including the answer's other rows
+      evidence: The searches of step 3 with their search terms
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An administrator reading the log would see a candidate's name, address and result, which the log is meant never to hold;
+        the data would also be copied into every backup of the log.
+      suggested_action: route_to_security_review
+
+  - id: EO-003
+    description: A candidate is refused the log
+    verification:
+      method: http_status
+      detail: The request of step 4 answers 403 and the body holds no delivery row
+      evidence: The answer of step 4
+    on_fail:
+      severity: BLOCKER
+      business_impact: Candidates could read which messages the company sends and to whom.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: true
+  description: No cleanup is needed for a submitted session

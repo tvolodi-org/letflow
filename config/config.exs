@@ -58,12 +58,14 @@ config :letflow, :lua_platform_time_source, Letflow.Engine.Lua.Platform.SystemCl
 # module shipped in P2 is Letflow.Modules.Exam; GH #2661 (REQ-473) adds the foundation
 # module Letflow.Modules.Org; GH #2663 (REQ-474) adds Letflow.Modules.CatalogItems;
 # GH #3162 (REQ-544) adds Letflow.Modules.Procurement;
+# GH #3501 (REQ-625) adds Letflow.Modules.Locations;
 # config/test.exs appends the test-only fixture modules on top.
 config :letflow, :modules, [
   Letflow.Modules.Exam,
   Letflow.Modules.Org,
   Letflow.Modules.CatalogItems,
-  Letflow.Modules.Procurement
+  Letflow.Modules.Procurement,
+  Letflow.Modules.Locations
 ]
 
 # GH #2682 / REQ-511 (design lib/letflow/design/req511-exam-content-snapshot.md section 10 and

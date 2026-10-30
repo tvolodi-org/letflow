@@ -1,0 +1,128 @@
+# Authored by BA-BILIMBAGA for T-0993 (REQ-597 criterion 9, tenant isolation of the exam notification log).
+# Sources: docs/requirements.yaml REQ-597 criterion 9; lib/letflow/routers/notification_deliveries.ex (the company comes from the
+# sign-in only; a company named in the request is ignored; 100 newest rows); docs/roles.md (NotificationTemplatesManage: TENANT_ADMIN
+# and PLATFORM_ADMIN only); test/fixtures/uat/actors.yaml (actor-swiftroute-alice: SwiftRoute TENANT_ADMIN; actor-swiftroute-lena:
+# SwiftRoute task worker; actor-bilimbaga-admin needs an approved qa-login mapping).
+# Needs the exam notifications switch ON (platform configuration): see the sidecar in
+# test/fixtures/uat/scenario-env-limitations/bilimbaga-exam-notifications-4-other-company-sees-no-row.yaml.
+# A platform operator on this route would get its own company's log, not a refusal, so it is not used. Not UAT-observable: the
+# unit-level case "a user of company A resolved in the schema of company B writes skipped/no_email in B only" (no route takes a
+# user and a company).
+# SwiftRoute's own log may hold its own messages (task assigned), so "empty" is judged for exam results and for the Bilimbaga session.
+---
+id: bilimbaga-exam-notifications-4-other-company-sees-no-row
+scope: bilimbaga
+title: A Bilimbaga candidate's exam result message appears only in Bilimbaga's delivery log, and the SwiftRoute administrator sees nothing of it
+version: "1.0"
+tags: [notifications, cross_tenant, isolation, refusal]
+
+description: >
+  With the platform switch on, a Bilimbaga candidate submits an exam. Bilimbaga's administrator sees one result-message row for it.
+  The administrator of SwiftRoute, another company, lists the delivery log and sees no result-message row and nothing that names
+  the Bilimbaga session; naming Bilimbaga's company in the request changes nothing. A SwiftRoute task worker is refused the log.
+
+actors:
+  candidate: actor-bilimbaga-candidate
+  tenant_admin_b: actor-bilimbaga-admin
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-lena
+
+preconditions:
+  - description: Bilimbaga (exam pack installed) and SwiftRoute exist, and the exam notifications switch is ON for this run
+    check: system_seeded
+    detail: If the switch is off, or the Bilimbaga administrator cannot sign in, the run is BLOCKED, not PASS
+  - description: >
+      UAT assumption, to be confirmed by the process owner: the candidate has an email address and the exam is an auto-graded QA
+      fixture exam assigned to all candidates; SwiftRoute has no exam module, so it has no exam result row of its own
+    check: no_pending_instances
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: The SwiftRoute administrator reads SwiftRoute's delivery log and notes the rows (the baseline)
+    via: api
+
+  - step: 2
+    actor: candidate
+    action: The Bilimbaga candidate starts the exam and submits it; the session identifier is noted
+    via: api
+    produces:
+      instance_id: "the exam session's own identifier"
+
+  - step: 3
+    actor: tenant_admin_b
+    action: The Bilimbaga administrator reads Bilimbaga's delivery log and finds the row for the result message of the session of step 2
+    via: api
+
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator reads SwiftRoute's delivery log, once with no filter and once for each status sent, failed and
+      skipped, and searches every answer for the session identifier of step 2 and for the template key exam_result
+    via: api
+
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      The SwiftRoute administrator repeats the unfiltered read with Bilimbaga's company identifier added to the address; the answer is
+      noted and it is noted whose rows it holds
+    via: api
+    input:
+      tenant_id: Bilimbaga's company identifier
+
+  - step: 6
+    actor: worker_a
+    action: The SwiftRoute task worker tries to read the delivery log
+    expect_refusal: true
+    via: api
+
+expected_outcomes:
+  - id: EO-001
+    description: Bilimbaga's own log holds the result row
+    verification:
+      method: api_response
+      detail: The list of step 3 holds one row with template key exam_result and trigger reference equal to the session identifier of step 2
+      evidence: The list of step 3
+    on_fail:
+      severity: MAJOR
+      business_impact: The check below would pass for the wrong reason, because no message was started at all.
+      suggested_action: route_to_backend_dev
+
+  - id: EO-002
+    description: SwiftRoute's administrator sees nothing of the Bilimbaga session
+    verification:
+      method: api_response
+      detail: >
+        Every answer of step 4 is 200 and holds no row with the template key exam_result and no row with the session identifier of
+        step 2; the unfiltered list has the same rows as the baseline of step 1 and holds only rows of SwiftRoute's own messages
+      evidence: The baseline of step 1 and the four lists of step 4
+    on_fail:
+      severity: BLOCKER
+      business_impact: One customer would see which of another customer's users received exam results, and when.
+      suggested_action: route_to_security_review
+
+  - id: EO-003
+    description: A company named in the request is ignored
+    verification:
+      method: api_response
+      detail: The answer of step 5 is 200 and equals the unfiltered list of step 4; it holds no Bilimbaga row
+      evidence: The answers of steps 4 and 5
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be pointed at another customer's log by naming the customer.
+      suggested_action: route_to_security_review
+
+  - id: EO-004
+    description: A task worker is refused the log
+    verification:
+      method: http_status
+      detail: The request of step 6 answers 403 and holds no delivery row
+      evidence: The answer of step 6
+    on_fail:
+      severity: BLOCKER
+      business_impact: Any employee could read the company's message log.
+      suggested_action: route_to_security_review
+
+cleanup:
+  cancel_open_instances: true
+  description: No cleanup is needed for a submitted session
