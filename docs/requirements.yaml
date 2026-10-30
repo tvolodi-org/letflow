@@ -45464,7 +45464,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-632 -- slice F-5 follows F-4; the engine files the GitHub issue after the gate
+    gh: 3567
     # Source: docs/migration/decisions/0067-form-hook-script-validation.md (D2 contract, D4 principal and restrictions, D5 table, D7 INV-1, D8 refusal shape, D9 slice F-5, "Not decided here"); docs/migration/decisions/0053-tenant-scripted-rules.md (D7); lib/letflow/scripts/form_validation.ex (run_measured/4, check_flag/0, load_row/2, check_facts/1); lib/letflow/scripts.ex (dry_run/6, get/3, form_validation_enabled?/0, the hook 1 precedent); lib/letflow/routers/script_rules.ex; lib/letflow/api/authorization.ex (endpoint_policy_key/2); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5, INV-8, INV-10)
     description: >
       Slice F-5 of decision 0067 (docs/migration/decisions/0067-form-hook-script-validation.md, D9), dry-run
