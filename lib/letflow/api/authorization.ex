@@ -1292,6 +1292,10 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/solution-packs/:pack_id/overrides/:override_id/retire"),
     do: :SolutionOverridesManage
 
+  # REQ-610 (GH #3419): activation of an override as a new definition version; Manage key only (Q2).
+  def endpoint_policy_key("POST", "/solution-packs/:pack_id/overrides/:override_id/activate"),
+    do: :SolutionOverridesManage
+
   # REQ-609 (GH #3417): tenant x_ extension layer; one permission for all three routes.
   def endpoint_policy_key("POST", "/entity-type-extensions"), do: :EntitiesExtensionsManage
   def endpoint_policy_key("GET", "/entity-type-extensions"), do: :EntitiesExtensionsManage

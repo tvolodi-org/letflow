@@ -125,6 +125,7 @@ POST /script-rules/:key/versions/:version/publish ScriptsPublish
 POST /script-rules/:key/versions/:version/retire ScriptsPublish
 POST /script-rules/:key/versions/:version/revoke ScriptsPublish
 POST /solution-packs/:pack_id/overrides SolutionOverridesManage
+POST /solution-packs/:pack_id/overrides/:override_id/activate SolutionOverridesManage
 POST /solution-packs/:pack_id/overrides/:override_id/retire SolutionOverridesManage
 POST /solution-packs/:pack_id/overrides/:override_id/versions SolutionOverridesManage
 POST /solution-packs/:pack_id/update-apply DefinitionsCreate
