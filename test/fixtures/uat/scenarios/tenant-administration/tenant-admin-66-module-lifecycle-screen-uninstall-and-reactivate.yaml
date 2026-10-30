@@ -1,0 +1,143 @@
+# T-0977 (BA): TENANT ADMIN group, scenario 66: on the "Module lifecycle" screen the administrator takes an installed module out of use and brings it back.
+# Covers REQ-630 criterion 3 (positive half: the administrator holding the right to manage modules sees the screen and the menu entry "Module lifecycle" when the screen is switched on),
+# criterion 4 (the list of installed modules with an Uninstall button each; the button stays unavailable while the reason is blank or only spaces; one uninstall call with the typed reason;
+# success message naming the module and "uninstalled"; the list is fetched again) and criterion 8 (reactivate by typed module name; success message; the screen states that out-of-use modules are not listed).
+# Sources: docs/requirements.yaml REQ-630 criteria 3, 4, 8; web/src/pages/admin/moduleLifecycle/ModuleUninstallPage.tsx (texts: "Rationale (required)", "Installed modules", "Reactivate",
+# "Uninstalled modules are not listed. Type the module id to reactivate it.", dialog "Running work blocks the uninstall. Data is kept, and you can reactivate the module later.",
+# success text "Module <id> is now <status>."); web/src/components/layout/AppShell.tsx (nav item in the administration group); docs/roles.md (ModulesManage: tenant administrator).
+# Environment: needs the SPA built with the module lifecycle screen ON and the server uninstall feature ON. If the menu entry is absent in step 1, report BLOCKED for the whole scenario.
+# NOT UAT-OBSERVABLE (left to the product's own web tests): criterion 1 (exact request path, body and encoding of the two API calls: "exam" and "a/b", no company key in the body) and criterion 2
+# (the build switch helper and the committed env files) are checked by unit tests only; criterion 4's "exactly one call reaches the server" is a count of requests, not seen on screen: the runner
+# reads it from the audit trail (one entry per success, see scenario 29); criterion 9 is the product's own build gate (npm run check, no change under lib/, priv/, apps/).
+# The four sensitive actions (approve, pay or release, see sensitive data, change users) are not in this flow; the refusals of the screen are scenarios 67 to 69.
+---
+id: tenant-administration-66-module-lifecycle-screen-uninstall-and-reactivate
+scope: tenant-administration
+title: The administrator uses the Module lifecycle screen to take an installed module out of use with a reason and to bring it back by its typed name
+version: "1.0"
+tags: [tenant-admin, modules, uninstall, reactivate, gui, feature-flag]
+
+description: >
+  SwiftRoute's administrator opens the menu entry "Module lifecycle" and sees the section "Installed modules" with every active module of the company and an Uninstall button on each row,
+  and the section "Reactivate". While the reason box is empty or holds only spaces no Uninstall button can be pressed. After the administrator types a reason and presses Uninstall on module M1,
+  a confirmation says running work blocks the uninstall and data is kept; on confirming, the screen says M1 is now uninstalled and M1 is gone from the list. The administrator then types M1's name
+  and a reason in the Reactivate section; the screen says M1 is now active and M1 is back in the list. The screen states that out-of-use modules are not listed and the name has to be typed.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The SPA build has the module lifecycle screen switched ON and the server uninstall feature is switched ON.
+    check: system_seeded
+    detail: If the menu entry "Module lifecycle" is absent for the administrator in step 1, report BLOCKED for the whole scenario (do not count it as a product failure).
+  - description: SwiftRoute has two modules installed and active, M1 and M2, with no other module depending on M1, and no running instance or open task that belongs to M1.
+    check: system_seeded
+    detail: Setup-prepared; the runner records the module names used. If M1 has running work the uninstall is refused (scenario 68) and this scenario is BLOCKED for steps 4 to 8.
+  - description: The administrator can sign in to the web application with an approved test token.
+    check: system_seeded
+    detail: If not, report BLOCKED.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator signs in, looks at the menu in the administration group and opens the entry "Module lifecycle".
+    via: gui
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      With the reason box empty, the administrator looks at the Uninstall buttons of M1 and M2. The administrator then types only spaces in the reason box and looks again.
+    via: gui
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      The administrator types the reason "UAT - module M1 not needed this quarter" and presses Uninstall on the row of M1. The confirmation text is read and the administrator cancels once,
+      then presses Uninstall on M1 again.
+    via: gui
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator confirms the uninstall of M1. The message under the section and the table of installed modules are read.
+    via: gui
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      In the section "Reactivate" the administrator reads the text above the fields, types M1's exact name and the reason "UAT - module M1 needed again", and presses Reactivate.
+    via: gui
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator reads the message under the section "Reactivate" and the table of installed modules. The administrator then reads the audit trail filtered by resource type "tenant_module".
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator sees the menu entry and the screen with both sections and an Uninstall button on each installed module.
+    verification:
+      method: gui_screen
+      detail: After step 1 the administration group of the menu holds "Module lifecycle"; the screen shows the headings "Installed modules" and "Reactivate", and the table lists M1 and M2 (module name and version) with a button "Uninstall" in each row.
+      evidence: Screen after step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator has no way on the screen to take a module out of use.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: No Uninstall button can be pressed while the reason is empty or only spaces.
+    verification:
+      method: gui_screen
+      detail: In step 2 the buttons "Uninstall" of M1 and M2 are shown as unavailable (cannot be pressed) both with the empty box and with spaces only; no confirmation opens when a press is tried.
+      evidence: Screens of step 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: A module could be taken out of use with no reason on the audit trail.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: The confirmation warns that running work blocks the uninstall and that data is kept, and cancelling changes nothing.
+    verification:
+      method: gui_screen
+      detail: In step 3 the confirmation is titled "Uninstall" followed by M1's name and reads "Running work blocks the uninstall. Data is kept, and you can reactivate the module later."; after cancelling, M1 is still in the table and no message is shown.
+      evidence: Screens of step 3.
+    on_fail:
+      severity: MINOR
+      business_impact: The administrator is not warned of the effect of the action.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: Confirming takes M1 out of use, names it in a success message and the list is refreshed.
+    verification:
+      method: gui_screen
+      detail: After step 4 the message reads "Module <M1 name> is now uninstalled." and the table no longer lists M1 but still lists M2, without the administrator reloading the page; the reason box is empty again.
+      evidence: Screen after step 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot tell whether the module was taken out of use, or sees a stale list.
+      suggested_action: route_to_wf03
+  - id: EO-005
+    description: The Reactivate section says that out-of-use modules are not listed and that the name must be typed.
+    verification:
+      method: gui_screen
+      detail: In step 5 the section shows "Uninstalled modules are not listed. Type the module id to reactivate it." above a Module id box, a reason box and the button "Reactivate"; the button is unavailable until both the name and the reason are filled.
+      evidence: Screen of step 5.
+    on_fail:
+      severity: MINOR
+      business_impact: The administrator does not know how to bring a module back.
+      suggested_action: route_to_wf03
+  - id: EO-006
+    description: Reactivating by the typed name succeeds, is announced and the module returns to the list.
+    verification:
+      method: gui_screen
+      detail: After step 6 the message reads "Module <M1 name> is now active." and the table lists M1 and M2 again; the Module id and reason boxes of the section are empty.
+      evidence: Screen after step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A module taken out of use cannot be brought back from the screen.
+      suggested_action: route_to_wf03
+  - id: EO-007
+    description: Each success wrote exactly one audit entry with the reason as typed.
+    verification:
+      method: api_response
+      detail: The audit trail (resource type "tenant_module") holds two new entries for M1, one uninstall with "UAT - module M1 not needed this quarter" and one reactivate with "UAT - module M1 needed again", and no entry from the cancelled confirmation of step 3.
+      evidence: The audit list of step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: The change of a module's state is not traceable, or one press made more than one change.
+      suggested_action: route_to_wf03
