@@ -7,13 +7,15 @@
  *  crashing or silently re-deriving the missing input.
  */
 import React, { useMemo, useState } from 'react'
+import { useIntl } from 'react-intl'
 import { Navigate, useLocation, useParams } from 'react-router-dom'
 import { P, useAccess, AccessPending } from '@/auth/access'
 import { useAuth } from '@/auth/AuthContext'
+import { EntitiesIntlProvider } from '@/i18n/EntitiesIntlProvider'
 import { PageLayout } from '@/components/ui/PageLayout'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
-import { UpdateReviewGroupList, artefactKey } from '@/components/solution-packs/UpdateReviewGroupList'
+import { UpdateReviewGroupList, artefactKey, entryNeedsDecision } from '@/components/solution-packs/UpdateReviewGroupList'
 import { UpdateApplyGate } from '@/components/solution-packs/UpdateApplyGate'
 import { useSolutionPackUpdateReview, useSolutionPackUpdateApply } from '@/hooks/useSolutionPackUpdate'
 import {
@@ -35,17 +37,20 @@ interface ResolutionDraft {
   resolvedContent: string | null
 }
 
-export default function SolutionPackUpdateReviewPage(): React.ReactElement {
+function SolutionPackUpdateReviewPageInner(): React.ReactElement {
+  const intl = useIntl()
   const { packId } = useParams<{ packId: string }>()
   const location = useLocation()
   const { session } = useAuth()
   const access = useAccess()
   const isAllowed = access.can(P.ModulesManage)
+  const canManageOverrides = access.can(P.SolutionOverridesManage)
 
   const [resolutionDrafts, setResolutionDrafts] = useState<Map<string, ResolutionDraft>>(new Map())
   const [sessionAttribution, setSessionAttribution] = useState<Map<string, { resolvedBy: string; resolvedAt: string }>>(new Map())
   const [blockedDetail, setBlockedDetail] = useState<{ artefactType: string; artefactId: string } | null>(null)
   const [lastAppliedEntries, setLastAppliedEntries] = useState<PackUpdateAppliedEntry[] | null>(null)
+  const [applyError, setApplyError] = useState<string | null>(null)
 
   const navState = location.state as SolutionPackReviewLocationState | null | undefined
 
@@ -70,18 +75,20 @@ export default function SolutionPackUpdateReviewPage(): React.ReactElement {
     () =>
       entries.some(
         (e) =>
-          e.classification === 'both_sides_conflict' &&
-          !e.resolved &&
+          entryNeedsDecision(e) &&
           !resolutionDrafts.has(artefactKey(e.artefact_type, e.artefact_id)),
       ),
     [entries, resolutionDrafts],
   )
+  // The server needs the permission whenever the plan holds an override_conflict (REQ-617 (6)).
+  const holdsOverrideConflict = entries.some((e) => e.override?.outcome === 'override_conflict')
+  const applyAllowed = !holdsOverrideConflict || canManageOverrides
+
   const unresolvedCount = useMemo(
     () =>
       entries.filter(
         (e) =>
-          e.classification === 'both_sides_conflict' &&
-          !e.resolved &&
+          entryNeedsDecision(e) &&
           !resolutionDrafts.has(artefactKey(e.artefact_type, e.artefact_id)),
       ).length,
     [entries, resolutionDrafts],
@@ -117,6 +124,7 @@ export default function SolutionPackUpdateReviewPage(): React.ReactElement {
 
   const handleApply = async (): Promise<void> => {
     setBlockedDetail(null)
+    setApplyError(null)
     const resolutions = Array.from(resolutionDrafts.entries()).map(([key, draft]) => {
       const [artefactType, artefactId] = key.split(':')
       return {
@@ -155,6 +163,13 @@ export default function SolutionPackUpdateReviewPage(): React.ReactElement {
         const detail = typeof apiErr.details?.detail === 'string' ? apiErr.details.detail : undefined
         const parsed = parseUnresolvedConflictDetail(detail)
         setBlockedDetail(parsed)
+        if (!parsed) setApplyError(intl.formatMessage({ id: 'solutionOverrides.report.error.conflict' }))
+      } else if (apiErr.status === 403) {
+        setApplyError(intl.formatMessage({ id: 'solutionOverrides.report.error.forbidden' }))
+      } else if (apiErr.status === 422 && apiErr.details?.detail === 'override_merge_unsupported') {
+        setApplyError(intl.formatMessage({ id: 'solutionOverrides.report.error.override_merge_unsupported' }))
+      } else {
+        setApplyError(intl.formatMessage({ id: 'solutionOverrides.report.error.generic' }))
       }
       // No update is applied in the blocked case -- the review query is not
       // invalidated on error, so nothing on screen changes except the
@@ -179,9 +194,20 @@ export default function SolutionPackUpdateReviewPage(): React.ReactElement {
             onApply={() => { void handleApply() }}
             applyState={applyMutation.isPending ? 'submitting' : 'idle'}
             blockedDetail={blockedDetail}
+            applyAllowed={applyAllowed}
+            restrictedMessage={intl.formatMessage({ id: 'solutionOverrides.report.applyNeedsManage' })}
+            errorMessage={applyError ?? undefined}
           />
         </div>
       </QueryStateBoundary>
     </PageLayout>
+  )
+}
+
+export default function SolutionPackUpdateReviewPage(): React.ReactElement {
+  return (
+    <EntitiesIntlProvider>
+      <SolutionPackUpdateReviewPageInner />
+    </EntitiesIntlProvider>
   )
 }
