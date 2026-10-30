@@ -123,7 +123,8 @@ defmodule Letflow.Routers.SolutionPacks do
 
   ## Overrides (REQ-596 part B)
 
-  `GET|POST /:pack_id/overrides`, `POST /:pack_id/overrides/:override_id/versions` and `/retire` expose
+  `GET|POST /:pack_id/overrides`, `POST /:pack_id/overrides/:override_id/versions`, `/retire` and `/activate` (REQ-610: merge into a new
+  definition version, see `Letflow.Definitions.SolutionPackOverrideActivation`) expose
   `Letflow.Definitions.SolutionPackOverrides`; see the handlers below the update routes.
 
   ## Ordering guarantee
@@ -174,6 +175,7 @@ defmodule Letflow.Routers.SolutionPacks do
   alias Letflow.Api.Validation.FieldError
   alias Letflow.Definitions
   alias Letflow.Definitions.SolutionPack
+  alias Letflow.Definitions.SolutionPackOverrideActivation, as: OverrideActivation
   alias Letflow.Definitions.SolutionPackOverrides, as: Overrides
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.Catalog
@@ -231,6 +233,11 @@ defmodule Letflow.Routers.SolutionPacks do
 
   authz_post "/:pack_id/overrides/:override_id/retire", :SolutionOverridesManage do
     handle_override_retire(conn, conn.params["pack_id"], conn.params["override_id"])
+  end
+
+  # REQ-610 (GH #3419): activates the latest override version as a new definition version.
+  authz_post "/:pack_id/overrides/:override_id/activate", :SolutionOverridesManage do
+    handle_override_activate(conn, conn.params["pack_id"], conn.params["override_id"])
   end
 
   authz_unmatched(:ordinary)
@@ -1008,6 +1015,85 @@ defmodule Letflow.Routers.SolutionPacks do
       end
     end)
   end
+
+  defp handle_override_activate(conn, pack_id, override_id) do
+    with_override_body(conn, fn body, actor ->
+      validator = Application.get_env(:letflow, :definitions_service_scope_validator, nil)
+
+      result =
+        OverrideActivation.activate(
+          prefix(conn),
+          tenant_id(conn),
+          actor,
+          Letflow.Api.Context.activator(conn),
+          pack_id,
+          override_id,
+          %{reason: Map.get(body, "reason")},
+          service_scope_validator: validator
+        )
+
+      case result do
+        {:ok, %{definition: definition, previous_id: previous_id, override_version: version}} ->
+          Response.ok(conn, %{
+            "definition_id" => definition.id,
+            "name" => definition.name,
+            "version" => definition.version,
+            "override_version" => version,
+            "previous_definition_id" => previous_id
+          })
+
+        {:error, reason} ->
+          render_override_activate_error(conn, reason)
+      end
+    end)
+  end
+
+  @activate_refusals [
+    :reason_required,
+    :property_not_overridable,
+    :override_changes_structure,
+    :artefact_type_not_supported,
+    :module_owned_definition_not_supported,
+    :override_already_activated,
+    :override_version_clash
+  ]
+
+  # Definitions-path failures keep their meaning but never echo violation detail: the effective
+  # graph carries patch values (REQ-610: never a patch value in a reply).
+  defp render_override_activate_error(conn, :not_found), do: Response.not_found(conn)
+
+  defp render_override_activate_error(conn, reason) when reason in @activate_refusals,
+    do: Response.unprocessable(conn, Atom.to_string(reason))
+
+  defp render_override_activate_error(conn, {:script_binding_invalid, node_id, reason}),
+    do: Response.script_binding_invalid(conn, node_id, reason)
+
+  defp render_override_activate_error(conn, {:expression_references_reserved_variable, refs}),
+    do: Response.expression_references_reserved_variable(conn, refs)
+
+  defp render_override_activate_error(conn, {:entity_writes_invalid, violations}),
+    do: Response.entity_writes_invalid(conn, violations)
+
+  defp render_override_activate_error(conn, {kind, _detail})
+       when kind in [
+              :graph_validation_failed,
+              :semantic_validation_failed,
+              :semantic_validation_precondition_failed
+            ],
+       do: Response.unprocessable(conn, "effective definition failed validation")
+
+  defp render_override_activate_error(conn, :graph_structure_invalid),
+    do: Response.unprocessable(conn, "effective definition failed validation")
+
+  defp render_override_activate_error(conn, :busy), do: Response.service_unavailable(conn, "busy")
+
+  defp render_override_activate_error(conn, reason) when reason in [:audit_failed],
+    do: Response.service_unavailable(conn, "audit_unavailable")
+
+  defp render_override_activate_error(conn, {:transaction_failed, _exception}),
+    do: Response.service_unavailable(conn, "audit_unavailable")
+
+  defp render_override_activate_error(conn, _unexpected), do: Response.internal_error(conn)
 
   defp with_override_body(conn, fun) do
     case {object_body(conn), actor_id(conn)} do

@@ -592,7 +592,7 @@ defmodule Letflow.Routers.SolutionPackOverridesRoutesTest do
                403
     end
 
-    test "P2: tenant scope, TENANT_ADMIN only, and the policy keys of the four routes" do
+    test "P2: tenant scope, TENANT_ADMIN only, and the policy keys of the five routes" do
       assert Authorization.permission_scope(:SolutionOverridesManage) == :tenant
 
       assert Authorization.required_permission(:SolutionOverridesManage) ==
@@ -614,7 +614,8 @@ defmodule Letflow.Routers.SolutionPackOverridesRoutesTest do
       for path <- [
             "/solution-packs/:pack_id/overrides",
             "/solution-packs/:pack_id/overrides/:override_id/versions",
-            "/solution-packs/:pack_id/overrides/:override_id/retire"
+            "/solution-packs/:pack_id/overrides/:override_id/retire",
+            "/solution-packs/:pack_id/overrides/:override_id/activate"
           ] do
         assert Authorization.endpoint_policy_key("POST", path) == :SolutionOverridesManage
       end
