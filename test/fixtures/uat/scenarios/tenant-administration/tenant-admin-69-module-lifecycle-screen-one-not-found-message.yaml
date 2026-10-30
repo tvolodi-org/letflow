@@ -1,0 +1,105 @@
+# T-0977 (BA): TENANT ADMIN group, scenario 69: the "Module lifecycle" screen gives one and the same not-found message whatever the cause.
+# Covers REQ-630 criterion 6 (every 404 on uninstall and on reactivate reads "Module not found, or this action is not available"; the text of the cases is identical and does not name a cause such as
+# the feature being switched off, the module being uninstalled or not installed).
+# Sources: docs/requirements.yaml REQ-630 criterion 6; web/src/pages/admin/moduleLifecycle/moduleLifecycleErrors.ts (NOT_FOUND_MESSAGE for every 404); docs/migration/decisions/0066 D4 (the server
+# answers all of these causes identically, INV-5); lib/letflow/routers/tenant_modules.ex (feature off and unknown or not-installed module both answer 404).
+# Part A (steps 1 and 2) runs with the server uninstall feature ON: the administrator types the name of a module that does not exist, and the name of a module that is active (reactivate of a module
+# that is not out of use). Part B (steps 3 and 4) needs the server feature OFF while the web application screen is ON, a third pass (the feature is a platform setting no roster actor can change):
+# the administrator uninstalls a listed module and reactivates a typed name; steps 3 and 4 and EO-003 are BLOCKED in a run where the feature is on. Not a permanent exclusion (no sidecar).
+# NOT UAT-OBSERVABLE: the second criterion-6 test ("a 404 with a different body text shows the same message") varies the server body, which the product never does on a real environment: unit test only.
+# Do not read the cause from the message: the judgement is only that the texts are equal and name no cause.
+# The four sensitive actions are not in this flow; every step is a refusal of the screen.
+---
+id: tenant-administration-69-module-lifecycle-screen-one-not-found-message
+scope: tenant-administration
+title: Whatever the reason a module action is not found - unknown name, module not out of use, feature off - the Module lifecycle screen shows one identical message
+version: "1.0"
+tags: [tenant-admin, modules, uninstall, reactivate, gui, refusal, not-found, feature-flag]
+
+description: >
+  SwiftRoute's administrator types, in the Reactivate section, the name of a module that was never in any catalog and then the name of a module that is active (so not out of use); the screen shows the
+  same message "Module not found, or this action is not available" both times. In a separate pass with the server feature switched off, the administrator presses Uninstall on a listed module and
+  reactivates a typed name; again the message is the same word for word, and it never says the feature is off, that the module is not installed or that it is uninstalled.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+
+preconditions:
+  - description: The SPA build has the module lifecycle screen ON. For part A the server uninstall feature is ON; for part B it is OFF.
+    check: system_seeded
+    detail: If the menu entry "Module lifecycle" is absent, report BLOCKED for the whole scenario. If in step 3 the uninstall is accepted (the feature is on), steps 3 and 4 and EO-003 are BLOCKED.
+  - description: SwiftRoute has a module M1 installed and active, listed in the table, with no running work and no dependents.
+    check: system_seeded
+    detail: Setup-prepared. In part B the module is only pressed, never changed, because the server refuses.
+  - description: The name "no-such-module-uat" is in no catalog of the product.
+    check: system_seeded
+    detail: If it exists, choose another name that does not and note it.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      Part A, feature ON: in the section "Reactivate" the administrator types the name "no-such-module-uat" and the reason "UAT - unknown module" and presses Reactivate. The text under the section
+      is noted as N1, and both boxes.
+    expect_refusal: true
+    via: gui
+  - step: 2
+    actor: tenant_admin_a
+    action: >
+      The administrator types M1's name (active, not out of use) and the reason "UAT - module is active" in the section "Reactivate" and presses Reactivate. The text under the section is noted as N2.
+    expect_refusal: true
+    via: gui
+  - step: 3
+    actor: tenant_admin_a
+    action: >
+      Part B, feature OFF: the administrator types the reason "UAT - feature off probe", presses Uninstall on the row of M1 and confirms. The text under the section is noted as N3 and the table is read.
+    expect_refusal: true
+    via: gui
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      In the section "Reactivate" the administrator types M1's name and the reason "UAT - feature off probe" and presses Reactivate. The text under the section is noted as N4.
+    expect_refusal: true
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: An unknown module name gives the one not-found message and changes nothing.
+    verification:
+      method: gui_screen
+      detail: After step 1 the text under the section reads exactly "Module not found, or this action is not available"; no message "is now active"; the boxes keep what was typed.
+      evidence: Screen after step 1.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator gets a misleading message or a module appears that does not exist.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: Reactivating a module that is already active gives the identical message.
+    verification:
+      method: gui_screen
+      detail: N2 equals N1 character for character, and M1 is still in the table, still active, with no message "is now active".
+      evidence: Screens of steps 1 and 2.
+    on_fail:
+      severity: MAJOR
+      business_impact: The screen tells apart an unknown module from a known one, which lets a caller probe which modules exist.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: With the server feature off, uninstall and reactivate give the same message and never name the feature.
+    verification:
+      method: gui_screen
+      detail: N3 and N4 each equal N1 character for character; M1 is still in the table after step 3; no message "is now uninstalled" or "is now active".
+      evidence: Screens of steps 3 and 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: A switched-off feature is told apart from a missing module.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: None of the four messages names a cause.
+    verification:
+      method: gui_screen
+      detail: N1 to N4 (those that ran) contain none of the words "flag", "disabled", "switched off", "not installed" and "uninstalled" used as a cause; they are exactly the sentence of EO-001.
+      evidence: The four texts.
+    on_fail:
+      severity: MAJOR
+      business_impact: The screen reveals the state of a module or of the platform to a caller who may not know it.
+      suggested_action: route_to_security_review
