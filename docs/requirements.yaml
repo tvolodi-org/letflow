@@ -45551,7 +45551,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- storage and validation only, no pending dependency; check_deferral_staleness S1 may flag it while S7 is active
+    gh: 3578
     # Source: docs/migration/decisions/0055-module-upgrade-migration-uninstall.md (D1 "What is versioned", D12 "Build order" step (1), D11 last bullet for the kinds not added here); docs/migration/decisions/0006 (D2, schema isolation, no tenant_id column); docs/agents/instructions/security-invariants.md (INV-1, INV-6); code read: lib/letflow/modules/catalog.ex (validate/2 and its rule chain), lib/letflow/modules/module.ex (the manifest type), lib/letflow/modules/manifest_hash.ex (compute/1, which hashes the private surface), lib/letflow/modules/tenant_module.ex (the version field and its "immutable" text), lib/letflow/tenant_provisioning.ex (the migration list ending with CreateLedgerTables), test/support/tenant_fixture.ex (@expected_tenant_tables), test/letflow/support/tenant_fixture_test.exs (the length pin). Written by the business analyst (T-1036) 2026-10-30. Not yet validated.
     description: >
       First half of build step (1) of decision 0055 D12: the stored and validated shapes that a later upgrade
