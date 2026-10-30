@@ -266,6 +266,12 @@ defmodule Letflow.Api.Response do
   def module_dependents_installed(conn, ids),
     do: send_problem(conn, Error.module_dependents_installed(ids))
 
+  @doc "HTTP 409 — Module Has Open Work (REQ-627). See `Error.module_open_work_exists/2`."
+  @spec module_open_work_exists(Plug.Conn.t(), non_neg_integer(), non_neg_integer()) ::
+          Plug.Conn.t()
+  def module_open_work_exists(conn, instances, tasks),
+    do: send_problem(conn, Error.module_open_work_exists(instances, tasks))
+
   @doc "HTTP 409 — Module Upgrade Required (REQ-578). See `Error.module_upgrade_required/0`."
   @spec module_upgrade_required(Plug.Conn.t()) :: Plug.Conn.t()
   def module_upgrade_required(conn), do: send_problem(conn, Error.module_upgrade_required())

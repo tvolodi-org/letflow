@@ -34,6 +34,9 @@ defmodule Letflow.Scheduler.ScheduledJobSweep do
      never stored or logged. By name, `Engine.create/2` resolves only an ACTIVE definition, so an
      unknown, draft, deprecated or archived name all give `definition_not_found`;
      `definition_not_active` stays in the list for completeness and the name path never produces it.
+     A definition stamped with an UNINSTALLED module (REQ-627) is unknown to this path too: such a job records
+     `definition_not_found`, is auto-disabled after the 5th failure, and is not re-enabled by reactivating
+     the module; re-enable it by hand.
   3. **Outcome** (transaction): `last_outcome`, the failure counter, the automatic disable after the
      5th consecutive failure and the audit entries commit together.
 

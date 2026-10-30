@@ -538,6 +538,7 @@ defmodule Letflow.Engine do
   alias Letflow.EventStore.InstanceVisibility
   alias Letflow.EventStore.Registry, as: EventRegistry
   alias Letflow.Identity
+  alias Letflow.Modules.StartGate
   alias Letflow.Repo
   alias Letflow.Repository.Attachments
   alias Letflow.Scheduler
@@ -635,6 +636,19 @@ defmodule Letflow.Engine do
 
   The idempotent-replay comparison includes the node: the same key with a different node (or with
   none) is `:idempotency_key_reuse`.
+
+  ## Module uninstall (decision 0066 D4, REQ-627)
+
+  A definition stamped with an `:uninstalled` module (`owner_module`) answers `{:error, :definition_not_found}`,
+  the answer for an unknown definition, by id and by name, whatever its status. An advisory read in the
+  lookup and a `FOR SHARE` read of the module's `tenant_modules` row in the start transaction
+  (`Letflow.Modules.StartGate`) make start and uninstall serialize. Decision 0061: the start takes
+  `scope_node FOR SHARE`, then `tenant_modules FOR SHARE`, then the new `P_x` insert and its rows, and the
+  audit chain last; the uninstall takes `tenant_modules FOR UPDATE`, plain count reads, then the audit chain.
+  Both take `tenant_modules` before the audit chain and the uninstall holds no `P_x`, scope-node or task
+  lock, so no wait-for cycle exists and 0061 needs no amendment. Scheduled jobs of the module's definitions
+  stop and may be auto-disabled; re-enable them by hand after reactivation. Sub-process children are NOT
+  blocked yet (known hole): `modules_uninstall_enabled` may be turned on only after that is settled.
   """
   @spec create(attrs :: create_attrs(), opts :: opts()) ::
           {:ok, create_result()} | create_error()
@@ -826,14 +840,34 @@ defmodule Letflow.Engine do
   defp resolve_definition(%{definition_id: definition_id}, opts) do
     definition_id
     |> Definitions.get_by_id(opts)
+    |> gate_uninstalled_owner(opts)
     |> interpret_definition_lookup()
   end
 
   defp resolve_definition(%{definition_name: definition_name}, opts) do
     definition_name
     |> Definitions.get_active_by_name(opts)
+    |> gate_uninstalled_owner(opts)
     |> interpret_definition_lookup()
   end
+
+  # REQ-627: a definition stamped with an UNINSTALLED module is unknown to a new start, whatever its
+  # status (uniform 404, INV-5). Runs before the status case so a draft answers 404, not 409. The cause
+  # goes to the server log only. Advisory; `persist/14` re-checks under a FOR SHARE lock.
+  defp gate_uninstalled_owner({:ok, %{owner_module: module_id} = definition} = found, opts)
+       when is_binary(module_id) do
+    if StartGate.uninstalled?(module_id, Keyword.get(opts, :prefix)) do
+      Logger.info(
+        "start refused: owner module uninstalled module_id=#{module_id} definition_id=#{definition.id}"
+      )
+
+      {:error, :not_found}
+    else
+      found
+    end
+  end
+
+  defp gate_uninstalled_owner(lookup, _opts), do: lookup
 
   defp interpret_definition_lookup({:ok, definition}) do
     case definition do
@@ -2198,6 +2232,7 @@ defmodule Letflow.Engine do
     try do
       Multi.new()
       |> lock_scope_node(Map.get(attrs, :scope_node_id), prefix)
+      |> lock_owner_module(definition, prefix)
       |> Multi.run(:instance_projection, fn repo, _changes ->
         # M1 always inserts :active, even when the landing-node dispatch above
         # already completed the instance (design doc §9 OQ-1a's :END success
@@ -2620,6 +2655,16 @@ defmodule Letflow.Engine do
       end
     end)
   end
+
+  # REQ-627 -- authoritative uninstall check: a stamped definition share-locks its module row to commit.
+  # An uninstall holds it FOR UPDATE, so one of the two waits for the other. Unstamped: no step.
+  defp lock_owner_module(multi, %{owner_module: module_id}, prefix) when is_binary(module_id) do
+    Multi.run(multi, :owner_module, fn repo, _changes ->
+      StartGate.lock_live_for_share(repo, module_id, prefix)
+    end)
+  end
+
+  defp lock_owner_module(multi, _definition, _prefix), do: multi
 
   # The key is present only when the instance has a node (REQ-531: "absent or null").
   defp put_scope_node(payload_map, nil), do: payload_map
