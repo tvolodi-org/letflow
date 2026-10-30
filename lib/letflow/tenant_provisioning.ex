@@ -936,7 +936,10 @@ defmodule Letflow.TenantProvisioning do
     # REQ-617 / GH #3443: the override status CHECK also allows `orphaned`. No table or column
     # added, no existing row altered.
     {20_261_030_100_001, Letflow.Repo.Migrations.AllowOrphanedOverrideStatus,
-     "20261030100001_allow_orphaned_override_status.exs"}
+     "20261030100001_allow_orphaned_override_status.exs"},
+    # REQ-620 / GH #3463 part A: four empty per-tenant ledger tables. No existing row altered.
+    {20_261_031_100_001, Letflow.Repo.Migrations.CreateLedgerTables,
+     "20261031100001_create_ledger_tables.exs"}
   ]
 
   @doc """
