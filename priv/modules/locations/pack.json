@@ -1,0 +1,117 @@
+{
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [],
+  "entity_definitions": [
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "code"
+            ],
+            "name": "uq_location_node_code",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "address"
+            ],
+            "name": "uq_location_node_address",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_location_node_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #3501 / REQ-625, decisions 0050 D1 and 0057 D1. One tree of warehouse locations: node_kind is site, zone or address. parent_id is the record_id of the parent location_node (a declarative string, absent for a site); the parent-kind rule and cycle absence are not enforced. org_site_id is the record_id of an org_site, not validated. address is the scannable label, unique per tenant, optional. active false retires the record, there is no delete operation. external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "display_name": "Location",
+        "fields": [
+          {
+            "name": "code",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "site",
+              "zone",
+              "address"
+            ],
+            "name": "node_kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "parent_id",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "org_site_id",
+            "type": "string"
+          },
+          {
+            "name": "address",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "receiving",
+              "pick",
+              "ship",
+              "reject",
+              "quarantine",
+              "custody",
+              "outdoor"
+            ],
+            "name": "location_type",
+            "queried": true,
+            "type": "enum"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "name": "location_node"
+      },
+      "display_name": "Location",
+      "entity_definition_id": "86d7354a-b1d1-6bc1-d684-5e1b62ad82ff",
+      "logical_shape_version": "a9cf20abe37daf5e6f102614b54c066803e7067af6e5b89edbced4f43e88aea0",
+      "name": "location_node"
+    }
+  ],
+  "exported_at": "2026-10-19T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "pack_id": "letflow-locations",
+  "service_catalog_entries": [],
+  "variable_schemas": [],
+  "version": "0.1.0"
+}

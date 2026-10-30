@@ -131,6 +131,10 @@ export function useTenantScopedQueryKeys() {
       all: () => queryKeys.solutionPackUpdate.all(tenantId),
       review: queryKeys.solutionPackUpdate.review.bind(null, tenantId),
     },
+    solutionPackOverrides: {
+      all: () => queryKeys.solutionPackOverrides.all(tenantId),
+      list: queryKeys.solutionPackOverrides.list.bind(null, tenantId),
+    },
     eventRetention: {
       all: () => queryKeys.eventRetention.all(tenantId),
       summary: () => queryKeys.eventRetention.summary(tenantId),

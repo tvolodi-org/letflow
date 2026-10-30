@@ -31,6 +31,8 @@
  *  worth reconciling once a second requirement adds a second catalog.
  */
 
+import { solutionOverridesMessages } from './solutionOverridesMessages'
+
 export const ENTITIES_UI_LOCALES = ['en', 'ru', 'kk'] as const
 export type EntitiesUiLocale = (typeof ENTITIES_UI_LOCALES)[number]
 
@@ -67,6 +69,7 @@ export function resolveUiLocale(candidates?: readonly string[]): EntitiesUiLocal
  *  below has all three locales populated -- no id is English-only. */
 export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> = {
   en: {
+    ...solutionOverridesMessages.en,
     // NOTE: these two ids are named after REQ-336's tag pilot but are used
     // generically by the shared EntityRecordForm for every entity type
     // (see web/src/components/entities/EntityRecordForm.tsx) -- kept as-is,
@@ -254,6 +257,7 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
       'Known gap: there is no screen here to assign an exam to specific candidates. Assignment is enforced (REQ-582): an exam with no active assignment cannot be started by anyone. Assignments are written only by the operator seed/release path until the assignment-management requirement lands.',
   },
   ru: {
+    ...solutionOverridesMessages.ru,
     'entities.tag.form.submitError': 'Не удалось сохранить этот тег.',
     'entities.tag.form.conflictError':
       'Этот тег был изменён кем-то другим, пока вы его редактировали. Обновите страницу и повторите попытку.',
@@ -428,6 +432,7 @@ export const entitiesMessages: Record<EntitiesUiLocale, Record<string, string>> 
       'Известное ограничение: здесь нет экрана для назначения экзамена конкретным кандидатам. Назначение проверяется (REQ-582): экзамен без активного назначения не может начать никто. Назначения записываются только оператором через seed/release, пока не будет реализовано требование по управлению назначениями.',
   },
   kk: {
+    ...solutionOverridesMessages.kk,
     'entities.tag.form.submitError': 'Бұл тегті сақтау мүмкін болмады.',
     'entities.tag.form.conflictError':
       'Сіз өңдеп жатқан кезде бұл тегті басқа біреу өзгертті. Бетті қайта жүктеп, әрекетті қайталаңыз.',
