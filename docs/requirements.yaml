@@ -45147,7 +45147,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-618 -- E-5 builds on the audited hook runner of E-4, which is still pending in the register
+    gh: 3530
     # Source: docs/migration/decisions/0065-entity-pre-write-script-hook.md (D1 read phase and run phase, D5, D6 table, D7 INV-1, D8 slice E-5, "Not decided here"); docs/migration/decisions/0053-tenant-scripted-rules.md (D5 read contract, D6); lib/letflow/scripts.ex (dry_run/6, the hook 1 precedent); lib/letflow/routers/entity_type_hooks.ex; lib/letflow/api/authorization.ex (endpoint_policy_key, required_permission); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5, INV-8, INV-10)
     description: >
       Slice E-5 of decision 0065 (docs/migration/decisions/0065-entity-pre-write-script-hook.md, D8), dry-run
