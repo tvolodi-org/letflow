@@ -181,7 +181,8 @@ defmodule Letflow.Entities.Records do
       code or an internal fault. It has NO success clause: a duplicate key is
       `:idempotency_conflict`, never the original record.
     * The single-command entry points refuse, before any query, a
-      `"sys:step:"` key (`{:error, :reserved_idempotency_key}`) and a
+      `"sys:step:"` key and a `"record_trigger:"` key without a `:trigger_lineage` option
+      (`{:error, :reserved_idempotency_key}`) and a
       top-level `source` / `metadata` attribute (`{:error,
       :reserved_attribute}`). Their Multi, step names and result
       interpretation are unchanged.
@@ -365,6 +366,8 @@ defmodule Letflow.Entities.Records do
   @created_event_type "ENTITY_RECORD_CREATED"
   @min_ref_schema_version 2
   @step_key_prefix "sys:step:"
+  # REQ-628 (decision 0067 D3): the trigger worker's key family; accepted only with `:trigger_lineage`.
+  @trigger_key_prefix "record_trigger:"
   @step_key_max_bytes 255
   @step_key_format ~r/\Asys:step:[A-Za-z0-9:_.-]+\z/
   @reserved_attribute_keys [:source, "source", :metadata, "metadata"]
@@ -451,7 +454,7 @@ defmodule Letflow.Entities.Records do
     match = idempotency_match(attrs)
 
     with :ok <- reject_reserved_attributes(attrs),
-         :ok <- reject_step_key(attrs),
+         :ok <- reject_reserved_key(attrs, lineage),
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
          {:ok, scope_ctx} <- resolve_scope(attrs, entity_type, prefix) do
@@ -592,7 +595,7 @@ defmodule Letflow.Entities.Records do
     # one existing command pipeline (no second copy of its checks).
     with {:ok, ref} <- ExternalRef.from_payload(Map.get(attrs, :external_ref)),
          :ok <- reject_reserved_attributes(attrs),
-         :ok <- reject_step_key(attrs),
+         :ok <- reject_reserved_key(attrs, lineage),
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
          {:ok, normalised} <-
@@ -819,7 +822,7 @@ defmodule Letflow.Entities.Records do
     expected = expected_seq(attrs)
 
     with :ok <- reject_reserved_attributes(attrs),
-         :ok <- reject_step_key(attrs),
+         :ok <- reject_reserved_key(attrs, lineage),
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
          :ok <- ensure_mutable(definition, entity_type),
@@ -911,7 +914,7 @@ defmodule Letflow.Entities.Records do
     expected = expected_seq(attrs)
 
     with :ok <- reject_reserved_attributes(attrs),
-         :ok <- reject_step_key(attrs),
+         :ok <- reject_reserved_key(attrs, nil),
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
          :ok <- ensure_mutable(definition, entity_type),
@@ -1284,11 +1287,15 @@ defmodule Letflow.Entities.Records do
 
   defp touches_preserved?(_violation, _preserve), do: true
 
-  # D-A2.1: exact bytes; only command_multi/3 accepts the step-key family.
-  defp reject_step_key(%{idempotency_key: @step_key_prefix <> _rest}),
+  # D-A2.1: exact bytes; only command_multi/3 accepts the step-key family. The `record_trigger:`
+  # family (REQ-628) is accepted only when the caller passed a validated `:trigger_lineage`.
+  defp reject_reserved_key(%{idempotency_key: @step_key_prefix <> _rest}, _lineage),
     do: {:error, :reserved_idempotency_key}
 
-  defp reject_step_key(_attrs), do: :ok
+  defp reject_reserved_key(%{idempotency_key: @trigger_key_prefix <> _rest}, nil),
+    do: {:error, :reserved_idempotency_key}
+
+  defp reject_reserved_key(_attrs, _lineage), do: :ok
 
   # ---------------------------------------------------------------------
   # Shared pipeline (design §5.1 steps 4-7)
