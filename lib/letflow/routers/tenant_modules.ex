@@ -15,7 +15,7 @@ defmodule Letflow.Routers.TenantModules do
   `PUT /:module_id/settings`, and (REQ-578) `POST /:module_id/uninstall` and
   `POST /:module_id/reactivate`. The last two take `{"rationale": "<non-blank text>"}`, answer
   200 `{module_id, status}`, 404 (not installed / not uninstalled), 409 with a `code`
-  (`dependents_installed`, `upgrade_required`) and 422. While `Installs.uninstall_enabled?/0` is
+  (`dependents_installed`, `open_work_exists`, `upgrade_required`) and 422. While `Installs.uninstall_enabled?/0` is
   false (default) they answer exactly what the same caller gets on an unknown path of this router.
 
   Request body (decision 0052 D3, GH 2531; BREAKING since then):
@@ -136,6 +136,9 @@ defmodule Letflow.Routers.TenantModules do
 
       {:error, {:dependents_installed, ids}} ->
         Response.module_dependents_installed(conn, ids)
+
+      {:error, {:open_work_exists, %{open_instances: n, open_tasks: m}}} ->
+        Response.module_open_work_exists(conn, n, m)
 
       {:error, :upgrade_required} ->
         Response.module_upgrade_required(conn)

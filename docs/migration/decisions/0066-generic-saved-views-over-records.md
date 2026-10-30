@@ -80,11 +80,11 @@ the permission-matrix and golden update, and the route-count pin updates.
 
 ## Deferred slices
 
-Each is its own later requirement, registered separately by the BA; none exists yet.
+Each is its own later requirement, registered separately by the BA; all three are now registered.
 
-- Slice 2: pivot view over `POST /entities/query/aggregate` (REQ-315).
-- Slice 3: graph view.
-- Slice 4: report builder.
+- Slice 2: pivot view over `POST /entities/query/aggregate` (REQ-315); registered as REQ-598.
+- Slice 3: graph view; registered as REQ-613.
+- Slice 4: report builder; registered as REQ-619.
 
 Also deferred: per-user views (D1), joined types (D2), view versioning, and views across tenants.
 

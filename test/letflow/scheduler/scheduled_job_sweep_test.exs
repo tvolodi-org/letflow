@@ -32,7 +32,7 @@ defmodule Letflow.Scheduler.ScheduledJobSweepTest do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "sj-sweep")
     schema = tenant.schema_name
     actor = Fx.actor!(schema)
-    %{schema: schema, actor: actor.id, name: Fx.definition!(schema)}
+    %{schema: schema, actor: actor.id, name: Fx.definition!(schema), tenant_id: tenant.tenant_id}
   end
 
   defp reload(schema, job), do: Repo.get!(Job, job.id, prefix: schema)
@@ -296,6 +296,48 @@ defmodule Letflow.Scheduler.ScheduledJobSweepTest do
       ScheduledJobSweep.run(schema, @now)
       assert reload(schema, flaky).consecutive_failures == 0
     end
+  end
+
+  test "SJ1 a job of an uninstalled module's definition fails definition_not_found, then runs after reactivation",
+       %{schema: schema, actor: actor, tenant_id: tenant_id} do
+    alias Letflow.ModuleWritesFixture, as: Mw
+
+    on_exit(fn ->
+      Repo.delete_all(
+        from(i in Letflow.Definitions.SolutionPackInstall, where: i.tenant_id == ^tenant_id)
+      )
+
+      Repo.delete_all(
+        from(b in Letflow.Definitions.SolutionPackArtefactBase, where: b.tenant_id == ^tenant_id)
+      )
+
+      Repo.delete_all(
+        from(cp in Letflow.TenantProvisioning.ColumnPromotion, where: cp.tenant_id == ^tenant_id)
+      )
+    end)
+
+    Mw.install_ledger!(schema)
+    Mw.activate_installed!(schema, %{id: actor}, "fxl_task_plain")
+    why = [prefix: schema, rationale: "SJ1 REQ-627"]
+    {:ok, _} = Letflow.Modules.Installs.uninstall("fixture_ledger", actor, why)
+
+    job = Fx.job!(schema, actor, "fxl_task_plain", %{}, @due)
+    assert :ok = ScheduledJobSweep.run(schema, @now)
+
+    row = reload(schema, job)
+    assert row.last_outcome == "definition_not_found"
+    assert row.consecutive_failures == 1
+    assert row.enabled
+    assert Fx.instance_count(schema) == 0
+
+    {:ok, _} = Letflow.Modules.Installs.reactivate("fixture_ledger", actor, why)
+
+    Repo.update_all(from(j in Job, where: j.id == ^job.id), [set: [next_run_at: @due]],
+      prefix: schema
+    )
+
+    assert :ok = ScheduledJobSweep.run(schema, @now)
+    assert Fx.instance_count(schema) == 1
   end
 
   test "F5 a raising tenant does not stop the next tenant", %{
