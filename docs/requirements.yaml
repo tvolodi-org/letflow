@@ -45459,3 +45459,113 @@ requirements:
       - "10. The migration is registered in the TenantProvisioning manifest, starts empty, and the pull request states how existing QA tenants are handled (no row is created, so none changes behaviour)."
       - "11. The pull request carries a SECURITY-REVIEWER verdict (mandatory) and names slices A (REQ-577), C and D of 0070 D6 as other requirements that this change does not build."
     depends_on: [REQ-517, REQ-518, REQ-519, REQ-566, "owner confirmation of decision 0070 Q1 (scope declaration route): the feature task must not start before it"]
+  - id: REQ-639
+    title: "Form-validation script hook (Record F) slice F-5: dry-run of a published form_validation script against a draft payload, verdict out, no write, no tenant-data read (decision 0067 D9 F-5)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-632 -- slice F-5 follows F-4; the engine files the GitHub issue after the gate
+    # Source: docs/migration/decisions/0067-form-hook-script-validation.md (D2 contract, D4 principal and restrictions, D5 table, D7 INV-1, D8 refusal shape, D9 slice F-5, "Not decided here"); docs/migration/decisions/0053-tenant-scripted-rules.md (D7); lib/letflow/scripts/form_validation.ex (run_measured/4, check_flag/0, load_row/2, check_facts/1); lib/letflow/scripts.ex (dry_run/6, get/3, form_validation_enabled?/0, the hook 1 precedent); lib/letflow/routers/script_rules.ex; lib/letflow/api/authorization.ex (endpoint_policy_key/2); docs/agents/instructions/security-invariants.md (INV-1, INV-2, INV-5, INV-8, INV-10)
+    description: >
+      Slice F-5 of decision 0067 (docs/migration/decisions/0067-form-hook-script-validation.md, D9), dry-run
+      part only. The record's D9 text for this slice reads: "F-5 dry-run and UAT: dry-run of a form_validation
+      script against a draft payload (no write, no tenant-data read, so no SECURITY-REVIEWER marker), then
+      uat_design scenarios. After F-4." The UAT scenarios are NOT part of this entry: they are a later
+      uat_design task after this slice is merged, and this entry builds none.
+      What main has. F-2 (REQ-581) gives Letflow.Scripts.FormValidation.run/4 and run_measured/4
+      (lib/letflow/scripts/form_validation.ex): it checks the kill switch first (check_flag/0, the flag
+      :form_validation_hook_enabled, config/config.exs, false), loads the pinned published or retired row
+      under the tenant prefix, filters restricted variables, runs the sandbox and returns {:ok, :accepted},
+      {:ok, {:refused, %{code, fields}}} or {:error, code, stats}; it calls no write. F-3 and F-4 (REQ-605,
+      REQ-632) wire it into task completion. The hook 1 dry-run (Letflow.Scripts.dry_run/6, POST
+      /script-rules/:key/dry-run, :ScriptsWrite) feeds the raw input of the caller to the script, which does
+      not match the host input of hook 3 (output, form, task); it cannot tell an author what the form would
+      answer.
+      What this slice builds. One new route in lib/letflow/routers/script_rules.ex:
+      POST /script-rules/:key/form-validation-dry-run (mounted at /script-rules by
+      lib/letflow/plugs/api_pipeline.ex; no new forward). Body: {"version": positive integer, "variables":
+      {name: value}} and nothing else; "variables" is the draft payload, the variables a user would submit.
+      The route calls a new public function Letflow.Scripts.dry_run_form_validation(prefix, key, version,
+      variables, actor) that (1) validates the body, (2) loads the version with get/3 and builds the pin
+      %{script_key, script_version, script_sha256} from the stored row (the caller supplies no sha256),
+      (3) refuses while the tenant script kill switch is on (the existing scripts_disabled 409 of
+      Letflow.Scripts.dry_run/6), (4) calls FormValidation.run_measured/4 with facts built by the host:
+      variables the draft payload, variable_labels %{}, instance_id the all-zero instance id that
+      Letflow.Scripts.dry_run/6 uses (@zero_instance), token_id "dry-run", form %{definition_id: "dry-run",
+      definition_version: 0, node_id: "dry-run", schema_version_hash: "dry-run"}, task %{id: "dry-run",
+      node_id: "dry-run", assignee_kind: "dry-run", now: DateTime.utc_now()}, and the default option
+      publisher_may_restricted? false, and (5) returns a map. The synthetic form and task values are
+      constants, never read from a definition or a task. It never calls Letflow.Engine, Letflow.Tasks, any
+      Repo function on a task, instance, event or record table, or the Records context, and it starts no
+      transaction that holds a task or projection row. "No tenant-data read" is stated precisely: the only
+      row read is the script_rules row of the named key and version (the same read Scripts.dry_run/6 makes,
+      which holds the script, not business data); no task, instance, variable, record or form definition
+      row is read, and the script has no data API (decision 0067 D1, D7). The tenant comes only from
+      conn.assigns.scoped_opts (INV-1); no tenant identifier in the path, query or body.
+      Reply (200, allowlist builder in the manner of dry_run_map/1 in lib/letflow/routers/script_rules.ex,
+      INV-2): {"outcome": "accepted" | "refused" | a D5 infrastructure code as a string (script_rejected,
+      input_invalid, script_error, budget_exceeded, memory_limit_exceeded, timeout, output_invalid,
+      script_busy), "code": the manifest refusal code only for refused, "fields": [{"field", "code"}] only
+      for refused, "stats": {duration_us, instructions_used, heap_words_at_end}}. The refused body is the
+      verdict of D2 and D8 (a manifest-declared code and field names, never a submitted value). No script
+      source, key, version, sha256, manifest, submitted value, HMAC or error text is in the reply. Unlike the
+      completion path (D8 and F-4: 422 form_hook_refused and 503 for infrastructure codes), a dry-run reports
+      every outcome as a 200 with the outcome string, as the hook 1 dry-run does, because the caller is an
+      author testing a script, not a user completing a task. While the platform flag
+      :form_validation_hook_enabled is off, run_measured/4 returns script_rejected before any row is read,
+      and the reply is 200 outcome "script_rejected" (the existing not-started rejection; no second code is
+      added). That flag is not changed by this slice and stays false in config/config.exs.
+      Refusals. An unknown key, an unknown, absent, malformed or discarded version (the body "version" is
+      parsed by the get/3 rules of lib/letflow/scripts.ex, parse_version/1: a positive integer or its
+      decimal string), and another tenant's key all answer the same plain 404 (INV-5, INV-10), as the hook 1
+      dry-run does. A version that exists but is a draft, is revoked, or has a hook kind other than
+      form_validation is run_measured/4's single rejection (load_row/2 treats them as one term): 200 outcome
+      "script_rejected", so the reply does not say which. A body that is not an object, a "variables" that is
+      absent or not an object, an extra top-level key, or a canonical "variables" larger than 65 536 bytes
+      (the dry-run input cap @max_dry_run_input_bytes of lib/letflow/scripts/validation.ex, reused, not a new
+      limit) answers 422 invalid_input. Order of checks: body validation (422), then get/3 (404), then the
+      tenant kill switch (409 scripts_disabled), then the runner. A call by an API token answers 403
+      api_token_not_allowed, as the other script-rules writes do.
+      Permission choice, one implementation. The route resolves to the existing key :ScriptsWrite in
+      Letflow.Api.Authorization.endpoint_policy_key("POST", "/script-rules/:key/form-validation-dry-run"),
+      the key of the hook 1 dry-run beside it. No new permission atom, so
+      priv/permission_matrix/effective.golden and the tenant-auditor refused-set literal do not move.
+      Audit. One audit_entries row per call that reaches the runner (Letflow.Audit.insert_entry/3, own short
+      transaction, like Scripts.dry_run/6), action "script_rule.form_validation_dry_run", resource_type and
+      resource_id as the hook 1 dry-run row sets them (audit_attrs/5 in lib/letflow/scripts.ex), actor_id the
+      caller, after_state exactly {outcome, instructions_used, heap_words_at_end, duration_us}; never a
+      submitted value, a refusal field name, a code from the script, the source or an error text. A failed
+      audit insert answers 500 with no detail (as :audit_failed does today). A call refused before the
+      runner (404, 409, 422, 403) writes no row.
+      Out of scope, each its own later change or still open in 0067 "Not decided here": the UAT scenarios
+      (a later uat_design task, then fixtures under test/fixtures/uat/scenarios); a web screen; dry-run of a
+      draft version; dry-run against a stored task or a form definition; labelled or restricted variables
+      in a draft (the draft carries no labels, so nothing is filtered by label; the manifest
+      restricted_inputs cover of decision 0062 R6 is applied by run_measured/4 exactly as at completion
+      with the opt-in off); any wall-clock figure between 50 ms and the 0053 D7 maxima or above (the 50 ms
+      cap of D6 applies unchanged); the maximum number of fields entries in a refusal; the HTTP status
+      numbers of the infrastructure codes (decided in F-4, REQ-632, for the completion path only); whether
+      the 403 of a wrong assignee collapses to the not-found answer; a hook 3 with entity reads or a
+      dynamic data API; any automatic completer. Adds no migration, no tenant table, no permission, no
+      setting and no environment variable. SECURITY-REVIEWER is not marked mandatory by decision 0067 for
+      this slice (no write, no tenant-data read); the implementer still lists the INV-1 and INV-10 tests
+      below in the PR gates.
+    acceptance_criteria:
+      - "1. Route and policy pins: POST /script-rules/:key/form-validation-dry-run resolves to :ScriptsWrite in Letflow.Api.Authorization.endpoint_policy_key/2; a test in test/letflow/api/authorization_test.exs pins it; the route-scope and route inventory pins (test/fixtures/route_scope/tenant_wide_default_routes.txt, the length(snapshot) pins, test/letflow/api/route_scope_resolver_test.exs, authorization_enforcement_test.exs) move by +1 route from the values on origin/main at implement time; no forward(...) is added, so the length(named) pin and @named_routes do not move; the moduledoc table of lib/letflow/routers/script_rules.ex gains the new row."
+      - "2. Draft payload in, verdict out: with the platform flag on and a published form_validation version whose script refuses a payload field with a manifest code, the call answers 200 {outcome refused, code, fields} with the manifest code and field names of the script; for a payload the script accepts, 200 {outcome accepted}; the reply carries no key other than outcome, code, fields and stats (an exact key-set assertion for each outcome), and no submitted value, source, key, version, sha256 or manifest appears in the body (the payload carries a marker string that must not be found)."
+      - "3. Same verdict as completion: for the same script and the same variables, the reply outcome, code and fields equal the verdict that FormValidation.run/4 returns when called directly with the facts of the dry-run (a test asserts the equality for one accepted and one refused payload)."
+      - "4. No write and no tenant-data read: a test calls the route and asserts that the row counts of the tasks, instance projection, variable, event and event_idempotency tables of the tenant schema are unchanged (the only row added is the audit row of criterion 8); a source-scan test asserts that Letflow.Scripts.dry_run_form_validation/5 and its router action reference none of Letflow.Engine, Letflow.Tasks, Letflow.Entities.Records, Letflow.EventStore, and call Repo only through Repo.get_by on ScriptRule and the Letflow.Audit.insert_entry call; the facts passed to run_measured/4 are the constants of the description (a test with the runner stub, config :letflow, :form_validation_script_runner, reads them from the sandbox input)."
+      - "5. Outcomes: one test per D5 outcome that can come from a script (script_error, budget_exceeded, memory_limit_exceeded, timeout, output_invalid) shows 200 with that outcome string, no code or fields key, and no raw error text; script_busy is shown with a full admission (ScriptTaskFixture.hold_all_slots!/1) as 200 outcome script_busy; with the platform flag off the reply is 200 outcome script_rejected, the sandbox is not started and the audit row records outcome script_rejected; with the tenant script kill switch on the reply is 409 scripts_disabled, no run, no audit row."
+      - "6. Rejection and 404 split: a draft version, a revoked version and a version of hook kind other than form_validation each answer 200 outcome script_rejected with the same body (byte-identical apart from stats); an unknown key, an unknown version, a malformed version (0, -1, 1.5, a string) in the body, and a discarded version answer the same plain 404 (Response.not_found), and the decimal string 1 is accepted as version 1; a published version is run."
+      - "7. Validation: a body that is not an object, a variables that is absent or not an object, an extra top-level key (including tenant_id and sha256), and variables whose canonical form exceeds 65 536 bytes each answer 422 invalid_input with no run and no audit row, whether the key exists or not; a variables object of exactly 65 536 canonical bytes is accepted and run (boundary case in its own test, not inside a refusal test)."
+      - "8. Audit: after a call that reaches the runner exactly one audit_entries row exists with action script_rule.form_validation_dry_run, actor_id the caller and an after_state whose key set equals {outcome, instructions_used, heap_words_at_end, duration_us}; a test asserts no payload value, field name, script code or error text appears anywhere in the row (the payload carries a marker string); a forced audit insert failure (DROP TABLE audit_entries in a sandboxed tenant schema) answers 500 with no detail and no verdict in the body."
+      - "9. Permission and credential: a caller with :ScriptsWrite (TENANT_ADMIN through OIDC) gets 200; a caller without it (TENANT_AUDITOR, a user with no script permission) gets the same 403 as POST /script-rules/:key/dry-run gives for the missing permission; an API-token credential answers 403 api_token_not_allowed and runs nothing; test/letflow/routers/tenant_auditor_routes_test.exs stays green."
+      - "10. INV-1 and INV-10 cross-tenant negative test: tenant A calls the route with a key and version that exist only in tenant B, and with a key that exists nowhere; both answer a byte-identical plain 404, the sandbox is not started and no audit row is written in either tenant; the same key and version published in both tenants with different sources give each tenant its own verdict, and a body or query field naming a tenant has no effect (the body key is 422 invalid_input, the query parameter is ignored). A malformed body sent for another tenant's key answers 422, not 404 (validation comes first)."
+      - "11. Docs and scope: decision 0067 D9 F-5 line is annotated that the dry-run part is delivered by this requirement and that the UAT scenarios remain a later uat_design task; the diff touches no file under priv/repo/migrations/, lib/letflow/engine.ex, lib/letflow/routers/tasks.ex, config/, or test/fixtures/uat/scenarios/, and priv/permission_matrix/effective.golden is unchanged; the flag :form_validation_hook_enabled stays false in config/config.exs."
+      - "12. Gates: mix letflow.check.static passes, and the test files named in criteria 1 to 10 pass with real output quoted."
+    depends_on: [REQ-632, REQ-581]
+    open_questions:
+      - "1. Route shape: decision 0067 D9 F-5 says only 'dry-run against a draft payload'. This entry settles POST /script-rules/:key/form-validation-dry-run over a stored published version and :ScriptsWrite, with a synthetic form and task. A dry-run that names a form definition and node (to test the pin and the manifest fields against a real form), or one that runs a draft version, is a separate requirement."
+      - "2. Reply status for a refusal: the completion path answers 422 form_hook_refused (D8); this entry answers 200 outcome refused for the dry-run, as the hook 1 dry-run reports script outcomes. If the owner wants the same 422 and 503 mapping on the dry-run, that is an amendment."
+      - "3. Audit row: decision 0067 does not require an audit row for a dry-run; this entry follows the hook 1 precedent (script_rule.dry_run). The gate may drop it or rename it; no existing audit consumer reads the name."
+      - "4. Still open in 0067 'Not decided here' and not decided here: any wall-clock figure between 50 ms and the 0053 D7 maxima (and above), the maximum number of fields entries in a refusal, the HTTP status numbers of the infrastructure codes beyond what F-4 chose for completion, whether the 403 of a wrong assignee collapses to the not-found answer, a hook 3 with entity reads and a dynamic data API, and the behaviour of any future automatic completer."
