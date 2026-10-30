@@ -45545,3 +45545,80 @@ requirements:
       - "9. The check never reads a module table: a test or the source scan used by the boundary check (mix letflow.check_boundaries) shows the new core module calls only the entry module's lookup/2 and active?/2 and no module schema or module table name (0050 D8)."
       - "10. The pull request carries a SECURITY-REVIEWER verdict (mandatory), names slices A (REQ-577), B (REQ-635) and D of 0070 D6 as other requirements this change does not build, and states how existing QA tenants are handled (no migration and no stored value changes, so none changes behaviour)."
     depends_on: [REQ-566, REQ-577, REQ-635, REQ-473, REQ-474, REQ-507, "owner confirmation of decision 0070 Q4 (reference registration): the feature task must not start before it"]
+
+  - id: REQ-640
+    title: "Module upgrade slice 1a: strict semver module version, min_upgradable_from, ordered migrations/0 steps and the tenant_module_upgrades journal table (decision 0055 D1, D12 step 1 part 1a)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3578
+    # Source: docs/migration/decisions/0055-module-upgrade-migration-uninstall.md (D1 "What is versioned", D12 "Build order" step (1), D11 last bullet for the kinds not added here); docs/migration/decisions/0006 (D2, schema isolation, no tenant_id column); docs/agents/instructions/security-invariants.md (INV-1, INV-6); code read: lib/letflow/modules/catalog.ex (validate/2 and its rule chain), lib/letflow/modules/module.ex (the manifest type), lib/letflow/modules/manifest_hash.ex (compute/1, which hashes the private surface), lib/letflow/modules/tenant_module.ex (the version field and its "immutable" text), lib/letflow/tenant_provisioning.ex (the migration list ending with CreateLedgerTables), test/support/tenant_fixture.ex (@expected_tenant_tables), test/letflow/support/tenant_fixture_test.exs (the length pin). Written by the business analyst (T-1036) 2026-10-30. Not yet validated.
+    description: >
+      First half of build step (1) of decision 0055 D12: the stored and validated shapes that a later upgrade
+      needs. It adds no route, no plan endpoint, no runner, no permission and no change to tenant_modules rows.
+      The rest of step (1) (plan endpoint, classification, preflights, plan_hash) is a separate requirement that
+      depends on this one.
+      (1) Strict semver. Letflow.Modules.Catalog.validate/2 (lib/letflow/modules/catalog.ex) gets one new rule,
+      added at the end of the existing rule chain, that the manifest :version is a strict semver 2.0.0 string
+      (MAJOR.MINOR.PATCH, optional prerelease and build parts, no leading zeros, no "v" prefix); anything else
+      returns {:error, {:invalid_version, value}}. The five registered manifests all use "0.1.0"
+      (lib/letflow/modules/exam/exam.ex, org/org.ex, catalog_items/catalog_items.ex, procurement/procurement.ex, locations/locations.ex) and stay valid.
+      (2) Support window key. The manifest type (lib/letflow/modules/module.ex) gets the optional key
+      :min_upgradable_from, a strict semver string. Absent means the module's own :version (no older version is
+      upgradable; assumption of this entry, no existing module declares the key and 0055 D1 says nothing for an
+      absent key). A value that is not strict semver, or is higher than :version, returns
+      {:error, {:invalid_min_upgradable_from, value}}. The comparison to min_data_version (0055 D5) is not built
+      here: min_data_version does not exist yet.
+      (3) Steps. A new struct Letflow.Modules.Step (new file lib/letflow/modules/step.ex) with @enforce_keys and
+      the fields id, from, to, kind (:declarative or :code), up, down (a spec or :irreversible) and lossy
+      (boolean), exactly the list of 0055 D1. The manifest type gets the optional key :migrations, an ordered
+      list of Step structs (absent means []). `up` and `down` are stored and shape-checked only as non-nil;
+      their declarative variants, the code-step fence and execution belong to later slices (0055 D3, D12 2c).
+      Catalog.validate/2 returns {:error, {:invalid_migrations, value}} for a non-list value, an element that is
+      not a Step, a kind outside the two values, a non-boolean lossy, a from or to that is not strict semver,
+      a step whose to is not higher than its from, or a repeated step id.
+      (4) Chain rule. A new public function Letflow.Modules.Catalog.upgrade_path(manifest, from, to) returns
+      {:ok, steps} for the ordered, contiguous steps (each step's from equals the previous step's to) that lead
+      from `from` to `to`, {:ok, []} when from equals to, and {:error, {:no_upgrade_path, from, to}} when no
+      contiguous chain exists, when from is lower than :min_upgradable_from, or when to is higher than the
+      manifest :version. It is pure: it reads only the manifest it is given. It does not decide which tenants
+      or modules are upgraded.
+      (5) Journal table. One new migration (next version after the highest on origin/main at implement time, plus
+      the highest on any open team branch; as an example the ledger migration 20261031200001 is open now) creates
+      the tenant table tenant_module_upgrades with the columns of 0055 D1: id, module_id, from_version,
+      to_version, kind, state, plan_hash, actor_id, rationale, step_id, step_cursor, steps_done, touches,
+      catchup_from_seq, runner_id, epoch (integer, default 1), heartbeat_at, started_at, finished_at, error_code.
+      There is NO tenant_id column (0006 D2; tenancy is the schema prefix). A new Ecto schema
+      Letflow.Modules.TenantModuleUpgrade (lib/letflow/modules/tenant_module_upgrade.ex) maps it with kind as
+      Ecto.Enum limited to [:upgrade, :rollback] (uninstall and reactivate belong to the uninstall record, 0055
+      D11) and state as Ecto.Enum [:planned, :running, :failed, :done, :abandoned]. Nothing writes to the table in
+      this slice and no reader exposes step_cursor, runner_id or lease fields (INV-2 N-S9 is for the later status
+      read). The table is empty on creation; no existing row is altered.
+      (6) Tenant provisioning. The migration is added to the tenant migration list in
+      lib/letflow/tenant_provisioning.ex (after the CreateLedgerTables entry or the last entry then present) so a
+      new tenant gets the table (0055 D1, INV-1(b)); existing tenants get it through replay_all_pending, and the PR
+      says how existing QA tenants are handled (empty table, no row altered).
+      (7) Pins moved, stated as "+1 from the value on origin/main at implement time": the tenant table list
+      @expected_tenant_tables in test/support/tenant_fixture.ex gains "tenant_module_upgrades" (sorted position),
+      and the length pin in test/letflow/support/tenant_fixture_test.exs goes up by 1 (85 on origin/main now).
+      The implementer greps test/ for the previous migration's table name, for validate/2 rule-order literals and
+      for pinned manifest hashes. ManifestHash.compute/1 is NOT changed (the hashed surface it builds, id, version and the rest, stays as it is): :min_upgradable_from and :migrations are
+      not hashed in this slice, so no manifest hash moves (a later slice may add them when the plan hash needs it).
+      The comment in lib/letflow/modules/tenant_module.ex that says version is immutable after insert is amended
+      for :version only, in words only; no code path updates it in this slice.
+      NOT IN THIS ENTRY: any route or plan endpoint; classification into Class A, B, C; preflights; plan_hash
+      computation; the runner, fencing and locks; the ENTITY_RECORD_MIGRATED event; the code-step fence; the
+      permission matrix golden file (2a); rollback; uninstall kinds; a status column on tenant_modules;
+      min_data_version. No permission is added, so priv/permission_matrix/effective.golden stays unchanged.
+    acceptance_criteria:
+      - "1. Catalog.validate/2 accepts a manifest whose :version is a strict semver string (tests: \"0.1.0\", \"1.2.3-rc.1\", \"1.0.0+build.5\") and returns {:error, {:invalid_version, value}} for \"1.0\", \"v1.0.0\", \"01.0.0\", \"1.0.0.0\", \"\" and a non-string. One test per refused value. The five registered manifests still validate."
+      - "2. :min_upgradable_from is optional. A manifest without it validates. A valid semver that is not higher than :version validates. A non-semver value, and a value higher than :version, return {:error, {:invalid_min_upgradable_from, value}}. One test per case."
+      - "3. Letflow.Modules.Step exists with @enforce_keys covering id, from, to, kind, up, down, lossy; building it without one of them raises ArgumentError (one test). A manifest with :migrations as an ordered list of valid Step structs validates; a manifest without :migrations validates."
+      - "4. Catalog.validate/2 returns {:error, {:invalid_migrations, value}} for each of: a non-list, a list element that is not a Step, kind :other, lossy \"yes\", a from or to that is not strict semver, a step with to equal to or lower than from, and two steps with the same id. One test per case."
+      - "5. Catalog.upgrade_path/3 with steps 1.0.0->1.1.0 and 1.1.0->1.2.0 returns {:ok, [both steps in order]} for (1.0.0, 1.2.0) and {:ok, [first step]} for (1.0.0, 1.1.0), and {:ok, []} for (1.1.0, 1.1.0). With the second step missing (steps 1.0.0->1.1.0 and 1.2.0->1.3.0) it returns {:error, {:no_upgrade_path, \"1.0.0\", \"1.3.0\"}}. The same error is returned when from is lower than :min_upgradable_from and when to is higher than the manifest :version. Given the steps in a shuffled order the result is the same ordered chain."
+      - "6. After the migration, in a freshly provisioned tenant schema information_schema.columns lists exactly the 20 columns of 0055 D1 for tenant_module_upgrades and none named tenant_id; kind is limited by the Ecto.Enum to upgrade and rollback (a changeset or insert with kind uninstall is refused, one test), and state accepts the five values and refuses a sixth. The refusal is the Ecto.Enum cast of the changeset (an invalid value gives an invalid changeset, nothing is inserted)."
+      - "7. Tenant provisioning: Letflow.TenantProvisioning's migration list contains the new migration, a newly provisioned tenant schema has the table, and a tenant provisioned before the migration gets it from replay_all_pending (tests). The test oracle TenantFixture.expected_tenant_tables/0 contains \"tenant_module_upgrades\" and its length pin in test/letflow/support/tenant_fixture_test.exs rises by 1 from the value on origin/main at implement time."
+      - "8. Tenant isolation (INV-1, INV-6): with two provisioned tenants A and B, a row inserted through the schema with prefix A is not visible in a read with prefix B, and a read of tenant B's journal lists no row of A (one test). The table exists in each tenant schema and not in the public schema (information_schema check)."
+      - "9. Scope: git diff of the PR adds no router file, no entry in any __authz_routes__ list, no permission and no change to priv/permission_matrix/effective.golden; grep -rn \"tenant_module_upgrades\" lib/ shows only the migration, the schema, the provisioning list and moduledocs, and no reader or writer. ManifestHash output for each of the five registered manifests is equal to the value on origin/main (test comparing against the pre-change computed hashes)."
+      - "10. The pull request carries a SECURITY-REVIEWER verdict (new tenant table, INV-1), states how existing QA tenants are handled (empty table, no row altered), and names the remaining step (1) work (plan endpoint, classification, preflights, plan_hash) as a requirement this change does not build."
+    depends_on: []
