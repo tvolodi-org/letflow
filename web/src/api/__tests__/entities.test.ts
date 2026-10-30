@@ -39,7 +39,7 @@ describe('REQ-336 AC1 — entitiesApi shape', () => {
   it('exposes exactly getActiveDefinition, queryRecords, createRecord, updateRecord, deleteRecord', () => {
     const keys = Object.keys(entitiesApi).sort()
     expect(keys).toEqual(
-      ['createRecord', 'deleteRecord', 'getActiveDefinition', 'queryRecords', 'updateRecord'].sort(),
+      ['aggregateRecords', 'createRecord', 'deleteRecord', 'getActiveDefinition', 'queryRecords', 'updateRecord'].sort(),
     )
   })
 

@@ -1,0 +1,194 @@
+# REQ-610 slice S3 (BA-TENANT-ADMINISTRATION, platform scope because the platform operator takes part): who may activate a stored change, and that another company can neither activate nor see it.
+# Criterion covered, by REQ-610 number: 7 (a user with a company role other than administrator and the read-only auditor are refused 403: EO-001;
+# the administrator of another company gets the same not-found answer as for an unknown change, nothing is written in either company: EO-002;
+# a company number sent in the body or the query string is ignored: EO-004; the platform operator gets only its own company's data: EO-003).
+# Not UAT-observable here (stay with backend test C-activate): the source scan that every database call of the slice passes the company prefix;
+#   a company number sent in the path (the path of this route holds the pack and the change only; the body and query string cases are step 9).
+# Sensitive actions: change process definitions (the activation) is refused in steps 3 to 6. approve, pay or release, see sensitive data
+#   (another company's change: steps 5 and 6), change users: not part of this flow.
+# Route behaviour: the platform operator's token resolves to the platform's own company, so step 7 is an accepted request answered from the operator's
+#   own company and is NOT written as a refusal; it is a no-data-leak check. Steps 3 to 6 are expected to be REFUSED (one request each).
+# Roster note: the roster has no process designer; Ops Manager Marco (task worker only) stands for "a company role other than administrator".
+---
+id: platform-solution-pack-override-activation-access-and-other-company
+scope: platform
+title: Only the administrator can activate a stored pack change, and another company's administrator gets the same not-found answer as for nothing
+version: "1.0"
+tags: [solution-pack, override, activation, access, isolation, refusal]
+
+description: >
+  SwiftRoute's administrator stores a change for an installed pack process. The Ops Manager, who only works on tasks, and the read-only auditor try
+  to activate it and are refused as lacking the right. The administrator of BilimBaga, another company, tries to activate SwiftRoute's change
+  and gets the same not-found answer as for an identifier that exists nowhere; BilimBaga's process versions do not change. The platform operator,
+  whose own company holds no such change, asks the same and gets that company's not-found answer, with nothing of SwiftRoute in it. Back with
+  SwiftRoute's administrator, nothing has been activated by all this. The administrator then activates the change while sending BilimBaga's company
+  number along in the body and in the query string of the request: the number is ignored, the activation happens in SwiftRoute, and BilimBaga's process versions still have not changed.
+
+actors:
+  swiftroute_admin: actor-swiftroute-alice
+  swiftroute_ops_manager: actor-swiftroute-marco
+  swiftroute_auditor: actor-swiftroute-auditor
+  bilimbaga_admin: actor-bilimbaga-admin
+  platform_operator: actor-platform-admin
+
+preconditions:
+  - description: SwiftRoute is set up with its administrator, Ops Manager and read-only auditor; BilimBaga with its administrator; the platform company with its operator
+    check: system_seeded
+  - description: >
+      SwiftRoute has an active installation of a process pack with a process of at least two steps; no change has been stored for it yet; BilimBaga
+      and the platform company have not installed that pack and hold no change with the identifiers used here; the run can read the process
+      versions of SwiftRoute and BilimBaga
+    check: custom
+    detail: Set up by the platform team. If BilimBaga or the platform company holds that pack, the scenario is BLOCKED.
+
+steps:
+  - step: 1
+    actor: swiftroute_admin
+    action: Stores a change (version 1) for the installed process with the reason "Rename step two" that sets the label of the second step to "Access check".
+    via: api
+    input:
+      change_properties: second step label
+      reason: Rename step two
+    produces:
+      change_1: change 1 stored, status active
+    sla_context:
+      expected_within_hours: null
+  - step: 2
+    actor: bilimbaga_admin
+    action: Reads BilimBaga's own process versions and keeps the list.
+    via: api
+    produces:
+      bilimbaga_before: BilimBaga's process versions before anything is tried
+    sla_context:
+      expected_within_hours: null
+  - step: 3
+    actor: swiftroute_ops_manager
+    action: Tries to activate SwiftRoute's change 1 with the reason "Roll out".
+    via: api
+    input:
+      reason: Roll out
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 4
+    actor: swiftroute_auditor
+    action: Tries to activate SwiftRoute's change 1 with the reason "Roll out".
+    via: api
+    input:
+      reason: Roll out
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 5
+    actor: bilimbaga_admin
+    action: Tries to activate SwiftRoute's change 1, using SwiftRoute's pack identifier and change identifier, with the reason "Roll out".
+    via: api
+    input:
+      reason: Roll out
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 6
+    actor: bilimbaga_admin
+    action: Tries to activate a change identifier that exists in no company, with the reason "Roll out".
+    via: api
+    input:
+      reason: Roll out
+    expect_refusal: true
+    sla_context:
+      expected_within_hours: null
+  - step: 7
+    actor: platform_operator
+    action: Asks to activate SwiftRoute's change 1, using SwiftRoute's pack identifier and change identifier, with the reason "Roll out".
+    via: api
+    input:
+      reason: Roll out
+    produces:
+      operator_answer: the not-found answer of the platform's own company, with no sign of SwiftRoute's change
+    sla_context:
+      expected_within_hours: null
+  - step: 8
+    actor: swiftroute_admin
+    action: Reads SwiftRoute's process versions for this process name.
+    via: api
+    produces:
+      swiftroute_versions: only the installed version, still active; no version made by a change
+    sla_context:
+      expected_within_hours: null
+  - step: 9
+    actor: swiftroute_admin
+    action: >
+      Activates change 1 with the reason "Roll out the new label" and also puts BilimBaga's company (tenant) identifier into the request twice:
+      as the body field tenant_id and as the query parameter tenant_id.
+    via: api
+    input:
+      reason: Roll out the new label
+      body_field_tenant_id: BilimBaga's company (tenant) identifier
+      query_parameter_tenant_id: BilimBaga's company (tenant) identifier
+    produces:
+      activation: the new process version in SwiftRoute
+    sla_context:
+      expected_within_hours: null
+  - step: 10
+    actor: bilimbaga_admin
+    action: Reads BilimBaga's own process versions again.
+    via: api
+    produces:
+      bilimbaga_after: BilimBaga's process versions after all the attempts
+    sla_context:
+      expected_within_hours: null
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The Ops Manager's request in step 3 and the auditor's request in step 4 are each refused as lack of right (forbidden); neither is a
+      validation or not-found answer, and no process version is written.
+    verification:
+      method: api_response
+      detail: Two answers, status 403; the versions read in step 8 show no version made by a change.
+      evidence: The two answers and the step 8 reading.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A user without the administrator's right could change the company's running process definitions.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: >
+      The requests of BilimBaga's administrator in steps 5 and 6 are answered with the same not-found answer, identical in status, headers and body,
+      whether the identifiers belong to SwiftRoute or exist nowhere; and BilimBaga's process versions after step 10 are exactly those read in step 2:
+      no version, draft or status change was made in BilimBaga.
+    verification:
+      method: api_response
+      detail: Both answers status 404; status, headers and body compared with each other; BilimBaga's versions read in steps 2 and 10 are identical.
+      evidence: The two answers side by side and the two readings.
+    on_fail:
+      severity: BLOCKER
+      business_impact: One company could probe or change another company's pack changes and process versions.
+      suggested_action: route_to_wf03
+  - id: EO-003
+    description: >
+      The platform operator's request in step 7 is answered from the operator's own company with the not-found answer of the same status, headers and
+      body as in step 6; the answer holds nothing of SwiftRoute's pack, change or process, and SwiftRoute's versions read in step 8 are unchanged.
+    verification:
+      method: api_response
+      detail: Status 404, same status, headers and body as step 6; no pack, change or process name of SwiftRoute in it.
+      evidence: The answer compared with step 6, and the step 8 reading.
+    on_fail:
+      severity: BLOCKER
+      business_impact: The platform role could reach into a company's changes through a company-level route.
+      suggested_action: route_to_wf03
+  - id: EO-004
+    description: >
+      Step 9 succeeds in SwiftRoute with a new process version although the body field tenant_id and the query parameter tenant_id both carried BilimBaga's identifier; both are ignored, no
+      version appears in BilimBaga (step 10 equals step 2).
+    verification:
+      method: system_state
+      detail: Status 200 in step 9; SwiftRoute shows the new version active; BilimBaga's versions in step 10 are identical to step 2.
+      evidence: The answer, SwiftRoute's version reading and BilimBaga's two readings.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A request could be steered into another company by a field in its body.
+      suggested_action: route_to_wf03
+
+cleanup:
+  cancel_open_instances: true
+  description: The platform team removes or deactivates the process versions, stored changes and installation created in SwiftRoute for the scenario; otherwise later runs use a fresh pack.

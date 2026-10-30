@@ -36,9 +36,12 @@ defmodule Letflow.RecordTriggersFixture do
     binding
   end
 
-  @doc "A script row of `hook_kind` and `status` in `schema`; `manifest` defaults to a closed one."
-  @spec script!(String.t(), String.t(), atom(), map() | nil) :: ScriptRule.t()
-  def script!(schema, hook_kind, status, manifest \\ nil) do
+  @doc """
+  A script row of `hook_kind` and `status` in `schema`; `manifest` defaults to a closed one. `opts`:
+  `:publisher` (a user id) for a published row.
+  """
+  @spec script!(String.t(), String.t(), atom(), map() | nil, keyword()) :: ScriptRule.t()
+  def script!(schema, hook_kind, status, manifest \\ nil, opts \\ []) do
     key = "rt#{System.unique_integer([:positive])}"
     test_cases = [%{"name" => "c1", "input" => %{}, "expect" => %{"fail" => "x"}}]
     manifest = manifest || F.closed_manifest()
@@ -72,7 +75,7 @@ defmodule Letflow.RecordTriggersFixture do
           [status: :discarded, discarded_at: DateTime.utc_now()]
 
         _ ->
-          publisher = Ecto.UUID.generate()
+          publisher = Keyword.get_lazy(opts, :publisher, &Ecto.UUID.generate/0)
 
           [
             status: :published,

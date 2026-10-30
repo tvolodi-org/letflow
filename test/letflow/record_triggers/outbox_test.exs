@@ -693,14 +693,18 @@ defmodule Letflow.RecordTriggers.OutboxTest do
       assert [%{event: :created, depth: 0, chain: []}] = rows(s)
     end
 
-    test "G7 only records.ex and outbox.ex mention the lineage in lib/" do
+    test "G7 only records.ex, outbox.ex and the worker's apply.ex mention the lineage in lib/" do
       hits =
         "lib/**/*.ex"
         |> Path.wildcard()
         |> Enum.filter(&(File.read!(&1) =~ "trigger_lineage"))
         |> Enum.sort()
 
-      assert hits == ["lib/letflow/entities/records.ex", "lib/letflow/record_triggers/outbox.ex"]
+      assert hits == [
+               "lib/letflow/entities/records.ex",
+               "lib/letflow/record_triggers/apply.ex",
+               "lib/letflow/record_triggers/outbox.ex"
+             ]
     end
   end
 

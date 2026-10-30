@@ -1,0 +1,118 @@
+# T-0977 (BA): TENANT ADMIN group, scenario 67: who sees the "Module lifecycle" screen, and that it is hidden when the screen is switched off.
+# Covers REQ-630 criterion 3 (refusal halves: a person without the right to manage modules gets no screen content and no menu entry; with the screen switched off the menu entry is absent and the
+# address shows the page-not-found screen even for the administrator).
+# Sources: docs/requirements.yaml REQ-630 criterion 3; web/src/router.tsx (route admin/module-lifecycle: build switch off gives the page-not-found screen, otherwise the permission wrapper);
+# web/src/components/layout/AppShell.tsx (menu entry shown only with the right to manage modules and the build switch on); docs/roles.md (ModulesManage: tenant administrator; not task worker, not auditor).
+# BA note: the requirement text says "the redirect or denied state the sibling pages give"; the runner records what the screen shows for the refused person and judges only that no module name, button or
+# reason box is shown and the menu has no entry.
+# The build switch is fixed when the web application is built; no roster actor can change it. Part B (steps 5 and 6) therefore needs the web application built with the switch OFF, a separate pass;
+# in a run where it is ON, steps 5 and 6 and EO-004 are BLOCKED. This is not a permanent exclusion (no sidecar).
+# NOT UAT-OBSERVABLE: that the server also refuses the person without the right (403 on the two calls) - a write route is not probed here; scenario 30 covers the route.
+# The sensitive action "change users" is not in this flow; the refusals here are the access refusals of the screen.
+---
+id: tenant-administration-67-module-lifecycle-screen-access-and-switch-off
+scope: tenant-administration
+title: Only a person who may manage modules sees the Module lifecycle screen and its menu entry, and when the screen is switched off nobody sees it
+version: "1.0"
+tags: [tenant-admin, modules, uninstall, gui, refusal, access, feature-flag]
+
+description: >
+  With the screen switched on, SwiftRoute's task worker and read-only auditor sign in: neither finds "Module lifecycle" in the menu, and when each opens the screen's address directly neither
+  sees the lists, boxes or buttons of the screen. The administrator sees the entry and the screen. In a separate pass with the screen switched off in the web application, the administrator
+  finds no menu entry, and opening the address shows the page-not-found screen.
+
+actors:
+  tenant_admin_a: actor-swiftroute-alice
+  worker_a: actor-swiftroute-marco
+  auditor_a: actor-swiftroute-auditor
+
+preconditions:
+  - description: Part A (steps 1 to 4) runs against a web application built with the module lifecycle screen ON; part B (steps 5 and 6) against one built with it OFF.
+    check: system_seeded
+    detail: If the entry is absent for the administrator in step 1, steps 1 to 4 and EO-001 to EO-003 are BLOCKED. If the entry is present in step 5, steps 5 and 6 and EO-004 are BLOCKED.
+  - description: SwiftRoute has at least one module installed and active.
+    check: system_seeded
+    detail: Setup-prepared, so that a shown screen would list a module name.
+  - description: The auditor's account is the roster's read-only auditor.
+    check: system_seeded
+    detail: If it cannot sign in, report BLOCKED for step 3 and EO-002.
+
+steps:
+  - step: 1
+    actor: tenant_admin_a
+    action: >
+      The administrator signs in and notes whether the menu holds "Module lifecycle" and what the screen at that entry shows.
+    via: gui
+  - step: 2
+    actor: worker_a
+    action: >
+      The task worker signs in and looks through the whole menu for "Module lifecycle". The worker then types the address of the screen (the path admin/module-lifecycle of the web application)
+      into the browser and notes everything shown.
+    expect_refusal: true
+    via: gui
+  - step: 3
+    actor: auditor_a
+    action: >
+      The read-only auditor signs in and looks through the whole menu for "Module lifecycle". The auditor then types the same address into the browser and notes everything shown.
+    expect_refusal: true
+    via: gui
+  - step: 4
+    actor: tenant_admin_a
+    action: >
+      The administrator signs in again and opens the entry; the screen is shown with the installed modules. (Check that the refusals above are about the person, not about the screen being down.)
+    via: gui
+  - step: 5
+    actor: tenant_admin_a
+    action: >
+      Part B, web application built with the screen OFF: the administrator signs in and looks through the whole menu for "Module lifecycle".
+    expect_refusal: true
+    via: gui
+  - step: 6
+    actor: tenant_admin_a
+    action: >
+      The administrator types the address of the screen (path admin/module-lifecycle) into the browser and notes everything shown, then types the address of a page that never existed
+      (path admin/no-such-page) and notes it too.
+    expect_refusal: true
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: The administrator sees the entry and the screen when the screen is switched on.
+    verification:
+      method: gui_screen
+      detail: In step 1 and step 4 the administration group holds "Module lifecycle" and the screen shows the headings "Installed modules" and "Reactivate" with the module of the precondition and its Uninstall button.
+      evidence: Screens of steps 1 and 4.
+    on_fail:
+      severity: MAJOR
+      business_impact: The administrator cannot reach the screen that manages module state.
+      suggested_action: route_to_wf03
+  - id: EO-002
+    description: The task worker gets no menu entry and no screen content.
+    verification:
+      method: gui_screen
+      detail: In step 2 no entry "Module lifecycle" is in the menu; at the typed address no heading "Installed modules" or "Reactivate", no module name, no reason box and no button "Uninstall" or "Reactivate" is on the screen (a redirect or a denied message is accepted).
+      evidence: Menu and screen of step 2.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A person without the right is offered, or shown, the control that takes a module out of use for the whole company.
+      suggested_action: route_to_security_review
+  - id: EO-003
+    description: The read-only auditor gets no menu entry and no screen content.
+    verification:
+      method: gui_screen
+      detail: In step 3 the same as EO-002 holds for the auditor.
+      evidence: Menu and screen of step 3.
+    on_fail:
+      severity: BLOCKER
+      business_impact: A read-only person is offered, or shown, a control that changes the company's modules.
+      suggested_action: route_to_security_review
+  - id: EO-004
+    description: With the screen switched off there is no menu entry and the address shows page-not-found, like a page that never existed.
+    verification:
+      method: gui_screen
+      detail: In step 5 the menu has no "Module lifecycle". In step 6 the address of the screen shows the page-not-found screen, with no heading "Installed modules" or "Reactivate", and the text is the same as for admin/no-such-page; it does not say that the feature is switched off.
+      evidence: Menu of step 5, screens of step 6.
+    on_fail:
+      severity: MAJOR
+      business_impact: A screen that is switched off is still reachable or announces itself.
+      suggested_action: route_to_wf03
