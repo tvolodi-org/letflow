@@ -41,6 +41,7 @@ const JSX_FILES_TO_CHECK = [
   'pages/entities/EntityCrudPage.tsx',
   'components/entities/EntityViewBar.tsx',
   'pages/entities/ReportBuilderPage.tsx',
+  'pages/solution-packs/SolutionPackOverridesPage.tsx',
   'modules/exam/BilimBagaAdminPage.tsx',
   'modules/exam/BilimBagaEntityRoute.tsx',
 ]

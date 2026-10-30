@@ -38,6 +38,7 @@ import ServicesPage from '@/pages/admin/services/ServicesPage'
 import PlatformMigrationConsolePage from '@/pages/admin/platform-migrations/PlatformMigrationConsolePage'
 import SolutionPackUpdateLauncherPage from '@/pages/solution-packs/SolutionPackUpdateLauncherPage'
 import SolutionPackUpdateReviewPage from '@/pages/solution-packs/SolutionPackUpdateReviewPage'
+import SolutionPackOverridesPage from '@/pages/solution-packs/SolutionPackOverridesPage'
 import EventRetentionPage from '@/pages/admin/event-retention/EventRetentionPage'
 import PrintTemplatesPage from '@/pages/admin/PrintTemplatesPage'
 import ModuleUninstallPage from '@/pages/admin/moduleLifecycle/ModuleUninstallPage'
@@ -143,6 +144,15 @@ export const router = createBrowserRouter([
       // `definitions/:id/promotions/:reviewId`.
       { path: 'solution-packs', element: <SolutionPackUpdateLauncherPage /> },
       { path: 'solution-packs/:packId/update-review', element: <SolutionPackUpdateReviewPage /> },
+      // REQ-631: per-tenant overrides of one pack; DefinitionsRead reads, SolutionOverridesManage writes (controls only)
+      {
+        path: 'solution-packs/:packId/overrides',
+        element: (
+          <RequirePermission permission={P.DefinitionsRead}>
+            <SolutionPackOverridesPage />
+          </RequirePermission>
+        ),
+      },
       { path: 'admin/event-retention', element: platformPage(P.TenantsManage, <EventRetentionPage />) },
       { path: 'dlq', element: <DlqPage /> },
       { path: 'webhooks', element: <WebhooksPage /> },

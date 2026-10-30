@@ -92,6 +92,44 @@ export function parseUnresolvedConflictDetail(
   return { artefactType: match[1], artefactId: match[2] }
 }
 
+export type PackOverrideStatus = 'active' | 'retired' | 'orphaned'
+
+export interface PackOverride {
+  override_id: string
+  override_version: number
+  pack_id: string
+  artefact_type: string
+  artefact_id: string
+  made_against: string
+  status: PackOverrideStatus
+  reason: string
+  created_by: string
+  inserted_at: string
+  patch: Record<string, unknown>
+}
+
+export interface PackOverrideListResponse {
+  overrides: PackOverride[]
+}
+
+export interface PackOverrideCreateRequest {
+  artefact_type: string
+  artefact_id: string
+  patch: Record<string, unknown>
+  reason: string
+}
+
+export interface PackOverrideVersionRequest {
+  patch: Record<string, unknown>
+  reason: string
+  base_version?: number
+}
+
+export interface PackOverrideRetireRequest {
+  reason: string
+  base_version?: number
+}
+
 export const solutionPacksApi = {
   updateReview: (packId: string, body: PackUpdateReviewRequest) =>
     client.post<PackUpdateReviewResponse>(
@@ -102,6 +140,27 @@ export const solutionPacksApi = {
   updateApply: (packId: string, body: PackUpdateApplyRequest) =>
     client.post<PackUpdateApplyResponse>(
       `/api/v1/solution-packs/${encodeURIComponent(packId)}/update-apply`,
+      body,
+    ),
+
+  /** REQ-596 / REQ-631 — per-tenant overrides; the tenant comes from the session, never the request. */
+  listOverrides: (packId: string) =>
+    client.get<PackOverrideListResponse>(
+      `/api/v1/solution-packs/${encodeURIComponent(packId)}/overrides`,
+    ),
+
+  createOverride: (packId: string, body: PackOverrideCreateRequest) =>
+    client.post<PackOverride>(`/api/v1/solution-packs/${encodeURIComponent(packId)}/overrides`, body),
+
+  newOverrideVersion: (packId: string, overrideId: string, body: PackOverrideVersionRequest) =>
+    client.post<PackOverride>(
+      `/api/v1/solution-packs/${encodeURIComponent(packId)}/overrides/${encodeURIComponent(overrideId)}/versions`,
+      body,
+    ),
+
+  retireOverride: (packId: string, overrideId: string, body: PackOverrideRetireRequest) =>
+    client.post<PackOverride>(
+      `/api/v1/solution-packs/${encodeURIComponent(packId)}/overrides/${encodeURIComponent(overrideId)}/retire`,
       body,
     ),
 
