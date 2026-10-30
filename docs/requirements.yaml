@@ -45465,7 +45465,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-621 -- L2b builds on Letflow.Ledger.post/1 of slice L2a
+    gh: 3559
     description: >
       Slice L2b of the WMS stock ledger (GH #2657, REQ-502, ledger core), row L2b of the slice table of decision 0073
       (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md, "Consequences"): "reversal, authorize/3,
