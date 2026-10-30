@@ -107,12 +107,14 @@ defmodule Letflow.RecordTriggers.Apply do
   end
 
   defp write(%{mode: "create"} = line, base, _row, prefix, lineage),
+    # scope-all: record-trigger system write, no HTTP user (tenant authority)
     do:
       Records.create_record(Map.put(base, :field_values, line.fields), prefix, :tenant,
         trigger_lineage: lineage
       )
 
   defp write(%{mode: "upsert_by_external_ref"} = line, base, _row, prefix, lineage),
+    # scope-all: record-trigger system write, no HTTP user (tenant authority)
     do:
       Records.upsert_record_by_external_ref(
         base |> Map.put(:field_values, line.fields) |> Map.put(:external_ref, line.external_ref),
@@ -137,6 +139,7 @@ defmodule Letflow.RecordTriggers.Apply do
           preserve_keys: preserve,
           expected_last_event_global_seq: latest.last_event_global_seq
         })
+        # scope-all: record-trigger system write, no HTTP user (tenant authority)
         |> Records.update_record(prefix, :tenant, trigger_lineage: lineage)
 
       _missing_or_deleted ->
