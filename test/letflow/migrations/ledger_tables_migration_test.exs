@@ -44,7 +44,7 @@ defmodule Letflow.LedgerTablesMigrationTest do
     assert {:error, %Postgrex.Error{postgres: %{code: ^code, constraint: ^constraint}}} = run(sql)
   end
 
-  defp entry(over \\ %{}) do
+  defp entry(over) do
     Map.merge(
       %{
         id: @entry_id,
@@ -69,7 +69,7 @@ defmodule Letflow.LedgerTablesMigrationTest do
     )
   end
 
-  defp leg(over \\ %{}) do
+  defp leg(over) do
     Map.merge(
       %{
         id: "44444444-4444-4444-4444-444444444444",
@@ -87,9 +87,9 @@ defmodule Letflow.LedgerTablesMigrationTest do
     )
   end
 
-  defp put_entry(schema, over \\ %{}), do: ok!(insert_sql(schema, "ledger_entry", entry(over)))
+  defp put_entry(schema, over), do: ok!(insert_sql(schema, "ledger_entry", entry(over)))
 
-  defp put_leg(schema, over \\ %{}), do: ok!(insert_sql(schema, "ledger_leg", leg(over)))
+  defp put_leg(schema, over), do: ok!(insert_sql(schema, "ledger_leg", leg(over)))
 
   defp leg_sql(schema, over), do: insert_sql(schema, "ledger_leg", leg(over))
   defp entry_sql(schema, over), do: insert_sql(schema, "ledger_entry", entry(over))
@@ -234,7 +234,7 @@ defmodule Letflow.LedgerTablesMigrationTest do
   end
 
   test "A-4 entry refusals", %{schema: schema} do
-    put_entry(schema)
+    put_entry(schema, %{})
 
     dup = fn over -> entry_sql(schema, Map.merge(%{id: Ecto.UUID.generate()}, over)) end
 
@@ -302,7 +302,7 @@ defmodule Letflow.LedgerTablesMigrationTest do
   end
 
   test "A-5 entry accepted shapes", %{schema: schema} do
-    put_entry(schema)
+    put_entry(schema, %{})
 
     ok!(
       entry_sql(schema, %{
@@ -371,8 +371,8 @@ defmodule Letflow.LedgerTablesMigrationTest do
   # -- criterion 3 -----------------------------------------------------------------------------------
 
   test "A-7 leg refusals", %{schema: schema} do
-    put_entry(schema)
-    put_leg(schema)
+    put_entry(schema, %{})
+    put_leg(schema, %{})
     n = fn over -> leg_sql(schema, Map.merge(%{id: Ecto.UUID.generate(), leg_no: 2}, over)) end
     q = fn s -> {:raw, s} end
 
@@ -414,7 +414,7 @@ defmodule Letflow.LedgerTablesMigrationTest do
   end
 
   test "A-8 leg accepted shapes and the attrs bound", %{schema: schema} do
-    put_entry(schema)
+    put_entry(schema, %{})
     q = fn s -> {:raw, s} end
 
     put_leg(schema, %{
@@ -513,8 +513,8 @@ defmodule Letflow.LedgerTablesMigrationTest do
       "ledger_balance_unit_ref_check"
     )
 
-    put_entry(schema)
-    put_leg(schema)
+    put_entry(schema, %{})
+    put_leg(schema, %{})
 
     refused(
       entry_sql(schema, %{id: Ecto.UUID.generate(), cause: "a" <> <<1>>}),
