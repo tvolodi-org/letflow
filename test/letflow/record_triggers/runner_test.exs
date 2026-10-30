@@ -407,4 +407,116 @@ defmodule Letflow.RecordTriggers.RunnerTest do
 
   defp update_line_decl(field),
     do: %{"entity_type" => R.type_a(), "mode" => "update_self", "fields" => [field]}
+
+  describe "E: criterion 3 at the runner (ctx.uuid, no DB in the sandbox, read-miss equivalence)" do
+    defmodule CheckinRunner do
+      @moduledoc false
+      # Runs the real sandbox with the test's connection checked in and the pool in manual mode, so
+      # any Repo call from inside the sandbox raises an ownership error. Auto mode (what the tenant
+      # fixture uses) is restored afterwards for the teardown.
+      def run(source, input, opts) do
+        :ok = Ecto.Adapters.SQL.Sandbox.checkin(Letflow.Repo)
+        Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :manual)
+
+        try do
+          Letflow.Engine.Lua.ScriptRunner.run(source, input, opts)
+        after
+          Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+        end
+      end
+    end
+
+    defp real_script!(schema, key, source) do
+      Application.delete_env(:letflow, :record_trigger_script_runner)
+      F.published!(schema, key, source, R.manifest(), hook_kind: "entity_event")
+    end
+
+    @uuid_source """
+    return { writes = { { entity_type = "r628_item", mode = "update_self", fields = { note = ctx.uuid() } } } }
+    """
+
+    test "E1 ctx.uuid is equal for the same row run twice and differs between two rows", %{
+      schema: s,
+      record_id: id
+    } do
+      rule = real_script!(s, "r628uuid", @uuid_source)
+      row_a = R.claimed_row!(s, rule, id)
+      row_b = R.claimed_row!(s, rule, id)
+      assert row_a.id != row_b.id
+
+      assert {:ok, [%{fields: %{"note" => uuid_a}}]} = Runner.run(row_a, s)
+      assert {:ok, [%{fields: %{"note" => uuid_a_again}}]} = Runner.run(row_a, s)
+      assert {:ok, [%{fields: %{"note" => uuid_b}}]} = Runner.run(row_b, s)
+
+      assert {:ok, _} = Ecto.UUID.cast(uuid_a)
+      assert uuid_a == uuid_a_again
+      assert uuid_a != uuid_b
+    end
+
+    test "E2 the sandbox gives the same lines with the DB connection checked in", %{
+      schema: s,
+      record_id: id
+    } do
+      source = """
+      return { writes = { { entity_type = "r628_item", mode = "update_self", fields = { note = ctx.input.record.label .. ":" .. ctx.uuid() } } } }
+      """
+
+      rule = real_script!(s, "r628ckin", source)
+      row = R.claimed_row!(s, rule, id)
+
+      assert {:ok, [_] = with_conn} = Runner.run(row, s)
+
+      R.put_env(:record_trigger_script_runner, CheckinRunner)
+      assert {:ok, ^with_conn} = Runner.run(row, s)
+    end
+
+    test "E3 an unknown id, a deleted record and another tenant's id read as []; a restricted field is absent",
+         %{schema: s} do
+      P.flag!(s, R.type_b())
+      P.restrict_field!(s, R.type_b(), "label")
+      R.reply(lines_out([]))
+
+      manifest =
+        R.manifest(%{
+          "input_schema" => %{
+            "type" => "object",
+            "properties" => %{"cid" => %{"type" => "string"}}
+          },
+          "reads" => [P.id_read("rd", R.type_b(), ["label"])]
+        })
+
+      deleted = R.record!(s, R.type_b(), %{"label" => "gone"})
+
+      {:ok, _} =
+        Letflow.Entities.Records.delete_record(
+          %{
+            entity_type: R.type_b(),
+            record_id: deleted,
+            actor_id: Ecto.UUID.generate(),
+            idempotency_key: "e3-del"
+          },
+          s,
+          :tenant
+        )
+
+      live = R.record!(s, R.type_b(), %{"label" => "live"})
+
+      foreign_schema = R.tenant!("r628x")
+      foreign = R.record!(foreign_schema, R.type_b(), %{"label" => "theirs"})
+
+      reads_for = fn cid ->
+        holder = R.record!(s, R.type_a(), %{"cid" => cid})
+        assert {_, _, {:ok, []}} = run!(s, holder, manifest)
+        {input, _, _} = stub_input()
+        input["reads"]
+      end
+
+      for cid <- [Ecto.UUID.generate(), deleted, foreign] do
+        assert reads_for.(cid) == %{"rd" => []}, inspect(cid)
+      end
+
+      # a hit reads as a row with the restricted field absent, not as an empty row list
+      assert reads_for.(live) == %{"rd" => [%{"id" => live}]}
+    end
+  end
 end
