@@ -68,6 +68,8 @@ defmodule Letflow.Idempotency do
     # GH 2534 PR 7c-1: the script SERVICE_TASK route (engine.ex apply_script_task_result/3).
     "script_task_dispatch:",
     "script_run:",
+    # REQ-628: the record-trigger result transaction (record_triggers/apply.ex).
+    "record_trigger:",
     "certificate:issue:",
     "entities-record-import:",
     "attachment_attached:",

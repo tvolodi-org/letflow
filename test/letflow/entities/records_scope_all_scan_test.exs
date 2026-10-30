@@ -53,6 +53,7 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     "lib/letflow/modules/exam/certificate.ex" => 1,
     "lib/letflow/modules/exam/session.ex" => 5,
     "lib/letflow/modules/exam/snapshot.ex" => 1,
+    "lib/letflow/record_triggers/apply.ex" => 3,
     "lib/letflow/scheduler/record_deadline_sweep.ex" => 1,
     "lib/mix/tasks/letflow.seed.exam_fixtures.ex" => 1
   }
