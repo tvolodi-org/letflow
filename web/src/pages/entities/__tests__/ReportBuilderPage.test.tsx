@@ -9,6 +9,10 @@
  *   B8 404 on open                    B9 no EntitiesViewsManage: no controls
  *   B10 empty list                    B11 loading and double submit
  *   B12 sort without columns is blocked
+ *
+ * REQ-634 part B — run panel: R1 one aggregate + one query call, tables  R2 no columns: no query
+ *   R3 403/404/422 (and 400) on either call: alert, no tables  R4 no EntitiesAggregate  R5 double click
+ *   R6 run strings in every locale  R7 create then Run
  */
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -18,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import { accessState } from '@/auth/access/fixtures'
 import { P } from '@/auth/access'
+import { entitiesMessages } from '@/i18n/entitiesMessages'
 import type { AccessState } from '@/auth/access'
 import type { ReportView } from '@/types/api'
 import { ReportBuilderPage } from '../ReportBuilderPage'
@@ -51,7 +56,7 @@ vi.mock('@/api/entityViews', () => ({
 }))
 
 vi.mock('@/api/entities', () => ({
-  entitiesApi: { getActiveDefinition: vi.fn() },
+  entitiesApi: { getActiveDefinition: vi.fn(), aggregateRecords: vi.fn(), queryRecords: vi.fn() },
 }))
 
 import { reportViewsApi } from '@/api/entityViews'
@@ -59,6 +64,8 @@ import { entitiesApi } from '@/api/entities'
 
 const api = vi.mocked(reportViewsApi)
 const defs = vi.mocked(entitiesApi)
+const agg = vi.mocked(entitiesApi.aggregateRecords)
+const qry = vi.mocked(entitiesApi.queryRecords)
 
 const REPORT: ReportView = {
   id: 'r1',
@@ -123,6 +130,8 @@ beforeEach(() => {
   api.create.mockResolvedValue(REPORT)
   api.update.mockResolvedValue(REPORT)
   api.remove.mockResolvedValue(undefined)
+  agg.mockResolvedValue({ results: [{ group: { status: 'open' }, values: { sum__total: 42 } }] })
+  qry.mockResolvedValue({ items: [{ record_id: "x1", field_values: { status: "open", secret: "hide" }, deleted: false, entity_def_version: "1", last_event_global_seq: 1 }], next_cursor: null })
   defs.getActiveDefinition.mockRejectedValue(apiError(404))
 })
 afterEach(() => {
@@ -313,5 +322,125 @@ describe('REQ-634 ReportBuilderPage', () => {
     expect(await screen.findByTestId('report-sort-error')).toHaveAttribute('role', 'alert')
     expect(api.create).not.toHaveBeenCalled()
     expect(alerts().length).toBeGreaterThan(0)
+  })
+
+  const WITH_FILTER: ReportView = { ...REPORT, filter: [{ field: 'status', op: 'eq', value: 'open' }] }
+
+  it('R1 Run sends one aggregate and one query call and shows both tables', async () => {
+    api.get.mockResolvedValue(WITH_FILTER)
+    renderPage()
+    await openExisting()
+    fireEvent.click(screen.getByTestId('report-run'))
+    const summary = await screen.findByTestId('report-summary')
+    expect(agg).toHaveBeenCalledTimes(1)
+    expect(agg).toHaveBeenCalledWith('orders', {
+      aggregates: [{ fn: 'sum', field: 'total' }],
+      group_by: [{ field: 'status' }],
+      filters: WITH_FILTER.filter,
+    })
+    expect(qry).toHaveBeenCalledTimes(1)
+    expect(qry).toHaveBeenCalledWith('orders', { filters: WITH_FILTER.filter, sort: REPORT.sort })
+    expect('columns' in (qry.mock.calls[0]?.[1] ?? {})).toBe(false)
+    expect(within(summary).getByText('sum__total')).toBeInTheDocument()
+    expect(within(summary).getByText('42')).toBeInTheDocument()
+    const detail = await screen.findByTestId('report-detail')
+    expect(within(detail).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['status'])
+    expect(within(detail).getByText('open')).toBeInTheDocument()
+    expect(within(detail).queryByText('hide')).not.toBeInTheDocument()
+  })
+
+  it('R2 a report without columns sends no query call and shows no detail table', async () => {
+    api.get.mockResolvedValue({ ...REPORT, columns: [], sort: [] })
+    renderPage()
+    await openExisting()
+    fireEvent.click(screen.getByTestId('report-run'))
+    await screen.findByTestId('report-summary')
+    expect(agg).toHaveBeenCalledTimes(1)
+    expect(qry).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('report-detail')).not.toBeInTheDocument()
+  })
+
+  const FREE_AGG = 'aggregate function "sum" requires a field'
+  const FREE_QRY = 'field is not queryable: "x"'
+  const UNPROC = entitiesMessages.en['entities.reports.run.error.unprocessable']
+  it.each([
+    ['aggregate', 403, undefined, 'You are not allowed to do this.'],
+    ['aggregate', 404, undefined, 'The report or entity type was not found.'],
+    ['aggregate', 422, FREE_AGG, UNPROC],
+    ['aggregate', 400, 'x is missing or malformed', 'The request was not understood. Check the report and try again.'],
+    ['query', 403, undefined, 'You are not allowed to do this.'],
+    ['query', 404, undefined, 'The report or entity type was not found.'],
+    ['query', 422, FREE_QRY, UNPROC],
+    ['query', 400, 'x is missing or malformed', 'The request was not understood. Check the report and try again.'],
+  ])('R3 %s call %i shows an alert and no partial tables', async (which, status, detail, text) => {
+    const target = which === 'aggregate' ? agg : qry
+    target.mockRejectedValue(apiError(status, detail))
+    renderPage()
+    await openExisting()
+    fireEvent.click(screen.getByTestId('report-run'))
+    const alert = await screen.findByTestId('report-error')
+    expect(alert).toHaveAttribute('role', 'alert')
+    expect(alert.textContent).toContain(text)
+    if (detail && status === 422) expect(alert.textContent).not.toContain(detail)
+    expect(screen.queryByTestId('report-summary')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('report-detail')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Report name')).toHaveValue('Totals')
+  })
+
+  it('R4 without EntitiesAggregate Run is disabled with the message and makes no aggregate call', async () => {
+    const s = accessState('tenantAdmin')
+    if (s.status !== 'ready') throw new Error('fixture not ready')
+    const noAgg: AccessState = {
+      status: 'ready',
+      info: { ...s.info, permissions: s.info.permissions.filter((p) => p !== P.EntitiesAggregate) },
+    }
+    renderPage(noAgg)
+    await openExisting()
+    const run = screen.getByTestId('report-run')
+    expect(run).toBeDisabled()
+    expect(screen.getByTestId('report-run-missing-access')).toHaveTextContent(
+      entitiesMessages.en['entities.reports.run.missingAccess'],
+    )
+    fireEvent.click(run)
+    expect(agg).not.toHaveBeenCalled()
+  })
+
+  it('R5 a second click while Run is pending makes one aggregate call', async () => {
+    let release: (v: { results: [] }) => void = () => {}
+    agg.mockReturnValue(new Promise((res) => (release = res)))
+    renderPage()
+    await openExisting()
+    const run = screen.getByTestId('report-run')
+    fireEvent.click(run)
+    fireEvent.click(run)
+    expect(agg).toHaveBeenCalledTimes(1)
+    await act(async () => release({ results: [] }))
+    expect(await screen.findByTestId('report-summary')).toBeInTheDocument()
+  })
+
+  it('R6 every locale carries the run-panel strings', () => {
+    const keys = Object.keys(entitiesMessages.en).filter((k) => k.startsWith('entities.reports.run.'))
+    expect(keys.length).toBe(8)
+    for (const loc of ['ru', 'kk'] as const) {
+      for (const k of keys) expect(entitiesMessages[loc][k], `${loc} ${k}`).toBeTruthy()
+    }
+  })
+
+  it('R7 after create the Run button appears and replays the created report', async () => {
+    api.list.mockResolvedValue({ items: [] })
+    api.create.mockResolvedValue(REPORT)
+    renderPage()
+    await openNew()
+    expect(screen.queryByTestId('report-run')).not.toBeInTheDocument()
+    fillValid()
+    fireEvent.click(screen.getByTestId('report-save'))
+    await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1))
+    fireEvent.click(await screen.findByTestId('report-run'))
+    await waitFor(() => expect(agg).toHaveBeenCalledTimes(1))
+    expect(agg).toHaveBeenCalledWith('orders', {
+      aggregates: REPORT.aggregates,
+      group_by: REPORT.group_by,
+      filters: REPORT.filter,
+    })
   })
 })

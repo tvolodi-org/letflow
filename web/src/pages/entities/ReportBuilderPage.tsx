@@ -1,8 +1,9 @@
-/** ReportBuilderPage — REQ-634 part A
+/** ReportBuilderPage — REQ-634 parts A and B
  *
  *  Lists, creates, edits and deletes the saved reports (`kind: "report"` of
  *  `/api/v1/entity-views`) of one entity type. The type comes from the route and is
- *  read-only in the editor. The run panel (aggregate call, result tables) is part B.
+ *  read-only in the editor. Part B adds the run panel: it replays the STORED report as one
+ *  aggregate call plus (when the report has columns) one query call, shown as two tables.
  *
  *  Hiding the create/save/delete controls without EntitiesViewsManage is UX only: the
  *  server enforces the permission. The route itself is wrapped in
@@ -66,6 +67,20 @@ interface ActionError {
   retry: boolean
 }
 
+type Row = Record<string, string>
+
+interface RunResult {
+  summaryColumns: string[]
+  summary: Row[]
+  detailColumns: string[]
+  detail: Row[] | null
+}
+
+function cell(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  return typeof v === 'object' ? JSON.stringify(v) : String(v)
+}
+
 function uid(): string {
   return crypto.randomUUID()
 }
@@ -123,6 +138,7 @@ function ReportBuilderPageInner(): React.ReactElement {
   const intl = useIntl()
   const tenantKeys = useTenantScopedQueryKeys()
   const canManage = useAccess().can(P.EntitiesViewsManage)
+  const canAggregate = useAccess().can(P.EntitiesAggregate)
 
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [draft, setDraft] = useState<Draft>(emptyDraft)
@@ -132,6 +148,9 @@ function ReportBuilderPageInner(): React.ReactElement {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [actionError, setActionError] = useState<ActionError | null>(null)
+  // The stored report the run panel replays (never the unsaved draft) and its last result.
+  const [openReport, setOpenReport] = useState<ReportView | null>(null)
+  const [run, setRun] = useState<RunResult | null>(null)
   // A second submission while a request is in flight is a no-op, also within one tick.
   const pendingRef = useRef(false)
   const retryRef = useRef<(() => Promise<void>) | null>(null)
@@ -186,17 +205,26 @@ function ReportBuilderPageInner(): React.ReactElement {
     [intl],
   )
 
+  /** The run routes send free-text 422 details, not reason codes: one run-specific message. */
+  const runFailure = useCallback(
+    (err: unknown): ActionError =>
+      statusOf(err) === 422
+        ? { message: intl.formatMessage({ id: 'entities.reports.run.error.unprocessable' }), retry: false }
+        : failure(err),
+    [intl, failure],
+  )
+
   /** Runs one request under the pending guard; the draft is never touched on failure. */
-  const guarded = async (action: () => Promise<void>) => {
+  const guarded = async (action: () => Promise<void>, mapError: (err: unknown) => ActionError = failure) => {
     if (pendingRef.current) return
     pendingRef.current = true
     setBusy(true)
     setActionError(null)
-    retryRef.current = () => guarded(action)
+    retryRef.current = () => guarded(action, mapError)
     try {
       await action()
     } catch (err) {
-      setActionError(failure(err))
+      setActionError(mapError(err))
     } finally {
       pendingRef.current = false
       setBusy(false)
@@ -205,6 +233,8 @@ function ReportBuilderPageInner(): React.ReactElement {
 
   const handleNew = () => {
     setSelection({ kind: 'new' })
+    setOpenReport(null)
+    setRun(null)
     setDraft(emptyDraft())
     setNotFound(false)
     setFieldErrors({})
@@ -224,9 +254,13 @@ function ReportBuilderPageInner(): React.ReactElement {
       const report = await reportViewsApi.get(id)
       setDraft(draftFromReport(report))
       setSelection({ kind: 'open', id })
+      setOpenReport(report)
+      setRun(null)
     } catch (err) {
       if (statusOf(err) === 404) {
         setSelection({ kind: 'none' })
+        setOpenReport(null)
+        setRun(null)
         setNotFound(true)
       } else {
         setActionError(failure(err))
@@ -240,6 +274,8 @@ function ReportBuilderPageInner(): React.ReactElement {
 
   const handleClose = () => {
     setSelection({ kind: 'none' })
+    setOpenReport(null)
+    setRun(null)
     setFieldErrors({})
     setActionError(null)
   }
@@ -281,15 +317,101 @@ function ReportBuilderPageInner(): React.ReactElement {
     if (!body) return
     void guarded(async () => {
       if (selection.kind === 'open') {
-        await reportViewsApi.update(selection.id, body)
+        const updated = await reportViewsApi.update(selection.id, body)
+        setOpenReport(updated)
+        setRun(null)
       } else {
         const create: ReportCreateRequest = { entity_type: type, ...body }
         const created = await reportViewsApi.create(create)
         setSelection({ kind: 'open', id: created.id })
+        setOpenReport(created)
+        setRun(null)
       }
       await listQuery.refetch()
     })
   }
+
+  /** Replays the stored report: one aggregate call, plus one query call when it has columns. */
+  const handleRun = () => {
+    if (!canAggregate || !openReport || pendingRef.current) return
+    const report = openReport
+    void guarded(async () => {
+      setRun(null)
+      const columns = report.columns ?? []
+      const groupBy = report.group_by ?? []
+      const sort = report.sort ?? []
+      const [agg, page] = await Promise.all([
+        entitiesApi.aggregateRecords(type, {
+          aggregates: report.aggregates ?? [],
+          group_by: groupBy,
+          filters: report.filter ?? [],
+        }),
+        columns.length > 0
+          ? entitiesApi.queryRecords(type, {
+              filters: report.filter ?? [],
+              ...(sort.length > 0 ? { sort } : {}),
+            })
+          : Promise.resolve(null),
+      ])
+      const valueKeys: string[] = []
+      for (const r of agg.results) {
+        for (const k of Object.keys(r.values ?? {})) if (!valueKeys.includes(k)) valueKeys.push(k)
+      }
+      const groupFields = groupBy.map((g) => g.field)
+      setRun({
+        summaryColumns: [...groupFields, ...valueKeys],
+        summary: agg.results.map((r) => {
+          const row: Row = {}
+          for (const f of groupFields) row[f] = cell(r.group?.[f])
+          for (const k of valueKeys) row[k] = cell(r.values?.[k])
+          return row
+        }),
+        detailColumns: columns,
+        detail: page
+          ? page.items.map((rec) => {
+              const row: Row = {}
+              for (const c of columns) row[c] = cell(rec.field_values?.[c])
+              return row
+            })
+          : null,
+      })
+    }, runFailure)
+  }
+
+  const cellStyle: React.CSSProperties = {
+    textAlign: 'left',
+    padding: 'var(--space-2) var(--space-4)',
+    borderBottom: '1px solid var(--border-default)',
+  }
+  const resultTable = (cols: string[], rows: Row[], emptyId: string) =>
+    rows.length === 0 ? (
+      <p>{intl.formatMessage({ id: emptyId })}</p>
+    ) : (
+      <div style={{ overflow: 'auto', maxHeight: '32rem' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {cols.map((c) => (
+                <th key={c} style={cellStyle}>
+                  {c}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i}>
+                {cols.map((c) => (
+                  <td key={c} style={cellStyle}>
+                    {row[c] ?? ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
 
   const handleDelete = () => {
     setConfirmOpen(false)
@@ -298,6 +420,8 @@ function ReportBuilderPageInner(): React.ReactElement {
     void guarded(async () => {
       await reportViewsApi.remove(id)
       setSelection({ kind: 'none' })
+      setOpenReport(null)
+      setRun(null)
       await listQuery.refetch()
     })
   }
@@ -589,6 +713,43 @@ function ReportBuilderPageInner(): React.ReactElement {
               {intl.formatMessage({ id: 'entities.reports.cancel' })}
             </Button>
           </div>
+
+          {selection.kind === 'open' && openReport && openReport.id === selection.id && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }} data-testid="report-run-panel">
+              <div>
+                <Button
+                  variant="primary"
+                  size="md"
+                  data-testid="report-run"
+                  disabled={busy || !canAggregate}
+                  onClick={handleRun}
+                >
+                  {intl.formatMessage({ id: busy ? 'entities.reports.run.running' : 'entities.reports.run.action' })}
+                </Button>
+              </div>
+              {!canAggregate && (
+                <p data-testid="report-run-missing-access">
+                  {intl.formatMessage({ id: 'entities.reports.run.missingAccess' })}
+                </p>
+              )}
+              {run && (
+                <>
+                  <strong>{intl.formatMessage({ id: 'entities.reports.run.summary.title' })}</strong>
+                  <div data-testid="report-summary">
+                    {resultTable(run.summaryColumns, run.summary, 'entities.reports.run.summary.empty')}
+                  </div>
+                  {run.detail && (
+                    <>
+                      <strong>{intl.formatMessage({ id: 'entities.reports.run.detail.title' })}</strong>
+                      <div data-testid="report-detail">
+                        {resultTable(run.detailColumns, run.detail, 'entities.reports.run.detail.empty')}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           <ConfirmDialog
             open={confirmOpen}
             title={intl.formatMessage({ id: 'entities.reports.delete.confirmTitle' })}
