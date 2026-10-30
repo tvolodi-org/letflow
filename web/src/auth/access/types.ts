@@ -33,6 +33,7 @@ export const P = {
   EntitiesViewsManage: 'EntitiesViewsManage',
   EntitiesQuery: 'EntitiesQuery',
   EntitiesAggregate: 'EntitiesAggregate',
+  SolutionOverridesManage: 'SolutionOverridesManage',
 } as const
 
 /** Body of GET /api/v1/me/access. */
