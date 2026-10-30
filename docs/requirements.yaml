@@ -45148,7 +45148,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-619 -- the screen calls the report kind of the view routes that REQ-619 adds
+    gh: 3532
     # Source: docs/requirements.yaml REQ-619 ("Out of scope: the web report builder screen (a later web requirement)"), docs/migration/decisions/0066-generic-saved-views-over-records.md ("Deferred slices", slice 4; D3 replay, D4 permissions); code read: lib/letflow/routers/entity_views.ex (authz_get "/" and "/:id" with :EntitiesQuery, authz_post "/", authz_put "/:id" and authz_delete "/:id" with :EntitiesViewsManage; forward "/entity-views" in lib/letflow/plugs/api_pipeline.ex), lib/letflow/routers/entities.ex (authz_post "/query" :EntitiesQuery, authz_post "/query/aggregate" :EntitiesAggregate), lib/letflow/entities/views/clauses.ex (kind "report" accepted), web/src/api/entityViews.ts and web/src/api/entities.ts (existing clients), web/src/types/api.ts (EntityView, EntityViewCreateRequest), web/src/auth/access/types.ts (P has EntitiesViewsManage; no EntitiesQuery and no EntitiesAggregate entry yet), web/src/router.tsx (route table, RequirePermission), docs/roles.md rows EntitiesQuery, EntitiesAggregate, EntitiesViewsManage. Written by the business analyst (T-0954) 2026-10-30. Not yet validated.
     description: >
       Web part of slice 4 of generic views (decision 0066, "Deferred slices": report builder). REQ-619
