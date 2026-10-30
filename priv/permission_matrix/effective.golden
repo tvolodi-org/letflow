@@ -3,8 +3,8 @@
 # regenerate: MIX_ENV=dev mix letflow.permission_matrix --write
 # modules: catalog_items@0.1.0,exam@0.1.0,org@0.1.0,procurement@0.1.0
 # roles: 8
-# permissions: 67
-# rows: 536
+# permissions: 68
+# rows: 544
 # columns: role permission allowed owner via
 AGENT_RUNNER AttachmentLinksIssue false core -
 AGENT_RUNNER AttachmentsManage false core -
@@ -22,6 +22,7 @@ AGENT_RUNNER EntitiesAttachmentsManage false core -
 AGENT_RUNNER EntitiesAttachmentsRead false core -
 AGENT_RUNNER EntitiesDefinitionsRead false core -
 AGENT_RUNNER EntitiesDefinitionsWrite false core -
+AGENT_RUNNER EntitiesExtensionsManage false core -
 AGENT_RUNNER EntitiesQuery false core -
 AGENT_RUNNER EntitiesRecordsExport false core -
 AGENT_RUNNER EntitiesRecordsExportUnredacted false core -
@@ -89,6 +90,7 @@ CANDIDATE EntitiesAttachmentsManage false core -
 CANDIDATE EntitiesAttachmentsRead false core -
 CANDIDATE EntitiesDefinitionsRead false core -
 CANDIDATE EntitiesDefinitionsWrite false core -
+CANDIDATE EntitiesExtensionsManage false core -
 CANDIDATE EntitiesQuery false core -
 CANDIDATE EntitiesRecordsExport false core -
 CANDIDATE EntitiesRecordsExportUnredacted false core -
@@ -156,6 +158,7 @@ PLATFORM_ADMIN EntitiesAttachmentsManage true core core
 PLATFORM_ADMIN EntitiesAttachmentsRead true core core
 PLATFORM_ADMIN EntitiesDefinitionsRead true core core
 PLATFORM_ADMIN EntitiesDefinitionsWrite true core core
+PLATFORM_ADMIN EntitiesExtensionsManage true core core
 PLATFORM_ADMIN EntitiesQuery true core core
 PLATFORM_ADMIN EntitiesRecordsExport true core core
 PLATFORM_ADMIN EntitiesRecordsExportUnredacted true core core
@@ -223,6 +226,7 @@ PROCESS_DESIGNER EntitiesAttachmentsManage false core -
 PROCESS_DESIGNER EntitiesAttachmentsRead true core core
 PROCESS_DESIGNER EntitiesDefinitionsRead true core core
 PROCESS_DESIGNER EntitiesDefinitionsWrite true core core
+PROCESS_DESIGNER EntitiesExtensionsManage false core -
 PROCESS_DESIGNER EntitiesQuery true core core
 PROCESS_DESIGNER EntitiesRecordsExport false core -
 PROCESS_DESIGNER EntitiesRecordsExportUnredacted false core -
@@ -290,6 +294,7 @@ PROCESS_OPERATOR EntitiesAttachmentsManage true core core
 PROCESS_OPERATOR EntitiesAttachmentsRead true core core
 PROCESS_OPERATOR EntitiesDefinitionsRead true core core
 PROCESS_OPERATOR EntitiesDefinitionsWrite false core -
+PROCESS_OPERATOR EntitiesExtensionsManage false core -
 PROCESS_OPERATOR EntitiesQuery true core core
 PROCESS_OPERATOR EntitiesRecordsExport false core -
 PROCESS_OPERATOR EntitiesRecordsExportUnredacted false core -
@@ -357,6 +362,7 @@ TASK_WORKER EntitiesAttachmentsManage false core -
 TASK_WORKER EntitiesAttachmentsRead true core core
 TASK_WORKER EntitiesDefinitionsRead true core core
 TASK_WORKER EntitiesDefinitionsWrite false core -
+TASK_WORKER EntitiesExtensionsManage false core -
 TASK_WORKER EntitiesQuery true core core
 TASK_WORKER EntitiesRecordsExport false core -
 TASK_WORKER EntitiesRecordsExportUnredacted false core -
@@ -424,6 +430,7 @@ TENANT_ADMIN EntitiesAttachmentsManage true core core
 TENANT_ADMIN EntitiesAttachmentsRead true core core
 TENANT_ADMIN EntitiesDefinitionsRead true core core
 TENANT_ADMIN EntitiesDefinitionsWrite true core core
+TENANT_ADMIN EntitiesExtensionsManage true core core
 TENANT_ADMIN EntitiesQuery true core core
 TENANT_ADMIN EntitiesRecordsExport true core core
 TENANT_ADMIN EntitiesRecordsExportUnredacted true core core
@@ -491,6 +498,7 @@ TENANT_AUDITOR EntitiesAttachmentsManage false core -
 TENANT_AUDITOR EntitiesAttachmentsRead true core core
 TENANT_AUDITOR EntitiesDefinitionsRead true core core
 TENANT_AUDITOR EntitiesDefinitionsWrite false core -
+TENANT_AUDITOR EntitiesExtensionsManage false core -
 TENANT_AUDITOR EntitiesQuery true core core
 TENANT_AUDITOR EntitiesRecordsExport false core -
 TENANT_AUDITOR EntitiesRecordsExportUnredacted false core -

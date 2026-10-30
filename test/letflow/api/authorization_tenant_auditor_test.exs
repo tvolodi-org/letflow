@@ -82,7 +82,8 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :NumberSequencesManage,
     :ScheduledJobsManage,
     :DocumentPrintTemplatesManage,
-    :SolutionOverridesManage
+    :SolutionOverridesManage,
+    :EntitiesExtensionsManage
   ]
 
   @link_route {"POST", "/instances/:id/attachments/:attachment_id/link"}
@@ -126,12 +127,12 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
       assert length(granted) == 15
     end
 
-    test "the refused core set is the literal 39, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
+    test "the refused core set is the literal 40, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
       core = Authorization.core_permissions()
       granted_core = Enum.filter(core, &Authorization.role_allows?(:TENANT_AUDITOR, &1))
       refused_core = core -- granted_core
 
-      assert length(@auditor_refused_core) == 39
+      assert length(@auditor_refused_core) == 40
       assert Enum.sort(refused_core) == Enum.sort(@auditor_refused_core)
       assert Enum.sort(granted_core ++ @auditor_refused_core) == Enum.sort(core)
 

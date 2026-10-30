@@ -45028,6 +45028,76 @@ requirements:
       - "input_invalid is returned by FormValidation.run/4 and handled in F-3 (criterion 9) but is not a row of the D5 table. This entry maps it like the other infrastructure codes (503) and gives it an audit outcome; D5 does not state it."
       - "Still open in 0067 'Not decided here' and not decided by this entry: any wall-clock figure between 50 ms and the 0053 D7 maxima (and above), the maximum number of fields entries in a refusal, whether the 403 of a wrong assignee (ISS-0942) collapses to the not-found answer, a hook 3 with entity reads and a dynamic data API, and the behaviour of any future automatic completer (timer, script handler) including its lock-timeout behaviour (measured in F-3, REQ-605 criterion 10a)."
     depends_on: [REQ-605, REQ-581]
+  - id: REQ-630
+    title: "Module uninstall slice 5: SPA admin screen to uninstall and reactivate a module, behind a build flag and the ModulesManage permission (decision 0066 D8 slice 5)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S8
+    gh: 3518
+    # Source: docs/migration/decisions/0066-module-uninstall-soft-uninstall-and-reactivate.md (D4 "Running work" table, "Open work" paragraph, D5 item 3, D6 "Who", D8 slice 5 row "SPA admin screen to uninstall/reactivate ... frontend unit tests; npm run check", the flag sentence of D8); REQ-578 (routes POST /tenant/modules/:module_id/uninstall and /reactivate, body {"rationale"}, answers 200 {module_id, status}, 404, 409 dependents_installed and upgrade_required, 422); REQ-627 (409 open_work_exists with the counts open_instances and open_tasks, no ids; the start-after-uninstall 404); code read: lib/letflow/routers/tenant_modules.ex (handle_transition, run_transition), lib/letflow/api/error.ex (module_dependents_installed/1, module_upgrade_required/0 extensions), lib/letflow/routers/me.ex (handle_list_modules lists only installed modules), web/src/api/client.ts (409 and error mapping), web/src/api/me.ts, web/src/hooks/useInstalledModules.ts, web/src/router.tsx and web/src/components/layout/AppShell.tsx (solution-packs route and nav item gated by P.ModulesManage), web/src/pages/solution-packs/SolutionPackUpdateLauncherPage.tsx (access.can(P.ModulesManage), Navigate, AccessPending), web/src/auth/emailFirstFlag.ts with web/src/vite-env.d.ts and web/.env.example (the build-flag precedent). Written by the business analyst (T-0942) 2026-10-30. Not yet validated.
+    description: >
+      Slice 5 of decision 0066 (D8): the SPA admin screen that calls the two routes REQ-578 added. It depends
+      on REQ-578 (routes, merged, GH 3267) and REQ-627 (slice 2: the open_work_exists answer and the uniform
+      404 on start; its entry is on main, its code is pending). Frontend only: no backend, route, permission
+      or migration change; nothing under lib/ or priv/ changes.
+      (1) Where. A new page web/src/pages/admin/modules/ModuleUninstallPage.tsx at the route
+      admin/module-lifecycle in web/src/router.tsx, wrapped in RequirePermission with P.ModulesManage (the
+      pattern of admin/print-templates there), and a nav item in the tenantAdmin group of
+      web/src/components/layout/AppShell.tsx with permission P.ModulesManage, label "Module lifecycle". The
+      permission is the existing ModulesManage (TENANT_ADMIN, and the platform tenant's PLATFORM_ADMIN,
+      docs/roles.md); no new permission is added. A caller without it sees the same redirect or
+      access-denied behaviour as the other P.ModulesManage pages; the server still decides (403).
+      (2) Flag. The SPA cannot read the application env key modules_uninstall_enabled of :letflow (no route
+      exposes it, and adding one is out of scope). The screen is therefore gated by a build-time Vite
+      variable VITE_MODULES_UNINSTALL_ENABLED, read by one helper isModulesUninstallEnabled() in
+      web/src/modules/uninstallFlag.ts on the model of web/src/auth/emailFirstFlag.ts: only the exact value
+      "true" enables it; absent, empty or anything else is off. Off: the nav item is not rendered and the
+      route renders NotFoundPage. The variable is declared in web/src/vite-env.d.ts and listed in
+      web/.env.example as false; no committed non-dev env file or vite config sets it to true. The flag
+      is a visibility switch only: the server flag still decides, and with the server flag off the routes
+      answer 404 (see (4)).
+      (3) API wrapper. web/src/api/tenantModules.ts exports tenantModulesApi.uninstall(moduleId, rationale)
+      and tenantModulesApi.reactivate(moduleId, rationale): POST /api/v1/tenant/modules/{moduleId}/uninstall
+      and /reactivate with body {"rationale": rationale}; the path segment is encodeURIComponent(moduleId);
+      the response type is {module_id: string, status: string}. No tenant id, tenant or prefix is sent.
+      (4) Screen. Two sections, each with a module id field, a mandatory rationale textarea and a submit
+      button disabled while the rationale is blank. Section "Installed modules" lists the modules from
+      useInstalledModules() (GET /me/modules, which returns active modules only) with an Uninstall button
+      per row that opens a confirmation dialog stating that running work blocks the uninstall and that data
+      is kept. Section "Reactivate" takes a module id typed by the admin, because no route lists uninstalled
+      modules (GET /me/modules omits them, REQ-578 criterion 5); this is stated on the screen. After a 200
+      the installed-modules query is invalidated and a success message names the module id and the new
+      status. Answers shown as user-facing states, distinguished by status and by the body field code
+      (read from the error's details.code, since web/src/api/client.ts keeps the whole 409 body in
+      details):
+        - 409 code open_work_exists: message "This module still has running work and cannot be uninstalled",
+          with the counts of open instances and open tasks read from the body fields open_instances and
+          open_tasks (the names of the REQ-627 error tuple; no id is shown or requested), and the advice to
+          finish or cancel the work and try again. Nothing is changed by the screen.
+        - 404: one message "Module not found, or this action is not available" for every 404, for uninstall
+          and reactivate, whatever the cause (unknown, not installed, not uninstalled, or the server flag
+          off). The screen never says "feature disabled" or "flag" and never guesses the cause, because the
+          server answers all of them identically (INV-5, decision 0066 D4).
+        - 409 code dependents_installed: lists the dependent module ids from the body field dependents.
+        - 409 code upgrade_required: message that the installed module differs from the current version and
+          must be upgraded instead.
+        - 422: shows the server detail text (rationale is required, or the missing dependency).
+        - 403: the shared forbidden message of the other admin pages.
+        - Any other error: the shared generic error message; the form keeps its input.
+      Out of scope: a read route or screen section that lists uninstalled modules or exposes the server
+      flag, a purge, any change to the exam module nav, the orphaned-data read proof (slice 3), journal
+      kinds (slice 4), cancelling open work from this screen, apps/mobile.
+    acceptance_criteria:
+      - "1. API wrapper: in web/src/api/__tests__/tenantModules.test.ts, with fetch mocked, tenantModulesApi.uninstall('exam', 'closing the pilot') issues POST /api/v1/tenant/modules/exam/uninstall with the JSON body {\"rationale\":\"closing the pilot\"} and nothing else in the body; tenantModulesApi.reactivate issues the same on /reactivate; a module id 'a/b' is sent as 'a%2Fb'; the body of neither call has a key tenant_id, tenant or prefix."
+      - "2. Flag helper: in web/src/modules/__tests__/uninstallFlag.test.ts, isModulesUninstallEnabled() is true only when VITE_MODULES_UNINSTALL_ENABLED is the exact string 'true' and false for undefined, '', 'false', 'TRUE' and '1'; web/.env.example lists VITE_MODULES_UNINSTALL_ENABLED=false and the test reads every committed env file under web/ (the pattern of web/src/auth/__tests__/emailFirstFlag.test.ts) and asserts none sets it to true."
+      - "3. Gating: in web/src/pages/admin/modules/__tests__/ModuleUninstallPage.test.tsx, a user holding P.ModulesManage with the flag on sees the page and the nav item 'Module lifecycle'; a user without P.ModulesManage does not get the page content (the redirect or denied state the sibling P.ModulesManage pages give, asserted the same way) and no nav item; with the flag off the nav item is absent and the route renders NotFoundPage for a user who holds P.ModulesManage. No new permission atom is added in web/src/auth/access/types.ts."
+      - "4. Uninstall happy path: with GET /me/modules mocked to two modules, the page lists both with an Uninstall button; the submit stays disabled while the rationale is blank or whitespace; after confirming with the rationale 'closing the pilot' the mock receives exactly one uninstall call with that rationale, and on a 200 {module_id, status: 'uninstalled'} the success message names the module id and 'uninstalled' and the installed-modules query is invalidated (the mocked list is fetched again)."
+      - "5. open_work_exists state: a mocked 409 whose body has code 'open_work_exists', open_instances 2 and open_tasks 3 shows the running-work message with 2 and 3 on screen, no other number, no instance or task id, and no success message; the module stays listed; the rationale the admin typed is still in the field."
+      - "6. Uniform 404 state: a mocked 404 on uninstall and a mocked 404 on reactivate each show exactly the same single message 'Module not found, or this action is not available'; the rendered text of the two 404 cases is identical, and contains none of the words 'flag', 'disabled', 'uninstalled' (as a cause) or 'not installed'. A second test feeds a 404 with a different body text and asserts the same message."
+      - "7. Other answers: a mocked 409 dependents_installed with dependents ['exam-reports'] shows that id; a mocked 409 upgrade_required shows the upgrade message; a mocked 422 with detail 'rationale is required' shows that text; a mocked 403 shows the shared forbidden message; a mocked 500 shows the generic error; in every case no success message is shown and the form input is kept."
+      - "8. Reactivate path: typing the module id 'exam' and the rationale 'pilot resumed' in the Reactivate section and submitting sends one reactivate call; a 200 {module_id: 'exam', status: 'active'} shows the success message and invalidates the installed-modules query; the section shows the text that uninstalled modules are not listed and the id must be typed."
+      - "9. Gate: cd web && npm run check (type-check, lint, unit tests, guards) passes with the new tests included, real output quoted in the change summary; git diff shows no change under lib/, priv/ or apps/, and web/src/modules/exam/ is unchanged."
+    depends_on: [REQ-578, REQ-627]
 
   - id: REQ-629
     title: "Module uninstall slice 3: orphaned-read proof tests for the exam answer keys, before and after uninstall and reactivate (decision 0066 D8 slice 3)"
@@ -45065,3 +45135,74 @@ requirements:
       - "7. No code change and no fix unless a test fails: git diff against origin/main for this change touches only test/letflow/modules/uninstall_orphaned_read_test.exs (plus test/ support files strictly needed, each named in the summary) and no file under lib/, priv/, config/, docs/migration/decisions/ or web/. If a test of criteria 1..6 fails on unmodified product code, the change instead contains the smallest fix, and its summary quotes the failing test name and output before the fix and green output after. No existing test is edited to make a new one pass."
       - "8. Registration and gates: the new test file is registered with REQ-629 where existing tests of the module family are (letflow.check_requirements_registration passes); no test is skipped or tagged to be excluded; mix format --check-formatted, mix compile --warnings-as-errors and the new test file pass (quote Result:); the file is checked against letflow.check_async_sandbox_reachability if async; SECURITY-REVIEWER and REVIEWER verdicts are recorded."
     depends_on: [REQ-549, REQ-496, REQ-578]
+  - id: REQ-631
+    title: "Solution-pack overrides web screen, slice S5: list, create, edit and retire a tenant's overrides and show the update report outcomes (decision 0069 D8 S5)"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 3523
+    # Source: docs/migration/decisions/0069-solution-versioning-and-per-tenant-overrides.md D8 slice S5 ("Web screen (FRONTEND-DEV). List and edit overrides, show the update report. After S2 and S4."), D3 (kept, re-checked, orphaned, property gone; history never deleted), D5 (permission, INV-2), "Threats for SECURITY-REVIEWER"; docs/requirements.yaml REQ-596 (routes, permissions SolutionOverridesManage and :DefinitionsRead, append-only versions, closed property list, reason mandatory, 422 detail texts property_not_overridable, override_exists), REQ-617 (override object of a review entry, override_action of an applied entry, 409 unresolved conflict, 403 without SolutionOverridesManage, override_merge_unsupported), REQ-381 (existing update-review screen); code read: web/src/api/solutionPacks.ts (solutionPacksApi, PackUpdateReviewEntry, PackUpdateAppliedEntry), web/src/pages/solution-packs/SolutionPackUpdateReviewPage.tsx, web/src/pages/solution-packs/SolutionPackUpdateLauncherPage.tsx, web/src/components/solution-packs/UpdateReviewGroupList.tsx, web/src/router.tsx, web/src/components/layout/AppShell.tsx, web/src/auth/access/types.ts (P), web/src/i18n/entitiesMessages.ts (ENTITIES_UI_LOCALES en, ru, kk).
+    description: >
+      Slice S5 of decision 0069 D8 (core roadmap Wave 3, "Solution versioning and per-tenant overrides"). S2 is
+      REQ-596 (override storage and management API), S4 is REQ-617 (plan and apply read overrides). Decision 0069
+      is PROPOSED and its sign-off is pending (REQ-562); this slice is implemented only once REQ-596 and REQ-617 are
+      on main and REQ-562 records the sign-off.
+      What main does today. web/ has the solution-pack update screens of REQ-381 (SolutionPackUpdateLauncherPage,
+      SolutionPackUpdateReviewPage, UpdateReviewGroupList), which show the four classifications and take a
+      resolution per conflict, through solutionPacksApi in web/src/api/solutionPacks.ts. There is no screen for
+      overrides and the review entry type has no override key.
+      What this slice builds, and nothing else. It adds NO backend route, permission, table or field: it uses only
+      the four routes of REQ-596 (list, create, new version, retire, all under /solution-packs/:pack_id/overrides)
+      and the override object of REQ-617 on the two existing update routes (update-review, update-apply).
+      (1) API CLIENT. web/src/api/solutionPacks.ts gains functions for the four REQ-596 routes and the types of the
+      REQ-596 and REQ-617 wire shapes; PackUpdateReviewEntry gains the optional override object (override_id,
+      override_version, made_against, outcome, optional warning) and PackUpdateAppliedEntry the optional
+      override_action. The tenant is never sent (the token carries it).
+      (2) OVERRIDES SCREEN for one installed pack, on its own route guarded by DefinitionsRead and linked from the pack row on the existing /solution-packs
+      launcher page. States: list (latest version per override; the fields are those the REQ-596 design lists for the list route, expected artefact type, artefact id, override version, made
+      against pack version, status active, retired or orphaned, reason, to be confirmed against that design), loading, empty, error (a 404 shows the
+      same not-found text whether the pack or the override is unknown or foreign); create (artefact type, artefact
+      id, patch, mandatory reason); edit (writes the next version: the form loads the latest patch and sends the
+      whole patch back, since a version replaces the previous patch; reason mandatory); retire (confirmation,
+      mandatory reason). A server 422 is shown as a field-level message for property_not_overridable (patch
+      untouched, nothing saved), override_exists and a missing reason; no row is shown as changed until the server
+      accepted it. No edit or delete of an earlier version is offered (history is append-only). A retired override
+      shows read-only; an orphaned one shows read-only with the orphaned label and a retire action only.
+      (3) UPDATE REPORT. The existing update-review screen shows, per entry that has an override object, the
+      outcome: kept (with the warning text when the warning is override_kept_pack_changed), override_conflict
+      (counted as unresolved until a resolution is chosen, like a conflict today, offering keep_local and
+      take_incoming only, never merged), orphaned and property_gone (shown as non-blocking). After apply, each
+      applied entry with an override_action shows advanced, retired, orphaned, property_gone or left_unchanged.
+      The "advance" of D3 is shown as advanced. Entries with no override object render exactly as today. The
+      screen shows no patch path or value in the report (REQ-617 sends none). A 409 unresolved-conflict reply and
+      a 403 on apply (caller lacks SolutionOverridesManage while an override_conflict entry exists) each show a
+      stated message and leave the screen state unchanged.
+      (4) PERMISSION GATING (REQ-596, REQ-617). The list view needs DefinitionsRead. The create, edit and retire
+      controls are rendered only for a caller who holds SolutionOverridesManage (granted to TENANT_ADMIN only);
+      without it they are absent, not disabled-with-data. The permission atom is added to P in
+      web/src/auth/access/types.ts and the access fixtures; the server stays the authority (a 403 is shown, never
+      assumed away). The apply control on an update report holding an override_conflict entry is shown only to a
+      holder of SolutionOverridesManage.
+      (5) I18N. Every new visible string, including the outcome, status and error texts, is in the en, ru and kk
+      catalogs in the pattern of web/src/i18n/entitiesMessages.ts (ENTITIES_UI_LOCALES); a missing key in any of
+      the three fails a test.
+      NOT IN THIS SLICE: any backend change; adopt local edit (S6); the effective definition (S3); pack rollback;
+      a merged resolution of an override_conflict; a diff view of patch against base.
+    acceptance_criteria:
+      - "1. No new backend: git diff of the change touches nothing under lib/, priv/ or config/; the api module calls only the four REQ-596 paths under /solution-packs/:pack_id/overrides and the two existing update paths; a unit test of the api module asserts each method, path and that no request carries a tenant id."
+      - "2. List states: component tests render the overrides screen for a mocked list in states loading, empty, error, 404 and populated; the populated list shows, per override, the fields the REQ-596 design lists for the list route (expected: artefact type, artefact id, override version, made_against, status active, retired or orphaned, and reason; the implement step takes the exact names from the REQ-596 design and the wire types are written from it, not from this wording), and shows one row per override_id (the latest version)."
+      - "3. Create and edit: a test submits create with artefact type, artefact id, patch and reason and asserts the request body; a test opens edit, asserts the form is filled with the latest patch, changes one property and asserts the request to the new-version route carries the complete patch and the reason; a submission without a reason is blocked in the form and sends no request; a mocked 422 property_not_overridable, override_exists and a missing reason each show their own message and leave the list unchanged."
+      - "4. Retire and history: a test retires an override after a confirmation with a reason and asserts the request to the retire route; after success the row shows status retired read-only with no edit control; an orphaned row offers retire only; no control and no request in the screen uses PATCH, PUT or DELETE."
+      - "5. Update report outcomes: tests render update-review replies with entries whose override outcome is kept (with and without warning override_kept_pack_changed), override_conflict, orphaned and property_gone and assert each label; an override_conflict entry counts as unresolved until keep_local or take_incoming is chosen and offers no merged choice; orphaned and property_gone do not block apply; after a mocked apply, override_action advanced, retired, orphaned, property_gone and left_unchanged each show their label; an entry without an override key renders identically to a snapshot of today's render."
+      - "6. Error replies: a mocked 409 unresolved-conflict reply and a mocked 403 on apply each show their stated message, keep the chosen resolutions in the form, and do not mark the apply as done; a mocked 422 override_merge_unsupported shows its message."
+      - "7. Permission gating: (a) the overrides screen is mounted on its own route in web/src/router.tsx under RequirePermission with P.DefinitionsRead, which renders PermissionDenied (the not-allowed state) for a caller without it, independent of the ModulesManage guard of the launcher page; a test with a session holding neither DefinitionsRead nor SolutionOverridesManage asserts PermissionDenied and no list request; (b) with a session holding DefinitionsRead and not SolutionOverridesManage the list is shown and no create, edit or retire control is in the DOM; (c) with TENANT_ADMIN's permissions all three are shown; (d) separately, on the update-review screen, which stays under its existing ModulesManage guard, the apply control for a report that holds an override_conflict entry is rendered only for a session with SolutionOverridesManage (a ModulesManage-only session sees the entries but no apply control for that report, with a stated message); (e) SolutionOverridesManage is a member of P and of the access fixtures."
+      - "8. No data in the report: a test feeds a review reply and an apply reply and asserts the distinctive value 987654.321 given only in the overrides list mock appears nowhere in the rendered update-review or apply output."
+      - "9. I18N: a test asserts every message key of the new screen and report exists in en, ru and kk with a non-empty string, and that switching the session locale to kk and to ru renders the outcome and status labels in that language."
+      - "10. Gates: cd web && npm run check passes with real output quoted; REVIEWER verdict recorded; SECURITY-REVIEWER verdict recorded (a tenant-data screen and a permission-gated write surface, even with no new route)."
+    depends_on: [REQ-596, REQ-617, REQ-381]
+    open_questions:
+      - "1. Decision 0069 sign-off (REQ-562) is pending; if the owner changes D2 (what an override is), D3 (outcomes) or D5 (permission), the screen's states and gating change with it."
+      - "2. Q5 of decision 0069: the closed property path list is the REQ-596 design's. The create and edit form is a patch editor over whatever paths the server accepts; whether the screen offers a path picker from a fixed list or a free JSON patch is decided once the REQ-596 design names the list, and no route to fetch the list exists, so a free patch with the server's 422 is assumed."
+      - "3. Where the overrides screen is entered: the route itself is guarded by DefinitionsRead (criterion 7), but the only link is on the /solution-packs launcher, whose nav item is gated by ModulesManage today, so a DefinitionsRead-only caller reaches the screen by URL only. The owner decides whether the nav gate or an extra entry point changes."
+      - "5. REQ-596 states the reply fields of each route in its design, which is not on main yet; the wire types of this screen follow that design."
+      - "4. REQ-617 open question 2 (merged resolution of an override_conflict) is open; this entry offers keep_local and take_incoming only."
