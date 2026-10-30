@@ -45459,3 +45459,88 @@ requirements:
       - "10. The migration is registered in the TenantProvisioning manifest, starts empty, and the pull request states how existing QA tenants are handled (no row is created, so none changes behaviour)."
       - "11. The pull request carries a SECURITY-REVIEWER verdict (mandatory) and names slices A (REQ-577), C and D of 0070 D6 as other requirements that this change does not build."
     depends_on: [REQ-517, REQ-518, REQ-519, REQ-566, "owner confirmation of decision 0070 Q1 (scope declaration route): the feature task must not start before it"]
+
+  - id: REQ-636
+    title: "Tenant-owned record types slice C: module references by record id, the manifest key :reference_targets and the core check on writes (decision 0070 D4 and D6 slice C)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-635 -- depends on slice B (REQ-635), which is still pending
+    # Source: docs/migration/decisions/0070-tenant-owned-record-types.md (D1 "Expected new data-access paths", D4, D6 slice C, "Open owner questions" Q4, "Tests the implementation slices must add" D4-*, "Threats for SECURITY-REVIEWER"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D2 public read API, D3.1 to D3.6 reference contract, D8 core must not reach into a module table); docs/migration/decisions/0006 (D2, no tenant_id column in a schema-isolated table); code read: lib/letflow/modules/read_api.ex (lookup/3, active?/3, the uniform {:error, :not_found}), lib/letflow/modules/org/org.ex and lib/letflow/modules/catalog_items/catalog_items.ex (lookup/2, active?/2), lib/letflow/modules/module.ex (the manifest type, optional keys), lib/letflow/modules/catalog.ex (validate/2, rules 10 to 13), lib/letflow/modules/manifest_hash.ex, lib/letflow/entities/managed_types.ex (owner_of/2), lib/letflow/entities/record_access.ex (write/3), lib/letflow/routers/entities/record_writes.ex (handle_create_record/2, handle_update_record/3), lib/letflow/routers/entities/record_import.ex (handle_import_records/2), lib/letflow/entities/step_writes.ex (prepare/2, validate_lines/2), lib/letflow/entities/handler_writes.ex (create/3), lib/letflow/api/error.ex. Written by the business analyst (T-0980) 2026-10-30. Not yet validated.
+    description: >
+      Slice C of decision 0070 (D6 "Slice C, module references (D4)"); the decision record is the product of
+      REQ-566. Today a tenant-owned record type can hold a module record's id only as a free string: nothing
+      checks that the id names a live record, that it is not retired, or that it belongs to the caller's tenant
+      (decision 0050 D3.6 declared this a known limit for module-owned types and added no core check).
+      This slice lets a field of a tenant-owned type declare a reference to a record of a module-owned type,
+      adds the manifest key :reference_targets by which a module opts a type in as a valid target, and adds one
+      core check that runs on every write path before the record is stored. It does not touch write permission
+      (slice A, REQ-577), scope declaration (slice B, REQ-635) or the web (slice D); those are other entries.
+      The record's slice order is A and B (either first), then C, then D.
+      OPEN OWNER QUESTION Q4 (0070 "Open owner questions" Q4, reference registration; NOT decided by this entry
+      or by the business analyst). The record proposes the manifest key :reference_targets as an explicit
+      per-type opt-in; a module that does not opt in cannot be referenced. THIS ENTRY ASSUMES that default
+      (assumption, to be confirmed by the owner). If the owner chooses another registration the text below is
+      REWRITTEN after the answer and the feature task does not start on this text.
+      SECOND OPEN POINT (not settled by 0070, which says only that "a field of a tenant type declares a
+      reference as a pair (module id, entity type) on a string field"): where that pair is stored. This entry
+      assumes it is an optional attribute reference (module id and entity type name) on a string field of the
+      tenant type's definition, read at write time from the active definition; it is a restriction only, so a
+      tenant editing it cannot widen access. The designer traces the definition validator and activation
+      (lib/letflow/entities/definition/validator.ex, lib/letflow/entities/definitions.ex) before building and
+      reports in the design any reason this cannot be done without a larger change; if so the owner is asked.
+      WHAT THE SLICE BUILDS (assuming the two defaults).
+      (1) Manifest key. An optional :reference_targets key in the module manifest (lib/letflow/modules/module.ex
+      type, validated by a new rule after rule 13 in Letflow.Modules.Catalog.validate/2, hashed by
+      lib/letflow/modules/manifest_hash.ex like :scope_declarations): a sorted list of entity type names the
+      module owns (each a ManagedTypes.managed_name?/1 name that the same manifest lists in
+      :manages_entity_types) and that other modules and tenant types may reference. A manifest without the key
+      opts nothing in. A malformed value (not a list, a name not managed by this manifest, a duplicate) fails
+      validate/2 with {:invalid_reference_targets, value}, in the form of the neighbouring rules.
+      (2) The core check. One function in core (a new module under lib/letflow/entities/) called with the
+      tenant prefix, the active definition and the field values of the record to be written. For every field
+      that declares a reference and holds a value it (a) refuses a reference whose module id and entity type
+      are not an opted-in pair of a currently installed module, (b) calls the owning module's public
+      lookup and active? through the module catalog contract (0050 D2: lookup/2 and active?/2 of the entry
+      module, which delegate to Letflow.Modules.ReadApi) with the prefix of the caller's tenant, and (c) refuses
+      a value that is not found, is retired (active false) or belongs to a record of another entity type than
+      the declared one. Core never reads a module table (0050 D8). An empty or absent value is not checked
+      (the field's own required constraint decides). No foreign key is added (0050 D3.6 stays for this slice).
+      (3) One uniform refusal. A dangling id, a retired record, a record of another tenant, a record of another
+      type, a module that is not installed, and a type that did not opt in all produce the same 422 body with
+      the same code and text (INV-5): the body names the field and does not say which case it was. The check
+      itself may not log or return a module record's content.
+      (4) Write paths covered, the same list as slice A (0070 D2 "Write paths covered"), each calling the one
+      core check before storing: POST, PUT on /records/:entity_type (record_writes.ex);
+      POST /records/:entity_type/import (record_import.ex; the check runs per line and the refusal names the
+      line); StepWrites.prepare/2 and validate_lines/2 (process steps); HandlerWrites (module write handlers).
+      DELETE has no field values and is not checked. Records of module-managed types are untouched: a module
+      keeps validating its own references itself (0050 D3.5); the check applies only to tenant-owned types.
+      Records written before this slice are not rechecked and keep their values (0050 D3.2: existing
+      references stay valid); no backfill, no migration.
+      (5) Pins. A manifest key that is part of the hash surface changes manifest hashes: the implementer states
+      how modules whose manifests do not use the key are affected (the key is absent, so a hash that omits an
+      absent key, as ManifestHash does for :scope_declarations, stays the same) and greps test/ for pinned
+      manifest hashes and for validate/2 rule-order literals. No route is added, so no route-inventory pin
+      moves; the implementer confirms it with grep __authz_routes__ across test/. No permission is added, so
+      priv/permission_matrix/effective.golden and the tenant-auditor refused set stay unchanged.
+      (6) SECURITY-REVIEWER is mandatory (tenant data path, INV-1, INV-5, INV-6). Its threat from 0070 for D4:
+      a reference check that reveals whether another tenant's or a retired record exists.
+      NOT IN THIS ENTRY: slices A, B and D; a reference picker or related list (slice D); a promoted foreign
+      key; any change to the module catalog contract functions lookup/2 and active?/2; a new route; any
+      permission.
+      FEATURE-TASK GATE: the feature task for this entry must NOT start before the owner has confirmed Q4 in
+      writing (recorded on the tracker issue or in 0070's open-question section) and the slice B entry
+      (REQ-635) and REQ-566 have merged.
+    acceptance_criteria:
+      - "1. The entry text names 0070 Q4 (reference registration) as an open owner question, states that it assumes the default (manifest key :reference_targets, opt-in per module type), names the second open point (where the reference pair is stored) with its assumption, and states that the business analyst decides neither."
+      - "2. Manifest rule: Catalog.validate/2 accepts a manifest without :reference_targets (nothing is opted in) and a manifest whose :reference_targets is a duplicate-free list of names that its own :manages_entity_types lists; it returns {:invalid_reference_targets, value} for a non-list value, a name not in the same manifest's :manages_entity_types, a name failing ManagedTypes.managed_name?/1, and a duplicate. One test per refused case. The existing manifests (exam, org, catalog_items, procurement) keep the manifest hash they have on origin/main."
+      - "3. D4-optin: a write on a tenant type whose field references a type that no installed manifest lists in :reference_targets is refused with the uniform 422 and stores nothing, even when the id names a live record of that type; after the module opts the type in (test manifest) the same write is accepted with 200 or 201."
+      - "4. D4-dangling: for a field that declares a reference to an opted-in type, a write whose value is (i) a well-formed uuid that names no record, (ii) the id of a retired record (active false), (iii) the id of a record of a tenant B while the caller is in tenant A, (iv) the id of a live record of another entity type, (v) a value that is not a uuid, and (vi) a reference to a module that is not installed in the tenant, is each refused with 422 and stores nothing. The response status, the code and the text are byte for byte equal for all six cases and name the field; a test compares the six bodies, minus the trace id."
+      - "5. Accepted case, in its own test and not inside a refusal step: a live, active record of the opted-in type in the caller's tenant is accepted, the stored value is the id as sent (no snapshot, no rewrite), and a later rename of the target record does not change the stored value or make a later unrelated update of the tenant record fail (0050 D3.3). An existing record whose target was retired later stays readable and keeps its stored value."
+      - "6. Write paths: the check runs, and has one test each with a dangling id refused and nothing stored, on POST and PUT of /records/:entity_type, on /records/:entity_type/import (the failing line is named, no line is stored), on StepWrites.prepare/2 or validate_lines/2 and on HandlerWrites.create/3. A grep of the PR lists every other caller of Records create and update (lib/letflow/entities/records.ex) with the reason it is not a write path of a tenant type or is covered. A write to a module-managed type is not checked by this function (test)."
+      - "7. D4-xtenant (INV-1, INV-5, INV-6): with two tenants that hold a record with the same id value and the same type name, the check run for tenant A reads only tenant A's prefix, and a reference to tenant B's live record is refused with the same body as a missing id (criterion 4 case iii). The check takes the prefix from the authenticated tenant context only; a tenant_id or prefix in the request body is not read (the route takes no tenant identifier, INV-10, so the negative test sends one in the body and shows it is ignored). A PLATFORM_ADMIN token of the platform tenant writing a record gets its own tenant's check, not another tenant's."
+      - "8. Unchanged behaviour: a tenant type with no reference attribute on any field is written exactly as today (the full existing record-write test files of record_writes.ex, record_import.ex and step writes pass without edit); a field that declares a reference and holds no value (absent, null or empty string) is not checked; no table, route, permission or foreign key is added, and priv/permission_matrix/effective.golden is byte for byte unchanged and MIX_ENV=dev mix letflow.permission_matrix --check reports no difference."
+      - "9. The check never reads a module table: a test or the source scan used by the boundary check (mix letflow.check_boundaries) shows the new core module calls only the entry module's lookup/2 and active?/2 and no module schema or module table name (0050 D8)."
+      - "10. The pull request carries a SECURITY-REVIEWER verdict (mandatory), names slices A (REQ-577), B (REQ-635) and D of 0070 D6 as other requirements this change does not build, and states how existing QA tenants are handled (no migration and no stored value changes, so none changes behaviour)."
+    depends_on: [REQ-566, REQ-577, REQ-635, REQ-473, REQ-474, REQ-507, "owner confirmation of decision 0070 Q4 (reference registration): the feature task must not start before it"]
