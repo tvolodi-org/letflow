@@ -46036,6 +46036,74 @@ requirements:
       - "1. Inventory Objects (assets.md open question 4, REQ-642 open questions): not decided here. The business analyst's suggestion for the A0 record or a later decision: an item that is counted one by one because it is valuable is a catalog_item with tracking_policy serial (REQ-641), one stock balance row per serial, no separate record type; an item written off but still tracked is an asset register record (assets.md review finding 3)."
       - "2. xlsx import of the catalog, the trees and the employees: a later requirement after a decision on the xlsx reading dependency and on how managed master types are imported (0057 D12 seeding path, REQ-604 criterion 7); the trees and employees parts wait for A1 to A4."
       - "3. Lot slot value in the stock ledger: gh2658 V2 registers k4 lot as a lot code token, REQ-642 point (5) says a master's record id; the stock registration slice decides, and this entry stores both (record id and code)."
+  - id: REQ-644
+    title: "Assets A2: organization tree depth bound raised from 12 to 40, several companies with their own BIN in one tree, and the rules for balances, grants and links when an org unit is moved or retired (amends decisions 0050 and 0051 D3)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3586
+    # Source: owner decisions D-060, D-061, D-062, D-063 of 2026-10-31 (ai-dala-portfolio/DECISIONS.md; D-061 "the two trees are independent, linked many to many, may diverge later"; D-062 first version includes "several legal entities"); ai-dala-portfolio/architectures/assets.md (section "The two trees": "Organization tree: units of unlimited depth, roster (positions), employees"; section "Decisions of 2026-10-31": "several legal entities (BIN) in one customer"; "Review findings still to resolve" items 2 and 8); letflow-team/project/assets-gap-analysis.md (section 2 "depth bound 12", risk 5); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D3.1 immutable id, D3.2 retire never delete, D3.5 validation in the referencing module, D7 bullets "Who may re-parent", "The org move action enforces the depth bound 0051 D3 relies on (12)", D8 consistency check "depth over the bound of 12"); docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md (D3 "Maximum tree depth is bounded (recommended 12) and enforced by the org move action"; index scope_node_paths (path text_pattern_ops)); docs/migration/decisions/0064-org-relative-task-assignment-resolver.md (cites "depth bound of 12" and TC-2 "depth over 12"); docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D6: master, version and retired-master checks are slice L7; until then the ledger accepts any well-formed slot values); REQ-642 (A0, pending: "The org depth bound stays 12 unless A2 amends 0051 D3"). Code read on main: lib/letflow/scope_node_paths.ex (@max_depth 12, @max_node_id_bytes 64, max_depth/0, write/2 insert, move and retire, the REQ-517 retire guard :node_has_grants, "a :move is never refused"), lib/letflow/scope_node_paths/consistency.ex (report type max_depth 12, depth_exceeded rule reads ScopeNodePaths.max_depth/0), lib/letflow/routers/tenant_scope_node_paths.ex (GET /tenant/scope-node-paths/consistency returns the report), priv/repo/migrations/20261014100002_create_scope_node_paths.exs (path text, UNIQUE btree index scope_node_paths_path_pattern_idx on path text_pattern_ops, depth smallint, no upper CHECK), priv/modules/org/entity_definitions/org_legal_entity.json ("A legal entity (a taxpayer, identified by bin)", bin string required, not queried, no unique constraint on bin) and org_unit.json (legal_entity_id and site_id required on every unit, parent optional), lib/letflow/modules/org/org.ex (no write functions; create, move and retire are REQ-495, which has no register entry). Tests read: test/letflow/scope_node_paths/write_test.exs (T-24 pins 12), test/letflow/scope_node_paths/consistency_check_test.exs (max_depth == 12, 13-deep chain reports d13), test/letflow/routers/tenant_scope_node_paths_test.exs (body max_depth == 12, depth_exceeded == ["d13"]). Written by the business analyst (T-1042) 2026-10-31. Not yet validated.
+    description: >
+      Phase A item A2 of the assets and stock application (owner decisions D-060 to D-063). It changes one bound in
+      core, records the org tree rules the asset and stock registers rely on, and adds no route, permission,
+      migration, entity type, field, constraint, write function or ledger code.
+      (1) Depth bound. The owner wants org units "of unlimited depth" (assets.md). Today
+      Letflow.ScopeNodePaths (lib/letflow/scope_node_paths.ex) refuses an insert or a move past depth 12
+      (@max_depth 12, :depth_exceeded), and Letflow.ScopeNodePaths.Consistency (lib/letflow/scope_node_paths/consistency.ex)
+      reports rows over 12. A literally unbounded depth is not possible with the existing storage: every path is
+      one entry of the UNIQUE btree index scope_node_paths_path_pattern_idx
+      (priv/repo/migrations/20261014100002_create_scope_node_paths.exs), and a PostgreSQL btree entry holds at most
+      2704 bytes on the default 8 kB page. With node ids of up to 64 bytes (@max_node_id_bytes) a path of depth d is
+      at most 1 + 65 x d bytes: 2601 bytes at depth 40, leaving room for the entry header; depth 42 would not fit.
+      The bound becomes 40: @max_depth 40, so max_depth/0 returns 40, write/2 refuses an insert at depth 41 and a
+      move whose deepest descendant would reach depth 41 with :depth_exceeded, and the consistency report states
+      max_depth 40 and lists a row as depth_exceeded only when its depth or segment count is over 40. No migration:
+      depth is a smallint and the table has no upper CHECK. Nothing else changes in write/2, its locks, its error
+      atoms or its call order. 40 is the technical maximum of the current storage, offered as the meaning of
+      "unlimited" for UAT; it is a UAT assumption, to be confirmed by the process owner.
+      (2) Several legal entities in one customer. On main a tenant may already hold any number of
+      org_legal_entity records, each with its own bin, and every org_unit carries its own required legal_entity_id
+      (org_unit.json). The rule recorded: one org tree may hold units of different legal entities; a unit's
+      legal_entity_id and site_id are its own fields, never inherited from its parent and never derived from its
+      position in the tree; a move never changes them. The BIN is the identifier of a legal entity
+      (org_legal_entity.json: "identified by bin"), so two live legal entities of one tenant must not share a bin;
+      this entry does not add the constraint (adding a unique constraint to a deployed org definition needs the org
+      pack version line of A1 and a module upgrade path): it is recorded as owed to a later slice.
+      (3) Move. A move changes only the unit's parent and the scope_node_paths rows of its subtree. It writes no
+      ledger row and changes no balance: ledger slot values name the unit by its immutable record id (0050 D3.1)
+      and the ledger is append only (0073), so the unit's balances and movements keep naming the same unit and are
+      seen under its new position in any subtree report; no transfer posting is made. A move does not change the
+      unit's links to locations (A4). Role grants that name the moved unit keep naming it and, from the commit on,
+      cover its subtree at the new position; a move is never refused because of grants (as write/2 does today).
+      (4) Retire. Retire sets active false on the unit (0050 D3.2) and retired_at on its scope_node_paths row only;
+      descendants stay live (as write/2 does today), and it is refused with :node_has_grants while a grant names the
+      unit (REQ-517). Balances and movements of a retired unit stay readable, are not moved and are not zeroed by
+      the retire. A new posting that names a retired unit is refused by the retired-master check of ledger slice L7
+      (0073 D6); until L7 the ledger accepts it, a documented limit. Links of a retired unit to locations stay as
+      history; a new link naming a retired unit is refused by the link writer through active?/2 (0050 D3.5), owed
+      to A4.
+      (5) Not decided here, recorded as open owner questions in the amendment: whether retiring a unit that still
+      has a non-zero balance in any register is refused (the business analyst's proposal, by analogy with the grants
+      guard of REQ-517) or allowed with outbound movements only; the rule for a movement whose org unit and
+      location are not linked (assets.md review finding 8, owed to A4); the bin format (a 12-digit Kazakhstan BIN or
+      any text). Moving Letflow.ScopeNodePaths onto the shared pure tree helper that REQ-642 names is not part of
+      this entry.
+      (6) Records. docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md gains one
+      section "Amendment 2026-10-31 A2 (owner decisions D-061, D-062): org tree depth, legal entities, move and
+      retire", appended after the last line of the file, stating points (1) to (5) as numbered rules and saying that
+      the figure 12 in D7, D8, 0051 D3 and 0064 is superseded by 40. docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md
+      gains one section "Amendment 2026-10-31 A2: depth bound 40", appended after the last line of the file, naming
+      the new bound and pointing to the 0050 amendment. No other line of either file changes, and 0064 is not
+      edited.
+    acceptance_criteria:
+      - "1. Bound: Letflow.ScopeNodePaths.max_depth() returns 40 and the moduledoc and the write/2 doc of lib/letflow/scope_node_paths.ex name 40 where they named 12; no other function, lock, error atom or call order of lib/letflow/scope_node_paths.ex changes (git diff of the file touches only the @max_depth line and doc text)."
+      - "2. Inserts on real PostgreSQL (test/letflow/scope_node_paths/write_test.exs, T-24 rewritten for 40): a chain of 40 nodes whose ids are each 64 bytes long is inserted through write/2 with every call answering {:ok, _} (this proves the longest path fits the unique path index); the insert of a 41st node under the 40th answers {:error, :depth_exceeded} and adds no row."
+      - "3. Moves on real PostgreSQL (same file): a move whose deepest descendant would land at depth 41 answers {:error, :depth_exceeded} and leaves every path and depth of the subtree unchanged; the same subtree moved so that its deepest descendant lands at exactly depth 40 answers {:ok, _} with the rewritten paths."
+      - "4. Consistency report: Letflow.ScopeNodePaths.Consistency.check/1 reports max_depth 40 (the @type report literal is 40); a consistent 41-deep chain seeded directly in the table reports only its deepest node in depth_exceeded and a consistent 40-deep chain reports status ok (test/letflow/scope_node_paths/consistency_check_test.exs updated from 12 and 13); GET /tenant/scope-node-paths/consistency answers max_depth 40 and depth_exceeded with the 41st node id (test/letflow/routers/tenant_scope_node_paths_test.exs updated from 12 and d13)."
+      - "5. Amendment of 0050: docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md ends with the section named in description point (6), which holds one numbered rule each for the depth bound 40 and its derivation (2704-byte btree entry, 64-byte node ids, 2601 bytes at depth 40), several legal entities in one tree with legal_entity_id and site_id never inherited and never changed by a move, bin unique per tenant owed to a later slice, the move rule of point (3), the retire rule of point (4) naming L7 and A4 as owners of the checks they owe, and the open owner questions of point (5) under a heading that says they are not decided; git diff of the file shows only added lines."
+      - "6. Amendment of 0051: docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md ends with the section named in description point (6), stating the bound 40 and pointing to the 0050 amendment; git diff of the file shows only added lines; docs/migration/decisions/0064-org-relative-task-assignment-resolver.md is unchanged."
+      - "7. Scope and gates: git diff --name-only origin/main...HEAD lists only lib/letflow/scope_node_paths.ex, lib/letflow/scope_node_paths/consistency.ex, the three test files named in criteria 2 to 4 and the two decision records, so no file under priv/, web/, apps/, lib/letflow/modules/ or lib/letflow/routers/; mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check_scope_node_paths_writers and mix test test/letflow/scope_node_paths/ test/letflow/scope_node_paths_allowed_ids_test.exs test/letflow/routers/tenant_scope_node_paths_test.exs pass, real output quoted; SECURITY-REVIEWER (the bound guards the security index of 0051 scope checks) and REVIEWER verdicts are recorded."
+    depends_on: [REQ-496, REQ-517, REQ-642]
   - id: REQ-643
     title: "Assets A1: employees as their own records with an optional user link, positions in the roster, in module org; the materially responsible person and the actual user point to an employee (amends decision 0050 D1 and D4)"
     owner: ELIXIR-DEV
