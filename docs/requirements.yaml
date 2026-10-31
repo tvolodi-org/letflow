@@ -45952,3 +45952,87 @@ requirements:
       - "2. Reply status for a refusal: the completion path answers 422 form_hook_refused (D8); this entry answers 200 outcome refused for the dry-run, as the hook 1 dry-run reports script outcomes. If the owner wants the same 422 and 503 mapping on the dry-run, that is an amendment."
       - "3. Audit row: decision 0067 does not require an audit row for a dry-run; this entry follows the hook 1 precedent (script_rule.dry_run). The gate may drop it or rename it; no existing audit consumer reads the name."
       - "4. Still open in 0067 'Not decided here' and not decided here: any wall-clock figure between 50 ms and the 0053 D7 maxima (and above), the maximum number of fields entries in a refusal, the HTTP status numbers of the infrastructure codes beyond what F-4 chose for completion, whether the 403 of a wrong assignee collapses to the not-found answer, a hook 3 with entity reads and a dynamic data API, and the behaviour of any future automatic completer."
+
+  - id: REQ-647
+    title: "Assets A6a: lot (batch) master catalog_lot in module catalog_items, with producer, mark and expiry date per item, the read API and an item-lot check"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-642 -- the A0 master data decision record places lots in catalog_items; this slice builds on it
+    # Source: owner decisions D-060 to D-063 of 2026-10-31 (ai-dala-portfolio/DECISIONS.md; D-061 "shared master data ... belongs to neither"); ai-dala-portfolio/architectures/assets.md (table "Stock register": "Lot: a batch from one delivery: same producer, mark, end date (for example packaged milk)"; "Three modules and one common layer": "Units of measure, SKUs, lots"; open question 4 Inventory Objects); letflow-team/project/assets-gap-analysis.md (section 6 order item 2, "import for managed types (new)", section 3 "No .xlsx anywhere"); docs/requirements.yaml REQ-642 (A0, description point (1): "units of measure, SKUs and lots in catalog_items"; point (5): ledger slot values hold the master record id), REQ-474 (catalog_item, catalog_uom), REQ-507 (read API), REQ-604 (catalog_counterparty, the shape this entry copies), REQ-641 (tracking_policy and validate_capture/3 on catalog_item); lib/letflow/design/gh2658-wms-stock-dimensions.md sections 2 (k4 lot slot) and 3 ("The authoritative expiry belongs on the lot master (expiry_date), NOT FOUND today"); docs/migration/decisions/0050 (D3.2 retire with active false, D3.6 declarative reference by record id, D7 managed types); code read on main: lib/letflow/modules/catalog_items/catalog_items.ex (@types, lookup/2, active?/2, item_uom_valid?/3, live_fields/3), priv/modules/catalog_items/entity_definitions/*.json, priv/modules/catalog_items/generate_pack.exs, lib/letflow/entities/definition/validator.ex (@field_types includes :date), lib/letflow/entities/record/validator.ex (field_subschema for :date is a plain string), lib/letflow/tenant_provisioning.ex (cast_promoted_value/2, "date" clause uses Date.from_iso8601!/1), docs/runbooks/wms-foundation.md (section Catalog module limits, items 1 to 13), test/letflow/modules/catalog_items/ (registration_test.exs @three, install_test.exs @types, read_api_test.exs, counterparty_test.exs C-07 and U-01, catalog_items_fixture.exs). Written by the business analyst (T-1046) 2026-10-31. Not yet validated.
+    description: >
+      Phase A item A6 of the assets and stock application (owner decisions D-060 to D-063), first and smallest part.
+      A6 as queued names four things: units of measure, SKUs, lots, and an xlsx import of the catalog, the trees and the
+      employees. On main two of them exist already and are NOT changed here: the unit-of-measure master is catalog_uom and
+      the SKU (item) master is catalog_item, both in module catalog_items (REQ-474,
+      priv/modules/catalog_items/entity_definitions/catalog_uom.json and catalog_item.json); unit scale and conversion
+      factors stay with REQ-504, and the item tracking policy stays with REQ-641. The xlsx import and the Inventory Object
+      question are not part of this entry (see "Not in this change"). What is absent is the lot master: the REQ-503 design
+      (lib/letflow/design/gh2658-wms-stock-dimensions.md section 3) says the authoritative expiry belongs on a lot master
+      that does not exist, and the assets brief defines a lot as "a batch from one delivery: same producer, mark, end date".
+      This entry adds that master.
+
+      Change. (1) A fourth entity type of the existing module catalog_items, named catalog_lot, in a new definition file
+      priv/modules/catalog_items/entity_definitions/catalog_lot.json, shaped like catalog_counterparty (REQ-604): managed
+      by the module (manages_entity_types, owner path only), an active flag, and the nullable external_ref pair with a
+      unique constraint over the pair (0057 D1). Retirement is active false, never a hard delete (0050 D3.2).
+      priv/modules/catalog_items/pack.json is regenerated by generate_pack.exs.
+      Fields of catalog_lot, in this order: item_id (string, queried, required; the record id of a catalog_item as a
+      declarative string, no foreign key, 0050 D3.6, the same rule as base_uom_id of catalog_item); code (string, queried,
+      required; the lot number printed on the batch); producer (string, queried, not required; the producer's name as
+      text); mark (string, not required; the brand or grade printed on the batch); expiry_date (date, queried, not
+      required; the end date of the batch, empty for a batch without one); active (boolean, queried, required);
+      external_ref_system and external_ref_id (string, queried, not required). Constraints: unique over [item_id, code]
+      (one lot code per item; the same code may exist for two different items) and unique over [external_ref_system,
+      external_ref_id]. UAT assumptions, to be confirmed by the process owner: producer and mark are free text, not a
+      reference to catalog_counterparty (whose kinds are supplier and contractor, not producer); a lot code is unique per
+      item, not tenant-wide; expiry_date is optional.
+      (2) The read API of Letflow.Modules.CatalogItems (lib/letflow/modules/catalog_items/catalog_items.ex): the module
+      attribute @types and the manifest's manages_entity_types both gain "catalog_lot", so lookup/2 and active?/2 also
+      resolve a lot (the caller still checks "entity_type", runbook item 10). One new read-only function
+      item_lot_valid?(prefix, item_id, lot_id), in the style of item_uom_valid?/3: true only when item_id is a live,
+      active catalog_item, lot_id is a live, active catalog_lot, and the lot's stored item_id equals item_id as canonical
+      lowercase uuid text; any non-uuid value, unknown, soft-deleted or inactive item or lot, a lot of another item, the id
+      of a record of another catalog type, and a non-text prefix are false, never a raise. prefix comes from the caller,
+      derived server-side from the authenticated tenant, as for the other read functions.
+      The module ships no write functions (catalog_items.ex moduledoc), so none are added; records are written in tests
+      through the owner path of Letflow.CatalogItemsFixture (test/letflow/modules/catalog_items/catalog_items_fixture.exs).
+
+      Malformed expiry date. A date field's payload schema is a plain string (field_subschema for :date in
+      lib/letflow/entities/record/validator.ex), and a queried date column is cast by
+      TenantProvisioning.cast_promoted_value/2, whose "date" clause calls Date.from_iso8601!/1. So a lot written with an
+      expiry_date such as "2027-02-30" may be refused by a raise inside the write rather than by a validation error. This
+      entry does not change core Records: criterion 4 asserts that no record is stored either way, and the PR reports the
+      observed answer; a raise is reported as a finding against core Records (INV-8), not fixed here.
+
+      Existing tenants. As runbook item 13 states for catalog_counterparty: a tenant that installed catalog_items before
+      this change does not get the new type, because no upgrade path adds an entity type to an installed module
+      (lib/letflow/modules/installs.ex) and the changed manifest hash makes reactivation answer upgrade_required. Fresh
+      installs get the four types. QA tenants that already have the module (auto-CD deploys main) keep three types until a
+      module-upgrade requirement is delivered; their existing rows are untouched. The runbook says so.
+
+      Not in this change, each a later requirement. (a) An xlsx import of the catalog, the trees and the employees: it needs a
+      new dependency for reading .xlsx (none in mix.exs; a new dependency needs a stated reason) and an import path for
+      managed types, which the generic import refuses with 403 entity_type_managed (record_import.ex, REQ-604 criterion 7);
+      the trees and employees types come from A1 to A4. (b) The Inventory Object question (assets.md open question 4, REQ-642
+      open questions): whether a very valuable single item is a separate record type or a catalog_item with
+      tracking_policy serial (REQ-641) counted one balance row per serial; not decided here. (c) The ledger: which value the
+      lot slot holds (gh2658 V2 registers k4 lot as a lot code token; REQ-642 point (5) says a master's record id), and the
+      read-time join of expiry from this master (OQ-R4, slice L7). (d) Wiring validate_capture/3 of REQ-641 to this master.
+      (e) A lookup by lot code, write functions, routes, permissions, a web screen, seed data or a QA script.
+    acceptance_criteria:
+      - "1. Definition: priv/modules/catalog_items/entity_definitions/catalog_lot.json exists with exactly the fields item_id, code, producer, mark, expiry_date, active, external_ref_system, external_ref_id, with the types, queried flags and required flags of the description, a unique constraint over [item_id, code] and a unique constraint over [external_ref_system, external_ref_id]; the three existing definition files are unchanged; a test that reads the file asserts each of these (as entity_definitions_test.exs does for the existing types), and pack_drift_test.exs passes with pack.json regenerated by generate_pack.exs."
+      - "2. Managed: the manifest's manages_entity_types and the module attribute @types both contain exactly catalog_uom, catalog_item, catalog_counterparty and catalog_lot; Catalog.validate/1 accepts the module; the literal type lists in registration_test.exs (@three) and install_test.exs (@types) are updated; a generic POST /entities/records/catalog_lot as TENANT_ADMIN is 403 with the entity_type_managed error, and a valid import body posted to POST /entities/records/catalog_lot/import is 403 entity_type_managed with no row written (as counterparty_test.exs C-07 asserts for catalog_counterparty)."
+      - "3. Install: on real Postgres, installing the module as TENANT_ADMIN with a rationale activates the fourth type and creates one promotion row per queried column of catalog_lot (item_id, code, producer, expiry_date, active, external_ref_system, external_ref_id) and none for mark (the install test extended); a tenant-created type already named catalog_lot makes the install fail and roll back completely with {:error, {:pack_install_failed, {:managed_name_taken, \"catalog_lot\"}}}, as install_test.exs asserts for catalog_counterparty."
+      - "4. Definition-level rules, written through Letflow.CatalogItemsFixture: a lot with item_id, code and active only is accepted; a lot with all fields and expiry_date \"2027-03-31\" is accepted and stored with that date; a second lot with the same item_id and code is refused; a lot with the same code and another item_id is accepted; a missing item_id, code or active is refused naming the field; two lots with the same non-null external_ref pair are refused; a lot with expiry_date \"2027-02-30\" stores no record (the test asserts the tenant's catalog_lot record count is unchanged, and the PR quotes whether the write returned an error or raised)."
+      - "5. Retire: a lot updated with active false through the owner path stays readable; lookup/2 returns it with active false and active?/2 returns false; no delete operation is added."
+      - "6. Read API: lookup/2 given the record id of a lot returns a map whose entity_type is catalog_lot, with item_id, code, producer, mark, expiry_date and active as stored; active?/2 is true for an active lot; lookup/2 and active?/2 of a catalog_item, catalog_uom and catalog_counterparty still return what read_api_test.exs and counterparty_test.exs assert today."
+      - "7. item_lot_valid?/3, one test per row, each with real records written through the owner path: true for an active lot of an active item; false for a lot of another item, for a retired lot, for a soft-deleted lot, for a retired item, for an unknown uuid as item or lot, for the id of a catalog_uom or catalog_counterparty passed as the lot, for a lot id passed as the item, for the non-uuid values the item_uom_valid?/3 tests of read_api_test.exs use, and for a non-text prefix; no row raises; the record count of the tenant is the same before and after."
+      - "8. Tenancy (INV-1, INV-5, INV-6): in a two-tenant test a lot of tenant A is not returned by lookup/2 with tenant B's prefix and gives the same {:error, :not_found} as an absent uuid, and item_lot_valid?/3 with tenant B's prefix and tenant A's item and lot ids is false; the same ids with tenant A's prefix give the lot and true. No function takes a tenant identifier from its arguments other than prefix. The change adds no route, no permission and no role grant (permissions stays [] in the manifest), so priv/permission_matrix/effective.golden is unchanged, shown by mix letflow.permission_matrix --check with the real output quoted."
+      - "9. Runbook and moduledoc: docs/runbooks/wms-foundation.md, section Catalog module limits (read by test/letflow/modules/catalog_items/runbook_test.exs), gains numbered items that state: the catalog_lot type and its fields; that producer and mark are free text and the per-item code uniqueness, both UAT assumptions; that item_lot_valid?/3 exists and what it checks; that lots cannot be seeded by the generic import (criterion 2); how an already installed tenant receives the type (as item 13); and that the malformed expiry date answer is the one criterion 4 observed. The intro sentence and item 10 name four types. The catalog_items.ex moduledoc names the new type and function. Symbols are cited, not line numbers. The runbook test passes."
+      - "10. Scope and gates: git diff --name-only origin/main...HEAD lists no file under lib/letflow/entities/, lib/letflow/modules/procurement/, priv/repo/migrations/, web/ or apps/, no change to mix.exs or mix.lock, and no change to catalog_item.json, catalog_uom.json or catalog_counterparty.json; mix format --check-formatted, mix compile --warnings-as-errors, the scoped mix test over test/letflow/modules/catalog_items/, the other test files that name catalog_uom (test/letflow/modules/catalog_test.exs, test/letflow/modules/org/entity_definitions_test.exs, test/letflow/entities/managed_types/stamp_trigger_test.exs) and mix letflow.check_requirements_registration pass, real output quoted. SECURITY-REVIEWER (the read function reads tenant data) and REVIEWER verdicts are recorded."
+    depends_on: [REQ-474, REQ-507, REQ-604, REQ-642]
+    open_questions:
+      - "1. Inventory Objects (assets.md open question 4, REQ-642 open questions): not decided here. The business analyst's suggestion for the A0 record or a later decision: an item that is counted one by one because it is valuable is a catalog_item with tracking_policy serial (REQ-641), one stock balance row per serial, no separate record type; an item written off but still tracked is an asset register record (assets.md review finding 3)."
+      - "2. xlsx import of the catalog, the trees and the employees: a later requirement after a decision on the xlsx reading dependency and on how managed master types are imported (0057 D12 seeding path, REQ-604 criterion 7); the trees and employees parts wait for A1 to A4."
+      - "3. Lot slot value in the stock ledger: gh2658 V2 registers k4 lot as a lot code token, REQ-642 point (5) says a master's record id; the stock registration slice decides, and this entry stores both (record id and code)."
