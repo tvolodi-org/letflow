@@ -45545,3 +45545,83 @@ requirements:
       - "9. The check never reads a module table: a test or the source scan used by the boundary check (mix letflow.check_boundaries) shows the new core module calls only the entry module's lookup/2 and active?/2 and no module schema or module table name (0050 D8)."
       - "10. The pull request carries a SECURITY-REVIEWER verdict (mandatory), names slices A (REQ-577), B (REQ-635) and D of 0070 D6 as other requirements this change does not build, and states how existing QA tenants are handled (no migration and no stored value changes, so none changes behaviour)."
     depends_on: [REQ-566, REQ-577, REQ-635, REQ-473, REQ-474, REQ-507, "owner confirmation of decision 0070 Q4 (reference registration): the feature task must not start before it"]
+  - id: REQ-642
+    title: "Assets A0: master data layer decision record: which foundation module owns the trees, links, employees and codes, one shared tree-path helper, tenant isolation and the read contract for WMS and Assets"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- design record only; the modules it builds on (REQ-473 org, REQ-496 scope_node_paths, REQ-625 locations) are merged on main
+    # Source: owner decisions D-060, D-061, D-062, D-063 of 2026-10-31 (ai-dala-portfolio/DECISIONS.md; D-061: "shared master data (organization tree, location tree, employees, codes) belongs to neither; the two trees are independent, linked many to many, may diverge later"; "employees are their own records, separate from user accounts"); ai-dala-portfolio/architectures/assets.md (sections "Three modules and one common layer", "The two trees": "Start with one tree algorithm (path or closure table) for both trees ... the code must not tie the two together beyond the algorithm"); letflow-team/project/assets-gap-analysis.md (section 2 and risk 5); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D1 position named under org, D2 read API, D3 reference contract, D6 prefix rule, D7 managed_by immutable once set, D8 scope_node_paths); docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md (scope nodes are org_unit records, depth bound 12 in D3); docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D6 master checks owed through the OQ-R4 read facade, slice L7); docs/migration/decisions/0006 D2 (no tenant_id column in tenant-schema tables); code read: lib/letflow/modules/org/org.ex, lib/letflow/modules/locations/locations.ex, lib/letflow/modules/catalog_items/catalog_items.ex, lib/letflow/scope_node_paths.ex, lib/mix/tasks/letflow.check_boundaries.ex (Rule 4: a module may reference another only through depends_on). Written by the business analyst (T-1040) 2026-10-31. Not yet validated.
+    description: >
+      Phase A item A0 of the assets and stock application (owner decisions D-060 to D-063). It writes ONE new decision
+      record, docs/migration/decisions/<NNNN>-master-data-layer.md, where NNNN is the next free number on origin/main at
+      implement time (0076 on origin/main today; the implementer re-checks it and the open team branches). The record is
+      the frame that the later phase A requirements (A1 employees and positions, A2 organization tree, A3 location tree,
+      A4 links between org units and locations, A5 codes, A6 units of measure, SKUs, lots and import) build on. This entry
+      changes no file under lib/, priv/, web/, apps/ or test/; it adds no module, table, route, permission or migration.
+      Background the record starts from (read on main by the business analyst). The master data that D-061 calls common
+      already sits in foundation modules that belong to neither WMS nor Assets (0050 D1): org
+      (lib/letflow/modules/org/org.ex: org_legal_entity, org_site, org_unit with a parent id string, org_unit_membership
+      of Letflow users; no employee and no position type), locations (lib/letflow/modules/locations/locations.ex:
+      location_node with the fixed node_kind site | zone | address, a warehouse-shaped location_type, a single org_site_id
+      string, no write functions, depends_on []) and catalog_items (lib/letflow/modules/catalog_items/catalog_items.ex:
+      catalog_item, catalog_uom, catalog_counterparty). The org tree's path index is the core-owned security table
+      scope_node_paths, written only by Letflow.ScopeNodePaths.write/2 (lib/letflow/scope_node_paths.ex), with a
+      materialised path "/<root id>/.../<node id>/" and a depth bound of 12 (0050 D8, 0051 D3). The org unit write
+      functions (create, move, retire) are not on main (the org moduledoc names them REQ-495, which has no register
+      entry). Every type these modules ship is in manages_entity_types, and 0050 D7 makes the managed_by stamp immutable
+      once set.
+      What the record decides, each point with its source or marked as a UAT assumption:
+      (1) Ownership. The master data layer is the set of foundation modules org, locations and catalog_items, extended
+      in place; it is not one new module. Reason the record states: moving the deployed managed types to a new module id
+      would change their immutable managed_by stamp (0050 D7) and their prefixed type names (0050 D6). Placement:
+      employees and positions in org (0050 D1 already names position under org; D-061 makes employees their own records,
+      not Letflow users); the link between org units and locations in locations, which then declares depends_on ["org"]
+      (this answers open item 6 of REQ-625); codes (barcode, QR, RFID text) in a new foundation module codes with
+      depends_on [], which stores the target as an entity type name plus a record id and lets the consumer validate the
+      target through the owning module's lookup (0050 D3.5); units of measure, SKUs and lots in catalog_items. No
+      master data module declares depends_on on a WMS, Assets or procurement module; consumers depend on master data,
+      never the other way round (Rule 4 of lib/mix/tasks/letflow.check_boundaries.ex enforces the direction once the
+      manifests say it).
+      (2) One tree algorithm. Both trees use the materialised path of Letflow.ScopeNodePaths (path, depth, a move
+      rewrites the subtree's path prefix, a move under the node itself or one of its descendants is a cycle). The shared
+      part is ONE pure core module under lib/letflow/ outside lib/letflow/modules/ (the record names it) with no table,
+      no database access and no knowledge of org or locations: it builds a child path, computes depth, tests "inside
+      subtree" and refuses a cycle and a depth over a bound that the caller passes. Each tree keeps its own storage:
+      the org tree keeps scope_node_paths unchanged; the location tree gets its own path storage in A3 and never writes
+      scope_node_paths, so a location is never a scope node of 0051. The org depth bound stays 12 unless A2 amends 0051
+      D3; the location tree's bound is decided in A3. Letflow.ScopeNodePaths is switched to the pure module in A2 only
+      with its existing tests unchanged; this record does not touch it.
+      (3) Independence of the two trees (D-061, assets.md "The two trees"). No shared table, no shared entity type, no
+      function of one tree's module reads the other tree, except the A4 link. Org visibility rules (0051 grants and
+      scope) never apply to locations. An asset's or stock row's org unit and location are two separate references,
+      never derived from each other (assets.md).
+      (4) Tenant isolation. All master data rows live only in the tenant schema and are reached by Ecto prefix (INV-1);
+      no tenant_id column (0006 D2); no master data table or catalogue outside the tenant schemas, and nothing shared
+      between tenants. A link and a code may name only records in the same tenant schema. Read functions take the prefix
+      from the authenticated tenant context, never from request input (org.ex moduledoc, "Read API contract"). Every
+      later slice that adds a route taking a tenant identifier carries the INV-10 cross-tenant negative test, and every
+      later slice touching these types gets a security review.
+      (5) What other modules read and how. WMS (the stock module of 0073 L4), Assets and procurement read master data
+      only through the public read API of the owning module (0050 D2: lookup/2, active?/2, and org's member?/3) under
+      their own depends_on, and reference a master record by its immutable record id, never by a business code (0050
+      D3.1). Ledger slot values that name a master (org unit, location, employee, SKU, lot, asset) hold that record id;
+      the ledger's master checks stay owed to slice L7 through the OQ-R4 read facade (0073 D6) and are not built here.
+      Every new master data type is a managed type (0050 D7), retired with active false and never deleted (0050 D3.2).
+      (6) Change table. A table with one row per existing artefact: the four org types, location_node (with the fields
+      node_kind, org_site_id and location_type named separately), catalog_item, catalog_uom, catalog_counterparty and
+      Letflow.ScopeNodePaths. Each row says "unchanged" or names the change and the phase A requirement (A1 to A6) that
+      makes it, and for a changed row how existing QA rows are handled (auto-CD deploys main to QA).
+      Open questions the record lists and does not decide: whether the location tree keeps location_node with new free
+      kinds or gets a new type (A3); the org depth bound (A2, needs an amendment of 0051 D3 if it changes); Inventory
+      Objects versus lots and serials and tenant-wide serial uniqueness (assets.md open question 4, 0073 OQ-23); the
+      rule for a movement whose org unit and location are not linked (assets.md review finding 8).
+    acceptance_criteria:
+      - "1. A new file docs/migration/decisions/<NNNN>-master-data-layer.md exists on the branch, NNNN being the next number free on origin/main and on every open team branch at implement time (a reader checks `ls docs/migration/decisions` on origin/main); it has a Status line, a Date line, a Sources section that lists D-060 to D-063, ai-dala-portfolio/architectures/assets.md, letflow-team/project/assets-gap-analysis.md and decisions 0006, 0050, 0051 and 0073, and the open questions named in the description in their own section, marked not decided."
+      - "2. Ownership: the record has one table that names, for each of employees, positions, the org-unit-to-location link, codes, units of measure, SKUs, lots, the organization tree and the location tree, exactly one owning module among org, locations, catalog_items and codes, matching the description; it states the reason that no single new module replaces them (0050 D6 prefixed names and 0050 D7 immutable managed_by); and it states the depends_on direction (locations depends on org; codes depends on nothing; no master data module depends on WMS, Assets or procurement)."
+      - "3. Tree algorithm: the record names one pure core module path under lib/letflow/ and outside lib/letflow/modules/ for the shared tree-path helper, lists its operations (child path, depth, inside-subtree test, cycle refusal, depth refusal with a caller-given bound) and states that it has no table and no database access; it states that the location tree never writes scope_node_paths and is never a scope node of 0051, and that the org depth bound 12 of 0051 D3 is unchanged by this record."
+      - "4. Independence and isolation: the record states each rule of description points (3) and (4) as a numbered rule (no shared table or type between the trees; the A4 link is the only cross-tree read; org unit and location are separate references; rows only in the tenant schema by prefix; no tenant_id column per 0006 D2; links and codes only within the tenant; prefix from the authenticated tenant context; INV-10 cross-tenant negative test for a later route that takes a tenant identifier)."
+      - "5. Read contract: the record states that consumers read master data only through lookup/2, active?/2 and org's member?/3 of the owning module under their own depends_on, by immutable record id, and that ledger master checks stay in slice L7 of 0073 (OQ-R4 read facade); it does not add a read function name that is not defined on main without marking it as owed to a named phase A requirement."
+      - "6. Change table: the record has one row each for org_legal_entity, org_site, org_unit, org_unit_membership, location_node.node_kind, location_node.org_site_id, location_node.location_type, catalog_item, catalog_uom, catalog_counterparty and Letflow.ScopeNodePaths; every row says unchanged or names the change and one of A1 to A6, and every changed row says how existing QA rows are handled."
+      - "7. Scope: `git diff --name-only origin/main...HEAD` of the change lists the new decision record and no file under lib/, priv/, web/, apps/ or test/; the pull request names every other file under docs/ that the new record makes wrong, each with the sentence that is wrong, as a follow-up for a later phase A requirement."
+    depends_on: [REQ-473, REQ-496, REQ-625]
