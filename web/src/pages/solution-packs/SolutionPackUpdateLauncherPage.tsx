@@ -17,6 +17,7 @@ import { P, useAccess, AccessPending } from '@/auth/access'
 import { PageLayout } from '@/components/ui/PageLayout'
 import { Button } from '@/components/ui/Button'
 import { JsonEditor } from '@/components/ui/JsonEditor'
+import { PackOverridesLink } from './SolutionPackOverridesPage'
 import { solutionPacksApi } from '@/api/solutionPacks'
 import type { PackArtefactInput } from '@/api/solutionPacks'
 import { canonicalizeArtefactContent } from '@/lib/canonicalizeArtefactContent'
@@ -152,6 +153,11 @@ export default function SolutionPackUpdateLauncherPage(): React.ReactElement {
             onChange={(e) => setPackId(e.target.value)}
             style={{ width: '100%', padding: '.4rem .6rem', borderRadius: '4px', border: '1px solid var(--border-default)' }}
           />
+          {packId.trim() !== '' && (
+            <div style={{ marginTop: '.4rem', fontSize: '.85rem' }}>
+              <PackOverridesLink packId={packId.trim()} />
+            </div>
+          )}
         </div>
 
         <JsonEditor

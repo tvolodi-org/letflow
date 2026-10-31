@@ -1,0 +1,117 @@
+# Authored by BA-BILIMBAGA for GH #3423 / REQ-612 (UAT design task T-0931).
+# Covers REQ-612 criterion 7 (edit pre-populates the question and its answer options; save replaces the stored
+# values; an unknown record shows the same not-found state as an absent one).
+# Not UAT-observable: the 409 record-changed message and the 422 lineage messages (need a second writer at a
+# given moment or a parent question with a version rule, which the roster cannot arrange: component tests); the
+# whole-document request body and the sent sequence number (component test).
+---
+id: bilimbaga-question-editor-2-edit-and-not-found
+scope: bilimbaga
+title: The edit page shows a stored question with its options, saves changes to the question and its options, and shows not found for an unknown question
+version: "1.0"
+tags: [question_editor, gui, edit]
+
+description: >
+  The administrator opens a stored question from the bank, sees its text, type, difficulty, category and its
+  answer options in their order, changes the text, one option and the option list, saves, and finds the changes
+  when reopening. An address with a question that does not exist shows a plain not-found page.
+  Preconditions: the browser language is English (en); the bilimbaga tenant has the exam module installed; the
+  administrator holds the exam content writing permission; at least one category exists. The question used here
+  is made in step 1 with the editor itself; if saving does not work, the scenario is BLOCKED.
+
+actors:
+  admin: actor-bilimbaga-admin
+
+preconditions:
+  - description: A bilimbaga tenant exists with the exam solution pack installed
+    check: process_definition_active
+  - description: The administrator holds the exam content writing permission
+    check: custom
+
+steps:
+  - step: 1
+    actor: admin
+    action: >
+      Saves a multiple-choice question "UAT Q612 edit original", difficulty medium, with options "Alpha" (correct),
+      "Bravo" and "Charlie" (correct), in this order
+    via: gui
+
+  - step: 2
+    actor: admin
+    action: Opens the question bank, presses Edit on the row "UAT Q612 edit original" and reads the page
+    via: gui
+
+  - step: 3
+    actor: admin
+    action: >
+      Changes the question text to "UAT Q612 edit changed", the difficulty to hard, the text of "Bravo" to
+      "Bravo two", removes "Charlie", adds an option "Delta" marked correct, and presses Save Draft
+    via: gui
+
+  - step: 4
+    actor: admin
+    action: Opens the question bank and reads the row; presses Edit on it and reads the page
+    via: gui
+
+  - step: 5
+    actor: admin
+    action: Opens the edit page at an address whose question identifier is not a valid identifier (for example the word "abc")
+    via: gui
+
+  - step: 6
+    actor: admin
+    action: Opens the edit page at the address of a well-formed identifier that belongs to no question (all zeros except the last digit 1)
+    via: gui
+
+expected_outcomes:
+  - id: EO-001
+    description: >
+      The edit page shows the stored question text, type, difficulty and category, and the options in the order saved
+    verification:
+      method: gui_screen
+      detail: >
+        Step 2 shows the page 'Edit question', the text 'UAT Q612 edit original', the type 'Multiple choice', the
+        difficulty medium, the options 'Alpha', 'Bravo', 'Charlie' in this order with 'Alpha' and 'Charlie' marked
+        correct
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        An edit page that shows other values than the stored ones leads the administrator to overwrite a good
+        question with wrong content.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-002
+    description: >
+      The saved changes to the question and to its options are the ones found on reopening
+    verification:
+      method: gui_screen
+      detail: >
+        Step 4 shows in the bank the row 'UAT Q612 edit changed' with the badge 'hard' and none with the old text;
+        the edit page shows the options 'Alpha', 'Bravo two', 'Delta' in this order, with 'Alpha' and 'Delta' correct
+        and no 'Charlie'
+    on_fail:
+      severity: BLOCKER
+      business_impact: >
+        A change that is shown as saved but not stored changes how candidates are marked without anyone knowing.
+      suggested_action: route_to_frontend_dev
+
+  - id: EO-003
+    description: >
+      A malformed question identifier and an unknown question both show the same not-found message and a way back,
+      with no form
+    verification:
+      method: gui_screen
+      detail: >
+        Steps 5 and 6 each show 'This question was not found.' and a link 'Back to the question bank'; no field or
+        Save Draft button is shown
+    on_fail:
+      severity: MAJOR
+      business_impact: >
+        An empty form for a missing question invites the administrator to type work that cannot be saved.
+      suggested_action: route_to_frontend_dev
+
+cleanup:
+  cancel_open_instances: true
+  description: >
+    Remove the question "UAT Q612 edit changed" and its answer options through the generic administration pages
+    (answer options first, then the question).

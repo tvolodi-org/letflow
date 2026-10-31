@@ -1047,3 +1047,10 @@
 8 test/letflow/routers/tasks_form_hook_tenant_test.exs 5589.95
 6 test/letflow/entities/records_write_hook_e4_test.exs 5589.95
 10 test/letflow/routers/entities/record_writes_hook_codes_test.exs 5589.95
+1 test/letflow/modules/locations/entity_definitions_test.exs 5589.95
+2 test/letflow/modules/locations/pack_drift_test.exs 5589.95
+3 test/letflow/modules/locations/runbook_test.exs 5589.95
+6 test/letflow/modules/locations/registration_test.exs 5589.95
+7 test/letflow/modules/locations/read_api_test.exs 5589.95
+13 test/letflow/modules/locations/behaviour_test.exs 5589.95
+15 test/letflow/modules/locations/install_test.exs 5589.95
