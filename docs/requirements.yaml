@@ -46403,3 +46403,79 @@ requirements:
       - "7. Docs: the 0050 amendment section of description point (4) exists after D8 and git diff of that file shows only added lines; the org.ex moduledoc names six types and the two new functions; docs/runbooks/wms-foundation.md section Org module limits keeps its numbered list and gains items stating: the two new types and their fields, that references among them are not checked (0050 D3.6), the term rule of description point (3), that no write function, route or import exists for them yet, and how an already installed tenant receives the types (description point (5)); test/letflow/modules/org/runbook_test.exs passes."
       - "8. Scope and gates: git diff --name-only origin/main...HEAD lists no file under priv/repo/migrations/, web/, apps/, lib/letflow/routers/ or lib/letflow/modules/ other than lib/letflow/modules/org/org.ex; mix letflow.permission_matrix --check passes with priv/permission_matrix/effective.golden unchanged; mix format --check-formatted, mix compile --warnings-as-errors, mix test test/letflow/modules/org/ test/letflow/modules/locations/registration_test.exs and mix letflow.check_requirements_registration pass, real output quoted; SECURITY-REVIEWER (new tenant-data read functions over personal names) and REVIEWER verdicts are recorded."
     depends_on: [REQ-473, REQ-506, REQ-642]
+
+  - id: REQ-648
+    title: "Assets A5: codes module skeleton: barcode, QR and RFID text linked to any master record, several codes per record, tenant-wide unique code text, and a read API that resolves a scanned text to its record"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 3588
+    # Source: owner decisions D-060, D-061 ("shared master data (organization tree, location tree, employees, codes) belongs to neither"), D-062 (label printing in the first version) and D-063 of 2026-10-31 (ai-dala-portfolio/DECISIONS.md); ai-dala-portfolio/architectures/assets.md ("Three modules and one common layer": "Codes (barcode, QR, RFID text) for any object"; "Inventory Objects: very valuable single items counted one by one, each with linked codes"; open question 4; review finding 9); letflow-team/project/assets-gap-analysis.md (section 3 "Codes: absent as a feature", rough order step 2 "codes master and lookup by code"); docs/requirements.yaml REQ-642 (description point (1): codes in a new foundation module codes with depends_on [], the target stored as an entity type name plus a record id, validated by the consumer through the owning module's lookup), REQ-625 (the locations skeleton whose shape this copies, and its open item 3 "lookup by address is a later slice"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D2 read API, D3.1 a business code is unique but never the referenced key, D3.2 retire never delete, D3.5 validation lives in the referencing module, D3.6 declarative-only references, D6 type prefix, D7 managed lock); docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (OQ-23 not decided); docs/migration/decisions/0006 D2 (no tenant_id column). Code read: lib/letflow/modules/locations/locations.ex, priv/modules/locations/ (entity_definitions/location_node.json, pack.json, generate_pack.exs), lib/letflow/modules/read_api.ex (lookup/3, active?/3), lib/letflow/entities/record/latest.ex (get_live/3), lib/letflow/entities/records.ex (unique_violation_from_constraint/2), lib/letflow/modules/catalog.ex (entry_modules/0, validate_manages_entity_types/1), lib/letflow/routers/tenant_modules.ex, config/config.exs (config :letflow, :modules), test/letflow/modules/locations/ (install_test.exs, locations_fixture.exs, read_api_test.exs, runbook_test.exs), test/letflow/modules/catalog_test.exs, test/letflow/api/permission_matrix_test.exs, docs/runbooks/wms-foundation.md. Written by the business analyst (T-1045) 2026-10-31. Not yet validated.
+    description: >
+      Phase A item A5 of the assets and stock application (owner decisions D-060 to D-063). It adds the foundation module
+      codes that the A0 decision record (REQ-642, description point (1)) places outside WMS and Assets: a code master
+      that links a scannable text (a barcode, a QR code or an RFID tag's text) to one master record of any type, and a
+      read API that resolves a scanned text to that record. If the record of REQ-642, as merged, places codes elsewhere
+      or names the module differently, the implementer stops and reports the conflict instead of building this text.
+
+      Shape: a copy of the locations skeleton (lib/letflow/modules/locations/locations.ex, pack priv/modules/locations/):
+      module id codes, entry module Letflow.Modules.Codes in lib/letflow/modules/codes/codes.ex, pack priv/modules/codes/
+      (entity_definitions/, pack.json, generate_pack.exs as the locations pack has them), registered in
+      config :letflow, :modules in config/config.exs and config/test.exs after Letflow.Modules.Locations. Manifest: depends_on [],
+      permissions [], no role_grants, no widens_grants, route_policies [], manages_entity_types ["code_assignment"]; no
+      routes and no write functions in this slice. on_install/3 activates and promotes the packed definition through
+      Letflow.Modules.EntityActivation, as locations does.
+
+      One entity type, code_assignment: one row is one code of one record. Fields, all declarative, no foreign_keys
+      (0050 D3.6): code_value (string, required, queried; the text exactly as a scanner or keyboard returns it, compared
+      without trimming or case folding); code_kind (enum barcode | qr | rfid, required, queried; what the text was read
+      from, for labels and reports; it takes no part in uniqueness or lookup, because a keyboard-wedge scanner returns
+      only the text); target_type (string, required, queried; the entity type name of the coded record, for example
+      location_node or catalog_item); target_id (string, required, queried; the record_id of the coded record); active
+      (boolean, required, queried). Constraint: uq_code_assignment_code_value, type unique over [code_value]. Because
+      this is a plain unique constraint of the tenant table, it covers every row of the tenant schema, retired rows
+      included: a code text names at most one record in a tenant, ever, and a retired code text is not given to another
+      record. Several rows may share target_type and target_id, so a record may carry several codes (for example a
+      barcode and an RFID tag). The type name uses the singular prefix code_, as locations uses location_ (0050 D6).
+
+      Targets are not validated here: codes depends on no module, so it cannot call another module's lookup. Per 0050
+      D3.5 and REQ-642, the module that writes or reads a code (WMS, Assets, label printing) validates the target through
+      the owning module's lookup/2 or active?/2. A code may therefore name a type that no installed module ships yet,
+      for example the Inventory Object type that assets.md open question 4 has not decided; this is how an Inventory
+      Object gets its linked codes without a change to this module.
+
+      Read API in Letflow.Modules.Codes, under the contract of lib/letflow/modules/read_api.ex (prefix derived
+      server-side from the authenticated tenant, never from request input; isolation by prefix alone; never a raise for
+      a provisioned tenant prefix): lookup/2 and active?/2 delegating to Letflow.Modules.ReadApi with the type list
+      ["code_assignment"]; resolve/2 (prefix, scanned_text) returning {:ok, map} with the string keys "record_id" (of the
+      code row), "code_value", "code_kind", "target_type" and "target_id" only when a live code_assignment with
+      code_value equal to scanned_text exists and its active is true, and {:error, :not_found} otherwise (unknown text,
+      retired code, soft-deleted row, a non-text scanned_text or prefix); codes_for/3 (prefix, target_type, target_id)
+      returning the list of maps of the same shape for every live, active code_assignment of that target, ordered by
+      code_value ascending, and [] when there is none or an argument is not text. The query binds every value as a
+      parameter (INV-7).
+
+      Not in this change, not decided here. (1) Tenant-wide serial uniqueness in the ledger (0073 OQ-23) is a different
+      question: the unique code text of this slice does not stop the ledger from holding the same serial at two
+      locations, and this entry does not resolve OQ-23. (2) Inventory Objects versus lots and serials (assets.md open
+      question 4). (3) Write functions (assign a code, retire a code), routes, a web screen and import of codes; the
+      generic import refuses a managed type, as for location_node (REQ-625 open item 5). (4) Label printing with a
+      barcode or QR block (the print layout blocks today are page, text, field, table, spacer;
+      lib/letflow/documents/print_layout.ex). (5) Camera scanning in the mobile client. (6) Moving location_node.address
+      into codes.
+
+      Existing tenants and QA: a new module that no tenant has installed; auto-CD to QA adds the module to the catalogue
+      and changes no existing row. All file references are re-read on main by the implementer.
+    acceptance_criteria:
+      - "1. Definition: priv/modules/codes/entity_definitions/code_assignment.json exists with exactly the fields code_value, code_kind, target_type, target_id, active; code_kind enum values exactly barcode | qr | rfid; all five fields required and queried; no foreign_keys; exactly one constraint, uq_code_assignment_code_value of type unique over [code_value]; asserted by a test that reads the file (as test/letflow/modules/locations/entity_definitions_test.exs does), and a pack drift test (as test/letflow/modules/locations/pack_drift_test.exs does) passes with the generated pack.json."
+      - "2. Registration: Catalog.validate/1 accepts the manifest (id codes, depends_on [], manages_entity_types equal to [\"code_assignment\"], permissions [], no role_grants, no widens_grants); config :letflow, :modules in config/config.exs and in config/test.exs lists Letflow.Modules.Codes right after Letflow.Modules.Locations and Catalog.entry_modules/0 includes it; the literal module-list assertions in test/letflow/modules/catalog_test.exs and the modules and :prod config list assertions in test/letflow/api/permission_matrix_test.exs are updated; mix letflow.permission_matrix --write regenerates priv/permission_matrix/effective.golden after the last merge of origin/main and mix letflow.permission_matrix --check passes, output quoted."
+      - "3. Install on real Postgres: POST /tenant/modules with module_id codes as TENANT_ADMIN with a rationale returns 201 and code_assignment is the active definition; a missing, blank or non-string rationale returns 422 and installs nothing (as test/letflow/modules/locations/install_test.exs I-1a does); after install a generic POST /records/code_assignment answers 403 entity_type_managed and writes nothing."
+      - "4. Several codes per record: through the owner path (Letflow.Entities.Records with ManagedTypes.owner_for!(Letflow.Modules.Codes), in a .exs fixture under test/letflow/modules/codes/ as test/letflow/modules/locations/locations_fixture.exs does), three code_assignment rows with code_kind barcode, qr and rfid, three different code_value texts and the same target_type and target_id are all accepted, and codes_for/3 for that target returns exactly those three, ordered by code_value ascending."
+      - "5. Tenant-wide unique code text: in one tenant, a second code_assignment with an existing code_value is refused with {:error, {:record_payload_invalid, [%Violation{rule: :unique, path: [\"code_value\"]}]}} when its code_kind differs, when its target differs, and when the existing row has active false (three separate refusals asserted); codes whose code_value differ only in letter case or in a trailing space are both accepted; the same code_value in tenant B's schema is accepted."
+      - "6. Resolve a scanned text: resolve/2 with the code_value of an active code returns {:ok, map} whose \"target_type\" and \"target_id\" are the stored values and whose \"code_kind\" and \"record_id\" are those of the code row; resolve/2 returns {:error, :not_found} for an unknown text, for the text of a code updated to active false, for a text that differs from a stored one only in letter case, for a non-binary scanned_text (nil, 7) and for a non-binary prefix, never a raise; codes_for/3 leaves out a code with active false and returns [] for a target with no codes."
+      - "7. Any target, not validated: a code_assignment whose target_type is location_node and target_id is the record_id of an installed location_node, and one whose target_type is a type name that no module ships and whose target_id is a random uuid, are both accepted and both resolved by resolve/2 with the stored target_type and target_id; the test names this as the declarative-only KNOWN LIMIT of 0050 D3.6 (target validation is the consumer's, 0050 D3.5)."
+      - "8. Read API by id: lookup/2 given the record_id of a code_assignment returns {:ok, map} with \"entity_type\" \"code_assignment\" and the stored fields; active?/2 is true for an active code and false for a retired one, an unknown uuid and the id of a record of another type; a non-uuid id gives {:error, :not_found} from lookup/2 and false from active?/2, never a raise."
+      - "9. Tenant isolation (INV-1, INV-5, INV-10): in a two-tenant test a code written under tenant A is not returned by resolve/2, codes_for/3, lookup/2 or active?/2 called with tenant B's prefix, and each gives the same answer as for an absent value ({:error, :not_found}, [], {:error, :not_found}, false); the table has no tenant_id column (0006 D2); the change adds no route, no permission and no role grant."
+      - "10. Limits written down: docs/runbooks/wms-foundation.md gains a section \"Codes module limits\", a numbered list of the limits as on main when this is done (managed type, owner path only, no write functions or routes, target not validated, unique code text over retired rows too, no case folding or trimming, generic import refuses the managed type, OQ-23 not resolved, no barcode or QR print block), each naming a GH number, a decision or a code path that exists; a runbook test as test/letflow/modules/locations/runbook_test.exs does reads the section."
+      - "11. SECURITY-REVIEWER (new tenant table, managed lock, module read surface taking a scanned text) and REVIEWER verdicts recorded; mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/modules/codes/, test/letflow/modules/catalog_test.exs and test/letflow/api/permission_matrix_test.exs, mix letflow.check_boundaries and mix letflow.check_requirements_registration pass, real output quoted; git diff --name-only origin/main...HEAD lists no file under lib/letflow/modules/org/, lib/letflow/modules/locations/, lib/letflow/modules/catalog_items/, web/ or apps/."
+    depends_on: [REQ-642, REQ-625, REQ-496, REQ-506, REQ-507]
