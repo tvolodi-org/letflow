@@ -47716,3 +47716,118 @@ requirements:
       - "5. Type read: Letflow.TenantProvisioning.entity_column_type/3 answers {:ok, \"uuid\"} for the changed column, {:ok, \"text\"} for a text column and :error for a missing column, with one query each; the plan of a missing declared column stays :closed (a scoped read returns no row, as query_scope_test.exs asserts after drop_scope_column!/2)."
       - "6. Scope and gates: git diff --name-only origin/main...HEAD lists only lib/letflow/tenant_provisioning.ex, lib/letflow/entities/query/compiler.ex, lib/letflow/entities/scoped_lookup.ex and files under test/; no change under priv/, web/, apps/, lib/letflow/modules/ or config/; mix format --check-formatted, mix compile --warnings-as-errors and the four test files of criteria 1 to 4 pass, real output quoted; SECURITY-REVIEWER (the scope filter of every scoped read, INV-1, INV-2, INV-8) and REVIEWER verdicts are recorded."
     depends_on: [REQ-518]
+
+  - id: REQ-675
+    title: "Assets phase A screens S6: web admin screen to import master data from Excel (xlsx) with a template download, a dry run with results per row, a confirm step and a result summary, in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    gh: 3650
+    # Source: owner decision of 2026-11-03 (task T-1140: "add an import screen to phase A", with a type picker, xlsx upload, a template per type, a dry run with results and errors per row before anything is written, a confirm step that runs the real import, a result summary, a clear message for files over the limits of REQ-650, permissions and scope like the other admin screens, D-067); owner decision D-062 (xlsx and Russian and Kazakh in the first version) and D-067 of 2026-11-02 (scope by org unit) in ai-dala-portfolio/DECISIONS.md; requirements read on origin/main: REQ-650 (limits, refusal texts), REQ-651 (managed import path, upsert only, references by external id, dry run), REQ-652 (location tree import), REQ-653 (xlsx export), REQ-654 (org and lot import, pending), REQ-669 (common screen rules, org web module), REQ-671 and REQ-673 (the locations and catalog_items web modules). Code read on origin/main c12cccd41: lib/letflow/routers/entities/record_import.ex (handle_import_records/2, @import_record_cap 200, @xlsx_refusal_details, check_dry_run/3 with :dry_run_not_offered for types that are not managed, check_managed_mode/2, import_scope_check/6 answering 404 for a scoped caller in upsert mode, import_results_ok/4 adding "dry_run" true, merge_rows/3 adding "line", import_reason_json/1), lib/letflow/plugs/api_pipeline.ex (Plug.Parsers root length 2_097_152, Letflow.Plugs.XlsxBodyParser), lib/letflow/entities/csv_import.ex (cell reasons csv_invalid_integer and the others), lib/letflow/entities/import_upsert.ex (error_reasons/0), lib/letflow/routers/entities.ex (handle_export_records/2, ?format=xlsx), lib/letflow/entities/xlsx_export.ex (build/3, sheet records header in definition order), lib/letflow/entities/query/types.ex (is_null, is_not_null valid for every field type), lib/letflow/entities/query/compiler.ex (combine_filters/1 ANDs the filters), lib/letflow/modules/catalog_items/catalog_items.ex (import_functions for catalog_uom, catalog_item, catalog_counterparty), priv/modules/{catalog_items,locations,org}/entity_definitions/*.json (every importable type has the fields external_ref_system and external_ref_id), web/src/modules/registry.ts and web/src/modules/types.ts (ModuleDefinition, getInstalledModuleDefinitions/2), docs/guides/adding-an-application-module.md section 11 (core code never names a module, decision 0039 D3), web/src/components/layout/AppShell.tsx (nav items with a permission), web/src/auth/access/types.ts (P has no EntitiesRecordsImport or EntitiesRecordsExport), web/src/api/client.ts (post/2 sends JSON, getBlob/2 is GET only), web/src/i18n/LoginIntlProvider.tsx and loginMessages.ts (a page-local IntlProvider with en, ru and kk), web/src/modules/exam/__tests__/exam-i18n-grep.test.ts, .github/workflows/ci.yml (the frontend gate excludes tests/e2e). Written by the business analyst (T-1140) 2026-11-03. Not yet validated.
+    description: >
+      One web screen in the admin area to load master data of the assets application from an Excel file through the
+      existing record import route (POST /entities/records/:entity_type/import with an .xlsx body, REQ-650, REQ-651,
+      REQ-652, REQ-654). No new import logic and no backend change: every rule (header, cells, references by external
+      id, tree rules, re-import, dry run, limits, access, scope) stays in the route and the module import functions,
+      and the screen only sends the file and shows the answer.
+
+      (1) Where the screen lives. A core page web/src/pages/admin/import/MasterDataImportPage.tsx on the route
+      /admin/import, with a nav item in web/src/components/layout/AppShell.tsx in the tenantAdmin group gated by
+      EntitiesRecordsImport (P in web/src/auth/access/types.ts gains EntitiesRecordsImport and EntitiesRecordsExport);
+      the nav label follows the existing AppShell labels. Core code never names a module (decision 0039 D3,
+      docs/guides/adding-an-application-module.md section 11), so the importable types come from the modules: the
+      ModuleDefinition of web/src/modules/types.ts gains an optional importTypes list, each item with entityType and a
+      label per locale (en, ru, kk) taken from the module's own message file, listed parents first. The org module of
+      REQ-669 lists org_unit, org_position, org_employee; the locations module of REQ-671 lists location_node; the
+      catalog_items module of REQ-673 lists catalog_uom, catalog_item, catalog_counterparty, catalog_lot. These are the
+      types that have an import function on origin/main once REQ-651, REQ-652 and REQ-654 are merged (legal companies and
+      sites have none, REQ-654); the implementer checks each against the :import_functions lists of
+      lib/letflow/modules/org/, locations/ and catalog_items/ on origin/main and stops and reports if one is missing. The
+      type picker shows the types of the installed modules only (getInstalledModuleDefinitions/2 of registry.ts), in the
+      order of REGISTERED_MODULES and then of each list; the nav item is hidden when no installed module lists a type.
+
+      (2) Template. A "download template" button per chosen type, shown when the user holds EntitiesRecordsExport, posts
+      the existing export route POST /entities/records/:entity_type/export?format=xlsx (REQ-653) with a body of entity_type (the chosen type)
+      and the two filters external_ref_id is_null and external_ref_id is_not_null (external_ref_id is a queried field
+      of every listed type), which match no record (the filters are ANDed), so the answer is a workbook whose
+      sheet records holds only the header row: the type's field names in definition order, external_ref_system and
+      external_ref_id included, which is a header the import accepts. The browser saves it as
+      <entity_type>-template.xlsx. The screen shows next to the template, as fixed text: a reference column holds the
+      external id of the referenced record under the same external_ref_system, parents and referenced records come first
+      in the file or exist already, every row needs external_ref_system and external_ref_id, and the active column stays
+      empty (retire is not done by import).
+
+      (3) Upload and dry run. The file input accepts .xlsx only. Before sending, a file larger than 2_097_152 bytes (the
+      root Plug.Parsers length of lib/letflow/plugs/api_pipeline.ex) is not sent and the limits message is shown. The
+      limits are shown on the screen before upload: at most 2 MB per file, at most 200 data rows, only the first sheet is
+      read (REQ-650 D2). "Check file" posts the file bytes as the request body with the content type
+      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet to the import route with
+      ?upsert_by=external_ref&dry_run=true (web/src/api/client.ts gains a POST with a raw body and a content type, using
+      the same Authorization and non-2xx handling as the other calls). The answer's results are shown as a table, one row
+      per result in answer order: line (the sheet row number), the outcome created, updated or unchanged for an ok row,
+      the external id when the result carries external_ref, and for an error row the translated message of reason.type,
+      with reason.header named when present and the violations of record_payload_invalid listed by field. Above the
+      table: the counts of created, updated, unchanged and refused rows, and that nothing has been written yet.
+
+      (4) Confirm. "Import" is enabled only after a dry run of the same file and the same type answered 200 with no error
+      row (UAT assumption, to be confirmed by the process owner: a file with refused rows is fixed and checked again
+      before anything is written). Changing the type or the file clears the dry run result and disables "Import". Import
+      posts the same bytes to the same route with ?upsert_by=external_ref and no dry_run, and shows the result summary:
+      the four counts and the per-row table of the real answer (state may have changed since the dry run, so the screen
+      shows the real answer, not the dry run's). After the summary, a new file can be chosen. A retry of a failed import
+      call is safe because upsert by external ref answers unchanged for rows already written (REQ-651 point 5); no client
+      idempotency key is sent (the route derives its own).
+
+      (5) Whole-request answers, each with its own translated message: 413 (any body, from the parser or the 200-row
+      cap) shows the limits message naming 2 MB and 200 rows; 422 with each of the six fixed detail texts of
+      @xlsx_refusal_details (xlsx_unreadable, xlsx_too_large, xlsx_header_missing, xlsx_duplicate_header,
+      xlsx_unknown_header, xlsx_external_ref_pair), the 422 detail "dry_run unavailable: too many rows refused by the
+      database", and any other 422 a generic message with the detail; 404 shows that the type is not available to the
+      user (this is also the answer a scoped user gets, see the scope paragraph); 403 shows that the action is not
+      permitted; 503 shows that the server is busy and the same file can be imported again later. A row reason type the
+      screen has no message for shows a generic message with the type code. The row reason types that get their own
+      message are every type the route can put in a row result on origin/main at implement time: those of
+      import_reason_json/1 in lib/letflow/routers/entities/record_import.ex (among them record_payload_invalid,
+      record_size_exceeded, external_ref_invalid, external_ref_record_deleted, external_ref_contention,
+      duplicate_external_ref_in_request, field_restricted, reference_not_found, reference_inactive, cycle,
+      parent_inactive, parent_not_found, node_not_found, field_not_allowed, field_invalid, definition_changed,
+      trigger_backlog_full, internal_error), the cell reasons of lib/letflow/entities/csv_import.ex shared by the xlsx
+      converter (csv_cell_count, csv_invalid_integer, csv_invalid_decimal, csv_invalid_boolean, csv_invalid_date,
+      csv_invalid_datetime, csv_invalid_json, csv_invalid_localized_text), and the reasons of the org and lot import
+      functions of REQ-654; the design lists them, read from the code, not from this text.
+
+      (6) Languages. Every user-visible text of the page is in a page message file web/src/i18n/importMessages.ts with
+      en, ru and kk entries, used through a page-local web/src/i18n/ImportIntlProvider.tsx in the style of
+      LoginIntlProvider.tsx (resolveUiLocale); type labels come from the modules' importTypes for the same locale. The
+      page never sends a tenant identifier. Query keys and query state follow web/tests/guards/forbidlist.ts.
+
+      (7) How it is tested. Web component tests with a mocked network (vitest, as the other screens): one test file per
+      criterion group below, no real tenant needed. One end-to-end path, a Playwright spec
+      web/tests/e2e/master-data-import.e2e.spec.ts: a TENANT_ADMIN of a tenant with catalog_items installed downloads the
+      catalog_uom template, uploads a file of two units with an external_ref_system unique to the run (so a re-run on the
+      same tenant creates new records rather than finding the old ones), sees two created rows in the dry run, imports,
+      sees the summary with two created rows, and finds both units through the query route. The frontend gate does not
+      run tests/e2e (.github/workflows/ci.yml) and the team host cannot run the full stack, so the spec is checked by
+      npm run test:e2e:list and its run is an operator or UAT step; the UAT scenarios of the screen are a later uat_design
+      task.
+
+      Scope declaration (owner decision D-067 of 2026-11-02; REQ-642 point (8)). The screen declares no type and changes
+      no declaration. Every import it sends is in upsert mode, which import_scope_check/6 refuses for a caller whose
+      scope is not tenant-wide (the whole request answers 404 and nothing is written); so a user held only through an
+      org-scoped grant imports nothing and sees the 404 message, which says that the type is not available to the user
+      or that an import needs access to the whole company. Imports therefore never write outside the units a user may
+      see. A scoped import, if the process owner wants one, is a backend change and not part of this entry.
+
+      Not in this change: CSV upload on this screen, import of legal companies and sites, an export button for record
+      lists, a mapping of file columns to fields, retire by import, mobile, any backend change.
+    acceptance_criteria:
+      - "1. Placement: web/src/modules/types.ts gains the optional importTypes list; the org, locations and catalog_items module index.ts files list exactly the eight types of the description in that order; a test with installed modules org and catalog_items only shows the picker with org_unit, org_position, org_employee, catalog_uom, catalog_item, catalog_counterparty, catalog_lot and no location_node; a test shows the AppShell nav item absent for a user without EntitiesRecordsImport and absent when no installed module lists a type; the eslint no-restricted-imports rule passes with no core file importing module code except through registry.ts."
+      - "2. Template: with a mocked network, the template button sends the export route of the chosen type with format=xlsx, entity_type in the body and exactly the two filters external_ref_id is_null and external_ref_id is_not_null, and saves the answer as <entity_type>-template.xlsx; the button is absent for a user without EntitiesRecordsExport."
+      - "3. Dry run: with a mocked network, a chosen .xlsx file is sent as the raw request body with the xlsx content type to the import route of the chosen type with upsert_by=external_ref and dry_run=true; an answer with dry_run true, two ok rows (outcomes created and unchanged) and one error row (reason reference_not_found, header base_uom_id, line 4) shows a table of three rows with lines, the translated outcomes and the translated reason naming base_uom_id, the counts 1 created, 1 unchanged, 1 refused, and the text that nothing has been written."
+      - "4. Confirm: Import is disabled before a dry run, after a dry run with an error row, and after the file or the type is changed; after a dry run with no error row it is enabled and sends the same bytes with upsert_by=external_ref and no dry_run parameter; the summary shows the counts and rows of the import answer, not of the dry run (the mock answers differently to the two calls)."
+      - "5. Limits and whole-request answers: a file of 2_097_152 + 1 bytes is not sent and shows the limits message; a mocked 413 shows the limits message naming 2 MB and 200 rows; each of the six xlsx refusal detail texts and the dry_run unavailable text shows its own translated message; another 422 shows the generic message with the detail; 404, 403 and 503 each show their translated message."
+      - "6. Row reasons: a table-driven test feeds one error row per reason type listed in the design (read from import_reason_json/1, csv_import.ex and the REQ-654 import functions on origin/main) and finds each translated message; an unknown type shows the generic message with the type code."
+      - "7. Languages: web/src/i18n/importMessages.ts has the same keys in en, ru and kk (a test), each module's importTypes has an en, ru and kk label for every type (a test), a test switches the locale to ru and kk and finds the translated page title, and a test in the style of exam-i18n-grep.test.ts finds no bare JSX text in the page files; no request of the page carries a tenant identifier (a test inspects every mocked request)."
+      - "8. End-to-end path: web/tests/e2e/master-data-import.e2e.spec.ts exists with the path of description point (7) and is listed by cd web && npm run test:e2e:list (output quoted); its run is not claimed."
+      - "9. Gates: cd web && npm run check passes (type-check, lint, unit tests, guards), real output quoted; git diff --name-only origin/main...HEAD lists files only under web/; REVIEWER verdict recorded."
+    depends_on: [REQ-650, REQ-651, REQ-652, REQ-654, REQ-669, REQ-671, REQ-673]
