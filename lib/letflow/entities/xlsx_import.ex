@@ -25,6 +25,8 @@ defmodule Letflow.Entities.XlsxImport do
   file text.
   """
 
+  import Bitwise, only: [band: 2]
+
   alias Letflow.Entities.CsvImport
 
   @max_inflated 26_214_400
@@ -99,33 +101,137 @@ defmodule Letflow.Entities.XlsxImport do
     end
   end
 
-  # Stage 2: the declared sizes are the archive's own claim, so the parts are inflated one by one
-  # with a running real-size cap. Every XML part is also checked for a DOCTYPE and its encoding.
+  # Stage 2: the declared sizes are the archive's own claim, so they are not trusted. The central
+  # directory is read here and every part is inflated as a bounded stream (`:zlib.safeInflate/2`)
+  # that stops as soon as the running real total passes the cap, so nothing over the cap is ever
+  # allocated, whatever the archive declares. Every XML part is also checked for a DOCTYPE and its
+  # encoding. Only a workbook that passes is handed to XlsxReader.
   defp check_parts(binary) do
-    {:ok, handle} = :zip.zip_open(binary, [:memory])
+    with {:ok, entries} <- central_entries(binary) do
+      Enum.reduce_while(entries, {:ok, 0}, fn entry, {:ok, total} ->
+        case inflate_entry(binary, entry, @max_inflated - total) do
+          {:ok, name, part} ->
+            total = total + byte_size(part)
 
-    try do
-      {:ok, entries} = :zip.zip_list_dir(handle)
+            if xml_part?(name) and not safe_xml?(part),
+              do: {:halt, {:error, :xlsx_unreadable}},
+              else: {:cont, {:ok, total}}
 
-      names =
-        for {:zip_file, name, _info, _comment, _offset, _csize} <- entries, do: name
-
-      Enum.reduce_while(names, {:ok, 0}, fn name, {:ok, total} ->
-        {:ok, {_name, part}} = :zip.zip_get(name, handle)
-        total = total + byte_size(part)
-
-        cond do
-          total > @max_inflated -> {:halt, {:error, :xlsx_too_large}}
-          xml_part?(name) and not safe_xml?(part) -> {:halt, {:error, :xlsx_unreadable}}
-          true -> {:cont, {:ok, total}}
+          {:error, _} = error ->
+            {:halt, error}
         end
       end)
       |> case do
         {:ok, _total} -> :ok
         {:error, _} = error -> error
       end
+    end
+  end
+
+  defp central_entries(binary) do
+    case find_eocd(binary) do
+      {:ok, count, cd_size, cd_offset}
+      when cd_offset + cd_size <= byte_size(binary) ->
+        parse_central(binary_part(binary, cd_offset, cd_size), count, [])
+
+      _ ->
+        {:error, :xlsx_unreadable}
+    end
+  end
+
+  defp find_eocd(binary) do
+    size = byte_size(binary)
+    window = min(size, 22 + 65_535)
+    tail = binary_part(binary, size - window, window)
+
+    case :binary.matches(tail, <<0x50, 0x4B, 0x05, 0x06>>) do
+      [] ->
+        :error
+
+      matches ->
+        {pos, _} = List.last(matches)
+
+        case tail do
+          <<_::binary-size(^pos), 0x06054B50::32-little, _disk::16-little, _cd_disk::16-little,
+            _n_disk::16-little, count::16-little, cd_size::32-little, cd_offset::32-little,
+            _rest::binary>> ->
+            {:ok, count, cd_size, cd_offset}
+
+          _ ->
+            :error
+        end
+    end
+  end
+
+  defp parse_central(_data, 0, acc), do: {:ok, Enum.reverse(acc)}
+
+  defp parse_central(
+         <<0x02014B50::32-little, _made::16-little, _need::16-little, flags::16-little,
+           method::16-little, _time::16-little, _date::16-little, _crc::32-little,
+           csize::32-little, _usize::32-little, nlen::16-little, elen::16-little, clen::16-little,
+           _disk::16-little, _iattr::16-little, _eattr::32-little, offset::32-little,
+           name::binary-size(nlen), _extra::binary-size(elen), _comment::binary-size(clen),
+           rest::binary>>,
+         count,
+         acc
+       ) do
+    entry = %{name: name, flags: flags, method: method, csize: csize, offset: offset}
+    parse_central(rest, count - 1, [entry | acc])
+  end
+
+  defp parse_central(_data, _count, _acc), do: {:error, :xlsx_unreadable}
+
+  # `budget` is what is left of the cap; a part that would pass it is refused before it is
+  # allocated. The compressed bytes are bounded by the archive itself (the 2 MiB body).
+  defp inflate_entry(_binary, %{flags: flags}, _budget) when band(flags, 1) == 1,
+    do: {:error, :xlsx_unreadable}
+
+  defp inflate_entry(binary, %{name: name, method: method, csize: csize, offset: offset}, budget) do
+    case binary do
+      <<_::binary-size(^offset), 0x04034B50::32-little, _need::16-little, _flags::16-little,
+        _method::16-little, _time::16-little, _date::16-little, _crc::32-little,
+        _csize::32-little, _usize::32-little, nlen::16-little, elen::16-little, rest::binary>>
+      when byte_size(rest) >= nlen + elen ->
+        skip = nlen + elen
+        <<_::binary-size(^skip), data::binary>> = rest
+        inflate_data(name, method, data, csize, budget)
+
+      _ ->
+        {:error, :xlsx_unreadable}
+    end
+  end
+
+  defp inflate_data(name, 0, data, csize, budget) when byte_size(data) >= csize do
+    if csize > budget,
+      do: {:error, :xlsx_too_large},
+      else: {:ok, name, binary_part(data, 0, csize)}
+  end
+
+  defp inflate_data(name, 8, data, _csize, budget) do
+    z = :zlib.open()
+
+    try do
+      :ok = :zlib.inflateInit(z, -15)
+      inflate_loop(z, :zlib.safeInflate(z, data), 0, [], budget, name)
     after
-      :zip.zip_close(handle)
+      :zlib.close(z)
+    end
+  end
+
+  defp inflate_data(_name, _method, _data, _csize, _budget), do: {:error, :xlsx_unreadable}
+
+  defp inflate_loop(z, {state, out}, size, acc, budget, name) do
+    size = size + IO.iodata_length(out)
+
+    cond do
+      size > budget ->
+        {:error, :xlsx_too_large}
+
+      state == :finished ->
+        {:ok, name, IO.iodata_to_binary([acc, out])}
+
+      true ->
+        inflate_loop(z, :zlib.safeInflate(z, []), size, [acc, out], budget, name)
     end
   end
 

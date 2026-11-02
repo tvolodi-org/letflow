@@ -88,9 +88,10 @@ converter runs before `import_scope_check/6`, which sees the same records as for
 
 ## Residual risk
 
-The declared-size check trusts the archive's own size fields. A crafted archive can understate
-them; the running real-size total of the part-by-part pass reacts only after a single part has
-been inflated, and deflate can expand roughly a thousand times, so one part can use memory
-before the cap fires. The 2 MiB body cap bounds this (about 2 GiB at the theoretical ratio, far
-less for real input) and the pass runs inside one request process. No stronger guard is added
-here; the reviewer judges it.
+The declared sizes in the archive are the archive's own claim and are not trusted. Every part is
+inflated as a bounded stream (`:zlib.safeInflate/2` from the local header found through the
+central directory) that stops as soon as the running real total passes the 25 MiB cap, so a
+forged archive that understates its sizes is refused with `xlsx_too_large` before more than the
+cap (plus one inflate chunk) is allocated. Only an archive that passes is handed to XlsxReader,
+which then inflates parts that are already verified. Covered by test C3m. What remains: up to
+25 MiB per concurrent import request, bounded by the cap and the 2 MiB body limit.

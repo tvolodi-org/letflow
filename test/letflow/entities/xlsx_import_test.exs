@@ -127,6 +127,29 @@ defmodule Letflow.Entities.XlsxImportTest do
       assert XlsxImport.convert(bytes, @fields) == {:error, :xlsx_too_large}
     end
 
+    test "C3m: a forged archive that understates a part's size is refused while inflating" do
+      # 30 MiB of zeros deflate to ~30 KiB; both size fields are patched to claim 1000 bytes.
+      big = :binary.copy(<<0>>, 31_457_280)
+      zip = XlsxFixture.build([[["title"], ["A"]]], extra: [{"xl/big.bin", big}])
+      real = <<31_457_280::32-little>>
+      fake = <<1000::32-little>>
+      assert :binary.matches(zip, real) |> length() == 2
+      forged = :binary.replace(zip, real, fake, [:global])
+
+      assert {:ok, listing} = :zip.list_dir(forged)
+
+      assert Enum.any?(
+               listing,
+               &match?(
+                 {:zip_file, ~c"xl/big.bin",
+                  {:file_info, 1000, _, _, _, _, _, _, _, _, _, _, _, _}, _, _, _},
+                 &1
+               )
+             )
+
+      assert XlsxImport.convert(forged, @fields) == {:error, :xlsx_too_large}
+    end
+
     test "C3e: an empty sheet and a blank header row have no header" do
       assert convert([[]]) == {:error, :xlsx_header_missing}
       assert convert([[[nil, nil]]]) == {:error, :xlsx_header_missing}
