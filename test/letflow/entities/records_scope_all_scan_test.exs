@@ -182,7 +182,8 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
   defp unjustified(sites),
     do: Enum.reject(sites, &(&1.has_scope_key? or &1.justification != nil))
 
-  # ====================================================================================  describe "the scanner is live (seeded sources)" do
+  # ===========================================================================================
+  describe "the scanner is live (seeded sources)" do
     @bare """
     defmodule Seed do
       alias Letflow.Entities.Records
@@ -279,7 +280,8 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     end
   end
 
-  # ====================================================================================  describe "T-W8 reference-check wiring (BUG-1) and the validator pin" do
+  # ===========================================================================================
+  describe "T-W8 reference-check wiring (BUG-1) and the validator pin" do
     @validator "lib/letflow/entities/record/validator.ex"
 
     defp identifiers(file) do
@@ -329,7 +331,8 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     end
   end
 
-  # ====================================================================================  describe "T-W17 the real tree" do
+  # ===========================================================================================
+  describe "T-W17 the real tree" do
     test "every Records write call site outside the router carries a scope key or a `# scope-all:` justification" do
       bare = unjustified(all_sites())
 
