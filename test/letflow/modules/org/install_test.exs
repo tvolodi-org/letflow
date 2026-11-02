@@ -6,7 +6,7 @@ defmodule Letflow.Modules.Org.InstallTest do
   Everything runs against a real provisioned tenant on real Postgres: the install goes through
   the real `Letflow.Routers.TenantModules` (`POST /`), the owner writes go through
   `Letflow.Entities.Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.Org)`
-  (the fixtures write units directly; the unit functions are REQ-495), and the managed-lock
+  (the fixtures write units directly, without a scope tree index row; the unit functions are REQ-495, `Org.create_unit/3`), and the managed-lock
   checks go through the real `Letflow.Routers.Entities`.
 
   `async: false`: tenant provisioning switches the sandbox to `:auto` and the install runs DDL.
