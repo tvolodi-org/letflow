@@ -432,7 +432,7 @@ defmodule Letflow.Modules.Locations.TreeWriteTest do
       refute src =~
                ~r/def\s+(move_node|update_node|retire_node|descendant_ids)\([^)]*(principal|scope)/
 
-      assert Locations.manifest().version == "0.2.0"
+      assert Locations.manifest().version == "0.3.0"
     end
   end
 end
