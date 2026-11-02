@@ -31,8 +31,8 @@ defmodule Letflow.Modules.Locations.EntityDefinitionsTest do
 
   defp field(name), do: Enum.find(doc()["fields"], &(&1["name"] == name))
 
-  test "E-1a: the directory holds exactly location_node.json, with the known keys only" do
-    assert File.ls!(@dir) == ["location_node.json"]
+  test "E-1a: the directory holds exactly the two definition files, with the known keys only" do
+    assert File.ls!(@dir) |> Enum.sort() == ["location_node.json", "location_org_unit_link.json"]
     assert doc()["name"] == "location_node"
 
     assert Enum.sort(Map.keys(doc()) -- ["description"]) ==
@@ -80,5 +80,51 @@ defmodule Letflow.Modules.Locations.EntityDefinitionsTest do
     assert doc()["indexes"] == [
              %{"name" => "idx_location_node_parent_id", "fields" => ["parent_id"]}
            ]
+  end
+
+  defp link_doc,
+    do: @dir |> Path.join("location_org_unit_link.json") |> File.read!() |> Jason.decode!()
+
+  test "E-4a: the link type has exactly three required queried fields" do
+    actual =
+      for f <- link_doc()["fields"],
+          do: {f["name"], f["type"], f["required"], f["queried"]}
+
+    assert Enum.sort(actual) == [
+             {"active", "boolean", true, true},
+             {"location_id", "string", true, true},
+             {"org_unit_id", "string", true, true}
+           ]
+  end
+
+  test "E-4b: one unique pair, one foreign key onto location_node, one org_unit_id index" do
+    d = link_doc()
+
+    assert d["constraints"] == [
+             %{
+               "name" => "uq_location_org_unit_link",
+               "type" => "unique",
+               "fields" => ["location_id", "org_unit_id"]
+             }
+           ]
+
+    assert d["foreign_keys"] == [
+             %{
+               "name" => "fk_location_org_unit_link_location_id",
+               "field" => "location_id",
+               "references_entity" => "location_node"
+             }
+           ]
+
+    assert d["indexes"] == [
+             %{"name" => "idx_location_org_unit_link_org_unit_id", "fields" => ["org_unit_id"]}
+           ]
+  end
+
+  test "E-4c: the pack lists location_node before the link type that references it" do
+    pack = "priv/modules/locations/pack.json" |> File.read!() |> Jason.decode!()
+    names = Enum.map(pack["entity_definitions"], & &1["name"])
+    assert names == ["location_node", "location_org_unit_link"]
+    assert pack["version"] == "0.3.0"
   end
 end
