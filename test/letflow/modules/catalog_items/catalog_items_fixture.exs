@@ -130,6 +130,15 @@ defmodule Letflow.CatalogItemsFixture do
     create!(schema, "catalog_counterparty", values("catalog_counterparty", code, extra))
   end
 
+  @doc "An active lot (owner path) of `item_id` with `code`; `extra` overrides fields."
+  def lot!(schema, item_id, code, extra \\ %{}) do
+    create!(
+      schema,
+      "catalog_lot",
+      values("catalog_lot", code, Map.merge(%{"item_id" => item_id}, extra))
+    )
+  end
+
   @doc "Owner-path full-document update that must succeed; returns the stored `Latest` row."
   def update!(schema, record, field_values) do
     {:ok, %{record: updated}} =
@@ -158,6 +167,10 @@ defmodule Letflow.CatalogItemsFixture do
       %{"code" => code, "name" => "Supplier #{code}", "kind" => "supplier", "active" => true},
       extra
     )
+  end
+
+  def values("catalog_lot", code, extra) do
+    Map.merge(%{"item_id" => Ecto.UUID.generate(), "code" => code, "active" => true}, extra)
   end
 
   def values("catalog_item", code, extra) do
