@@ -353,6 +353,34 @@ defmodule Letflow.Entities.Query.Compiler do
     TenantProvisioning.entity_column_exists?(schema_name, table_name, column_name)
   end
 
+  @doc false
+  # REQ-674: the one owner of "how is a declared scope column bound". One `information_schema`
+  # read: `:missing` (fail closed), `:uuid` (ids bound as ONE `uuid[]`) or `:text` (any other
+  # type: ids bound as ONE text array, as before). Shared with `Letflow.Entities.ScopedLookup`.
+  @spec scope_column_kind(String.t(), String.t(), String.t()) :: :missing | :uuid | :text
+  def scope_column_kind(schema_name, table_name, column_name) do
+    case TenantProvisioning.entity_column_type(schema_name, table_name, column_name) do
+      :error -> :missing
+      {:ok, "uuid"} -> :uuid
+      {:ok, _other} -> :text
+    end
+  end
+
+  @doc false
+  # REQ-674: the scope set as `Ecto.UUID`-castable ids (canonical lower case, distinct). A
+  # non-uuid node id can never equal a uuid column value, so it is dropped, not an error.
+  @spec scope_uuid_ids([String.t()]) :: [Ecto.UUID.t()]
+  def scope_uuid_ids(ids) do
+    ids
+    |> Enum.flat_map(fn id ->
+      case Ecto.UUID.cast(id) do
+        {:ok, uuid} -> [uuid]
+        :error -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
   # ---------------------------------------------------------------------------------
   # §4.2 -- value-arity / :in-value-shape checks (pure, no allowlist needed).
   # ---------------------------------------------------------------------------------
@@ -1146,6 +1174,9 @@ defmodule Letflow.Entities.Query.Compiler do
   #   :closed         -- constant false (undeclared type, `:latest` source, column not physically
   #                      present: fail closed, never a JSON fallback);
   #   {:column, name} -- `name = ANY(<ids as ONE bound text[] parameter>)`; NULL never matches.
+  #   {:uuid_column, name} -- REQ-674: the same for a `uuid` column, `name = ANY(<ONE bound uuid[]>)`
+  #                      (PostgreSQL has no `uuid = text`); ids that are not uuids are dropped and
+  #                      none left is constant false. The column is never cast (index use).
   # The column name comes from a format-validated module declaration, never from the request.
   # ---------------------------------------------------------------------------------
 
@@ -1187,7 +1218,11 @@ defmodule Letflow.Entities.Query.Compiler do
   defp binding_scope_kind(:tenant_wide, _source, _prefix), do: :open
 
   defp binding_scope_kind({:column, column}, {:per_type_table, table_name}, prefix) do
-    if relation_column_exists?(prefix, table_name, column), do: {:column, column}, else: :closed
+    case scope_column_kind(prefix, table_name, column) do
+      :missing -> :closed
+      :text -> {:column, column}
+      :uuid -> {:uuid_column, column}
+    end
   end
 
   defp binding_scope_kind(_declaration, _source, _prefix), do: :closed
@@ -1221,10 +1256,28 @@ defmodule Letflow.Entities.Query.Compiler do
     dynamic([r], fragment(@any_fragment, literal(^column), type(^ids, {:array, :string})))
   end
 
+  defp kind_dynamic({:uuid_column, column}, ids, ref) do
+    case scope_uuid_ids(ids) do
+      [] -> dynamic(false)
+      uuids -> uuid_dynamic(column, uuids, ref)
+    end
+  end
+
   defp kind_dynamic({:column, column}, ids, {:named, alias_atom}) do
     dynamic(
       [],
       fragment(@any_fragment, field(as(^alias_atom), ^column), type(^ids, {:array, :string}))
+    )
+  end
+
+  defp uuid_dynamic(column, uuids, :positional) do
+    dynamic([r], fragment(@any_fragment, literal(^column), type(^uuids, {:array, Ecto.UUID})))
+  end
+
+  defp uuid_dynamic(column, uuids, {:named, alias_atom}) do
+    dynamic(
+      [],
+      fragment(@any_fragment, field(as(^alias_atom), ^column), type(^uuids, {:array, Ecto.UUID}))
     )
   end
 
