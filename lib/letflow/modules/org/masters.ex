@@ -9,8 +9,8 @@ defmodule Letflow.Modules.Org.Masters do
 
   Every writer runs in one transaction under one tenant advisory lock (key text
   `<prefix>:org_legal_entity_bin`, a bound parameter). The lock serialises the BIN check of the
-  companies and the liveness / in-use checks of sites and companies. REQ-495's unit writers must
-  take the same lock. The writer appends one audit entry (`org_legal_entity.created|updated|retired`,
+  companies and the liveness / in-use checks of sites and companies. REQ-495's unit writers
+  (`Letflow.Modules.Org.Units`) take the same lock, then the scope tree index lock. The writer appends one audit entry (`org_legal_entity.created|updated|retired`,
   `org_site.created|updated|retired`) in the same transaction; a refusal writes neither record
   nor audit entry.
 
@@ -39,6 +39,7 @@ defmodule Letflow.Modules.Org.Masters do
   alias Letflow.Modules.Org
   alias Letflow.Modules.ReadApi
   alias Letflow.Repo
+  alias Letflow.ScopeNodePaths
 
   @company "org_legal_entity"
   @site "org_site"
@@ -141,7 +142,8 @@ defmodule Letflow.Modules.Org.Masters do
 
   # --- transaction ----------------------------------------------------------------------------
 
-  defp run(prefix, attrs, actor, idem, action, type, prepare) do
+  @doc false
+  def run(prefix, attrs, actor, idem, action, type, prepare) do
     if is_map(attrs) do
       persist(prefix, actor, idem, action, type, prepare)
     else
@@ -166,13 +168,10 @@ defmodule Letflow.Modules.Org.Masters do
               rec
 
             {:write, kind, id, before, fv} ->
-              with {:ok, record_id} <- write(prefix, type, kind, id, fv, actor, idem),
-                   {:ok, rec} <- ReadApi.lookup(prefix, record_id, [type]),
-                   :ok <- audit(prefix, actor, action, type, record_id, before, state(rec)) do
-                rec
-              else
-                {:error, reason} -> Repo.rollback(reason)
-              end
+              apply_write(prefix, actor, idem, action, type, {kind, id, before, fv}, %{})
+
+            {:write, kind, id, before, fv, extra} ->
+              apply_write(prefix, actor, idem, action, type, {kind, id, before, fv}, extra)
 
             {:error, reason} ->
               Repo.rollback(reason)
@@ -186,10 +185,49 @@ defmodule Letflow.Modules.Org.Masters do
     end
   end
 
+  # The optional `extra` map of a 6-tuple carries `:action` (overrides the audit action) and
+  # `:tree`: `{:before, change}` runs `ScopeNodePaths.write/2` before the record write (move,
+  # retire); `{:after_insert, parent}` takes the index table lock before the record write and
+  # inserts the index row after it (create). A tree refusal rolls the whole transaction back.
+  defp apply_write(prefix, actor, idem, action, type, {kind, id, before, fv}, extra) do
+    action = Map.get(extra, :action, action)
+    tree = Map.get(extra, :tree)
+
+    with :ok <- tree_before(tree, prefix),
+         {:ok, record_id} <- write(prefix, type, kind, id, fv, actor, idem),
+         :ok <- tree_after(tree, prefix, record_id),
+         {:ok, rec} <- ReadApi.lookup(prefix, record_id, [type]),
+         :ok <- audit(prefix, actor, action, type, record_id, before, state(rec)) do
+      rec
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp tree_before({:after_insert, _parent}, prefix), do: ScopeNodePaths.lock!(prefix)
+
+  defp tree_before({:before, change}, prefix) do
+    case ScopeNodePaths.write(change, prefix) do
+      {:ok, _} -> :ok
+      {:error, _} = err -> err
+    end
+  end
+
+  defp tree_before(nil, _prefix), do: :ok
+
+  defp tree_after({:after_insert, parent}, prefix, record_id) do
+    case ScopeNodePaths.write({:insert, record_id, parent}, prefix) do
+      {:ok, _} -> :ok
+      {:error, _} = err -> err
+    end
+  end
+
+  defp tree_after(_tree, _prefix, _record_id), do: :ok
+
   # Records detects a replay by failing its own multi, which a surrounding transaction cannot
   # survive: a claimed key goes to Records alone and returns the original or the reuse error.
   defp replay(prefix, actor, idem, type, prepare) do
-    with {:write, kind, id, _before, fv} <- prepare.(true),
+    with {kind, id, fv} <- replay_plan(prepare.(true)),
          {:ok, record_id} <- write(prefix, type, kind, id, fv, actor, idem) do
       ReadApi.lookup(prefix, record_id, [type])
     else
@@ -197,6 +235,10 @@ defmodule Letflow.Modules.Org.Masters do
       {:error, _} = err -> err
     end
   end
+
+  defp replay_plan({:write, kind, id, _before, fv}), do: {kind, id, fv}
+  defp replay_plan({:write, kind, id, _before, fv, _extra}), do: {kind, id, fv}
+  defp replay_plan(other), do: other
 
   defp replay?(prefix, idem) do
     Repo.exists?(from(i in IdempotencyRecord, where: i.idempotency_key == ^idem), prefix: prefix)
@@ -371,7 +413,8 @@ defmodule Letflow.Modules.Org.Masters do
 
   # The company must be a live org_legal_entity. On replay the first call already checked it and
   # the company may have been retired since, so only the uuid cast and existence are re-read.
-  defp check_company(prefix, value, replay?) do
+  @doc false
+  def check_company(prefix, value, replay?) do
     with {:ok, uuid} <- Ecto.UUID.cast(value),
          {:ok, company} <- ReadApi.lookup(prefix, uuid, [@company]) do
       if replay? or company["active"] == true,
@@ -384,7 +427,8 @@ defmodule Letflow.Modules.Org.Masters do
 
   # --- shared checks --------------------------------------------------------------------------
 
-  defp fetch(prefix, id, type, not_found) do
+  @doc false
+  def fetch(prefix, id, type, not_found) do
     with {:ok, uuid} <- Ecto.UUID.cast(id),
          {:ok, rec} <- ReadApi.lookup(prefix, uuid, [type]) do
       {:ok, rec}
@@ -393,32 +437,38 @@ defmodule Letflow.Modules.Org.Masters do
     end
   end
 
-  defp state(rec), do: Map.drop(rec, @kept)
+  @doc false
+  def state(rec), do: Map.drop(rec, @kept)
 
   # Stored fields merged with the change; a nil value clears the key.
-  defp merged(rec, attrs) do
+  @doc false
+  def merged(rec, attrs) do
     cleared = for {k, nil} <- attrs, do: k
     rec |> state() |> Map.drop(cleared) |> Map.merge(drop_nils(attrs))
   end
 
-  defp check_keys(attrs, allowed) do
+  @doc false
+  def check_keys(attrs, allowed) do
     case attrs |> Map.keys() |> Enum.reject(&(&1 in allowed)) |> Enum.sort() do
       [] -> :ok
       [key | _] -> {:error, {:field_not_allowed, key}}
     end
   end
 
-  defp check_required_text(attrs, key) do
+  @doc false
+  def check_required_text(attrs, key) do
     v = Map.get(attrs, key)
 
     if is_binary(v) and String.trim(v) != "", do: :ok, else: {:error, {:field_invalid, key}}
   end
 
-  defp check_optional_required_text(attrs, key) do
+  @doc false
+  def check_optional_required_text(attrs, key) do
     if Map.has_key?(attrs, key), do: check_required_text(attrs, key), else: :ok
   end
 
-  defp check_ext(attrs) do
+  @doc false
+  def check_ext(attrs) do
     bad =
       Enum.find(@ext_keys, fn k ->
         v = Map.get(attrs, k)
@@ -453,7 +503,8 @@ defmodule Letflow.Modules.Org.Masters do
 
   # True when a live, active record of one of `types` names `id` in `field`. The stored side is
   # lowered because an older caller may store a non-canonical uuid; `id` is the canonical one.
-  defp named_by_active?(prefix, types, field, id) do
+  @doc false
+  def named_by_active?(prefix, types, field, id) do
     with {:ok, uuid} <- Ecto.UUID.cast(id) do
       query =
         from(r in Latest,
@@ -469,9 +520,11 @@ defmodule Letflow.Modules.Org.Masters do
     end
   end
 
-  defp drop_nils(attrs), do: attrs |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
+  @doc false
+  def drop_nils(attrs), do: attrs |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
 
-  defp opts!(opts, fun) do
+  @doc false
+  def opts!(opts, fun) do
     actor = Map.get(opts, :actor_id)
     idem = Map.get(opts, :idempotency_key)
 

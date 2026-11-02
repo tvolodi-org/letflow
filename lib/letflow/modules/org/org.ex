@@ -17,8 +17,8 @@ defmodule Letflow.Modules.Org do
 
   All six are declared in `manages_entity_types`, so after install the generic entity routes
   answer 403 `entity_type_managed`. This skeleton ships no routes, no permissions, no role
-  grants. Write functions exist for the legal company and the site only (GH #3619 / REQ-660, see
-  below); the unit functions (create, move, retire) are REQ-495 and the read API is REQ-506. References between the four original types are declarative strings (0050 D3.6), no
+  grants. Write functions exist for the legal company, the site (GH #3619 / REQ-660) and the unit (GH #3618 / REQ-495), see
+  below; the unit functions are REQ-495 (below) and the read API is REQ-506. References between the four original types are declarative strings (0050 D3.6), no
   foreign keys; the two new types use real ones. Read functions `active_employee?/2` and
   `employee_for_user/2` serve the materially responsible person / actual user terms (0050
   amendment 2026-10-31). `scope_declarations` (D-067) is inert until REQ-519.
@@ -35,6 +35,16 @@ defmodule Letflow.Modules.Org do
   a site names a live company (`:legal_entity_not_found`, `:legal_entity_inactive`), a company or
   site is retired by `active` false and is refused while an active site or unit names it
   (`:legal_entity_in_use`, `:site_in_use`). No route, permission or scope declaration is added.
+
+  ## Unit write functions (GH #3618 / REQ-495)
+
+  `create_unit/3`, `update_unit/4`, `move_unit/4` and `retire_unit/3` (preparation in
+  `Letflow.Modules.Org.Units`, transaction in `Letflow.Modules.Org.Masters`). Same arguments and
+  rules as above, plus the scope tree index: one transaction takes the advisory lock, then the
+  index lock, writes the record, keeps the index row (`Letflow.ScopeNodePaths.write/2`) and appends
+  one audit entry (`org_unit.created|renamed|updated|moved|retired`). A move or retire that the
+  index refuses (`:cycle`, `:depth_exceeded`, `:node_has_grants`) writes nothing. Limit: the
+  balance guard of a retire (D-065) is not built, since no ledger module exists yet.
 
   ## Read API contract (GH #2662)
 
@@ -230,4 +240,16 @@ defmodule Letflow.Modules.Org do
 
     Repo.exists?(limit(query, 1), prefix: prefix)
   end
+
+  @doc "Creates an org unit and its scope tree index row (GH #3618 / REQ-495); see `Letflow.Modules.Org.Units`."
+  defdelegate create_unit(prefix, attrs, opts), to: Letflow.Modules.Org.Units
+
+  @doc "Changes an org unit (GH #3618 / REQ-495); see `Letflow.Modules.Org.Units`."
+  defdelegate update_unit(prefix, id, attrs, opts), to: Letflow.Modules.Org.Units
+
+  @doc "Moves an org unit with its subtree (GH #3618 / REQ-495); see `Letflow.Modules.Org.Units`."
+  defdelegate move_unit(prefix, unit_id, new_parent_id, opts), to: Letflow.Modules.Org.Units
+
+  @doc "Retires an org unit, never deletes it (GH #3618 / REQ-495); see `Letflow.Modules.Org.Units`."
+  defdelegate retire_unit(prefix, unit_id, opts), to: Letflow.Modules.Org.Units
 end
