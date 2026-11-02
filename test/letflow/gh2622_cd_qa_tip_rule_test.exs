@@ -211,7 +211,11 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
   # never writes the runner's own files.
   # ---------------------------------------------------------------------------------------
 
+  # LC_ALL pins the locale of the executed step: its `[\ -~]` bracket range is collation-
+  # dependent in bash and does not match under en_US.UTF-8 (this team's host); the GitHub
+  # runner's C.UTF-8 does. The step text itself is not changed.
   @git_env [
+    {"LC_ALL", "C.UTF-8"},
     {"GIT_AUTHOR_NAME", "t"},
     {"GIT_AUTHOR_EMAIL", "t@example.invalid"},
     {"GIT_COMMITTER_NAME", "t"},
