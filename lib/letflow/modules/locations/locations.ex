@@ -19,7 +19,8 @@ defmodule Letflow.Modules.Locations do
   with a cycle walk; refusals `:node_not_found`, `:parent_not_found`, `:parent_inactive`, `:cycle`),
   `update_node/4` (name, kind, segment, address and the import key; `{:field_not_allowed, key}` for
   anything else), `retire_node/3` (`:has_active_descendants`; no un-retire, no delete). The read
-  `descendant_ids/2` returns a subtree by one recursive query. All writes take the tenant tree lock
+  `descendant_ids/2` returns a subtree by one recursive query. The import of the tree (GH #3601 / REQ-652)
+  is `import_row/3`, which writes only through the three functions above. All writes take the tenant tree lock
   first (GH #3588 / REQ-646). The type has the scope declaration `:tenant_wide` (decision 0051 M4); enforcement is
   REQ-519. Tenants that installed version 0.1.0 keep the old definition (no module upgrade yet).
 
@@ -56,13 +57,23 @@ defmodule Letflow.Modules.Locations do
     settings_schema: nil,
     route_policies: [],
     manages_entity_types: ["location_node"],
-    scope_declarations: %{"location_node" => :tenant_wide}
+    scope_declarations: %{"location_node" => :tenant_wide},
+    import_functions: [%{entity_type: "location_node", function: :import_row}]
   )
 
   @impl true
   def on_install(prefix, _settings, ctx) do
     EntityActivation.activate_and_promote(prefix, ctx, @types)
   end
+
+  @doc """
+  The import function of `location_node` (GH #3601 / REQ-652, manifest `:import_functions`): one row
+  of a file, called by the core import route. See `Letflow.Modules.Locations.Import`.
+  """
+  @spec import_row(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_row(prefix, entry, ctx),
+    do: Letflow.Modules.Locations.Import.row(prefix, entry, ctx)
 
   @doc "Creates a location node; see `Letflow.Modules.Locations.Tree.create_node/3`."
   defdelegate create_node(prefix, attrs, opts), to: Letflow.Modules.Locations.Tree
