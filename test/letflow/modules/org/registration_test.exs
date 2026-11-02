@@ -11,13 +11,20 @@ defmodule Letflow.Modules.Org.RegistrationTest do
 
   alias Letflow.Modules.Catalog
 
-  @four ["org_legal_entity", "org_site", "org_unit", "org_unit_membership"]
+  @four [
+    "org_employee",
+    "org_legal_entity",
+    "org_position",
+    "org_site",
+    "org_unit",
+    "org_unit_membership"
+  ]
 
   test "R-01: Catalog.validate/1 accepts the org manifest" do
     assert Catalog.validate(Letflow.Modules.Org.manifest()) == :ok
   end
 
-  test "R-02: the manifest is id org, no dependencies, and manages exactly the four types" do
+  test "R-02: the manifest is id org, no dependencies, and manages exactly the six types" do
     manifest = Letflow.Modules.Org.manifest()
 
     assert manifest.id == "org"
@@ -36,6 +43,22 @@ defmodule Letflow.Modules.Org.RegistrationTest do
     types = Regex.scan(~r/"([a-z_]+)"/, types_block) |> Enum.map(&List.last/1)
 
     assert types == Letflow.Modules.Org.manifest().manages_entity_types
+  end
+
+  test "R-05: scope_declarations equals exactly the five entries of decision 0051 M4 (REQ-643)" do
+    declared = Letflow.Modules.Org.manifest().scope_declarations
+
+    assert declared == %{
+             "org_legal_entity" => :tenant_wide,
+             "org_site" => :tenant_wide,
+             "org_unit" => :tenant_wide,
+             "org_position" => {:column, "org_unit_id"},
+             "org_employee" => {:column, "org_unit_id"}
+           }
+
+    refute Map.has_key?(declared, "org_unit_membership")
+    assert Catalog.validate(Letflow.Modules.Org.manifest()) == :ok
+    assert Letflow.Modules.Org.manifest().version == "0.2.0"
   end
 
   test "R-04: Catalog.entry_modules/0 includes the Org module and fetch/1 resolves it" do

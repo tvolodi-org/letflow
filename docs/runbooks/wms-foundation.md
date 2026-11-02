@@ -9,8 +9,8 @@ Module `org` (GH #2661 / REQ-473 skeleton, GH #2662 / REQ-506 read API) as it is
 limit names the GH issue or the code that holds it; code lines were re-read when this section
 was written.
 
-1. **Generic writes to the four types are refused.** `org_legal_entity`, `org_site`, `org_unit`
-   and `org_unit_membership` are in `manages_entity_types`, so the generic entity routes answer
+1. **Generic writes to the six types are refused.** `org_legal_entity`, `org_site`, `org_unit`,
+   `org_unit_membership`, `org_position` and `org_employee` are in `manages_entity_types`, so the generic entity routes answer
    403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
@@ -19,8 +19,8 @@ was written.
    code writes with the `/3` arity, `Records.create_record/3` with
    `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:423`). The
    module ships no write functions yet (the unit functions are REQ-495). References between the
-   types (`legal_entity_id`, `site_id`, `parent`, `org_unit_id`) are declarative strings with no
-   foreign keys and no reference check: a record can name a legal entity, site or unit that does
+   original four types (`legal_entity_id`, `site_id`, `parent`, `org_unit_id` of the membership) are
+   declarative strings with no foreign keys and no reference check (the two newer types are item 8): a record can name a legal entity, site or unit that does
    not exist (decision 0050 D3.6; `priv/modules/org/entity_definitions/`).
 3. **Record attachment upload and delete on a managed type are refused.** A non-owner caller
    gets the 403 `entity_type_managed` (the org types included) via
@@ -50,6 +50,30 @@ was written.
 6. **Ids are matched as exact text.** `member?/3` (`lib/letflow/modules/org/org.ex`) compares the stored `org_unit_id` and
    `user_id` byte for byte and expects the canonical lowercase uuid, so REQ-495's write
    functions must normalise ids on write.
+7. **Two types for people (GH #3584, REQ-643, org 0.2.0).** `org_position` (code, name, org_unit_id,
+   active, external reference pair) and `org_employee` (code, full_name, org_unit_id, position_id,
+   user_id, active, external reference pair) are managed types shipped by
+   `priv/modules/org/pack.json`. `user_id` is the optional Letflow user id as text, unique per
+   employee; employees without a user are not limited. No identity number, address, phone, birth
+   date or salary is stored.
+8. **Their references are real foreign keys, and only that.** `org_unit_id` and `position_id` are
+   uuid columns referencing the target table `ON DELETE RESTRICT` (decision 0050 amendment
+   2026-10-31, D-066; GH #3584), so an unknown id is refused by the owner path with a `reference` violation.
+   The key proves only that the target exists: that the position belongs to the same unit and that
+   targets are active is checked by the write functions of REQ-661.
+9. **One term for the person in charge.** The "materially responsible person"
+   (`material_responsible`) and the "actual user" (`actual_user`) are each an `org_employee` record
+   id, never a Letflow user id; a writer checks one with `Letflow.Modules.Org.active_employee?/2`,
+   and `employee_for_user/2` finds the employee of a user (GH #3584).
+10. **No write function, route or import yet.** The two types are written only through the Owner
+    path; the write functions, the roster import and the routes are later slices, and
+    `scope_declarations` (employees and positions scoped by `org_unit_id`) is inert until REQ-519
+    (GH #3584).
+11. **Tenants that installed org before 0.2.0 are not upgraded.** Module install is first-install
+    only (`Letflow.Modules.Installs`), so such a tenant has no `org_employee` or `org_position`
+    definition, and reactivating an uninstalled org there answers `upgrade_required`
+    (`check_reactivatable/2`). The upgrade is owed by REQ-642 point 7, in the shape of
+    `Letflow.Modules.Exam.ParentRollout`; no phase A entry builds it (GH #3584).
 
 ## Catalog module limits
 

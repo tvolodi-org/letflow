@@ -230,6 +230,30 @@ not chosen. Amendment:
 * Residual divergence risk (projection vs entity) is bounded by D7's write lock plus the
   same-transaction rule, and detected by the consistency check.
 
+## Amendment 2026-10-31 (owner decision D-061)
+
+GH #3584 / REQ-643 (phase A item A1 of the assets and stock application). Added lines only; no other line
+of this record changes.
+
+* **D1 and D4 are superseded for employees and positions.** D1's "No employee entity" and the
+  naming-only `position` are replaced by two managed types in module `org`, `org_position` (a position
+  in the roster of one org unit) and `org_employee` (a person, with or without a login, with an optional
+  `user_id` link to a Letflow account, unique per user). The org module goes from 0.1.0 to 0.2.0. Their
+  `org_unit_id` and `position_id` are real foreign keys (D-066); the four original types keep the
+  declarative strings of D3.6.
+* **D4 stays as written for the purchase request.** The requester is a Letflow user plus a membership row.
+  An employee record now exists; linking a requester to it is not part of this amendment.
+* **One term.** The "materially responsible person" (identifier `material_responsible`) of the stock and
+  asset registers, and the "actual user" (`actual_user`), are each an `org_employee` record id, never a
+  Letflow user id. A consumer that writes one checks it with `Letflow.Modules.Org.active_employee?/2` at
+  write time (D3.5). `employee_for_user/2` finds the employee of a Letflow user. The WMS custodian slot is
+  a custodian party, not a person, and is not renamed.
+* **Visibility (owner decisions D-065 and D-067).** Employee records are visible only to users who can see
+  the employee's org unit. The scope declaration of the org manifest (`org_position` and `org_employee`
+  scoped by `org_unit_id`; the other three masters tenant-wide; no entry for `org_unit_membership`)
+  carries the rule once a tenant turns scope enforcement on (REQ-519, pending). This slice adds no
+  route, so no user reads employee records yet.
+
 ## Capabilities relied on (cited on this branch)
 
 | Capability | Evidence |

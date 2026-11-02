@@ -52,6 +52,15 @@ defmodule Letflow.Modules.Org.RunbookTest do
     assert text =~ "/3"
   end
 
+  test "B-07: the limits name the two REQ-643 types, REQ-661 and the existing-tenant gap" do
+    text = items() |> Enum.map_join("\n", &elem(&1, 1))
+
+    assert text =~ "org_position"
+    assert text =~ "org_employee"
+    assert text =~ "REQ-661"
+    assert text =~ "upgrade_required"
+  end
+
   test "B-03: every limit names a GH number or a code path" do
     for {n, text} <- items() do
       gh? = Regex.match?(@gh_re, text)
