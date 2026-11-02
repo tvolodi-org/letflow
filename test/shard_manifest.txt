@@ -1058,3 +1058,4 @@
 10 test/letflow/plugs/xlsx_body_parser_test.exs 5589.95
 15 test/letflow/entities/xlsx_import_test.exs 5589.95
 2 test/letflow/modules/locations/create_node_test.exs 5589.95
+5 test/letflow/routers/entities_export_xlsx_test.exs 5589.95

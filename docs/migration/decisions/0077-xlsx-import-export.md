@@ -2,8 +2,8 @@
 
 Status: decided (2026-11-02, REQ-650, GH #3603). Owner: `ELIXIR-DEV`. Owner decision D-062
 (2026-10-31, `ai-dala-portfolio/DECISIONS.md`): the first version of the assets and stock
-application includes xlsx. This record decides the **reading** half for the record import; the
-export half (writer dependency) is REQ-653 and is not decided here.
+application includes xlsx. This record decides the **reading** half for the record import (D1..D4)
+and, since REQ-653 (GH #3600), the **writing** half for the record export (D8).
 **REVIEWER sign-off: PENDING** (placeholder — the PR carries the verdict).
 **SECURITY-REVIEWER: PENDING** (placeholder — untrusted file parsing on a tenant write route;
 the PR carries the verdict).
@@ -85,6 +85,39 @@ file: the tenant is the authenticated one (`prefix!(conn)`), as for every import
 cannot see answers 404 before the bytes are read (INV-5), the same answer the CSV path gives. The
 converter runs before `import_scope_check/6`, which sees the same records as for JSON and CSV
 (decision 0051 D6 and M9 apply unchanged).
+
+## D8. Export: writer dependency `elixlsx` (REQ-653, GH #3600)
+
+`POST /entities/records/:entity_type/export?format=xlsx` renders the page the JSON export already
+built, redacted and paginated, as a workbook (`Letflow.Entities.XlsxExport`). The format is chosen
+only after access, query, scope filter, pagination and redaction, so none of them can differ
+between the two formats (decision 0051 D6 applies unchanged). Any `format` but `json` and `xlsx`
+is 422.
+
+`{:elixlsx, "~> 0.6"}`, locked at 0.6.0 (released 2024-03-03). It lists no dependencies, so
+`mix.lock` gains exactly one line (`elixlsx`).
+
+Licence and shape, read at the locked version from the package's own files in `deps/`:
+
+- `hex_metadata.config` has `{<<"licenses">>,[<<"MIT">>]}`, and `{<<"requirements">>,[]}`.
+- No native part: `deps/elixlsx/` holds only `lib/` Elixir sources (no `c_src`, no `.c`, `.rs`,
+  `Makefile`, no `compilers:` or NIF entry). Pure Elixir on OTP `:zip`.
+
+Rejected:
+
+- Writing the OpenXML parts by hand: content types, rels, workbook, styles, shared strings and the
+  date serial arithmetic (the test fixture `test/support/xlsx_fixture.ex` shows the amount even for a
+  minimal book) are code to own for no gain.
+- `xlsx_reader` and `xlsxir` do not write.
+
+Mapping: a string is a text cell, an integer or decimal a number cell (a decimal goes through a float;
+the exact value is in the JSON export), a boolean a boolean cell, a date a `yyyy-mm-dd` date cell, every
+other type its stored text (list and object: JSON text); a redacted field is an empty cell. A text is
+always a string cell, never a formula. Deleted records are left out of the sheet. Sheet `export` holds
+`entity_type`, `exported_at` and `next_cursor`.
+
+Residual: one page is capped by the export route (design req314 section 7), so the workbook is bounded.
+A text over 32767 characters is written as it is and Excel may refuse it.
 
 ## Residual risk
 

@@ -109,7 +109,7 @@ defmodule Letflow.Routers.Entities do
   | get_record_attachment_content | `GET /entities/records/:entity_type/:record_id/attachments/:attachment_id` | `Letflow.Repository.EntityAttachments.get_content/2` | `EntitiesAttachmentsRead` | 200 (raw bytes) / 404 / 500 |
   | delete_record_attachment | `DELETE /entities/records/:entity_type/:record_id/attachments/:attachment_id` | `Letflow.Repository.EntityAttachments.delete/2` | `EntitiesAttachmentsManage` | 204 / 404 |
   | record_history | `GET /entities/records/:entity_type/:record_id/history` | `Letflow.Routers.Entities.RecordHistory` over `Letflow.Entities.RecordHistory` (REQ-516 S2) | `EntitiesQuery` | 200 / 400 / 404 / 500 |
-  | export_records | `POST /entities/records/:entity_type/export` | `Letflow.Entities.RequestAccess.check/4` (the unredacted permission never lifts type denial), then the identical `Letflow.Entities.Query.Allowlist.load/2` → `Letflow.Entities.Query.Compiler.compile/2` → `Letflow.Entities.Query.Cursor.paginate/5` sequence `query` uses above, then EITHER a `Letflow.Entities.Query.FieldGrants` redaction step (default) OR a second, in-handler `Letflow.Api.Authorization.evaluate_access/2` check against `:EntitiesRecordsExportUnredacted` that skips redaction entirely on success (`unredacted: true`) | `EntitiesRecordsExport` (route-level); `EntitiesRecordsExportUnredacted` (in-handler only, see below) | 200 / 400 / 403 / 404 / 422 |
+  | export_records | `POST /entities/records/:entity_type/export` | `Letflow.Entities.RequestAccess.check/4` (the unredacted permission never lifts type denial), then the identical `Letflow.Entities.Query.Allowlist.load/2` → `Letflow.Entities.Query.Compiler.compile/2` → `Letflow.Entities.Query.Cursor.paginate/5` sequence `query` uses above, then EITHER a `Letflow.Entities.Query.FieldGrants` redaction step (default) OR a second, in-handler `Letflow.Api.Authorization.evaluate_access/2` check against `:EntitiesRecordsExportUnredacted` that skips redaction entirely on success (`unredacted: true`) Optional `?format=xlsx` (REQ-653) renders the same redacted page as a workbook through `Letflow.Entities.XlsxExport`; any other `format` but `json` is 422 | `EntitiesRecordsExport` (route-level); `EntitiesRecordsExportUnredacted` (in-handler only, see below) | 200 / 400 / 403 / 404 / 422 |
   | import_records | `POST /entities/records/:entity_type/import` | `Letflow.Entities.Records.create_record/2` per entry (REQ-320); also accepts Content-Type `text/csv` (converted by `Letflow.Entities.CsvImport`, optional `?upsert_by=external_ref`, GH #3182); and the `.xlsx` media type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (converted by `Letflow.Entities.XlsxImport`, GH #3603); with the optional `"upsert_by": "external_ref"`, `Letflow.Entities.ImportUpsert` (one pre-check, then `Records.upsert_record_by_external_ref/2` per entry, GH #2659) | `EntitiesRecordsImport` (alone, also for the upsert's update branch) | 200 / 404 / 413 / 422 / 503 (`event_schema_outdated`; `trigger_backlog_full` with `Retry-After` when an entry is refused for a full trigger backlog, upsert mode only: the 503 replaces the whole results list, and a retry updates in place; create mode keeps 200 and reports `{"type": "trigger_backlog_full"}` on the refused entry, REQ-606) |
   | import_restrictions | `POST /entities/restrictions/import` | `Letflow.Entities.Restrictions.import_restrictions/2` (ISS-0935) | `EntitiesRestrictionsManage` | 200 / 400 / 403 / 422 |
 
@@ -1668,7 +1668,8 @@ defmodule Letflow.Routers.Entities do
   defp run_export(conn, body, path_entity_type, user_id, prefix) do
     {conn, scope_set} = ScopeGate.scope_set(conn, :EntitiesRecordsExport)
 
-    with :ok <- check_export_entity_type_match(body, path_entity_type),
+    with {:ok, format} <- parse_export_format(conn),
+         :ok <- check_export_entity_type_match(body, path_entity_type),
          {:ok, unredacted?} <- parse_unredacted_flag(body),
          :ok <- check_unredacted_permission(conn, unredacted?),
          {:ok, request} <- build_export_query_request(body, path_entity_type),
@@ -1680,7 +1681,7 @@ defmodule Letflow.Routers.Entities do
              request,
              %{exempt?: unredacted?}
            ),
-         {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
+         {:ok, compiled} <- export_compile(request, prefix, scope_set),
          :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, allowlist, primary_specs} <-
            Allowlist.load(request.entity_type, prefix, :with_specs),
@@ -1689,16 +1690,74 @@ defmodule Letflow.Routers.Entities do
          {:ok, redacted} <- export_redact(page, request, guard.sets, unredacted?) do
       specs = read_specs(request, primary_specs, prefix)
 
-      Response.ok(conn, %{
+      doc = %{
         "record_export_schema_version" => @record_export_schema_version,
         "entity_type" => path_entity_type,
         "exported_at" => DateTime.to_iso8601(DateTime.utc_now()),
         "records" => Enum.map(redacted.items, &export_record_map(&1, specs)),
         "next_cursor" => redacted.next_cursor
-      })
+      }
+
+      render_export(conn, format, doc, path_entity_type, prefix)
     else
       {:error, reason} -> render_export_error(conn, reason)
     end
+  end
+
+  # REQ-653: the format is decided only here, after access, query, pagination and
+  # redaction; it is not an input of any of them. Read from the query string only.
+  defp parse_export_format(conn) do
+    case Plug.Conn.fetch_query_params(conn).query_params do
+      %{"format" => format} when format in ["json", "xlsx"] ->
+        {:ok, String.to_existing_atom(format)}
+
+      %{"format" => _other} ->
+        {:error, :export_format_invalid}
+
+      _ ->
+        {:ok, :json}
+    end
+  end
+
+  @doc false
+  def export_request(body, entity_type), do: build_export_query_request(body, entity_type)
+
+  # The one compile call of the export, for both formats (REQ-653 criterion 6).
+  @doc false
+  def export_compile(request, prefix, scope_set), do: Compiler.compile(request, prefix, scope_set)
+
+  defp render_export(conn, :json, doc, _entity_type, _prefix), do: Response.ok(conn, doc)
+
+  defp render_export(conn, :xlsx, doc, entity_type, prefix) do
+    with {:ok, definition} <- Definitions.get_active_definition_by_name(entity_type, prefix),
+         fields = Map.get(definition.definition_json, "fields") || [],
+         meta = %{
+           entity_type: entity_type,
+           exported_at: doc["exported_at"],
+           next_cursor: doc["next_cursor"]
+         },
+         {:ok, binary} <- Letflow.Entities.XlsxExport.build(fields, doc["records"], meta) do
+      send_xlsx(conn, binary, entity_type)
+    else
+      {:error, :xlsx_write_failed} ->
+        Logger.error("xlsx export write failed")
+        Response.internal_error(conn)
+
+      {:error, _} ->
+        Response.not_found(conn)
+    end
+  end
+
+  @xlsx_content_type "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+  defp send_xlsx(conn, binary, entity_type) do
+    safe = String.replace(entity_type, ~r/[^A-Za-z0-9_.-]/, "_")
+
+    conn
+    |> Plug.Conn.put_resp_content_type(@xlsx_content_type, nil)
+    |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="#{safe}.xlsx"))
+    |> Plug.Conn.put_resp_header("cache-control", "no-store")
+    |> Plug.Conn.send_resp(200, binary)
   end
 
   # design req314 §4: "the document's own entity_type field must match the
@@ -1885,6 +1944,9 @@ defmodule Letflow.Routers.Entities do
   # second copy of that mapping.
   defp render_export_error(conn, {:entity_type_mismatch, _body_entity_type}),
     do: Response.unprocessable(conn, "entity_type in the request body does not match the path")
+
+  defp render_export_error(conn, :export_format_invalid),
+    do: Response.unprocessable(conn, "format must be json or xlsx")
 
   defp render_export_error(conn, :unredacted_not_authorized),
     do:
