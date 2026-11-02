@@ -56,6 +56,8 @@ defmodule Letflow.Entities.RecordsScopeAllScanTest do
     "lib/letflow/modules/exam/session.ex" => 5,
     "lib/letflow/modules/exam/snapshot.ex" => 1,
     "lib/letflow/modules/catalog_items/lots.ex" => 2,
+    # REQ-662: the link writers (create, update) of module locations
+    "lib/letflow/modules/locations/links.ex" => 2,
     "lib/letflow/modules/locations/tree.ex" => 2,
     # REQ-660: the legal company and site writers of module org
     "lib/letflow/modules/org/masters.ex" => 2,
