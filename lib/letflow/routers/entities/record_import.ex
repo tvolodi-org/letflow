@@ -21,6 +21,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
   alias Letflow.Entities.Records
   alias Letflow.Entities.ScopedLookup
   alias Letflow.Entities.ScopedWrites
+  alias Letflow.Entities.XlsxImport
 
   import Letflow.Routers.Entities.Support
 
@@ -59,6 +60,17 @@ defmodule Letflow.Routers.Entities.RecordImport do
     csv_external_ref_pair: "external_ref_system and external_ref_id must be given together"
   }
   @csv_refusals Map.keys(@csv_refusal_details)
+
+  @xlsx_media_type "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  @xlsx_refusal_details %{
+    xlsx_unreadable: "xlsx file is not readable",
+    xlsx_too_large: "xlsx file is too large when uncompressed",
+    xlsx_header_missing: "xlsx file has no header row",
+    xlsx_duplicate_header: "xlsx header has a duplicate column",
+    xlsx_unknown_header: "xlsx header has a column that is not a field of the entity type",
+    xlsx_external_ref_pair: "external_ref_system and external_ref_id must be given together"
+  }
+  @xlsx_refusals Map.keys(@xlsx_refusal_details)
 
   @doc false
   def handle_import_records(conn, entity_type) do
@@ -164,6 +176,9 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
       {:error, reason} when reason in @csv_refusals ->
         Response.unprocessable(conn, Map.fetch!(@csv_refusal_details, reason))
+
+      {:error, reason} when reason in @xlsx_refusals ->
+        Response.unprocessable(conn, Map.fetch!(@xlsx_refusal_details, reason))
     end
   end
 
@@ -174,22 +189,24 @@ defmodule Letflow.Routers.Entities.RecordImport do
   # difference from JSON: a type the caller cannot see answers 404 BEFORE the 200-row cap and
   # the format checks (INV-5: a format error must not reveal that a type exists). The mode comes
   # from the query string (`?upsert_by=external_ref`) and is validated before the text is read.
+  #
+  # An `.xlsx` body (GH #3603, REQ-650) takes the same road through
+  # `Letflow.Entities.XlsxImport`: same hidden-type 404 before the bytes are read, same cap,
+  # same per-cell coercion and the same result merge. A module-managed type never gets here:
+  # `handle_import_records/2` answers 403 `entity_type_managed` first.
 
   defp import_body(conn, entity_type, access, prefix) do
-    if csv_request?(conn) do
-      csv_body(conn, entity_type, access, prefix)
-    else
-      with {:ok, body} <- object_body(conn), do: {:ok, body, nil}
+    cond do
+      media_type(conn) == "text/csv" -> csv_body(conn, entity_type, access, prefix)
+      media_type(conn) == @xlsx_media_type -> xlsx_body(conn, entity_type, access, prefix)
+      true -> with {:ok, body} <- object_body(conn), do: {:ok, body, nil}
     end
   end
 
-  defp csv_request?(conn) do
+  defp media_type(conn) do
     case Plug.Conn.get_req_header(conn, "content-type") do
-      [value | _] ->
-        value |> String.split(";") |> hd() |> String.trim() |> String.downcase() == "text/csv"
-
-      [] ->
-        false
+      [value | _] -> value |> String.split(";") |> hd() |> String.trim() |> String.downcase()
+      [] -> nil
     end
   end
 
@@ -206,17 +223,7 @@ defmodule Letflow.Routers.Entities.RecordImport do
              upsert: upsert_by == "external_ref",
              max_rows: @import_record_cap
            ) do
-      entries = for %{result: {:ok, entry}} <- rows, do: entry
-
-      body =
-        %{
-          "record_export_schema_version" => @record_export_schema_version,
-          "entity_type" => entity_type,
-          "records" => entries
-        }
-        |> put_upsert_by(upsert_by)
-
-      {:ok, body, rows}
+      rows_to_body(rows, entity_type, upsert_by)
     else
       :hidden ->
         {:error, :csv_type_hidden}
@@ -230,6 +237,53 @@ defmodule Letflow.Routers.Entities.RecordImport do
       _definition_unavailable ->
         {:error, :csv_type_hidden}
     end
+  end
+
+  defp xlsx_body(conn, entity_type, access, prefix) do
+    upsert_by = conn.query_params["upsert_by"]
+
+    with {:open, _restricted} <- access,
+         {:ok, %{definition_json: %{"fields" => fields}}} <-
+           Definitions.get_active_definition_by_name(entity_type, prefix),
+         {:ok, bytes} <- xlsx_bytes(conn),
+         :ok <- csv_upsert_param(upsert_by),
+         {:ok, rows} <-
+           XlsxImport.convert(bytes, fields,
+             upsert: upsert_by == "external_ref",
+             max_rows: @import_record_cap
+           ) do
+      rows_to_body(rows, entity_type, upsert_by)
+    else
+      :hidden ->
+        {:error, :csv_type_hidden}
+
+      {:error, reason} = error when reason in @xlsx_refusals or reason == :invalid_upsert_by ->
+        error
+
+      {:error, :too_many_records, _count} = error ->
+        error
+
+      _definition_unavailable ->
+        {:error, :csv_type_hidden}
+    end
+  end
+
+  defp xlsx_bytes(%{body_params: %{"_xlsx" => bytes}}) when is_binary(bytes), do: {:ok, bytes}
+  defp xlsx_bytes(_conn), do: {:error, :xlsx_unreadable}
+
+  # The tail both file formats share: the converted entries as the REQ-320 export document.
+  defp rows_to_body(rows, entity_type, upsert_by) do
+    entries = for %{result: {:ok, entry}} <- rows, do: entry
+
+    body =
+      %{
+        "record_export_schema_version" => @record_export_schema_version,
+        "entity_type" => entity_type,
+        "records" => entries
+      }
+      |> put_upsert_by(upsert_by)
+
+    {:ok, body, rows}
   end
 
   defp csv_text(%{body_params: %{"_csv" => text}}) when is_binary(text), do: {:ok, text}

@@ -64,7 +64,8 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    (`lib/letflow/entities/records.ex:2223`, delegating to `ManagedTypes.check_record_write/3`).
 2. **Writes go through the module's own Owner only.** Module code writes with the `/3` arity,
    `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.CatalogItems)`
-   (`lib/letflow/entities/records.ex:423`). The module ships no write functions yet.
+   (`lib/letflow/entities/records.ex:423`). Only the lot writers exist (item 20, GH #3614); the item, unit
+   and supplier types have no write functions yet.
 3. **No reference check on `base_uom_id`.** A `catalog_item` can name a `base_uom_id` that is
    not a `catalog_uom` record, is inactive or is deleted: it is a declarative string with no
    foreign key (decision 0050 D3.6; `catalog_lot.item_id` is the exception, see item 14;
@@ -158,7 +159,15 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
     `test/letflow/modules/catalog_items/lot_test.exs`: `expiry_date` "2027-02-30" raises
     `ArgumentError` (invalid_date) and `item_id` "not-a-uuid" raises `Ecto.CastError`; no record is
     stored either way. This is a finding against core Records (GH #3593), not fixed here, so a
-    future write function must validate both values before the owner-path write.
+    future write function must validate both values before the owner-path write. The lot writers
+    of item 20 do (GH #3614); a direct caller of `Records` still gets the raise.
+20. **Lot writers: `create_lot/3`, `update_lot/4`, `retire_lot/3` (GH #3614 / REQ-664).** They live in
+    `lib/letflow/modules/catalog_items/lots.ex` and are delegated from
+    `Letflow.Modules.CatalogItems`. Each writes through the module's Owner in one transaction with
+    one audit entry (`catalog_lot.created`, `catalog_lot.updated`, `catalog_lot.retired`); there is
+    no route and no permission. A retired lot may still be updated, retiring a retired lot writes
+    nothing, and nothing checks stock (there is no stock ledger on main). Writers for the item,
+    unit and supplier types are the import slice A6b.
 
 ## Locations module limits
 

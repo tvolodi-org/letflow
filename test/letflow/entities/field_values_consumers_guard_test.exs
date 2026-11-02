@@ -19,6 +19,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
   # before_state/after_state (entities.ex: field NAMES of an export; exam/snapshot.ex:
   # origin, timestamps and ids; instances.ex: moduledoc text only).
   @audit_writers_mentioning_field_values [
+    "letflow/modules/catalog_items/lots.ex",
     "letflow/modules/exam/snapshot.ex",
     "letflow/routers/entities.ex",
     "letflow/routers/instances.ex"

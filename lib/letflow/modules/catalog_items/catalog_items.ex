@@ -21,8 +21,9 @@ defmodule Letflow.Modules.CatalogItems do
   unique constraint over the pair.
 
   All are declared in `manages_entity_types`, so after install the generic entity routes answer
-  403 `entity_type_managed`. The module ships no routes, no permissions, no role grants and
-  no write functions; the read API (REQ-507, GH #2664) is below. The unit scale and conversion factors
+  403 `entity_type_managed`. The module ships no routes, no permissions and no role grants; its only
+  write functions are the lot writers `create_lot/3`, `update_lot/4` and `retire_lot/3` (GH #3614 /
+  REQ-664); the read API (REQ-507, GH #2664) is below. The unit scale and conversion factors
   are REQ-504 (#2660), not here. `catalog_lot.item_id` is a real foreign key (D-066); the other
   references between the types, `base_uom_id` among them, stay declarative strings (0050 D3.6).
   The manifest declares every type `:tenant_wide` in `scope_declarations` (D-067, 0051 M4;
@@ -153,6 +154,15 @@ defmodule Letflow.Modules.CatalogItems do
   end
 
   def item_lot_valid?(_prefix, _item_id, _lot_id), do: false
+
+  @doc "Creates a lot of an active item (GH #3614 / REQ-664); see `Letflow.Modules.CatalogItems.Lots`."
+  defdelegate create_lot(prefix, attrs, opts), to: Letflow.Modules.CatalogItems.Lots
+
+  @doc "Changes the optional fields of a lot (GH #3614 / REQ-664); see `Letflow.Modules.CatalogItems.Lots`."
+  defdelegate update_lot(prefix, id, attrs, opts), to: Letflow.Modules.CatalogItems.Lots
+
+  @doc "Retires a lot, never deletes it (GH #3614 / REQ-664); see `Letflow.Modules.CatalogItems.Lots`."
+  defdelegate retire_lot(prefix, id, opts), to: Letflow.Modules.CatalogItems.Lots
 
   defp live_fields(prefix, record_id, type) do
     case Latest.get_live(record_id, type, prefix) do
