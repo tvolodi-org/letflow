@@ -7,7 +7,7 @@ defmodule Letflow.ScopeNodePaths do
 
   One row per node in the tenant schema's `scope_node_paths` table: `path` is
   `"/<root id>/.../<node id>/"`, `depth` its segment count (root = 1, at most
-  12). Retired nodes stay in the table with `retired_at` set.
+  40). Retired nodes stay in the table with `retired_at` set.
 
   ## One writer
 
@@ -73,7 +73,7 @@ defmodule Letflow.ScopeNodePaths do
   alias Letflow.ScopeNodePaths.Node
   alias Letflow.TenantProvisioning
 
-  @max_depth 12
+  @max_depth 40
   @max_node_id_bytes 64
   @max_descendants_input 500
 
@@ -110,7 +110,7 @@ defmodule Letflow.ScopeNodePaths do
     * `{:move, n, np}` re-parents `n` and its whole subtree in one `UPDATE`
       (`nil` makes it a root): `:node_not_found`, `:node_retired`, `:cycle` (onto
       itself or into its own subtree), `:parent_not_found`, `:parent_retired`,
-      `:depth_exceeded` (deepest descendant past 12). An unchanged parent is
+      `:depth_exceeded` (deepest descendant past 40). An unchanged parent is
       `{:ok, n}` with no write.
     * `{:retire, n}` sets `retired_at` on `n` only (`:node_not_found`);
       idempotent; descendants untouched. Refused with `:node_has_grants` while a grant row

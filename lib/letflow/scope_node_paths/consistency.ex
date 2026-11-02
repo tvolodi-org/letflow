@@ -25,7 +25,7 @@ defmodule Letflow.ScopeNodePaths.Consistency do
     3. `orphans` -- not in `cycles`, non-root, and the parent segment has no row.
     4. `stale_paths` -- not in 1-3, the parent row exists, but
        `parent.path <> node_id <> "/"` is not `path`.
-    5. `depth_exceeded` -- `depth > 12` or more than 12 segments (any row).
+    5. `depth_exceeded` -- `depth > 40` or more than 40 segments (any row).
   """
 
   import Ecto.Query, only: [from: 2]
@@ -42,7 +42,7 @@ defmodule Letflow.ScopeNodePaths.Consistency do
   @type report :: %{
           status: :ok | :inconsistent,
           checked_nodes: non_neg_integer(),
-          max_depth: 12,
+          max_depth: 40,
           counts: %{
             orphans: non_neg_integer(),
             cycles: non_neg_integer(),
