@@ -46562,3 +46562,246 @@ requirements:
       - "6. Amendment of 0051: docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md ends with the section named in description point (6), stating the bound 40 and pointing to the 0050 amendment; git diff of the file shows only added lines; docs/migration/decisions/0064-org-relative-task-assignment-resolver.md is unchanged."
       - "7. Scope and gates: git diff --name-only origin/main...HEAD lists only lib/letflow/scope_node_paths.ex, lib/letflow/scope_node_paths/consistency.ex, the three test files named in criteria 2 to 4 and the two decision records, so no file under priv/, web/, apps/, lib/letflow/modules/ or lib/letflow/routers/; mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check_scope_node_paths_writers and mix test test/letflow/scope_node_paths/ test/letflow/scope_node_paths_allowed_ids_test.exs test/letflow/routers/tenant_scope_node_paths_test.exs pass, real output quoted; SECURITY-REVIEWER (the bound guards the security index of 0051 scope checks) and REVIEWER verdicts are recorded."
     depends_on: [REQ-496, REQ-517, REQ-642, REQ-643]
+  - id: REQ-650
+    title: "Assets A6b-1: xlsx reading for the record import: a dependency decision record, limits, and a converter behind the import route for types that are not module-managed"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-642 -- phase A merges after the A0 record; xlsx reader for the import route
+    # Source: owner decision D-062 of 2026-10-31 (ai-dala-portfolio/DECISIONS.md: "First version includes ... xlsx"); ai-dala-portfolio/architectures/assets.md (section "Reports and import": "Excel import and export (as Qoimeks has) for the catalog, opening balances, and asset lists"; table "What Letflow has today": "Excel | CSV and JSON only, no xlsx"; phase table row A "Trees, links, codes, import"); letflow-team/project/assets-gap-analysis.md (section 3: "No .xlsx anywhere. Import refuses module-managed types"; order step 6 "Excel .xlsx (new)"); portfolio-manager phase A review of 2026-11-02, point 6a (task T-1082). Decisions read: docs/migration/decisions/0033-pdf-qr-rendering-dependencies.md (the precedent for a dependency decision: reason, licence, rejected options, mix.exs comment). Code read on main: mix.exs (no xlsx or zip dependency; the dependency comments of pdf and eqrcode), lib/letflow/entities/csv_import.ex (convert/3, the header rules, @refusals, the per-cell coerce/3 reasons csv_invalid_integer, csv_invalid_decimal, csv_invalid_boolean, csv_invalid_date, csv_invalid_datetime, csv_invalid_json, csv_invalid_localized_text), lib/letflow/routers/entities/record_import.ex (handle_import_records/2, @import_record_cap 200, csv_request?/1, csv_body/4, @csv_refusal_details, merge_rows/3 with "line" and the error "type" and "header"), lib/letflow/plugs/csv_body_parser.ex, lib/letflow/plugs/api_pipeline.ex (Plug.Parsers root length 2_097_152, CsvBodyParser keeps it), lib/letflow/repository/attachments.ex (@max_upload_bytes 26_214_400). Hex metadata read with mix hex.info on 2026-11-02: xlsx_reader 0.8.12 (released 2026-06-17, Licenses Apache-2.0, dependencies saxy ~> 1.5 and decimal optional), saxy (Licenses MIT, 1.7.0 released 2026-10-30), xlsxir (last release 1.6.4 of 2019-03-12). Written by the business analyst (T-1082) 2026-11-02. Not yet validated.
+    description: >
+      Phase A item A6b of the assets and stock application (owner decisions D-060 to D-063), first part. D-062 puts
+      xlsx in the first version; on main the record import (POST /entities/records/:entity_type/import, REQ-320) takes a
+      JSON document or a text/csv body (Letflow.Entities.CsvImport, GH #3182), and nothing in the product reads .xlsx.
+      This entry adds the reading half for types that are not module-managed. Managed master types (catalog, trees,
+      employees) are imported through the path of REQ-651; export is REQ-653.
+
+      (1) Decision record. A new file docs/migration/decisions/NNNN-xlsx-import-export.md, NNNN the next free number
+      under docs/migration/decisions/ at implement time (0076 on origin/main today), in the form of decision 0033.
+      D1 Reader dependency: the hex package xlsx_reader (Apache-2.0; it depends on saxy, MIT), added to mix.exs with a
+      comment in the style of the pdf and eqrcode comments. Rejected: xlsxir (no release since 2019-03-12), and a reader
+      written on OTP's zip and an XML parser (the shared-strings, styles and date machinery is what the package exists to
+      absorb). The implementer re-reads the licence of both packages from their own files at the locked version and
+      quotes it in the record; a licence other than Apache-2.0 or MIT, or a native-code part, stops the change and is
+      reported. D2 Limits, each with its source: the body of an xlsx request is bounded by the root Plug.Parsers length
+      of lib/letflow/plugs/api_pipeline.ex (2_097_152 bytes, as for CSV); the sum of the uncompressed sizes the archive
+      declares for its parts is at most 26_214_400 bytes (the product's largest accepted upload, @max_upload_bytes of
+      lib/letflow/repository/attachments.ex), checked before any part is parsed; at most @import_record_cap (200) data
+      rows per file, as for CSV; only the first worksheet in workbook order is read and other sheets are ignored; a part
+      that contains an XML DOCTYPE declaration makes the whole file unreadable (no entity expansion is ever attempted).
+      The choices "first sheet only" and "200 rows per file" are UAT assumptions, to be confirmed by the process owner
+      (a larger catalog is loaded in several files). D3 Mapping, the CSV rules of CsvImport unchanged: row 1 is the
+      header, each header is exactly a field name (in upsert mode also external_ref_system and external_ref_id); an
+      empty cell gives no key; each cell is first turned into text (a number in its shortest decimal form, a cell with
+      a date format as an ISO 8601 date, a boolean as true or false, a formula cell as the value the file stores for
+      it, never evaluated) and then coerced by the same per-cell rules and reasons as a CSV cell, so a row error has the
+      same type codes (csv_invalid_date and the others) and the same "header". A row's "line" is its sheet row number
+      (header row 1). D4 Tenant isolation: the file carries no tenant identifier; the tenant is the authenticated one,
+      as for every import.
+
+      (2) Converter. A new pure module Letflow.Entities.XlsxImport (lib/letflow/entities/xlsx_import.ex) with
+      convert(binary, fields, opts), opts :upsert and :max_rows as CsvImport.convert/3, returning the same shapes:
+      {:ok, rows} with one %{line: n, result: ...} per data row, {:error, refusal} for a whole-file refusal, or
+      {:error, :too_many_records, count}. Whole-file refusals, constant atoms carrying no file text: xlsx_unreadable
+      (not a zip archive, no workbook, no worksheet, a DOCTYPE in a part, or a part the reader cannot parse),
+      xlsx_too_large (the declared uncompressed total over the D2 limit), xlsx_header_missing, xlsx_duplicate_header,
+      xlsx_unknown_header and xlsx_external_ref_pair (the meanings of the four csv_ header refusals). The per-cell
+      coercion is shared with CsvImport, not copied (one implementation of the rules).
+
+      (3) Route. The import route accepts the media type
+      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet (with the optional ?upsert_by=external_ref, as
+      for CSV) through a new body parser in the style of Letflow.Plugs.CsvBodyParser that claims this media type for
+      that one route only and keeps the root length; every other route still answers 415 for it. The rows reach the
+      unchanged import handler as the CSV rows do and the answer has the same shape (results with "line"). A whole-file
+      refusal is 422 with a fixed detail text per atom, in the style of @csv_refusal_details; over 200 data rows is the
+      existing 413. A module-managed type still answers 403 entity_type_managed before the body is read (REQ-651
+      changes that for types that register an import function).
+
+      Not in this change: managed types (REQ-651 and later), dry run (REQ-651), xlsx export and the writer dependency
+      (REQ-653), a web screen for upload, opening balances and asset lists (phases B and later).
+    acceptance_criteria:
+      - "1. Decision record: docs/migration/decisions/NNNN-xlsx-import-export.md exists at the next free number, with sections D1 to D4 as the description states; D1 quotes the licence text name of xlsx_reader and of saxy read from the packages at the versions in mix.lock, and names the two rejected options with their reasons; mix.exs adds xlsx_reader with a comment that names the record; mix.lock changes only by xlsx_reader and saxy (and nothing else that is new); no other dependency is added."
+      - "2. Converter happy path, in test/letflow/entities/xlsx_import_test.exs with small .xlsx files built in the test or kept under test/fixtures/: a sheet with a header of field names and rows of string, integer, decimal, boolean and date fields gives {:ok, rows} whose entries equal what CsvImport.convert/3 gives for the same values written as a CSV (asserted side by side); an empty cell gives no key; a date-formatted cell gives the ISO date text; each row's line is its sheet row number; in upsert mode the external_ref_system and external_ref_id columns form the entry's external_ref as in CSV."
+      - "3. Converter refusals, one test per row, each asserting the exact return: a non-zip binary, a zip with no workbook, and a part that contains a DOCTYPE declaration each give {:error, :xlsx_unreadable}; an archive whose declared uncompressed total is over 26_214_400 bytes gives {:error, :xlsx_too_large} without parsing any part; an empty sheet gives {:error, :xlsx_header_missing}; a duplicate header, an unknown header and a lone external_ref_system column in upsert mode give xlsx_duplicate_header, xlsx_unknown_header and xlsx_external_ref_pair; 201 data rows give {:error, :too_many_records, 201}; a cell \"abc\" in an integer field gives a row error with type csv_invalid_integer and that header; a second worksheet is ignored. No refusal raises."
+      - "4. Route, on real Postgres through the real router with a TENANT_ADMIN token, for a tenant-created (not managed) type: an xlsx body with the xlsx media type creates the rows and the answer carries one result per row with its line; with ?upsert_by=external_ref a second post of the same file answers every row unchanged and writes no event; a row error is reported on its line while the other rows are written; each whole-file refusal of criterion 3 answers 422 with its fixed detail and writes nothing; a body over 2_097_152 bytes answers 413; the xlsx media type on another route (for example a record create) answers 415."
+      - "5. Managed and hidden types: an xlsx post for a module-managed type (catalog_item after installing catalog_items) answers 403 entity_type_managed and writes nothing; for a type the caller may not see it answers what the CSV path answers today for that case (the same status and body, asserted against the CSV request in the same test)."
+      - "6. Tenancy (INV-1, INV-5): in a two-tenant test an xlsx import with tenant B's token for a type that exists only in tenant A answers 404 as the JSON import does, and writes nothing in either schema; the route takes no tenant identifier from the path, the query or the file."
+      - "7. Scope and gates: no new route, permission or role grant (priv/permission_matrix/effective.golden unchanged, mix letflow.permission_matrix --check passes, output quoted); the tests that read lib/letflow/plugs/api_pipeline.ex by path (grep -rln api_pipeline.ex test/, among them tenant_admin_routes_test.exs) and the CSV import tests pass; mix format --check-formatted, mix compile --warnings-as-errors, mix test of the new and changed test files and mix letflow.check_requirements_registration pass, real output quoted; SECURITY-REVIEWER (untrusted file parsing on a tenant write route) and REVIEWER (new dependency, decision record) verdicts are recorded, and the PR states that the declared-size check trusts the archive's own size fields (a residual risk for the reviewer to judge)."
+    depends_on: [REQ-320, REQ-505, REQ-557, REQ-642]
+  - id: REQ-651
+    title: "Assets A6b-2: import path for module-managed master types: a module registers an import function, upsert by external ref only, references by external id, dry run, and the catalog item, unit and counterparty import"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-650 -- needs the xlsx converter and decision record of A6b-1
+    # Source: owner decisions D-061 ("shared master data ... belongs to neither"), D-062 (xlsx in the first version) and D-066 of 2026-11-02 (master data stays entity records with real columns, ai-dala-portfolio/DECISIONS.md); ai-dala-portfolio/architectures/assets.md (section "Reports and import"); letflow-team/project/assets-gap-analysis.md (section 3 "Import refuses module-managed types", order item 2 "import for managed types (new)"); portfolio-manager phase A review 2026-11-02 point 6a. Decisions read: docs/migration/decisions/0057-wms-customer-draft-reconciliation.md (D1 masters carry a nullable external_ref, no inbound master sync; D12 the pilot is seeded "through the generic idempotent import (REQ-505)"); 0050 D7 (managed types are written only by their module); REQ-505 design lib/letflow/design/gh2659-external-ref-idempotent-import.md (the record-level external_ref on entity_record_latest, rejected the field_values form). Requirements read: REQ-604 description (the generic import answers 403 entity_type_managed, "the seeding path of decision 0057 D12 is an open question ... and a separate requirement"), REQ-474, REQ-647. Code read on main: lib/letflow/routers/entities/record_import.ex (handle_import_records/2 and its :managed clause, import_scope_check/6, run_import_mode/7), lib/letflow/entities/record_access.ex (write/3 returns :managed), lib/letflow/entities/import_upsert.ex (precheck, run, @error_reasons), lib/letflow/entities/records.ex (upsert_record_by_external_ref/3 and /4 with an authority, outcomes created, updated, unchanged), lib/letflow/entities/managed_types.ex (owner_for!/1 callers only inside the entry module's directory; test/letflow/entities/managed_types_callers_test.exs pins the callers), lib/letflow/modules/catalog.ex (manifest validation, :write_handlers precedent), lib/letflow/modules/catalog_items/catalog_items.ex, priv/modules/catalog_items/entity_definitions/catalog_uom.json, catalog_item.json (base_uom_id) and catalog_counterparty.json, priv/permission_matrix/effective.golden (TENANT_ADMIN EntitiesRecordsImport true), docs/roles.md. Written by the business analyst (T-1082) 2026-11-02. Not yet validated.
+    description: >
+      Phase A item A6b, second part. Decision 0057 D12 seeds masters through the generic idempotent import, but every
+      master of the assets application is module-managed, and the import route answers 403 entity_type_managed for a
+      managed type (the :managed clause of handle_import_records/2), so no master can be imported today. This entry adds
+      the one import path for managed types and uses it for the three catalog masters that exist on main.
+
+      (1) Registration. A module may declare in its manifest a new optional key :import_functions, a list of
+      %{entity_type: name, function: atom}; Letflow.Modules.Catalog validation refuses a name not in the same manifest's
+      manages_entity_types, a duplicate name, and a function the entry module does not export with arity 3. Only the
+      owning module can import its types; the core never builds an Owner.
+      (2) Route. POST /entities/records/:entity_type/import, for a managed type that some module registered in
+      :import_functions, no longer answers 403: it reads the JSON, CSV or xlsx body (REQ-650) as today and requires
+      upsert mode ("upsert_by": "external_ref" or ?upsert_by=external_ref); without it the answer is 422 and nothing is
+      written. Every row must carry an external_ref (system and id); a row without one is the existing row error
+      external_ref_invalid. The existing checks stay in front: the permission EntitiesRecordsImport (TENANT_ADMIN holds
+      it; no new permission), the 200-row cap, the schema version, the type match, the refusal of upsert mode for a
+      scoped caller (import_scope_check/6), and the field-restriction rule of ImportUpsert. A managed type with no
+      registered function still answers 403 entity_type_managed (the exam types, for example).
+      (3) Rows. The core calls the registered function once per row, in file order, as
+      function(prefix, entry, ctx) with ctx holding :actor_id, a server-derived :idempotency_key per row and :dry_run;
+      the function returns {:ok, %{record_id, outcome}} with outcome created, updated or unchanged, or
+      {:error, reason} with a constant reason. The function writes through its own module (here
+      Records.upsert_record_by_external_ref with ManagedTypes.owner_for! of its own entry module, in a file under the
+      module's directory), so the managed lock of 0050 D7 holds. The row's external_ref is also written into the type's
+      own external_ref_system and external_ref_id fields when the definition declares them, so the record-level key of
+      REQ-505 and the field pair with its unique constraint (0057 D1) hold the same values.
+      (4) References. A reference field of a managed type holds a record id (0050 D3.6), which a file cannot know. In
+      an import file a reference field's cell holds the external_ref id of the target record under the same
+      external_ref system as the row; the module's function resolves it, in the same tenant, to the record id of the
+      live target of the declared target type, and refuses the row with reason reference_not_found naming the field
+      when there is none. Record ids are not accepted in reference cells. A target must come earlier in the file or be
+      stored already (UAT assumption, to be confirmed by the process owner: parents and targets come first in a file).
+      (5) Re-import. Posting the same file again answers every row unchanged and writes no event (REQ-505 upsert).
+      (6) Dry run. ?dry_run=true (or "dry_run": true in a JSON body) runs the whole file exactly as a real import of the
+      same file into the same state would, rows that refer to earlier rows of the same file included, answers the same
+      per-row results with "dry_run": true on the answer, and writes nothing. The design reads the Records call path for
+      its behaviour inside an outer transaction (a unique violation inside a nested transaction marks the outer one for
+      rollback) and says how a refused row does not change the results of the rows after it. Dry run is offered only on
+      this managed path in this change.
+      (7) Catalog. Letflow.Modules.CatalogItems registers import functions for catalog_uom, catalog_item and
+      catalog_counterparty. Reference fields: catalog_item.base_uom_id (target catalog_uom). The lot type of REQ-647
+      is imported by REQ-654, through its write function. Values are validated by the type's definition as for any
+      write; a reference to a retired target (active false) is refused with reason reference_inactive (0050 D3.2: a
+      retired master is not used for new records; UAT assumption, to be confirmed by the process owner).
+      (8) Decision record. The record of REQ-650 gains the sections D5 managed import path (points 1 to 4), D6
+      re-import and D7 dry run, and the line that this is the seeding path decision 0057 D12 names for managed masters.
+
+      Existing tenants: a tenant that installed catalog_items before this change gets the import with no upgrade, since
+      the import functions are code, not a definition; existing rows that carry the field pair but no record-level
+      external_ref are not found by the upsert, and a row with the same pair is refused by the field unique constraint
+      (reported per row, nothing overwritten). Tests provision fresh tenants.
+
+      Not in this change: dry run for types that are not managed; import of lots, locations, org units, positions and
+      employees (REQ-652, REQ-654); a web screen; export (REQ-653).
+    acceptance_criteria:
+      - "1. Registration: Catalog validation accepts a manifest with a valid :import_functions list and refuses, each in its own test with the exact error, a name not in manages_entity_types, a duplicate name and a function not exported with arity 3; the catalog_items manifest lists exactly catalog_uom, catalog_item and catalog_counterparty in :import_functions; the module and catalog registration tests are updated."
+      - "2. Route gate, through the real router with a TENANT_ADMIN token on real Postgres: an upsert-mode import of catalog_uom rows answers 200 with one result per row; the same body without upsert mode answers 422 and writes nothing; a row without external_ref answers the row error external_ref_invalid; a managed type with no registered function (a test fixture module type) still answers 403 entity_type_managed; a user without EntitiesRecordsImport (a TASK_WORKER token) answers 403 and writes nothing."
+      - "3. Catalog rows, JSON, CSV and xlsx bodies (one test each): units then items whose base_uom_id cells hold the units' external ids are created, and lookup/2 of Letflow.Modules.CatalogItems returns each item with base_uom_id equal to the unit's record id; the stored external_ref_system and external_ref_id fields equal the row's external_ref; counterparties are created likewise."
+      - "4. Reference refusals, one test per row, each asserting the row result and that no record was written for it while the other rows are: an item whose base_uom_id cell names no unit gives reference_not_found with header base_uom_id; a cell holding the record id of an existing unit gives reference_not_found; a cell naming a unit that comes later in the file gives reference_not_found; a cell naming a retired unit gives reference_inactive."
+      - "5. Re-import: posting the same file a second time answers every row unchanged and adds no event and no record (the tenant's events and entity_record_latest row counts are equal before and after); a file in which one item's name changed answers that row updated and the others unchanged."
+      - "6. Dry run: with dry_run true, a file of units and items whose items refer to units created earlier in the same file answers the same per-row results as the real import of that file answers afterwards (asserted by running both), the answer carries dry_run true, and the tenant's events, event_idempotency and entity_record_latest row counts are unchanged by the dry run; a dry run of a file whose second row is refused by the code unique constraint answers that refusal and the same results for the rows after it as the real import does."
+      - "7. Managed lock: no file outside lib/letflow/modules/catalog_items/ calls ManagedTypes.owner_for!/1 for this change; test/letflow/entities/managed_types_callers_test.exs lists the new caller file and passes; the core import code holds no Owner."
+      - "8. Tenancy (INV-1, INV-5, INV-6): in a two-tenant test, a reference cell naming the external id of a unit that exists only in tenant A, imported with tenant B's token, gives reference_not_found and writes nothing in either schema; the same external_ref in tenants A and B creates two independent records; no function takes a tenant identifier other than prefix."
+      - "9. Docs and gates: the decision record gains D5 to D7 and the 0057 D12 line; docs/runbooks/wms-foundation.md section Catalog module limits states that the three types are imported through the managed import path, upsert only, references by external id, dry run, citing symbols; the runbook test passes; mix letflow.permission_matrix --check passes with priv/permission_matrix/effective.golden unchanged; mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check_boundaries, mix test over the changed test files and test/letflow/modules/catalog_items/, and mix letflow.check_requirements_registration pass, real output quoted; SECURITY-REVIEWER (a managed write path reached from a tenant route) and REVIEWER verdicts are recorded."
+    depends_on: [REQ-474, REQ-505, REQ-604, REQ-642, REQ-650]
+  - id: REQ-652
+    title: "Assets A6b-3: import of the location tree through the location write functions: parents by external id, re-import moves and updates, dry run"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-651 -- needs the managed import path and the location write functions of REQ-645 and REQ-646
+    # Source: owner decisions D-061, D-062 and D-066 of 2026-10-31 and 2026-11-02 (ai-dala-portfolio/DECISIONS.md; D-066 point 2: the location tree uses a parent link, tree rules enforced by the writer); ai-dala-portfolio/architectures/assets.md (sections "The two trees" and "Reports and import"); portfolio-manager phase A review 2026-11-02 point 6a. Requirements read: REQ-645 (create_node/3, its refusals, the address patterns), REQ-646 (move_node/4, update_node/4 with code not changeable, retire_node/3), REQ-651 (the managed import path, references by external id, dry run). Code read on main: priv/modules/locations/entity_definitions/location_node.json, lib/letflow/modules/locations/locations.ex. Written by the business analyst (T-1082) 2026-11-02. Not yet validated.
+    description: >
+      Phase A item A6b, third part: the location tree imported from a file. Letflow.Modules.Locations registers an
+      import function for location_node in :import_functions (REQ-651). The function writes only through the
+      location write functions of REQ-645 and REQ-646 (as they are on origin/main at implement time, after the storage
+      amendments of decision D-066), never through a second write path, so every tree rule (parent checks, cycle
+      refusal, segment rules) applies to imported rows as to any other write.
+      Per row, keyed by the row's external_ref: a new key creates the node with create_node; a stored key whose row
+      names another parent moves it with move_node; a stored key whose row changes name, node_kind, segment, address,
+      location_type is updated with update_node; a row equal to the stored node writes nothing and answers unchanged.
+      The parent_id cell holds the parent's external id under the row's external_ref system (REQ-651 point 4); an empty
+      parent_id makes a root. A row that changes code is refused with the update function's own refusal
+      ({:field_not_allowed, "code"}, reported as the row reason field_not_allowed with header code). The import does not
+      take an active column: a row with an active cell is refused with field_not_allowed (retire stays retire_node; UAT
+      assumption, to be confirmed by the process owner). Addresses are imported as the given text only; the warehouse
+      address pattern is not offered through the import (UAT assumption, to be confirmed by the process owner). A refusal
+      of a write function is a row error with a constant reason (the function's error atom as text) and changes nothing
+      for that row. Dry run and re-import as REQ-651.
+      Not in this change: retire or delete by import, org unit links (A4), codes, a web screen.
+    acceptance_criteria:
+      - "1. Registration: the locations manifest lists location_node in :import_functions and Catalog validation accepts it; no other locations type is listed."
+      - "2. Create: through the real router with a TENANT_ADMIN token on real Postgres, an xlsx file of a root, its child and a grandchild, parents given by external id, creates the three nodes, and lookup/2 of Letflow.Modules.Locations shows each node's parent_id as its parent's record id; the result of each row is created."
+      - "3. Re-import: the same file again answers every row unchanged and adds no event; a file in which the grandchild names another parent moves it (lookup/2 shows the new parent and the tree rules of REQ-646 hold); a changed name answers updated; a changed code answers field_not_allowed with header code and changes nothing; a row with an active cell answers field_not_allowed with header active."
+      - "4. Tree refusals, one test per row, each asserting the row result and that the node is unchanged: a row that would move a node under its own descendant answers the move function's cycle refusal; a parent_id naming no node answers reference_not_found; a parent named later in the file answers reference_not_found; a parent that is retired answers the create or move function's inactive-parent refusal."
+      - "5. Dry run: a dry run of the file of criterion 2 answers the same results as the real import that follows and leaves the tenant's events and entity_record_latest row counts unchanged."
+      - "6. Tenancy (INV-1, INV-5): with tenant B's token, a parent_id cell naming the external id of a node that exists only in tenant A answers reference_not_found and writes nothing in either schema."
+      - "7. Docs and gates: docs/runbooks/wms-foundation.md section Locations module limits states the import rules above (keys, parents by external id, no active column, no address pattern, retire not by import), citing symbols, and its runbook test passes; mix format --check-formatted, mix compile --warnings-as-errors, mix test over test/letflow/modules/locations/ and the changed import tests, and mix letflow.check_requirements_registration pass, real output quoted; SECURITY-REVIEWER and REVIEWER verdicts are recorded."
+    depends_on: [REQ-645, REQ-646, REQ-651]
+  - id: REQ-653
+    title: "Assets A6b-4: xlsx export of record lists with a writer dependency, for the catalog and any type the caller may export"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-650 -- the writer dependency joins the xlsx decision record of A6b-1
+    # Source: owner decision D-062 of 2026-10-31 (ai-dala-portfolio/DECISIONS.md: xlsx in the first version); ai-dala-portfolio/architectures/assets.md (section "Reports and import": "Excel import and export ... for the catalog, opening balances, and asset lists"); portfolio-manager phase A review 2026-11-02 point 6a ("and export where the plan says so"). Code read on main: lib/letflow/routers/entities.ex (handle_export_records/2: RequestAccess.check, Allowlist.load, Compiler.compile, Cursor.paginate, export_redact, the JSON document with record_export_schema_version, entity_type, exported_at, records and next_cursor; export_record_map/2 with record_id, field_values, deleted; permissions EntitiesRecordsExport and EntitiesRecordsExportUnredacted). Hex metadata read with mix hex.info on 2026-11-02: elixlsx 0.6.0 (released 2024-03-03, Licenses MIT, no dependencies listed). Written by the business analyst (T-1082) 2026-11-02. Not yet validated.
+    description: >
+      Phase A item A6b, export part. The plan asks for Excel export of the catalog in phase A (opening balances and
+      asset lists belong to later phases and reuse this). POST /entities/records/:entity_type/export answers a JSON
+      document today. With the query parameter ?format=xlsx the same route answers the same page of the same records,
+      after the same access, query, pagination and redaction steps, as an .xlsx file: content type
+      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet and a Content-Disposition attachment whose file
+      name is the entity type followed by .xlsx. Without the parameter, or with format=json, the answer is byte for
+      byte the JSON of today. Any other format value answers 422.
+      Sheet records: row 1 holds the type's field names in definition order; one row per exported record that is not
+      deleted, in the export's order; a string as a text cell, an integer or decimal as a number cell, a boolean as a
+      boolean cell, a date as a date cell, every other type as its JSON text; a field that redaction removed is an empty
+      cell. Sheet export: two columns, rows entity_type, exported_at and next_cursor with their values, so the caller can
+      ask for the next page. Reference fields hold record ids as stored; an exported file is a list for reading and is
+      not promised to re-import unchanged (the import expects external ids in reference cells, REQ-651; UAT assumption,
+      to be confirmed by the process owner).
+      Writer dependency: the hex package elixlsx (MIT), added to mix.exs with a comment, and the decision record of
+      REQ-650 gains a section D8 export (writer choice, licence quoted from the package at the locked version, the
+      rejected option of writing the OpenXML parts by hand). A licence other than MIT or Apache-2.0, or a native-code
+      part, stops the change and is reported.
+      Not in this change: export of opening balances or asset lists, a web download button, styling beyond cell types.
+    acceptance_criteria:
+      - "1. Format switch, through the real router on real Postgres with a TENANT_ADMIN token: ?format=xlsx answers 200 with the xlsx content type and the attachment file name; no parameter and format=json answer the same JSON as before (an existing export test passes unchanged); format=csv answers 422."
+      - "2. Content: for catalog_item rows written through the owner path, the file read back with the reader of REQ-650 has sheet records with the field names in definition order and one row per live record with the stored values and cell types of the description; a deleted record is absent; sheet export holds entity_type, exported_at and next_cursor equal to the JSON export of the same body."
+      - "3. Redaction and access: for a caller with a field restriction on one field the column is present and every cell of it is empty while the JSON export of the same body shows that field redacted; a caller without EntitiesRecordsExport answers 403; a type the caller may not see answers what the JSON export answers (same status and body)."
+      - "4. Tenancy (INV-1, INV-5): with tenant B's token an export of a type that exists only in tenant A answers 404 as the JSON export does; tenant A's rows never appear in a tenant B file."
+      - "5. Dependency and gates: mix.exs adds elixlsx with a comment naming the record, mix.lock adds only elixlsx; the record gains D8 with the licence quoted; priv/permission_matrix/effective.golden is unchanged (no new permission); mix format --check-formatted, mix compile --warnings-as-errors, mix test over the export tests and the new test file, and mix letflow.check_requirements_registration pass, real output quoted; SECURITY-REVIEWER (a tenant data read leaving as a file) and REVIEWER verdicts are recorded."
+    depends_on: [REQ-319, REQ-650]
+  - id: REQ-654
+    title: "Assets A6b-5: import of organization units, positions, employees and lots through their module write functions"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-651 -- also waits for the write functions of org units, positions, employees and lots that phase A fix F4 registers
+    # Source: owner decisions D-061, D-062, D-065 and D-067 of 2026-10-31 and 2026-11-02 (ai-dala-portfolio/DECISIONS.md; D-067: employees are scoped by org unit, lots tenant-wide); ai-dala-portfolio/architectures/assets.md (section "The two trees": "Organization tree: units of unlimited depth, roster (positions), employees"); portfolio-manager phase A review 2026-11-02 points 6a and 6b (6b: organization units, employees, positions and lots have no write functions; org writes belong to REQ-495, which has no register entry). Requirements read: REQ-643 (org_position, org_employee, references declarative), REQ-647 (catalog_lot, item_id), REQ-651 (the managed import path). Code read on main: priv/modules/org/entity_definitions/org_unit.json (code, name, legal_entity_id and site_id required, parent optional), lib/letflow/modules/org/org.ex (no write functions). Written by the business analyst (T-1082) 2026-11-02. Not yet validated.
+    description: >
+      Phase A item A6b, last part: the organization tree, the roster and the employees, and the lots, imported from a
+      file through the managed import path of REQ-651. None of these types has a write function on main; the write
+      functions are specified by the phase A fix F4 entries written in parallel with this one (task T-1083), and this
+      entry builds on them: its depends_on is extended with their ids by an amendment once they are merged, and the
+      implementer stops and reports if they are not on origin/main at implement time. Each import function writes only
+      through the write function of its type (an org unit through the org write function, which also keeps the
+      scope_node_paths row of the unit, an employee through the employee write function, and so on), never through a
+      second write path, so the tree, scope and reference rules of those functions apply to imported rows.
+      Letflow.Modules.Org registers import functions for org_unit, org_position and org_employee;
+      Letflow.Modules.CatalogItems registers catalog_lot. Reference cells hold external ids (REQ-651 point 4):
+      org_unit.parent, org_unit.legal_entity_id, org_unit.site_id, org_position.org_unit_id, org_employee.org_unit_id,
+      org_employee.position_id and catalog_lot.item_id. org_employee.user_id is not a record reference and is imported as
+      text. Per row by external_ref: create, update, or a move through the unit's move function when the parent
+      changes; equal rows answer unchanged. Retire is not done by import: a row with an active cell is refused with
+      field_not_allowed (UAT assumption, to be confirmed by the process owner). Legal entities and sites are not imported
+      here: they have no write function in phase A, so a unit's legal_entity_id and site_id cells must name records that
+      exist already (a finding for the operator). Employees are scoped by org unit (D-067); the import requires the
+      tenant-wide scope that upsert mode already requires (import_scope_check/6), so a scoped user cannot import.
+      Not in this change: legal entities, sites, memberships, retire by import, a web screen.
+    acceptance_criteria:
+      - "1. Registration: the org manifest lists exactly org_unit, org_position and org_employee in :import_functions and the catalog_items manifest adds catalog_lot; Catalog validation accepts both."
+      - "2. Org rows through the real router with a TENANT_ADMIN token on real Postgres, an xlsx file each: units (a root and two children, legal entity and site given by external id), then positions of a child unit, then employees with and without a position and with and without a user_id, are created; lookup/2 of Letflow.Modules.Org shows the reference fields as record ids; the units' scope_node_paths rows exist as the org write function writes them."
+      - "3. Lots: lots whose item_id cells name items by external id are created; a lot code repeated for the same item in the file answers the unique refusal for the second row only."
+      - "4. Re-import and moves: the same files again answer every row unchanged and add no event; a unit row that names another parent moves the unit through the org move function (its scope_node_paths path changes as that function defines); a row with an active cell answers field_not_allowed with header active."
+      - "5. Refusals, one per row: a unit whose legal_entity_id names no legal entity, an employee whose position_id names no position, and a lot whose item_id names no item each answer reference_not_found with that header; a write function's own refusal (for example a position of another unit, if the employee write function refuses it) answers that function's constant reason; nothing is written for a refused row."
+      - "6. Dry run and scope: a dry run of the unit file answers the same results as the real import that follows and adds no scope_node_paths, events or entity_record_latest row; a user with an org-scoped grant only (not tenant-wide) is refused upsert mode as import_scope_check/6 refuses it today."
+      - "7. Tenancy (INV-1, INV-5): with tenant B's token, references naming external ids that exist only in tenant A answer reference_not_found and nothing is written in either schema."
+      - "8. Docs and gates: docs/runbooks/wms-foundation.md sections Org module limits and Catalog module limits state the import rules (keys, references by external id, no active column, legal entities and sites not imported), citing symbols, and their runbook tests pass; mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check_scope_node_paths_writers, mix test over test/letflow/modules/org/, test/letflow/modules/catalog_items/ and the changed import tests, and mix letflow.check_requirements_registration pass, real output quoted; SECURITY-REVIEWER (personal data of employees, scope node writes) and REVIEWER verdicts are recorded."
+    depends_on: [REQ-643, REQ-647, REQ-651]
