@@ -5,7 +5,7 @@ defmodule Letflow.Routers.TenantScopeNodePathsTest do
   `GET /api/v1/tenant/scope-node-paths/consistency`.
 
     * TENANT_ADMIN (holds `:UsersGroupsRolesManage`) gets 200 with the documented string-keyed
-      shape; clean data reports `"ok"`; each seeded defect (orphan, cycle, depth 13) is reported.
+      shape; clean data reports `"ok"`; each seeded defect (orphan, cycle, depth 41) is reported.
     * PROCESS_DESIGNER, PROCESS_OPERATOR and TENANT_AUDITOR get the generic 403.
     * The tenant comes from auth only: `?tenant=` / `?prefix=` naming tenant B are ignored, and
       tenant B's seeded orphan never appears in tenant A's answer (INV-1/INV-5).
@@ -60,7 +60,7 @@ defmodule Letflow.Routers.TenantScopeNodePathsTest do
 
   defp seed_defects!(schema) do
     deep =
-      for k <- 1..13 do
+      for k <- 1..41 do
         segments = for i <- 1..k, do: "d#{i}"
         {"d#{k}", "/" <> Enum.join(segments, "/") <> "/", k}
       end
@@ -95,7 +95,7 @@ defmodule Letflow.Routers.TenantScopeNodePathsTest do
 
     assert body["status"] == "ok"
     assert body["checked_nodes"] == 2
-    assert body["max_depth"] == 12
+    assert body["max_depth"] == 40
     assert body["truncated"] == false
     assert body["counts"] == Map.new(@list_keys, &{&1, 0})
     for key <- @list_keys, do: assert(body[key] == [], key)
@@ -109,11 +109,11 @@ defmodule Letflow.Routers.TenantScopeNodePathsTest do
     assert body["status"] == "inconsistent"
     assert body["orphans"] == ["orphan_a"]
     assert body["cycles"] == ["A", "B"]
-    assert body["depth_exceeded"] == ["d13"]
+    assert body["depth_exceeded"] == ["d41"]
     assert body["counts"]["orphans"] == 1
     assert body["counts"]["cycles"] == 2
     assert body["counts"]["depth_exceeded"] == 1
-    assert body["checked_nodes"] == 16
+    assert body["checked_nodes"] == 44
   end
 
   test "403 without :UsersGroupsRolesManage", %{a: a} do
