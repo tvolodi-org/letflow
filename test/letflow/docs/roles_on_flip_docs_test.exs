@@ -884,8 +884,9 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
       between = binary_part(record, a11, a12 - a11)
       refute between =~ "\n## Amendment 3"
       # ... and nothing follows A12's amendment except its own paragraphs.
+      # (GH #3596, A2: the depth-bound amendment may follow it, nothing else.)
       tail = binary_part(record, a12, byte_size(record) - a12)
-      refute tail =~ "\n## "
+      refute before_a2_section(tail) =~ "\n## "
     end
 
     test "the Before-you-start paragraph requires the ticket id as the reason PREFIX, in the runbook and in both doc strings",
@@ -1273,10 +1274,26 @@ UPDATE public.tenants SET scope_enforcement = 'off';
     end
   end
 
+  # GH #3596 (REQ-649, A2): the text without the A2 amendment's own section (its heading up to the
+  # next "\n## " or the end). A heading placed after A2, or before it, is still seen.
+  @a2_heading "\n## Amendment 2026-10-31 A2: depth bound 40"
+  defp before_a2_section(text) do
+    case String.split(text, @a2_heading, parts: 2) do
+      [pre, a2_rest] ->
+        case String.split(a2_rest, "\n## ", parts: 2) do
+          [_a2_body, after_heading] -> pre <> "\n## " <> after_heading
+          [_a2_body] -> pre
+        end
+
+      [whole] ->
+        whole
+    end
+  end
+
   # the text from A12 to the end of the record, whitespace-normalised
   defp la_a12_text(record) do
     case String.split(record, "**A12.", parts: 2) do
-      [_before, rest] -> flat("**A12." <> rest)
+      [_before, rest] -> flat("**A12." <> before_a2_section(rest))
       [_whole] -> ""
     end
   end
@@ -1308,8 +1325,11 @@ UPDATE public.tenants SET scope_enforcement = 'off';
         {String.contains?(record, "**A13."), :an_a13_exists},
         {is_nil(a11) or Base.encode16(:crypto.hash(:sha256, a11), case: :lower) != @la_a11_sha256,
          :a11_edited},
-        {record |> String.split("**A12.", parts: 2) |> List.last() |> String.contains?("\n## "),
-         :a12_is_not_the_last_paragraph},
+        {record
+         |> String.split("**A12.", parts: 2)
+         |> List.last()
+         |> before_a2_section()
+         |> String.contains?("\n## "), :a12_is_not_the_last_paragraph},
         {la_gate(roles) != la_gate(runbook), :gate_differs_between_documents}
       ]
       |> Enum.filter(&elem(&1, 0))

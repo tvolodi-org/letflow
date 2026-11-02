@@ -366,3 +366,41 @@ belong to the master data layer record of REQ-642 (A0), which is not written yet
    is set by REQ-649 (A2), which also records where the bound comes from. The location tree does not use
    `scope_node_paths` or a stored path: it is a parent link with a real foreign key inside the locations pack and
    no depth bound (REQ-645, REQ-646).
+
+## Amendment 2026-10-31 A2 (owner decisions D-061, D-062): org tree depth, legal entities, move and retire
+
+Status: Accepted (owner decisions D-061, D-062, D-065, D-066, D-067). Amends D7, D8 and decision 0051 D3.
+
+1. **The org tree depth bound is 40.** "Recommended 12" is gone. The unique btree index on
+   `scope_node_paths.path` holds an entry of 2704 bytes at most. A node id is at most 64 bytes
+   (`@max_node_id_bytes`), so a path at depth d is at most 1 + 65 * d bytes: 2601 bytes at d = 40, which fits.
+   With 36-byte uuid ids about 72 levels would fit (2704 / 37), so 40 comes from the id rule, not from a law
+   of the database. The figure 12 in D7, D8, decision 0051 D3 and decision 0064 is superseded by 40 (0064 is
+   not edited). The bound is `Letflow.ScopeNodePaths.max_depth/0`. A later option is an ancestor array
+   (`uuid[]` with a GIN index, D-066); it is not built and not planned. No migration: `depth` is a smallint
+   with no CHECK, and every existing row is at depth 12 or less.
+2. **Move cost.** A move takes a SHARE ROW EXCLUSIVE lock on `scope_node_paths` for the tenant and rewrites one
+   row per node of the subtree. Measured: about 17 to 25 ms for 1,000 nodes and 100 to 250 ms for 5,000 to
+   10,000 nodes (source: `letflow-team/project/tree-and-master-data-storage.md`, section a). Other tree
+   writers wait; readers continue.
+3. **Several legal entities in one tree.** One org tree may hold units of different legal entities.
+   `legal_entity_id` and `site_id` are the unit's own fields: never inherited, never derived from the
+   position, never changed by a move.
+4. **bin.** A bin identifies a legal entity. Uniqueness per tenant is owed to a later slice (it needs an org
+   module upgrade step after 0.2.0 and decision 0055's module upgrade, neither built). The format is exactly
+   12 ASCII digits, validated by the write functions of REQ-660 (D-065).
+5. **Move rule.** A move changes only the parent and the path rows of the subtree. No ledger row is written
+   and no balance changes: slots name the unit by its immutable record id (D3.1), and the ledger is append
+   only (decision 0073). Links to locations (A4) are untouched. Grants naming the unit keep naming it and
+   cover the new subtree from the commit. A move is never refused because of grants.
+6. **Retire rule.** Retiring sets `active` false (D3.2) and `retired_at` on the unit's path row only;
+   descendants stay live. It is refused with `:node_has_grants` while a grant names the unit (REQ-517).
+   Balances and movements stay readable and are not moved or zeroed. A new posting naming a retired unit is
+   refused by ledger slice L7 (decision 0073 D6); until then it is accepted (a documented limit). Links of a
+   retired unit stay as history; a new link naming a retired unit is refused by the link writer through
+   `active?/2` (D3.5), owed to A4.
+7. **Owner answers of 2026-11-02 (source: D-065).** Retiring a unit with a non-zero balance in any register
+   is refused. No posting naming an org unit exists on main, so the guard is owed to `retire_unit/3` of
+   REQ-495 and is added by the slice that first posts to a register naming an org unit. A movement whose org
+   unit and location are not linked is refused (A4, REQ-644). A bin is exactly 12 ASCII digits (REQ-660).
+   `Letflow.ScopeNodePaths` keeps its own path code, with no shared tree helper (REQ-642 (2)).

@@ -631,3 +631,17 @@ Status: Accepted, relayed. Source: the SECURITY-REVIEWER design gate of GH #2869
 **A12. Last interactive tenant-wide administrator.** In a tenant whose stored `scope_enforcement` is `on`, a write that takes the number of interactive explicit tenant-wide TENANT_ADMINs from at least one to zero is refused with 409 `last_interactive_tenant_wide_admin`, audited as `tenant_admin.guard_refused`. "Interactive explicit" is the counter the gate actually implements for fact `zero_tenant_wide_admins` (SEC C-4, `count_interactive_explicit_tenant_wide_admins/1`): an active user, a member of the group the TENANT_ADMIN platform binding points to, with a tenant-wide TENANT_ADMIN row, not an admin-flagged service principal; token owners and zero-row members do not count. This NARROWS the wording of A1, which counts "a live TENANT_ADMIN token owner" for that fact: A1 is not restated or edited, and for this guard and for the implemented gate the narrower counter governs, because the flip route is interactive-only (A8). It covers deactivation, removal from the admin group, unbinding or rebinding the TENANT_ADMIN binding, revoking a tenant-wide TENANT_ADMIN grant row, and flagging the user as a service principal, under lock A, and it does not apply in `shadow` or `off`. It runs after the N1 guard, which keeps its own code. It is implemented by GH #2869 (a); A10 stays open until that implementation is on `main`, and A11's sentence that the guard "stays open" is read accordingly.
 
 **Does A7 cover this case? Partly.** A7 makes tokens the break-glass for GRANT writes under `on`: a TENANT_ADMIN token can add an interactive administrator again by writing a membership or a grant. A7 does NOT cover the flag, because the flip route is interactive-only (A4, A8): a tenant whose remaining administrators are tokens cannot turn enforcement off. The recovery for the flag is the operator break-glass of A11 (GH #2883), which has no HTTP route. The guard prevents the lock-out for every change made through Letflow; it cannot see an administrator who exists in Letflow but can no longer log in at the identity provider, and for that case A11 is the only recovery. Neither the guard nor A11 is special-cased by the other.
+
+## Amendment 2026-10-31 A2: depth bound 40
+
+Status: Accepted (owner decisions D-065, D-066, D-067).
+
+D3's maximum tree depth is 40; "recommended 12" is replaced. The bound is enforced by the org move action
+through `Letflow.ScopeNodePaths.write/2` (`max_depth/0`), and it protects the unique `path text_pattern_ops`
+index of `scope_node_paths` that the scope check reads. The derivation (index entry limit, 64-byte node ids)
+is in the amendment A2 of decision 0050.
+
+A function that spans units of several branches is one group with one `role_scope_grants` row per unit. A
+named scope set is not built; it needs its own amendment of D1. The org types are declared by A1 (REQ-643) and
+are immutable (M4). A move or a retire changes the tree that grants cover, never a declaration. Enforcement is
+REQ-519 (pending). Source: D-067 and `letflow-team/project/assets-access-model.md`.
