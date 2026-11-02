@@ -31,6 +31,7 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @routers_glob "lib/letflow/routers/**/*.ex"
   # REQ-516 S2 (GH #2701): the record history handler reads a record event's payload only to

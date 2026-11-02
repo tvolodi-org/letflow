@@ -13,6 +13,7 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.MessageTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
   use ExUnitProperties
 
   alias Letflow.LoginDiscovery.Notifier.Smtp.Message

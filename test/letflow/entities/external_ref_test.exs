@@ -5,6 +5,7 @@ defmodule Letflow.Entities.ExternalRefTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Entities.ExternalRef
 

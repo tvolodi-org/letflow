@@ -17,6 +17,7 @@ defmodule Letflow.Entities.ScopedWritesTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Entities.ScopedWrites
   alias Letflow.Entities.ScopeResolver

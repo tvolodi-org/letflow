@@ -6,6 +6,7 @@ defmodule Letflow.Scripts.RuntimeBootCheckTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Scripts.Runtime
 

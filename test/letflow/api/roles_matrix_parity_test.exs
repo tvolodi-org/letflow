@@ -19,6 +19,7 @@ defmodule Letflow.Api.RolesMatrixParityTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Api.Authorization
 

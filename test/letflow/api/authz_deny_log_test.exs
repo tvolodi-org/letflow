@@ -14,6 +14,7 @@ defmodule Letflow.Api.AuthzDenyLogTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import Plug.Conn, only: [assign: 3, put_private: 3, get_resp_header: 2]
 

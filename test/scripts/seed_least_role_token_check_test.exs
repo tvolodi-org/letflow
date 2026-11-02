@@ -9,6 +9,7 @@ defmodule Letflow.Scripts.SeedLeastRoleTokenCheckTest do
   body, and logs "METHOD URL" per call.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @curl_stub ~S"""
   #!/usr/bin/env bash

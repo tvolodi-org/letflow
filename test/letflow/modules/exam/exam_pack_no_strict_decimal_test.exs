@@ -12,6 +12,7 @@ defmodule Letflow.Modules.Exam.ExamPackNoStrictDecimalTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @modules_dir Path.join([File.cwd!(), "priv", "modules"])
 

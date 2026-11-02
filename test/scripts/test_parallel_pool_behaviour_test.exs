@@ -18,6 +18,7 @@ defmodule Letflow.Scripts.TestParallelPoolBehaviourTest do
   Needs a real `bash`; on Windows set `UAT_PF_BASH` (or `TEST_PARALLEL_BASH`).
   """
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Test.TestParallelEnv
 

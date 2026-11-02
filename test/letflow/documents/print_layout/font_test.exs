@@ -5,6 +5,7 @@ defmodule Letflow.Documents.PrintLayout.FontTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Documents.PrintLayout.{Font, Pdf}
 

@@ -15,6 +15,7 @@ defmodule Letflow.Api.DocumentsRouteClassesTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Api.Authorization
   alias Letflow.Api.Authorization.AccessContext

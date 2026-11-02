@@ -25,6 +25,7 @@ defmodule Letflow.LoginDiscovery.EnablementGateRuntimeTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   @moduletag :slow
 

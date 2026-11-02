@@ -5,6 +5,7 @@ defmodule Letflow.Definitions.SolutionPackOverrideMergeTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Definitions.SolutionPackOverrideMerge, as: Merge
 

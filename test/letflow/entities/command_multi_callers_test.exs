@@ -26,6 +26,7 @@ defmodule Letflow.Entities.CommandMultiCallersTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @records "lib/letflow/entities/records.ex"
   @event_store "lib/letflow/event_store.ex"

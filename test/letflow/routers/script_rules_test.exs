@@ -15,6 +15,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import Ecto.Query
 

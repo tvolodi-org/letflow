@@ -1,5 +1,6 @@
 defmodule Letflow.Entities.WriteScopeTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Entities.ImportAccess
   alias Letflow.Entities.Query.Types

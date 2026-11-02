@@ -43,6 +43,7 @@ defmodule Mix.Tasks.Letflow.CheckToolchainTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   import ExUnit.CaptureIO
 

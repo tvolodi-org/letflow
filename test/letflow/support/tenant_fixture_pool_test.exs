@@ -33,6 +33,7 @@ defmodule Letflow.Support.TenantFixturePoolTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
   use ExUnitProperties
 
   import ExUnit.CaptureLog

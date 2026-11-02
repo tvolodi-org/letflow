@@ -6,6 +6,7 @@ defmodule Letflow.Modules.Exam.QuestionSetResolverTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Modules.Exam.QuestionSetResolver
 

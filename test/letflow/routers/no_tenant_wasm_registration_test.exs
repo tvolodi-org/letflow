@@ -6,6 +6,7 @@ defmodule Letflow.Routers.NoTenantWasmRegistrationTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @forbidden [
     "PluginRegistry.register_plugin_handler",

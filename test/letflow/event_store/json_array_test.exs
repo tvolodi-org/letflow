@@ -20,6 +20,7 @@ defmodule Letflow.EventStore.JSONArrayTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.EventStore.JSONArray
 

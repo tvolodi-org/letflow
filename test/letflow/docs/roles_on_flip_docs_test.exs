@@ -23,6 +23,7 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.ScopeEnforcement.ShadowWindow
 

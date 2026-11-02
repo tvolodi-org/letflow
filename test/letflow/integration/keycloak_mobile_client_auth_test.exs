@@ -71,6 +71,7 @@ defmodule Letflow.Integration.KeycloakMobileClientAuthTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   @moduletag :keycloak
 

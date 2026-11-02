@@ -14,6 +14,7 @@ defmodule Letflow.Scripts.PruneWebDistBackupsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @root Path.expand("../..", __DIR__)
   @helper Path.join(@root, "deploy/lib/prune_web_dist_backups.sh")

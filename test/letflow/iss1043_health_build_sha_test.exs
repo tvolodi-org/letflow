@@ -17,6 +17,7 @@ defmodule Letflow.Iss1043HealthBuildShaTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   import Plug.Test
 

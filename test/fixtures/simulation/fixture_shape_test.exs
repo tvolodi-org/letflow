@@ -18,6 +18,7 @@ defmodule Letflow.Simulation.FixtureShapeTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @fixtures_root Path.join([__DIR__])
 

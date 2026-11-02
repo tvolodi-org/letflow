@@ -2,6 +2,7 @@ defmodule Letflow.NotificationTemplates.RegistryTest do
   @moduledoc "REQ-563 / GH #3199: R1 the registry key set and allow-list, N1 no secret-looking name."
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.NotificationTemplates
   alias Letflow.NotificationTemplates.Registry

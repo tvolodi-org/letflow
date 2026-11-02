@@ -27,6 +27,7 @@ defmodule Letflow.Plugs.AdmissionTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   import Plug.Test
   import Plug.Conn

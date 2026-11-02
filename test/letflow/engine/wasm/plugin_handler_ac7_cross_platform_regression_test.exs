@@ -28,6 +28,7 @@ defmodule Letflow.Engine.Wasm.PluginHandlerAC7CrossPlatformRegressionTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   # Verbatim copy of the shipped `native_artifact_check/2` from
   # test/letflow/engine/wasm/plugin_handler_test.exs (commit 8eef01b). Kept

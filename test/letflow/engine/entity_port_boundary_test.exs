@@ -11,6 +11,7 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.EntityPort
 

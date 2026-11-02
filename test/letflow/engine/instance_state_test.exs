@@ -12,6 +12,7 @@ defmodule Letflow.Engine.InstanceStateTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.InstanceState
 

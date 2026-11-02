@@ -11,6 +11,7 @@ defmodule Letflow.Modules.Exam.SnapshotLiveOptionsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.Exam.Snapshot

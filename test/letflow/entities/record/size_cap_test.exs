@@ -5,6 +5,7 @@ defmodule Letflow.Entities.Record.SizeCapTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Entities.Record.SizeCap
 

@@ -19,6 +19,7 @@ defmodule Letflow.Api.TasksRouteClassesTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Api.RouteScope
   alias Letflow.Engine.Task, as: EngineTask

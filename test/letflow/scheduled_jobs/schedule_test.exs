@@ -2,6 +2,7 @@ defmodule Letflow.ScheduledJobs.ScheduleTest do
   @moduledoc "REQ-561 / GH #3194 -- S1: slot arithmetic of a tenant scheduled job (pure)."
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.ScheduledJobs.Schedule
 

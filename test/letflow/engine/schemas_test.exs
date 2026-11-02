@@ -16,6 +16,7 @@ defmodule Letflow.Engine.SchemasTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.Task
   alias Letflow.Engine.TokenRecord, as: Token

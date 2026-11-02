@@ -11,6 +11,7 @@ defmodule Letflow.Identity.TenantAdminMigrationTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import Letflow.Support.TenantAdminMigrationFixture
 

@@ -52,6 +52,7 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @managed_types "lib/letflow/entities/managed_types.ex"
   @installs "lib/letflow/modules/installs.ex"

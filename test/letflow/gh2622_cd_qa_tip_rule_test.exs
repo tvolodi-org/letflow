@@ -17,6 +17,7 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @root Path.expand("../..", __DIR__)
   @cd_yml Path.join(@root, ".github/workflows/cd.yml")

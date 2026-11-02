@@ -6,6 +6,7 @@ defmodule Letflow.Engine.VariableMergeLabelsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.InstanceState
   alias Letflow.Engine.VariableLabels

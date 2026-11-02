@@ -6,6 +6,7 @@ defmodule Letflow.Engine.VariableMergeSysTypesTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
   use ExUnitProperties
 
   alias Letflow.Engine.VariableMerge

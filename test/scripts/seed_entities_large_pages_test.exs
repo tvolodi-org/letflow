@@ -9,6 +9,7 @@ defmodule Letflow.Scripts.SeedEntitiesLargePagesTest do
   holding more than 200 records whose query pages are well above 32 KB; no network, no DB.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @script "scripts/seed_vortex_entities.sh"
   @meridian "scripts/seed_meridian_entities.sh"

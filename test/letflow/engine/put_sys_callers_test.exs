@@ -30,6 +30,7 @@ defmodule Letflow.Engine.PutSysCallersTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.Reconstruction
 

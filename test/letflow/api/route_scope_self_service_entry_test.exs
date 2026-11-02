@@ -10,6 +10,7 @@ defmodule Letflow.Api.RouteScopeSelfServiceEntryTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Api.RouteScope
   alias Letflow.Api.RouteScope.SelfServiceEntry

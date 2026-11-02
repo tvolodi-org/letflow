@@ -19,6 +19,7 @@ defmodule Letflow.Engine.Wasm.InvocationLeaseTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Engine.Wasm.InvocationLease
 

@@ -13,6 +13,7 @@ defmodule Letflow.LoginDiscovery.Notifier.SmtpApplicationTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   test "starting :gen_smtp opens no listening socket" do
     assert Application.spec(:gen_smtp, :mod) in [nil, []]

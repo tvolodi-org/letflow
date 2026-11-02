@@ -6,6 +6,7 @@ defmodule Letflow.Entities.StepSourceTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Entities.StepSource
 
