@@ -1054,6 +1054,13 @@
 7 test/letflow/modules/locations/read_api_test.exs 5589.95
 13 test/letflow/modules/locations/behaviour_test.exs 5589.95
 15 test/letflow/modules/locations/install_test.exs 5589.95
+4 test/letflow/modules/codes/entity_definitions_test.exs 5589.95
+5 test/letflow/modules/codes/pack_drift_test.exs 5589.95
+8 test/letflow/modules/codes/registration_test.exs 5589.95
+9 test/letflow/modules/codes/runbook_test.exs 5589.95
+10 test/letflow/modules/codes/install_test.exs 5589.95
+11 test/letflow/modules/codes/behaviour_test.exs 5589.95
+12 test/letflow/modules/codes/read_api_test.exs 5589.95
 5 test/letflow/routers/entities_import_xlsx_test.exs 5589.95
 10 test/letflow/plugs/xlsx_body_parser_test.exs 5589.95
 15 test/letflow/entities/xlsx_import_test.exs 5589.95
