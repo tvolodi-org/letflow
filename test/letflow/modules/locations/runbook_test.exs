@@ -55,6 +55,10 @@ defmodule Letflow.Modules.Locations.RunbookTest do
     assert text =~ "capacity"
     for word <- ["location_org_unit_link", "linked?", "D-065"], do: assert(text =~ word)
     assert text =~ "import_row"
+
+    for word <- ["link_unit_location", "unlink_unit_location", "reactivat", "stock"],
+        do: assert(text =~ word)
+
     assert text =~ "no `active` column" or text =~ "There is no `active` column"
   end
 
