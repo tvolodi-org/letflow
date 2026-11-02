@@ -16,8 +16,8 @@ defmodule Letflow.Modules.Org do
       only proves the target exists; the same-unit and active checks are in the write functions (REQ-661).
 
   All six are declared in `manages_entity_types`, so after install the generic entity routes
-  answer 403 `entity_type_managed`. This skeleton ships no routes, no permissions, no role
-  grants. Write functions exist for the legal company, the site (GH #3619 / REQ-660) and the unit (GH #3618 / REQ-495), see
+  answer 403 `entity_type_managed`. The write routes (GH #3613 / REQ-665, version 0.3.0, `Letflow.Modules.Org.Router`) are gated by the two module
+  permissions `:OrgStructureWrite` and `:OrgEmployeesWrite`; no role grants (only TENANT_ADMIN and PLATFORM_ADMIN hold them). Write functions exist for the legal company, the site (GH #3619 / REQ-660) and the unit (GH #3618 / REQ-495), see
   below; the unit functions are REQ-495 (below) and the read API is REQ-506. References between the four original types are declarative strings (0050 D3.6), no
   foreign keys; the two new types use real ones. Read functions `active_employee?/2` and
   `employee_for_user/2` serve the materially responsible person / actual user terms (0050
@@ -34,7 +34,7 @@ defmodule Letflow.Modules.Org do
   confirmed), two active companies of a tenant never share a bin (`:bin_taken`), `code` is immutable,
   a site names a live company (`:legal_entity_not_found`, `:legal_entity_inactive`), a company or
   site is retired by `active` false and is refused while an active site or unit names it
-  (`:legal_entity_in_use`, `:site_in_use`). No route, permission or scope declaration is added.
+  (`:legal_entity_in_use`, `:site_in_use`).
 
   ## Unit write functions (GH #3618 / REQ-495)
 
@@ -95,14 +95,32 @@ defmodule Letflow.Modules.Org do
   @impl true
   defmanifest(
     id: "org",
-    version: "0.2.0",
+    version: "0.3.0",
     depends_on: [],
     pack: "modules/org/pack.json",
-    permissions: [],
+    permissions: [:OrgStructureWrite, :OrgEmployeesWrite],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
-    route_policies: [],
+    route_policies: [
+      {"POST", "/legal-entities", :OrgStructureWrite},
+      {"PATCH", "/legal-entities/:id", :OrgStructureWrite},
+      {"POST", "/legal-entities/:id/retire", :OrgStructureWrite},
+      {"POST", "/sites", :OrgStructureWrite},
+      {"PATCH", "/sites/:id", :OrgStructureWrite},
+      {"POST", "/sites/:id/retire", :OrgStructureWrite},
+      {"POST", "/units", :OrgStructureWrite},
+      {"PATCH", "/units/:id", :OrgStructureWrite},
+      {"POST", "/units/:id/move", :OrgStructureWrite},
+      {"POST", "/units/:id/retire", :OrgStructureWrite},
+      {"POST", "/positions", :OrgEmployeesWrite},
+      {"PATCH", "/positions/:id", :OrgEmployeesWrite},
+      {"POST", "/positions/:id/retire", :OrgEmployeesWrite},
+      {"POST", "/employees", :OrgEmployeesWrite},
+      {"PATCH", "/employees/:id", :OrgEmployeesWrite},
+      {"POST", "/employees/:id/transfer", :OrgEmployeesWrite},
+      {"POST", "/employees/:id/retire", :OrgEmployeesWrite}
+    ],
     manages_entity_types: [
       "org_legal_entity",
       "org_site",
@@ -119,6 +137,9 @@ defmodule Letflow.Modules.Org do
       "org_employee" => {:column, "org_unit_id"}
     }
   )
+
+  @impl true
+  def router, do: Letflow.Modules.Org.Router
 
   @impl true
   def on_install(prefix, _settings, ctx) do

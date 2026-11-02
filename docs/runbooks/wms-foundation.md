@@ -65,8 +65,8 @@ was written.
    (`material_responsible`) and the "actual user" (`actual_user`) are each an `org_employee` record
    id, never a Letflow user id; a writer checks one with `Letflow.Modules.Org.active_employee?/2`,
    and `employee_for_user/2` finds the employee of a user (GH #3584).
-10. **No route or import yet.** The two types are written through the write functions of item 13
-    (the Owner path); the roster import and the routes are later slices, and
+10. **No import yet.** The two types are written through the write functions of item 13
+    (the Owner path) and the routes of item 14; the roster import is a later slice, and
     `scope_declarations` (employees and positions scoped by `org_unit_id`) is inert until REQ-519
     (GH #3584).
 11. **Tenants that installed org before 0.2.0 are not upgraded.** Module install is first-install
@@ -74,7 +74,7 @@ was written.
     definition, and reactivating an uninstalled org there answers `upgrade_required`
     (`check_reactivatable/2`). The upgrade is owed by REQ-642 point 7, in the shape of
     `Letflow.Modules.Exam.ParentRollout`; no phase A entry builds it (GH #3584).
-12. **Legal companies and sites have owner-path write functions; there is still no route.**
+12. **Legal companies and sites have owner-path write functions (routes: item 14).**
     `Letflow.Modules.Org.create_legal_entity/3`, `update_legal_entity/4`, `retire_legal_entity/3`,
     `create_site/3`, `update_site/4` and `retire_site/3` (logic in `Letflow.Modules.Org.Masters`,
     GH #3619 / REQ-660) write through the org Owner, one audit entry per accepted change, nothing on
@@ -83,9 +83,9 @@ was written.
     active companies of one tenant never share a BIN (`:bin_taken`, checked under an advisory lock
     keyed by tenant and the text `org_legal_entity_bin`; a retired company's BIN may be reused).
     `code` is immutable; retire is `active` false and is refused while an active site or unit names
-    the record (UAT assumption, same status). The functions are reached by no route yet (REQ-665);
+    the record (UAT assumption, same status). The routes are item 14;
     tenants that installed org before the pack carried these definitions are not upgraded.
-13. **Positions and employees have owner-path write functions (GH #3617, REQ-661); there is still no route.**
+13. **Positions and employees have owner-path write functions (GH #3617, REQ-661; routes: item 14).**
     `Letflow.Modules.Org.create_position/3`, `update_position/4`, `retire_position/3`,
     `create_employee/3`, `update_employee/4`, `transfer_employee/5` and `retire_employee/3` (logic in
     `Letflow.Modules.Org.People`) write through the org Owner, one audit entry per accepted change,
@@ -96,6 +96,15 @@ was written.
     transfer changes unit and position in one record version; only an active employee can be
     transferred. The audit entries of an employee omit `full_name` (personal data; a name-only change
     is recorded as `changed_fields`); the name remains in the record and its event payload.
+14. **Write routes (GH #3613, REQ-665, org 0.3.0).** `Letflow.Modules.Org.Router` serves 17 write
+    routes under `/api/v1/modules/org/` (`/legal-entities`, `/sites`, `/units`, `/positions`,
+    `/employees`, each with create, `PATCH /:id` and `POST /:id/retire`, plus `/units/:id/move` and
+    `/employees/:id/transfer`), no read route. `legal-entities`, `sites` and `units` need
+    `OrgStructureWrite`; `positions` and `employees` need `OrgEmployeesWrite`; only TENANT_ADMIN and
+    PLATFORM_ADMIN hold them (no `role_grants`). Every body carries a text `idempotency_key`; a reused
+    key with another body is 409 `idempotency_key_reuse`, a not-found target (also of another tenant)
+    is 404, any other refusal is 422 with a `reason`. A tenant that installed org before 0.3.0 gets
+    the routes without an upgrade (they come from the code manifest), but its definitions are not upgraded (item 11).
 
 ## Catalog module limits
 

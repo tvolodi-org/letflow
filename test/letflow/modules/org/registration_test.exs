@@ -31,7 +31,7 @@ defmodule Letflow.Modules.Org.RegistrationTest do
     assert manifest.depends_on == []
     assert Enum.sort(manifest.manages_entity_types) == @four
     assert manifest.pack == "modules/org/pack.json"
-    assert manifest.permissions == []
+    assert manifest.permissions == [:OrgStructureWrite, :OrgEmployeesWrite]
     assert manifest.role_grants == %{}
   end
 
@@ -58,7 +58,24 @@ defmodule Letflow.Modules.Org.RegistrationTest do
 
     refute Map.has_key?(declared, "org_unit_membership")
     assert Catalog.validate(Letflow.Modules.Org.manifest()) == :ok
-    assert Letflow.Modules.Org.manifest().version == "0.2.0"
+    assert Letflow.Modules.Org.manifest().version == "0.3.0"
+  end
+
+  test "REQ-665 M1: two write permissions, 17 route policies, the router, no role grants" do
+    m = Letflow.Modules.Org.manifest()
+    assert m.permissions == [:OrgStructureWrite, :OrgEmployeesWrite]
+    assert m.role_grants == %{}
+    assert Letflow.Modules.Org.router() == Letflow.Modules.Org.Router
+    assert length(m.route_policies) == 17
+    assert length(Enum.uniq(m.route_policies)) == 17
+
+    structure = ~w(legal-entities sites units)
+
+    for {_method, path, atom} <- m.route_policies do
+      [resource | _] = path |> String.split("/", trim: true)
+      expected = if resource in structure, do: :OrgStructureWrite, else: :OrgEmployeesWrite
+      assert atom == expected, path
+    end
   end
 
   test "R-04: Catalog.entry_modules/0 includes the Org module and fetch/1 resolves it" do

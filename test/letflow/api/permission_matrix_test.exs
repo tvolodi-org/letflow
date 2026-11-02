@@ -139,7 +139,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
       expected =
         (Authorization.core_permissions() ++
            Letflow.Modules.Exam.manifest().permissions ++
-           Letflow.Modules.Procurement.manifest().permissions)
+           Letflow.Modules.Procurement.manifest().permissions ++
+           Letflow.Modules.Org.manifest().permissions)
         |> Enum.map(&Atom.to_string/1)
         |> Enum.sort()
 
@@ -319,7 +320,12 @@ defmodule Letflow.Api.PermissionMatrixTest do
       assert {:ok, scanned} = PermissionMatrix.fixture_permissions(sources)
 
       union =
-        (Catalog.entry_modules() -- [Letflow.Modules.Exam, Letflow.Modules.Procurement])
+        (Catalog.entry_modules() --
+           [
+             Letflow.Modules.Exam,
+             Letflow.Modules.Procurement,
+             Letflow.Modules.Org
+           ])
         |> Enum.flat_map(& &1.manifest().permissions)
         |> MapSet.new(&Atom.to_string/1)
 
