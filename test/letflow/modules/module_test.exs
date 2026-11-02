@@ -9,6 +9,7 @@ defmodule Letflow.Modules.ModuleTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   describe "REQ-400 AC1 — behaviour_info/1" do
     test "behaviour_info(:callbacks) includes manifest/0, router/0, on_install/2" do

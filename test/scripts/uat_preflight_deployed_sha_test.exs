@@ -12,6 +12,7 @@ defmodule Letflow.Scripts.UatPreflightDeployedShaTest do
   Windows set `UAT_PF_BASH` to git-bash, same as the sibling `uat_preflight_*_test.exs` files.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduletag :tmp_dir
 

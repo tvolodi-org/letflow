@@ -10,6 +10,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @lib Path.join(File.cwd!(), "lib")
 

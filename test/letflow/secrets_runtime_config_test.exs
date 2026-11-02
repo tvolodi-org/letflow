@@ -75,6 +75,7 @@ defmodule Letflow.SecretsRuntimeConfigTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   import ExUnit.CaptureIO, only: [with_io: 2]
 

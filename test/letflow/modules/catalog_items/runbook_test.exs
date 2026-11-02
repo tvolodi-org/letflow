@@ -7,6 +7,7 @@ defmodule Letflow.Modules.CatalogItems.RunbookTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @runbook Path.expand("../../../../docs/runbooks/wms-foundation.md", __DIR__)
   @root Path.expand("../../../..", __DIR__)

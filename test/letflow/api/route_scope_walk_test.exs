@@ -21,6 +21,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Api.Authorization
   alias Letflow.Api.RouteScope

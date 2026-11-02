@@ -17,6 +17,7 @@ defmodule Letflow.Plugs.CrashLogAuthorizationRedactionTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   import ExUnit.CaptureLog
 

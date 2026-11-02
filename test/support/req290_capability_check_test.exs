@@ -7,6 +7,7 @@ defmodule Letflow.Support.Req290CapabilityCheckTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Support.Req290CapabilityCheck, as: CapabilityCheck
 

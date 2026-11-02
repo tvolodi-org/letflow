@@ -9,6 +9,7 @@ defmodule Letflow.Engine.VariableMergeCallersTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @merge3_callers ["lib/letflow/engine/transition.ex"]
   @merge5_callers [

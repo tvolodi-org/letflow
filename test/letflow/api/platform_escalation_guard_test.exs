@@ -24,6 +24,7 @@ defmodule Letflow.Api.PlatformEscalationGuardTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   alias Letflow.Identity
   alias Letflow.Identity.ApiToken

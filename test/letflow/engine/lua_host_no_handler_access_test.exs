@@ -21,6 +21,7 @@ defmodule Letflow.Engine.LuaHostNoHandlerAccessTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @forbidden_aliases [:HandlerWrites, :HandlerContext]
   @forbidden_calls [:write_handler, :write_handler_in, :call_write_handler]

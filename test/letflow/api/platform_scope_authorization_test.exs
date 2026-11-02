@@ -21,6 +21,7 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Api.Authorization
   alias Letflow.Api.Authorization.AccessContext

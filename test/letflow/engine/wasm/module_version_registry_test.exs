@@ -36,6 +36,7 @@ defmodule Letflow.Engine.Wasm.ModuleVersionRegistryTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Engine.Wasm.CapabilityGate
   alias Letflow.Engine.Wasm.HostApi

@@ -20,6 +20,7 @@ defmodule Letflow.Identity.TenantUpdateChangesetRemovedTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Identity.Tenant
 

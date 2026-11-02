@@ -12,6 +12,7 @@ defmodule Mix.Tasks.Letflow.WorkBoardGatesTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Mix.Letflow.WorkBoardCutover
   alias Mix.Tasks.Letflow.CheckDeferralStaleness, as: Staleness

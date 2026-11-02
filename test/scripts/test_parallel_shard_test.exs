@@ -21,6 +21,7 @@ defmodule Letflow.Scripts.TestParallelShardTest do
   `UAT_PF_BASH` (or `TEST_PARALLEL_BASH`). `async: false`: spawns process trees.
   """
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Test.TestParallelCapture
   alias Letflow.Test.TestShardManifest

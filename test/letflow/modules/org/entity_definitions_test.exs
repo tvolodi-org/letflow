@@ -10,6 +10,7 @@ defmodule Letflow.Modules.Org.EntityDefinitionsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @dir Path.join([File.cwd!(), "priv", "modules", "org", "entity_definitions"])
 

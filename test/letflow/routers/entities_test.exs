@@ -27,6 +27,7 @@ defmodule Letflow.Routers.EntitiesTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import Plug.Test
   import Plug.Conn

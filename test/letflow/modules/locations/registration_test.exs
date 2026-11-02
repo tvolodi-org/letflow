@@ -7,6 +7,7 @@ defmodule Letflow.Modules.Locations.RegistrationTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Modules.Catalog
 

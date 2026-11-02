@@ -5,6 +5,7 @@ defmodule Letflow.Scripts.ValidationRestrictedInputsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Scripts.Validation
 

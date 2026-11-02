@@ -99,6 +99,7 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistrationTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Mix.Tasks.Letflow.CheckRequirementsRegistration, as: Check
 

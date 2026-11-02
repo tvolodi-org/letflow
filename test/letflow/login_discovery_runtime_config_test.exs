@@ -35,6 +35,7 @@ defmodule Letflow.LoginDiscoveryRuntimeConfigTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   @moduletag :slow
   # GH #2611: the remaining `mix run` subprocess smoke tests boot a child VM on the already

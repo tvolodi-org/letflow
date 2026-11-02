@@ -7,6 +7,7 @@ defmodule Letflow.Scripts.PersonaActorSeedMissingAccountTest do
   memberships are still POSTed, and the script exits non-zero at the end.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @script "scripts/seed_vortex_persona_actors.sh"
 

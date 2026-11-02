@@ -27,6 +27,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   """
 
   use Letflow.DataCase, async: false
+  @moduletag :slow
 
   import Ecto.Query, only: [from: 2]
   import Plug.Conn

@@ -36,6 +36,7 @@ defmodule Mix.Tasks.Letflow.CheckReqIdCollisionTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Mix.Tasks.Letflow.CheckReqIdCollision, as: Check
 

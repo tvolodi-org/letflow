@@ -7,6 +7,7 @@ defmodule Letflow.Engine.VariableMergeSysTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Engine.VariableMerge
   alias Letflow.EventStore.Registry.ValidationFailure

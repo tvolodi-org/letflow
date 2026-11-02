@@ -9,6 +9,7 @@ defmodule Letflow.Metrics.ExpositionTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Metrics.Exposition
 

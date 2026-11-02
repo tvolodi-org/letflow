@@ -25,6 +25,7 @@ defmodule Letflow.Api.KeycloakRealmMobileClientTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @realm_path Path.join([
                 __DIR__,

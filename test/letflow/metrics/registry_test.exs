@@ -13,6 +13,7 @@ defmodule Letflow.Metrics.RegistryTest do
   """
 
   use ExUnit.Case, async: false
+  @moduletag :unit
 
   alias Letflow.Metrics.Registry
 

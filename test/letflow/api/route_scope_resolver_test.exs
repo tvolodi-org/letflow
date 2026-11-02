@@ -24,6 +24,7 @@ defmodule Letflow.Api.RouteScopeResolverTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Api.RouteScope
   alias Letflow.Entities.ScopeResolver

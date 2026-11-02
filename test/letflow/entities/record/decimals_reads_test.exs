@@ -7,6 +7,7 @@ defmodule Letflow.Entities.Record.DecimalsReadsTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Entities.Record.Decimals
 

@@ -6,6 +6,7 @@ defmodule Letflow.Documents.CanonicalTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Documents.Canonical
 

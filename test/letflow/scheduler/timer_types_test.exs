@@ -1,5 +1,6 @@
 defmodule Letflow.Scheduler.TimerTypesTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Scheduler.TimerTypes
 

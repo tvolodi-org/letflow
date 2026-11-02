@@ -7,6 +7,7 @@ defmodule Letflow.Scripts.SeedMeridianEntitiesTest do
   grants them to the seeding account only, and imports the three records.
   """
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @script "scripts/seed_meridian_entities.sh"
   @definition "test/fixtures/qa/meridian_borrower_entity_definition.json"

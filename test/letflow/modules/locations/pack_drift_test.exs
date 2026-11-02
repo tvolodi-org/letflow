@@ -10,6 +10,7 @@ defmodule Letflow.Modules.Locations.PackDriftTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Entities.Definition.Shape
 

@@ -44,6 +44,7 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
   """
 
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias Letflow.Api.Authorization
 
