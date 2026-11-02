@@ -5,7 +5,7 @@ defmodule Letflow.OrgFixture do
   `installed_tenant!/1` provisions a real tenant, seeds its event types and installs the real
   `org` module through the real `Letflow.Routers.TenantModules`. The owner writers go through
   `Letflow.Entities.Records` with `ManagedTypes.owner_for!(Letflow.Modules.Org)`, exactly as the
-  module's own code will (the unit, position and employee writers do not exist yet; company and site writers are
+  module's own code will (fixture units have no scope tree index row; company and site writers are
   `Letflow.Modules.Org.Masters`, REQ-660).
   """
 

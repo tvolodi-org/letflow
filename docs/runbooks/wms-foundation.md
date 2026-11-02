@@ -18,7 +18,7 @@ was written.
 2. **Writes go through the module's own Owner only, and nothing checks references.** Module
    code writes with the `/3` arity, `Records.create_record/3` with
    `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:423`). The
-   module has owner-path write functions for legal companies and sites only (GH #3619 / REQ-660, item 12); the unit functions are REQ-495. References between the
+   module has owner-path write functions for legal companies and sites (GH #3619 / REQ-660, item 12) and for units (GH #3618 / REQ-495: `create_unit/3`, `update_unit/4`, `move_unit/4`, `retire_unit/3` in `Letflow.Modules.Org.Units`, keeping the scope tree index through `Letflow.ScopeNodePaths.write/2` in the same transaction; the retire balance guard of D-065 is not built yet). References between the
    original four types (`legal_entity_id`, `site_id`, `parent`, `org_unit_id` of the membership) are
    declarative strings with no foreign keys and no reference check (the two newer types are item 8): a record can name a legal entity, site or unit that does
    not exist (decision 0050 D3.6; `priv/modules/org/entity_definitions/`).
