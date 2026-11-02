@@ -893,6 +893,7 @@
 13 test/letflow/routers/audit_platform_entries_isolation_test.exs 2466.69
 13 test/letflow/routers/documents_print_overrides_test.exs 9259.92
 13 test/letflow/routers/entities/record_writes_hook_503_test.exs 4725.74
+13 test/letflow/routers/entities_export_xlsx_test.exs 5746.12
 13 test/letflow/routers/identity_login_directory_test.exs 8732.00
 13 test/letflow/routers/labels_test.exs 19905.30
 13 test/letflow/routers/onboarding_scope_extension_test.exs 1510.94

@@ -101,6 +101,9 @@ defmodule Letflow.MixProject do
       # Apache-2.0 xlsx reader (saxy, MIT, comes with it), used only by
       # `Letflow.Entities.XlsxImport` for the record import route.
       {:xlsx_reader, "~> 0.8"},
+      # REQ-653 (decision 0077 D8): pure-Elixir MIT xlsx writer, used only by
+      # `Letflow.Entities.XlsxExport` for ?format=xlsx on the record export.
+      {:elixlsx, "~> 0.6"},
       # REQ-364 (decision docs/migration/decisions/0036-earmark-parser-markdown-
       # sanitization-dependency.md): pure-Elixir, Apache-2.0, zero-runtime-deps
       # CommonMark parser, used only for `EarmarkParser.as_ast/2` -- the
