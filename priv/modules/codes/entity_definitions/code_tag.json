@@ -1,0 +1,13 @@
+{
+  "name": "code_tag",
+  "display_name": "Code",
+  "description": "GH #3588 / REQ-648. The code record: one physical tag or printed label. value is the text a scanner returns, unique in the tenant over every status (retired included); it may change for a rewritable tag, the old value is kept in code_value_change. kind says what the value was read from and takes no part in uniqueness or resolve. status is not_assigned, assigned or retired (retired for good).",
+  "fields": [
+    {"name": "value", "type": "string", "required": true, "queried": true},
+    {"name": "kind", "type": "enum", "required": true, "queried": true, "enum_values": ["barcode", "qr", "epc", "tid"]},
+    {"name": "status", "type": "enum", "required": true, "queried": true, "enum_values": ["not_assigned", "assigned", "retired"]}
+  ],
+  "constraints": [
+    {"name": "uq_code_tag_value", "type": "unique", "fields": ["value"]}
+  ]
+}
