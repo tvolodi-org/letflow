@@ -28,7 +28,7 @@
             "type": "unique"
           }
         ],
-        "description": "GH #3501 / REQ-625, decisions 0050 D1 and 0057 D1. One tree of warehouse locations: node_kind is site, zone or address. parent_id is the record_id of the parent location_node (a declarative string, absent for a site); the parent-kind rule and cycle absence are not enforced. org_site_id is the record_id of an org_site, not validated. address is the scannable label, unique per tenant, optional. active false retires the record, there is no delete operation. external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "description": "GH #3501 / REQ-625, GH #3591 / REQ-645, decisions 0050 D1, 0057 D1 and 0066. One tree of locations. node_kind is a free non-empty text per level (country, region, building, zone, aisle, rack, shelf, bin, position, or any other word the tenant chooses); there is no fixed list and no depth bound. parent_id is the record_id of the parent location_node (absent for a root); the foreign_keys entry fk_location_node_parent_id promotes it to a nullable uuid self-referencing column with ON DELETE RESTRICT (inert on the soft-delete path), and idx_location_node_parent_id indexes it. The tree is stored as this parent link only: no path and no depth is stored (decision 0066); the live write rules are in Letflow.Modules.Locations.Tree. segment is the optional short label of the node inside its address, it never contains a dash. address is the scannable label, unique per tenant, optional; it is built once at create from the segments of the ancestors when the tenant chooses the segment pattern, and nothing rewrites it later. name is queried. active false retires the record, there is no delete operation. external_ref_system and external_ref_id are the nullable import key (0057 D1). The link to an org unit is a later step and is not stored here.",
         "display_name": "Location",
         "fields": [
           {
@@ -39,19 +39,15 @@
           },
           {
             "name": "name",
+            "queried": true,
             "required": true,
             "type": "string"
           },
           {
-            "enum_values": [
-              "site",
-              "zone",
-              "address"
-            ],
             "name": "node_kind",
             "queried": true,
             "required": true,
-            "type": "enum"
+            "type": "string"
           },
           {
             "name": "parent_id",
@@ -59,7 +55,8 @@
             "type": "string"
           },
           {
-            "name": "org_site_id",
+            "name": "segment",
+            "queried": true,
             "type": "string"
           },
           {
@@ -98,11 +95,26 @@
             "type": "string"
           }
         ],
+        "foreign_keys": [
+          {
+            "field": "parent_id",
+            "name": "fk_location_node_parent_id",
+            "references_entity": "location_node"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "parent_id"
+            ],
+            "name": "idx_location_node_parent_id"
+          }
+        ],
         "name": "location_node"
       },
       "display_name": "Location",
       "entity_definition_id": "86d7354a-b1d1-6bc1-d684-5e1b62ad82ff",
-      "logical_shape_version": "a9cf20abe37daf5e6f102614b54c066803e7067af6e5b89edbced4f43e88aea0",
+      "logical_shape_version": "4fce1eaa1c152ee61688be845fe23d59d838c4c4d4a166b6ae93c0ca04b1c6fd",
       "name": "location_node"
     }
   ],
@@ -113,5 +125,5 @@
   "pack_id": "letflow-locations",
   "service_catalog_entries": [],
   "variable_schemas": [],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }
