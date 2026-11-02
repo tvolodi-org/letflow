@@ -238,6 +238,192 @@
       "entity_definition_id": "79a02d3e-b679-d0a1-d7e2-53a89fd24354",
       "logical_shape_version": "2035753201993bdecb93e12db2c5d35a41c18f0c5f0b9d74b423fe9baa15527e",
       "name": "org_unit_membership"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "code"
+            ],
+            "name": "uq_org_position_code",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_org_position_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #3584 / REQ-643, decision 0050 amendment 2026-10-31 (D-061). A position in the roster of one org unit. org_unit_id is the record id of an org_unit, a real foreign key (D-066). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "display_name": "Org Position",
+        "fields": [
+          {
+            "name": "code",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "org_unit_id",
+            "name": "fk_org_position_org_unit_id",
+            "references_entity": "org_unit"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "org_unit_id"
+            ],
+            "name": "idx_org_position_org_unit_id"
+          }
+        ],
+        "name": "org_position"
+      },
+      "display_name": "Org Position",
+      "entity_definition_id": "624e5c65-ba67-74b9-5bb3-2d3d80adb9ee",
+      "logical_shape_version": "bf9e3cef217706ceb31170328ab0a04d4b391493aea2126e75b98f1b2fa11989",
+      "name": "org_position"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "code"
+            ],
+            "name": "uq_org_employee_code",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "user_id"
+            ],
+            "name": "uq_org_employee_user",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_org_employee_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #3584 / REQ-643, decision 0050 amendment 2026-10-31 (D-061). A person in the organization, with or without a login. code is the personnel number; user_id is the optional Letflow user id as text (no foreign key, one employee per user). org_unit_id and position_id are real foreign keys (D-066). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "display_name": "Org Employee",
+        "fields": [
+          {
+            "name": "code",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "full_name",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "position_id",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "user_id",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "org_unit_id",
+            "name": "fk_org_employee_org_unit_id",
+            "references_entity": "org_unit"
+          },
+          {
+            "field": "position_id",
+            "name": "fk_org_employee_position_id",
+            "references_entity": "org_position"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "org_unit_id"
+            ],
+            "name": "idx_org_employee_org_unit_id"
+          },
+          {
+            "fields": [
+              "position_id"
+            ],
+            "name": "idx_org_employee_position_id"
+          }
+        ],
+        "name": "org_employee"
+      },
+      "display_name": "Org Employee",
+      "entity_definition_id": "0bfad6e9-45f5-af0b-1baa-1539bc36d427",
+      "logical_shape_version": "587b40ec3dd5157cebdf86493ae679a788d1f8a55f9b5669ed316823884a1a04",
+      "name": "org_employee"
     }
   ],
   "exported_at": "2026-10-19T00:00:00Z",
@@ -247,5 +433,5 @@
   "pack_id": "letflow-org",
   "service_catalog_entries": [],
   "variable_schemas": [],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

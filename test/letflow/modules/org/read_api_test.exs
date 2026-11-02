@@ -102,6 +102,125 @@ defmodule Letflow.Modules.Org.ReadApiTest do
     end
   end
 
+  describe "REQ-643: org_position and org_employee in lookup/2" do
+    test "L-01: lookup finds a position and an employee with their fields", %{schema: schema} do
+      unit = unit_id!(schema)
+
+      pos =
+        create!(schema, "org_position", values("org_position", "P1", %{"org_unit_id" => unit}))
+
+      emp =
+        create!(
+          schema,
+          "org_employee",
+          values("org_employee", "E1", %{"org_unit_id" => unit, "position_id" => pos.record_id})
+        )
+
+      assert {:ok, %{"entity_type" => "org_position", "org_unit_id" => ^unit}} =
+               Org.lookup(schema, pos.record_id)
+
+      assert {:ok, %{"entity_type" => "org_employee", "position_id" => pid}} =
+               Org.lookup(schema, emp.record_id)
+
+      assert pid == pos.record_id
+      assert Org.active?(schema, pos.record_id)
+      assert Org.active?(schema, emp.record_id)
+    end
+  end
+
+  describe "active_employee?/2" do
+    test "A-01: truth table", %{schema: schema} do
+      unit = unit_id!(schema)
+
+      emp = fn code, active ->
+        create!(
+          schema,
+          "org_employee",
+          values("org_employee", code, %{"org_unit_id" => unit, "active" => active})
+        )
+      end
+
+      active = emp.("A1", true)
+      inactive = emp.("A2", false)
+      deleted = emp.("A3", true)
+      delete!(schema, deleted)
+
+      assert Org.active_employee?(schema, active.record_id) == true
+      assert Org.active_employee?(schema, inactive.record_id) == false
+      assert Org.active_employee?(schema, deleted.record_id) == false
+      assert Org.active_employee?(schema, Ecto.UUID.generate()) == false
+      # a live active org_unit is not an employee
+      assert Org.active?(schema, unit) == true
+      assert Org.active_employee?(schema, unit) == false
+
+      for bad <- @non_uuids, do: assert(Org.active_employee?(schema, bad) == false)
+      assert Org.active_employee?(nil, active.record_id) == false
+    end
+  end
+
+  describe "employee_for_user/2" do
+    test "U-01: found (active or not), unknown, and soft-deleted", %{schema: schema} do
+      unit = unit_id!(schema)
+
+      mk = fn code, user, active ->
+        create!(
+          schema,
+          "org_employee",
+          values("org_employee", code, %{
+            "org_unit_id" => unit,
+            "user_id" => user,
+            "active" => active
+          })
+        )
+      end
+
+      live = mk.("U1", "alice", true)
+      off = mk.("U2", "bob", false)
+      gone = mk.("U3", "carol", true)
+      delete!(schema, gone)
+
+      assert {:ok, %{"record_id" => id, "entity_type" => "org_employee", "user_id" => "alice"}} =
+               Org.employee_for_user(schema, "alice")
+
+      assert id == live.record_id
+
+      assert {:ok, %{"record_id" => oid, "active" => false}} =
+               Org.employee_for_user(schema, "bob")
+
+      assert oid == off.record_id
+      assert {:error, :not_found} = Org.employee_for_user(schema, "nobody")
+      assert {:error, :not_found} = Org.employee_for_user(schema, "carol")
+      # exact match only
+      assert {:error, :not_found} = Org.employee_for_user(schema, "ALICE")
+    end
+
+    test "U-02: unsafe user_id values are not found and never raise", %{schema: schema} do
+      for bad <- [nil, 1, :a, %{}, [], "", "a" <> <<0>>, <<255, 254>>, String.duplicate("a", 257)] do
+        assert {:error, :not_found} = Org.employee_for_user(schema, bad)
+      end
+
+      assert {:error, :not_found} = Org.employee_for_user(nil, "alice")
+    end
+
+    test "U-03: tenant B never sees tenant A's employee (INV-1)", %{schema: schema_a} do
+      %{schema: schema_b} = installed_tenant!("gh3584-readb")
+      unit = unit_id!(schema_a)
+
+      emp =
+        create!(
+          schema_a,
+          "org_employee",
+          values("org_employee", "T1", %{"org_unit_id" => unit, "user_id" => "alice"})
+        )
+
+      assert {:ok, _} = Org.employee_for_user(schema_a, "alice")
+      assert Org.active_employee?(schema_a, emp.record_id)
+      assert {:error, :not_found} = Org.employee_for_user(schema_b, "alice")
+      assert Org.active_employee?(schema_b, emp.record_id) == false
+      assert {:error, :not_found} = Org.lookup(schema_b, emp.record_id)
+    end
+  end
+
   describe "member?/3 truth table" do
     test "M-01: active membership of an active unit is true", %{schema: schema} do
       unit = unit!(schema, "U-A")
