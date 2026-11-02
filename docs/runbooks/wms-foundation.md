@@ -255,3 +255,50 @@ limit names the GH issue or the code that holds it; paths are cited without line
    (retire stays `retire_node/3`), a changed `code` is `field_not_allowed`, the address is the given text
    only (no segment pattern), and nothing is retired or deleted by import. A dry run follows the rules of
    `ManagedImport`; a Tree refusal costs one replay there.
+
+## Codes module limits
+
+Module `codes` (GH #3588 / REQ-648 skeleton, decisions 0076 and 0050, owner decisions D-065 to D-067)
+as it is on main. It covers the three types `code_tag`, `code_assignment` and `code_value_change`.
+Each limit names the GH issue or the code that holds it; paths are cited without line numbers.
+
+1. **Generic writes to the code types are refused.** The three types are in `manages_entity_types`,
+   so the generic entity routes answer 403 `entity_type_managed` (GH #2530), mapped in
+   `lib/letflow/routers/entities.ex`.
+2. **Writes go through the module's own Owner only.** Module code writes with the `/3` arity,
+   `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.Codes)`
+   (`lib/letflow/modules/codes/codes.ex`); the tests do the same
+   (`test/letflow/modules/codes/codes_fixture.exs`).
+3. **No write functions, no routes.** Receive, assign, release, retire and change value are REQ-663,
+   the scan route is REQ-667 (GH #3588); this slice ships the read API only.
+4. **The target is not validated.** `target_type` and `target_id` are declarative strings, no
+   foreign key is possible (decision 0050 D3.5 and D3.6, GH #3588); a code may name a type no module ships.
+   The module that writes a code validates the target through the owning module's lookup.
+5. **Model rules R1 to R8.** The record id of a code never changes (R1); the value is unique (R2)
+   and may change with the old value kept (R3); one open assignment at a time (R4); history rows
+   are never deleted (R5); a scan resolves through the open assignment only (R6); a retired code
+   never comes back (R7); movements name the object's record id, never the code (R8)
+   (`lib/letflow/modules/codes/codes.ex`).
+6. **Value unique in the tenant, retired codes included.** `uq_code_tag_value` is a unique
+   constraint over `value` for every status; "tenant" means the tenant schema, so two tenants may
+   hold the same value (`priv/modules/codes/entity_definitions/code_tag.json`).
+7. **Per-target uniqueness is a possible future change.** Uniqueness of target type, target id and
+   value is not built and not decided (GH #3588).
+8. **No case folding, no trimming.** Values are compared exactly (owner decision D-058 point 8):
+   `ABC` and `abc`, or a value with a trailing space, are different codes (GH #3588).
+9. **R4 has no storage guard.** A definition has no partial unique index, so two open assignments of
+   one code are not refused by the database; the write functions of REQ-663 keep R4 under their
+   lock, and `resolve/2` answers `:assignment_conflict` if it ever happens (GH #3588).
+10. **The generic import refuses the managed types.** `POST /entities/records/code_tag/import`
+    answers 403 `entity_type_managed` (`lib/letflow/routers/entities/record_import.ex`).
+11. **Serial uniqueness in the ledger is not resolved.** A unique code value does not stop the ledger
+    from holding one serial at two locations (OQ-23 of decision 0073, GH #3588).
+12. **No barcode or QR print block.** The print layout blocks are page, text, field, table and
+    spacer (`lib/letflow/documents/print_layout.ex`); label printing is a later entry (GH #3588).
+13. **No scope is applied by the read functions.** `resolve/2` and the other reads take no
+    principal. The three types are declared `:tenant_wide` (decision 0051 M4, immutable); a scan
+    route must check the scope of the resolved target with `Letflow.Api.Scope.allowed?/3` and
+    answer an out-of-scope target with the same 404 as an unknown code (decision 0051 D7, GH #3588).
+14. **Targets are scanned, not indexed.** `target_type` and `target_id` carry no index, so
+    `codes_for/3` filters the stored field values without one; fine at skeleton size
+    (`lib/letflow/modules/codes/codes.ex`).
