@@ -46562,3 +46562,634 @@ requirements:
       - "6. Amendment of 0051: docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md ends with the section named in description point (6), stating the bound 40 and pointing to the 0050 amendment; git diff of the file shows only added lines; docs/migration/decisions/0064-org-relative-task-assignment-resolver.md is unchanged."
       - "7. Scope and gates: git diff --name-only origin/main...HEAD lists only lib/letflow/scope_node_paths.ex, lib/letflow/scope_node_paths/consistency.ex, the three test files named in criteria 2 to 4 and the two decision records, so no file under priv/, web/, apps/, lib/letflow/modules/ or lib/letflow/routers/; mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check_scope_node_paths_writers and mix test test/letflow/scope_node_paths/ test/letflow/scope_node_paths_allowed_ids_test.exs test/letflow/routers/tenant_scope_node_paths_test.exs pass, real output quoted; SECURITY-REVIEWER (the bound guards the security index of 0051 scope checks) and REVIEWER verdicts are recorded."
     depends_on: [REQ-496, REQ-517, REQ-642, REQ-643]
+
+  - id: REQ-660
+    title: "Assets phase A writes W1: write functions for legal companies and sites in module org (create, update, retire), with the 12-digit BIN check, one BIN per live legal company, and an audit entry per change"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-649 -- needs the A2 tree and BIN rules merged first
+    # Source: owner decisions D-061, D-062 ("several legal entities") and D-065 of 2026-11-02 ("BIN is 12 digits, validated") in ai-dala-portfolio/DECISIONS.md; portfolio-manager phase A review 2026-11-02, point 6b (write functions and admin screens missing); letflow-team/project/assets-phase-a-implementation-plan.md (row 9 "F4 entries"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D3.2 retire by active false, D3.5 validation in the writing module, D7 "Foundation records are written through the owning module's routes/actions"); REQ-649 (A2, point (2): one tree may hold units of several legal entities, "two live legal entities of one tenant must not share a bin; this entry does not add the constraint"). Code read on main: priv/modules/org/entity_definitions/org_legal_entity.json (code, name, bin required; bin not queried; constraints only on code and the external_ref pair) and org_site.json (legal_entity_id required, queried), lib/letflow/modules/org/org.ex (lookup/2, active?/2, no write function), lib/letflow/entities/managed_types.ex (owner_for!/1), lib/letflow/audit.ex (insert_entry/3 and its entry_attrs keys). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      Phase A of the assets application needs organization master data that an administrator can enter. On main the
+      org module (lib/letflow/modules/org/org.ex) ships the managed types org_legal_entity and org_site but no write
+      function, and generic writes answer 403 entity_type_managed, so a freshly provisioned tenant cannot hold a legal
+      company or a site, and without them no org unit can be created (org_unit.json requires legal_entity_id and
+      site_id). This entry adds six write functions to Letflow.Modules.Org. It adds no route, permission, web screen,
+      definition change, migration or version step (routes are REQ-665, screens REQ-669).
+
+      Common rules for the six functions. Arguments (prefix, ..., attrs, opts) as REQ-645's create_node/3: prefix is
+      the tenant schema derived server-side from the authenticated tenant, never from request input; attrs is a map
+      with string keys; opts is a map with the required keys :actor_id and :idempotency_key. Each function runs in one
+      Repo.transaction, writes through Letflow.Entities.Records with ManagedTypes.owner_for!(Letflow.Modules.Org),
+      writes exactly one audit entry with Letflow.Audit.insert_entry/3 in the same transaction (actor_id from opts,
+      action as named below, resource_type the type name, resource_id the record id, before_state and after_state the
+      stored field values before and after; nil before a create), and on any refusal writes nothing, neither record
+      nor audit entry. It returns {:ok, record_map} in the lookup/2 shape or {:error, reason} and never raises on caller
+      input. A record id argument that is not a uuid, unknown, soft-deleted, of another type or of another tenant gives
+      one tuple per function family, {:error, :legal_entity_not_found} or {:error, :site_not_found} (INV-5). A key not
+      listed for a function is {:error, {:field_not_allowed, key}}; active is never a caller key (create sets active
+      true, retire sets false). A listed text field that is required and is absent, not a string or blank after
+      trimming is {:error, {:field_invalid, key}}. The record validator's own refusals (the unique code and external_ref
+      constraints) come back unchanged as {:error, {:record_payload_invalid, violations}}. A call repeated with the same
+      :idempotency_key and the same input writes no second record and no second audit entry. The designer reads the
+      Records call path for its behaviour inside an outer transaction (a unique violation inside it) and states how a
+      refusal is returned without a raise.
+
+      Legal companies. create_legal_entity(prefix, attrs, opts) with attrs code, name, bin, external_ref_system,
+      external_ref_id (the last two optional); audit action org_legal_entity.created. update_legal_entity(prefix, id,
+      attrs, opts) with attrs name, bin, external_ref_system, external_ref_id (code stays the stable business code, UAT
+      assumption, to be confirmed by the process owner); org_legal_entity.updated. retire_legal_entity(prefix, id, opts)
+      sets active false; org_legal_entity.retired; an already retired record answers {:ok, map} with no write and no
+      audit entry; refused with {:error, :legal_entity_in_use} while a live org_site or a live org_unit with active true
+      names it in legal_entity_id (UAT assumption, to be confirmed by the process owner: a retired company must not keep
+      active sites or units). BIN rule (D-065): bin is exactly 12 characters, each an ASCII digit 0-9, else
+      {:error, {:field_invalid, "bin"}}; no control-digit check is made (UAT assumption, to be confirmed by the process
+      owner: D-065 says "12 digits, validated" and names no checksum). One BIN per company (REQ-649 point (2)): create
+      and update are refused with {:error, :bin_taken} when another live org_legal_entity of the tenant with active true
+      has the same bin; a retired company's bin may be reused. The check and the write run under a transaction-scoped
+      advisory lock keyed by the tenant and the text org_legal_entity_bin, with the key passed as a bound parameter
+      (INV-7), so two concurrent creates with one bin cannot both succeed. No unique constraint is added to the
+      definition (REQ-649 point (2) gives the reason).
+
+      Sites. create_site(prefix, attrs, opts) with attrs code, name, legal_entity_id, external_ref_system,
+      external_ref_id; org_site.created. update_site(prefix, id, attrs, opts) with attrs name, legal_entity_id,
+      external_ref_system, external_ref_id; org_site.updated. retire_site(prefix, id, opts); org_site.retired; already
+      retired answers {:ok, map} with no write; refused with {:error, :site_in_use} while a live org_unit with active
+      true names it in site_id (UAT assumption, as above). legal_entity_id on create and update must be the record id
+      of a live org_legal_entity: otherwise {:error, :legal_entity_not_found} (one tuple for every case of the INV-5
+      list); a retired one is {:error, :legal_entity_inactive}.
+
+      org_unit.legal_entity_id and org_unit.site_id are not queried on main (org_unit.json); the designer states how
+      the in-use checks read them. Existing tenants: the functions write the definitions as installed; tests and UAT
+      use freshly provisioned tenants (decision 0055 upgrade is not built on main).
+
+      Not in this change: org units (REQ-495), positions and employees (REQ-661), routes (REQ-665), screens
+      (REQ-669), import (A6b), a unique constraint on bin, un-retire, delete.
+    acceptance_criteria:
+      - "1. Functions: Letflow.Modules.Org exports create_legal_entity/3, update_legal_entity/4, retire_legal_entity/3, create_site/3, update_site/4 and retire_site/3 with the attrs keys of the description; each created record has active true; each test asserts the returned map's record_id and field values through lookup/2."
+      - "2. BIN, one test per row, each asserting the exact tuple and an unchanged org_legal_entity count: bin of 11 digits, 13 digits, 12 characters with one letter, 12 characters with a space, and a non-string give {:error, {:field_invalid, \"bin\"}}; a 12-digit bin held by another active company gives {:error, :bin_taken} on create and on update; the same bin held only by a retired company is accepted; updating a company with its own unchanged bin is accepted."
+      - "3. Concurrency: a test in an auto-mode sandbox with a committed tenant starts two creates with the same bin at once and shows exactly one {:ok, _} and one {:error, :bin_taken}; a source scan or pg_locks assertion shows the advisory lock with the key text org_legal_entity_bin passed as a bound parameter."
+      - "4. Refusals: unknown key, active, and (on update) code each give {:error, {:field_not_allowed, key}}; a blank or missing code or name gives {:error, {:field_invalid, key}}; a duplicate code gives {:error, {:record_payload_invalid, _}}; a site whose legal_entity_id is not a uuid, unknown, soft-deleted or the id of an org_site gives {:error, :legal_entity_not_found}, and a retired company gives {:error, :legal_entity_inactive}; retire of a company named by an active site or an active org unit gives {:error, :legal_entity_in_use}; retire of a site named by an active org unit gives {:error, :site_in_use}; each refusal writes no record and no audit entry."
+      - "5. Audit: every accepted create, update and retire writes exactly one audit entry with the action name of the description, the actor_id from opts, the record id and the before and after states, in the same transaction (a test that forces the audit insert to fail shows the record write rolled back); a repeated call with the same idempotency key and input writes no second record and no second audit entry; retiring an already retired record writes neither."
+      - "6. Tenancy (INV-1, INV-5, INV-6): in a two-tenant test, update and retire with tenant B's prefix and a record id of tenant A give the same not-found tuple as an unknown uuid; a site in tenant B naming a company of tenant A gives {:error, :legal_entity_not_found}; the same bin in tenant A and tenant B is accepted in both; nothing is written in either schema by a refused call; no function takes a tenant identifier from attrs or opts."
+      - "7. Docs and scope: the org.ex moduledoc names the six functions and their rules; docs/runbooks/wms-foundation.md section Org module limits states that legal companies and sites now have owner-path write functions, the BIN rule and its UAT assumption, and that no route exists yet; test/letflow/modules/org/runbook_test.exs passes; git diff --name-only origin/main...HEAD lists no file under priv/, web/, apps/, lib/letflow/routers/ or another module directory; mix format --check-formatted, mix compile --warnings-as-errors and mix test test/letflow/modules/org/ pass, real output quoted; SECURITY-REVIEWER (new tenant-data write path) and REVIEWER verdicts recorded."
+    depends_on: [REQ-643, REQ-649]
+
+  - id: REQ-495
+    title: "Assets phase A writes W2: org unit write functions in module org (create, update, move, retire) that keep the scope tree index in the same transaction, with the decision 0051 audit events"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-660 -- needs the legal company and site writers to exist first
+    # Source: this id is the one REQ-473 (gh 2661) reserved for "the unit functions (create/move/retire, tree integrity, scope_node_paths)" ("local draft, not yet filed") and that lib/letflow/modules/org/org.ex, lib/letflow/scope_node_paths.ex ("Call order (a MUST for the org module, REQ-495)") and docs/runbooks/wms-foundation.md cite; it was never written into the register, so this entry fills it instead of a new id. Portfolio-manager phase A review 2026-11-02, point 6b; owner decision D-065 of 2026-11-02 ("a unit with a balance cannot be retired"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D7: "a dedicated move_org_unit action", cycle refusal, "Every insert/move/retire is audited (0051 D8)"; D8: the projection "is written ONLY by a core function, called by the org module's create / move / retire paths in the SAME database transaction as the org_unit write"); docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md (D8 event names org_unit.created, org_unit.moved, org_unit.retired, org_unit.renamed, audit in the same transaction); REQ-649 (A2 points (2) to (4): legal_entity_id and site_id are the unit's own fields, a move never changes them, retire leaves descendants live and is refused with node_has_grants). Code read on main: lib/letflow/scope_node_paths.ex (write/2 operations and error atoms, lock!/1, the call order, the REQ-517 retire guard), lib/mix/tasks/letflow.check_scope_node_paths_writers.ex (module code must not name the table), lib/letflow/scope_node_paths/consistency.ex, priv/modules/org/entity_definitions/org_unit.json (parent field, uq_org_unit_code), lib/letflow/audit.ex (insert_entry/3); no ledger module on main (only priv/repo/migrations/20261031100001_create_ledger_tables.exs). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      The org tree's write path that decision 0050 D7 and D8 require and that the code already names REQ-495. On main
+      no org unit can be written except through test fixtures. This entry adds four functions to
+      Letflow.Modules.Org. It adds no route, permission, web screen, definition change, migration or version step
+      (routes REQ-665, screens REQ-669), and it does not change Letflow.ScopeNodePaths.
+
+      The common rules of REQ-660 apply (arguments, owner path, one audit entry per accepted change in the same
+      transaction, nothing written on a refusal, idempotency, no raise on caller input, the designer states how
+      refusals inside the transaction are returned). A unit id argument that is not a uuid, unknown, soft-deleted, of
+      another type or of another tenant is {:error, :unit_not_found}; a parent id in the same cases is
+      {:error, :parent_not_found} (INV-5).
+
+      create_unit(prefix, attrs, opts): attrs code, name, legal_entity_id, site_id, parent (optional; absent or nil
+      makes a root), external_ref_system, external_ref_id. Checks in this order: unknown key, then field rules as in
+      REQ-660; parent not found; parent with active false {:error, :parent_inactive}; legal_entity_id and site_id
+      checked as REQ-660 checks a site's company ({:error, :legal_entity_not_found}, {:error, :legal_entity_inactive},
+      {:error, :site_not_found}, {:error, :site_inactive}). A unit's company and site are its own and are not
+      compared with its parent's (REQ-649 point (2)). Call order of lib/letflow/scope_node_paths.ex: lock!/1 first,
+      then the record write, then write({:insert, record_id, parent}, prefix); a refusal of write/2 (for example
+      :depth_exceeded at the bound REQ-649 sets) rolls the transaction back and is returned unchanged as
+      {:error, atom}. Audit action org_unit.created.
+
+      update_unit(prefix, unit_id, attrs, opts): attrs name, legal_entity_id, site_id, external_ref_system,
+      external_ref_id with the same checks; code, parent and active are {:error, {:field_not_allowed, key}} (moving is
+      move_unit/4, retiring retire_unit/3; code stays the stable business code, UAT assumption, to be confirmed by the
+      process owner). Audit action org_unit.renamed when the name changes, org_unit.updated when only other fields
+      change; an update that changes nothing answers {:ok, map} with no write and no audit entry.
+
+      move_unit(prefix, unit_id, new_parent_id, opts), the move_org_unit action of 0050 D7: new_parent_id is a unit id,
+      or nil to make a root. Unit not found; unit with active false {:error, :unit_inactive}; new parent not found;
+      new parent inactive {:error, :parent_inactive}; then write({:move, unit_id, new_parent_id}, prefix) FIRST, before
+      the record write (the call order), whose refusals :cycle (onto itself or into its own subtree, direct or
+      transitive) and :depth_exceeded are returned unchanged; then the record's parent is set. A move to the current
+      parent answers {:ok, map} with no write and no audit entry. A move changes no other field, no link, no grant and
+      no ledger row (REQ-649 point (3)). Audit action org_unit.moved with the old and new parent in before and after.
+
+      retire_unit(prefix, unit_id, opts): an already retired unit answers {:ok, map} with no write. Refused with
+      {:error, :unit_has_active_staff} while a live org_employee or org_position with active true names the unit in
+      org_unit_id (types of REQ-643; UAT assumption, to be confirmed by the process owner: people and posts are moved
+      or retired first). Then write({:retire, unit_id}, prefix) FIRST, whose :node_has_grants refusal (REQ-517) is
+      returned unchanged, then active false on the record. Descendants stay live (REQ-649 point (4)). Audit action
+      org_unit.retired. Balance guard (D-065: a unit with a balance cannot be retired): there is no ledger module and
+      no posting function on main, so no balance can name a unit yet; this entry does not build the guard, and the
+      runbook states that the slice that first posts to a register naming an org unit adds it to retire_unit/3.
+
+      Module code must not name the index table even in a comment (mix letflow.check_scope_node_paths_writers);
+      it calls only the public functions of Letflow.ScopeNodePaths. Existing tenants: as REQ-660.
+
+      Not in this change: memberships of users in units (org_unit_membership, the 0051 D8 events
+      org_membership.added and org_membership.removed), un-retire, delete, the balance guard, routes, screens, import.
+    acceptance_criteria:
+      - "1. Functions: Letflow.Modules.Org exports create_unit/3, update_unit/4, move_unit/4 and retire_unit/3; a root and a child are created; after each accepted create, move and retire, Letflow.ScopeNodePaths.resolve/2 (or ancestors/2) shows the unit's path and depth matching the record's parent chain, and the consistency report of lib/letflow/scope_node_paths/consistency.ex for the tenant lists no orphan, cycle or mismatch."
+      - "2. Create refusals, one test per row, each asserting the exact tuple, an unchanged org_unit count and no new index row: unknown key, active; blank code or name; parent not a uuid, unknown, soft-deleted, an org_site id; retired parent; each of the four company and site tuples; a duplicate code ({:error, {:record_payload_invalid, _}}); a unit at one level past the depth bound on origin/main at implement time ({:error, :depth_exceeded}, created with ids that reach the bound)."
+      - "3. Move: a direct cycle (under itself) and a transitive cycle (under its grandchild) give {:error, :cycle}; a move whose deepest descendant would pass the bound gives {:error, :depth_exceeded}; a retired unit gives {:error, :unit_inactive}; a retired new parent {:error, :parent_inactive}; an accepted move of a unit with two levels of descendants rewrites the index for the whole subtree and changes only the record's parent field; moving to the current parent writes nothing; nil makes the unit a root."
+      - "4. Retire: a unit with an active employee or an active position gives {:error, :unit_has_active_staff}; a unit named by a role scope grant gives {:error, :node_has_grants}; an accepted retire sets active false on the record and retired_at on the index row, leaves a child unit live and active, and a second retire writes nothing."
+      - "5. Update: name change writes org_unit.renamed, a site change only writes org_unit.updated, an unchanged update writes nothing; code, parent and active give {:error, {:field_not_allowed, key}}."
+      - "6. Audit and atomicity: each accepted change writes exactly one audit entry with the action of the description, the actor_id from opts and before and after states; a test that forces the audit insert to fail after the index write shows neither the record change nor the index change committed; a repeated call with the same idempotency key and input writes nothing new."
+      - "7. Tenancy (INV-1, INV-5, INV-6): with tenant B's prefix, a unit id of tenant A gives {:error, :unit_not_found} for update, move and retire, and a parent id of tenant A gives {:error, :parent_not_found} on create and move, the same tuples as an unknown uuid; nothing is written in either schema; no function takes a tenant identifier from attrs or opts."
+      - "8. Docs and scope: the org.ex moduledoc names the four functions, the call order and the balance-guard limit, and no longer says the unit functions are missing; docs/runbooks/wms-foundation.md section Org module limits is updated the same way, citing symbols, and test/letflow/modules/org/runbook_test.exs passes; mix letflow.check_scope_node_paths_writers passes; lib/letflow/scope_node_paths.ex is unchanged; git diff --name-only origin/main...HEAD lists no file under priv/, web/, apps/ or lib/letflow/routers/; mix format --check-formatted, mix compile --warnings-as-errors, mix test test/letflow/modules/org/ test/letflow/scope_node_paths/ pass, real output quoted; SECURITY-REVIEWER (the security tree's write path) and REVIEWER verdicts recorded."
+    depends_on: [REQ-643, REQ-649, REQ-660]
+
+  - id: REQ-661
+    title: "Assets phase A writes W3: position and employee write functions in module org (create, update, transfer to another unit, retire), with the unit, position and user link checks and an audit entry per change"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-643 -- needs the org_position and org_employee types first
+    # Source: owner decisions D-061 ("employees are their own records, separate from user accounts") of 2026-10-31 and D-065 of 2026-11-02 ("responsible person and actual user hold employee ids") in ai-dala-portfolio/DECISIONS.md; portfolio-manager phase A review 2026-11-02, point 6b; REQ-643 (A1: the two types, their fields and unique constraints; "nothing checks that position_id names a position of the same org unit; that check belongs to the write functions of a later slice"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D3.2, D3.5). Code read on main: lib/letflow/identity.ex (get_user/2 with opts :prefix, {:ok, user} or {:error, :not_found}), lib/letflow/modules/org/org.ex, lib/letflow/audit.ex. Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      REQ-643 adds org_position and org_employee to the org module with no write function. This entry adds seven
+      write functions to Letflow.Modules.Org under the common rules of REQ-660 (arguments, owner path, one audit
+      entry per accepted change, nothing written on a refusal, idempotency, no raise on caller input). A position id
+      in the INV-5 cases is {:error, :position_not_found}, an employee id {:error, :employee_not_found}, an org unit
+      id {:error, :unit_not_found}, and a unit with active false {:error, :unit_inactive}. It adds no route,
+      permission, screen, definition change, migration or version step (routes REQ-665, screens REQ-670).
+
+      Positions. create_position(prefix, attrs, opts) with attrs code, name, org_unit_id, external_ref_system,
+      external_ref_id; the unit must be live and active; audit org_position.created. update_position(prefix, id,
+      attrs, opts) with attrs name and the external_ref pair; code, org_unit_id and active are
+      {:error, {:field_not_allowed, key}} (a post does not move between units: it is retired and created again, UAT
+      assumption, to be confirmed by the process owner); org_position.updated. retire_position(prefix, id, opts):
+      refused with {:error, :position_in_use} while a live active org_employee holds it in position_id;
+      org_position.retired; already retired answers {:ok, map} with no write.
+
+      Employees. create_employee(prefix, attrs, opts) with attrs code, full_name, org_unit_id, position_id (optional),
+      user_id (optional), external_ref_system, external_ref_id. Checks in this order: keys and field rules; unit
+      live and active; position_id, when given, a live active org_position ({:error, :position_not_found},
+      {:error, :position_inactive}) whose org_unit_id equals the employee's org_unit_id, else
+      {:error, :position_not_in_unit}; user_id, when given, the id of a user of this tenant found by
+      Letflow.Identity.get_user/2 with the same prefix, else {:error, :user_not_found} (one tuple for a non-uuid, an
+      unknown id and a user of another tenant, INV-5); a user already linked to another employee is refused by
+      REQ-643's unique constraint as {:error, {:record_payload_invalid, _}}. The user's status is not checked (UAT
+      assumption, to be confirmed by the process owner: an employee may keep the link to a disabled account).
+      Audit org_employee.created. update_employee(prefix, id, attrs, opts) with attrs full_name, user_id (nil removes
+      the link) and the external_ref pair, same user check; code, org_unit_id, position_id and active are
+      {:error, {:field_not_allowed, key}}; org_employee.updated. transfer_employee(prefix, id, org_unit_id,
+      position_id, opts) sets both fields at once (position_id may be nil), with the unit and position checks above;
+      a retired employee is {:error, :employee_inactive}; a transfer to the same unit and position answers {:ok, map}
+      with no write; org_employee.transferred. retire_employee(prefix, id, opts) sets active false and keeps the user
+      link and position as history; org_employee.retired; already retired answers {:ok, map} with no write.
+
+      Personal data in the audit trail. The audit chain is append only and cannot be erased, so the before_state and
+      after_state of an org_employee entry hold every stored field except full_name, and an entry whose change is
+      only the name names the changed field ("full_name") without the value (UAT assumption, to be confirmed by the
+      process owner; the security reviewer rules on it).
+
+      Not in this change: who may read employees (a scope declaration of the type, owner decision D-067, written by
+      the phase A access task, not here); import (A6b); routes and screens; un-retire; delete.
+    acceptance_criteria:
+      - "1. Functions: Letflow.Modules.Org exports create_position/3, update_position/4, retire_position/3, create_employee/3, update_employee/4, transfer_employee/5 and retire_employee/3; accepted calls are asserted through lookup/2 and active_employee?/2 of REQ-643 (a retired employee is false)."
+      - "2. Employee checks, one test per row with the exact tuple and an unchanged org_employee count: unit not found and unit retired; position not found, retired, and of another unit ({:error, :position_not_in_unit}); user_id not a uuid, unknown, and the id of a user of a second tenant ({:error, :user_not_found}); a user already linked to another employee ({:error, {:record_payload_invalid, _}}); an employee with no user and no position is accepted."
+      - "3. Position rules: retire of a position held by an active employee gives {:error, :position_in_use} and is accepted after that employee is transferred to no position; update with org_unit_id gives {:error, {:field_not_allowed, \"org_unit_id\"}}."
+      - "4. Transfer: an active employee moves to a position of another unit and both fields change in one record version; a position of a third unit gives {:error, :position_not_in_unit}; a retired employee gives {:error, :employee_inactive}; a transfer to the current unit and position writes nothing."
+      - "5. Audit: each accepted change writes exactly one audit entry with the action of the description, actor and record id, in the same transaction; no org_employee audit entry contains the full_name value (a test greps the stored before_state and after_state of entries written by create, update of the name, and retire); a repeated call with the same idempotency key and input writes nothing new."
+      - "6. Tenancy (INV-1, INV-5, INV-6): with tenant B's prefix, employee, position and unit ids of tenant A give the same not-found tuples as unknown uuids, and nothing is written in either schema; no function takes a tenant identifier from attrs or opts."
+      - "7. Docs and scope: the org.ex moduledoc and docs/runbooks/wms-foundation.md section Org module limits name the functions, the audit rule for full_name and the UAT assumptions; test/letflow/modules/org/runbook_test.exs passes; git diff --name-only origin/main...HEAD lists no file under priv/, web/, apps/ or lib/letflow/routers/; mix format --check-formatted, mix compile --warnings-as-errors and mix test test/letflow/modules/org/ pass, real output quoted; SECURITY-REVIEWER (personal data write path) and REVIEWER verdicts recorded."
+    depends_on: [REQ-643, REQ-495]
+
+  - id: REQ-662
+    title: "Assets phase A writes W4: link and unlink write functions for org units and locations in module locations, refusing a retired or unknown unit or location, with an audit entry per change"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-644 -- needs the location_org_unit_link type first
+    # Source: owner decisions D-061 ("the two trees are independent, linked many to many") and D-065 ("a movement is refused when its org unit and location are not linked") in ai-dala-portfolio/DECISIONS.md; portfolio-manager phase A review 2026-11-02, point 6b; REQ-644 (A4: the type location_org_unit_link with location_id, org_unit_id, active and uq_location_org_unit_link over the pair; "no write function"; linked?/3); REQ-649 (A2 point (4): "a new link naming a retired unit is refused by the link writer through active?/2 (0050 D3.5), owed to A4"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D3.5). Code read on main: lib/letflow/modules/locations/locations.ex (lookup/2, active?/2), lib/letflow/modules/org/org.ex (lookup/2). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      REQ-644 adds the link type and its reads; REQ-649 says the link writer refuses a retired unit, but no entry builds
+      the writer. This entry adds two functions to Letflow.Modules.Locations under the common rules of REQ-660
+      (arguments, owner path ManagedTypes.owner_for!(Letflow.Modules.Locations), one audit entry per accepted change,
+      nothing written on a refusal, idempotency, no raise on caller input). No route, permission, screen, definition
+      change, migration or version step (routes REQ-666, screens REQ-671).
+
+      link_unit_location(prefix, org_unit_id, location_id, opts): org_unit_id must be the record id of a live
+      org_unit read through Letflow.Modules.Org.lookup/2 with entity_type org_unit, else {:error, :unit_not_found}
+      (INV-5 cases, including the id of another org type), and with active true, else {:error, :unit_inactive};
+      location_id a live location_node read through lookup/2 of the module, else {:error, :location_not_found}, with
+      active true, else {:error, :location_inactive}. If an active link of the pair exists, the call answers
+      {:ok, map} with no write; if an inactive link of the pair exists, its active is set true (audit action
+      location_org_unit_link.reactivated); otherwise a new link is created (location_org_unit_link.created). The
+      pair stays unique through REQ-644's constraint.
+
+      unlink_unit_location(prefix, org_unit_id, location_id, opts): sets active false on the active link of the
+      pair (location_org_unit_link.retired); no active link of the pair is {:error, :link_not_found}, the same tuple
+      for ids that do not exist. It works when the unit or the location is already retired, so an administrator can
+      clean up. Links are never deleted (0050 D3.2). Balances: no ledger code exists on main, so an unlink is not
+      checked against stock at the location; the slice that first posts with the not-linked rule of D-065 states
+      whether an unlink with stock is refused, and the runbook says so.
+
+      Not in this change: links named in an import (A6b), routes, screens, a scope declaration of the type (owner
+      decision D-067, written by the phase A access task).
+    acceptance_criteria:
+      - "1. Functions: Letflow.Modules.Locations exports link_unit_location/4 and unlink_unit_location/4; after a link, linked?/3 of REQ-644 is true for the pair and location_ids_for_org_unit/2 lists the location; after an unlink linked?/3 is false; a second link of the same pair reactivates the same record (same record_id, active true), and a link of an already linked pair writes nothing."
+      - "2. Refusals, one test per row with the exact tuple and an unchanged link count: unit id not a uuid, unknown, soft-deleted and the id of an org_site ({:error, :unit_not_found}); retired unit ({:error, :unit_inactive}); location id unknown and the id of a link record ({:error, :location_not_found}); retired location ({:error, :location_inactive}); unlink of a pair with no active link ({:error, :link_not_found})."
+      - "3. Unlink after retire: a link whose unit was retired (REQ-495 retire_unit/3) can be unlinked, and a new link to that unit is refused with {:error, :unit_inactive}."
+      - "4. Audit: each accepted change writes exactly one audit entry (created, reactivated or retired) with actor, link record id and before and after states in the same transaction; a no-op link writes none; a repeated call with the same idempotency key and input writes nothing new."
+      - "5. Tenancy (INV-1, INV-5, INV-6): with tenant B's prefix, a unit or location id of tenant A gives {:error, :unit_not_found} or {:error, :location_not_found}, the same as an unknown uuid, and nothing is written in either schema; no function takes a tenant identifier from its arguments other than prefix."
+      - "6. Docs and scope: the locations.ex moduledoc and docs/runbooks/wms-foundation.md section Locations module limits name the two functions, the reactivation rule and the unlink-with-stock limit; test/letflow/modules/locations/runbook_test.exs passes; git diff --name-only origin/main...HEAD lists no file under priv/, web/, apps/, lib/letflow/routers/ or lib/letflow/modules/org/; mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check_boundaries and mix test test/letflow/modules/locations/ pass, real output quoted; SECURITY-REVIEWER and REVIEWER verdicts recorded."
+    depends_on: [REQ-644, REQ-646, REQ-495]
+
+  - id: REQ-663
+    title: "Assets phase A writes W5: code write functions in module codes: receive new tags in bulk as not assigned, assign, release, retire for good and change the value of a rewritable tag, with history and an audit entry per change"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-648 -- needs the codes module and its tag model first
+    # Source: owner decision D-065 of 2026-11-02 in ai-dala-portfolio/DECISIONS.md ("Codes follow a tag lifecycle (RFID reuse): a code record (not assigned, assigned, retired for good) plus an assignment history; one active assignment at a time; release before reassign; history never deleted"); the owner's RFID rule and its addition of 2026-11-02 as given in the phase A fix task F5 (the code record id is immutable; the code value of a rewritable tag may change, old values kept in the history; "The 'receive tags' step (bulk entry of new tags as not assigned) belongs in the write functions of F4"); portfolio-manager phase A review 2026-11-02, point 6b; REQ-648 (A5: module codes, depends_on [], "Write functions (assign a code, retire a code), routes, a web screen and import of codes" not in that slice); REQ-642 point (1) (the target is a type name plus a record id; the consumer validates the target, 0050 D3.5). Code read on main: lib/letflow/modules/read_api.ex (lookup/3 over a given type list, the shared core body of the foundation read API), lib/mix/tasks/letflow.check_boundaries.ex (Rule 4), lib/letflow/audit.ex. Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      The code model of D-065 separates the code record (one physical tag or printed code: its value unique in the
+      tenant and a status not assigned, assigned or retired for good) from its assignment history (which record it
+      named, from when to when, by whom). REQ-648 is being amended to that model (phase A fix task F5). This entry
+      adds the write functions to Letflow.Modules.Codes, using the type names, field names and status values that
+      REQ-648 as merged on origin/main defines; if REQ-648 on origin/main at implement time has no code record with a
+      status and no separate assignment history, the implementer stops and reports the conflict instead of building
+      this text. Common rules of REQ-660 apply (arguments, owner path ManagedTypes.owner_for!(Letflow.Modules.Codes),
+      one audit entry per changed code, nothing written on a refusal, idempotency, no raise on caller input). Every
+      function runs under a transaction-scoped advisory lock keyed by the tenant and the text codes (bound parameter,
+      INV-7), so two writers of one tenant's codes never interleave. A code id in the INV-5 cases is
+      {:error, :code_not_found}. "Unique in the tenant" means across all record types inside one tenant schema; two
+      tenants may hold the same value. No route, permission, screen, migration or version step (routes REQ-667,
+      screens REQ-672).
+
+      receive_codes(prefix, entries, opts): entries is a list of maps with string keys value and kind (the kinds
+      REQ-648 defines); every entry becomes a new code record with status not assigned. All or nothing: an empty list,
+      a list of more than 1000 entries (UAT assumption, to be confirmed by the process owner; no source names a batch
+      size), a value that is not a non-empty string, an unknown kind, a value given twice in the list, or a value that
+      a code record of the tenant already holds in any status refuses the whole call with
+      {:error, {:entry_invalid, index, reason}} for the first bad entry (index from 0; reason one of :value_invalid,
+      :kind_invalid, :duplicate_in_batch, :value_taken), or {:error, :batch_size} for the list length. Values are
+      compared exactly, with no trimming or case folding (as REQ-648). Audit action code.received, one entry per code.
+
+      assign_code(prefix, code_id, target_type, target_id, opts): the code must be not assigned
+      ({:error, :code_assigned} when assigned, {:error, :code_retired} when retired for good: release comes first);
+      target_type must be one of location_node, catalog_item and catalog_lot, else {:error, :target_type_not_allowed}
+      (UAT assumption, to be confirmed by the process owner: the coded master types that exist in phase A; the entry
+      that adds the asset or Inventory Object type adds it to the list); target_id must be a live record of that type
+      read through Letflow.Modules.ReadApi.lookup/3 with the one-type list [target_type], else
+      {:error, :target_not_found}, and with active true, else {:error, :target_inactive}. The module keeps depends_on []
+      (ReadApi is core, so Rule 4 of letflow.check_boundaries is not touched). It adds one assignment history row and
+      sets the status assigned; at most one open assignment per code. code.assigned.
+
+      release_code(prefix, code_id, opts): an assigned code gets its open assignment closed (released at, by the
+      actor) and status not assigned; a code that is not assigned is {:error, :code_not_assigned}. code.released.
+
+      retire_code(prefix, code_id, opts): the tag is lost or destroyed; an open assignment is closed in the same
+      transaction, the status becomes retired for good and never changes again; an already retired code answers
+      {:ok, map} with no write. code.retired.
+
+      change_code_value(prefix, code_id, new_value, opts): a rewritable tag gets a new value; the record id stays,
+      the old value is kept in the history as REQ-648 stores it; the new value must be a non-empty string that no
+      other code record of the tenant holds ({:error, :value_taken}, {:error, :value_invalid}); a retired code is
+      {:error, :code_retired}; the open assignment, if any, is unchanged. code.value_changed.
+
+      History rows are never updated except to close an open assignment, and never deleted. Ledger rows and movements
+      name the object's record id, never the code, so a reuse does not change history (REQ-642 point (5)).
+
+      Not in this change: resolving a scan (REQ-648's read API), a scope check of a scanned target (owner decision
+      D-067), import (A6b), label printing, routes, screens.
+    acceptance_criteria:
+      - "1. Precondition: the implementer quotes the code and assignment type names and status values of REQ-648 from origin/main; if they are not there, the change stops with that finding and no code."
+      - "2. Receive: a list of three new values creates three code records with status not assigned; each of an empty list, a list of 1001 entries, an empty value, an unknown kind, a value twice in the list, and a value held by an existing code (also a retired one) refuses the whole call with the tuple of the description and creates no record."
+      - "3. Lifecycle, one test following one tag: receive, assign to a location_node, release, assign to a catalog_item, retire; afterwards the history holds two closed assignments in order and the code is retired; assign of the retired code gives {:error, :code_retired}; assign of an assigned code gives {:error, :code_assigned}; release of a not-assigned code gives {:error, :code_not_assigned}."
+      - "4. Targets: an assign with target_type org_unit gives {:error, :target_type_not_allowed}; a target id that is not a uuid, unknown, soft-deleted or the id of a record of another allowed type gives {:error, :target_not_found}; a retired target gives {:error, :target_inactive}; mix letflow.check_boundaries passes and the manifest's depends_on stays []."
+      - "5. Value change: change_code_value/4 keeps the record id, the new value resolves through REQ-648's read API and the old one no longer does, the old value is in the history; a value held by another code gives {:error, :value_taken}; a retired code gives {:error, :code_retired}."
+      - "6. Lock and audit: a source scan or pg_locks assertion shows the advisory lock with the key text codes passed as a bound parameter; every accepted change writes one audit entry per changed code with the action of the description in the same transaction; a refused call writes none; a repeated call with the same idempotency key and input writes nothing new."
+      - "7. Tenancy (INV-1, INV-5, INV-6): with tenant B's prefix, a code id of tenant A gives {:error, :code_not_found} and a target id of tenant A gives {:error, :target_not_found}, as unknown uuids; the same value received in tenants A and B is accepted in both; nothing is written by a refused call; no function takes a tenant identifier from its arguments other than prefix."
+      - "8. Docs and scope: the codes.ex moduledoc and docs/runbooks/wms-foundation.md section Codes module limits (added by REQ-648) name the functions, the target type list and the batch-size UAT assumption; git diff --name-only origin/main...HEAD lists no file under priv/repo/migrations/, web/, apps/, lib/letflow/routers/ or another module directory; mix format --check-formatted, mix compile --warnings-as-errors and mix test test/letflow/modules/codes/ pass, real output quoted; SECURITY-REVIEWER and REVIEWER verdicts recorded."
+    depends_on: [REQ-648, REQ-645, REQ-647]
+
+  - id: REQ-664
+    title: "Assets phase A writes W6: lot write functions in module catalog_items (create, update, retire) with the item check and one lot code per item, and an audit entry per change"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-647 -- needs the catalog_lot type first
+    # Source: owner decision D-065 of 2026-11-02 ("lots with free-text producer, lot code unique per item, expiry optional") in ai-dala-portfolio/DECISIONS.md; portfolio-manager phase A review 2026-11-02, point 6b; REQ-647 (A6a: catalog_lot with item_id, code, producer, mark, expiry_date, active, the external_ref pair, unique over [item_id, code]; "The module ships no write functions ... so none are added"; item_lot_valid?/3). Code read on main: lib/letflow/modules/catalog_items/catalog_items.ex (lookup/2, active?/2, item_uom_valid?/3), lib/letflow/audit.ex. Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      REQ-647 adds the lot master with no write function. This entry adds three functions to
+      Letflow.Modules.CatalogItems under the common rules of REQ-660 (arguments, owner path
+      ManagedTypes.owner_for!(Letflow.Modules.CatalogItems), one audit entry per accepted change, nothing written on
+      a refusal, idempotency, no raise on caller input). A lot id in the INV-5 cases is {:error, :lot_not_found}. No
+      route, permission, screen, definition change, migration or version step (routes REQ-668, screens REQ-673).
+
+      create_lot(prefix, attrs, opts) with attrs item_id, code, producer, mark, expiry_date, external_ref_system,
+      external_ref_id (all but item_id and code optional): item_id must be a live catalog_item read through lookup/2
+      with entity_type catalog_item, else {:error, :item_not_found} (INV-5 cases, including the id of a catalog_uom),
+      and active, else {:error, :item_inactive}; code required, non-blank; producer and mark free text (D-065);
+      expiry_date absent, nil, or a text in the ISO 8601 date form YYYY-MM-DD that is a real calendar date, else
+      {:error, {:field_invalid, "expiry_date"}}; a second lot with the same code for the same item is refused by
+      REQ-647's unique constraint as {:error, {:record_payload_invalid, _}}. Audit catalog_lot.created.
+      update_lot(prefix, id, attrs, opts) with attrs producer, mark, expiry_date and the external_ref pair; item_id,
+      code and active are {:error, {:field_not_allowed, key}} (a lot does not change item or number, UAT assumption,
+      to be confirmed by the process owner); catalog_lot.updated. retire_lot(prefix, id, opts) sets active false;
+      catalog_lot.retired; already retired answers {:ok, map} with no write. No check against stock: no ledger code
+      exists on main; the slice that first posts lots states the rule.
+
+      Not in this change: write functions for catalog_item, catalog_uom or catalog_counterparty (their data comes from
+      the xlsx import of A6b), routes, screens, a scope declaration (owner decision D-067).
+    acceptance_criteria:
+      - "1. Functions: Letflow.Modules.CatalogItems exports create_lot/3, update_lot/4 and retire_lot/3; after create, item_lot_valid?/3 of REQ-647 is true for the item and the lot, after retire it is false."
+      - "2. Refusals, one test per row with the exact tuple and an unchanged catalog_lot count: item id not a uuid, unknown, soft-deleted and a catalog_uom id ({:error, :item_not_found}); retired item ({:error, :item_inactive}); blank code; expiry_date 2026-02-30, 31.12.2026 and a number ({:error, {:field_invalid, \"expiry_date\"}}); the same code twice for one item ({:error, {:record_payload_invalid, _}}), while the same code for two items is accepted; update with item_id or code ({:error, {:field_not_allowed, key}})."
+      - "3. Audit: each accepted change writes exactly one audit entry with the action of the description, actor and lot id in the same transaction; a refusal writes none; a repeated call with the same idempotency key and input writes nothing new."
+      - "4. Tenancy (INV-1, INV-5, INV-6): with tenant B's prefix, an item or lot id of tenant A gives {:error, :item_not_found} or {:error, :lot_not_found}, the same as an unknown uuid, and nothing is written in either schema; no function takes a tenant identifier from its arguments other than prefix."
+      - "5. Docs and scope: the catalog_items.ex moduledoc no longer says the module has no write functions and names the three; docs/runbooks/wms-foundation.md section Catalog module limits states the lot writers and the no-stock-check limit, and its runbook test passes; git diff --name-only origin/main...HEAD lists no file under priv/, web/, apps/, lib/letflow/routers/ or another module directory; mix format --check-formatted, mix compile --warnings-as-errors and mix test test/letflow/modules/catalog_items/ pass, real output quoted; SECURITY-REVIEWER and REVIEWER verdicts recorded."
+    depends_on: [REQ-647]
+
+  - id: REQ-665
+    title: "Assets phase A routes R1: module org routes and two write permissions for legal companies, sites, org units, positions and employees, held by the tenant administrator only"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-661 -- needs the org write functions first
+    # Source: portfolio-manager phase A review 2026-11-02, point 6b (admin screens to create, edit, move, retire and list); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md D7 ("org_unit and org_unit_membership are written only through org module routes that require :UsersGroupsRolesManage (held by TENANT_ADMIN and PLATFORM_ADMIN)"; "permissions per route are for the designer"); docs/roles.md (UsersGroupsRolesManage row; the procurement "Module permissions" paragraph); docs/guides/adding-an-application-module.md sections 3 and 4 (a module "cannot grant a core permission", route_policies, mount /api/v1/modules/<module_id>/); lib/letflow/modules/catalog.ex (validate/1 rules {:core_permission_collision, _} and {:undeclared_route_permission, _}: a route policy names only an atom the module declares); lib/letflow/modules/procurement/procurement.ex and router.ex (precedent: module atoms with no role_grants, held by TENANT_ADMIN through the derived rule and PLATFORM_ADMIN through the platform clause; idempotency_key in the body; Response.not_found/1 for not found; 422 problems with a reason extension); lib/letflow/api/authorization.ex (TENANT_AUDITOR holds a closed explicit list); lib/letflow/api/route_scope.ex (fail-closed default class :tenant_wide) and test/fixtures/route_scope/tenant_wide_default_routes.txt (procurement module routes listed). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      HTTP routes over the org write functions of REQ-660, REQ-495 and REQ-661, so the admin screens of REQ-669 and
+      REQ-670 can call them. A new router Letflow.Modules.Org.Router in lib/letflow/modules/org/router.ex, exported
+      through router/0 of Letflow.Modules.Org, mounted by the existing module dispatcher under
+      /api/v1/modules/org/ (an uninstalled module answers the dispatcher's 404). There are no read routes: screens
+      read through the existing entity query route POST /entities/query (managed types are readable there; only
+      generic writes are locked).
+
+      Permissions. The manifest declares two atoms, :OrgStructureWrite (legal companies, sites, units) and
+      :OrgEmployeesWrite (positions, employees), names them in route_policies, and declares no role_grants. So they
+      are held by TENANT_ADMIN (every tenant-scope permission) and by PLATFORM_ADMIN, and by no other role; this is the
+      holder set of :UsersGroupsRolesManage that 0050 D7 names. 0050 D7 asks for :UsersGroupsRolesManage itself, but a
+      module route cannot name a core atom (Catalog.validate/1 answers {:undeclared_route_permission, _}) and a module
+      cannot declare one ({:core_permission_collision, _}); the change therefore appends a section "Amendment
+      2026-11-02 (org write routes)" at the end of the 0050 file as it is after REQ-649 merged, stating that the org
+      routes are gated by the two module atoms with exactly the holders of :UsersGroupsRolesManage, and that granting
+      either atom to another role is a widening under decision 0055 D7. No other line of 0050 changes. The manifest
+      version goes one minor step above its value on origin/main at implement time.
+
+      Routes, relative to the mount, each with the function it calls:
+      :OrgStructureWrite: POST /legal-entities (create_legal_entity/3), PATCH /legal-entities/:id
+      (update_legal_entity/4), POST /legal-entities/:id/retire, POST /sites, PATCH /sites/:id, POST /sites/:id/retire,
+      POST /units, PATCH /units/:id, POST /units/:id/move (body key parent_id, null for a root),
+      POST /units/:id/retire. :OrgEmployeesWrite: POST /positions, PATCH /positions/:id, POST /positions/:id/retire,
+      POST /employees, PATCH /employees/:id, POST /employees/:id/transfer (body keys org_unit_id and position_id),
+      POST /employees/:id/retire. Seventeen routes.
+
+      Request and response rules (they apply also to REQ-666, REQ-667 and REQ-668). The body is a JSON object with the
+      function's attrs keys and a required idempotency_key (a non-blank string, else 422 with reason field_invalid and
+      field idempotency_key); the prefix comes from the authenticated tenant context and the actor from the
+      authenticated user, never from the body. A create answers 201 and every other accepted call 200, with the
+      record map. Every not-found tuple of the functions answers Response.not_found/1, the same 404 body as an unknown
+      id (INV-5). {:field_not_allowed, key} and {:field_invalid, key} answer 422 with reason field_not_allowed or
+      field_invalid and the field name; {:record_payload_invalid, _} answers 422 with reason record_payload_invalid
+      and the violated field names, no stored values; every other refusal atom answers 422 with that atom's text as
+      reason; a reused idempotency key with another body answers 409. No response or log line carries a stored
+      value of another record. The routes keep the fail-closed route scope default; each route is added to
+      test/fixtures/route_scope/tenant_wide_default_routes.txt and the length(snapshot) pins move by the number of
+      routes added, from their value on origin/main at implement time.
+
+      Not in this change: read routes, scope declarations of the types (owner decision D-067, the phase A access
+      task), memberships, import, screens.
+    acceptance_criteria:
+      - "1. Manifest: Letflow.Modules.Org.manifest() lists permissions [:OrgStructureWrite, :OrgEmployeesWrite], role_grants %{}, the seventeen route_policies of the description and a version one minor step above origin/main at implement time; router/0 returns Letflow.Modules.Org.Router; Catalog.validate/1 accepts it; priv/permission_matrix/effective.golden is regenerated with mix letflow.permission_matrix --write after the last merge of origin/main and mix letflow.permission_matrix --check passes, output quoted."
+      - "2. Holders, through the real router with real tokens: a TENANT_ADMIN of the tenant gets 201 on POST /legal-entities and on POST /employees; a PROCESS_OPERATOR, a PROCESS_DESIGNER, a TASK_WORKER and a TENANT_AUDITOR each get 403 on both; a test of Letflow.Api.Authorization asserts that of the eight roles only TENANT_ADMIN and PLATFORM_ADMIN hold each atom."
+      - "3. Each route: one router test per route shows the accepted status and that the function's effect is visible through lookup/2; the move route with parent_id null makes a root; the transfer route moves an employee."
+      - "4. Errors: an unknown id, a non-uuid id and an id of another tenant on PATCH /units/:id answer 404 with identical bodies once trace_id is dropped; a body with an unknown key answers 422 reason field_not_allowed; a missing idempotency_key answers 422 reason field_invalid with field idempotency_key; a BIN of 11 digits answers 422 reason field_invalid with field bin; a move into the unit's own subtree answers 422 reason cycle; a retire of a unit named by a grant answers 422 reason node_has_grants; a repeated POST with the same idempotency_key and body answers the first result and writes nothing new; the same key with another body answers 409."
+      - "5. Tenancy (INV-1, INV-10): a TENANT_ADMIN token of tenant B with record ids of tenant A gets 404 on every PATCH and action route and nothing changes in tenant A; no route takes a tenant identifier from the path or body; a tenant without org installed gets the dispatcher's 404 on every route."
+      - "6. Pins and docs: the seventeen routes are in test/fixtures/route_scope/tenant_wide_default_routes.txt and the route scope walk and resolver tests pass with their length pins moved; docs/roles.md gains a Module permissions paragraph for org naming both atoms and their holders and test/letflow/api/roles_matrix_parity_test.exs passes; the 0050 amendment section of the description exists at the end of the file and git diff of that file shows only added lines; docs/runbooks/wms-foundation.md section Org module limits names the routes and permissions."
+      - "7. Scope and gates: git diff --name-only origin/main...HEAD lists no file under priv/repo/migrations/, web/ or apps/; mix letflow.check.static and mix test over test/letflow/modules/org/ and the route scope, permission matrix and roles parity test files pass, real output quoted; SECURITY-REVIEWER (new tenant-data write routes, new permissions) and REVIEWER verdicts recorded."
+    depends_on: [REQ-660, REQ-495, REQ-661]
+
+  - id: REQ-666
+    title: "Assets phase A routes R2: module locations routes and a write permission for location nodes and org unit links, held by the tenant administrator only"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-662 -- needs the link write functions first
+    # Source: portfolio-manager phase A review 2026-11-02, point 6b; REQ-645 and REQ-646 (create_node/3, move_node/4, update_node/4, retire_node/3; "a route, a permission, a role grant or a web screen" not in those changes); REQ-662 (link_unit_location/4, unlink_unit_location/4); REQ-665 (request and response rules); the same code sources as REQ-665 (lib/letflow/modules/catalog.ex, procurement precedent, route_scope.ex). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      HTTP routes over the location tree writers of REQ-645 and REQ-646 and the link writers of REQ-662, for the
+      screens of REQ-671. A new router Letflow.Modules.Locations.Router in lib/letflow/modules/locations/router.ex,
+      exported through router/0, mounted under /api/v1/modules/locations/. The manifest declares one atom
+      :LocationsWrite, names it in route_policies, declares no role_grants (holders TENANT_ADMIN and PLATFORM_ADMIN
+      only, as REQ-665), and its version goes one minor step above origin/main at implement time. Routes: POST /nodes
+      (create_node/3; body keys the attrs and the optional address_pattern with the only value segments), PATCH
+      /nodes/:id (update_node/4), POST /nodes/:id/move (body key parent_id, null for a root), POST /nodes/:id/retire,
+      POST /links (link_unit_location/4; body keys org_unit_id and location_id), POST /links/retire
+      (unlink_unit_location/4; same keys). Six routes. The request and response rules of REQ-665 apply unchanged,
+      including the 404 for every not-found tuple, the 422 reasons, the 409 for a reused key, the route scope
+      snapshot and its pins. No read routes (screens read through POST /entities/query). Not in this change: scope
+      declarations (D-067), import, screens.
+    acceptance_criteria:
+      - "1. Manifest: permissions [:LocationsWrite], role_grants %{}, the six route_policies, router/0 returning Letflow.Modules.Locations.Router, version one minor step above origin/main at implement time; Catalog.validate/1 accepts it; mix letflow.permission_matrix --write after the last merge of origin/main and --check pass, output quoted."
+      - "2. Holders through the real router: TENANT_ADMIN gets 201 on POST /nodes and POST /links; PROCESS_OPERATOR, TASK_WORKER and TENANT_AUDITOR get 403; only TENANT_ADMIN and PLATFORM_ADMIN hold :LocationsWrite among the eight roles."
+      - "3. Each route has one router test with its accepted status and effect: a node chain built with address_pattern segments answers the composed address; a move into the node's own subtree answers 422 reason cycle; a retire with active children answers 422 reason has_active_descendants; a link to a retired unit answers 422 reason unit_inactive; POST /links/retire of an unlinked pair answers 404."
+      - "4. Tenancy (INV-1, INV-5, INV-10): a TENANT_ADMIN of tenant B with a node, unit or location id of tenant A gets 404 with a body identical to an unknown id once trace_id is dropped, and nothing changes in tenant A; no route takes a tenant identifier; a tenant without locations installed gets the dispatcher's 404."
+      - "5. Pins, docs and gates: the six routes are in tenant_wide_default_routes.txt with the length pins moved; docs/roles.md gains the locations Module permissions paragraph and roles_matrix_parity_test passes; docs/runbooks/wms-foundation.md section Locations module limits names the routes; git diff --name-only origin/main...HEAD lists no file under priv/repo/migrations/, web/ or apps/; mix letflow.check.static and the mapped tests pass, real output quoted; SECURITY-REVIEWER and REVIEWER verdicts recorded."
+    depends_on: [REQ-646, REQ-662, REQ-665]
+
+  - id: REQ-667
+    title: "Assets phase A routes R3: module codes routes and a write permission to receive, assign, release, retire and rewrite codes, held by the tenant administrator only"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-663 -- needs the code write functions first
+    # Source: portfolio-manager phase A review 2026-11-02, point 6b; owner decision D-065 (code lifecycle); REQ-663 (the five write functions); REQ-665 (request and response rules); the same code sources as REQ-665. Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      HTTP routes over the code writers of REQ-663, for the screens of REQ-672. A new router
+      Letflow.Modules.Codes.Router in lib/letflow/modules/codes/router.ex, exported through router/0, mounted under
+      /api/v1/modules/codes/. One atom :CodesWrite in permissions and route_policies, no role_grants (holders
+      TENANT_ADMIN and PLATFORM_ADMIN only, as REQ-665), version one minor step above origin/main at implement time.
+      Routes: POST /receive (body key entries, the list of REQ-663), POST /:id/assign (body keys target_type and
+      target_id), POST /:id/release, POST /:id/retire, POST /:id/value (body key value). Five routes. The request and
+      response rules of REQ-665 apply; a refusal of receive answers 422 with reason entry_invalid, the entry index and
+      the entry reason, or reason batch_size, and never echoes the other entries. Scanning a code (resolve) is the read
+      API of REQ-648 and gets no route here. Not in this change: a scan route with the target's scope check (owner
+      decision D-067), label printing, import, screens.
+    acceptance_criteria:
+      - "1. Manifest: permissions [:CodesWrite], role_grants %{}, the five route_policies, router/0 returning Letflow.Modules.Codes.Router, version one minor step above origin/main at implement time, depends_on still []; Catalog.validate/1 accepts it; mix letflow.permission_matrix --write after the last merge of origin/main and --check pass, output quoted."
+      - "2. Holders through the real router: TENANT_ADMIN gets 201 on POST /receive; PROCESS_OPERATOR, TASK_WORKER and TENANT_AUDITOR get 403; only TENANT_ADMIN and PLATFORM_ADMIN hold :CodesWrite among the eight roles."
+      - "3. Each route has one router test: receive of two new values answers 201 with two records; a receive whose second entry repeats an existing value answers 422 reason entry_invalid with index 1 and entry reason value_taken and creates nothing; assign, release, retire and value answer 200 with the changed record; assign of a retired code answers 422 reason code_retired; an assign naming a target of another tenant answers 404 as an unknown target."
+      - "4. Tenancy (INV-1, INV-5, INV-10): a TENANT_ADMIN of tenant B with a code id of tenant A gets 404 with a body identical to an unknown id once trace_id is dropped and nothing changes in tenant A; no route takes a tenant identifier; a tenant without codes installed gets the dispatcher's 404."
+      - "5. Pins, docs and gates: the five routes are in tenant_wide_default_routes.txt with the length pins moved; docs/roles.md gains the codes Module permissions paragraph and roles_matrix_parity_test passes; the runbook section Codes module limits names the routes; git diff --name-only origin/main...HEAD lists no file under priv/repo/migrations/, web/ or apps/; mix letflow.check.static and the mapped tests pass, real output quoted; SECURITY-REVIEWER and REVIEWER verdicts recorded."
+    depends_on: [REQ-663, REQ-665]
+
+  - id: REQ-668
+    title: "Assets phase A routes R4: module catalog_items routes and a write permission to create, update and retire lots, held by the tenant administrator only"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-664 -- needs the lot write functions first
+    # Source: portfolio-manager phase A review 2026-11-02, point 6b; REQ-664 (create_lot/3, update_lot/4, retire_lot/3); REQ-665 (request and response rules); the same code sources as REQ-665; lib/letflow/modules/catalog_items/catalog_items.ex (manifest permissions [], route_policies [], no router). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      HTTP routes over the lot writers of REQ-664, for the screen of REQ-673. A new router
+      Letflow.Modules.CatalogItems.Router in lib/letflow/modules/catalog_items/router.ex, exported through router/0,
+      mounted under /api/v1/modules/catalog_items/. One atom :CatalogLotsWrite in permissions and route_policies, no
+      role_grants (holders TENANT_ADMIN and PLATFORM_ADMIN only, as REQ-665), version one minor step above origin/main
+      at implement time. Routes: POST /lots, PATCH /lots/:id, POST /lots/:id/retire. Three routes. The request and
+      response rules of REQ-665 apply. Not in this change: routes for items, units of measure or counterparties,
+      scope declarations (D-067), import, screens.
+    acceptance_criteria:
+      - "1. Manifest: permissions [:CatalogLotsWrite], role_grants %{}, the three route_policies, router/0 returning Letflow.Modules.CatalogItems.Router, version one minor step above origin/main at implement time; Catalog.validate/1 accepts it; mix letflow.permission_matrix --write after the last merge of origin/main and --check pass, output quoted."
+      - "2. Holders through the real router: TENANT_ADMIN gets 201 on POST /lots; PROCESS_OPERATOR, TASK_WORKER and TENANT_AUDITOR get 403; only TENANT_ADMIN and PLATFORM_ADMIN hold :CatalogLotsWrite among the eight roles."
+      - "3. Each route has one router test: create answers 201; a second lot with the same code for the item answers 422 reason record_payload_invalid naming the fields; an expiry_date 2026-02-30 answers 422 reason field_invalid with field expiry_date; PATCH with item_id answers 422 reason field_not_allowed; retire answers 200 with active false."
+      - "4. Tenancy (INV-1, INV-5, INV-10): a TENANT_ADMIN of tenant B with a lot or item id of tenant A gets 404 with a body identical to an unknown id once trace_id is dropped and nothing changes in tenant A; no route takes a tenant identifier; a tenant without catalog_items installed gets the dispatcher's 404."
+      - "5. Pins, docs and gates: the three routes are in tenant_wide_default_routes.txt with the length pins moved; docs/roles.md gains the catalog_items Module permissions paragraph and roles_matrix_parity_test passes; docs/runbooks/wms-foundation.md section Catalog module limits names the routes; git diff --name-only origin/main...HEAD lists no file under priv/repo/migrations/, web/ or apps/; mix letflow.check.static and the mapped tests pass, real output quoted; SECURITY-REVIEWER and REVIEWER verdicts recorded."
+    depends_on: [REQ-664, REQ-665]
+
+  - id: REQ-669
+    title: "Assets phase A screens S1: web admin screens of module org for legal companies, sites and the org unit tree (list, create, edit, move, retire) in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-665 -- needs the org routes first
+    # Source: portfolio-manager phase A review 2026-11-02, point 6b ("admin screens (web) to create, edit, move, retire and list"); owner decision D-062 (Russian and Kazakh in the first version) in ai-dala-portfolio/DECISIONS.md; REQ-665 (routes, permissions, error reasons); docs/guides/adding-an-application-module.md (web/src/modules/<id>/, ModuleDefinition); web code read on main: web/src/modules/registry.ts (REGISTERED_MODULES, the only importer of module code, ModuleGuard wrap), web/src/modules/types.ts (ModuleNavItem with permission), web/src/modules/exam/ (index.ts, examMessages.ts with en, ru and kk, ExamIntlProvider.tsx, __tests__/exam-i18n-grep.test.ts), web/src/api/entities.ts (entitiesApi.queryRecords, POST /entities/query, the only record-read route), web/tests/guards/forbidlist.ts. Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      The first web module for master data. A new web module org in web/src/modules/org/ (index.ts exporting one
+      ModuleDefinition with id org, registered in REGISTERED_MODULES of web/src/modules/registry.ts, so the screens sit
+      behind ModuleGuard and a tenant without org installed sees the not-found page). Three screens with nav items
+      gated by the permission OrgStructureWrite: legal companies (/admin/org/legal-entities), sites (/admin/org/sites)
+      and org units (/admin/org/units).
+
+      Common rules for the screens of REQ-669 to REQ-673. Lists read through entitiesApi.queryRecords of
+      web/src/api/entities.ts for the screen's type, showing active records, with a switch that also shows retired
+      ones; each list shows code and name (or the type's main text) and the active state. Create and edit open a form
+      with exactly the fields the write route accepts; a retire asks for confirmation. Writes go through a module API
+      file in the module folder that calls the module routes; each submit gets a new idempotency_key and a retry of the
+      same submit reuses it. A 422 answer shows a translated message for its reason, and for field_invalid and
+      field_not_allowed marks the named field; every reason the route entry names has a message; a 404 shows that the
+      record no longer exists and reloads the list; a 403 shows that the action is not permitted. After an accepted
+      write the list is reloaded. Every user-visible text is in a module message file with en, ru and kk entries, used
+      through a module IntlProvider as the exam module does, and a test in the style of exam-i18n-grep.test.ts shows
+      that the screens have no hard-coded text. Query keys and query state follow the guards of
+      web/tests/guards/forbidlist.ts. The screens show stored values only through the query route; they never send a
+      tenant identifier.
+
+      Screens of this entry. Legal companies: list, create (code, name, BIN), edit (name, BIN), retire; the BIN field
+      accepts 12 digits and the server's field_invalid and bin_taken answers are shown. Sites: list with the
+      company's name, create and edit with a company picker of active companies, retire. Org units: a tree built from
+      the parent field (roots first, children indented, sorted by code), create under a chosen unit or as a root with
+      company and site pickers, edit (name, company, site), move with a picker that leaves out the unit and its
+      descendants (the server's cycle answer is still shown if it comes), retire with the answers node_has_grants and
+      unit_has_active_staff shown as messages.
+
+      Not in this change: positions and employees (REQ-670), a scope-aware view for scoped users, import, mobile.
+    acceptance_criteria:
+      - "1. Module: web/src/modules/org/index.ts exports one ModuleDefinition with id org and the three nav items gated by OrgStructureWrite; registry.ts lists it; a test shows the nav items absent for a user without the permission and the routes rendering the not-found page when org is not installed."
+      - "2. Lists: with a mocked network, each screen calls entitiesApi.queryRecords with its type, renders active rows and, after the switch, retired rows; the unit screen renders a three-level tree in parent order."
+      - "3. Writes: with a mocked network, each create, edit, move and retire sends the route of REQ-665 with exactly the accepted body keys and an idempotency_key, a retry of a failed submit sends the same key, and an accepted answer reloads the list; the move picker does not offer the unit or its descendants."
+      - "4. Errors: for each reason REQ-665's org structure routes can answer (field_invalid with field bin, bin_taken, legal_entity_in_use, site_in_use, cycle, node_has_grants, unit_has_active_staff, depth_exceeded, record_payload_invalid), a test shows the translated message; 404 and 403 answers show their messages."
+      - "5. Languages: the message file has the same keys in en, ru and kk; a test switches the locale to ru and kk and finds the translated screen title; the i18n grep test passes."
+      - "6. Gates: cd web && npm run check passes (type-check, lint, unit tests, guards), real output quoted; git diff --name-only origin/main...HEAD lists files only under web/; REVIEWER verdict recorded."
+    depends_on: [REQ-665]
+
+  - id: REQ-670
+    title: "Assets phase A screens S2: web admin screens of module org for positions and employees (list by unit, create, edit, transfer, retire, user link) in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-669 -- needs the org web module first
+    # Source: portfolio-manager phase A review 2026-11-02, point 6b; owner decisions D-061 (employees are their own records) and D-062 (Russian and Kazakh); REQ-661 (rules), REQ-665 (routes, OrgEmployeesWrite), REQ-669 (common screen rules, the org web module). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      Two screens in the org web module of REQ-669, with nav items gated by OrgEmployeesWrite: positions
+      (/admin/org/positions) and employees (/admin/org/employees). The common screen rules of REQ-669 apply. Both lists
+      can be filtered by an org unit picked from the unit tree. Positions: list (code, name, unit), create in a unit,
+      edit (name), retire with the position_in_use answer shown. Employees: list (personnel number, full name, unit,
+      position, whether a user account is linked), create with unit, optional position (only positions of the chosen
+      unit are offered) and optional user account (picked from the tenant's users), edit (full name, user link, which
+      can be removed), transfer to another unit and position, retire. The answers position_not_in_unit,
+      position_inactive, user_not_found, employee_inactive and record_payload_invalid (personnel number or user already
+      used) are shown as messages. The user picker reads the tenant's users through usersApi.list of web/src/api/identity.ts (GET
+      /identity/users, policy key UsersManage, which requires UsersGroupsRolesManage, held by TENANT_ADMIN), searched by name or e-mail. Not in this change: a scoped view for
+      users who see only their units (owner decision D-067, the phase A access task), import.
+    acceptance_criteria:
+      - "1. Screens: the two nav items gated by OrgEmployeesWrite are added to the org ModuleDefinition; a test shows them absent without the permission."
+      - "2. Lists: with a mocked network, both lists call entitiesApi.queryRecords for org_position and org_employee and, with a unit picked, show only rows of that unit."
+      - "3. Writes: with a mocked network, create, edit, transfer and retire of an employee and create, edit and retire of a position send the routes of REQ-665 with exactly the accepted body keys and an idempotency_key; the position picker offers only positions of the chosen unit; removing the user link sends user_id null."
+      - "4. Errors: each reason named in the description shows its translated message; 404 and 403 answers show their messages."
+      - "5. Languages and gates: the new texts have en, ru and kk entries, the i18n grep test passes, cd web && npm run check passes with real output quoted, git diff --name-only origin/main...HEAD lists files only under web/, REVIEWER verdict recorded."
+    depends_on: [REQ-665, REQ-669]
+
+  - id: REQ-671
+    title: "Assets phase A screens S3: web admin screens of module locations for the location tree and the links to org units (list, create, edit, move, retire, link, unlink) in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-666 -- needs the locations routes first
+    # Source: portfolio-manager phase A review 2026-11-02, point 6b; owner decisions D-061 (two independent trees linked many to many) and D-062 (Russian and Kazakh); REQ-645 and REQ-646 (free kinds, segment, address patterns, tree rules), REQ-662 (links), REQ-666 (routes, LocationsWrite), REQ-669 (common screen rules). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      A new web module locations in web/src/modules/locations/ registered in registry.ts, with two screens gated by
+      LocationsWrite: the location tree (/admin/locations) and the links (/admin/locations/links). The common screen
+      rules of REQ-669 apply. Location tree: a tree built from parent_id (roots first, children indented, sorted by
+      code) showing code, name, kind and address; create under a chosen node or as a root with code, name, a free-text
+      kind (with the kinds already used in the tenant offered as suggestions), segment and either a free address or
+      the option "compose the address from segments"; edit (name, kind, segment, address, location type); move with a
+      picker that leaves out the node and its descendants; retire with the has_active_descendants answer shown. Links:
+      pick an org unit from the org tree and see its linked locations, pick a location and see its linked units; link
+      and unlink, with unit_inactive, location_inactive and link_not_found shown as messages. The org tree is read
+      through the query route like the org screens do; this module does not import code from the org web module
+      (registry.ts is the only importer of module code). Not in this change: a capacity or map view, import.
+    acceptance_criteria:
+      - "1. Module: web/src/modules/locations/index.ts exports one ModuleDefinition with id locations and the two nav items gated by LocationsWrite; registry.ts lists it; a test shows the nav items absent without the permission and the not-found page when locations is not installed."
+      - "2. Tree: with a mocked network, the tree renders four levels in parent order; the create form with the compose option sends address_pattern segments and no address; the move picker does not offer the node or its descendants."
+      - "3. Links: with a mocked network, picking a unit lists its locations and picking a location lists its units; link and unlink send the routes of REQ-666 with org_unit_id, location_id and an idempotency_key."
+      - "4. Errors: cycle, has_active_descendants, unit_inactive, location_inactive, field_invalid for segment and address, record_payload_invalid for a duplicate code or address, and link_not_found (404) each show their translated message."
+      - "5. Languages and gates: en, ru and kk entries for every text, an i18n grep test for the module passes, cd web && npm run check passes with real output quoted, git diff --name-only origin/main...HEAD lists files only under web/, REVIEWER verdict recorded."
+    depends_on: [REQ-666, REQ-669]
+
+  - id: REQ-672
+    title: "Assets phase A screens S4: web admin screen of module codes (receive tags in bulk, list by status, assign, release, retire, rewrite value, history) in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-667 -- needs the codes routes first
+    # Source: portfolio-manager phase A review 2026-11-02, point 6b; owner decision D-065 (code lifecycle, RFID reuse) and D-062 (Russian and Kazakh); REQ-663 (rules), REQ-667 (routes, CodesWrite), REQ-669 (common screen rules). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      A new web module codes in web/src/modules/codes/ registered in registry.ts, with one screen gated by CodesWrite
+      (/admin/codes). The common screen rules of REQ-669 apply. The list shows each code's value, kind, status (not
+      assigned, assigned, retired for good) and, when assigned, the target's type and code; it can be filtered by
+      status and searched by exact value. Receive: a text area where each line is one value and a kind picker for the
+      batch; the screen sends one receive call and, on an entry_invalid answer, marks the line of the given index with
+      the entry reason; a batch_size answer shows the limit message. Assign: pick the target type (location, item or
+      lot) and a target from a list of that type read through the query route. Release, retire (with a warning that a
+      retired code never comes back) and change value. A history panel lists the code's assignments with assigned
+      and released times, read through the query route for the history type of REQ-648. Not in this change: scanning
+      with a device, label printing, import.
+    acceptance_criteria:
+      - "1. Module: web/src/modules/codes/index.ts exports one ModuleDefinition with id codes and the nav item gated by CodesWrite; registry.ts lists it; a test shows the nav item absent without the permission and the not-found page when codes is not installed."
+      - "2. Receive: with a mocked network, three lines send one receive call with three entries and an idempotency_key; an entry_invalid answer with index 1 marks the second line with the translated entry reason."
+      - "3. Lifecycle: with a mocked network, assign sends target_type and target_id, release, retire and value send their routes, and the list reloads; retire shows the warning before sending; the history panel lists two assignments in time order."
+      - "4. Errors: code_assigned, code_retired, code_not_assigned, target_type_not_allowed, target_inactive, value_taken, value_invalid, batch_size and a 404 each show their translated message."
+      - "5. Languages and gates: en, ru and kk entries for every text, an i18n grep test for the module passes, cd web && npm run check passes with real output quoted, git diff --name-only origin/main...HEAD lists files only under web/, REVIEWER verdict recorded."
+    depends_on: [REQ-667, REQ-669]
+
+  - id: REQ-673
+    title: "Assets phase A screens S5: web admin screen of module catalog_items for lots (list by item, create, edit, retire) in English, Russian and Kazakh"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-668 -- needs the lot routes first
+    # Source: portfolio-manager phase A review 2026-11-02, point 6b; owner decisions D-065 (lots with free-text producer, lot code unique per item, expiry optional) and D-062 (Russian and Kazakh); REQ-664 (rules), REQ-668 (routes, CatalogLotsWrite), REQ-669 (common screen rules). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
+    description: >
+      A new web module catalog_items in web/src/modules/catalog_items/ registered in registry.ts, with one screen gated
+      by CatalogLotsWrite (/admin/catalog/lots). The common screen rules of REQ-669 apply. The list shows lot code,
+      item code and name, producer, mark, expiry date and active state, filtered by an item picked from the active
+      items (read through the query route) and sortable by expiry date. Create with item, code, producer, mark and an
+      optional expiry date entered with a date input that sends YYYY-MM-DD; edit (producer, mark, expiry date);
+      retire. The answers item_not_found, item_inactive, field_invalid for expiry_date and record_payload_invalid (a
+      lot code that the item already has) are shown as messages. Not in this change: screens for items, units of
+      measure or counterparties (their data comes from the import of A6b), import.
+    acceptance_criteria:
+      - "1. Module: web/src/modules/catalog_items/index.ts exports one ModuleDefinition with id catalog_items and the nav item gated by CatalogLotsWrite; registry.ts lists it; a test shows the nav item absent without the permission and the not-found page when catalog_items is not installed."
+      - "2. List: with a mocked network, the list calls entitiesApi.queryRecords for catalog_lot and, with an item picked, shows only that item's lots."
+      - "3. Writes: with a mocked network, create sends item_id, code, the optional fields and an idempotency_key, with expiry_date as YYYY-MM-DD or absent; edit sends only producer, mark and expiry_date; retire sends its route; the list reloads."
+      - "4. Errors: item_not_found, item_inactive, field_invalid for expiry_date, record_payload_invalid and a 404 each show their translated message."
+      - "5. Languages and gates: en, ru and kk entries for every text, an i18n grep test for the module passes, cd web && npm run check passes with real output quoted, git diff --name-only origin/main...HEAD lists files only under web/, REVIEWER verdict recorded."
+    depends_on: [REQ-668, REQ-669]
