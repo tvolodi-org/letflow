@@ -16,10 +16,10 @@ defmodule Letflow.Modules.Locations.EntityDefinitionsTest do
   # {name, type, required, queried}; the order inside the document is not asserted.
   @expected_fields [
     {"code", "string", true, true},
-    {"name", "string", true, false},
-    {"node_kind", "enum", true, true},
+    {"name", "string", true, true},
+    {"node_kind", "string", true, true},
     {"parent_id", "string", false, true},
-    {"org_site_id", "string", false, false},
+    {"segment", "string", false, true},
     {"address", "string", false, true},
     {"location_type", "enum", false, true},
     {"active", "boolean", true, true},
@@ -36,7 +36,7 @@ defmodule Letflow.Modules.Locations.EntityDefinitionsTest do
     assert doc()["name"] == "location_node"
 
     assert Enum.sort(Map.keys(doc()) -- ["description"]) ==
-             ~w(constraints display_name fields name)
+             ~w(constraints display_name fields foreign_keys indexes name)
   end
 
   test "E-1b: exactly the ten fields with exact type, required and queried flags" do
@@ -48,14 +48,18 @@ defmodule Letflow.Modules.Locations.EntityDefinitionsTest do
     assert Enum.sort(actual) == Enum.sort(@expected_fields)
   end
 
-  test "E-1c: the enum values of node_kind and location_type" do
-    assert field("node_kind")["enum_values"] == ["site", "zone", "address"]
+  test "E-1c: node_kind is a free string (no enum values); location_type keeps its enum" do
+    assert field("node_kind")["type"] == "string"
+    refute Map.has_key?(field("node_kind"), "enum_values")
+    refute field("org_site_id")
+    refute field("ancestor_path")
+    refute field("depth")
 
     assert field("location_type")["enum_values"] ==
              ~w(receiving pick ship reject quarantine custody outdoor)
   end
 
-  test "E-1d: three unique constraints (code, address, external_ref pair), no foreign_keys or indexes" do
+  test "E-1d: three unique constraints (code, address, external_ref pair), the parent foreign key and its index" do
     constraints = doc()["constraints"]
     assert Enum.all?(constraints, &(&1["type"] == "unique"))
 
@@ -65,7 +69,16 @@ defmodule Letflow.Modules.Locations.EntityDefinitionsTest do
              {"uq_location_node_external_ref", ["external_ref_system", "external_ref_id"]}
            ]
 
-    refute Map.has_key?(doc(), "foreign_keys")
-    refute Map.has_key?(doc(), "indexes")
+    assert doc()["foreign_keys"] == [
+             %{
+               "name" => "fk_location_node_parent_id",
+               "field" => "parent_id",
+               "references_entity" => "location_node"
+             }
+           ]
+
+    assert doc()["indexes"] == [
+             %{"name" => "idx_location_node_parent_id", "fields" => ["parent_id"]}
+           ]
   end
 end

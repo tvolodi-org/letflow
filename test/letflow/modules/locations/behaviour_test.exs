@@ -107,16 +107,21 @@ defmodule Letflow.Modules.Locations.BehaviourTest do
                )
     end
 
-    test "T-1b: node_kind outside site | zone | address is refused naming the field", %{
+    test "T-1b: node_kind is a free text; a non-string value is refused naming the field", %{
       schema: schema
     } do
-      assert {:error,
-              {:record_payload_invalid,
-               [%ValidationFailure{field_path: "/node_kind", constraint: "enum"}]}} =
+      assert {:ok, _} =
                create(
                  schema,
                  "location_node",
                  values("location_node", "B2", %{"node_kind" => "rack"})
+               )
+
+      assert {:error, {:record_payload_invalid, [%ValidationFailure{field_path: "/node_kind"}]}} =
+               create(
+                 schema,
+                 "location_node",
+                 values("location_node", "B3", %{"node_kind" => 5})
                )
     end
 

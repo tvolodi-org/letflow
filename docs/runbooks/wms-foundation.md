@@ -129,25 +129,27 @@ this section was written. It covers the types `catalog_uom`, `catalog_item` and 
 
 ## Locations module limits
 
-Module `locations` (GH #3501 / REQ-625 skeleton, decision 0050, WMS draft item MD-02) as it is on
-main. It covers the one type `location_node` (site, zone and address in one tree). Each limit
-names the GH issue or the code that holds it; paths are cited without line numbers.
+Module `locations` (GH #3501 / REQ-625 skeleton, GH #3591 / REQ-645, decisions 0050 and 0066) as it
+is on main. It covers the one type `location_node`, one tree with a free `node_kind` per level. Each
+limit names the GH issue or the code that holds it; paths are cited without line numbers.
 
 1. **Generic writes to `location_node` are refused.** The type is in `manages_entity_types`, so
    the generic entity routes answer 403 `entity_type_managed` (GH #2530), mapped in
    `lib/letflow/routers/entities.ex` and decided per write by `Letflow.Entities.Records`
    (`lib/letflow/entities/records.ex`, delegating to `ManagedTypes.check_record_write/3`).
-2. **Writes go through the module's own Owner only.** Module code writes with the `/3` arity,
-   `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.Locations)`
-   (`lib/letflow/modules/locations/locations.ex`). The module ships no write functions yet; the
-   tests write through the owner path (`test/letflow/modules/locations/locations_fixture.exs`).
-3. **No tree-rule check.** A zone's parent being a site, an address's parent being a zone, a site
-   having no parent and the absence of cycles are not enforced: `parent_id` is a declarative
-   string with no foreign key (decision 0050 D3.6;
-   `priv/modules/locations/entity_definitions/location_node.json`), as for `org_unit` (GH #2661).
-4. **No `org_site_id` check.** `org_site_id` is a plain string; it is not checked against the
-   `org_site` records of the org module, and the manifest does not depend on `org`
-   (GH #3501).
+2. **Writes go through the module's own Owner only.** `Letflow.Modules.Locations.create_node/3`
+   (`lib/letflow/modules/locations/tree.ex`) is the one write function; it writes with
+   `ManagedTypes.owner_for!(Letflow.Modules.Locations)`. Move, update and retire do not exist yet
+   (REQ-646); the tests of those paths write through the owner path
+   (`test/letflow/modules/locations/locations_fixture.exs`).
+3. **Tree rules are enforced at create only.** `create_node/3` refuses a parent that is not found,
+   retired or inactive, and takes a tenant-wide lock. The tree is the parent link only: a real
+   foreign key (`priv/modules/locations/entity_definitions/location_node.json`), no stored path,
+   no stored depth and no depth bound (decision 0066). Cycles cannot arise at create; moving a node
+   is not built (REQ-646).
+4. **No `org_site_id`.** The field was removed from `location_node`; the link between the org tree
+   and the location tree is a later step of the assets application (phase A4), and the manifest
+   does not depend on `org` (GH #3591).
 5. **No both-or-neither rule for `external_ref`.** The unique constraint over
    `external_ref_system` and `external_ref_id` only applies when both are set; a row with one of
    the two is accepted (GH #3501, import key of decision 0057 D1).
@@ -159,3 +161,7 @@ names the GH issue or the code that holds it; paths are cited without line numbe
    answers 403 `entity_type_managed` because the type is managed
    (`lib/letflow/routers/entities/record_import.ex`), so test locations cannot be seeded that way
    (GH #3407 records the same gap for suppliers against decision 0057 D12).
+8. **Tenants that installed `locations` 0.1.0 are not upgraded.** The module upgrade of decision
+   0055 is not built (GH #3582), so such a tenant keeps the old definition: `parent_id` stays a
+   text column without a foreign key and `node_kind` stays the three-value list. The module is
+   tested on freshly provisioned tenants (GH #3591).
