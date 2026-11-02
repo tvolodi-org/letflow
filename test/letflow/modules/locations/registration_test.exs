@@ -11,13 +11,20 @@ defmodule Letflow.Modules.Locations.RegistrationTest do
 
   alias Letflow.Modules.Catalog
 
-  @four ["org_legal_entity", "org_site", "org_unit", "org_unit_membership"]
+  @four [
+    "org_employee",
+    "org_legal_entity",
+    "org_position",
+    "org_site",
+    "org_unit",
+    "org_unit_membership"
+  ]
 
   test "R-01: Catalog.validate/1 accepts the org manifest" do
     assert Catalog.validate(Letflow.Modules.Org.manifest()) == :ok
   end
 
-  test "R-02: the manifest is id org, no dependencies, and manages exactly the four types" do
+  test "R-02: the manifest is id org, no dependencies, and manages exactly the six types" do
     manifest = Letflow.Modules.Org.manifest()
 
     assert manifest.id == "org"

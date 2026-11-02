@@ -2,7 +2,7 @@ defmodule Letflow.Modules.Org.PackDriftTest do
   @moduledoc """
   GH #2661 / REQ-473 AC1 (spec `test/specs/GH-2661.md`, tests P-01..P-04): the drift guard named
   in the header of `priv/modules/org/generate_pack.exs`. `pack.json` is committed output of that
-  script; this test re-reads the four source documents and proves the committed pack still says
+  script; this test re-reads the six source documents and proves the committed pack still says
   exactly what they say: `definition_json` equal to the decoded source, the content-derived
   `entity_definition_id`, and the logical-shape digest.
 
@@ -15,7 +15,7 @@ defmodule Letflow.Modules.Org.PackDriftTest do
   alias Letflow.Entities.Definition.Shape
 
   @org_dir Path.join([File.cwd!(), "priv", "modules", "org"])
-  @types ~w(org_legal_entity org_site org_unit org_unit_membership)
+  @types ~w(org_legal_entity org_site org_unit org_unit_membership org_position org_employee)
 
   defp pack, do: @org_dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 
@@ -60,9 +60,25 @@ defmodule Letflow.Modules.Org.PackDriftTest do
         Map.update!(c, :type, &String.to_existing_atom/1)
       end)
     end)
+    |> atomise_list("foreign_keys")
+    |> atomise_list("indexes")
   end
 
-  test "P-01: the pack holds exactly the four entity definitions, in the source set, and nothing else" do
+  defp atomise_list(doc, key) do
+    case Map.fetch(doc, String.to_existing_atom(key)) do
+      {:ok, items} ->
+        Map.put(
+          doc,
+          String.to_existing_atom(key),
+          Enum.map(items, fn i -> Map.new(i, fn {k, v} -> {String.to_existing_atom(k), v} end) end)
+        )
+
+      :error ->
+        doc
+    end
+  end
+
+  test "P-01: the pack holds exactly the six entity definitions, in the source set, and nothing else" do
     document = pack()
 
     assert document["pack_id"] == "letflow-org"
@@ -94,6 +110,15 @@ defmodule Letflow.Modules.Org.PackDriftTest do
 
     ids = Enum.map(pack()["entity_definitions"], & &1["entity_definition_id"])
     assert ids == Enum.uniq(ids)
+  end
+
+  test "P-05: the pack lists org_unit before org_position and org_position before org_employee" do
+    names = Enum.map(pack()["entity_definitions"], & &1["name"])
+    idx = fn n -> Enum.find_index(names, &(&1 == n)) end
+
+    assert idx.("org_unit") < idx.("org_position")
+    assert idx.("org_position") < idx.("org_employee")
+    assert pack()["version"] == "0.2.0"
   end
 
   test "P-04: every logical_shape_version is the digest of the source's logical shape" do

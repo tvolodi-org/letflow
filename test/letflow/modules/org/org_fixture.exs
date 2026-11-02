@@ -136,4 +136,19 @@ defmodule Letflow.OrgFixture do
   def values("org_unit_membership", _code, extra) do
     Map.merge(%{"user_id" => "user-1", "org_unit_id" => "unit-1", "active" => true}, extra)
   end
+
+  # org_position and org_employee reference a real org_unit by foreign key (REQ-643): the caller
+  # passes `"org_unit_id"` (see `unit_id!/1`) in `extra`.
+  def values("org_position", code, extra) do
+    Map.merge(%{"code" => code, "name" => "Position #{code}", "active" => true}, extra)
+  end
+
+  def values("org_employee", code, extra) do
+    Map.merge(%{"code" => code, "full_name" => "Employee #{code}", "active" => true}, extra)
+  end
+
+  @doc "Creates an org_unit and returns its record id, for the foreign keys of positions and employees."
+  def unit_id!(schema, code \\ "FK-#{System.unique_integer([:positive])}") do
+    create!(schema, "org_unit", values("org_unit", code)).record_id
+  end
 end
