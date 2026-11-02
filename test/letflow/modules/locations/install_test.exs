@@ -176,12 +176,11 @@ defmodule Letflow.Modules.Locations.InstallTest do
       assert promotions(ctx.tenant_id) == expected
 
       for column <-
-            ~w(code node_kind parent_id address location_type active external_ref_system external_ref_id) do
+            ~w(code name node_kind parent_id segment address location_type active external_ref_system external_ref_id) do
         assert {"location_node", column} in expected, "#{column} should be promoted"
       end
 
-      # `name` and `org_site_id` are not queried, so they have no column.
-      refute {"location_node", "name"} in expected
+      # `org_site_id` is gone from the definition, so it has no column.
       refute {"location_node", "org_site_id"} in expected
     end
   end

@@ -183,7 +183,7 @@ packed =
 
 document = %{
   "pack_id" => "letflow-locations",
-  "version" => "0.1.0",
+  "version" => "0.2.0",
   "bpm_export_schema_version" => Letflow.Definitions.ExportImport.export_schema_version(),
   # Carried for symmetry with export/3's output, which emits it.
   # parse_document/1 never reads this key -- a document omitting it still

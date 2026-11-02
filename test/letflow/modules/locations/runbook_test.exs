@@ -39,15 +39,17 @@ defmodule Letflow.Modules.Locations.RunbookTest do
     assert @runbook |> File.read!() |> String.split("\n") |> Enum.member?(@heading)
   end
 
-  test "B-2: the section is a numbered list 1..7 with the known limits" do
+  test "B-2: the section is a numbered list 1..8 with the known limits" do
     numbers = Enum.map(items(), &elem(&1, 0))
-    assert numbers == Enum.to_list(1..7)
+    assert numbers == Enum.to_list(1..8)
 
     text = items() |> Enum.map_join("\n", &elem(&1, 1))
     assert text =~ "entity_type_managed"
     assert text =~ "/3"
     assert text =~ "external_ref"
     assert text =~ "org_site_id"
+    assert text =~ "create_node"
+    assert text =~ "not upgraded"
     assert text =~ "parent_id"
     assert text =~ "capacity"
   end
