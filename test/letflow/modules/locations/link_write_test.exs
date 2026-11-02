@@ -87,4 +87,27 @@ defmodule Letflow.Modules.Locations.LinkWriteTest do
     refute Locations.linked?(schema, ghost, loc.record_id)
     assert Locations.org_unit_ids_for_location(schema, loc.record_id) == []
   end
+
+  test "I-4d: the compiler filters links by the org_unit_id scope", %{schema: schema} do
+    la = node!(schema, "SCA")
+    lb = node!(schema, "SCB")
+    ua = org_unit!(schema)
+    ub = org_unit!(schema)
+    link!(schema, ua, la.record_id)
+    link!(schema, ub, lb.record_id)
+    request = %{entity_type: "location_org_unit_link"}
+
+    run = fn scope ->
+      assert {:ok, query} = Letflow.Entities.Query.Compiler.compile(request, schema, scope)
+
+      query
+      |> Repo.all(prefix: schema)
+      |> Enum.map(& &1.field_values["org_unit_id"])
+      |> Enum.sort()
+    end
+
+    assert run.({:nodes, [ua]}) == [ua]
+    assert run.(:none) == []
+    assert run.(:all) == Enum.sort([ua, ub])
+  end
 end
