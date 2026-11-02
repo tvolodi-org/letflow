@@ -63,6 +63,8 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @locations_tree "lib/letflow/modules/locations/tree.ex"
   # REQ-664: the catalog lot writers (create/update/retire) write under the catalog_items Owner.
   @catalog_lots "lib/letflow/modules/catalog_items/lots.ex"
+  # REQ-651: the catalog masters' import function.
+  @catalog_import "lib/letflow/modules/catalog_items/import.ex"
   @fixture_managed "test/support/modules/fixture_managed/fixture_managed.ex"
   @script_policy_fixture "test/support/script_policy_fixture.ex"
   # GH #2596: the exam module's own record writers; each passes the exam Owner (`exam_owner/0`).
@@ -686,7 +688,8 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
       assert r2_violations(files) == []
       # GH #2596: the three exam writers join the fixture (directory rule, alias form).
       assert owner_for_callers(files) ==
-               [@catalog_lots] ++ @exam_owner_callers ++ [@locations_tree, @fixture_managed]
+               [@catalog_import, @catalog_lots] ++
+                 @exam_owner_callers ++ [@locations_tree, @fixture_managed]
     end
 
     test "GH #2596 T-06: R1 sees the real exam write sites (non-vacuous)", %{files: files} do
