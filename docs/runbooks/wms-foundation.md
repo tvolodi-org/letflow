@@ -312,8 +312,8 @@ Each limit names the GH issue or the code that holds it; paths are cited without
    `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.Codes)`
    (`lib/letflow/modules/codes/codes.ex`); the tests do the same
    (`test/letflow/modules/codes/codes_fixture.exs`).
-3. **No write functions, no routes.** Receive, assign, release, retire and change value are REQ-663,
-   the scan route is REQ-667 (GH #3588); this slice ships the read API only.
+3. **Write functions exist, routes do not.** Receive, assign, release, retire and change value are
+   in `lib/letflow/modules/codes/writes.ex` (REQ-663, GH #3615); the scan route is REQ-667 (GH #3588).
 4. **The target is not validated.** `target_type` and `target_id` are declarative strings, no
    foreign key is possible (decision 0050 D3.5 and D3.6, GH #3588); a code may name a type no module ships.
    The module that writes a code validates the target through the owning module's lookup.
@@ -345,3 +345,12 @@ Each limit names the GH issue or the code that holds it; paths are cited without
 14. **Targets are scanned, not indexed.** `target_type` and `target_id` carry no index, so
     `codes_for/3` filters the stored field values without one; fine at skeleton size
     (`lib/letflow/modules/codes/codes.ex`).
+15. **Assignment targets are three types.** `assign_code/5` accepts `location_node`, `catalog_item` and
+    `catalog_lot` only (UAT assumption, GH #3615); the entry that adds the asset type extends the list
+    (`lib/letflow/modules/codes/writes.ex`).
+16. **A batch holds at most 1000 codes.** `receive_codes/3` refuses more with `:batch_size` (UAT
+    assumption for the process owner to confirm, GH #3615); a changed value equal to the current one is a
+    no-op, not an error.
+17. **A replay is not compared with its input.** A repeated idempotency key answers the current state of
+    the code and writes nothing; the same key with other input is not detected (GH #3615,
+    `lib/letflow/modules/codes/writes.ex`).
