@@ -50,12 +50,14 @@ defmodule Letflow.Modules.CatalogTest do
       # GH #2663 (REQ-474) adds Letflow.Modules.CatalogItems right after Org.
       # GH #3162 (REQ-544) adds Letflow.Modules.Procurement right after CatalogItems.
       # GH #3501 (REQ-625) adds Letflow.Modules.Locations right after Procurement.
+      # GH #3588 (REQ-648) adds Letflow.Modules.Codes right after Locations.
       assert Catalog.entry_modules() == [
                Letflow.Modules.Exam,
                Letflow.Modules.Org,
                Letflow.Modules.CatalogItems,
                Letflow.Modules.Procurement,
                Letflow.Modules.Locations,
+               Letflow.Modules.Codes,
                Letflow.Modules.Fixture,
                Letflow.Modules.FixtureDependent,
                Letflow.Modules.FixtureFailingInstall,
@@ -84,13 +86,13 @@ defmodule Letflow.Modules.CatalogTest do
       assert Catalog.fetch("does-not-exist") == {:error, :not_found}
     end
 
-    test "config/config.exs registers exactly [Exam, Org, CatalogItems, Procurement, Locations]" do
+    test "config/config.exs registers exactly [Exam, Org, CatalogItems, Procurement, Locations, Codes]" do
       # REQ-408 added Letflow.Modules.Exam to config/config.exs; the test
       # env (config/test.exs) adds the fixture modules for test coverage.
       config_source = File.read!(Path.join([File.cwd!(), "config", "config.exs"]))
 
       assert config_source =~
-               ~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems,\s*Letflow\.Modules\.Procurement,\s*Letflow\.Modules\.Locations\s*\]/
+               ~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems,\s*Letflow\.Modules\.Procurement,\s*Letflow\.Modules\.Locations,\s*Letflow\.Modules\.Codes\s*\]/
     end
   end
 
@@ -373,7 +375,8 @@ defmodule Letflow.Modules.CatalogTest do
         Letflow.Modules.Org,
         Letflow.Modules.CatalogItems,
         Letflow.Modules.Procurement,
-        Letflow.Modules.Locations
+        Letflow.Modules.Locations,
+        Letflow.Modules.Codes
       ]
 
       for module <- prod do
