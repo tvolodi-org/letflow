@@ -17,11 +17,24 @@ defmodule Letflow.Modules.Org do
 
   All six are declared in `manages_entity_types`, so after install the generic entity routes
   answer 403 `entity_type_managed`. This skeleton ships no routes, no permissions, no role
-  grants and no write functions: the unit functions (create, move, retire) are REQ-495 and the
-  read API is REQ-506. References between the four original types are declarative strings (0050 D3.6), no
+  grants. Write functions exist for the legal company and the site only (GH #3619 / REQ-660, see
+  below); the unit functions (create, move, retire) are REQ-495 and the read API is REQ-506. References between the four original types are declarative strings (0050 D3.6), no
   foreign keys; the two new types use real ones. Read functions `active_employee?/2` and
   `employee_for_user/2` serve the materially responsible person / actual user terms (0050
   amendment 2026-10-31). `scope_declarations` (D-067) is inert until REQ-519.
+
+  ## Write functions (GH #3619 / REQ-660)
+
+  `create_legal_entity/3`, `update_legal_entity/4`, `retire_legal_entity/3`, `create_site/3`,
+  `update_site/4` and `retire_site/3` (logic in `Letflow.Modules.Org.Masters`). Arguments
+  `(prefix, [id,] attrs, opts)`; `opts` carries `:actor_id` and `:idempotency_key`. Each runs in one
+  transaction under an advisory lock keyed `<prefix>:org_legal_entity_bin`, writes through
+  `Letflow.Entities.Records` with the module authority, appends one audit entry and writes nothing
+  on a refusal. Rules: `bin` is exactly 12 ASCII digits (no control digit; UAT assumption to be
+  confirmed), two active companies of a tenant never share a bin (`:bin_taken`), `code` is immutable,
+  a site names a live company (`:legal_entity_not_found`, `:legal_entity_inactive`), a company or
+  site is retired by `active` false and is refused while an active site or unit names it
+  (`:legal_entity_in_use`, `:site_in_use`). No route, permission or scope declaration is added.
 
   ## Read API contract (GH #2662)
 
@@ -91,6 +104,24 @@ defmodule Letflow.Modules.Org do
   def on_install(prefix, _settings, ctx) do
     EntityActivation.activate_and_promote(prefix, ctx, @types)
   end
+
+  @doc "Creates a legal company (GH #3619 / REQ-660); see `Letflow.Modules.Org.Masters`."
+  defdelegate create_legal_entity(prefix, attrs, opts), to: Letflow.Modules.Org.Masters
+
+  @doc "Changes a legal company (GH #3619 / REQ-660); see `Letflow.Modules.Org.Masters`."
+  defdelegate update_legal_entity(prefix, id, attrs, opts), to: Letflow.Modules.Org.Masters
+
+  @doc "Retires a legal company, never deletes it (GH #3619 / REQ-660); see `Letflow.Modules.Org.Masters`."
+  defdelegate retire_legal_entity(prefix, id, opts), to: Letflow.Modules.Org.Masters
+
+  @doc "Creates a site of a live company (GH #3619 / REQ-660); see `Letflow.Modules.Org.Masters`."
+  defdelegate create_site(prefix, attrs, opts), to: Letflow.Modules.Org.Masters
+
+  @doc "Changes a site (GH #3619 / REQ-660); see `Letflow.Modules.Org.Masters`."
+  defdelegate update_site(prefix, id, attrs, opts), to: Letflow.Modules.Org.Masters
+
+  @doc "Retires a site, never deletes it (GH #3619 / REQ-660); see `Letflow.Modules.Org.Masters`."
+  defdelegate retire_site(prefix, id, opts), to: Letflow.Modules.Org.Masters
 
   @doc """
   Read API (GH #2662 / REQ-506, decision 0050 D2): the live record `id` (a `record_id` uuid) in
