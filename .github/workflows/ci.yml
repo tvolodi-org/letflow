@@ -180,6 +180,13 @@ on:
   # repository (job `if:`), i.e. a same-repo push to `main`; never on a merge_group
   # (gh-readonly-queue/*) or pull_request run, including a fork's branch named `main`.
   merge_group:
+  # T-1139: the FULL suite (exam and :slow tests included) runs nightly on main and on demand.
+  # A pull request or merge-queue entry skips those heavy files unless it touches exam code or
+  # a path they depend on (scripts/ci_heavy_paths.sh); a failing nightly run is a red run of this
+  # workflow on main. The operator runs workflow_dispatch at every phase gate.
+  schedule:
+    - cron: "17 1 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && format('{0}-{1}', github.ref, github.sha)) || github.ref }}
@@ -220,6 +227,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend || steps.fallback.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend || steps.fallback.outputs.frontend }}
       mobile: ${{ steps.filter.outputs.mobile || steps.fallback.outputs.mobile }}
+      heavy: ${{ steps.heavy.outputs.heavy }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -346,6 +354,42 @@ jobs:
           echo "backend=true" >> "$GITHUB_OUTPUT"
           echo "frontend=true" >> "$GITHUB_OUTPUT"
           echo "mobile=true" >> "$GITHUB_OUTPUT"
+
+      # T-1139: should this run include the heavy test files (exam tests, :slow-tagged files)?
+      # Only a pull_request or merge_group run may say false, and only when the change touches
+      # nothing scripts/ci_heavy_paths.sh names. Push to main, schedule, workflow_dispatch, a
+      # missing base SHA, a failed diff or a failed script all say true (fail safe: run all).
+      - name: Decide whether heavy tests run
+        id: heavy
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -uo pipefail
+          heavy=true
+          reason="full suite (event $EVENT_NAME)"
+          BASE_SHA=""; HEAD_SHA=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then BASE_SHA="$PR_BASE_SHA"; HEAD_SHA="$PR_HEAD_SHA"; fi
+          if [ "$EVENT_NAME" = "merge_group" ]; then BASE_SHA="$MG_BASE_SHA"; HEAD_SHA="$MG_HEAD_SHA"; fi
+          if [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=50 origin "$BASE_SHA" || true
+            fi
+            if CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA") && RESULT=$(bash scripts/ci_heavy_paths.sh <<<"$CHANGED") && [[ $RESULT =~ ^heavy=(true|false)$ ]]; then
+              heavy="${BASH_REMATCH[1]}"
+              reason="path rule (scripts/ci_heavy_paths.sh)"
+            else
+              reason="path rule failed, running everything"
+            fi
+          fi
+          echo "heavy=$heavy ($reason)"
+          echo "heavy=$heavy" >> "$GITHUB_OUTPUT"
+          if [ "$heavy" = "false" ]; then
+            echo "Exam and :slow tests skipped by path: this change touches nothing they depend on. The nightly run on main (and workflow_dispatch) runs the full suite." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # Q-1037 / GH #2364 (backend-gate sharding): the static half of the old single `backend`
   # job. NOT a required status check (only the aggregator `backend` below is). Runs the
@@ -727,6 +771,10 @@ jobs:
           # must be N*M = 16), plus any unlisted test file whose path hashes to it. Unset, the
           # partitions use Mix's round-robin over the file list.
           TEST_PARALLEL_MANIFEST: test/shard_manifest.txt
+          # T-1139: "false" from the `changes` job drops the exam and :slow test files from the
+          # partitions' file lists (scripts/test_parallel.sh logs "skipped by path"). Any other
+          # value, including empty, runs the full suite.
+          TEST_PARALLEL_SKIP_HEAVY: ${{ needs.changes.outputs.heavy == 'false' && '1' || '' }}
           # GH #2380 step 1 (log-only): per-file test times for rebalancing the shards. The
           # --slowest-modules value is at least the largest partition: the manifest
           # (896 files in 16 partitions, TEST_PARALLEL_N=4 x matrix M=4) puts 63 files on the
