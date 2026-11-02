@@ -724,6 +724,23 @@ defmodule Letflow.Routers.Entities.RecordImport do
     %{"type" => Atom.to_string(reason), "header" => field}
   end
 
+  # REQ-652: the location tree's refusals, named as the Tree function's own atoms.
+  defp import_reason_json(reason)
+       when reason in [
+              :cycle,
+              :parent_inactive,
+              :parent_not_found,
+              :node_not_found,
+              :field_not_allowed
+            ] do
+    %{"type" => Atom.to_string(reason)}
+  end
+
+  defp import_reason_json({reason, key})
+       when reason in [:field_not_allowed, :field_invalid] and is_binary(key) do
+    %{"type" => Atom.to_string(reason), "header" => key}
+  end
+
   defp import_reason_json(other) do
     Logger.warning("entity record import entry failed: #{inspect(other)}")
     %{"type" => "internal_error"}

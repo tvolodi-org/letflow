@@ -18,7 +18,7 @@ was written.
 2. **Writes go through the module's own Owner only, and nothing checks references.** Module
    code writes with the `/3` arity, `Records.create_record/3` with
    `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:423`). The
-   module ships no write functions yet (the unit functions are REQ-495). References between the
+   module has owner-path write functions for legal companies and sites only (GH #3619 / REQ-660, item 12); the unit functions are REQ-495. References between the
    original four types (`legal_entity_id`, `site_id`, `parent`, `org_unit_id` of the membership) are
    declarative strings with no foreign keys and no reference check (the two newer types are item 8): a record can name a legal entity, site or unit that does
    not exist (decision 0050 D3.6; `priv/modules/org/entity_definitions/`).
@@ -74,6 +74,17 @@ was written.
     definition, and reactivating an uninstalled org there answers `upgrade_required`
     (`check_reactivatable/2`). The upgrade is owed by REQ-642 point 7, in the shape of
     `Letflow.Modules.Exam.ParentRollout`; no phase A entry builds it (GH #3584).
+12. **Legal companies and sites have owner-path write functions; there is still no route.**
+    `Letflow.Modules.Org.create_legal_entity/3`, `update_legal_entity/4`, `retire_legal_entity/3`,
+    `create_site/3`, `update_site/4` and `retire_site/3` (logic in `Letflow.Modules.Org.Masters`,
+    GH #3619 / REQ-660) write through the org Owner, one audit entry per accepted change, nothing on
+    a refusal. The BIN is exactly 12 ASCII digits with no control digit (UAT assumption, to be
+    confirmed by the process owner: D-065 says "12 digits, validated" and names no checksum), and two
+    active companies of one tenant never share a BIN (`:bin_taken`, checked under an advisory lock
+    keyed by tenant and the text `org_legal_entity_bin`; a retired company's BIN may be reused).
+    `code` is immutable; retire is `active` false and is refused while an active site or unit names
+    the record (UAT assumption, same status). The functions are reached by no route yet (REQ-665);
+    tenants that installed org before the pack carried these definitions are not upgraded.
 
 ## Catalog module limits
 
@@ -241,6 +252,20 @@ limit names the GH issue or the code that holds it; paths are cited without line
    0055 is not built (GH #3582), so such a tenant keeps the old definition: `parent_id` stays a
    text column without a foreign key and `node_kind` stays the three-value list. The module is
    tested on freshly provisioned tenants (GH #3591).
+
+9. **The import of the tree is `import_row/3`, upsert by external ref only.** The core import route
+   (`?upsert_by=external_ref`, xlsx, CSV or JSON) calls `Letflow.Modules.Locations.import_row/3`, which
+   delegates to `Letflow.Modules.Locations.Import` (`lib/letflow/modules/locations/import.ex`, GH #3601).
+   It writes only through `create_node/3`, `update_node/4` and `move_node/4`. The key is the field pair
+   `external_ref_system` / `external_ref_id`, not the record-level master reference (the Tree functions
+   never set it), so a later type that resolves a location by external id through
+   `Latest.get_by_external_ref/4` will not find it. `parent_id` is the external id of the parent under the
+   row's system; the parent must come earlier in the file, else `reference_not_found` with header
+   `parent_id`. A re-import moves and updates by the same Tree rules (`cycle`, `parent_inactive`). The row
+   is the full desired state: an absent optional cell clears the value. There is no `active` column
+   (retire stays `retire_node/3`), a changed `code` is `field_not_allowed`, the address is the given text
+   only (no segment pattern), and nothing is retired or deleted by import. A dry run follows the rules of
+   `ManagedImport`; a Tree refusal costs one replay there.
 
 ## Codes module limits
 
