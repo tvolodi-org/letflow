@@ -22,6 +22,7 @@ defmodule Letflow.Entities.FieldValuesConsumersGuardTest do
     "letflow/modules/catalog_items/lots.ex",
     "letflow/modules/codes/writes.ex",
     "letflow/modules/exam/snapshot.ex",
+    "letflow/modules/locations/links.ex",
     "letflow/modules/org/masters.ex",
     "letflow/routers/entities.ex",
     "letflow/routers/instances.ex"

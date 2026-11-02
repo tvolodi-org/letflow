@@ -13,7 +13,7 @@ defmodule Letflow.Modules.Org do
     * `org_position` and `org_employee` (GH #3584 / REQ-643, version 0.2.0): a position in the
       roster of one unit, and a person with an optional `user_id` link to a Letflow account.
       Their `org_unit_id` / `position_id` are real foreign keys (decision 0066 D-066); the key
-      only proves the target exists, same-unit and active checks belong to REQ-661.
+      only proves the target exists; the same-unit and active checks are in the write functions (REQ-661).
 
   All six are declared in `manages_entity_types`, so after install the generic entity routes
   answer 403 `entity_type_managed`. This skeleton ships no routes, no permissions, no role
@@ -45,6 +45,16 @@ defmodule Letflow.Modules.Org do
   one audit entry (`org_unit.created|renamed|updated|moved|retired`). A move or retire that the
   index refuses (`:cycle`, `:depth_exceeded`, `:node_has_grants`) writes nothing. Limit: the
   balance guard of a retire (D-065) is not built, since no ledger module exists yet.
+
+  ## People write functions (GH #3617 / REQ-661)
+
+  `create_position/3`, `update_position/4`, `retire_position/3`, `create_employee/3`,
+  `update_employee/4`, `transfer_employee/5` and `retire_employee/3` (preparation in
+  `Letflow.Modules.Org.People`, transaction in `Letflow.Modules.Org.Masters`). An employee's unit
+  and position must be active and the position must be of the employee's unit
+  (`:position_not_in_unit`); `user_id` must be a user of the tenant (`:user_not_found`); a position
+  held by an active employee cannot be retired (`:position_in_use`); a transfer changes unit and
+  position in one record version. The audit entries of an employee omit `full_name`.
 
   ## Read API contract (GH #2662)
 
@@ -252,4 +262,26 @@ defmodule Letflow.Modules.Org do
 
   @doc "Retires an org unit, never deletes it (GH #3618 / REQ-495); see `Letflow.Modules.Org.Units`."
   defdelegate retire_unit(prefix, unit_id, opts), to: Letflow.Modules.Org.Units
+
+  @doc "Creates a position in a live unit (GH #3617 / REQ-661); see `Letflow.Modules.Org.People`."
+  defdelegate create_position(prefix, attrs, opts), to: Letflow.Modules.Org.People
+
+  @doc "Changes a position (GH #3617 / REQ-661); see `Letflow.Modules.Org.People`."
+  defdelegate update_position(prefix, id, attrs, opts), to: Letflow.Modules.Org.People
+
+  @doc "Retires a position, never deletes it (GH #3617 / REQ-661); see `Letflow.Modules.Org.People`."
+  defdelegate retire_position(prefix, id, opts), to: Letflow.Modules.Org.People
+
+  @doc "Creates an employee (GH #3617 / REQ-661); see `Letflow.Modules.Org.People`."
+  defdelegate create_employee(prefix, attrs, opts), to: Letflow.Modules.Org.People
+
+  @doc "Changes an employee (GH #3617 / REQ-661); see `Letflow.Modules.Org.People`."
+  defdelegate update_employee(prefix, id, attrs, opts), to: Letflow.Modules.Org.People
+
+  @doc "Transfers an employee to another unit and position (GH #3617 / REQ-661); see `Letflow.Modules.Org.People`."
+  defdelegate transfer_employee(prefix, id, org_unit_id, position_id, opts),
+    to: Letflow.Modules.Org.People
+
+  @doc "Retires an employee, never deletes it (GH #3617 / REQ-661); see `Letflow.Modules.Org.People`."
+  defdelegate retire_employee(prefix, id, opts), to: Letflow.Modules.Org.People
 end

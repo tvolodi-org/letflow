@@ -29,7 +29,11 @@ defmodule Letflow.Modules.Locations do
   `location_org_unit_link` is a many to many link: `location_id` (a real foreign key onto
   `location_node`, `ON DELETE RESTRICT`), `org_unit_id` (a record id of module `org`, no foreign key
   across packs) and `active`; the pair is unique. The manifest depends on `org` and declares the link
-  scope `{:column, "org_unit_id"}`. Nothing writes links yet. Three reads, all by `prefix` alone:
+  scope `{:column, "org_unit_id"}`. The writers are in `Letflow.Modules.Locations.Links` (GH #3616 / REQ-662): `link_unit_location/4` and
+  `unlink_unit_location/4`, one transaction and one audit entry each. Linking refuses an unknown, soft-deleted or
+  retired unit or location (`:unit_not_found`, `:unit_inactive`, `:location_not_found`, `:location_inactive`);
+  a pair with an inactive link is reactivated on the same record; unlinking sets `active` false, never deletes,
+  and works when an end is retired. Unlinking checks no stock (no ledger code exists yet). Three reads, all by `prefix` alone:
   `linked?/3` (the movement rule: true only when a live active link joins an active org unit and an
   active location), `location_ids_for_org_unit/2` and `org_unit_ids_for_location/2` (sorted, unique,
   only active ends of live active links). `lookup/2` and `active?/2` answer for `location_node` only.
@@ -108,6 +112,14 @@ defmodule Letflow.Modules.Locations do
 
   @doc "Retires a node; see `Letflow.Modules.Locations.Tree.retire_node/3`."
   defdelegate retire_node(prefix, node_id, opts), to: Letflow.Modules.Locations.Tree
+
+  @doc "Links an org unit to a location; see `Letflow.Modules.Locations.Links.link_unit_location/4`."
+  defdelegate link_unit_location(prefix, org_unit_id, location_id, opts),
+    to: Letflow.Modules.Locations.Links
+
+  @doc "Unlinks an org unit from a location; see `Letflow.Modules.Locations.Links.unlink_unit_location/4`."
+  defdelegate unlink_unit_location(prefix, org_unit_id, location_id, opts),
+    to: Letflow.Modules.Locations.Links
 
   @doc "Live descendant ids of a node; see `Letflow.Modules.Locations.Tree.descendant_ids/2`."
   defdelegate descendant_ids(prefix, node_id), to: Letflow.Modules.Locations.Tree

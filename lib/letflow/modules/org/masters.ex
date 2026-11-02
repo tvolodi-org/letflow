@@ -283,6 +283,8 @@ defmodule Letflow.Modules.Org.Masters do
   # INV-8: Audit raises on a database failure; the transaction is already aborted then, so the
   # rescue only turns the raise into a refusal and runs no further query.
   defp audit(prefix, actor, action, type, record_id, before, after_state) do
+    {before, after_state} = redact(type, before, after_state)
+
     entry = %{
       actor_id: actor,
       action: action,
@@ -424,6 +426,25 @@ defmodule Letflow.Modules.Org.Masters do
       _ -> {:error, :legal_entity_not_found}
     end
   end
+
+  # `full_name` of an employee is personal data and stays out of the append-only audit chain
+  # (GH #3617 / REQ-661). A change of the name alone is recorded as `changed_fields`.
+  defp redact("org_employee", before, after_state) do
+    b = drop_name(before)
+    a = drop_name(after_state)
+
+    a =
+      if is_map(a) and b == a and before != after_state,
+        do: Map.put(a, "changed_fields", ["full_name"]),
+        else: a
+
+    {b, a}
+  end
+
+  defp redact(_type, before, after_state), do: {before, after_state}
+
+  defp drop_name(state) when is_map(state), do: Map.delete(state, "full_name")
+  defp drop_name(state), do: state
 
   # --- shared checks --------------------------------------------------------------------------
 

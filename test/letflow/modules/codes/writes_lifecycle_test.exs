@@ -22,6 +22,7 @@ defmodule Letflow.Modules.Codes.WritesLifecycleTest do
 
   setup do
     ctx = Fx.installed_tenant!("gh3615-lc")
+    Fx.install_module!(ctx.tenant_id, "org")
     Fx.install_module!(ctx.tenant_id, "locations")
     Fx.install_module!(ctx.tenant_id, "catalog_items")
     uom = Cat.uom!(ctx.schema, "U1")
@@ -227,6 +228,7 @@ defmodule Letflow.Modules.Codes.WritesLifecycleTest do
     s = ctx.schema
     id = new_code!(s)
     other = Fx.installed_tenant!("gh3615-lc2")
+    Fx.install_module!(other.tenant_id, "org")
     Fx.install_module!(other.tenant_id, "locations")
     foreign_node = Loc.node!(other.schema, "FN")
     unknown = Ecto.UUID.generate()
