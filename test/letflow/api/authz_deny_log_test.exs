@@ -886,8 +886,12 @@ defmodule Letflow.Api.AuthzDenyLogTest do
 
       log =
         sink_log(fn ->
-          assert :ok = AuthzDenyLog.log_denial(:not_a_conn, access, :SentinelPolicyKey)
-          assert :ok = AuthzDenyLog.log_denial(:not_a_conn, access, :SentinelPolicyKey)
+          # The non-conn input makes the module emit an Elixir deprecation warning on stderr;
+          # capture it so it is not mistaken for a compiler warning of this file.
+          ExUnit.CaptureIO.capture_io(:stderr, fn ->
+            assert :ok = AuthzDenyLog.log_denial(:not_a_conn, access, :SentinelPolicyKey)
+            assert :ok = AuthzDenyLog.log_denial(:not_a_conn, access, :SentinelPolicyKey)
+          end)
         end)
 
       failure_lines =
