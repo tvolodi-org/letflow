@@ -97,6 +97,10 @@ defmodule Letflow.MixProject do
       # image format. Flagged for REVIEWER sign-off per this requirement's
       # own AC1 -- REVIEWER sign-off must be recorded before this merges.
       {:eqrcode, "~> 0.2"},
+      # REQ-650 (decision docs/migration/decisions/0077-xlsx-import-export.md): pure-Elixir,
+      # Apache-2.0 xlsx reader (saxy, MIT, comes with it), used only by
+      # `Letflow.Entities.XlsxImport` for the record import route.
+      {:xlsx_reader, "~> 0.8"},
       # REQ-364 (decision docs/migration/decisions/0036-earmark-parser-markdown-
       # sanitization-dependency.md): pure-Elixir, Apache-2.0, zero-runtime-deps
       # CommonMark parser, used only for `EarmarkParser.as_ast/2` -- the
