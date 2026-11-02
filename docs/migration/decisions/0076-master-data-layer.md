@@ -230,7 +230,7 @@ VISIBILITY TABLE:
 
 Additional visibility rulings:
 
-1. `org_legal_entity`, `org_site`, `org_unit` are tenant-wide so all tenant users can read names/tree paths.
+1. `org_legal_entity`, `org_site`, `org_unit` are tenant-wide so all tenant users can read names/tree paths. These three hold only identifying fields; a field added later to one of them becomes tenant-wide and needs its own decision.
 2. Code-scan routes must check scope on target and return same 404 for out-of-scope target as unknown code.
 3. Module read functions (`lookup/2`, `active?/2`, `member?/3`) apply no scope themselves; caller routes own scope enforcement.
 4. Declarations are immutable once merged (0051 M4 and D6); each declaring entry pins full map in tests.
@@ -262,6 +262,8 @@ These are owner choices this record carries as binding inputs for later entries:
 1. Whether location tree keeps `location_node` with expanded kinds or moves to a new type family (A3 scope).
 2. Tenant-wide serial uniqueness in ledger (0073 OQ-23).
 3. Whether org tree ever migrates from path to ancestor array (D-066 records it as a later option only).
+5. Whether `org_unit_membership` gets a scope declaration: not decided. It stays undeclared, so a scoped caller reads none.
+6. Whether `org_position` is scoped by org unit like employees: not decided. It is a UAT assumption, to be confirmed by the process owner.
 4. Module-upgrade slices for tenants that installed `org`, `locations`, or `catalog_items` before phase A.
 
 ## Consequences and phase-A merge ordering notes
