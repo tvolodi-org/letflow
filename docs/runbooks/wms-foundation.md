@@ -18,7 +18,7 @@ was written.
 2. **Writes go through the module's own Owner only, and nothing checks references.** Module
    code writes with the `/3` arity, `Records.create_record/3` with
    `ManagedTypes.owner_for!(Letflow.Modules.Org)` (`lib/letflow/entities/records.ex:423`). The
-   module ships no write functions yet (the unit functions are REQ-495). References between the
+   module has owner-path write functions for legal companies and sites only (GH #3619 / REQ-660, item 12); the unit functions are REQ-495. References between the
    original four types (`legal_entity_id`, `site_id`, `parent`, `org_unit_id` of the membership) are
    declarative strings with no foreign keys and no reference check (the two newer types are item 8): a record can name a legal entity, site or unit that does
    not exist (decision 0050 D3.6; `priv/modules/org/entity_definitions/`).
@@ -74,6 +74,17 @@ was written.
     definition, and reactivating an uninstalled org there answers `upgrade_required`
     (`check_reactivatable/2`). The upgrade is owed by REQ-642 point 7, in the shape of
     `Letflow.Modules.Exam.ParentRollout`; no phase A entry builds it (GH #3584).
+12. **Legal companies and sites have owner-path write functions; there is still no route.**
+    `Letflow.Modules.Org.create_legal_entity/3`, `update_legal_entity/4`, `retire_legal_entity/3`,
+    `create_site/3`, `update_site/4` and `retire_site/3` (logic in `Letflow.Modules.Org.Masters`,
+    GH #3619 / REQ-660) write through the org Owner, one audit entry per accepted change, nothing on
+    a refusal. The BIN is exactly 12 ASCII digits with no control digit (UAT assumption, to be
+    confirmed by the process owner: D-065 says "12 digits, validated" and names no checksum), and two
+    active companies of one tenant never share a BIN (`:bin_taken`, checked under an advisory lock
+    keyed by tenant and the text `org_legal_entity_bin`; a retired company's BIN may be reused).
+    `code` is immutable; retire is `active` false and is refused while an active site or unit names
+    the record (UAT assumption, same status). The functions are reached by no route yet (REQ-665);
+    tenants that installed org before the pack carried these definitions are not upgraded.
 
 ## Catalog module limits
 
