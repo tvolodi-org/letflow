@@ -1,8 +1,13 @@
 defmodule Letflow.Modules.Locations.Tree do
   @moduledoc """
-  Write path of the `location_node` tree (GH #3591 / REQ-645, decision 0066): `create_node/3`, called
-  through `Letflow.Modules.Locations.create_node/3`. The moves and retirements of REQ-646 are added
-  here, beside it, and take the same tree lock (`lock!/1`).
+  Write path of the `location_node` tree (GH #3591 / REQ-645, GH #3588 / REQ-646, decision 0066):
+  `create_node/3`, `move_node/4`, `update_node/4` and `retire_node/3`, called through
+  `Letflow.Modules.Locations`, and the subtree read `descendant_ids/2`. Every write takes the same
+  tenant-wide tree lock (`lock!/1`) first, so two moves cannot each pass the cycle check and then
+  close a loop together.
+
+  A move is one `Records.update_record` of the moved node (its `parent_id`); the descendants are not
+  written and no address is rewritten (the address is composed once, at create).
 
   The tree is stored as the parent link only (a real foreign key in the pack); no path and no depth
   is stored and no depth bound exists. The module is the Owner of its own type, so the write goes
@@ -108,10 +113,10 @@ defmodule Letflow.Modules.Locations.Tree do
     :ok
   end
 
-  defp fetch_opt!(opts, key) do
+  defp fetch_opt!(opts, key, fname \\ "create_node/3") do
     case Map.fetch(opts, key) do
       {:ok, v} when not is_nil(v) -> v
-      _ -> raise ArgumentError, "create_node/3 opts needs #{inspect(key)}"
+      _ -> raise ArgumentError, "#{fname} opts needs #{inspect(key)}"
     end
   end
 
@@ -217,5 +222,300 @@ defmodule Letflow.Modules.Locations.Tree do
       {:ok, %{record: record}} -> {:ok, record.record_id}
       {:error, _} = err -> err
     end
+  end
+
+  # ---------------------------------------------------------------------------------------------
+  # REQ-646: move, update, retire, subtree read
+  # ---------------------------------------------------------------------------------------------
+
+  @updatable ~w(name node_kind segment address location_type external_ref_system external_ref_id)
+  @prefix_re ~r/\A[a-z0-9_]+\z/
+
+  @doc """
+  Moves node `node_id` under `new_parent_id` (nil = to the top) with one write of the node only.
+
+  Refusals, in this order: `:node_not_found` (not a uuid, unknown, retired-by-delete, another type or
+  another tenant: one answer), `:parent_not_found`, `:parent_inactive`, `:cycle` (the new parent is
+  the node or one of its descendants, found by walking the parent chain upward with a visited set, so
+  a damaged chain ends too). Moving under the current parent is `{:ok, node}` with no event. The
+  descendants and every address stay as they are. `opts`: `:actor_id`, `:idempotency_key`.
+  """
+  @spec move_node(String.t(), term(), term(), map()) :: {:ok, map()} | {:error, term()}
+  def move_node(prefix, node_id, new_parent_id, opts)
+      when is_binary(prefix) and is_map(opts) do
+    {actor_id, idem} = write_opts!(opts, "move_node/4")
+
+    change = fn node, fv ->
+      with {:ok, parent_id} <- check_move_parent(prefix, node, new_parent_id) do
+        if same_id?(parent_id, node["parent_id"]),
+          do: :noop,
+          else: {:ok, put_or_drop(fv, "parent_id", parent_id)}
+      end
+    end
+
+    write_locked(prefix, node_id, actor_id, idem, change)
+  end
+
+  @doc """
+  Updates `name`, `node_kind`, `segment`, `address`, `location_type`, `external_ref_system` or
+  `external_ref_id` of a node. Any other key (`parent_id`, `active`, `code`, ...) is
+  `{:error, {:field_not_allowed, key}}`. A nil value removes an optional field; `name` and
+  `node_kind` stay non-blank text and a `segment` has no dash (`{:field_invalid, field}`). No address
+  is rewritten, not the node's own and not a descendant's. A duplicate address or external reference
+  is the record error of `Records.update_record/3`. Stored keys the active definition no longer
+  declares (the old `org_site_id`) are dropped from the rewritten document. `opts` as `move_node/4`.
+  """
+  @spec update_node(String.t(), term(), map(), map()) :: {:ok, map()} | {:error, term()}
+  def update_node(prefix, node_id, attrs, opts)
+      when is_binary(prefix) and is_map(attrs) and is_map(opts) do
+    {actor_id, idem} = write_opts!(opts, "update_node/4")
+
+    change = fn _node, fv ->
+      with :ok <- check_update_keys(attrs) do
+        merged = attrs |> Enum.reduce(fv, fn {k, v}, acc -> put_or_drop(acc, k, v) end)
+
+        with :ok <- check_required(merged), :ok <- check_segment(merged), do: {:ok, merged}
+      end
+    end
+
+    write_locked(prefix, node_id, actor_id, idem, change)
+  end
+
+  @doc """
+  Retires a node (`active` false). `{:error, :has_active_descendants}` while any live descendant is
+  active; retiring a retired node is `{:ok, node}` with no event. There is no un-retire and no
+  delete. `opts` as `move_node/4`.
+  """
+  @spec retire_node(String.t(), term(), map()) :: {:ok, map()} | {:error, term()}
+  def retire_node(prefix, node_id, opts) when is_binary(prefix) and is_map(opts) do
+    {actor_id, idem} = write_opts!(opts, "retire_node/3")
+
+    change = fn node, fv ->
+      cond do
+        node["active"] == false -> :noop
+        active_descendant?(prefix, node["record_id"]) -> {:error, :has_active_descendants}
+        true -> {:ok, Map.put(fv, "active", false)}
+      end
+    end
+
+    write_locked(prefix, node_id, actor_id, idem, change)
+  end
+
+  defp write_opts!(opts, fname) do
+    actor_id = fetch_opt!(opts, :actor_id, fname)
+    idem = fetch_opt!(opts, :idempotency_key, fname)
+
+    unless is_binary(actor_id) and match?({:ok, _}, Ecto.UUID.cast(actor_id)),
+      do: raise(ArgumentError, "#{fname} opts :actor_id must be a uuid")
+
+    unless is_binary(idem),
+      do: raise(ArgumentError, "#{fname} opts :idempotency_key must be text")
+
+    {actor_id, idem}
+  end
+
+  # `change.(node, stored_fields)` returns `{:ok, new_fields}`, `:noop` or `{:error, reason}`.
+  # A claimed idempotency key skips the lock and the checks (see `replay?/2`) and rebuilds the same
+  # document from the node's current state, so Records answers the original or `:idempotency_key_reuse`.
+  defp write_locked(prefix, node_id, actor_id, idem, change) do
+    if replay?(prefix, idem) do
+      with {:ok, node} <- ReadApi.lookup(prefix, node_id, @types),
+           {:ok, fv} <- stored_fields(prefix, node),
+           {:ok, new_fv} <- replay_change(change.(node, fv), fv),
+           {:ok, _} <- update_doc(prefix, node["record_id"], new_fv, actor_id, idem) do
+        ReadApi.lookup(prefix, node["record_id"], @types)
+      else
+        {:error, :not_found} -> {:error, :node_not_found}
+        {:error, _} = err -> err
+        :noop -> ReadApi.lookup(prefix, node_id, @types)
+      end
+    else
+      locked(prefix, node_id, actor_id, idem, change)
+    end
+  end
+
+  defp replay_change(:noop, _fv), do: :noop
+  defp replay_change(other, _fv), do: other
+
+  defp locked(prefix, node_id, actor_id, idem, change) do
+    Repo.transaction(fn ->
+      lock!(prefix)
+
+      with {:ok, node} <- find_node(prefix, node_id),
+           {:ok, fv} <- stored_fields(prefix, node),
+           {:ok, node} <- apply_change(prefix, node, change.(node, fv), actor_id, idem) do
+        node
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp apply_change(_prefix, node, :noop, _actor, _idem), do: {:ok, node}
+  defp apply_change(_prefix, _node, {:error, _} = err, _actor, _idem), do: err
+
+  defp apply_change(prefix, node, {:ok, new_fv}, actor_id, idem) do
+    with {:ok, _} <- update_doc(prefix, node["record_id"], new_fv, actor_id, idem) do
+      ReadApi.lookup(prefix, node["record_id"], @types)
+    end
+  end
+
+  defp find_node(prefix, node_id) do
+    case ReadApi.lookup(prefix, node_id, @types) do
+      {:ok, node} -> {:ok, node}
+      {:error, :not_found} -> {:error, :node_not_found}
+    end
+  end
+
+  # The stored document without the read-map extras, and without keys the active definition no
+  # longer declares (Records validates the whole document with additionalProperties false).
+  defp stored_fields(prefix, node) do
+    fv = Map.drop(node, ["record_id", "entity_type"])
+
+    case Letflow.Entities.Definitions.get_active_definition_by_name("location_node", prefix) do
+      {:ok, %{definition_json: %{"fields" => fields}}} when is_list(fields) ->
+        names = for %{"name" => n} <- fields, do: n
+        {:ok, Map.take(fv, names)}
+
+      _ ->
+        {:ok, fv}
+    end
+  end
+
+  defp put_or_drop(fv, key, nil), do: Map.delete(fv, key)
+  defp put_or_drop(fv, key, value), do: Map.put(fv, key, value)
+
+  defp same_id?(nil, nil), do: true
+  defp same_id?(nil, _), do: false
+  defp same_id?(_, nil), do: false
+  defp same_id?(a, b), do: cast_id(a) == cast_id(b)
+
+  defp cast_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, u} -> u
+      _ -> id
+    end
+  end
+
+  defp check_move_parent(_prefix, _node, nil), do: {:ok, nil}
+
+  defp check_move_parent(prefix, node, new_parent_id) do
+    case ReadApi.lookup(prefix, new_parent_id, @types) do
+      {:error, :not_found} ->
+        {:error, :parent_not_found}
+
+      {:ok, %{"active" => true} = parent} ->
+        if cycle?(prefix, node["record_id"], parent["record_id"], MapSet.new()),
+          do: {:error, :cycle},
+          else: {:ok, parent["record_id"]}
+
+      {:ok, _} ->
+        {:error, :parent_inactive}
+    end
+  end
+
+  # Walks the chain from `cur` upward: true when it meets `node_id` or repeats a node.
+  defp cycle?(_prefix, _node_id, nil, _seen), do: false
+
+  defp cycle?(prefix, node_id, cur, seen) do
+    cur = cast_id(cur)
+
+    cond do
+      cur == cast_id(node_id) ->
+        true
+
+      MapSet.member?(seen, cur) ->
+        true
+
+      true ->
+        case ReadApi.lookup(prefix, cur, @types) do
+          {:ok, n} -> cycle?(prefix, node_id, n["parent_id"], MapSet.put(seen, cur))
+          {:error, _} -> false
+        end
+    end
+  end
+
+  defp check_update_keys(attrs) do
+    case attrs |> Map.keys() |> Enum.reject(&(&1 in @updatable)) |> Enum.sort() do
+      [] -> :ok
+      [key | _] -> {:error, {:field_not_allowed, key}}
+    end
+  end
+
+  defp update_doc(prefix, record_id, fv, actor_id, idem) do
+    attrs = %{
+      entity_type: "location_node",
+      record_id: record_id,
+      field_values: fv,
+      actor_id: actor_id,
+      idempotency_key: idem
+    }
+
+    # scope-all: SEC-518-R1 (locations module, tenant-wide type; own-record system path)
+    case Records.update_record(attrs, prefix, ManagedTypes.owner_for!(Letflow.Modules.Locations)) do
+      {:ok, %{record: record}} -> {:ok, record.record_id}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc """
+  The record ids of all live descendants of `node_id` (children, their children, and so on), sorted
+  as text, by one recursive query. A retired descendant is listed; a soft-deleted one and the nodes
+  below it are not. A node id that is not a uuid, unknown, soft-deleted or of another type, a
+  non-text `prefix` and a schema without the tables give `[]`; it never raises. A damaged
+  (looping) chain ends, because the query is a `UNION`. Read-only; not a security check.
+  """
+  @spec descendant_ids(term(), term()) :: [String.t()]
+  def descendant_ids(prefix, node_id) do
+    with true <- is_binary(prefix) and Regex.match?(@prefix_re, prefix),
+         {:ok, uuid} <- Ecto.UUID.cast(node_id),
+         true <- subtree_tables?(prefix) do
+      {:ok, bin} = Ecto.UUID.dump(uuid)
+      %{rows: rows} = Repo.query!(subtree_sql(prefix, ""), [bin])
+      Enum.map(rows, fn [id] -> id end)
+    else
+      _ -> []
+    end
+  end
+
+  defp active_descendant?(prefix, node_id) do
+    {:ok, bin} = Ecto.UUID.dump(node_id)
+
+    case Repo.query!(subtree_sql(prefix, "AND l.field_values->>'active' = 'true'"), [bin]) do
+      %{rows: [_ | _]} -> true
+      _ -> false
+    end
+  end
+
+  defp subtree_tables?(prefix) do
+    {:ok, table} = Letflow.TenantProvisioning.table_name_for_entity_type("location_node")
+
+    Letflow.TenantProvisioning.entity_table_exists?(prefix, table) and
+      Letflow.TenantProvisioning.entity_table_exists?(prefix, "entity_record_latest")
+  end
+
+  # `prefix` is checked against `@prefix_re` or comes from the caller of a write that already read
+  # the tenant; the node id is the bound `$1`. `extra` is a fixed literal of this module.
+  defp subtree_sql(prefix, extra) do
+    ~s"""
+    WITH RECURSIVE sub(record_id) AS (
+      SELECT t.record_id FROM "#{prefix}"."entity_location_node" t
+        JOIN "#{prefix}".entity_record_latest l ON l.record_id = t.record_id
+         AND l.entity_type = 'location_node' AND l.deleted = false
+       WHERE t.parent_id = $1::uuid
+         AND EXISTS (SELECT 1 FROM "#{prefix}".entity_record_latest n
+                      WHERE n.record_id = $1::uuid AND n.entity_type = 'location_node'
+                        AND n.deleted = false)
+      UNION
+      SELECT c.record_id FROM sub s
+        JOIN "#{prefix}"."entity_location_node" c ON c.parent_id = s.record_id
+        JOIN "#{prefix}".entity_record_latest l ON l.record_id = c.record_id
+         AND l.entity_type = 'location_node' AND l.deleted = false
+    )
+    SELECT s.record_id::text FROM sub s
+      JOIN "#{prefix}".entity_record_latest l ON l.record_id = s.record_id
+     WHERE s.record_id <> $1::uuid #{extra}
+     ORDER BY 1
+    """
   end
 end

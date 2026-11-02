@@ -1055,3 +1055,5 @@
 13 test/letflow/modules/locations/behaviour_test.exs 5589.95
 15 test/letflow/modules/locations/install_test.exs 5589.95
 2 test/letflow/modules/locations/create_node_test.exs 5589.95
+4 test/letflow/modules/locations/tree_write_test.exs 5589.95
+5 test/letflow/modules/locations/descendant_ids_test.exs 5589.95

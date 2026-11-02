@@ -14,9 +14,13 @@ defmodule Letflow.Modules.Locations do
   nullable `external_ref_system` / `external_ref_id` import key (0057 D1) with a unique pair.
 
   The type is declared in `manages_entity_types`, so after install the generic entity routes answer
-  403 `entity_type_managed`. The module ships no routes, no permissions and no role grants. It has one
-  write function, `create_node/3` (`Letflow.Modules.Locations.Tree`); move, update and retire are
-  REQ-646. The type has the scope declaration `:tenant_wide` (decision 0051 M4); enforcement is
+  403 `entity_type_managed`. The module ships no routes, no permissions and no role grants. Its write
+  functions are in `Letflow.Modules.Locations.Tree`: `create_node/3`, `move_node/4` (one parent change
+  with a cycle walk; refusals `:node_not_found`, `:parent_not_found`, `:parent_inactive`, `:cycle`),
+  `update_node/4` (name, kind, segment, address and the import key; `{:field_not_allowed, key}` for
+  anything else), `retire_node/3` (`:has_active_descendants`; no un-retire, no delete). The read
+  `descendant_ids/2` returns a subtree by one recursive query. All writes take the tenant tree lock
+  first (GH #3588 / REQ-646). The type has the scope declaration `:tenant_wide` (decision 0051 M4); enforcement is
   REQ-519. Tenants that installed version 0.1.0 keep the old definition (no module upgrade yet).
 
   ## Read API contract (GH #2664)
@@ -62,6 +66,18 @@ defmodule Letflow.Modules.Locations do
 
   @doc "Creates a location node; see `Letflow.Modules.Locations.Tree.create_node/3`."
   defdelegate create_node(prefix, attrs, opts), to: Letflow.Modules.Locations.Tree
+
+  @doc "Moves a node; see `Letflow.Modules.Locations.Tree.move_node/4`."
+  defdelegate move_node(prefix, node_id, new_parent_id, opts), to: Letflow.Modules.Locations.Tree
+
+  @doc "Updates a node; see `Letflow.Modules.Locations.Tree.update_node/4`."
+  defdelegate update_node(prefix, node_id, attrs, opts), to: Letflow.Modules.Locations.Tree
+
+  @doc "Retires a node; see `Letflow.Modules.Locations.Tree.retire_node/3`."
+  defdelegate retire_node(prefix, node_id, opts), to: Letflow.Modules.Locations.Tree
+
+  @doc "Live descendant ids of a node; see `Letflow.Modules.Locations.Tree.descendant_ids/2`."
+  defdelegate descendant_ids(prefix, node_id), to: Letflow.Modules.Locations.Tree
 
   @doc """
   Read API (GH #3501 / REQ-625, decision 0050 D2): the live `location_node` with record `id` (a

@@ -137,16 +137,17 @@ limit names the GH issue or the code that holds it; paths are cited without line
    the generic entity routes answer 403 `entity_type_managed` (GH #2530), mapped in
    `lib/letflow/routers/entities.ex` and decided per write by `Letflow.Entities.Records`
    (`lib/letflow/entities/records.ex`, delegating to `ManagedTypes.check_record_write/3`).
-2. **Writes go through the module's own Owner only.** `Letflow.Modules.Locations.create_node/3`
-   (`lib/letflow/modules/locations/tree.ex`) is the one write function; it writes with
-   `ManagedTypes.owner_for!(Letflow.Modules.Locations)`. Move, update and retire do not exist yet
-   (REQ-646); the tests of those paths write through the owner path
-   (`test/letflow/modules/locations/locations_fixture.exs`).
-3. **Tree rules are enforced at create only.** `create_node/3` refuses a parent that is not found,
-   retired or inactive, and takes a tenant-wide lock. The tree is the parent link only: a real
-   foreign key (`priv/modules/locations/entity_definitions/location_node.json`), no stored path,
-   no stored depth and no depth bound (decision 0066). Cycles cannot arise at create; moving a node
-   is not built (REQ-646).
+2. **Writes go through the module's own Owner only.** `Letflow.Modules.Locations.create_node/3`,
+   `move_node/4`, `update_node/4` and `retire_node/3` (`lib/letflow/modules/locations/tree.ex`, GH #3588)
+   are the write functions; they write with `ManagedTypes.owner_for!(Letflow.Modules.Locations)`, each
+   after the tenant tree lock. There is no un-retire and no delete function.
+3. **Tree rules are enforced by the module functions.** `create_node/3` refuses a parent that is not
+   found or inactive; `move_node/4` is one parent change of one record and refuses a cycle by walking
+   the parent chain; `retire_node/3` refuses while a descendant is active. A subtree is read with
+   `descendant_ids/2`, one recursive query. The tree is the parent link only: a real foreign key
+   (`priv/modules/locations/entity_definitions/location_node.json`), no stored path, no stored depth
+   and no depth bound (decision 0066). Addresses are not rewritten on a move or a segment change
+   (GH #3588).
 4. **No `org_site_id`.** The field was removed from `location_node`; the link between the org tree
    and the location tree is a later step of the assets application (phase A4), and the manifest
    does not depend on `org` (GH #3591).
