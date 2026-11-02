@@ -46568,7 +46568,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-649 -- needs the A2 tree and BIN rules merged first
+    gh: 3619
     # Source: owner decisions D-061, D-062 ("several legal entities") and D-065 of 2026-11-02 ("BIN is 12 digits, validated") in ai-dala-portfolio/DECISIONS.md; portfolio-manager phase A review 2026-11-02, point 6b (write functions and admin screens missing); letflow-team/project/assets-phase-a-implementation-plan.md (row 9 "F4 entries"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D3.2 retire by active false, D3.5 validation in the writing module, D7 "Foundation records are written through the owning module's routes/actions"); REQ-649 (A2, point (2): one tree may hold units of several legal entities, "two live legal entities of one tenant must not share a bin; this entry does not add the constraint"). Code read on main: priv/modules/org/entity_definitions/org_legal_entity.json (code, name, bin required; bin not queried; constraints only on code and the external_ref pair) and org_site.json (legal_entity_id required, queried), lib/letflow/modules/org/org.ex (lookup/2, active?/2, no write function), lib/letflow/entities/managed_types.ex (owner_for!/1), lib/letflow/audit.ex (insert_entry/3 and its entry_attrs keys). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       Phase A of the assets application needs organization master data that an administrator can enter. On main the
@@ -46641,7 +46641,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-660 -- needs the legal company and site writers to exist first
+    gh: 3618
     # Source: this id is the one REQ-473 (gh 2661) reserved for "the unit functions (create/move/retire, tree integrity, scope_node_paths)" ("local draft, not yet filed") and that lib/letflow/modules/org/org.ex, lib/letflow/scope_node_paths.ex ("Call order (a MUST for the org module, REQ-495)") and docs/runbooks/wms-foundation.md cite; it was never written into the register, so this entry fills it instead of a new id. Portfolio-manager phase A review 2026-11-02, point 6b; owner decision D-065 of 2026-11-02 ("a unit with a balance cannot be retired"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D7: "a dedicated move_org_unit action", cycle refusal, "Every insert/move/retire is audited (0051 D8)"; D8: the projection "is written ONLY by a core function, called by the org module's create / move / retire paths in the SAME database transaction as the org_unit write"); docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md (D8 event names org_unit.created, org_unit.moved, org_unit.retired, org_unit.renamed, audit in the same transaction); REQ-649 (A2 points (2) to (4): legal_entity_id and site_id are the unit's own fields, a move never changes them, retire leaves descendants live and is refused with node_has_grants). Code read on main: lib/letflow/scope_node_paths.ex (write/2 operations and error atoms, lock!/1, the call order, the REQ-517 retire guard), lib/mix/tasks/letflow.check_scope_node_paths_writers.ex (module code must not name the table), lib/letflow/scope_node_paths/consistency.ex, priv/modules/org/entity_definitions/org_unit.json (parent field, uq_org_unit_code), lib/letflow/audit.ex (insert_entry/3); no ledger module on main (only priv/repo/migrations/20261031100001_create_ledger_tables.exs). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       The org tree's write path that decision 0050 D7 and D8 require and that the code already names REQ-495. On main
@@ -46709,7 +46709,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-643 -- needs the org_position and org_employee types first
+    gh: 3617
     # Source: owner decisions D-061 ("employees are their own records, separate from user accounts") of 2026-10-31 and D-065 of 2026-11-02 ("responsible person and actual user hold employee ids") in ai-dala-portfolio/DECISIONS.md; portfolio-manager phase A review 2026-11-02, point 6b; REQ-643 (A1: the two types, their fields and unique constraints; "nothing checks that position_id names a position of the same org unit; that check belongs to the write functions of a later slice"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D3.2, D3.5). Code read on main: lib/letflow/identity.ex (get_user/2 with opts :prefix, {:ok, user} or {:error, :not_found}), lib/letflow/modules/org/org.ex, lib/letflow/audit.ex. Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       REQ-643 adds org_position and org_employee to the org module with no write function. This entry adds seven
@@ -46766,7 +46766,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-644 -- needs the location_org_unit_link type first
+    gh: 3616
     # Source: owner decisions D-061 ("the two trees are independent, linked many to many") and D-065 ("a movement is refused when its org unit and location are not linked") in ai-dala-portfolio/DECISIONS.md; portfolio-manager phase A review 2026-11-02, point 6b; REQ-644 (A4: the type location_org_unit_link with location_id, org_unit_id, active and uq_location_org_unit_link over the pair; "no write function"; linked?/3); REQ-649 (A2 point (4): "a new link naming a retired unit is refused by the link writer through active?/2 (0050 D3.5), owed to A4"); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md (D3.5). Code read on main: lib/letflow/modules/locations/locations.ex (lookup/2, active?/2), lib/letflow/modules/org/org.ex (lookup/2). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       REQ-644 adds the link type and its reads; REQ-649 says the link writer refuses a retired unit, but no entry builds
@@ -46807,7 +46807,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-648 -- needs the codes module and its tag model first
+    gh: 3615
     # Source: owner decision D-065 of 2026-11-02 in ai-dala-portfolio/DECISIONS.md ("Codes follow a tag lifecycle (RFID reuse): a code record (not assigned, assigned, retired for good) plus an assignment history; one active assignment at a time; release before reassign; history never deleted"); the owner's RFID rule and its addition of 2026-11-02 as given in the phase A fix task F5 (the code record id is immutable; the code value of a rewritable tag may change, old values kept in the history; "The 'receive tags' step (bulk entry of new tags as not assigned) belongs in the write functions of F4"); portfolio-manager phase A review 2026-11-02, point 6b; REQ-648 (A5: module codes, depends_on [], "Write functions (assign a code, retire a code), routes, a web screen and import of codes" not in that slice); REQ-642 point (1) (the target is a type name plus a record id; the consumer validates the target, 0050 D3.5). Code read on main: lib/letflow/modules/read_api.ex (lookup/3 over a given type list, the shared core body of the foundation read API), lib/mix/tasks/letflow.check_boundaries.ex (Rule 4), lib/letflow/audit.ex. Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       The code model of D-065 separates the code record (one physical tag or printed code: its value unique in the
@@ -46876,7 +46876,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-647 -- needs the catalog_lot type first
+    gh: 3614
     # Source: owner decision D-065 of 2026-11-02 ("lots with free-text producer, lot code unique per item, expiry optional") in ai-dala-portfolio/DECISIONS.md; portfolio-manager phase A review 2026-11-02, point 6b; REQ-647 (A6a: catalog_lot with item_id, code, producer, mark, expiry_date, active, the external_ref pair, unique over [item_id, code]; "The module ships no write functions ... so none are added"; item_lot_valid?/3). Code read on main: lib/letflow/modules/catalog_items/catalog_items.ex (lookup/2, active?/2, item_uom_valid?/3), lib/letflow/audit.ex. Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       REQ-647 adds the lot master with no write function. This entry adds three functions to
@@ -46913,7 +46913,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-661 -- needs the org write functions first
+    gh: 3613
     # Source: portfolio-manager phase A review 2026-11-02, point 6b (admin screens to create, edit, move, retire and list); docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md D7 ("org_unit and org_unit_membership are written only through org module routes that require :UsersGroupsRolesManage (held by TENANT_ADMIN and PLATFORM_ADMIN)"; "permissions per route are for the designer"); docs/roles.md (UsersGroupsRolesManage row; the procurement "Module permissions" paragraph); docs/guides/adding-an-application-module.md sections 3 and 4 (a module "cannot grant a core permission", route_policies, mount /api/v1/modules/<module_id>/); lib/letflow/modules/catalog.ex (validate/1 rules {:core_permission_collision, _} and {:undeclared_route_permission, _}: a route policy names only an atom the module declares); lib/letflow/modules/procurement/procurement.ex and router.ex (precedent: module atoms with no role_grants, held by TENANT_ADMIN through the derived rule and PLATFORM_ADMIN through the platform clause; idempotency_key in the body; Response.not_found/1 for not found; 422 problems with a reason extension); lib/letflow/api/authorization.ex (TENANT_AUDITOR holds a closed explicit list); lib/letflow/api/route_scope.ex (fail-closed default class :tenant_wide) and test/fixtures/route_scope/tenant_wide_default_routes.txt (procurement module routes listed). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       HTTP routes over the org write functions of REQ-660, REQ-495 and REQ-661, so the admin screens of REQ-669 and
@@ -46972,7 +46972,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-662 -- needs the link write functions first
+    gh: 3612
     # Source: portfolio-manager phase A review 2026-11-02, point 6b; REQ-645 and REQ-646 (create_node/3, move_node/4, update_node/4, retire_node/3; "a route, a permission, a role grant or a web screen" not in those changes); REQ-662 (link_unit_location/4, unlink_unit_location/4); REQ-665 (request and response rules); the same code sources as REQ-665 (lib/letflow/modules/catalog.ex, procurement precedent, route_scope.ex). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       HTTP routes over the location tree writers of REQ-645 and REQ-646 and the link writers of REQ-662, for the
@@ -47000,7 +47000,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-663 -- needs the code write functions first
+    gh: 3611
     # Source: portfolio-manager phase A review 2026-11-02, point 6b; owner decision D-065 (code lifecycle); REQ-663 (the five write functions); REQ-665 (request and response rules); the same code sources as REQ-665. Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       HTTP routes over the code writers of REQ-663, for the screens of REQ-672. A new router
@@ -47026,7 +47026,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-664 -- needs the lot write functions first
+    gh: 3610
     # Source: portfolio-manager phase A review 2026-11-02, point 6b; REQ-664 (create_lot/3, update_lot/4, retire_lot/3); REQ-665 (request and response rules); the same code sources as REQ-665; lib/letflow/modules/catalog_items/catalog_items.ex (manifest permissions [], route_policies [], no router). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       HTTP routes over the lot writers of REQ-664, for the screen of REQ-673. A new router
@@ -47049,7 +47049,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-665 -- needs the org routes first
+    gh: 3609
     # Source: portfolio-manager phase A review 2026-11-02, point 6b ("admin screens (web) to create, edit, move, retire and list"); owner decision D-062 (Russian and Kazakh in the first version) in ai-dala-portfolio/DECISIONS.md; REQ-665 (routes, permissions, error reasons); docs/guides/adding-an-application-module.md (web/src/modules/<id>/, ModuleDefinition); web code read on main: web/src/modules/registry.ts (REGISTERED_MODULES, the only importer of module code, ModuleGuard wrap), web/src/modules/types.ts (ModuleNavItem with permission), web/src/modules/exam/ (index.ts, examMessages.ts with en, ru and kk, ExamIntlProvider.tsx, __tests__/exam-i18n-grep.test.ts), web/src/api/entities.ts (entitiesApi.queryRecords, POST /entities/query, the only record-read route), web/tests/guards/forbidlist.ts. Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       The first web module for master data. A new web module org in web/src/modules/org/ (index.ts exporting one
@@ -47095,7 +47095,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-669 -- needs the org web module first
+    gh: 3608
     # Source: portfolio-manager phase A review 2026-11-02, point 6b; owner decisions D-061 (employees are their own records) and D-062 (Russian and Kazakh); REQ-661 (rules), REQ-665 (routes, OrgEmployeesWrite), REQ-669 (common screen rules, the org web module). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       Two screens in the org web module of REQ-669, with nav items gated by OrgEmployeesWrite: positions
@@ -47122,7 +47122,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-666 -- needs the locations routes first
+    gh: 3607
     # Source: portfolio-manager phase A review 2026-11-02, point 6b; owner decisions D-061 (two independent trees linked many to many) and D-062 (Russian and Kazakh); REQ-645 and REQ-646 (free kinds, segment, address patterns, tree rules), REQ-662 (links), REQ-666 (routes, LocationsWrite), REQ-669 (common screen rules). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       A new web module locations in web/src/modules/locations/ registered in registry.ts, with two screens gated by
@@ -47149,7 +47149,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-667 -- needs the codes routes first
+    gh: 3606
     # Source: portfolio-manager phase A review 2026-11-02, point 6b; owner decision D-065 (code lifecycle, RFID reuse) and D-062 (Russian and Kazakh); REQ-663 (rules), REQ-667 (routes, CodesWrite), REQ-669 (common screen rules). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       A new web module codes in web/src/modules/codes/ registered in registry.ts, with one screen gated by CodesWrite
@@ -47175,7 +47175,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-668 -- needs the lot routes first
+    gh: 3605
     # Source: portfolio-manager phase A review 2026-11-02, point 6b; owner decisions D-065 (lots with free-text producer, lot code unique per item, expiry optional) and D-062 (Russian and Kazakh); REQ-664 (rules), REQ-668 (routes, CatalogLotsWrite), REQ-669 (common screen rules). Written by the business analyst (T-1083) 2026-11-02. Not yet validated.
     description: >
       A new web module catalog_items in web/src/modules/catalog_items/ registered in registry.ts, with one screen gated
