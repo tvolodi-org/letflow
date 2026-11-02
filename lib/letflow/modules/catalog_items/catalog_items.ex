@@ -21,9 +21,10 @@ defmodule Letflow.Modules.CatalogItems do
   unique constraint over the pair.
 
   All are declared in `manages_entity_types`, so after install the generic entity routes answer
-  403 `entity_type_managed`. The module ships no routes, no permissions and no role grants; its only
-  write functions are the lot writers `create_lot/3`, `update_lot/4` and `retire_lot/3` (GH #3614 /
-  REQ-664); the read API (REQ-507, GH #2664) is below. The unit scale and conversion factors
+  403 `entity_type_managed`, except the import of `catalog_uom`, `catalog_item` and
+  `catalog_counterparty` through the one import function `import_row/3` (REQ-651, upsert by
+  external ref only). The module ships no routes, no permissions, no role grants and
+  no other write functions than the lot writers `create_lot/3`, `update_lot/4` and `retire_lot/3` (GH #3614 / REQ-664); the read API (REQ-507, GH #2664) is below. The unit scale and conversion factors
   are REQ-504 (#2660), not here. `catalog_lot.item_id` is a real foreign key (D-066); the other
   references between the types, `base_uom_id` among them, stay declarative strings (0050 D3.6).
   The manifest declares every type `:tenant_wide` in `scope_declarations` (D-067, 0051 M4;
@@ -82,8 +83,23 @@ defmodule Letflow.Modules.CatalogItems do
       "catalog_uom" => :tenant_wide,
       "catalog_counterparty" => :tenant_wide,
       "catalog_lot" => :tenant_wide
-    }
+    },
+    import_functions: [
+      %{entity_type: "catalog_uom", function: :import_row},
+      %{entity_type: "catalog_item", function: :import_row},
+      %{entity_type: "catalog_counterparty", function: :import_row}
+    ]
   )
+
+  @doc """
+  The import function of `catalog_uom`, `catalog_item` and `catalog_counterparty` (GH #3602 /
+  REQ-651, manifest `:import_functions`): one row of a file, called by the core import route. See
+  `Letflow.Modules.CatalogItems.Import`. `catalog_lot` has none (REQ-654).
+  """
+  @spec import_row(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_row(prefix, entry, ctx),
+    do: Letflow.Modules.CatalogItems.Import.row(prefix, entry, ctx)
 
   @impl true
   def on_install(prefix, _settings, ctx) do

@@ -1,0 +1,191 @@
+{
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [],
+  "entity_definitions": [
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "value"
+            ],
+            "name": "uq_code_tag_value",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #3588 / REQ-648. The code record: one physical tag or printed label. value is the text a scanner returns, unique in the tenant over every status (retired included); it may change for a rewritable tag, the old value is kept in code_value_change. kind says what the value was read from and takes no part in uniqueness or resolve. status is not_assigned, assigned or retired (retired for good).",
+        "display_name": "Code",
+        "fields": [
+          {
+            "name": "value",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "barcode",
+              "qr",
+              "epc",
+              "tid"
+            ],
+            "name": "kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "enum_values": [
+              "not_assigned",
+              "assigned",
+              "retired"
+            ],
+            "name": "status",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          }
+        ],
+        "name": "code_tag"
+      },
+      "display_name": "Code",
+      "entity_definition_id": "2d1fdd5f-ebc8-fc46-c4a8-5c37eeeb1f53",
+      "logical_shape_version": "0737e9edabb74931130c7b2cdc23282feb07e357c7f4a20b916c40c8517477fc",
+      "name": "code_tag"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3588 / REQ-648. One row of the assignment history: the code (code_id, a real foreign key onto code_tag) named the record target_type / target_id from assigned_at until released_at (empty while open). target_type and target_id are declarative (decision 0050 D3.6): no key is possible and the target is not validated here. A row changes only once, when it is closed.",
+        "display_name": "Code assignment",
+        "fields": [
+          {
+            "name": "code_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "target_type",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "target_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "assigned_at",
+            "queried": true,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "assigned_by",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "released_at",
+            "queried": true,
+            "type": "datetime"
+          },
+          {
+            "name": "released_by",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "code_id",
+            "name": "fk_code_assignment_code_id",
+            "references_entity": "code_tag"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "code_id"
+            ],
+            "name": "idx_code_assignment_code_id"
+          }
+        ],
+        "name": "code_assignment"
+      },
+      "display_name": "Code assignment",
+      "entity_definition_id": "02b0dc7b-5007-86dd-777e-d75a4840557b",
+      "logical_shape_version": "ab65323fd99a011e1b46eff52fd8f455d3d8adb6b33eff441c2df46dab76beac",
+      "name": "code_assignment"
+    },
+    {
+      "definition_json": {
+        "description": "GH #3588 / REQ-648. One row of the value history of a code: the value of a rewritable tag changed from old_value to new_value. code_id is a real foreign key onto code_tag. Rows are never deleted.",
+        "display_name": "Code value change",
+        "fields": [
+          {
+            "name": "code_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "old_value",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "new_value",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "changed_at",
+            "queried": true,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "changed_by",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "code_id",
+            "name": "fk_code_value_change_code_id",
+            "references_entity": "code_tag"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "code_id"
+            ],
+            "name": "idx_code_value_change_code_id"
+          }
+        ],
+        "name": "code_value_change"
+      },
+      "display_name": "Code value change",
+      "entity_definition_id": "f69f175f-6e54-7f9c-b058-63320df50a9a",
+      "logical_shape_version": "1a7632a8fc8964cd4ca7563fbbe1ecac782a27e65e4509cc3dcef9b1c8482253",
+      "name": "code_value_change"
+    }
+  ],
+  "exported_at": "2026-10-19T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "pack_id": "letflow-codes",
+  "service_catalog_entries": [],
+  "variable_schemas": [],
+  "version": "0.1.0"
+}
