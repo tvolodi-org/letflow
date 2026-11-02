@@ -320,3 +320,25 @@ Proposed by `ORCH` from decisions relayed by the supervisor on 2026-10-14; rulin
 stated above; not independently verified by the writer except where file:line citations are given.
 
 REVIEWER sign-off:
+
+## Amendment 2026-11-02 (owner decision D-066): reference storage and the two trees
+
+Source: owner decision D-066 of 2026-11-02 (ai-dala-portfolio/DECISIONS.md, "Storage of trees and master
+data"), with its evidence letflow-team/project/tree-and-master-data-storage.md. Recorded here so that D3.6 and
+D8 are not read as the live rule for the assets phase A types. The full rule, its reasons and the change table
+belong to the master data layer record of REQ-642 (A0), which is not written yet.
+
+1. **D3.6 is superseded for new and changed phase A master data types.** A reference to a type of the same
+   pack is a real foreign key declared in the pack's entity definition (`foreign_keys`, a uuid column with
+   `ON DELETE RESTRICT`), standard fields are queried columns, and business codes are unique constraints, as
+   decision 0023 already allows. A reference to a type of another pack, or to any type, stays a declarative id
+   checked by the referencing module (D3.5), because no foreign key across packs is proven. The keys per type
+   are named in REQ-643, REQ-644, REQ-645, REQ-647 and REQ-648.
+2. **Deployed types first get an upgrade path.** Module install is first-install only and decision 0055 is not
+   built, so a new key reaches only tenants that install the module after the change. The existing org types
+   (`org_legal_entity`, `org_site`, `org_unit`, `org_unit_membership`) keep D3.6 until a module upgrade slice for
+   org exists; no phase A requirement builds one.
+3. **D8 stays for the org tree.** The org tree keeps the materialised path in `scope_node_paths`; its depth bound
+   is set by REQ-649 (A2), which also records where the bound comes from. The location tree does not use
+   `scope_node_paths` or a stored path: it is a parent link with a real foreign key inside the locations pack and
+   no depth bound (REQ-645, REQ-646).
