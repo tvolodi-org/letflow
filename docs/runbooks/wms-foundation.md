@@ -253,11 +253,15 @@ limit names the GH issue or the code that holds it; paths are cited without line
    text column without a foreign key and `node_kind` stays the three-value list. The module is
    tested on freshly provisioned tenants (GH #3591).
 9. **The link type and its fields.** `location_org_unit_link` has three fields: `location_id`,
-   `org_unit_id` and `active`; the pair is unique and the relation is many to many. There is no write
-   function, route or import for links yet: the writer is REQ-662 (GH #3586).
+   `org_unit_id` and `active`; the pair is unique and the relation is many to many. Two
+   functions write links: `link_unit_location/4` and `unlink_unit_location/4` of module locations
+   (GH #3616, REQ-662), one transaction and one audit entry each. Linking a pair that has an inactive
+   link reactivates the same record; unlinking sets `active` false and never deletes. There is no route
+   or import for links yet. Unlinking checks no stock: no ledger code exists, and the slice that first
+   posts stock under D-065 decides whether an unlink with stock is refused.
 10. **One real foreign key, one checked id.** `location_id` is a uuid column with a foreign key onto
     `location_node` (`ON DELETE RESTRICT`); `org_unit_id` is another pack's id, so it has no foreign key
-    (decision 0050 D3.6, D-066) and the REQ-662 writer checks it. The reads `linked?/3`,
+    (decision 0050 D3.6, D-066) and `link_unit_location/4` checks it at write time. The reads `linked?/3`,
     `location_ids_for_org_unit/2` and `org_unit_ids_for_location/2` check both ends at read time
     (`lib/letflow/modules/locations/locations.ex`, GH #3586).
 11. **The not-linked movement rule (D-065).** A consumer refuses a movement when `linked?/3` is false for the

@@ -4,7 +4,7 @@ Code.require_file("../org/org_fixture.exs", __DIR__)
 defmodule Letflow.Modules.Locations.LinkWriteTest do
   @moduledoc """
   GH #3586 / REQ-644 criterion 4: the stored shape of `location_org_unit_link` on the owner path
-  (no write function exists yet): one pair is unique, many to many is accepted, an unknown
+  (the write functions of REQ-662 are tested in `link_writers_test.exs`): one pair is unique, many to many is accepted, an unknown
   location is refused by the foreign key, an unknown org unit is stored and never `linked?`.
   """
 
