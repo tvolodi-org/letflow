@@ -241,3 +241,17 @@ limit names the GH issue or the code that holds it; paths are cited without line
    0055 is not built (GH #3582), so such a tenant keeps the old definition: `parent_id` stays a
    text column without a foreign key and `node_kind` stays the three-value list. The module is
    tested on freshly provisioned tenants (GH #3591).
+
+9. **The import of the tree is `import_row/3`, upsert by external ref only.** The core import route
+   (`?upsert_by=external_ref`, xlsx, CSV or JSON) calls `Letflow.Modules.Locations.import_row/3`, which
+   delegates to `Letflow.Modules.Locations.Import` (`lib/letflow/modules/locations/import.ex`, GH #3601).
+   It writes only through `create_node/3`, `update_node/4` and `move_node/4`. The key is the field pair
+   `external_ref_system` / `external_ref_id`, not the record-level master reference (the Tree functions
+   never set it), so a later type that resolves a location by external id through
+   `Latest.get_by_external_ref/4` will not find it. `parent_id` is the external id of the parent under the
+   row's system; the parent must come earlier in the file, else `reference_not_found` with header
+   `parent_id`. A re-import moves and updates by the same Tree rules (`cycle`, `parent_inactive`). The row
+   is the full desired state: an absent optional cell clears the value. There is no `active` column
+   (retire stays `retire_node/3`), a changed `code` is `field_not_allowed`, the address is the given text
+   only (no segment pattern), and nothing is retired or deleted by import. A dry run follows the rules of
+   `ManagedImport`; a Tree refusal costs one replay there.
