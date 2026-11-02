@@ -25,8 +25,10 @@ defmodule Letflow.Modules.Codes do
     * R8 movements and ledger rows name the object's record id, never the code.
 
   The types are declared in `manages_entity_types`, so after install the generic entity routes answer
-  403 `entity_type_managed`. The module ships no routes, no permissions, no role grants and no write
-  functions (those are REQ-663 and REQ-667).
+  403 `entity_type_managed`. The module ships no routes, no permissions and no role grants; the write functions are in
+  `Letflow.Modules.Codes.Writes` (GH #3615 / REQ-663): `receive_codes/3` (bulk, at most 1000 entries,
+  UAT assumption), `assign_code/5` (targets `location_node`, `catalog_item`, `catalog_lot`),
+  `release_code/3`, `retire_code/3` and `change_code_value/4`. Routes are REQ-667.
 
   ## Scope (D-067, decision 0051 M4)
 
@@ -83,6 +85,23 @@ defmodule Letflow.Modules.Codes do
   def on_install(prefix, _settings, ctx) do
     EntityActivation.activate_and_promote(prefix, ctx, @types)
   end
+
+  @doc "Receives new tags in bulk as not assigned (GH #3615 / REQ-663); see `Letflow.Modules.Codes.Writes`."
+  defdelegate receive_codes(prefix, entries, opts), to: Letflow.Modules.Codes.Writes
+
+  @doc "Assigns a not-assigned code to a master record (GH #3615 / REQ-663); see `Letflow.Modules.Codes.Writes`."
+  defdelegate assign_code(prefix, code_id, target_type, target_id, opts),
+    to: Letflow.Modules.Codes.Writes
+
+  @doc "Releases an assigned code (GH #3615 / REQ-663); see `Letflow.Modules.Codes.Writes`."
+  defdelegate release_code(prefix, code_id, opts), to: Letflow.Modules.Codes.Writes
+
+  @doc "Retires a code for good (GH #3615 / REQ-663); see `Letflow.Modules.Codes.Writes`."
+  defdelegate retire_code(prefix, code_id, opts), to: Letflow.Modules.Codes.Writes
+
+  @doc "Changes the value of a rewritable tag (GH #3615 / REQ-663); see `Letflow.Modules.Codes.Writes`."
+  defdelegate change_code_value(prefix, code_id, new_value, opts),
+    to: Letflow.Modules.Codes.Writes
 
   @doc """
   The live record `id` (a `record_id` uuid) of any of the three types in tenant schema `prefix`: a map
