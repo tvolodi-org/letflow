@@ -49,6 +49,7 @@ defmodule Letflow.Modules.Locations.RunbookTest do
     assert text =~ "external_ref"
     assert text =~ "org_site_id"
     assert text =~ "create_node"
+    for fun <- ~w(move_node update_node retire_node descendant_ids), do: assert(text =~ fun)
     assert text =~ "not upgraded"
     assert text =~ "parent_id"
     assert text =~ "capacity"
