@@ -11,18 +11,18 @@ defmodule Letflow.Modules.CatalogItems.RegistrationTest do
 
   alias Letflow.Modules.Catalog
 
-  @three ["catalog_counterparty", "catalog_item", "catalog_uom"]
+  @four ["catalog_counterparty", "catalog_item", "catalog_lot", "catalog_uom"]
 
   test "R-01: Catalog.validate/1 accepts the catalog_items manifest" do
     assert Catalog.validate(Letflow.Modules.CatalogItems.manifest()) == :ok
   end
 
-  test "R-02: the manifest is id catalog_items, no dependencies, manages exactly the three types" do
+  test "R-02: the manifest is id catalog_items, no dependencies, manages exactly the four types" do
     manifest = Letflow.Modules.CatalogItems.manifest()
 
     assert manifest.id == "catalog_items"
     assert manifest.depends_on == []
-    assert Enum.sort(manifest.manages_entity_types) == @three
+    assert Enum.sort(manifest.manages_entity_types) == @four
     assert manifest.pack == "modules/catalog_items/pack.json"
     assert manifest.permissions == []
     assert manifest.role_grants == %{}
@@ -43,5 +43,14 @@ defmodule Letflow.Modules.CatalogItems.RegistrationTest do
   test "R-04: Catalog.entry_modules/0 includes the module and fetch/1 resolves it" do
     assert Letflow.Modules.CatalogItems in Catalog.entry_modules()
     assert Catalog.fetch("catalog_items") == {:ok, Letflow.Modules.CatalogItems}
+  end
+
+  test "R-05 (decision 0051 M4, D6): scope_declarations is exactly the four tenant_wide types" do
+    assert Letflow.Modules.CatalogItems.manifest().scope_declarations == %{
+             "catalog_item" => :tenant_wide,
+             "catalog_uom" => :tenant_wide,
+             "catalog_counterparty" => :tenant_wide,
+             "catalog_lot" => :tenant_wide
+           }
   end
 end

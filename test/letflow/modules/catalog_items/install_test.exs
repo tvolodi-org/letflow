@@ -22,6 +22,8 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
   alias Letflow.Definitions.SolutionPackInstall
   alias Letflow.Entities.Definition.DDL
   alias Letflow.Entities.Definition.Validator.Violation
+  alias Letflow.Entities.Query.Compiler
+  alias Letflow.Entities.ScopeDeclaration
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EventTypes
@@ -34,7 +36,9 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.ColumnPromotion
 
-  @types ~w(catalog_counterparty catalog_item catalog_uom)
+  @types ~w(catalog_counterparty catalog_item catalog_lot catalog_uom)
+  # Types whose generic rows need no parent record; a lot needs a real item (see lot_test.exs).
+  @code_types ~w(catalog_counterparty catalog_item catalog_uom)
   @trace "gh2663-catalog-items-install-fixed-trace"
 
   @install_opts Letflow.Routers.TenantModules.init([])
@@ -160,6 +164,10 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
     )
   end
 
+  defp values("catalog_lot", code, extra) do
+    Map.merge(%{"item_id" => Ecto.UUID.generate(), "code" => code, "active" => true}, extra)
+  end
+
   defp values("catalog_item", code, extra) do
     Map.merge(
       %{
@@ -218,7 +226,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
       assert module_installed?(ctx.schema)
     end
 
-    test "I-02: afterwards exactly the three types exist, all active, each managed_by catalog_items",
+    test "I-02: afterwards exactly the four types exist, all active, each managed_by catalog_items",
          ctx do
       install_catalog!(ctx)
 
@@ -244,6 +252,9 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
       assert {"catalog_item", "kind"} in expected
       assert {"catalog_counterparty", "kind"} in expected
       assert {"catalog_counterparty", "tax_id"} in expected
+      assert {"catalog_lot", "item_id"} in expected
+      assert {"catalog_lot", "expiry_date"} in expected
+      assert length(for {"catalog_lot", _} <- expected, do: 1) == 8
       # `name` is not queried, so it has no column.
       refute {"catalog_item", "name"} in expected
       refute {"catalog_counterparty", "name"} in expected
@@ -319,6 +330,83 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
     end
   end
 
+  describe "GH #3593 / REQ-647: catalog_lot install" do
+    test "I-lot-fk: item_id is a uuid column with a real FK to catalog_item, ON DELETE RESTRICT",
+         ctx do
+      install_catalog!(ctx)
+
+      %{rows: rows} =
+        Repo.query!(
+          """
+          SELECT c.confdeltype::text, format_type(a.atttypid, a.atttypmod), rt.relname
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_class rt ON rt.oid = c.confrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+          WHERE n.nspname = $1 AND t.relname = 'entity_catalog_lot' AND c.contype = 'f'
+            AND a.attname = 'item_id'
+          """,
+          [ctx.schema]
+        )
+
+      assert rows == [["r", "uuid", "entity_catalog_item"]]
+    end
+
+    test "N-04: a tenant-created catalog_lot blocks the install too", ctx do
+      Letflow.ManagedTypesSupport.plant_legacy_squat!(ctx.schema, "catalog_lot", [
+        %{name: "address", type: :string}
+      ])
+
+      assert Installs.install("catalog_items", Ecto.UUID.generate(),
+               prefix: ctx.schema,
+               rationale: "GH-3593 conflict test"
+             ) == {:error, {:pack_install_failed, {:managed_name_taken, "catalog_lot"}}}
+
+      assert rows(ctx.schema) == [{"catalog_lot", nil, :inactive}]
+      refute module_installed?(ctx.schema)
+      assert promotions(ctx.tenant_id) == []
+    end
+
+    test "S-01: every catalog_items type is declared :tenant_wide for the installed tenant",
+         ctx do
+      assert ScopeDeclaration.for_type("catalog_lot", ctx.schema) == :undeclared
+
+      install_catalog!(ctx)
+
+      for type <- @types do
+        assert ScopeDeclaration.for_type(type, ctx.schema) == :tenant_wide, type
+      end
+    end
+
+    test "S-02: a lot query under a {:nodes, _} scope returns the same rows as :all", ctx do
+      install_catalog!(ctx)
+
+      {:ok, %{record: item}} =
+        owner_create(ctx.schema, "catalog_item", values("catalog_item", "S2"))
+
+      for code <- ["L-1", "L-2"] do
+        assert {:ok, _} =
+                 owner_create(
+                   ctx.schema,
+                   "catalog_lot",
+                   values("catalog_lot", code, %{"item_id" => item.record_id})
+                 )
+      end
+
+      request = %{entity_type: "catalog_lot", sort: [%{field: "code", dir: :asc}]}
+
+      run = fn scope ->
+        {:ok, query} = Compiler.compile(request, ctx.schema, scope)
+        query |> Repo.all(prefix: ctx.schema) |> Enum.map(& &1.record_id)
+      end
+
+      all = run.(:all)
+      assert length(all) == 2
+      assert run.({:nodes, [Ecto.UUID.generate()]}) == all
+    end
+  end
+
   # ── uniqueness through the owner path ───────────────────────────────────────────────────────
 
   describe "uniqueness: external_ref and code (owner path, real unique indexes)" do
@@ -328,7 +416,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
     end
 
     test "X-01: two rows with both external_ref fields NULL are accepted, per type", ctx do
-      for type <- @types do
+      for type <- @code_types do
         assert {:ok, _} = owner_create(ctx.schema, type, values(type, "null-a"))
         assert {:ok, _} = owner_create(ctx.schema, type, values(type, "null-b"))
         assert record_count(ctx.schema, type) == 2
@@ -337,7 +425,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
 
     test "X-02: two rows with the same non-NULL external_ref pair: the second is refused, per type",
          ctx do
-      for type <- @types do
+      for type <- @code_types do
         assert {:ok, _} = owner_create(ctx.schema, type, values(type, "ref-a", ref("1c", "42")))
 
         assert {:error, {:record_payload_invalid, [violation]}} =
@@ -352,7 +440,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
 
     test "X-03: the constraint is on the pair: a different system or a different id is accepted",
          ctx do
-      for type <- @types do
+      for type <- @code_types do
         assert {:ok, _} = owner_create(ctx.schema, type, values(type, "p-1", ref("1c", "42")))
         assert {:ok, _} = owner_create(ctx.schema, type, values(type, "p-2", ref("sap", "42")))
         assert {:ok, _} = owner_create(ctx.schema, type, values(type, "p-3", ref("1c", "43")))
@@ -361,7 +449,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
     end
 
     test "X-04: a duplicate code is refused with a unique violation on [code], per type", ctx do
-      for type <- @types do
+      for type <- @code_types do
         assert {:ok, _} = owner_create(ctx.schema, type, values(type, "same"))
 
         assert {:error, {:record_payload_invalid, [violation]}} =
@@ -400,7 +488,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
 
   # ── managed lock ────────────────────────────────────────────────────────────────────────────
 
-  describe "managed lock: the generic routes refuse all three catalog types" do
+  describe "managed lock: the generic routes refuse all four catalog types" do
     setup ctx do
       install_catalog!(ctx)
       :ok
@@ -449,7 +537,7 @@ defmodule Letflow.Modules.CatalogItems.InstallTest do
       other = fresh_tenant!("gh2663-cat-b")
 
       install_catalog!(ctx)
-      assert length(rows(ctx.schema)) == 3
+      assert length(rows(ctx.schema)) == 4
 
       assert rows(other.schema_name) == []
       refute module_installed?(other.schema_name)
