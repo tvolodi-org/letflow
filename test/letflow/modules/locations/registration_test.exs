@@ -49,4 +49,28 @@ defmodule Letflow.Modules.Locations.RegistrationTest do
     assert Letflow.Modules.Org in Catalog.entry_modules()
     assert Catalog.fetch("org") == {:ok, Letflow.Modules.Org}
   end
+
+  test "R-5: locations is 0.3.0, depends on org, manages exactly @types" do
+    m = Letflow.Modules.Locations.manifest()
+    assert m.version == "0.3.0"
+    assert m.depends_on == ["org"]
+    assert m.manages_entity_types == ["location_node", "location_org_unit_link"]
+    assert Catalog.validate(m) == :ok
+
+    source =
+      File.read!(
+        Path.join([File.cwd!(), "lib", "letflow", "modules", "locations", "locations.ex"])
+      )
+
+    [_, block] = Regex.run(~r/@types \[(.*?)\]/s, source)
+    types = Regex.scan(~r/"([a-z_]+)"/, block) |> Enum.map(&List.last/1)
+    assert types == m.manages_entity_types
+  end
+
+  test "R-6: the scope declarations are the whole two-key map" do
+    assert Letflow.Modules.Locations.manifest().scope_declarations == %{
+             "location_node" => :tenant_wide,
+             "location_org_unit_link" => {:column, "org_unit_id"}
+           }
+  end
 end

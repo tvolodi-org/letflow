@@ -39,9 +39,9 @@ defmodule Letflow.Modules.Locations.RunbookTest do
     assert @runbook |> File.read!() |> String.split("\n") |> Enum.member?(@heading)
   end
 
-  test "B-2: the section is a numbered list 1..9 with the known limits" do
+  test "B-2: the section is a numbered list 1..14 with the known limits" do
     numbers = Enum.map(items(), &elem(&1, 0))
-    assert numbers == Enum.to_list(1..9)
+    assert numbers == Enum.to_list(1..14)
 
     text = items() |> Enum.map_join("\n", &elem(&1, 1))
     assert text =~ "entity_type_managed"
@@ -53,6 +53,7 @@ defmodule Letflow.Modules.Locations.RunbookTest do
     assert text =~ "not upgraded"
     assert text =~ "parent_id"
     assert text =~ "capacity"
+    for word <- ["location_org_unit_link", "linked?", "D-065"], do: assert(text =~ word)
     assert text =~ "import_row"
     assert text =~ "no `active` column" or text =~ "There is no `active` column"
   end

@@ -351,10 +351,10 @@ defmodule Letflow.Modules.Locations.CreateNodeTest do
       assert count(a) == 1 and count(b) == 1
     end
 
-    test "the manifest ships no permission and no dependency" do
+    test "the manifest ships no permission and depends on org only" do
       m = Locations.manifest()
       assert m.permissions == []
-      assert m.depends_on == []
+      assert m.depends_on == ["org"]
     end
   end
 
@@ -416,10 +416,15 @@ defmodule Letflow.Modules.Locations.CreateNodeTest do
   end
 
   describe "C-11: version and scope declaration" do
-    test "the manifest is 0.2.0 with a tenant_wide declaration and validates" do
+    test "the manifest is 0.3.0 with the two scope declarations and validates" do
       m = Locations.manifest()
-      assert m.version == "0.2.0"
-      assert m.scope_declarations == %{"location_node" => :tenant_wide}
+      assert m.version == "0.3.0"
+
+      assert m.scope_declarations == %{
+               "location_node" => :tenant_wide,
+               "location_org_unit_link" => {:column, "org_unit_id"}
+             }
+
       assert Catalog.validate(m) == :ok
     end
 

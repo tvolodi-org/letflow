@@ -234,9 +234,9 @@ limit names the GH issue or the code that holds it; paths are cited without line
    (`priv/modules/locations/entity_definitions/location_node.json`), no stored path, no stored depth
    and no depth bound (decision 0066). Addresses are not rewritten on a move or a segment change
    (GH #3588).
-4. **No `org_site_id`.** The field was removed from `location_node`; the link between the org tree
-   and the location tree is a later step of the assets application (phase A4), and the manifest
-   does not depend on `org` (GH #3591).
+4. **No `org_site_id`; the org link is its own type.** The field was removed from `location_node`
+   (GH #3591). The link between the org tree and the location tree is the type
+   `location_org_unit_link` of GH #3586, and the manifest now depends on `org`.
 5. **No both-or-neither rule for `external_ref`.** The unique constraint over
    `external_ref_system` and `external_ref_id` only applies when both are set; a row with one of
    the two is accepted (GH #3501, import key of decision 0057 D1).
@@ -252,8 +252,25 @@ limit names the GH issue or the code that holds it; paths are cited without line
    0055 is not built (GH #3582), so such a tenant keeps the old definition: `parent_id` stays a
    text column without a foreign key and `node_kind` stays the three-value list. The module is
    tested on freshly provisioned tenants (GH #3591).
-
-9. **The import of the tree is `import_row/3`, upsert by external ref only.** The core import route
+9. **The link type and its fields.** `location_org_unit_link` has three fields: `location_id`,
+   `org_unit_id` and `active`; the pair is unique and the relation is many to many. There is no write
+   function, route or import for links yet: the writer is REQ-662 (GH #3586).
+10. **One real foreign key, one checked id.** `location_id` is a uuid column with a foreign key onto
+    `location_node` (`ON DELETE RESTRICT`); `org_unit_id` is another pack's id, so it has no foreign key
+    (decision 0050 D3.6, D-066) and the REQ-662 writer checks it. The reads `linked?/3`,
+    `location_ids_for_org_unit/2` and `org_unit_ids_for_location/2` check both ends at read time
+    (`lib/letflow/modules/locations/locations.ex`, GH #3586).
+11. **The not-linked movement rule (D-065).** A consumer refuses a movement when `linked?/3` is false for the
+    pair of org unit and location at posting time, and names both. A movement without a location is not
+    checked. Retiring a unit, a location or a link only makes the pair not linked; it changes no balance
+    and no past movement. This slice builds no refusal reason (GH #3586).
+12. **Separate fields, no shortcut.** The link is its own record; `location_node` holds no org field and
+    `org_unit` holds no location field (GH #3586).
+13. **Tenants that installed `locations` before 0.3.0 are not upgraded.** The module upgrade of decision
+    0055 is not built (GH #3582; see `lib/letflow/modules/exam/parent_rollout.ex` for the shape), so they
+    have no link type. The module is tested on freshly provisioned tenants with `org` installed first
+    (GH #3586).
+14. **The import of the tree is `import_row/3`, upsert by external ref only.** The core import route
    (`?upsert_by=external_ref`, xlsx, CSV or JSON) calls `Letflow.Modules.Locations.import_row/3`, which
    delegates to `Letflow.Modules.Locations.Import` (`lib/letflow/modules/locations/import.ex`, GH #3601).
    It writes only through `create_node/3`, `update_node/4` and `move_node/4`. The key is the field pair
