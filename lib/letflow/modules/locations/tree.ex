@@ -479,6 +479,7 @@ defmodule Letflow.Modules.Locations.Tree do
   end
 
   defp active_descendant?(prefix, node_id) do
+    true = Regex.match?(@prefix_re, prefix)
     {:ok, bin} = Ecto.UUID.dump(node_id)
 
     case Repo.query!(subtree_sql(prefix, "AND l.field_values->>'active' = 'true'"), [bin]) do
@@ -496,7 +497,9 @@ defmodule Letflow.Modules.Locations.Tree do
 
   # `prefix` is checked against `@prefix_re` or comes from the caller of a write that already read
   # the tenant; the node id is the bound `$1`. `extra` is a fixed literal of this module.
-  defp subtree_sql(prefix, extra) do
+  defp subtree_sql(prefix, extra) when is_binary(prefix) do
+    true = Regex.match?(@prefix_re, prefix)
+
     ~s"""
     WITH RECURSIVE sub(record_id) AS (
       SELECT t.record_id FROM "#{prefix}"."entity_location_node" t

@@ -49,6 +49,28 @@ defmodule Letflow.Modules.Locations.TreeWriteTest do
   defp seq(schema, node),
     do: seqs(schema) |> Enum.find(&(hd(&1) == node["record_id"])) |> List.last()
 
+  # Runs `fun` in a process with no sandbox owner or `$callers`, so in :auto mode it uses its own
+  # connection. `await_auto/1` is bounded.
+  defp spawn_auto(fun) do
+    parent = self()
+    ref = make_ref()
+    {_pid, mref} = spawn_monitor(fn -> send(parent, {ref, fun.()}) end)
+    {ref, mref}
+  end
+
+  defp await_auto({ref, mref}) do
+    receive do
+      {^ref, result} ->
+        Process.demonitor(mref, [:flush])
+        result
+
+      {:DOWN, ^mref, _, _, reason} ->
+        flunk("auto-mode process died: #{inspect(reason)}")
+    after
+      30_000 -> flunk("auto-mode process did not finish in 30 s")
+    end
+  end
+
   describe "move_node/4" do
     test "M-01: moves a subtree root with one write; others untouched", %{schema: schema} do
       r = mk!(schema, "R")
@@ -219,6 +241,26 @@ defmodule Letflow.Modules.Locations.TreeWriteTest do
       refute Map.has_key?(u2, "location_type")
     end
 
+    test "U-06: a legacy row with org_site_id is updated and the key is gone", %{schema: schema} do
+      a = mk!(schema, "A")
+      legacy = Ecto.UUID.generate()
+
+      # A row stored under the old (0.1.0) definition carries `org_site_id`, which the active
+      # definition no longer declares: put it into the stored document as that definition did.
+      Repo.query!(
+        ~s{UPDATE "#{schema}".entity_record_latest SET field_values = field_values || jsonb_build_object('org_site_id', $2::text) WHERE record_id = $1::uuid},
+        [Ecto.UUID.dump!(a["record_id"]), legacy]
+      )
+
+      assert {:ok, %{"org_site_id" => ^legacy}} = Locations.lookup(schema, a["record_id"])
+
+      assert {:ok, u} = Locations.update_node(schema, a["record_id"], %{"name" => "New"}, opts())
+      assert u["name"] == "New"
+      refute Map.has_key?(u, "org_site_id")
+      assert {:ok, again} = Locations.lookup(schema, a["record_id"])
+      refute Map.has_key?(again, "org_site_id")
+    end
+
     test "U-07: a duplicate address is a record error, nothing written", %{schema: schema} do
       _a = mk!(schema, "A", nil, %{"address" => "dup"})
       b = mk!(schema, "B")
@@ -303,6 +345,32 @@ defmodule Letflow.Modules.Locations.TreeWriteTest do
 
         assert after_ > before
       end
+    end
+
+    test "L-03: two concurrent moves, A under B and B under A, make no cycle", %{schema: schema} do
+      # Separate processes with no sandbox owner in :auto mode (the fixture's committed tenant):
+      # each gets its own connection, so the tree lock is the only thing that serialises them.
+      [a, b] = await_auto(spawn_auto(fn -> [mk!(schema, "CA"), mk!(schema, "CB")] end))
+      id = fn n -> n["record_id"] end
+
+      refs = [
+        spawn_auto(fn -> Locations.move_node(schema, id.(a), id.(b), opts()) end),
+        spawn_auto(fn -> Locations.move_node(schema, id.(b), id.(a), opts()) end)
+      ]
+
+      results = Enum.map(refs, &await_auto/1)
+      assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+      assert Enum.count(results, &(&1 == {:error, :cycle})) == 1
+
+      {da, db} =
+        await_auto(
+          spawn_auto(fn ->
+            {Locations.descendant_ids(schema, id.(a)), Locations.descendant_ids(schema, id.(b))}
+          end)
+        )
+
+      # exactly one of them is below the other, and the walk of the other direction is empty
+      assert (da == [id.(b)] and db == []) or (db == [id.(a)] and da == [])
     end
 
     test "T-01..T-03: another tenant's node is unknown", %{schema: schema} do
