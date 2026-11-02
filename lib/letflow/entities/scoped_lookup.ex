@@ -16,7 +16,8 @@ defmodule Letflow.Entities.ScopedLookup do
   | `:undeclared`, `:latest` source, column absent, `:none` | none   | `:not_found` |
 
   The column name comes from a format-validated module declaration and is bound as a field
-  reference; the id list is ONE bound text array (INV-7). The caller computes the set once through
+  reference; the id list is ONE bound array (INV-7): text, or `uuid[]` when the
+  declared column is a `uuid` column (REQ-674; ids that are not uuids are dropped). The caller computes the set once through
   `Letflow.Api.ScopeGate` BEFORE calling here, so every case pays the same set read.
 
   ## Telemetry (decision 0051 D8: counted, not audited)
@@ -28,7 +29,7 @@ defmodule Letflow.Entities.ScopedLookup do
   router use it for their own refusals.
   """
 
-  import Ecto.Query, only: [from: 2]
+  import Ecto.Query, only: [dynamic: 1, from: 2]
 
   alias Letflow.Entities.Query.Compiler
   alias Letflow.Entities.Record.Latest
@@ -100,7 +101,7 @@ defmodule Letflow.Entities.ScopedLookup do
 
   defp count_visible(entity_type, ids, column_and_set, prefix) do
     with {:ok, source} <- Compiler.resolve_binding_source(entity_type, prefix),
-         {:ok, base} <- visible_base(source, entity_type, column_and_set, prefix) do
+         {:ok, base, column_and_set} <- visible_base(source, entity_type, column_and_set, prefix) do
       query =
         from(r in base,
           where: fragment("? = ANY(?)", r.record_id, type(^ids, {:array, Ecto.UUID})),
@@ -113,26 +114,40 @@ defmodule Letflow.Entities.ScopedLookup do
     end
   end
 
-  defp visible_base({:per_type_table, table}, _entity_type, column_and_set, prefix) do
-    if column_present?(column_and_set, prefix, table), do: {:ok, table}, else: :closed
+  # Returns the base query and the column predicate input with the column's kind (read once).
+  defp visible_base({:per_type_table, table}, _entity_type, nil, _prefix),
+    do: {:ok, table, nil}
+
+  defp visible_base({:per_type_table, table}, _entity_type, {column, set}, prefix) do
+    case Compiler.scope_column_kind(prefix, table, column) do
+      :missing -> :closed
+      kind -> {:ok, table, {column, set, kind}}
+    end
   end
 
   defp visible_base(:latest, entity_type, nil, _prefix),
-    do: {:ok, from(l in Latest, where: l.entity_type == ^entity_type)}
+    do: {:ok, from(l in Latest, where: l.entity_type == ^entity_type), nil}
 
   defp visible_base(:latest, _entity_type, _column_and_set, _prefix), do: :closed
 
-  defp column_present?(nil, _prefix, _table), do: true
-
-  defp column_present?({column, _set}, prefix, table),
-    do: Compiler.relation_column_exists?(prefix, table, column)
-
   defp column_predicate(query, nil), do: query
 
-  defp column_predicate(query, {column, set}) do
+  defp column_predicate(query, {column, set, :text}) do
     from(r in query,
       where: fragment("? = ANY(?)", literal(^column), type(^set, {:array, :string}))
     )
+  end
+
+  defp column_predicate(query, {column, set, :uuid}) do
+    case Compiler.scope_uuid_ids(set) do
+      [] ->
+        from(r in query, where: false)
+
+      uuids ->
+        from(r in query,
+          where: fragment("? = ANY(?)", literal(^column), type(^uuids, {:array, Ecto.UUID}))
+        )
+    end
   end
 
   @doc "Emits `[:letflow, :scope, :not_found]` (see the moduledoc). Always returns `:ok`."
@@ -158,12 +173,13 @@ defmodule Letflow.Entities.ScopedLookup do
     with {:ok, record_uuid} <- Ecto.UUID.cast(record_id),
          {:ok, {:per_type_table, table_name}} <-
            Compiler.resolve_binding_source(entity_type, prefix),
-         true <- Compiler.relation_column_exists?(prefix, table_name, column) do
+         kind when kind in [:uuid, :text] <-
+           Compiler.scope_column_kind(prefix, table_name, column),
+         {:ok, predicate} <- lookup_predicate(kind, column, ids) do
       query =
         from(r in table_name,
-          where:
-            r.record_id == type(^record_uuid, Ecto.UUID) and
-              fragment("? = ANY(?)", literal(^column), type(^ids, {:array, :string})),
+          where: r.record_id == type(^record_uuid, Ecto.UUID),
+          where: ^predicate,
           select: 1,
           limit: 1
         )
@@ -174,6 +190,20 @@ defmodule Letflow.Entities.ScopedLookup do
       end
     else
       _not_visible -> :not_found
+    end
+  end
+
+  defp lookup_predicate(:text, column, ids),
+    do: {:ok, dynamic(fragment("? = ANY(?)", literal(^column), type(^ids, {:array, :string})))}
+
+  defp lookup_predicate(:uuid, column, ids) do
+    case Compiler.scope_uuid_ids(ids) do
+      [] ->
+        :none_left
+
+      uuids ->
+        {:ok,
+         dynamic(fragment("? = ANY(?)", literal(^column), type(^uuids, {:array, Ecto.UUID})))}
     end
   end
 end

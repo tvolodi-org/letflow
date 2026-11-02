@@ -1054,3 +1054,4 @@
 7 test/letflow/modules/locations/read_api_test.exs 5589.95
 13 test/letflow/modules/locations/behaviour_test.exs 5589.95
 15 test/letflow/modules/locations/install_test.exs 5589.95
+2 test/letflow/modules/locations/create_node_test.exs 5589.95

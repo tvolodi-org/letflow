@@ -23,13 +23,14 @@ defmodule Letflow.Modules.Locations.ReadApiTest do
 
   test "L-1a: lookup returns record_id, entity_type and every stored field; active? is true",
        %{schema: schema} do
+    parent = node!(schema, "RD-0", "zone")
+
     vals =
       values("location_node", "RD-1", %{
         "node_kind" => "address",
         "address" => "A-1",
         "location_type" => "pick",
-        "parent_id" => "z-1",
-        "org_site_id" => "s-1",
+        "parent_id" => parent.record_id,
         "external_ref_system" => "1c",
         "external_ref_id" => "7"
       })
