@@ -20,7 +20,7 @@ defmodule Letflow.Modules.CatalogItems.LotTest do
 
   import Letflow.CatalogItemsFixture, except: [values: 3]
 
-  defp values(type, code, extra \\ %{}), do: Letflow.CatalogItemsFixture.values(type, code, extra)
+  defp values(type, code, extra), do: Letflow.CatalogItemsFixture.values(type, code, extra)
 
   @type_name "catalog_lot"
   @trace "gh3593-lot-fixed-trace"
