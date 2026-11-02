@@ -1681,7 +1681,7 @@ defmodule Letflow.Routers.Entities do
              request,
              %{exempt?: unredacted?}
            ),
-         {:ok, compiled} <- export_compile(request, prefix, scope_set),
+         {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
          :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, allowlist, primary_specs} <-
            Allowlist.load(request.entity_type, prefix, :with_specs),
@@ -1718,13 +1718,6 @@ defmodule Letflow.Routers.Entities do
         {:ok, :json}
     end
   end
-
-  @doc false
-  def export_request(body, entity_type), do: build_export_query_request(body, entity_type)
-
-  # The one compile call of the export, for both formats (REQ-653 criterion 6).
-  @doc false
-  def export_compile(request, prefix, scope_set), do: Compiler.compile(request, prefix, scope_set)
 
   defp render_export(conn, :json, doc, _entity_type, _prefix), do: Response.ok(conn, doc)
 

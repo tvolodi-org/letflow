@@ -8,7 +8,7 @@ defmodule Letflow.Routers.EntitiesExportXlsxTest do
     * X1: a text starting with `=` is a string cell.
     * R1/R2: redaction leaves an empty column; 403 and 404 answer as the JSON export.
     * T1: tenant B never sees tenant A's rows.
-    * S1: both formats go through the one `export_compile/3`; the xlsx rows are the JSON live rows.
+    * S1: both formats share the one `run_export` pipeline; the xlsx rows are the JSON live rows.
   """
 
   use Letflow.DataCase, async: false
@@ -304,20 +304,11 @@ defmodule Letflow.Routers.EntitiesExportXlsxTest do
   end
 
   describe "scope" do
-    test "S1 one compile for both formats; xlsx rows are the JSON live rows" do
+    test "S1 one pipeline for both formats; xlsx rows are the JSON live rows" do
       ctx = typed_tenant("gh3600-s1")
       for t <- ["a", "b", "c"], do: seed_record!(ctx, "thing", %{"title" => t})
       gone = seed_record!(ctx, "thing", %{"title" => "d"})
       delete_record!(ctx, "thing", gone.record_id)
-
-      scope = {:nodes, [Ecto.UUID.generate()]}
-      {:ok, request} = Letflow.Routers.Entities.export_request(%{}, "thing")
-
-      assert {:ok, compiled} =
-               Letflow.Routers.Entities.export_compile(request, ctx.schema_name, scope)
-
-      assert {:ok, ^compiled} =
-               Letflow.Routers.Entities.export_compile(request, ctx.schema_name, scope)
 
       json = Jason.decode!(export(ctx, "thing", %{}).resp_body)
       live = for r <- json["records"], not r["deleted"], do: r["field_values"]["title"]
