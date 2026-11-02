@@ -60,13 +60,13 @@ was written.
    uuid columns referencing the target table `ON DELETE RESTRICT` (decision 0050 amendment
    2026-10-31, D-066; GH #3584), so an unknown id is refused by the owner path with a `reference` violation.
    The key proves only that the target exists: that the position belongs to the same unit and that
-   targets are active is checked by the write functions of REQ-661.
+   targets are active is checked by the write functions of REQ-661 (item 13).
 9. **One term for the person in charge.** The "materially responsible person"
    (`material_responsible`) and the "actual user" (`actual_user`) are each an `org_employee` record
    id, never a Letflow user id; a writer checks one with `Letflow.Modules.Org.active_employee?/2`,
    and `employee_for_user/2` finds the employee of a user (GH #3584).
-10. **No write function, route or import yet.** The two types are written only through the Owner
-    path; the write functions, the roster import and the routes are later slices, and
+10. **No route or import yet.** The two types are written through the write functions of item 13
+    (the Owner path); the roster import and the routes are later slices, and
     `scope_declarations` (employees and positions scoped by `org_unit_id`) is inert until REQ-519
     (GH #3584).
 11. **Tenants that installed org before 0.2.0 are not upgraded.** Module install is first-install
@@ -85,6 +85,17 @@ was written.
     `code` is immutable; retire is `active` false and is refused while an active site or unit names
     the record (UAT assumption, same status). The functions are reached by no route yet (REQ-665);
     tenants that installed org before the pack carried these definitions are not upgraded.
+13. **Positions and employees have owner-path write functions (GH #3617, REQ-661); there is still no route.**
+    `Letflow.Modules.Org.create_position/3`, `update_position/4`, `retire_position/3`,
+    `create_employee/3`, `update_employee/4`, `transfer_employee/5` and `retire_employee/3` (logic in
+    `Letflow.Modules.Org.People`) write through the org Owner, one audit entry per accepted change,
+    nothing on a refusal. Unit and position must be active, the position must be of the employee's
+    unit (`:position_not_in_unit`), `user_id` must be a user of the tenant (`:user_not_found`; a
+    disabled user may stay linked, UAT assumption), a position held by an active employee is not
+    retired (`:position_in_use`), and a position is never moved between units (UAT assumption). A
+    transfer changes unit and position in one record version; only an active employee can be
+    transferred. The audit entries of an employee omit `full_name` (personal data; a name-only change
+    is recorded as `changed_fields`); the name remains in the record and its event payload.
 
 ## Catalog module limits
 
