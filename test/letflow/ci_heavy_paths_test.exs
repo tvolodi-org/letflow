@@ -19,7 +19,12 @@ defmodule Letflow.CiHeavyPathsTest do
     File.write!(path, list)
 
     try do
-      {out, 0} = System.cmd("bash", ["-c", "bash #{@script} < #{path}"], cd: @root)
+      {out, 0} =
+        System.cmd("bash", ["-c", "bash #{@script} < #{path}"],
+          cd: @root,
+          env: Letflow.Test.TestParallelEnv.cmd_env()
+        )
+
       String.trim(out)
     after
       File.rm(path)
@@ -60,7 +65,12 @@ defmodule Letflow.CiHeavyPathsTest do
   end
 
   test "H3: the heavy file list holds the exam tests and every :slow-tagged file" do
-    {out, 0} = System.cmd("bash", [@script, "files"], cd: @root)
+    {out, 0} =
+      System.cmd("bash", [@script, "files"],
+        cd: @root,
+        env: Letflow.Test.TestParallelEnv.cmd_env()
+      )
+
     files = String.split(out, "\n", trim: true)
     assert "test/letflow/modules/exam/session_test.exs" in files
     assert "test/letflow/routers/tasks_test.exs" in files
