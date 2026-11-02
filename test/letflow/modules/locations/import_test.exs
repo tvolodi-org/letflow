@@ -273,6 +273,9 @@ defmodule Letflow.Modules.Locations.ImportTest do
   end
 
   test "Q1: the scope declaration is unchanged" do
-    assert Locations.manifest().scope_declarations == %{"location_node" => :tenant_wide}
+    assert Locations.manifest().scope_declarations == %{
+             "location_node" => :tenant_wide,
+             "location_org_unit_link" => {:column, "org_unit_id"}
+           }
   end
 end

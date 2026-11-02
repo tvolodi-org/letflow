@@ -60,13 +60,13 @@ was written.
    uuid columns referencing the target table `ON DELETE RESTRICT` (decision 0050 amendment
    2026-10-31, D-066; GH #3584), so an unknown id is refused by the owner path with a `reference` violation.
    The key proves only that the target exists: that the position belongs to the same unit and that
-   targets are active is checked by the write functions of REQ-661.
+   targets are active is checked by the write functions of REQ-661 (item 13).
 9. **One term for the person in charge.** The "materially responsible person"
    (`material_responsible`) and the "actual user" (`actual_user`) are each an `org_employee` record
    id, never a Letflow user id; a writer checks one with `Letflow.Modules.Org.active_employee?/2`,
    and `employee_for_user/2` finds the employee of a user (GH #3584).
-10. **No write function, route or import yet.** The two types are written only through the Owner
-    path; the write functions, the roster import and the routes are later slices, and
+10. **No route or import yet.** The two types are written through the write functions of item 13
+    (the Owner path); the roster import and the routes are later slices, and
     `scope_declarations` (employees and positions scoped by `org_unit_id`) is inert until REQ-519
     (GH #3584).
 11. **Tenants that installed org before 0.2.0 are not upgraded.** Module install is first-install
@@ -85,6 +85,17 @@ was written.
     `code` is immutable; retire is `active` false and is refused while an active site or unit names
     the record (UAT assumption, same status). The functions are reached by no route yet (REQ-665);
     tenants that installed org before the pack carried these definitions are not upgraded.
+13. **Positions and employees have owner-path write functions (GH #3617, REQ-661); there is still no route.**
+    `Letflow.Modules.Org.create_position/3`, `update_position/4`, `retire_position/3`,
+    `create_employee/3`, `update_employee/4`, `transfer_employee/5` and `retire_employee/3` (logic in
+    `Letflow.Modules.Org.People`) write through the org Owner, one audit entry per accepted change,
+    nothing on a refusal. Unit and position must be active, the position must be of the employee's
+    unit (`:position_not_in_unit`), `user_id` must be a user of the tenant (`:user_not_found`; a
+    disabled user may stay linked, UAT assumption), a position held by an active employee is not
+    retired (`:position_in_use`), and a position is never moved between units (UAT assumption). A
+    transfer changes unit and position in one record version; only an active employee can be
+    transferred. The audit entries of an employee omit `full_name` (personal data; a name-only change
+    is recorded as `changed_fields`); the name remains in the record and its event payload.
 
 ## Catalog module limits
 
@@ -234,9 +245,9 @@ limit names the GH issue or the code that holds it; paths are cited without line
    (`priv/modules/locations/entity_definitions/location_node.json`), no stored path, no stored depth
    and no depth bound (decision 0066). Addresses are not rewritten on a move or a segment change
    (GH #3588).
-4. **No `org_site_id`.** The field was removed from `location_node`; the link between the org tree
-   and the location tree is a later step of the assets application (phase A4), and the manifest
-   does not depend on `org` (GH #3591).
+4. **No `org_site_id`; the org link is its own type.** The field was removed from `location_node`
+   (GH #3591). The link between the org tree and the location tree is the type
+   `location_org_unit_link` of GH #3586, and the manifest now depends on `org`.
 5. **No both-or-neither rule for `external_ref`.** The unique constraint over
    `external_ref_system` and `external_ref_id` only applies when both are set; a row with one of
    the two is accepted (GH #3501, import key of decision 0057 D1).
@@ -252,8 +263,25 @@ limit names the GH issue or the code that holds it; paths are cited without line
    0055 is not built (GH #3582), so such a tenant keeps the old definition: `parent_id` stays a
    text column without a foreign key and `node_kind` stays the three-value list. The module is
    tested on freshly provisioned tenants (GH #3591).
-
-9. **The import of the tree is `import_row/3`, upsert by external ref only.** The core import route
+9. **The link type and its fields.** `location_org_unit_link` has three fields: `location_id`,
+   `org_unit_id` and `active`; the pair is unique and the relation is many to many. There is no write
+   function, route or import for links yet: the writer is REQ-662 (GH #3586).
+10. **One real foreign key, one checked id.** `location_id` is a uuid column with a foreign key onto
+    `location_node` (`ON DELETE RESTRICT`); `org_unit_id` is another pack's id, so it has no foreign key
+    (decision 0050 D3.6, D-066) and the REQ-662 writer checks it. The reads `linked?/3`,
+    `location_ids_for_org_unit/2` and `org_unit_ids_for_location/2` check both ends at read time
+    (`lib/letflow/modules/locations/locations.ex`, GH #3586).
+11. **The not-linked movement rule (D-065).** A consumer refuses a movement when `linked?/3` is false for the
+    pair of org unit and location at posting time, and names both. A movement without a location is not
+    checked. Retiring a unit, a location or a link only makes the pair not linked; it changes no balance
+    and no past movement. This slice builds no refusal reason (GH #3586).
+12. **Separate fields, no shortcut.** The link is its own record; `location_node` holds no org field and
+    `org_unit` holds no location field (GH #3586).
+13. **Tenants that installed `locations` before 0.3.0 are not upgraded.** The module upgrade of decision
+    0055 is not built (GH #3582; see `lib/letflow/modules/exam/parent_rollout.ex` for the shape), so they
+    have no link type. The module is tested on freshly provisioned tenants with `org` installed first
+    (GH #3586).
+14. **The import of the tree is `import_row/3`, upsert by external ref only.** The core import route
    (`?upsert_by=external_ref`, xlsx, CSV or JSON) calls `Letflow.Modules.Locations.import_row/3`, which
    delegates to `Letflow.Modules.Locations.Import` (`lib/letflow/modules/locations/import.ex`, GH #3601).
    It writes only through `create_node/3`, `update_node/4` and `move_node/4`. The key is the field pair
