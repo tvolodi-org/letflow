@@ -64,8 +64,8 @@ defmodule Letflow.Entities.XlsxImport do
 
     try do
       with :ok <- check_declared_size(binary),
-           :ok <- check_parts(binary),
-           {:ok, rows} <- read_first_sheet(binary),
+           {:ok, verified} <- check_parts(binary),
+           {:ok, rows} <- read_first_sheet(verified),
            {:ok, header, data} <- split_header(rows),
            field_types = CsvImport.field_types(fields),
            :ok <- check_header(header, field_types, upsert?),
@@ -101,97 +101,61 @@ defmodule Letflow.Entities.XlsxImport do
     end
   end
 
-  # Stage 2: the declared sizes are the archive's own claim, so they are not trusted. The central
-  # directory is read here and every part is inflated as a bounded stream (`:zlib.safeInflate/2`)
+  # Stage 2: the declared sizes are the archive's own claim, so they are not trusted. The entries
+  # come from `:zip.list_dir/1` (the same directory XlsxReader would read, EOCD and ZIP64 rules
+  # included); each is inflated from its local header as a bounded stream (`:zlib.safeInflate/2`)
   # that stops as soon as the running real total passes the cap, so nothing over the cap is ever
-  # allocated, whatever the archive declares. Every XML part is also checked for a DOCTYPE and its
-  # encoding. Only a workbook that passes is handed to XlsxReader.
+  # allocated. Every XML part is also checked for a DOCTYPE and its encoding. XlsxReader then gets
+  # a fresh archive rebuilt from only the verified parts, so it can never inflate bytes that were
+  # not counted here, whatever the original archive's directory says.
   defp check_parts(binary) do
-    with {:ok, entries} <- central_entries(binary) do
-      Enum.reduce_while(entries, {:ok, 0}, fn entry, {:ok, total} ->
+    with {:ok, entries} <- :zip.list_dir(binary) |> list_entries() do
+      Enum.reduce_while(entries, {:ok, 0, []}, fn entry, {:ok, total, parts} ->
         case inflate_entry(binary, entry, @max_inflated - total) do
           {:ok, name, part} ->
             total = total + byte_size(part)
 
             if xml_part?(name) and not safe_xml?(part),
               do: {:halt, {:error, :xlsx_unreadable}},
-              else: {:cont, {:ok, total}}
+              else: {:cont, {:ok, total, [{String.to_charlist(name), part} | parts]}}
 
           {:error, _} = error ->
             {:halt, error}
         end
       end)
       |> case do
-        {:ok, _total} -> :ok
-        {:error, _} = error -> error
+        {:ok, _total, parts} ->
+          case :zip.create(~c"x.xlsx", Enum.reverse(parts), [:memory]) do
+            {:ok, {_name, rebuilt}} -> {:ok, rebuilt}
+            _ -> {:error, :xlsx_unreadable}
+          end
+
+        {:error, _} = error ->
+          error
       end
     end
   end
 
-  defp central_entries(binary) do
-    case find_eocd(binary) do
-      {:ok, count, cd_size, cd_offset}
-      when cd_offset + cd_size <= byte_size(binary) ->
-        parse_central(binary_part(binary, cd_offset, cd_size), count, [])
+  defp list_entries({:ok, entries}) do
+    files =
+      for {:zip_file, name, _info, _comment, offset, csize} <- entries,
+          not String.ends_with?(to_string(name), "/") do
+        %{name: to_string(name), offset: offset, csize: csize}
+      end
 
-      _ ->
-        {:error, :xlsx_unreadable}
-    end
+    {:ok, files}
   end
 
-  defp find_eocd(binary) do
-    size = byte_size(binary)
-    window = min(size, 22 + 65_535)
-    tail = binary_part(binary, size - window, window)
-
-    case :binary.matches(tail, <<0x50, 0x4B, 0x05, 0x06>>) do
-      [] ->
-        :error
-
-      matches ->
-        {pos, _} = List.last(matches)
-
-        case tail do
-          <<_::binary-size(^pos), 0x06054B50::32-little, _disk::16-little, _cd_disk::16-little,
-            _n_disk::16-little, count::16-little, cd_size::32-little, cd_offset::32-little,
-            _rest::binary>> ->
-            {:ok, count, cd_size, cd_offset}
-
-          _ ->
-            :error
-        end
-    end
-  end
-
-  defp parse_central(_data, 0, acc), do: {:ok, Enum.reverse(acc)}
-
-  defp parse_central(
-         <<0x02014B50::32-little, _made::16-little, _need::16-little, flags::16-little,
-           method::16-little, _time::16-little, _date::16-little, _crc::32-little,
-           csize::32-little, _usize::32-little, nlen::16-little, elen::16-little, clen::16-little,
-           _disk::16-little, _iattr::16-little, _eattr::32-little, offset::32-little,
-           name::binary-size(nlen), _extra::binary-size(elen), _comment::binary-size(clen),
-           rest::binary>>,
-         count,
-         acc
-       ) do
-    entry = %{name: name, flags: flags, method: method, csize: csize, offset: offset}
-    parse_central(rest, count - 1, [entry | acc])
-  end
-
-  defp parse_central(_data, _count, _acc), do: {:error, :xlsx_unreadable}
+  defp list_entries(_), do: {:error, :xlsx_unreadable}
 
   # `budget` is what is left of the cap; a part that would pass it is refused before it is
   # allocated. The compressed bytes are bounded by the archive itself (the 2 MiB body).
-  defp inflate_entry(_binary, %{flags: flags}, _budget) when band(flags, 1) == 1,
-    do: {:error, :xlsx_unreadable}
-
-  defp inflate_entry(binary, %{name: name, method: method, csize: csize, offset: offset}, budget) do
+  defp inflate_entry(binary, %{name: name, csize: csize, offset: offset}, budget) do
     case binary do
-      <<_::binary-size(^offset), 0x04034B50::32-little, _need::16-little, _flags::16-little,
-        _method::16-little, _time::16-little, _date::16-little, _crc::32-little,
-        _csize::32-little, _usize::32-little, nlen::16-little, elen::16-little, rest::binary>>
-      when byte_size(rest) >= nlen + elen ->
+      <<_::binary-size(^offset), 0x04034B50::32-little, _need::16-little, flags::16-little,
+        method::16-little, _time::16-little, _date::16-little, _crc::32-little, _csize::32-little,
+        _usize::32-little, nlen::16-little, elen::16-little, rest::binary>>
+      when byte_size(rest) >= nlen + elen and band(flags, 1) == 0 ->
         skip = nlen + elen
         <<_::binary-size(^skip), data::binary>> = rest
         inflate_data(name, method, data, csize, budget)

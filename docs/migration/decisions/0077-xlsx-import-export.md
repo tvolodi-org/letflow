@@ -88,10 +88,13 @@ converter runs before `import_scope_check/6`, which sees the same records as for
 
 ## Residual risk
 
-The declared sizes in the archive are the archive's own claim and are not trusted. Every part is
-inflated as a bounded stream (`:zlib.safeInflate/2` from the local header found through the
-central directory) that stops as soon as the running real total passes the 25 MiB cap, so a
+The declared sizes in the archive are the archive's own claim and are not trusted. The entries
+are taken from `:zip.list_dir/1` (the directory XlsxReader would read, with OTP's end-of-central-
+directory and ZIP64 rules), and every part is inflated as a bounded stream (`:zlib.safeInflate/2`
+from its local header) that stops as soon as the running real total passes the 25 MiB cap, so a
 forged archive that understates its sizes is refused with `xlsx_too_large` before more than the
-cap (plus one inflate chunk) is allocated. Only an archive that passes is handed to XlsxReader,
-which then inflates parts that are already verified. Covered by test C3m. What remains: up to
+cap (plus one inflate chunk) is allocated. XlsxReader is then given a fresh archive rebuilt with
+`:zip.create/3` from only the verified parts, so it never inflates bytes that were not counted,
+and a hidden second directory (a fake EOCD in the comment, a ZIP64 locator) cannot show it
+something else. Covered by tests C3m and C3n. What remains: up to
 25 MiB per concurrent import request, bounded by the cap and the 2 MiB body limit.

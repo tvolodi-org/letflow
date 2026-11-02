@@ -150,6 +150,21 @@ defmodule Letflow.Entities.XlsxImportTest do
       assert XlsxImport.convert(forged, @fields) == {:error, :xlsx_too_large}
     end
 
+    test "C3n: a fake EOCD hidden in the real EOCD's comment does not hide a part" do
+      big = :binary.copy(<<0>>, 31_457_280)
+      zip = XlsxFixture.build([[["title"], ["A"]]], extra: [{"xl/big.bin", big}])
+      forged = :binary.replace(zip, <<31_457_280::32-little>>, <<1000::32-little>>, [:global])
+
+      keep = byte_size(forged) - 2
+      <<head::binary-size(^keep), 0::16-little>> = forged
+      fake_eocd = <<0x06054B50::32-little, 0::144>>
+      comment = fake_eocd <> :binary.copy(<<1>>, 18)
+      hidden = head <> <<byte_size(comment)::16-little>> <> comment
+
+      assert {:ok, _} = :zip.list_dir(hidden)
+      assert XlsxImport.convert(hidden, @fields) == {:error, :xlsx_too_large}
+    end
+
     test "C3e: an empty sheet and a blank header row have no header" do
       assert convert([[]]) == {:error, :xlsx_header_missing}
       assert convert([[[nil, nil]]]) == {:error, :xlsx_header_missing}
