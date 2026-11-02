@@ -46567,7 +46567,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-642 -- phase A merges after the A0 record; xlsx reader for the import route
+    gh: 3603
     # Source: owner decision D-062 of 2026-10-31 (ai-dala-portfolio/DECISIONS.md: "First version includes ... xlsx"); ai-dala-portfolio/architectures/assets.md (section "Reports and import": "Excel import and export (as Qoimeks has) for the catalog, opening balances, and asset lists"; table "What Letflow has today": "Excel | CSV and JSON only, no xlsx"; phase table row A "Trees, links, codes, import"); letflow-team/project/assets-gap-analysis.md (section 3: "No .xlsx anywhere. Import refuses module-managed types"; order step 6 "Excel .xlsx (new)"); portfolio-manager phase A review of 2026-11-02, point 6a (task T-1082). Decisions read: docs/migration/decisions/0033-pdf-qr-rendering-dependencies.md (the precedent for a dependency decision: reason, licence, rejected options, mix.exs comment). Code read on main: mix.exs (no xlsx or zip dependency; the dependency comments of pdf and eqrcode), lib/letflow/entities/csv_import.ex (convert/3, the header rules, @refusals, the per-cell coerce/3 reasons csv_invalid_integer, csv_invalid_decimal, csv_invalid_boolean, csv_invalid_date, csv_invalid_datetime, csv_invalid_json, csv_invalid_localized_text), lib/letflow/routers/entities/record_import.ex (handle_import_records/2, @import_record_cap 200, csv_request?/1, csv_body/4, @csv_refusal_details, merge_rows/3 with "line" and the error "type" and "header"), lib/letflow/plugs/csv_body_parser.ex, lib/letflow/plugs/api_pipeline.ex (Plug.Parsers root length 2_097_152, CsvBodyParser keeps it), lib/letflow/repository/attachments.ex (@max_upload_bytes 26_214_400). Hex metadata read with mix hex.info on 2026-11-02: xlsx_reader 0.8.12 (released 2026-06-17, Licenses Apache-2.0, dependencies saxy ~> 1.5 and decimal optional), saxy (Licenses MIT, 1.7.0 released 2026-10-30), xlsxir (last release 1.6.4 of 2019-03-12). Written by the business analyst (T-1082) 2026-11-02. Not yet validated.
     description: >
       Phase A item A6b of the assets and stock application (owner decisions D-060 to D-063), first part. D-062 puts
@@ -46633,7 +46633,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-650 -- needs the xlsx converter and decision record of A6b-1
+    gh: 3602
     # Source: owner decisions D-061 ("shared master data ... belongs to neither"), D-062 (xlsx in the first version) and D-066 of 2026-11-02 (master data stays entity records with real columns, ai-dala-portfolio/DECISIONS.md); ai-dala-portfolio/architectures/assets.md (section "Reports and import"); letflow-team/project/assets-gap-analysis.md (section 3 "Import refuses module-managed types", order item 2 "import for managed types (new)"); portfolio-manager phase A review 2026-11-02 point 6a. Decisions read: docs/migration/decisions/0057-wms-customer-draft-reconciliation.md (D1 masters carry a nullable external_ref, no inbound master sync; D12 the pilot is seeded "through the generic idempotent import (REQ-505)"); 0050 D7 (managed types are written only by their module); REQ-505 design lib/letflow/design/gh2659-external-ref-idempotent-import.md (the record-level external_ref on entity_record_latest, rejected the field_values form). Requirements read: REQ-604 description (the generic import answers 403 entity_type_managed, "the seeding path of decision 0057 D12 is an open question ... and a separate requirement"), REQ-474, REQ-647. Code read on main: lib/letflow/routers/entities/record_import.ex (handle_import_records/2 and its :managed clause, import_scope_check/6, run_import_mode/7), lib/letflow/entities/record_access.ex (write/3 returns :managed), lib/letflow/entities/import_upsert.ex (precheck, run, @error_reasons), lib/letflow/entities/records.ex (upsert_record_by_external_ref/3 and /4 with an authority, outcomes created, updated, unchanged), lib/letflow/entities/managed_types.ex (owner_for!/1 callers only inside the entry module's directory; test/letflow/entities/managed_types_callers_test.exs pins the callers), lib/letflow/modules/catalog.ex (manifest validation, :write_handlers precedent), lib/letflow/modules/catalog_items/catalog_items.ex, priv/modules/catalog_items/entity_definitions/catalog_uom.json, catalog_item.json (base_uom_id) and catalog_counterparty.json, priv/permission_matrix/effective.golden (TENANT_ADMIN EntitiesRecordsImport true), docs/roles.md. Written by the business analyst (T-1082) 2026-11-02. Not yet validated.
     description: >
       Phase A item A6b, second part. Decision 0057 D12 seeds masters through the generic idempotent import, but every
@@ -46705,7 +46705,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-651 -- needs the managed import path and the location write functions of REQ-645 and REQ-646
+    gh: 3601
     # Source: owner decisions D-061, D-062 and D-066 of 2026-10-31 and 2026-11-02 (ai-dala-portfolio/DECISIONS.md; D-066 point 2: the location tree uses a parent link, tree rules enforced by the writer); ai-dala-portfolio/architectures/assets.md (sections "The two trees" and "Reports and import"); portfolio-manager phase A review 2026-11-02 point 6a. Requirements read: REQ-645 (create_node/3, its refusals, the address patterns), REQ-646 (move_node/4, update_node/4 with code not changeable, retire_node/3), REQ-651 (the managed import path, references by external id, dry run). Code read on main: priv/modules/locations/entity_definitions/location_node.json, lib/letflow/modules/locations/locations.ex. Written by the business analyst (T-1082) 2026-11-02. Not yet validated.
     description: >
       Phase A item A6b, third part: the location tree imported from a file. Letflow.Modules.Locations registers an
@@ -46739,7 +46739,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-650 -- the writer dependency joins the xlsx decision record of A6b-1
+    gh: 3600
     # Source: owner decision D-062 of 2026-10-31 (ai-dala-portfolio/DECISIONS.md: xlsx in the first version); ai-dala-portfolio/architectures/assets.md (section "Reports and import": "Excel import and export ... for the catalog, opening balances, and asset lists"); portfolio-manager phase A review 2026-11-02 point 6a ("and export where the plan says so"). Code read on main: lib/letflow/routers/entities.ex (handle_export_records/2: RequestAccess.check, Allowlist.load, Compiler.compile, Cursor.paginate, export_redact, the JSON document with record_export_schema_version, entity_type, exported_at, records and next_cursor; export_record_map/2 with record_id, field_values, deleted; permissions EntitiesRecordsExport and EntitiesRecordsExportUnredacted). Hex metadata read with mix hex.info on 2026-11-02: elixlsx 0.6.0 (released 2024-03-03, Licenses MIT, no dependencies listed). Written by the business analyst (T-1082) 2026-11-02. Not yet validated.
     description: >
       Phase A item A6b, export part. The plan asks for Excel export of the catalog in phase A (opening balances and
@@ -46773,7 +46773,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-651 -- also waits for the write functions of org units, positions, employees and lots that phase A fix F4 registers
+    gh: 3599
     # Source: owner decisions D-061, D-062, D-065 and D-067 of 2026-10-31 and 2026-11-02 (ai-dala-portfolio/DECISIONS.md; D-067: employees are scoped by org unit, lots tenant-wide); ai-dala-portfolio/architectures/assets.md (section "The two trees": "Organization tree: units of unlimited depth, roster (positions), employees"); portfolio-manager phase A review 2026-11-02 points 6a and 6b (6b: organization units, employees, positions and lots have no write functions; org writes belong to REQ-495, which has no register entry). Requirements read: REQ-643 (org_position, org_employee, references declarative), REQ-647 (catalog_lot, item_id), REQ-651 (the managed import path). Code read on main: priv/modules/org/entity_definitions/org_unit.json (code, name, legal_entity_id and site_id required, parent optional), lib/letflow/modules/org/org.ex (no write functions). Written by the business analyst (T-1082) 2026-11-02. Not yet validated.
     description: >
       Phase A item A6b, last part: the organization tree, the roster and the employees, and the lots, imported from a
