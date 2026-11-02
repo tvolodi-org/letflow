@@ -55,9 +55,9 @@ was written.
 
 Module `catalog_items` (GH #2663 / REQ-474 skeleton, GH #2664 / REQ-507 read API) as it is on
 main. Each limit names the GH issue or the code that holds it; code lines were re-read when
-this section was written. It covers the types `catalog_uom`, `catalog_item` and `catalog_counterparty` (GH #3407, REQ-604).
+this section was written. It covers the types `catalog_uom`, `catalog_item`, `catalog_counterparty` (GH #3407, REQ-604) and `catalog_lot` (GH #3593, REQ-647).
 
-1. **Generic writes to the three types are refused.** All are in `manages_entity_types`, so the
+1. **Generic writes to the four types are refused.** All are in `manages_entity_types`, so the
    generic entity routes answer 403 `entity_type_managed` (GH #2530, PR #2568). The router maps
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
@@ -67,11 +67,11 @@ this section was written. It covers the types `catalog_uom`, `catalog_item` and 
    (`lib/letflow/entities/records.ex:423`). The module ships no write functions yet.
 3. **No reference check on `base_uom_id`.** A `catalog_item` can name a `base_uom_id` that is
    not a `catalog_uom` record, is inactive or is deleted: it is a declarative string with no
-   foreign key (decision 0050 D3.6;
+   foreign key (decision 0050 D3.6; `catalog_lot.item_id` is the exception, see item 14;
    `priv/modules/catalog_items/entity_definitions/catalog_item.json`). `item_uom_valid?/3` is
    where an unknown or inactive unit shows up, as `false`.
 4. **Record attachment upload and delete on a managed type are refused.** A non-owner caller
-   gets the 403 `entity_type_managed` (all three catalog types included) via
+   gets the 403 `entity_type_managed` (all four catalog types included) via
    `Letflow.Entities.RecordAccess.attachment_write/3` (GH #2582); list and content reads are
    unchanged.
 5. **Client idempotency keys cannot use the reserved server-derived prefix.** The single-command
@@ -106,7 +106,7 @@ this section was written. It covers the types `catalog_uom`, `catalog_item` and 
    `external_ref_system` / `external_ref_id` pair. `kind` is `supplier` or `contractor`; both
    the two values and the `tax_id` rule are UAT assumptions for the process owner to confirm.
 10. **`lookup/2` and `active?/2` return several types.** They search `catalog_uom`,
-    `catalog_item` and `catalog_counterparty` in one call
+    `catalog_item`, `catalog_counterparty` and `catalog_lot` in one call
     (`lib/letflow/modules/catalog_items/catalog_items.ex`), so a caller must check the
     `"entity_type"` of the map it gets: a supplier id passed as a unit or an item is found, not
     rejected, by `lookup/2`.
@@ -122,10 +122,43 @@ this section was written. It covers the types `catalog_uom`, `catalog_item` and 
     GH #3407 has two types only: no upgrade path adds an entity type to an installed module
     (`lib/letflow/modules/installs.ex`), and because `manages_entity_types` changed the
     manifest hash, reactivating such a tenant's module answers `upgrade_required`. Fresh
-    installs get all three types; `lookup/2` still works on the old tenants. Reinstalling is
+    installs get all the types of the day; `lookup/2` still works on the old tenants. Reinstalling is
     refused too (`already_installed`), so there is no operator path today: such a tenant stays
     on the two types until a module-upgrade requirement is delivered. The behaviour is pinned
     by test U-01 in `test/letflow/modules/catalog_items/counterparty_test.exs` (T-0862).
+14. **`catalog_lot` is the lot (batch) master (GH #3593, REQ-647).** Its definition is
+    `priv/modules/catalog_items/entity_definitions/catalog_lot.json`: `item_id`, `code`,
+    optional `producer`, `mark` and `expiry_date` (a date), `active` and the nullable
+    `external_ref_system` / `external_ref_id` pair, all queried. `item_id` is a real foreign key
+    to `catalog_item` (`fk_catalog_lot_item_id`, ON DELETE RESTRICT, owner decision D-066); the
+    record delete is a soft delete, so the foreign key does not act on that path. A lot whose
+    `item_id` names no item is refused by the reference rule of `Letflow.Entities.Records`.
+15. **Lot rules (owner decision D-065).** `producer` is free text, not a reference to
+    `catalog_counterparty`; the lot `code` is unique per item (the same code may exist for two
+    items); `expiry_date` is optional. That `mark` is free text is a UAT assumption for the
+    process owner to confirm (GH #3593). A lot is retired with `active` false; there is no delete
+    operation.
+16. **`item_lot_valid?/3` checks an item and one of its lots.** It is true only when the item is
+    live and active, the lot is live and active, and the lot's stored `item_id` equals the item
+    id (exact text, canonical lowercase uuid; `lib/letflow/modules/catalog_items/catalog_items.ex`).
+    A lot of another item, a retired or deleted record, the id of a record of another type and
+    any non-uuid value are `false`, never a raise.
+17. **Lots cannot be seeded by the generic import.** `POST /entities/records/catalog_lot/import`
+    answers 403 `entity_type_managed` (`lib/letflow/routers/entities/record_import.ex`); the
+    import path for managed types is open (GH #3593).
+18. **An already installed tenant does not get `catalog_lot`.** As item 13: no upgrade path adds
+    an entity type to an installed module (`lib/letflow/modules/installs.ex`); the module upgrade
+    slice owed by REQ-642 point (7) adds it, and the rows of such tenants are untouched. Fresh
+    installs get the type. The manifest now declares `scope_declarations` (`:tenant_wide` for all
+    four types, decision D-067 and 0051 M4); that reaches installed tenants too, because the
+    manifest is compiled, and enforcement is REQ-519.
+19. **A malformed `expiry_date` or a non-uuid `item_id` is refused by a raise.** The payload
+    schema of a date field is a plain string, and the promoted column is cast in
+    `Letflow.TenantProvisioning` (`cast_promoted_value/2`). Observed by tests L-10 and L-14 in
+    `test/letflow/modules/catalog_items/lot_test.exs`: `expiry_date` "2027-02-30" raises
+    `ArgumentError` (invalid_date) and `item_id` "not-a-uuid" raises `Ecto.CastError`; no record is
+    stored either way. This is a finding against core Records (GH #3593), not fixed here, so a
+    future write function must validate both values before the owner-path write.
 
 ## Locations module limits
 
