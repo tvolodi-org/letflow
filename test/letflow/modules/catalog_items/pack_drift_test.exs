@@ -15,7 +15,7 @@ defmodule Letflow.Modules.CatalogItems.PackDriftTest do
   alias Letflow.Entities.Definition.Shape
 
   @dir Path.join([File.cwd!(), "priv", "modules", "catalog_items"])
-  @types ~w(catalog_uom catalog_item catalog_counterparty)
+  @types ~w(catalog_uom catalog_item catalog_counterparty catalog_lot)
 
   defp pack, do: @dir |> Path.join("pack.json") |> File.read!() |> Jason.decode!()
 
@@ -53,6 +53,12 @@ defmodule Letflow.Modules.CatalogItems.PackDriftTest do
         Map.update!(f, :type, &String.to_existing_atom/1)
       end)
     end)
+    |> Map.update(:foreign_keys, nil, fn fks ->
+      Enum.map(fks, fn fk -> Map.new(fk, fn {k, v} -> {String.to_existing_atom(k), v} end) end)
+    end)
+    |> then(fn doc ->
+      if doc.foreign_keys == nil, do: Map.delete(doc, :foreign_keys), else: doc
+    end)
     |> Map.update!(:constraints, fn cs ->
       Enum.map(cs, fn c ->
         c = Map.new(c, fn {k, v} -> {String.to_existing_atom(k), v} end)
@@ -61,7 +67,7 @@ defmodule Letflow.Modules.CatalogItems.PackDriftTest do
     end)
   end
 
-  test "P-01: the pack holds exactly the three entity definitions, in the source set, and nothing else" do
+  test "P-01: the pack holds exactly the four entity definitions, in the source set, and nothing else" do
     document = pack()
 
     assert document["pack_id"] == "letflow-catalog_items"

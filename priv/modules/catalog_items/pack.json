@@ -203,6 +203,87 @@
       "entity_definition_id": "06752b43-ef7e-3d71-1172-24721fc13384",
       "logical_shape_version": "28539ec7dd9f29f7a35a25ab470ac4715ea6a45f78a9cf7c799e82de2d2bcb74",
       "name": "catalog_counterparty"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "item_id",
+              "code"
+            ],
+            "name": "uq_catalog_lot_item_id_code",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_catalog_lot_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #3593 / REQ-647, owner decisions D-065, D-066 and D-067. A lot (batch) master: one batch of one catalog_item. item_id is the record id of a catalog_item and a real foreign key (fk_catalog_lot_item_id, ON DELETE RESTRICT, D-066). code is the lot number, unique per item (D-065). producer is free text, not a reference to catalog_counterparty (D-065). mark is free text too (a UAT assumption, to be confirmed by the process owner). expiry_date is optional (D-065). active false retires the record, there is no delete operation. external_ref_system and external_ref_id are the nullable import key (0057 D1). The unique index over item_id and code leads with item_id and serves reads by item, so there is no separate indexes entry.",
+        "display_name": "Lot",
+        "fields": [
+          {
+            "name": "item_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "code",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "producer",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "mark",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "expiry_date",
+            "queried": true,
+            "type": "date"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "item_id",
+            "name": "fk_catalog_lot_item_id",
+            "references_entity": "catalog_item"
+          }
+        ],
+        "name": "catalog_lot"
+      },
+      "display_name": "Lot",
+      "entity_definition_id": "3bf33d7d-2522-8784-dc5e-0e1f8cf60856",
+      "logical_shape_version": "5d8abf8abf29230c3936cc9a956b726892b2239d434bba71ce131d7ebca8a319",
+      "name": "catalog_lot"
     }
   ],
   "exported_at": "2026-10-19T00:00:00Z",

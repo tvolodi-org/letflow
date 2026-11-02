@@ -144,7 +144,7 @@ defmodule Letflow.Modules.Org.EntityDefinitionsTest do
   end
 
   describe "#2584 fixture hygiene: the test fixtures no longer claim the real foundation names" do
-    @real_names ~w(org_legal_entity org_site org_unit org_unit_membership catalog_item catalog_uom catalog_counterparty)
+    @real_names ~w(org_legal_entity org_site org_unit org_unit_membership catalog_item catalog_uom catalog_counterparty catalog_lot)
 
     for {label, parts} <- [
           {"fixture_managed.ex",
