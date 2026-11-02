@@ -86,13 +86,22 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `{:error, :entity_type_managed}` at `lib/letflow/routers/entities.ex:566`, and
    `Letflow.Entities.Records` decides it per write in `check_write_authority/3`
    (`lib/letflow/entities/records.ex:2223`, delegating to `ManagedTypes.check_record_write/3`).
-2. **Writes go through the module's own Owner only.** Module code writes with the `/3` arity,
+   The one exception is the import route (item 2).
+2. **Writes go through the module's own Owner only; the three masters are imported through the
+   managed import path (GH #3602, REQ-651).** Module code writes with the `/3` arity,
    `Records.create_record/3` with `ManagedTypes.owner_for!(Letflow.Modules.CatalogItems)`
-   (`lib/letflow/entities/records.ex:423`). Only the lot writers exist (item 20, GH #3614); the item, unit
-   and supplier types have no write functions yet.
+   (`lib/letflow/entities/records.ex:423`); the only such caller is
+   `lib/letflow/modules/catalog_items/import.ex`. `catalog_uom`, `catalog_item` and
+   `catalog_counterparty` register `Letflow.Modules.CatalogItems.import_row/3` in the manifest key
+   `:import_functions`; `POST /entities/records/:entity_type/import` calls it once per row through
+   `Catalog.call_import_function/5` (`Letflow.Entities.ManagedImport`). Upsert by external ref only
+   (`upsert_by` absent is 422), a reference cell holds the external id of the target, and
+   `?dry_run=true` runs the file and rolls it back (decision 0077 D5 to D7). `catalog_lot` has no
+   import function: its writers are the lot write functions (item 20, GH #3614) and the generic route still answers 403 (REQ-654).
 3. **No reference check on `base_uom_id`.** A `catalog_item` can name a `base_uom_id` that is
    not a `catalog_uom` record, is inactive or is deleted: it is a declarative string with no
-   foreign key (decision 0050 D3.6; `catalog_lot.item_id` is the exception, see item 14;
+   foreign key (decision 0050 D3.6; the import path is the exception: `reference_not_found` and
+   `reference_inactive`, GH #3602; `catalog_lot.item_id` is the exception, see item 14;
    `priv/modules/catalog_items/entity_definitions/catalog_item.json`). `item_uom_valid?/3` is
    where an unknown or inactive unit shows up, as `false`.
 4. **Record attachment upload and delete on a managed type are refused.** A non-owner caller

@@ -16,6 +16,9 @@ defmodule Letflow.Routers.Entities.RecordImport do
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.ImportAccess
   alias Letflow.Entities.ImportUpsert
+  alias Letflow.Entities.ManagedImport
+  alias Letflow.Entities.ManagedTypes
+  alias Letflow.Modules.Catalog
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.RecordAccess
   alias Letflow.Entities.Records
@@ -77,12 +80,28 @@ defmodule Letflow.Routers.Entities.RecordImport do
     {conn, scope} = ScopeGate.scope_set(conn, :EntitiesRecordsImport)
 
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
-      :managed -> Response.send_problem(conn, Error.entity_type_managed())
-      access -> import_records_with_access(conn, entity_type, access, scope)
+      :managed -> managed_import(conn, entity_type, scope)
+      access -> import_records_with_access(conn, entity_type, access, scope, nil)
     end
   end
 
-  defp import_records_with_access(conn, entity_type, access, scope) do
+  # REQ-651 (decision 0077 D5): a managed type imports only when its owning module registered an
+  # import function for it; otherwise the answer is the 403 it always was (nothing was read).
+  # `write/3` answers `:managed` only for a type visible to the caller, so this branch reveals
+  # nothing the 403 did not.
+  defp managed_import(conn, entity_type, scope) do
+    prefix = prefix!(conn)
+
+    with {:ok, module_id} <- ManagedTypes.owner_of(entity_type, prefix),
+         :ok <- Catalog.import_function(module_id, entity_type) do
+      access = RecordAccess.managed_open(conn.assigns.auth_context.user_id, entity_type, prefix)
+      import_records_with_access(conn, entity_type, access, scope, {:managed, module_id})
+    else
+      _no_import_function -> Response.send_problem(conn, Error.entity_type_managed())
+    end
+  end
+
+  defp import_records_with_access(conn, entity_type, access, scope, managed) do
     prefix = prefix!(conn)
     actor_id = conn.assigns.auth_context.user_id
 
@@ -91,6 +110,8 @@ defmodule Letflow.Routers.Entities.RecordImport do
          :ok <- check_record_export_schema_version(body),
          :ok <- check_import_entity_type_match(body, entity_type),
          {:ok, mode} <- check_upsert_by(body),
+         :ok <- check_managed_mode(managed, mode),
+         {:ok, dry_run?} <- check_dry_run(conn, body, managed),
          :ok <- import_scope_check(access, scope, mode, entity_type, records, prefix) do
       import_request_id = Ecto.UUID.generate()
 
@@ -101,7 +122,8 @@ defmodule Letflow.Routers.Entities.RecordImport do
              actor_id,
              import_request_id,
              prefix,
-             ImportAccess.new(access, scope)
+             ImportAccess.new(access, scope),
+             {managed, dry_run?}
            ) do
         # REQ-606 (decision 0067 D6): upsert mode only. A retry is safe there (rows are addressed by
         # external ref and updated in place), so a full trigger backlog answers the provisional 503
@@ -113,11 +135,18 @@ defmodule Letflow.Routers.Entities.RecordImport do
             |> Response.put_backlog_retry_after()
             |> Response.send_json(503, %{"error" => "trigger_backlog_full"})
           else
-            import_results_ok(conn, results, csv_rows)
+            import_results_ok(conn, results, csv_rows, dry_run?)
           end
 
         {:ok, results} ->
-          import_results_ok(conn, results, csv_rows)
+          import_results_ok(conn, results, csv_rows, dry_run?)
+
+        # REQ-651 D7: the dry run replay cap was exceeded; constant, nothing was written.
+        {:error, :dry_run_unavailable} ->
+          Response.unprocessable(
+            conn,
+            "dry_run unavailable: too many rows refused by the database"
+          )
 
         # §6/INV-5, AC: a definition_not_found from the FIRST entry -- the
         # only entry this handler ever inspects for this outcome, since
@@ -169,6 +198,21 @@ defmodule Letflow.Routers.Entities.RecordImport do
       {:error, :invalid_upsert_by} ->
         Response.unprocessable(conn, "upsert_by must be \"external_ref\" when present")
 
+      {:error, :managed_requires_upsert} ->
+        Response.unprocessable(
+          conn,
+          "this entity type is imported with upsert_by external_ref only"
+        )
+
+      {:error, :invalid_dry_run} ->
+        Response.unprocessable(conn, "dry_run must be true or false")
+
+      {:error, :dry_run_not_offered} ->
+        Response.unprocessable(
+          conn,
+          "dry_run is offered only for module-managed types with an import function"
+        )
+
       # GH #3182: a CSV body for a type the caller cannot see (absent, denied, or another
       # tenant's) is answered before the text is read, exactly like a nonexistent type.
       {:error, :csv_type_hidden} ->
@@ -192,8 +236,9 @@ defmodule Letflow.Routers.Entities.RecordImport do
   #
   # An `.xlsx` body (GH #3603, REQ-650) takes the same road through
   # `Letflow.Entities.XlsxImport`: same hidden-type 404 before the bytes are read, same cap,
-  # same per-cell coercion and the same result merge. A module-managed type never gets here:
-  # `handle_import_records/2` answers 403 `entity_type_managed` first.
+  # same per-cell coercion and the same result merge. A module-managed type gets here only when
+  # its module registered an import function (REQ-651); otherwise `handle_import_records/2`
+  # answers 403 `entity_type_managed` first.
 
   defp import_body(conn, entity_type, access, prefix) do
     cond do
@@ -383,10 +428,34 @@ defmodule Letflow.Routers.Entities.RecordImport do
   # GH #2659 (design 5.1): after the entity_type match, so the existing error
   # ordering is unchanged. Absent -> today's create-only import; exactly
   # "external_ref" -> the idempotent upsert; anything else (null included) -> 422.
-  defp import_results_ok(conn, results, csv_rows) do
+  defp import_results_ok(conn, results, csv_rows, dry_run?) do
     json_results = Enum.map(results, &import_entry_result_json/1)
-    Response.ok(conn, %{"results" => merge_csv_rows(csv_rows, json_results)})
+    body = %{"results" => merge_csv_rows(csv_rows, json_results)}
+    # The member appears on a dry run only: every real-import answer is unchanged.
+    Response.ok(conn, if(dry_run?, do: Map.put(body, "dry_run", true), else: body))
   end
+
+  # REQ-651: a managed type is imported by upsert only (D5).
+  defp check_managed_mode({:managed, _module_id}, :create), do: {:error, :managed_requires_upsert}
+  defp check_managed_mode(_managed, _mode), do: :ok
+
+  # REQ-651 D7: `?dry_run=true` (any format) or `"dry_run": true` in a JSON body. A dry run of a
+  # type that is not managed is refused, so it can never silently write.
+  defp check_dry_run(conn, body, managed) do
+    value = Map.get(body, "dry_run", Plug.Conn.fetch_query_params(conn).query_params["dry_run"])
+
+    case {dry_run_flag(value), managed} do
+      {{:ok, false}, _} -> {:ok, false}
+      {{:ok, true}, {:managed, _}} -> {:ok, true}
+      {{:ok, true}, nil} -> {:error, :dry_run_not_offered}
+      {:error, _} -> {:error, :invalid_dry_run}
+    end
+  end
+
+  defp dry_run_flag(nil), do: {:ok, false}
+  defp dry_run_flag(value) when value in [true, "true"], do: {:ok, true}
+  defp dry_run_flag(value) when value in [false, "false"], do: {:ok, false}
+  defp dry_run_flag(_other), do: :error
 
   defp backlog_full_in?(results),
     do: Enum.any?(results, &match?({:error, _source_id, {:error, :trigger_backlog_full}}, &1))
@@ -406,7 +475,8 @@ defmodule Letflow.Routers.Entities.RecordImport do
          actor_id,
          import_request_id,
          prefix,
-         access_and_scope
+         access_and_scope,
+         _managed
        ),
        do:
          run_import(
@@ -428,11 +498,27 @@ defmodule Letflow.Routers.Entities.RecordImport do
          actor_id,
          import_request_id,
          prefix,
-         %ImportAccess{access: access, scope: :all}
+         %ImportAccess{access: access, scope: :all},
+         {managed, dry_run?}
        ) do
     with {:ok, restricted} <- ImportUpsert.precheck(access, prefix) do
-      {:ok,
-       ImportUpsert.run(records, entity_type, actor_id, import_request_id, restricted, prefix)}
+      case managed do
+        nil ->
+          {:ok,
+           ImportUpsert.run(records, entity_type, actor_id, import_request_id, restricted, prefix)}
+
+        {:managed, module_id} ->
+          ManagedImport.run(
+            module_id,
+            records,
+            entity_type,
+            actor_id,
+            import_request_id,
+            restricted,
+            prefix,
+            dry_run?
+          )
+      end
     end
   end
 
@@ -630,6 +716,13 @@ defmodule Letflow.Routers.Entities.RecordImport do
 
   # REQ-606: create-mode entry refused for a full trigger backlog; constant, no warning log.
   defp import_reason_json(:trigger_backlog_full), do: %{"type" => "trigger_backlog_full"}
+
+  # REQ-651: a managed import function refused a reference cell. `field` is a constant of the
+  # module (never cell text), so the header can be named (INV-2, INV-5).
+  defp import_reason_json({reason, field})
+       when reason in [:reference_not_found, :reference_inactive] and is_binary(field) do
+    %{"type" => Atom.to_string(reason), "header" => field}
+  end
 
   defp import_reason_json(other) do
     Logger.warning("entity record import entry failed: #{inspect(other)}")

@@ -167,8 +167,8 @@ defmodule Letflow.Modules.CatalogItems.CounterpartyTest do
     end
   end
 
-  describe "criterion 7: the generic import is refused" do
-    test "C-07: a valid import body for the supplier type is 403 and writes nothing",
+  describe "criterion 7: the generic (create-mode) import is refused" do
+    test "C-07: a create-mode import body for the supplier and item types is 422 and writes nothing (REQ-651)",
          %{schema: schema, tenant_id: tenant_id} do
       body = fn type ->
         %{
@@ -180,11 +180,16 @@ defmodule Letflow.Modules.CatalogItems.CounterpartyTest do
 
       for type <- [@type_name, "catalog_item"] do
         conn = call_entities(tenant_id, :post, "/records/#{type}/import", body.(type))
-        assert conn.status == 403, "#{type}: #{conn.status} #{conn.resp_body}"
-
-        assert conn.resp_body ==
-                 Error.serialise(%{Error.entity_type_managed() | trace_id: @trace})
+        assert conn.status == 422, "#{type}: #{conn.status} #{conn.resp_body}"
+        assert conn.resp_body =~ "upsert_by external_ref only"
       end
+
+      # a managed type with no import function is still 403
+      lot = call_entities(tenant_id, :post, "/records/catalog_lot/import", body.("catalog_lot"))
+      assert lot.status == 403
+
+      assert lot.resp_body ==
+               Error.serialise(%{Error.entity_type_managed() | trace_id: @trace})
 
       assert supplier_count(schema) == 0
     end
