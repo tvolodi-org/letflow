@@ -47004,7 +47004,7 @@ requirements:
       text. Per row by external_ref: create, update, or a move through the unit's move function when the parent
       changes; equal rows answer unchanged. Retire is not done by import: a row with an active cell is refused with
       field_not_allowed (UAT assumption, to be confirmed by the process owner). Legal entities and sites are not imported
-      here: they have no write function in phase A, so a unit's legal_entity_id and site_id cells must name records that
+      here: they have write functions (REQ-660) but no import in this change, so a unit's legal_entity_id and site_id cells must name records that
       exist already (a finding for the operator). Employees are scoped by org unit (D-067); the import requires the
       tenant-wide scope that upsert mode already requires (import_scope_check/6), so a scoped user cannot import.
       Not in this change: legal entities, sites, memberships, retire by import, a web screen.
@@ -47020,7 +47020,7 @@ requirements:
       - "7. Tenancy (INV-1, INV-5): with tenant B's token, references naming external ids that exist only in tenant A answer reference_not_found and nothing is written in either schema."
       - "8. Docs and gates: docs/runbooks/wms-foundation.md sections Org module limits and Catalog module limits state the import rules (keys, references by external id, no active column, legal entities and sites not imported), citing symbols, and their runbook tests pass; mix format --check-formatted, mix compile --warnings-as-errors, mix letflow.check_scope_node_paths_writers, mix test over test/letflow/modules/org/, test/letflow/modules/catalog_items/ and the changed import tests, and mix letflow.check_requirements_registration pass, real output quoted; SECURITY-REVIEWER (personal data of employees, scope node writes) and REVIEWER verdicts are recorded."
       - "9. Scope declaration: the diff adds or changes no :scope_declarations key, and the A1 pin of test/letflow/modules/org/registration_test.exs and the A6a pin of test/letflow/modules/catalog_items/registration_test.exs pass unchanged."
-    depends_on: [REQ-643, REQ-647, REQ-651]
+    depends_on: [REQ-643, REQ-647, REQ-651, REQ-495, REQ-660, REQ-661]
 
   - id: REQ-660
     title: "Assets phase A writes W1: write functions for legal companies and sites in module org (create, update, retire), with the 12-digit BIN check, one BIN per live legal company, and an audit entry per change"

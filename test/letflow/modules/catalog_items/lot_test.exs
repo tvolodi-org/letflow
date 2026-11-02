@@ -380,11 +380,12 @@ defmodule Letflow.Modules.CatalogItems.LotTest do
   end
 
   describe "criterion 2: the generic routes refuse the lot type" do
-    test "L-16: create and import answer 403 entity_type_managed and write nothing", %{
-      schema: schema,
-      tenant_id: tenant_id,
-      item: item
-    } do
+    test "L-16: create answers 403 entity_type_managed; a plain import is 422 (REQ-654); nothing is written",
+         %{
+           schema: schema,
+           tenant_id: tenant_id,
+           item: item
+         } do
       expected = Error.serialise(%{Error.entity_type_managed() | trace_id: @trace})
       vals = lot_vals(item, "IMP-1")
 
@@ -400,9 +401,9 @@ defmodule Letflow.Modules.CatalogItems.LotTest do
         "records" => [%{"field_values" => vals}]
       }
 
+      # REQ-654: the lot has an import function, so the import is upsert_by external_ref only.
       conn = call_entities(tenant_id, :post, "/records/#{@type_name}/import", body)
-      assert conn.status == 403, conn.resp_body
-      assert conn.resp_body == expected
+      assert conn.status == 422, conn.resp_body
       assert lot_count(schema) == 0
     end
   end

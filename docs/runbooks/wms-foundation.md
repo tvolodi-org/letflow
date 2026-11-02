@@ -65,10 +65,19 @@ was written.
    (`material_responsible`) and the "actual user" (`actual_user`) are each an `org_employee` record
    id, never a Letflow user id; a writer checks one with `Letflow.Modules.Org.active_employee?/2`,
    and `employee_for_user/2` finds the employee of a user (GH #3584).
-10. **No route or import yet.** The two types are written through the write functions of item 13
-    (the Owner path); the roster import and the routes are later slices, and
+10. **No route yet; the import exists (GH #3599, REQ-654).** The two types are written through the
+    write functions of item 13 (the Owner path); the routes are later slices, and
     `scope_declarations` (employees and positions scoped by `org_unit_id`) is inert until REQ-519
-    (GH #3584).
+    (GH #3584). `org_unit`, `org_position` and `org_employee` are imported by the generic route
+    through `Letflow.Modules.Org.import_row/3` (`Letflow.Modules.Org.Import`), which calls only the
+    write functions: upsert by external ref only, a reference cell (`legal_entity_id`, `site_id`,
+    `parent`, `org_unit_id`, `position_id`) holds the external id of the target under the file's
+    system, there is no `active` column (retiring stays the retire functions), a changed `parent`
+    is a move, a changed employee unit or position is a transfer, and a position's unit and every
+    `code` cannot change. Legal entities and sites are not imported: they must exist, created with
+    `external_ref_system` and `external_ref_id` equal to the cell. An upsert needs tenant-wide scope
+    (`import_scope_check/6`). A dry run replays a file once per row refused by a write function and
+    gives up after 20 such rows (`dry_run_unavailable`); cell and reference errors do not count.
 11. **Tenants that installed org before 0.2.0 are not upgraded.** Module install is first-install
     only (`Letflow.Modules.Installs`), so such a tenant has no `org_employee` or `org_position`
     definition, and reactivating an uninstalled org there answers `upgrade_required`
@@ -118,8 +127,9 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
    `:import_functions`; `POST /entities/records/:entity_type/import` calls it once per row through
    `Catalog.call_import_function/5` (`Letflow.Entities.ManagedImport`). Upsert by external ref only
    (`upsert_by` absent is 422), a reference cell holds the external id of the target, and
-   `?dry_run=true` runs the file and rolls it back (decision 0077 D5 to D7). `catalog_lot` has no
-   import function: its writers are the lot write functions (item 20, GH #3614) and the generic route still answers 403 (REQ-654).
+   `?dry_run=true` runs the file and rolls it back (decision 0077 D5 to D7). `catalog_lot` is imported
+   through `Letflow.Modules.CatalogItems.LotImport` (GH #3599, REQ-654), which calls only `create_lot/3` and
+   `update_lot/4` (item 20, GH #3614); its `item_id` cell is the external id of a `catalog_item`.
 3. **No reference check on `base_uom_id`.** A `catalog_item` can name a `base_uom_id` that is
    not a `catalog_uom` record, is inactive or is deleted: it is a declarative string with no
    foreign key (decision 0050 D3.6; the import path is the exception: `reference_not_found` and
@@ -199,9 +209,9 @@ this section was written. It covers the types `catalog_uom`, `catalog_item`, `ca
     id (exact text, canonical lowercase uuid; `lib/letflow/modules/catalog_items/catalog_items.ex`).
     A lot of another item, a retired or deleted record, the id of a record of another type and
     any non-uuid value are `false`, never a raise.
-17. **Lots cannot be seeded by the generic import.** `POST /entities/records/catalog_lot/import`
-    answers 403 `entity_type_managed` (`lib/letflow/routers/entities/record_import.ex`); the
-    import path for managed types is open (GH #3593).
+17. **Lots are seeded by the import function.** `POST /entities/records/catalog_lot/import`
+    reaches `Letflow.Modules.CatalogItems.LotImport` (GH #3599, REQ-654): upsert by external ref
+    only, no `active` column, a changed `code` or `item_id` is refused.
 18. **An already installed tenant does not get `catalog_lot`.** As item 13: no upgrade path adds
     an entity type to an installed module (`lib/letflow/modules/installs.ex`); the module upgrade
     slice owed by REQ-642 point (7) adds it, and the rows of such tenants are untouched. Fresh

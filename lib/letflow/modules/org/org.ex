@@ -56,6 +56,13 @@ defmodule Letflow.Modules.Org do
   held by an active employee cannot be retired (`:position_in_use`); a transfer changes unit and
   position in one record version. The audit entries of an employee omit `full_name`.
 
+  ## Import (GH #3599 / REQ-654)
+
+  `import_row/3` serves the core import route for `org_unit`, `org_position` and `org_employee`
+  (`Letflow.Modules.Org.Import`): upsert by external reference, references by external id under
+  the file's system, every write through the functions above. Legal entities and sites are not
+  imported.
+
   ## Read API contract (GH #2662)
 
   `prefix` must be derived server-side from the authenticated tenant, never from HTTP input:
@@ -117,8 +124,22 @@ defmodule Letflow.Modules.Org do
       "org_unit" => :tenant_wide,
       "org_position" => {:column, "org_unit_id"},
       "org_employee" => {:column, "org_unit_id"}
-    }
+    },
+    import_functions: [
+      %{entity_type: "org_unit", function: :import_row},
+      %{entity_type: "org_position", function: :import_row},
+      %{entity_type: "org_employee", function: :import_row}
+    ]
   )
+
+  @doc """
+  The import function of `org_unit`, `org_position` and `org_employee` (GH #3599 / REQ-654,
+  manifest `:import_functions`): one row of a file, called by the core import route. See
+  `Letflow.Modules.Org.Import`; it writes only through the write functions below.
+  """
+  @spec import_row(prefix :: String.t(), entry :: map(), ctx :: map()) ::
+          {:ok, map()} | {:error, term()}
+  def import_row(prefix, entry, ctx), do: Letflow.Modules.Org.Import.row(prefix, entry, ctx)
 
   @impl true
   def on_install(prefix, _settings, ctx) do
