@@ -1061,4 +1061,7 @@
 10 test/letflow/modules/codes/install_test.exs 5589.95
 11 test/letflow/modules/codes/behaviour_test.exs 5589.95
 12 test/letflow/modules/codes/read_api_test.exs 5589.95
+5 test/letflow/routers/entities_import_xlsx_test.exs 5589.95
+10 test/letflow/plugs/xlsx_body_parser_test.exs 5589.95
+15 test/letflow/entities/xlsx_import_test.exs 5589.95
 2 test/letflow/modules/locations/create_node_test.exs 5589.95
