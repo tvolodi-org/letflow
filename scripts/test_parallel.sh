@@ -886,6 +886,20 @@ read -r -a extra_args <<< "${TEST_PARALLEL_EXTRA_ARGS:-}"
 declare -a part_start_epoch part_end_epoch
 phase_start_epoch=$(date +%s)
 
+# T-1139: TEST_PARALLEL_SKIP_HEAVY=1 drops the heavy files (exam tests and :slow-tagged files,
+# listed by scripts/ci_heavy_paths.sh files) from every partition's file list. CI sets it on a
+# pull request or merge-queue run that touches nothing the heavy files depend on; the nightly
+# run, push to main and workflow_dispatch leave it unset. Needs a manifest (explicit file lists).
+heavy_skip_list=""
+if [ "${TEST_PARALLEL_SKIP_HEAVY:-}" = "1" ]; then
+  if [ -z "$manifest_path" ]; then
+    echo "test_parallel: ERROR TEST_PARALLEL_SKIP_HEAVY=1 needs TEST_PARALLEL_MANIFEST (explicit file lists)" >&2
+    exit 2
+  fi
+  heavy_skip_list=$(bash scripts/ci_heavy_paths.sh files) || { echo "test_parallel: ERROR cannot list heavy files" >&2; exit 2; }
+  echo "test_parallel: skipped by path: exam and :slow test files are not run in this run ($(printf '%s\n' "$heavy_skip_list" | grep -c .) files; run the nightly or workflow_dispatch full suite for them)"
+fi
+
 # Q-1037 / GH #2364: diagnostics printed ONLY on the watchdog-fired path,
 # just before the TERM, so a timed-out job log says where each partition was.
 # Best-effort throughout: every command is guarded and bounded, nothing here
@@ -1026,6 +1040,13 @@ while [ "$i" -le "$LAST" ]; do
   if [ -n "$manifest_path" ]; then
     partition_args=()
     mapfile -t partition_files < <(printf '%s\n' "$manifest_effective" | awk -v p="$i" '$1 == p && $3 != "stale" { print $2 }')
+    if [ -n "$heavy_skip_list" ]; then
+      mapfile -t partition_files < <(printf '%s\n' "${partition_files[@]}" | grep -vxFf <(printf '%s\n' "$heavy_skip_list") || true)
+      if [ "${#partition_files[@]}" -eq 0 ] || [ -z "${partition_files[0]}" ]; then
+        echo "test_parallel: ERROR partition $i has only heavy files and TEST_PARALLEL_SKIP_HEAVY=1 would leave it empty (mix test would then run everything)" >&2
+        exit 2
+      fi
+    fi
   fi
   MIX_TEST_PARTITION="$i" MIX_BUILD_PATH="_build/test-partition-$i" LETFLOW_SKIP_ECTO_SETUP=1 \
     mix test ${partition_args[@]+"${partition_args[@]}"} --no-color $high_pool_demand_exclude "$@" ${extra_args[@]+"${extra_args[@]}"} ${partition_files[@]+"${partition_files[@]}"} \
