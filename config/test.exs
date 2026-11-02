@@ -103,6 +103,10 @@ config :letflow, Letflow.Repo,
   hostname: "localhost",
   port: db_port,
   pool: Ecto.Adapters.SQL.Sandbox,
+  # T-1096: no Ecto SQL query logging in tests (56 MB of log per 10 min). The Logger level stays
+  # :debug so ExUnit.CaptureLog tests that capture debug messages keep working; failures still
+  # print their own error output.
+  log: false,
   # ISS-0194: scripts/test_parallel.sh computes and exports TEST_POOL_SIZE so
   # N concurrently-launched partitions don't jointly exceed Postgres
   # max_connections (schedulers_online()*2 per partition, multiplied by N,
