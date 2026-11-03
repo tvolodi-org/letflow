@@ -48917,3 +48917,89 @@ requirements:
       - "OQ-13 and OQ-23 of decision 0073 are not decided here; scoped principals stay refused until slice L6."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-686, REQ-685, REQ-684, REQ-621, REQ-676, "decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md) D-L12 and its section Amended (REQ-676, assets B1)", "decision 0061 (docs/migration/decisions/0061-engine-lock-order-platform-invariant.md) as amended by REQ-686"]
+  - id: REQ-689
+    title: "Assets C1: specification of the asset register: the asset card for fixed, low-value (counted by quantity) and intangible assets, the five register dimensions with an empty location for intangibles, the org unit as scope slot, and depreciation as typed or imported information only (docs only)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-676 -- phase C specification (owner D-085), written before the two-register amendment of decision 0073 and the stock registration REQ-687 are implemented
+    description: >
+      Phase C item C1 of the assets and stock application (owner decisions D-060 to D-063; D-085 point (3) releases the
+      phase C specification tasks before GATE B, specifications only). ONE change, docs only: a new file
+      docs/assets/asset-register.md that specifies the asset register of the Assets module. No code, no migration, no
+      definition JSON, no pack, no test, no seed, no route, no screen; no edit of any decision record, design note or other
+      entry of this file. The module, its record type, its ledger registration and its documents are later requirements,
+      written from this file after the owner's gate of phase B (D-063, D-085).
+
+      WHY. ai-dala-portfolio/architectures/assets.md (table under "The model") says the asset register keeps one record
+      per asset of three kinds, fixed asset, low-value asset and intangible (license, subscription), with the dimensions
+      OrgUnit, Location, MaterialResponsible, ActualUser and Asset, no lot, and amortization as an information field,
+      imported or typed, not calculated in the first version; D-061 says Asset Management is its own module, separate from
+      the stock module, and that depreciation is an information field. Its section "The gray zone" says a low-value asset
+      is written off from the balance but still tracked, flagged off-balance; its review findings 4 to 7 say price and
+      value live on the receipt document or the asset, not in the register (4), low-value items are countable by quantity,
+      for example 200 identical chairs (5), intangible assets have no location, so that dimension is left empty (6), and
+      the scope slot among the 8 dimension slots must be named (7). letflow-team/project/assets-gap-analysis.md section 1
+      says both slot sets fit the ledger's 8 slots and that the asset card fields (kind, off-balance flag, amortization,
+      price) are normal records, not ledger. On origin/main there is no assets module (priv/modules/ holds catalog_items,
+      codes, exam, locations and org; lib/letflow/modules/ has no assets directory), so nothing says which record carries
+      an asset, which slots the asset ledger registers, or where depreciation is kept.
+
+      FACTS THE FILE RESTS ON (each checked on origin/main). Ledger tables:
+      priv/repo/migrations/20261031100001_create_ledger_tables.exs gives slots k1..k8 as text NOT NULL DEFAULT '' with
+      the CHECK k1_present (k1 <> ''), so only slot 1 must be non-empty. Registration shape: note
+      lib/letflow/design/gh2657-wms-stock-ledger-core.md section 14.3 rule 12 (ledger_ids, slots with name, format :uuid
+      or :token and required, causes, key_bounds of the form when_slot_nonempty plus max_on_hand, permissions post,
+      reverse, read and reconcile with reverse distinct from post, scope_slot naming an existing slot, independent of
+      scope_declarations, max_event_lateness_hours, error_aliases, policy, an optional units allowlist of :token
+      strings); section 4.5 says an unused slot is the empty string and that slot order is the lock order; the slot list
+      is append-only. Decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md): D-L3 one fixed
+      ledger id per tenant, D-T lateness 96 hours back and 5 minutes ahead, D-P the policy declare/2 reads no master data,
+      D6 master validation owed to slice L7, OQ-21 a scoped principal cannot post until slice L6; its section "Amended
+      (REQ-676, assets B1)" A2 (two postings of two ledger ids in one transaction, used by the change of kind of item C3)
+      and A7 (the speed test loads the asset register with the slot set above at the small volume). Stock registration
+      precedent: REQ-687 criterion 2 (slots each :uuid, scope_slot org_unit, no role grants). Master data and visibility:
+      decision 0076 (docs/migration/decisions/0076-master-data-layer.md) R1 (consumers such as Assets depend on the
+      master-data modules, never the reverse), R4 (consumers read master data through the owning module's read API), R6
+      rule 5 (a cross-pack reference is a declarative record id checked in write logic) and R7 (visibility table rows
+      "Asset cards, receipt/transfer/count documents: scoped by org unit, later Assets entries" and "Balances and
+      movements: scoped by ledger scope slot (org unit)"). Decision 0050 D6 (an entity type a module ships is prefixed
+      with the module id). Decision 0051 M4 (a scope declaration is immutable once set). Employees and the one term:
+      REQ-643 description point (3) ("materially responsible person", material_responsible, and "actual user",
+      actual_user, both an org_employee record id) and owner decision D-065. Read functions named in criterion 6, each
+      defined on origin/main: Letflow.Modules.Org.lookup/2, active?/2 and active_employee?/2 (lib/letflow/modules/org/org.ex),
+      Letflow.Modules.Locations.active?/2 and linked?/3 (lib/letflow/modules/locations/locations.ex). Field types: the
+      closed list @field_types of lib/letflow/entities/definition/validator.ex, and decimal_strict on decimal fields
+      (same file; lib/letflow/design/gh2654-decimal-exact-strings.md).
+
+      WHAT THE FILE DECIDES is limited to the shape of the register and its card. The business meanings it gives (the
+      three kinds, the boundary to Inventory Objects, the fields of the card) are the business analyst's proposal for
+      UAT, to be confirmed by the owner at the gate of phase C. Money rules, role grants and the open points of
+      criterion 10 are not decided here.
+
+      OUT OF SCOPE: the asset documents and their causes (commissioning, change of responsible or user, hand over,
+      write off, expiry reminders: item C2), the change of kind from stock to asset in one transaction (item C3, under
+      0073 A2), xlsx import and export of assets including depreciation (item C4), opening balances of old assets (item
+      B3, REQ-677), the scoped read of balances (item B6, REQ-682), the speed test (0073 A7), printed forms and
+      government lists (phase E), depreciation calculation (not in the first version, assets.md), and period close
+      (D-062: not part of this product).
+    acceptance_criteria:
+      - "1. Place: the implementing change adds one new file docs/assets/asset-register.md; git diff --name-only origin/main...HEAD of that change lists exactly that file; the file names its sources: owner decisions D-061, D-062, D-063, D-065, D-067 and D-085 (ai-dala-portfolio/DECISIONS.md), ai-dala-portfolio/architectures/assets.md, letflow-team/project/assets-gap-analysis.md, decisions 0050, 0051, 0073 (with its section Amended (REQ-676, assets B1)) and 0076, and this entry REQ-689."
+      - "2. Module: the file states that the asset register belongs to a new module with module id assets (D-061: its own module, not part of the stock module), whose manifest depends_on lists org and locations and no consumer module (decision 0076 R1 and R4), and whose one record type is assets_card (the module-id prefix rule of decision 0050 D6). It states that no assets module exists on origin/main."
+      - "3. Three kinds: the file has one section per kind, fixed, low_value and intangible, each opening with one sentence of meaning, as proposed here: a fixed asset is one physical object kept on the balance; a low-value asset is written off from the balance but still tracked (off-balance, assets.md 'The gray zone') and may be counted by quantity; an intangible asset is a license or subscription, kept on the balance, with no location. Each section marks its meaning as a proposal to be confirmed by the owner at the gate of phase C. It states the boundary to the stock register in one rule: an item counted one by one because it is valuable, while it is still stock, is an Inventory Object of the stock register (D-065: its own record type, no entry yet); an item written off from the balance but still tracked is a low_value asset card (assets.md review finding 3)."
+      - "4. The asset card: the file gives a field table for assets_card with, per field, the name, the field type from the closed list @field_types of lib/letflow/entities/definition/validator.ex, required or optional, and the master it refers to or none: inventory_number string required (unique per tenant); name string required; kind enum required with the values fixed, low_value and intangible (kind low_value is the off-balance flag; there is no second flag field); org_unit_id string required (the record id of the org_unit that holds the card; a cross-pack declarative id, decision 0076 R6 rule 5); acquisition_date date optional (the real receipt date, kept as a field because the ledger refuses an event time older than 96 hours, 0073 D-T); acquisition_cost decimal optional; accumulated_depreciation decimal optional; book_value decimal optional; depreciation_as_of date optional; valid_until date optional and allowed only when kind is intangible; external_ref_system and external_ref_id strings optional, unique as a pair. Every decimal field has decimal_strict true. It states that the card has no location, materially responsible person, actual user or quantity field: those values live only in the register (criterion 5), so the card and the register cannot disagree, and that the kind of a card does not change once the card has a posting."
+      - "5. The register: the file states the asset ledger registration as a table: ledger_ids {:fixed, [\"assets\"]} (0073 D-L3); five slots in this order, each format :uuid: asset (the assets_card record id, required true), org_unit (required true), location (required false), material_responsible (required true), actual_user (required false); scope_slot org_unit; key_bounds empty; a units allowlist of the one token pcs, so every leg's unit_ref is pcs (a UAT assumption, to be confirmed by the process owner), and the quantity is a whole number checked by the module (criterion 6); max_event_lateness_hours 96; error_aliases empty; four distinct permission atoms AssetsPost, AssetsReverse, AssetsRead and AssetsReconcile with no role grants (as REQ-687 does for the stock atoms); the causes are not listed here and are those of item C2. It gives the reasons for the order: slot 1 must be non-empty (CHECK k1_present) and the asset is the one dimension every leg has; the sign rule zero_sum_by_slot_1 then conserves the quantity per asset on a two-leg move; org_unit in slot 2 lets the existing (ledger_id, k2, k1) indexes of migration 20261031100001 serve the reads by org unit; the order is append-only and cannot change later (note section 4.5, rule 12). It names the slots by name and uses the term rule of REQ-643 point (3) (material_responsible and actual_user, both org_employee record ids, never a Letflow user id)."
+      - "6. Per-kind rules the register cannot express: the file states that a key bound applies to one balance key (note section 4.5) and that a bound on the asset slot would also cap low-value quantities, so there is no key bound; instead the assets module's own write path, before it posts (0073 D-P: declare/2 reads no master data), checks for every leg: the asset card exists and its kind; the quantity is a whole number; for kind fixed and intangible the total quantity of the asset over all its balance rows after the posting is 0 or 1; for kind fixed and low_value the location slot is a location for which Letflow.Modules.Locations.active?/2 is true and Letflow.Modules.Locations.linked?/3 is true for the leg's org unit (D-065: a movement whose org unit and location are not linked is refused); for kind intangible the location slot is the empty string and no link check runs; the org unit is a live active org_unit: Letflow.Modules.Org.lookup/2 answers entity_type org_unit and Letflow.Modules.Org.active?/2 is true (active?/2 alone is true for an active record of any of the six org types); Letflow.Modules.Org.active_employee?/2 is true for the materially responsible person and, when the slot is not empty, for the actual user. It states that a failed check posts nothing, and that these checks are run by the documents of item C2, which this file does not specify."
+      - "7. Depreciation and money: the file states that acquisition_cost, accumulated_depreciation, book_value and depreciation_as_of are information typed by a user or imported (item C4), never calculated by the product in the first version (assets.md, D-061); that they are never a ledger slot, a leg column, a leg attrs key or a balance column (assets.md review finding 4); that no process definition, trigger or script of the assets module writes them; and that a change of these fields is a card update recorded in the audit trail, not a posting. It lists the currency of the money fields as an open owner question with no answer of its own."
+      - "8. Quantity: the file states that the quantity of an asset is the sum of its balance rows in the register (on_hand), not a card field; that a low_value card counts many identical objects (assets.md review finding 5) and its quantity may be split over several balance rows (for example 150 chairs in one room under one materially responsible person and 50 handed to an actual user); that a fixed or intangible card has at most quantity 1 in total (criterion 6); and that zero is a written-off or not yet commissioned asset whose card stays (D-061: registers are read-only and corrected by new entries)."
+      - "9. Access: the file states for assets_card the scope declaration {:column, \"org_unit_id\"} (decision 0076 R7, asset cards scoped by org unit; D-067), immutable once set (decision 0051 M4); that balances and movements of the asset ledger are scoped by the scope slot org_unit (0076 R7) and that their scoped read is item B6 (REQ-682); that a scoped principal cannot post until slice L6 (0073 OQ-21); and that for a fixed or intangible asset the card's org_unit_id equals the org_unit slot of the asset's balance row with quantity 1, kept equal by the documents of item C2 in the same transaction as the posting."
+      - "10. Open owner questions: the file has a section listing, each with its source and no answer of its own: the currency of the money fields (criterion 7); whether the actual user may be empty (this entry proposes optional, as a UAT assumption); which unit holds the card of a low-value asset whose quantity is split over balance rows of several org units, and whether the other unit sees the card; whether an intangible card may carry more than one seat (this entry proposes at most 1 per card, as a UAT assumption); whether inventory_number is unique per tenant or per legal company (several BIN in one tenant, D-062; this entry proposes per tenant); the role grants of the four permission atoms (0073 OQ-11 decided no grants for the stock atoms in REQ-687); and the meanings of the three kinds and the Inventory Object boundary (criterion 3), to be confirmed at the gate of phase C."
+      - "11. Checks: docs/requirements.yaml still parses, mix letflow.check_requirements_registration passes and mix letflow.check.static passes (real output quoted in the PR). No requirement status is flipped and no run-history event is appended."
+    open_questions:
+      - "Currency of acquisition_cost, accumulated_depreciation and book_value: a money rule for the owner."
+      - "Whether the actual user may be empty (proposed: optional) and whether an intangible card may carry more than one seat (proposed: at most 1): UAT assumptions, to be confirmed by the process owner."
+      - "Card holder and card visibility of a low-value asset split over several org units."
+      - "inventory_number unique per tenant (proposed) or per legal company (several BIN in one tenant, D-062)."
+      - "Role grants of AssetsPost, AssetsReverse, AssetsRead and AssetsReconcile (none proposed, as REQ-687 for the stock atoms)."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-616, REQ-620, REQ-642, REQ-643, REQ-644, REQ-645, REQ-649, REQ-676, REQ-682, REQ-687]
