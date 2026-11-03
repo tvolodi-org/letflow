@@ -1,4 +1,5 @@
 /** Shared helpers of the locations tests (GH 3607 / REQ-671): access state, a fake server over a mocked client, render. */
+import { ToastContainer } from '@/components/ui/Toast'
 import { render } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useRoutes } from 'react-router-dom'
@@ -86,6 +87,7 @@ export function renderLocations(path: string, access: AccessState = withAtom, qu
         <MemoryRouter initialEntries={[path]}>
           <Routes />
         </MemoryRouter>
+        <ToastContainer />
       </AccessStateProvider>
     </QueryClientProvider>,
   )
