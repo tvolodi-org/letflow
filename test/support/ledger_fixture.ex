@@ -83,7 +83,7 @@ defmodule Letflow.LedgerFixture do
       prefix: schema,
       registration_name: "test",
       registration: Keyword.get_lazy(opts, :registration, &registration/0),
-      command: %{client_op_id: "op-#{unique}"},
+      command: Map.merge(%{client_op_id: "op-#{unique}"}, Keyword.get(opts, :command, %{})),
       posting:
         Map.merge(
           %{ledger_id: Keyword.get(opts, :ledger_id, @ledger_id), cause: cause, legs: legs},
@@ -91,7 +91,7 @@ defmodule Letflow.LedgerFixture do
         ),
       subject_id: Keyword.get(opts, :subject_id, Ecto.UUID.generate()),
       actor_id: Ecto.UUID.generate(),
-      origin_key: "origin-#{unique}"
+      origin_key: Keyword.get(opts, :origin_key, "origin-#{unique}")
     }
   end
 

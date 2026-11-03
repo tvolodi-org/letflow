@@ -23,11 +23,29 @@ defmodule Letflow.Ledger do
   Every statement carries the capability's prefix; every value is a bound parameter. Lock
   timeouts, deadlocks and statement timeouts are not rescued: they leave the transaction.
 
-  ## Not in this part (REQ-621 parts B and C, L2b, L3)
+  ## Idempotency and isolation (part B)
 
-  Idempotency lookups, offline fields, event time and its lateness cap, the isolation assertion
-  and reversal. Until part B lands a repeated `(subject_id, client_op_id)` or `origin_key` raises
-  a unique violation inside the caller's transaction. No live caller exists before slice L3.
+  The first statement of `post/1` after the capability check is
+  `SELECT current_setting('transaction_isolation')`: anything but `read committed` is refused as
+  `{:ledger_contract, :isolation_not_read_committed}` before a row is read or locked, because the
+  rechecks below rely on every statement seeing a fresh snapshot.
+
+  A repeated `(subject_id, client_op_id)` with the same `payload_hash` returns the first entry
+  with `duplicate: true` and writes nothing; the same key with another payload, an `origin_key`
+  already used by another entry, or a `client_op_id` and an `origin_key` that match two different
+  entries is `idempotency_key_reuse`. The lookup runs at three places: before the balance rows are
+  created (step 3), right after the balance locks and before the guard (so a retry never sees the
+  balance the first posting left), and right after the counter lock and before the counter is
+  updated (no `last_seq` change on a duplicate). A duplicate found at the second or third place may
+  leave zero-quantity balance rows, or a counter row at `last_seq` 0 for a fresh ledger id; no
+  entry, leg or `last_seq` change is written. A unique violation on the entry insert (two
+  posters on different ledger ids share no counter lock) is mapped to the same refusals; the
+  result holds neither the database message nor the constraint name.
+
+  ## Not in this part (REQ-621 part C, L2b, L3)
+
+  Offline fields, event time and its lateness cap, and reversal. No live caller exists before
+  slice L3.
 
   ## Pilot gate (note 17, quoted)
 
@@ -43,7 +61,7 @@ defmodule Letflow.Ledger do
   `{:ledger_contract, :invalid_capability}` (not a capability, or a malformed prefix) and
   `{:ledger_contract, :invalid_registration}` (the registration data is not of the expected
   shape: an extra atom beyond note 12.2, chosen here as the fail-closed backstop for the rule
-  that L3 will enforce at build time).
+  that L3 will enforce at build time) and `{:ledger_contract, :isolation_not_read_committed}`.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -75,7 +93,10 @@ defmodule Letflow.Ledger do
         raise ArgumentError, "Letflow.Ledger.post/1 requires an open transaction"
       end
 
-      post_in_transaction(cap)
+      case Repo.query!("SELECT current_setting('transaction_isolation')") do
+        %{rows: [["read committed"]]} -> post_in_transaction(cap)
+        _other -> {:error, {:ledger_contract, :isolation_not_read_committed}}
+      end
     else
       {:error, {:ledger_contract, :invalid_capability}}
     end
@@ -88,11 +109,108 @@ defmodule Letflow.Ledger do
          {:ok, ids} <- check_identity(cap),
          {:ok, posting} <- Validate.posting(cap.posting, cap.command, cap.registration),
          {:ok, groups} <- group_keys(posting.legs, bounds),
+         payload_hash = Digest.payload_hash(cap.command, ids.subject_id),
+         :none <- idempotency(cap, ids, payload_hash),
          :ok <- insert_missing_balances(cap.prefix, posting.ledger_id, groups),
          {:ok, locked} <- lock_balances(cap.prefix, posting.ledger_id, groups),
+         :none <- idempotency(cap, ids, payload_hash),
          :ok <- guard(groups, locked, cap.registration.slots) do
-      write(cap, ids, posting, groups, locked)
+      write(cap, ids, posting, groups, locked, payload_hash)
+    else
+      {:duplicate, posted} -> {:ok, posted}
+      {:error, _} = error -> error
     end
+  end
+
+  # -- idempotency -----------------------------------------------------------------------------
+
+  # :none | {:duplicate, posted} | {:error, refusal}. One bound-parameter read, scoped by prefix
+  # and by the capability's subject: another subject's entry never appears in a result.
+  defp idempotency(cap, ids, payload_hash) do
+    subject = ids.subject_id
+    op = cap.command.client_op_id
+    origin = cap.origin_key
+
+    rows =
+      from(e in "ledger_entry",
+        where:
+          (e.subject_id == type(^subject, Ecto.UUID) and e.client_op_id == ^op) or
+            e.origin_key == ^origin,
+        select: %{
+          id: type(e.id, Ecto.UUID),
+          ledger_id: e.ledger_id,
+          posting_seq: e.posting_seq,
+          chain_hash: e.chain_hash,
+          subject_id: type(e.subject_id, Ecto.UUID),
+          client_op_id: e.client_op_id,
+          origin_key: e.origin_key,
+          payload_hash: e.payload_hash
+        }
+      )
+      |> Repo.all(prefix: cap.prefix)
+
+    by_key = Enum.find(rows, &(&1.subject_id == subject and &1.client_op_id == op))
+    by_origin = Enum.find(rows, &(&1.origin_key == origin))
+    idempotency_decision(by_key, by_origin, payload_hash)
+  end
+
+  defp idempotency_decision(nil, nil, _hash), do: :none
+
+  defp idempotency_decision(nil, _by_origin, _hash),
+    do: Validate.refuse(:idempotency_key_reuse, %{})
+
+  defp idempotency_decision(by_key, by_origin, hash) do
+    cond do
+      by_origin != nil and by_origin.id != by_key.id ->
+        Validate.refuse(:idempotency_key_reuse, %{})
+
+      by_key.payload_hash != hash ->
+        Validate.refuse(:idempotency_key_reuse, %{})
+
+      true ->
+        {:duplicate, duplicate_of(by_key)}
+    end
+  end
+
+  defp duplicate_of(row) do
+    %{
+      entry_id: row.id,
+      ledger_id: row.ledger_id,
+      posting_seq: row.posting_seq,
+      chain_hash: row.chain_hash,
+      duplicate: true
+    }
+  end
+
+  @doc false
+  # Maps a unique violation of the entry insert to a refusal; :unknown for any other error.
+  @spec unique_violation_refusal(Exception.t()) :: {:error, refusal()} | :unknown
+  def unique_violation_refusal(%Postgrex.Error{
+        postgres: %{code: :unique_violation, constraint: constraint}
+      }) do
+    case constraint do
+      c when c in ["ledger_entry_subject_op_key", "ledger_entry_origin_key_key"] ->
+        Validate.refuse(:idempotency_key_reuse, %{})
+
+      "ledger_entry_device_seq_unique_index" ->
+        Validate.refuse(:client_seq_conflict, %{})
+
+      _other ->
+        :unknown
+    end
+  end
+
+  def unique_violation_refusal(_other), do: :unknown
+
+  defp insert_entry(prefix, entry_row) do
+    Repo.insert_all("ledger_entry", [entry_row], prefix: prefix)
+    :ok
+  rescue
+    e in Postgrex.Error ->
+      case unique_violation_refusal(e) do
+        {:error, _} = refusal -> refusal
+        :unknown -> reraise e, __STACKTRACE__
+      end
   end
 
   # -- capability shape ------------------------------------------------------------------------
@@ -262,7 +380,7 @@ defmodule Letflow.Ledger do
 
   # -- write -----------------------------------------------------------------------------------
 
-  defp write(cap, ids, posting, groups, locked) do
+  defp write(cap, ids, posting, groups, locked, payload_hash) do
     prefix = cap.prefix
     ledger_id = posting.ledger_id
 
@@ -280,6 +398,17 @@ defmodule Letflow.Ledger do
         lock: "FOR UPDATE"
       )
       |> Repo.one!(prefix: prefix)
+
+    case idempotency(cap, ids, payload_hash) do
+      :none -> write_entry(cap, ids, posting, groups, locked, payload_hash, counter)
+      {:duplicate, posted} -> {:ok, posted}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp write_entry(cap, ids, posting, groups, locked, payload_hash, counter) do
+    prefix = cap.prefix
+    ledger_id = posting.ledger_id
 
     %{rows: [[posting_time]]} = Repo.query!("SELECT clock_timestamp()")
 
@@ -304,7 +433,7 @@ defmodule Letflow.Ledger do
       posting_time: posting_time,
       client_op_id: client_op_id,
       origin_key: cap.origin_key,
-      payload_hash: Digest.payload_hash(cap.command, ids.subject_id),
+      payload_hash: payload_hash,
       registration_hash: Digest.registration_hash(cap.registration),
       scope_ref: posting.scope_ref,
       leg_count: length(posting.legs)
@@ -327,8 +456,20 @@ defmodule Letflow.Ledger do
         chain_hash: chain_hash
       })
 
-    Repo.insert_all("ledger_entry", [entry_row], prefix: prefix)
+    with :ok <- insert_entry(prefix, entry_row) do
+      write_legs_and_balances(
+        {prefix, ledger_id, seq, posting_time},
+        {entry_id, chain_hash},
+        {posting, groups, locked, leg_maps}
+      )
+    end
+  end
 
+  defp write_legs_and_balances(
+         {prefix, ledger_id, seq, posting_time},
+         {entry_id, chain_hash},
+         {posting, groups, locked, leg_maps}
+       ) do
     leg_rows =
       for {leg, map} <- Enum.zip(posting.legs, leg_maps) do
         key_columns(leg.k)
