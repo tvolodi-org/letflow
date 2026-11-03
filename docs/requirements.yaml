@@ -48471,7 +48471,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-621 -- slice L3 needs post/1 of slice L2a (REQ-621, all three parts) and its rework for decision 0073 A2, A3 and A5; held ledger work until the owner's GATE A (D-073, 0073 A10)
+    gh: 3698
     description: >
       Slice L3 of the WMS stock ledger (GH #2657, REQ-502, ledger core), row L3 of the slice table of decision 0073
       (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md, "Consequences"): "HandlerWrites.post/3 and
@@ -48551,7 +48551,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-684 -- the build path reads the ledger registration, posts_ledger and Letflow.Ledger.Policy of slice L3a
+    gh: 3697
     description: >
       Part L3b of slice L3 of the WMS stock ledger (the split and the assignment of every clause of the 0073 L3 row are in
       REQ-684's description). This part takes the clauses "HandlerWrites.post/3 and handler_post.ex", "capability" and
@@ -48616,7 +48616,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-685 -- the failure channel and the audit read the ledger step and the authority result of slice L3b
+    gh: 3696
     description: >
       Part L3c of slice L3 of the WMS stock ledger, the route part (the split and the assignment of every clause of the 0073
       L3 row are in REQ-684's description). This part takes the clauses "failure channel", "ledger.posted audit" and "the
