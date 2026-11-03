@@ -654,13 +654,9 @@ defmodule Letflow.Routers.EntitiesScopeWritesHttpTest do
       cursor = W.json(first)["next_cursor"]
       assert is_binary(cursor)
 
-      decoded =
-        case Base.url_decode64(cursor, padding: false) do
-          {:ok, raw} -> raw
-          :error -> cursor
-        end
-
-      refute cursor_leaks_scope?(cursor)
+      # Decoding must succeed, so the scan can never fall back to the random encoded text.
+      {:ok, decoded} = Base.url_decode64(cursor, padding: false)
+      assert String.starts_with?(decoded, "EQ:")
       refute cursor_leaks_scope?(decoded)
 
       :ok = W.set_grant!(fx, {:node, :b})
