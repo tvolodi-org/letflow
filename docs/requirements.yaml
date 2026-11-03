@@ -48917,3 +48917,99 @@ requirements:
       - "OQ-13 and OQ-23 of decision 0073 are not decided here; scoped principals stay refused until slice L6."
       - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
     depends_on: [REQ-686, REQ-685, REQ-684, REQ-621, REQ-676, "decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md) D-L12 and its section Amended (REQ-676, assets B1)", "decision 0061 (docs/migration/decisions/0061-engine-lock-order-platform-invariant.md) as amended by REQ-686"]
+
+  - id: REQ-692
+    title: "WMS stock ledger slice L2a rework for decision 0073 A2, A3 and A5 (shape-independent part): a posting plan of one or two postings, one core lock step over the union of their balance keys, per-ledger-id unique keys and idempotency lookups"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    # impl_order: UNREGISTERED -- blocked-by: REQ-621 -- rework of the L2a primitive delivered under REQ-621 (GH #3469); the engine replaces this line with gh: <n>
+    description: >
+      Phase B of the assets and stock application (the stock register), the L2a row of decision 0073
+      "Amended (REQ-676, assets B1)" A10 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md): "idempotency
+      keys are per ledger id (A5); lock order of A3; a ledger-id-to-table function if shape (c)". This entry takes the part
+      that is the same under the partitioned shape (b) of A5 and the separate-tables shape (c) of A8, so it does not wait
+      for the speed test of A7: (1) one transaction may carry a posting plan of at most two postings (A2), (2) ONE core
+      lock step takes the locks of all postings of the plan in the order of A3, and (3) the idempotency, origin and device
+      uniqueness is per ledger id (A5 rows ledger_entry_subject_op_key, ledger_entry_origin_key_key,
+      ledger_entry_device_seq_unique_index and ledger_entry_reverses_unique_index). Not in this entry: the partitioned
+      tables, the primary keys (id, ledger_id), the self foreign key (reverses_entry_id, ledger_id), the leg key
+      (ledger_id, entry_id, leg_no), the partition life cycle of A6 and the ledger-id-to-table function of shape (c); they
+      need the speed test result and come with the replacing migration of A5.
+
+      Sources opened: decision 0073 D8 and its amendment A2 (two postings, the three refusals, both or neither), A3 (the
+      class 5b order, "Which step takes the locks of both postings", the no-cycle argument), A4 (each posting keeps its own
+      counter row, posting_seq and chain_hash), A5 (the key table) and A10 (row L2a, "REQ-620 and REQ-621 are the register
+      entries whose criteria the later rework of slices L1 and L2a amends"); decision 0061
+      (docs/migration/decisions/0061-engine-lock-order-platform-invariant.md; the class 5b text itself is applied by REQ-686,
+      not here); decision 0076 R7 (docs/migration/decisions/0076-master-data-layer.md, D-067: balances and movements are
+      scoped by the ledger scope slot, phase B); the design note lib/letflow/design/gh2657-wms-stock-ledger-core.md
+      (revision 5) sections 6.1, 7.1 steps 3 and 5 to 11, 7.3 and 9.2. Phase B documents this entry follows: REQ-676
+      (0073 amendment), REQ-681 (Assets B2), REQ-679 (Assets B4: the change of kind posts to both registers), REQ-682
+      (Assets B6); the consumer is REQ-685 (slice L3b), whose criterion 7 calls the core lock function this entry names:
+      Letflow.Ledger.lock_postings/1.
+
+      What exists on origin/main (re-read for this entry). lib/letflow/ledger.ex defines post/1 (@doc false) over one
+      Letflow.Ledger.Capability (lib/letflow/ledger/capability.ex); the private steps are idempotency/3 (one query whose
+      disjuncts are (subject_id, client_op_id), origin_key and (subject_id, device_id, client_seq) when the command
+      carries device fields, with no ledger_id term), group_keys/2, insert_missing_balances/3, lock_balances/3, guard/3, write/6 (counter
+      insert-if-absent and FOR UPDATE, then the third lookup), post_entry/7 (clock_timestamp and check_event_time/3) and
+      write_entry/6; unique_violation_refusal/1 maps the constraint names ledger_entry_subject_op_key,
+      ledger_entry_origin_key_key and ledger_entry_device_seq_unique_index. Migration
+      priv/repo/migrations/20261031100001_create_ledger_tables.exs declares ledger_entry_subject_op_key UNIQUE (subject_id,
+      client_op_id), ledger_entry_origin_key_key UNIQUE (origin_key), ledger_entry_device_seq_unique_index (subject_id,
+      device_id, client_seq) WHERE device_id IS NOT NULL and ledger_entry_reverses_unique_index (reverses_entry_id) WHERE
+      reverses_entry_id IS NOT NULL; it is registered in the tenant manifest of lib/letflow/tenant_provisioning.ex, whose
+      last entry today is 20261101100001_create_tenant_module_upgrades.exs. No production module calls post/1 (no
+      Capability is built in lib/), so no tenant holds a ledger row.
+
+      Storage rules (D-066, decision 0076 R2 and R6). No new table and no new column: the four shared per-tenant tables of
+      REQ-620 stay, reached only through the capability's prefix (INV-1, schema-per-tenant; tenant_id is not a ledger
+      column, as on origin/main). The only storage change is the column list of the four unique keys above, which gain
+      ledger_id as their first column with their names kept. Existing rows: a key with ledger_id added is implied by the
+      old narrower key, so the new migration is valid on any row set and needs no refuse-if-rows rule; on QA (auto-CD of
+      main) it re-creates four indexes on empty tables.
+
+      Scope declaration (D-067, decision 0076 R7). This entry adds no route, no read, no permission atom and no
+      :scope_declarations entry; scope of postings stays with the ledger scope slot and slice L6 (OQ-13 of 0073 not
+      decided here), and the run-time authority and scope check of a posting is REQ-685 criterion 4. The lock step reads
+      no Scope and no grant.
+
+      Typed results added (core contract atoms, never on the wire; REQ-686 criterion 1 maps every {:ledger_contract,
+      atom} to the closed internal failure): {:ledger_contract, :ledger_too_many_postings},
+      {:ledger_contract, :ledger_duplicate_ledger_in_transaction}, {:ledger_contract, :ledger_document_mismatch} (the
+      three names of 0073 A2), {:ledger_contract, :not_in_plan} and {:ledger_contract, :plan_already_written} (names
+      chosen here). Every refusal code of REQ-621 keeps its name, status and details.
+
+      Pins, stated as moves from the value on origin/main at implement time: one new tenant-scoped migration at the next
+      free version (20261104100001 only as an example), appended to the manifest of lib/letflow/tenant_provisioning.ex;
+      test T5 of test/letflow/migrations/tenant_module_upgrades_migration_test.exs asserts that CreateTenantModuleUpgrades
+      is List.last of the manifest and moves to assert its position before the new migration; T-SC-1a of
+      test/letflow/entities/ledger_boundaries_test.exs gains the new path (the file name matches the
+      priv/repo/migrations/*_create_ledger_*.exs glob of Mix.Tasks.Letflow.CheckBoundaries.ledger_scan_paths/0 in
+      lib/mix/tasks/letflow.check_boundaries.ex, so Rules 7 and 7b scan it); test "(2) the same op on two ledger ids: the
+      second gets idempotency_key_reuse" of test/letflow/ledger/idempotency_test.exs is rewritten by criterion 4 because
+      this entry reverses what it asserts. Unchanged: @expected_tenant_tables in test/support/tenant_fixture.ex and its
+      count (no table), priv/permission_matrix/effective.golden (no atom), the route-scope snapshot (no route), the key
+      names asserted by test A-4 and A-5 of test/letflow/migrations/ledger_tables_migration_test.exs (same names, and its
+      rows share one ledger id, so every refusal it asserts still happens). The implementer greps test/ for each of the
+      four constraint names and for "post(" on Letflow.Ledger and runs every hit once.
+
+      Sizing. One change: one migration, the split of lib/letflow/ledger.ex into lock_postings/1 and write_posting/2 with
+      post/1 kept as their composition, one new struct module and two new test files; size S to M.
+    acceptance_criteria:
+      - "1. Per-ledger-id unique keys (0073 A5 rows ledger_entry_subject_op_key, ledger_entry_origin_key_key, ledger_entry_device_seq_unique_index, ledger_entry_reverses_unique_index; test file test/letflow/migrations/ledger_per_ledger_id_keys_migration_test.exs, fresh tenants only): a new tenant-scoped migration priv/repo/migrations/<next free version>_create_ledger_per_ledger_id_keys.exs, registered as the last entry of the tenant manifest in lib/letflow/tenant_provisioning.ex, replaces the four keys with the same names and these column lists: ledger_entry_subject_op_key UNIQUE (ledger_id, subject_id, client_op_id); ledger_entry_origin_key_key UNIQUE (ledger_id, origin_key); ledger_entry_device_seq_unique_index (ledger_id, subject_id, device_id, client_seq) WHERE device_id IS NOT NULL; ledger_entry_reverses_unique_index (ledger_id, reverses_entry_id) WHERE reverses_entry_id IS NOT NULL. Every SQL identifier is the quoted schema name of the migration prefix and no value is interpolated (INV-7). The test reads pg_get_constraintdef and pg_get_indexdef on a fresh tenant and asserts the four definitions; it inserts two raw entry rows with the same subject_id and client_op_id (then the same origin_key, then the same subject_id, device_id and client_seq) on two different ledger ids and both are accepted, and the same pair on ONE ledger id is refused with SQLSTATE 23505 and the old constraint name. Every other key, primary key and foreign key of migration 20261031100001 is unchanged (the test compares their definitions with the values before the migration). down/0 restores the old column lists and refuses to run unless :allow_ledger_migration_down is true, as CreateLedgerTables.down/0 does."
+      - "2. Idempotency lookups per ledger id (0073 A5, note 9.2; file test/letflow/ledger/idempotency_test.exs): every idempotency lookup of lib/letflow/ledger.ex has the bound-parameter term ledger_id = the posting's ledger id in each of its disjuncts, so an entry of another ledger id never matches. Tests, each a separate committed transaction on a fresh tenant: the same subject and client_op_id posted to ledger id A and then to ledger id B posts twice, with posting_seq 1 in each counter; a replay of the B command returns the B entry with duplicate: true and never the A entry_id; the same origin_key on A and on B posts twice; the same (subject_id, device_id, client_seq) on A and on B posts twice; on ONE ledger id each of these three repeats keeps the refusal or duplicate result REQ-621 criterion 6 and 7 give. The test '(2) the same op on two ledger ids' is rewritten to assert two entries (this entry reverses its assertion, 0073 A5 'the idempotency key is per ledger id')."
+      - "3. The posting plan and its checks (0073 A2; test file test/letflow/ledger/posting_plan_test.exs): lib/letflow/ledger.ex defines lock_postings/1 with @doc false and the spec lock_postings([Capability.t()]) :: {:ok, Letflow.Ledger.LockedPlan.t()} | {:error, refusal()} | {:error, {:ledger_contract, atom()}}. Before any database statement (a telemetry handler on the repo query event counts zero queries), it refuses: an empty list, a non-list, an element that is not a Capability, or two capabilities with different prefixes, with {:ledger_contract, :invalid_capability}; three or more capabilities with {:ledger_contract, :ledger_too_many_postings}. After the per-capability validation of REQ-621 (registration, identity, Validate.posting/3, the unit check of the key grouping), which stays pure, and still before any lock, two postings with the same ledger_id are refused {:ledger_contract, :ledger_duplicate_ledger_in_transaction}, and two postings whose document_type or document_id differ, or where either is nil or the empty string, are refused {:ledger_contract, :ledger_document_mismatch}. A plan of one capability has no document rule (as post/1 on origin/main). The open-transaction and read-committed checks of post/1 apply to lock_postings/1 unchanged. Letflow.Ledger.LockedPlan (lib/letflow/ledger/locked_plan.ex) is a struct with @enforce_keys, and a grep of lib/ for %LockedPlan{ and Ledger.LockedPlan{ finds it built only in lib/letflow/ledger.ex."
+      - "4. The one lock step (0073 A3, note 7.1 steps 3 and 5 to 9, 7.3; test file test/letflow/ledger/posting_plan_test.exs, statement probe in the style of T-LK-1b of test/letflow/ledger/lock_order_test.exs): after the transaction checks of criterion 3, lock_postings/1 runs these steps in this order: the lock-free idempotency lookup of each posting; one insert-if-absent pass (ON CONFLICT DO NOTHING) over the UNION of the balance keys of all postings, ascending by (ledger_id, k1..k8) byte-wise; one FOR UPDATE pass over the same union in the same order; the idempotency lookup of each posting; the guard of each posting (unit, insufficient_balance, balance_bound_exceeded of REQ-621 criteria 2 and 3), postings taken in ascending ledger_id order and the first refusal returned; one counter insert-if-absent pass, then one counter FOR UPDATE pass, both ascending by ledger_id; the idempotency lookup of each posting; and, under the counter locks, the clock_timestamp read and the event-time check of REQ-621 criterion 7 for each posting. It writes no ledger_entry, no ledger_leg, no balance update and no counter update. The probe asserts the identical statement sequence for a plan given as [A, B] and as [B, A] (two ledger ids, each with two balance keys given in descending order), and for a refused second posting (insufficient_balance on B) the balance locks of both postings and no counter statement."
+      - "5. Duplicates in a plan (note 9.2, 0073 A2 'both or neither'; same file): at each of the three lookups, when every posting of the plan is a duplicate, lock_postings/1 takes no further lock and returns a plan whose write_posting/2 calls return the existing entries with duplicate: true and write nothing (counters unchanged); when some but not all postings are duplicates, it returns {:error, {:ledger_refused, :idempotency_key_reuse, \"idempotency_key_reuse\", %{}}} with nothing written. Tests: a committed two-posting plan replayed with the same commands returns both existing entry_ids with duplicate: true and leaves two entries; a one-posting commit on ledger id A with client_op_id X followed by a two-posting plan on A and B with client_op_id X and the same A command is refused idempotency_key_reuse and ledger id B has no entry and no counter change."
+      - "6. Writing a locked posting (0073 A2 and A4; same file): lib/letflow/ledger.ex defines write_posting/2 with @doc false and the spec write_posting(LockedPlan.t(), String.t()) :: {:ok, posted()} | {:error, {:ledger_contract, atom()}}; it allocates posting_seq = the locked last_seq + 1 of that ledger id's counter, computes entry_digest and chain_hash from the locked counter values (REQ-621 criteria 4 and 5), updates the counter with a WHERE term on the locked last_seq and writes the entry, its legs and its balance rows. It returns no refusal of note 12.2 (every such refusal is returned by lock_postings/1 before any write): a ledger id that is not in the plan is {:ledger_contract, :not_in_plan}, and a second call for the same ledger id finds the counter moved (zero rows updated) and returns {:ledger_contract, :plan_already_written} with nothing more written. Tests: a two-posting plan of ledger ids A and B with the same document_type and document_id, the same subject and the same client_op_id commits two entries in one transaction, each with posting_seq 1 of its own counter and its own chain_hash; a transaction whose lock_postings/1 refuses the second posting commits nothing of either (no entry, leg, balance or counter row change of A or B)."
+      - "7. post/1 kept and the deadlock proof (note 7.3, 0073 A3 'Why it cannot form a cycle'; files test/letflow/ledger/lock_order_test.exs and posting_plan_test.exs): post/1 keeps its spec and every result, and is lock_postings([cap]) followed by write_posting/2 for its ledger id; every existing test file under test/letflow/ledger/ passes with no change other than the rewrite of criterion 2. In forced overlap with real commits (Letflow.LockOrderHelpers in test/support/lock_order_helpers.ex, Sandbox :auto, fresh tenant), with a telemetry or log check that no 40P01 occurs: two two-posting plans over the same two ledger ids given in opposite capability order with overlapping balance keys both commit; a one-posting plan on ledger id B and a two-posting plan on A and B overlapping on a B key both commit; the counters advance by exactly the number of committed entries."
+      - "8. Gate and scope: the change touches a tenant-data path and the posting lock order and passes a SECURITY-REVIEWER gate as a stated step (the L2 checklist of note 16.5 as applied in REQ-621 criterion 10, plus: the union is sorted before any insert or lock, a plan never mixes prefixes, the idempotency scope per subject and per ledger id, no refusal after the first write, LockedPlan built only in lib/letflow/ledger.ex); the verdict and its evidence are quoted in the PR. The diff adds no table, no column, no route, no permission atom, no :scope_declarations entry and no caller of lock_postings/1 or write_posting/2 outside lib/letflow/ledger.ex and test/ (the engine lock step is REQ-685); it adds exactly one migration; mix letflow.check.static passes; the moduledoc of lib/letflow/ledger.ex states the new order of work and the per-ledger-id idempotency; the pins named in the description are moved or shown unchanged by grep in the PR."
+    open_questions:
+      - "0073 A5 places the key changes in the replacing migration written after the speed test. This entry moves the four unique keys earlier, in an interim migration on the unpartitioned tables, because a two-posting plan with one client_op_id (A5 'the two postings of one command may share client_op_id') is refused by the narrower key; both shapes (b) and (c) give per-ledger-id uniqueness, and the replacing migration drops the tables anyway. If the gate reads A5 as forbidding any interim key change, the two-posting tests of criteria 5 to 7 need distinct client_op_ids per posting instead, and the rest stands."
+      - "0073 A2 does not say what happens when one posting of a two-posting plan is a duplicate and the other is not. This entry refuses it as idempotency_key_reuse with nothing written (fail closed, keeps 'both or neither'); no decision record names this rule."
+      - "Note 7.1 runs the guard before the counter lock and the lookups at steps 3, 7 and 9; this entry keeps that order over the union and adds the event-time check to the lock step, so that no refusal can follow a write. The names lock_postings/1, write_posting/2, LockedPlan, :not_in_plan and :plan_already_written are chosen here; REQ-685 criterion 7 takes the lock function's name from this entry."
+      - "OQ-13 and OQ-23 of decision 0073 are not decided here."
+      - "The engine files the GitHub issue and replaces the marker line with gh: <n>."
+    depends_on: [REQ-621, REQ-620, REQ-676, "decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md) with its section Amended (REQ-676, assets B1), items A2, A3, A5 and A10"]
