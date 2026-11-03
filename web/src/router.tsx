@@ -41,6 +41,7 @@ import SolutionPackUpdateReviewPage from '@/pages/solution-packs/SolutionPackUpd
 import SolutionPackOverridesPage from '@/pages/solution-packs/SolutionPackOverridesPage'
 import EventRetentionPage from '@/pages/admin/event-retention/EventRetentionPage'
 import PrintTemplatesPage from '@/pages/admin/PrintTemplatesPage'
+import MasterDataImportPage from '@/pages/admin/import/MasterDataImportPage'
 import ModuleUninstallPage from '@/pages/admin/moduleLifecycle/ModuleUninstallPage'
 import { isModulesUninstallEnabled } from '@/config/modulesUninstallFlag'
 import EntityListBrowserPage from '@/pages/entities/EntityListBrowserPage'
@@ -122,6 +123,7 @@ export const router = createBrowserRouter([
       { path: 'admin/audit', element: <AuditLogPage /> },
       { path: 'admin/appearance', element: <AppearanceSettingsPage /> },
       { path: 'admin/print-templates', element: <RequirePermission permission={P.DocumentPrintTemplatesManage}><PrintTemplatesPage /></RequirePermission> },
+      { path: 'admin/import', element: <RequirePermission permission={P.EntitiesRecordsImport}><MasterDataImportPage /></RequirePermission> },
       { path: 'admin/module-lifecycle', element: <ModuleLifecycleRoute /> },
       { path: 'admin/health', element: platformPage(P.TenantsManage, <HealthDashboardPage />) },
       { path: 'admin/metrics', element: <MetricsPage /> },

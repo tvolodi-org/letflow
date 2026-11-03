@@ -91,6 +91,7 @@ const en: Record<string, string> = {
   'locations.error.location_inactive': 'The location is retired.',
   'locations.error.idempotency_key_reuse': 'This request was already sent with different data. Submit again.',
   'locations.error.request_refused': 'The request was refused.',
+  'import.type.location_node': 'Locations',
 }
 
 const ru: Record<string, string> = {
@@ -162,6 +163,7 @@ const ru: Record<string, string> = {
   'locations.error.location_inactive': 'Локация выведена.',
   'locations.error.idempotency_key_reuse': 'Этот запрос уже отправлялся с другими данными. Отправьте заново.',
   'locations.error.request_refused': 'Запрос отклонён.',
+  'import.type.location_node': 'Локации',
 }
 
 const kk: Record<string, string> = {
@@ -233,6 +235,7 @@ const kk: Record<string, string> = {
   'locations.error.location_inactive': 'Орын шығарылған.',
   'locations.error.idempotency_key_reuse': 'Бұл сұраным басқа деректермен бұрын жіберілген. Қайта жіберіңіз.',
   'locations.error.request_refused': 'Сұраным қабылданбады.',
+  'import.type.location_node': 'Орналасқан жерлер',
 }
 
 export const locationsMessages: Record<LocationsUiLocale, Record<string, string>> = { en, ru, kk }
