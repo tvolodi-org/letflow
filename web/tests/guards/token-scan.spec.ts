@@ -22,7 +22,12 @@ export function undefinedRefs(content: string, defined: Set<string>): string[] {
 }
 
 describe('token-scan', () => {
-  const defined = definedTokens(readFileSync(join(WEB_ROOT, 'src', 'styles', 'tokens.css'), 'utf8'))
+  // tokens.css and components.css come from the design repo; legacy-bridge.css holds the old names.
+  const defined = definedTokens(
+    ['tokens.css', 'components.css', 'legacy-bridge.css']
+      .map(f => readFileSync(join(WEB_ROOT, 'src', 'styles', f), 'utf8'))
+      .join('\n'),
+  )
 
   it('tokens.css defines --radius-md', () => {
     expect(defined.has('--radius-md')).toBe(true)

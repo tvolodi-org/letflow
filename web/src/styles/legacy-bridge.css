@@ -1,0 +1,115 @@
+/*
+ * Migration bridge (task S0a, NOTES.md section 4 of the design repo): the old token names of the
+ * pre-design-system web/src/styles/tokens.css, kept as aliases of the new tokens for ONE release so
+ * existing screens pick up the new look and the dark theme before they are rewritten. New code must
+ * use the new names only. Remove this file when src/styles/__tests__/legacyBridge.test.ts lists no
+ * old name still used in web/src.
+ *
+ * Aliases are resolved on :root, so they follow data-theme set on <html>, not on a nested element.
+ * The tenant branding allowlist still writes --color-brand-600 / --color-brand-secondary inline on
+ * <html>; the chain below keeps that working (task S0e moves it to --tenant-current).
+ *
+ * Mapping choices not given by NOTES.md section 4 (the design is silent): the --color-neutral-*
+ * greys follow their role (paper, line, ink) so dark works; --color-*-border and *-text map to the
+ * nearest status token; values with no new-token equivalent keep the old literal (avatar palette,
+ * canvas, font sizes), as NOTES.md says "not mapped".
+ */
+:root {
+  /* Neutrals -> paper / line / ink (by role) */
+  --color-neutral-0: var(--paper-raised);
+  --color-neutral-50: var(--paper);
+  --color-neutral-100: var(--row-hover);
+  --color-neutral-200: var(--paper-sunken);
+  --color-neutral-300: var(--line);
+  --color-neutral-400: var(--line-strong);
+  --color-neutral-500: var(--ink-faint);
+  --color-neutral-600: var(--ink-muted);
+  --color-neutral-700: var(--ink-muted);
+  --color-neutral-800: var(--ink);
+  --color-neutral-900: var(--ink);
+
+  /* Brand -> current (the tenant-controlled teal family) */
+  --color-brand-400: var(--current);
+  --color-brand-500: var(--current);
+  --color-brand-600: var(--current);
+  --color-brand-700: var(--current-strong);
+  --color-brand-secondary: #1971c2; /* unused promise (NOTES.md 3.4); tenant secondary, platform default */
+
+  /* Semantic */
+  --color-success-light: var(--success-tint);
+  --color-success: var(--success);
+  --color-success-dark: var(--success);
+  --color-success-border: var(--success);
+  --color-success-tint: var(--success-tint);
+  --color-warning-light: var(--warning-tint);
+  --color-warning: var(--warning);
+  --color-warning-dark: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+  --color-warning-border: var(--warning);
+  --color-warning-text: var(--warning);
+  --color-warning-banner: var(--warning-tint);
+  --color-error-light: var(--danger-tint);
+  --color-error: var(--danger);
+  --color-error-dark: var(--danger);
+  --color-error-border: var(--danger-tint);
+  --color-error-border-strong: var(--danger);
+  --color-error-tint: var(--danger-tint);
+  --color-failure: var(--danger);
+  --color-info-light: var(--info-tint);
+  --color-info: var(--info);
+  --color-info-dark: var(--info);
+  --color-info-tint: var(--info-tint);
+  --color-info-text: var(--info);
+
+  /* Surfaces, text, borders, interactive */
+  --surface-page: var(--paper);
+  --surface-card: var(--paper-raised);
+  --surface-sidebar: var(--night);
+  --surface-overlay: var(--scrim);
+  --surface-overlay-slate: var(--scrim);
+  --color-sidebar-active: var(--night-selected);
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-muted);
+  --text-disabled: var(--ink-faint);
+  --text-inverse: var(--on-current);
+  --border-default: var(--line);
+  --border-focus: var(--focus);
+  --border-error: var(--danger);
+  --interactive-primary: var(--color-brand-600);
+  --interactive-primary-hover: var(--current-strong);
+  --interactive-danger: var(--danger);
+  --interactive-danger-hover: var(--danger);
+
+  /* Elevation */
+  --shadow-card: var(--shadow-raised);
+  --shadow-sm: var(--shadow-raised);
+  --shadow-modal: var(--shadow-float);
+  --shadow-modal-lg: var(--shadow-float);
+  --shadow-lg: var(--shadow-float);
+  --shadow-dialog: var(--shadow-float);
+  --shadow-panel: var(--shadow-float);
+  --shadow-modal-compact: var(--shadow-float);
+  --shadow-focus-brand: 0 0 0 3px var(--focus);
+  --shadow-focus-blue: 0 0 0 4px var(--focus);
+
+  /* Not mapped (NOTES.md section 4): canvas, avatars, stacking and type sizes keep their old values */
+  --minimap-mask-color: rgba(0, 0, 0, 0.1);
+  --drop-shadow-overlay: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
+  --color-avatar-blue: #2563eb;
+  --color-avatar-teal: #0d9488;
+  --color-avatar-violet: #7c3aed;
+  --color-avatar-orange: #ea580c;
+  --color-avatar-cyan: #0891b2;
+  --color-avatar-green: #16a34a;
+  --color-avatar-purple: #9333ea;
+  --color-avatar-sky: #0284c7;
+  --color-avatar-rust: #c2410c;
+  --color-avatar-indigo: #4f46e5;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --font-medium: 500;
+  --z-conflict: 550;
+  --z-conflict-panel: 560;
+}
