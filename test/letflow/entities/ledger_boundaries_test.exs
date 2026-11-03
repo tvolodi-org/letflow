@@ -30,6 +30,23 @@ defmodule Letflow.LedgerBoundariesTest do
     assert scan(~s|x = "website lottery"|) == []
   end
 
+  test "T-SC-1b2 the lib/letflow/ledger.ex path is in scope: code is flagged, prose is not" do
+    path = "lib/letflow/ledger.ex"
+    assert path in CB.ledger_scan_paths()
+
+    code = "defmodule Letflow.Ledger do\n  def stock_total, do: 1\nend"
+    assert [{^path, :rule_7, _}] = CB.ledger_rule_violations([{path, code}])
+
+    prose = ~S'''
+    defmodule Letflow.Ledger do
+      @moduledoc "stock"
+      def total, do: 1
+    end
+    '''
+
+    assert CB.ledger_rule_violations([{path, prose}]) == []
+  end
+
   test "T-SC-1c prose is not scanned, code string literals are" do
     prose = ~S'''
     defmodule M do

@@ -95,6 +95,8 @@ defmodule Letflow.LockOrderHelpers do
           | {:task, Ecto.UUID.t()}
           | {:document, Ecto.UUID.t()}
           | {:timer, Ecto.UUID.t()}
+          | {:ledger_balance, String.t(), [String.t()]}
+          | {:ledger_counter, String.t()}
           | :audit_chain
         ) ::
           {Task.t(), pos_integer()}
@@ -131,6 +133,23 @@ defmodule Letflow.LockOrderHelpers do
       hold(
         ~s(SELECT 1 FROM "#{schema}"."timers" WHERE id = $1 FOR UPDATE),
         [Ecto.UUID.dump!(timer_id)]
+      )
+
+  # REQ-621 / GH #3469: one ledger balance row (the key is padded to 8 slot texts) or one counter row
+  def hold_row(schema, {:ledger_balance, ledger_id, key}) when is_list(key) do
+    [k1, k2, k3, k4, k5, k6, k7, k8] = key ++ List.duplicate("", 8 - length(key))
+
+    hold(
+      ~s(SELECT 1 FROM "#{schema}"."ledger_balance" WHERE ledger_id = $1 AND k1 = $2 AND k2 = $3 AND k3 = $4 AND k4 = $5 AND k5 = $6 AND k6 = $7 AND k7 = $8 AND k8 = $9 FOR UPDATE),
+      [ledger_id, k1, k2, k3, k4, k5, k6, k7, k8]
+    )
+  end
+
+  def hold_row(schema, {:ledger_counter, ledger_id}),
+    do:
+      hold(
+        ~s(SELECT 1 FROM "#{schema}"."ledger_counter" WHERE ledger_id = $1 FOR UPDATE),
+        [ledger_id]
       )
 
   def hold_row(schema, :audit_chain),
