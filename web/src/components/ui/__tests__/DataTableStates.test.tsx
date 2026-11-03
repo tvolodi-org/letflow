@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 /** T-1166 — DataTable: design-system columns and states (the REQ-274 cases stay in DataTable.test.tsx). */
-import { useState } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { useMemo, useState } from 'react'
