@@ -39,9 +39,9 @@ defmodule Letflow.Modules.Locations.RunbookTest do
     assert @runbook |> File.read!() |> String.split("\n") |> Enum.member?(@heading)
   end
 
-  test "B-2: the section is a numbered list 1..14 with the known limits" do
+  test "B-2: the section is a numbered list 1..15 with the known limits" do
     numbers = Enum.map(items(), &elem(&1, 0))
-    assert numbers == Enum.to_list(1..14)
+    assert numbers == Enum.to_list(1..15)
 
     text = items() |> Enum.map_join("\n", &elem(&1, 1))
     assert text =~ "entity_type_managed"
@@ -83,5 +83,13 @@ defmodule Letflow.Modules.Locations.RunbookTest do
     for {n, path} <- cited do
       assert File.exists?(Path.join(@root, path)), "limit #{n}: cited path #{path} does not exist"
     end
+  end
+
+  test "REQ-666 P3: the runbook names the write routes and the permission" do
+    text = items() |> Enum.map_join("\n", &elem(&1, 1))
+    assert text =~ "Letflow.Modules.Locations.Router"
+    assert text =~ "LocationsWrite"
+    assert text =~ "/api/v1/modules/locations/"
+    assert text =~ "#3612"
   end
 end

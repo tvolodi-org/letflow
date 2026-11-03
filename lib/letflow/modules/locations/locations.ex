@@ -14,7 +14,7 @@ defmodule Letflow.Modules.Locations do
   nullable `external_ref_system` / `external_ref_id` import key (0057 D1) with a unique pair.
 
   The type is declared in `manages_entity_types`, so after install the generic entity routes answer
-  403 `entity_type_managed`. The module ships no routes, no permissions and no role grants. Its write
+  403 `entity_type_managed`. The write routes (GH #3612 / REQ-666, version 0.4.0, `Letflow.Modules.Locations.Router`) are gated by the module permission `:LocationsWrite`; no role grants (only TENANT_ADMIN and PLATFORM_ADMIN hold it). Its write
   functions are in `Letflow.Modules.Locations.Tree`: `create_node/3`, `move_node/4` (one parent change
   with a cycle walk; refusals `:node_not_found`, `:parent_not_found`, `:parent_inactive`, `:cycle`),
   `update_node/4` (name, kind, segment, address and the import key; `{:field_not_allowed, key}` for
@@ -71,14 +71,21 @@ defmodule Letflow.Modules.Locations do
   @impl true
   defmanifest(
     id: "locations",
-    version: "0.3.0",
+    version: "0.4.0",
     depends_on: ["org"],
     pack: "modules/locations/pack.json",
-    permissions: [],
+    permissions: [:LocationsWrite],
     role_grants: %{},
     required_roles: [],
     settings_schema: nil,
-    route_policies: [],
+    route_policies: [
+      {"POST", "/nodes", :LocationsWrite},
+      {"PATCH", "/nodes/:id", :LocationsWrite},
+      {"POST", "/nodes/:id/move", :LocationsWrite},
+      {"POST", "/nodes/:id/retire", :LocationsWrite},
+      {"POST", "/links", :LocationsWrite},
+      {"POST", "/links/retire", :LocationsWrite}
+    ],
     manages_entity_types: ["location_node", "location_org_unit_link"],
     scope_declarations: %{
       "location_node" => :tenant_wide,
@@ -86,6 +93,9 @@ defmodule Letflow.Modules.Locations do
     },
     import_functions: [%{entity_type: "location_node", function: :import_row}]
   )
+
+  @impl true
+  def router, do: Letflow.Modules.Locations.Router
 
   @impl true
   def on_install(prefix, _settings, ctx) do
