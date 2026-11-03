@@ -7,7 +7,6 @@ import { useAuth } from '@/auth/AuthContext'
 import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { ToastContainer } from '@/components/ui/Toast'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
@@ -69,7 +68,6 @@ export function LocationsShell(props: {
           {props.children}
         </QueryStateBoundary>
       )}
-      <ToastContainer />
     </>
   )
 }

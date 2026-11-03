@@ -18,6 +18,9 @@ export type UiMessageId =
   | 'replace'
   | 'invalidFile'
   | 'skipLink'
+  | 'loadError'
+  | 'retry'
+  | 'loadingContent'
 
 export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> = {
   en: {
@@ -35,6 +38,9 @@ export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> =
     replace: 'Replace',
     invalidFile: 'This file cannot be used.',
     skipLink: 'Skip to main content',
+    loadError: 'Something went wrong loading this content.',
+    retry: 'Retry',
+    loadingContent: 'Loading content',
   },
   ru: {
     close: 'Закрыть',
@@ -51,6 +57,9 @@ export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> =
     replace: 'Заменить',
     invalidFile: 'Этот файл нельзя использовать.',
     skipLink: 'Перейти к основному содержимому',
+    loadError: 'Не удалось загрузить содержимое.',
+    retry: 'Повторить',
+    loadingContent: 'Загрузка содержимого',
   },
   kk: {
     close: 'Жабу',
@@ -67,6 +76,9 @@ export const uiMessages: Record<EntitiesUiLocale, Record<UiMessageId, string>> =
     replace: 'Ауыстыру',
     invalidFile: 'Бұл файлды қолдануға болмайды.',
     skipLink: 'Негізгі мазмұнға өту',
+    loadError: 'Мазмұнды жүктеу кезінде қате шықты.',
+    retry: 'Қайталау',
+    loadingContent: 'Мазмұн жүктелуде',
   },
 }
 

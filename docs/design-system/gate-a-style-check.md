@@ -73,8 +73,8 @@ No screen edits a record in a modal.
 
 | # | Item | Rule | Screenshot | Owner note |
 |---|---|---|---|---|
-| 1 | `ToastContainer` is mounted per screen (`OrgScreen`, `LocationsShell`, `CodesPage`, `MasterDataImportPage`, in its loading and its main branch) instead of once in the app shell | 3 | — | Move it into the shell in one follow-up task; a toast fired during a route change can be lost today. |
-| 2 | `FetchError` and `SkeletonLayout` (`web/src/components/ui/`, reached through `QueryStateBoundary`) still use inline styles and legacy (bridged) tokens | 1 | — | Restyle with `Banner` and `Skeleton` before the legacy bridge is removed. |
+| 1 | ~~`ToastContainer` mounted per screen~~ **Fixed in T-1185:** `AppShell` mounts the one container; the screens mount none | 3 | — | Done. |
+| 2 | ~~`FetchError` and `SkeletonLayout` inline styles and legacy tokens~~ **Fixed in T-1185:** a danger `Banner` with Retry and `Skeleton` bars, strings in en, ru, kk (harness screen `query-states`) | 1 | — | Done. |
 | 3 | Reference features not built because the API has no data for them: tree search, per-unit counts, tabs in the unit panel, the external-id field | — | `org-units-light-1440.png` | Needs API work first; product decision on order. |
 | 4 | Under 900 px the detail panel is shown below the list, not over the whole screen as rule 2a asks | 2a | `org-units-kk-dark-390.png`, `codes-detail-kk-dark-390.png` | `MasterDetail` change (one component, all screens); kept out of a style-check task. |
 | 5 | Lots: the master table in the narrow left column cuts the status column (`Бел…`) with no sign it scrolls | 4 | `catalog-items-lots-edit-kk-light-1440.png` | Drop the status column when the panel is open, or let the table scroll visibly; the system is silent on column hiding. |

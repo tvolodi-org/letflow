@@ -1,4 +1,5 @@
 /** Shared helpers of the master data import tests (GH 3650 / REQ-675). */
+import { ToastContainer } from '@/components/ui/Toast'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
@@ -16,6 +17,7 @@ export function renderPage(state: AccessState = adminAccess) {
   return render(
     <AccessStateProvider state={state}>
       <MasterDataImportPage />
+      <ToastContainer />
     </AccessStateProvider>,
   )
 }

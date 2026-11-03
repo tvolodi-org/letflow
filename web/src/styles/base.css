@@ -45,3 +45,6 @@ samp {
   overflow-wrap: normal;
   white-space: nowrap;
 }
+
+/* SkeletonLayout row (T-1185): bars share one line, shrinking to fit the gaps. */
+.lf-skeleton-row { display: flex; gap: var(--space-2); }

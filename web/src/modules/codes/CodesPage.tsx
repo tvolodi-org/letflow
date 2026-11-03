@@ -23,7 +23,6 @@ import { FormActions, FormSection } from '@/components/ui/FormSection'
 import { MasterDetail } from '@/components/ui/MasterDetail'
 import { Select } from '@/components/ui/Select'
 import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
-import { ToastContainer } from '@/components/ui/Toast'
 import { useToast } from '@/hooks/useToast'
 import type { EntityQueryFilterClause, EntityRecord } from '@/types/api'
 import { classifyError } from '@/utils/classifyError'
@@ -625,7 +624,6 @@ function CodesInner({ initial }: { initial?: CodesInitial }) {
         onConfirm={() => void confirmRetire()}
         onCancel={() => setRetiring(null)}
       />
-      <ToastContainer />
     </>
   )
 }
