@@ -559,8 +559,9 @@ defmodule Letflow.LedgerTablesMigrationTest do
   # -- registration and the down guard ---------------------------------------------------------------
 
   test "A-11 registered last in the manifest and present in the tenant", %{schema: schema} do
+    # later migrations append after it (REQ-640 added CreateTenantModuleUpgrades)
     assert {@version, CreateLedgerTables} =
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+             Enum.find(TenantProvisioning.tenant_scoped_migrations(), &(elem(&1, 0) == @version))
 
     for t <- ~w(ledger_balance ledger_counter ledger_entry ledger_leg) do
       assert t in TenantFixture.expected_tenant_tables()

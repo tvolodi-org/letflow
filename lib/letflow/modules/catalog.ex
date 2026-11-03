@@ -54,6 +54,7 @@ defmodule Letflow.Modules.Catalog do
   alias Letflow.Entities.ScopeDeclaration
   alias Letflow.Modules.ManifestHash
   alias Letflow.Modules.Module
+  alias Letflow.Modules.Step
   alias Letflow.Modules.WriteHandlerSpec
 
   @modules Application.compile_env(:letflow, :modules, [])
@@ -455,6 +456,15 @@ defmodule Letflow.Modules.Catalog do
   manifest's `:manages_entity_types`), `{:duplicate_import_function, name}`,
   `{:import_function_not_exported, name}` (the entry module does not export the function with
   arity 3). Absent and `[]` are valid.
+
+  Rules 15 to 17 (REQ-640, decision 0055 D1) run last, in this order. Rule 15: `:version` is a
+  strict semver 2.0.0 string (no leading zeros, no `v` prefix), else `{:invalid_version, value}`.
+  Rule 16: the optional `:min_upgradable_from` is strict semver and not higher than `:version`, else
+  `{:invalid_min_upgradable_from, value}`; absent means `:version`. Rule 17: the optional
+  `:migrations` is a list of `Letflow.Modules.Step` structs with a `:declarative`/`:code` kind, a
+  boolean `lossy`, non-nil `up` and `down`, strict semver `from` and `to` with `to` higher than `from`
+  and unique ids, else `{:invalid_migrations, value}` (the whole `:migrations` value). Absent and
+  `[]` are valid. Shape only; none of these is part of the manifest hash.
   """
   @spec validate(Module.manifest(), [Module.manifest()]) :: :ok | {:error, {atom(), term()}}
   def validate(manifest, known_manifests) do
@@ -476,7 +486,10 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_scope_declarations(manifest, known_manifests),
          :ok <- validate_document_org_resolver(manifest, known_manifests),
          :ok <- validate_extension_points(manifest),
-         :ok <- validate_import_functions(manifest, entry_module) do
+         :ok <- validate_import_functions(manifest, entry_module),
+         :ok <- validate_version(manifest),
+         :ok <- validate_min_upgradable_from(manifest),
+         :ok <- validate_migrations(manifest) do
       :ok
     end
   end
@@ -950,5 +963,131 @@ defmodule Letflow.Modules.Catalog do
     # strictly nested: the entry module itself is refused (it exports
     # on_install/3, which would pass the arity-3 check)
     String.starts_with?(Atom.to_string(module), Atom.to_string(entry_module) <> ".")
+  end
+
+  # Official semver.org 2.0.0 grammar. `\z`, not `$`, so a trailing newline is refused.
+  @semver_re ~r/\A(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?\z/
+
+  defp semver_valid?(value), do: is_binary(value) and Regex.match?(@semver_re, value)
+
+  # Only called on strings that passed `semver_valid?/1`; build metadata does not take part (semver
+  # precedence), so "1.0.0+a" equals "1.0.0".
+  defp semver_compare(a, b), do: Version.compare(Version.parse!(a), Version.parse!(b))
+
+  # Rule 15 (REQ-640).
+  defp validate_version(manifest) do
+    value = Map.get(manifest, :version)
+    if semver_valid?(value), do: :ok, else: {:error, {:invalid_version, value}}
+  end
+
+  # Rule 16 (REQ-640). Runs after rule 15, so `:version` is valid here.
+  defp validate_min_upgradable_from(manifest) do
+    case Map.fetch(manifest, :min_upgradable_from) do
+      :error ->
+        :ok
+
+      {:ok, min} ->
+        if semver_valid?(min) and semver_compare(min, manifest.version) != :gt,
+          do: :ok,
+          else: {:error, {:invalid_min_upgradable_from, min}}
+    end
+  end
+
+  # Rule 17 (REQ-640). Never raises on an arbitrary term (INV-8).
+  defp validate_migrations(manifest) do
+    case Map.fetch(manifest, :migrations) do
+      :error ->
+        :ok
+
+      {:ok, steps} ->
+        if is_list(steps) and Enum.all?(steps, &well_formed_step?/1) and unique_step_ids?(steps),
+          do: :ok,
+          else: {:error, {:invalid_migrations, steps}}
+    end
+  end
+
+  defp well_formed_step?(%Step{} = step) do
+    step.kind in [:declarative, :code] and is_boolean(step.lossy) and not is_nil(step.up) and
+      not is_nil(step.down) and semver_valid?(step.from) and semver_valid?(step.to) and
+      semver_compare(step.to, step.from) == :gt
+  end
+
+  defp well_formed_step?(_other), do: false
+
+  defp unique_step_ids?(steps) do
+    ids = Enum.map(steps, & &1.id)
+    length(Enum.uniq(ids)) == length(ids)
+  end
+
+  @doc """
+  The ordered, contiguous migration steps that lead from version `from` to version `to` of
+  `manifest` (REQ-640, decision 0055 D1). Pure: it reads only the manifest it is given.
+
+  Returns `{:ok, steps}` (each step's `from` equals the previous step's `to`; manifest order does
+  not matter), `{:ok, []}` when `from` equals `to` and lies within `[min_upgradable_from, version]`,
+  and `{:error, {:no_upgrade_path, from, to}}` when `from` or `to` is not strict semver, `from` is
+  below `:min_upgradable_from` (absent means `:version`), `to` is above `:version`, `from` is above
+  `to`, or no contiguous chain exists. Versions compare by semver precedence (build metadata
+  ignored). Among steps with the same `from` the search tries the highest `to` not above the target
+  first and backtracks, so a contiguous chain is found whenever one exists; the result is
+  deterministic. The search terminates because every step taken strictly raises the version.
+  """
+  @spec upgrade_path(Module.manifest(), String.t(), String.t()) ::
+          {:ok, [Step.t()]} | {:error, {:no_upgrade_path, term(), term()}}
+  def upgrade_path(manifest, from, to) do
+    no_path = {:error, {:no_upgrade_path, from, to}}
+    version = Map.get(manifest, :version)
+
+    if semver_valid?(from) and semver_valid?(to) and semver_valid?(version) do
+      min = Map.get(manifest, :min_upgradable_from, version)
+
+      cond do
+        not semver_valid?(min) -> no_path
+        semver_compare(from, min) == :lt -> no_path
+        semver_compare(to, version) == :gt -> no_path
+        semver_compare(from, to) == :gt -> no_path
+        semver_compare(from, to) == :eq -> {:ok, []}
+        true -> walk_steps(usable_steps(manifest), from, to) || no_path
+      end
+    else
+      no_path
+    end
+  end
+
+  defp usable_steps(manifest) do
+    case Map.get(manifest, :migrations, []) do
+      steps when is_list(steps) ->
+        Enum.filter(steps, fn
+          %Step{from: f, to: t} ->
+            semver_valid?(f) and semver_valid?(t) and semver_compare(t, f) == :gt
+
+          _other ->
+            false
+        end)
+
+      _other ->
+        []
+    end
+  end
+
+  # Depth-first, highest `to` first, backtracking. Returns {:ok, steps} or nil.
+  defp walk_steps(steps, current, target) do
+    candidates =
+      steps
+      |> Enum.filter(fn s ->
+        semver_compare(s.from, current) == :eq and semver_compare(s.to, target) != :gt
+      end)
+      |> Enum.sort_by(&Version.parse!(&1.to), {:desc, Version})
+
+    Enum.find_value(candidates, fn step ->
+      if semver_compare(step.to, target) == :eq do
+        {:ok, [step]}
+      else
+        case walk_steps(steps, step.to, target) do
+          {:ok, rest} -> {:ok, [step | rest]}
+          nil -> nil
+        end
+      end
+    end)
   end
 end

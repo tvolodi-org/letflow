@@ -939,7 +939,10 @@ defmodule Letflow.TenantProvisioning do
      "20261030100001_allow_orphaned_override_status.exs"},
     # REQ-620 / GH #3463 part A: four empty per-tenant ledger tables. No existing row altered.
     {20_261_031_100_001, Letflow.Repo.Migrations.CreateLedgerTables,
-     "20261031100001_create_ledger_tables.exs"}
+     "20261031100001_create_ledger_tables.exs"},
+    # REQ-640 / GH #3578: empty per-tenant journal table, no existing row altered.
+    {20_261_101_100_001, Letflow.Repo.Migrations.CreateTenantModuleUpgrades,
+     "20261101100001_create_tenant_module_upgrades.exs"}
   ]
 
   @doc """

@@ -67,7 +67,9 @@ defmodule Letflow.Modules.TenantModule do
   @doc """
   Changeset for updating the `settings` field on an already-installed row
   (REQ-414). Casts and requires `:settings` only — `:module_id`, `:version`,
-  and `:installed_at` are immutable after insert and are not touched here.
+  and `:installed_at` are immutable after insert and are not touched here. `:version` is changed
+  only by the module upgrade cutover (decision 0055 D1), which does not exist yet; no code path
+  updates it today.
   """
   @spec settings_changeset(%__MODULE__{}, attrs :: map()) :: Ecto.Changeset.t()
   def settings_changeset(tenant_module, attrs) do
