@@ -22,3 +22,9 @@ samp {
 .lf-sidenav > nav {
   display: contents;
 }
+
+/* The scrim is a centring grid whose implicit track would size to the dialog's own width
+   (520px) and so never shrink on a phone; a bounded track caps the dialog at the viewport. */
+.lf-scrim {
+  grid-template-columns: minmax(0, 1fr);
+}
