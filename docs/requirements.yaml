@@ -48923,7 +48923,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-621 -- rework of the L2a primitive delivered under REQ-621 (GH #3469); the engine replaces this line with gh: <n>
+    gh: 3725
     description: >
       Phase B of the assets and stock application (the stock register), the L2a row of decision 0073
       "Amended (REQ-676, assets B1)" A10 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md): "idempotency
