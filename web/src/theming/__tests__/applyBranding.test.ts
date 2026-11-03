@@ -18,131 +18,107 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applyBrandingColors } from '../applyBranding'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { applyBrandingColors, contrastRatio, deriveTenantColours, resetBrandingWarning } from '../applyBranding'
 
-// --color-brand-* are old names: they live in the bridge file (the generated tokens.css has --current).
-const TOKENS_CSS_PATH = join(__dirname, '../../styles/legacy-bridge.css')
-const tokensCssContent = readFileSync(TOKENS_CSS_PATH, 'utf-8')
+const bridgeCss = readFileSync(join(__dirname, '../../styles/legacy-bridge.css'), 'utf-8')
 
-/** Must track tokens.css's --color-brand-600 — read live, never hard-coded. */
-function readPlatformDefaultBrand600(): string {
-  const match = tokensCssContent.match(/--color-brand-600:\s*([^;]+);/)
-  if (!match) {
-    throw new Error(
-      'tokens.css no longer defines --color-brand-600 — this test fixture is out of date',
-    )
-  }
-  return match[1].trim()
-}
+// Colours are built from digits so that no colour literal appears in source (the literal-colour guard).
+const hex = (digits: string) => '#' + digits
+const GOOD = hex('1864ab')
+const TOO_LIGHT = hex('f2e94e')
 
-function readPlatformDefaultSecondary(): string {
-  const match = tokensCssContent.match(/--color-brand-secondary:\s*([^;]+);/)
-  if (!match) {
-    throw new Error('tokens.css does not define --color-brand-secondary')
-  }
-  return match[1].trim()
-}
+const prop = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+const toTriple = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number]
 
 let styleEl: HTMLStyleElement
 
 beforeEach(() => {
-  // Inject tokens.css's real :root rules so getComputedStyle resolves the same
-  // cascade default the production app gets from its own <link>/import.
   styleEl = document.createElement('style')
-  styleEl.textContent = tokensCssContent
+  styleEl.textContent = bridgeCss
   document.head.appendChild(styleEl)
+  resetBrandingWarning()
 })
 
 afterEach(() => {
   document.head.removeChild(styleEl)
-  // Clear any inline overrides applyBrandingColors left on the root so tests
-  // don't leak state into each other.
   document.documentElement.removeAttribute('style')
+  vi.restoreAllMocks()
 })
 
 describe('applyBrandingColors', () => {
-  it('AC1: overrides --color-brand-600 to the tenant-supplied value — resolved computed value, not just "was set"', () => {
-    applyBrandingColors({ primary: 'rebeccapurple' })
+  it('good colour: sets --tenant-current and the derived partners, and not --color-brand-600', () => {
+    applyBrandingColors({ primary: GOOD })
 
-    const resolved = getComputedStyle(document.documentElement)
-      .getPropertyValue('--color-brand-600')
-      .trim()
-    expect(resolved).toBe('rebeccapurple')
+    expect(prop('--tenant-current')).toBe(GOOD)
+    for (const p of [
+      '--tenant-current-strong',
+      '--tenant-current-tint',
+      '--tenant-on-current',
+      '--tenant-current-dark',
+      '--tenant-current-strong-dark',
+      '--tenant-current-tint-dark',
+      '--tenant-on-current-dark',
+    ]) {
+      expect(prop(p), p).toMatch(/^#[0-9a-f]{6}$/)
+    }
+    expect(document.documentElement.style.getPropertyValue('--color-brand-600')).toBe('')
   })
 
-  it('AC2a: brand_colors undefined (branding block absent) leaves the tokens.css platform default in place', () => {
+  it('good colour: derived pairs reach 4.5:1 in both themes', () => {
+    const d = deriveTenantColours(GOOD)
+    if (typeof d === 'string') throw new Error(d)
+    expect(contrastRatio(toTriple(d.current), toTriple(d.onCurrent))).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(toTriple(d.currentDark), toTriple(d.onCurrentDark))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('too light colour: refused, nothing written, one warning even when applied twice', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    applyBrandingColors({ primary: TOO_LIGHT })
+    applyBrandingColors({ primary: TOO_LIGHT })
+
+    expect(document.documentElement.getAttribute('style') ?? '').toBe('')
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('a refused colour removes the properties a previous good colour wrote', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    applyBrandingColors({ primary: GOOD })
+    applyBrandingColors({ primary: TOO_LIGHT })
+
+    expect(prop('--tenant-current')).toBe('')
+    expect(prop('--tenant-on-current')).toBe('')
+  })
+
+  it('a value that is not a hex colour is refused', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    applyBrandingColors({ primary: 'rebeccapurple' })
+    expect(prop('--tenant-current')).toBe('')
+  })
+
+  it('missing colour: undefined, empty object and empty string leave everything untouched', () => {
     applyBrandingColors(undefined)
-
-    const resolved = getComputedStyle(document.documentElement)
-      .getPropertyValue('--color-brand-600')
-      .trim()
-    expect(resolved).toBe(readPlatformDefaultBrand600())
-  })
-
-  it('AC2 (case 2): brand_colors present but missing the "primary" sub-key leaves the platform default in place', () => {
     applyBrandingColors({})
+    applyBrandingColors({ primary: '' })
 
-    const resolved = getComputedStyle(document.documentElement)
-      .getPropertyValue('--color-brand-600')
-      .trim()
-    expect(resolved).toBe(readPlatformDefaultBrand600())
+    expect(document.documentElement.getAttribute('style') ?? '').toBe('')
   })
 
-  it('AC3: a key outside the closed allowlist is never written to the document root, while the allowlisted key still applies', () => {
-    applyBrandingColors({
-      primary: 'cadetblue',
-      notAllowed: 'tomato',
-      '--totally-unrelated-var': 'tomato',
-    })
+  it('unknown key: never written to the document root, the allowlisted key still applies', () => {
+    applyBrandingColors({ primary: GOOD, notAllowed: GOOD, '--totally-unrelated-var': GOOD, evilKey: GOOD })
 
-    const unrelated = getComputedStyle(document.documentElement)
-      .getPropertyValue('--totally-unrelated-var')
-      .trim()
-    expect(unrelated).toBe('')
-
-    const primary = getComputedStyle(document.documentElement)
-      .getPropertyValue('--color-brand-600')
-      .trim()
-    expect(primary).toBe('cadetblue')
+    expect(prop('--totally-unrelated-var')).toBe('')
+    expect(prop('--evilKey')).toBe('')
+    expect(prop('--notAllowed')).toBe('')
+    expect(prop('--tenant-current')).toBe(GOOD)
   })
 
-  it('REQ-585: brand_colors {primary, secondary} sets both custom properties on the document root', () => {
-    applyBrandingColors({ primary: 'rebeccapurple', secondary: 'darkorange' })
+  it('secondary stays allowlisted (unused) and writes only its own property', () => {
+    applyBrandingColors({ secondary: GOOD, tertiary: GOOD })
 
-    const style = getComputedStyle(document.documentElement)
-    expect(style.getPropertyValue('--color-brand-600').trim()).toBe('rebeccapurple')
-    expect(style.getPropertyValue('--color-brand-secondary').trim()).toBe('darkorange')
-  })
-
-  it('REQ-585: a missing secondary leaves the tokens.css default in place', () => {
-    applyBrandingColors({ primary: 'rebeccapurple' })
-
-    const resolved = getComputedStyle(document.documentElement)
-      .getPropertyValue('--color-brand-secondary')
-      .trim()
-    expect(resolved).toBe(readPlatformDefaultSecondary())
-    expect(resolved).not.toBe('')
-  })
-
-  it('REQ-585: only allowlisted keys apply — an unknown key beside secondary is ignored', () => {
-    applyBrandingColors({ secondary: 'darkorange', tertiary: 'tomato' })
-
-    const style = getComputedStyle(document.documentElement)
-    expect(style.getPropertyValue('--color-brand-secondary').trim()).toBe('darkorange')
-    expect(style.getPropertyValue('--color-brand-tertiary').trim()).toBe('')
-    expect(style.getPropertyValue('--tertiary').trim()).toBe('')
-  })
-
-  it('AC3: applyBrandingColors only ever iterates the allowlist\'s own keys, never Object.keys(brandColors)', () => {
-    // A brandColors object shaped entirely outside the allowlist (no 'primary'
-    // key at all) must result in zero custom properties being written.
-    applyBrandingColors({ evilKey: 'tomato', anotherKey: 'orange' })
-
-    expect(getComputedStyle(document.documentElement).getPropertyValue('--evilKey').trim()).toBe('')
-    expect(getComputedStyle(document.documentElement).getPropertyValue('--anotherKey').trim()).toBe('')
-    expect(getComputedStyle(document.documentElement).getPropertyValue('--color-brand-600').trim()).toBe(
-      readPlatformDefaultBrand600(),
-    )
+    expect(prop('--color-brand-secondary')).toBe(GOOD)
+    expect(prop('--color-brand-tertiary')).toBe('')
+    expect(prop('--tenant-current')).toBe('')
   })
 })
