@@ -17,7 +17,6 @@ import { MasterDetail } from '@/components/ui/MasterDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
-import { ToastContainer } from '@/components/ui/Toast'
 import { TreeView, type TreeNode } from '@/components/ui/TreeView'
 import { useOrgLocale } from './OrgIntlProvider'
 
@@ -140,7 +139,6 @@ export function OrgScreen(props: OrgScreenProps) {
         />
       </div>
       {props.children}
-      <ToastContainer />
     </>
   )
 }

@@ -1,4 +1,5 @@
 /** Shared helpers of the org tests (GH 3609 / REQ-669): access state, a fake server over a mocked client, render. */
+import { ToastContainer } from '@/components/ui/Toast'
 import { render } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useRoutes } from 'react-router-dom'
@@ -94,6 +95,7 @@ export function renderOrg(path: string, access: AccessState = withAtom, queryCli
         <MemoryRouter initialEntries={[path]}>
           <Routes />
         </MemoryRouter>
+        <ToastContainer />
       </AccessStateProvider>
     </QueryClientProvider>,
   )
