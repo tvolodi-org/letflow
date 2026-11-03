@@ -73,8 +73,8 @@ No screen edits a record in a modal.
 
 | # | Item | Rule | Screenshot | Owner note |
 |---|---|---|---|---|
-| 1 | `ToastContainer` is mounted per screen (`OrgScreen`, `LocationsShell`, `CodesPage`, `MasterDataImportPage`, in its loading and its main branch) instead of once in the app shell | 3 | — | Move it into the shell in one follow-up task; a toast fired during a route change can be lost today. |
-| 2 | `FetchError` and `SkeletonLayout` (`web/src/components/ui/`, reached through `QueryStateBoundary`) still use inline styles and legacy (bridged) tokens | 1 | — | Restyle with `Banner` and `Skeleton` before the legacy bridge is removed. |
+| 1 | ~~`ToastContainer` mounted per screen~~ **Fixed in T-1185:** `AppShell` mounts the one container; the screens mount none | 3 | — | Done. |
+| 2 | ~~`FetchError` and `SkeletonLayout` inline styles and legacy tokens~~ **Fixed in T-1185:** a danger `Banner` with Retry and `Skeleton` bars, strings in en, ru, kk (harness screen `query-states`) | 1 | — | Done. |
 | 3 | Reference features not built because the API has no data for them: tree search, per-unit counts, tabs in the unit panel, the external-id field | — | `org-units-light-1440.png` | Needs API work first; product decision on order. |
 | 4 | Under 900 px the detail panel is shown below the list, not over the whole screen as rule 2a asks | 2a | `org-units-kk-dark-390.png`, `codes-detail-kk-dark-390.png` | `MasterDetail` change (one component, all screens); kept out of a style-check task. |
 | 5 | Lots: the master table in the narrow left column cuts the status column (`Бел…`) with no sign it scrolls | 4 | `catalog-items-lots-edit-kk-light-1440.png` | Drop the status column when the panel is open, or let the table scroll visibly; the system is silent on column hiding. |
@@ -83,3 +83,20 @@ No screen edits a record in a modal.
 | 8 | Codes, 390: the search placeholder is cut in Kazakh and Russian | 4 | `codes-detail-kk-dark-390.png` | A shorter placeholder text in the catalog, or the field full-width; translator's call. |
 | 9 | Lots: the native date input shows the browser's own format (`11 / 20 / 2026`) whatever the language | 4 | `catalog-items-lots-edit-kk-light-1440.png` | The browser's date control follows the browser locale; a custom date field would be a new component. |
 | 10 | The harness renders the screens without the sidebar of `AppShell`; the shell is checked through `topbar-language` only | 8 | `topbar-language-ru-light-1440.png` | Add an app-shell harness screen when the sidebar is restyled. |
+
+## Narrow screens (T-1183)
+
+Open item 4 is closed. Under 900 px a selected record now replaces the list (owner rule, 2026-11-04). The design repo's
+`components.css` (`.lf-md[data-detail="open"]`, `.lf-md__detail`, `.lf-md__back`) was brought in by `release.sh platform` and
+`scripts/sync-design-system.sh`, no hand edit. `MasterDetail` has the props `detailOpen` (sets `data-detail="open"`) and
+`onBack`; `DetailHeader` renders the back button (`lf-md__back`, label "Back to the list" / "Назад к списку" / "Тізімге оралу",
+from `uiMessages`) when it sits in a `MasterDetail` with `onBack`. Wired: legal companies, sites, units, positions,
+employees (`OrgScreen`: back = the panel's close), locations, codes, lots (back = clear the selection). The import
+wizard and the location links page do not use `MasterDetail`, so nothing changes there. Desktop: the back button is
+`display: none` above 900 px; no rule changed there.
+Tests: `MasterDetail.narrow.test.tsx` (data-detail follows the selection, back calls `onBack` and is keyboard reachable,
+Escape closes, back label in en/ru/kk).
+Left as is: on codes and lots the filter bar above the list stays visible while a record is open (it is outside
+`MasterDetail`); a note for a later pass.
+Screenshots at 390 px, light and dark, en and ru, list only (`*-list-*`) and record open (`*-open-*`), in the task
+folder `shots/`: `catalog-items-lots-list-dark-390.png`, `catalog-items-lots-list-light-390.png`, `catalog-items-lots-list-ru-dark-390.png`, `catalog-items-lots-list-ru-light-390.png`, `catalog-items-lots-open-dark-390.png`, `catalog-items-lots-open-light-390.png`, `catalog-items-lots-open-ru-dark-390.png`, `catalog-items-lots-open-ru-light-390.png`, `codes-list-dark-390.png`, `codes-list-light-390.png`, `codes-list-ru-dark-390.png`, `codes-list-ru-light-390.png`, `codes-open-dark-390.png`, `codes-open-light-390.png`, `codes-open-ru-dark-390.png`, `codes-open-ru-light-390.png`, `locations-list-dark-390.png`, `locations-list-light-390.png`, `locations-list-ru-dark-390.png`, `locations-list-ru-light-390.png`, `locations-open-dark-390.png`, `locations-open-light-390.png`, `locations-open-ru-dark-390.png`, `locations-open-ru-light-390.png`, `org-employees-list-dark-390.png`, `org-employees-list-light-390.png`, `org-employees-list-ru-dark-390.png`, `org-employees-list-ru-light-390.png`, `org-employees-open-dark-390.png`, `org-employees-open-light-390.png`, `org-employees-open-ru-dark-390.png`, `org-employees-open-ru-light-390.png`, `org-legal-list-dark-390.png`, `org-legal-list-light-390.png`, `org-legal-list-ru-dark-390.png`, `org-legal-list-ru-light-390.png`, `org-legal-open-dark-390.png`, `org-legal-open-light-390.png`, `org-legal-open-ru-dark-390.png`, `org-legal-open-ru-light-390.png`, `org-positions-list-dark-390.png`, `org-positions-list-light-390.png`, `org-positions-list-ru-dark-390.png`, `org-positions-list-ru-light-390.png`, `org-positions-open-dark-390.png`, `org-positions-open-light-390.png`, `org-positions-open-ru-dark-390.png`, `org-positions-open-ru-light-390.png`, `org-sites-list-dark-390.png`, `org-sites-list-light-390.png`, `org-sites-list-ru-dark-390.png`, `org-sites-list-ru-light-390.png`, `org-sites-open-dark-390.png`, `org-sites-open-light-390.png`, `org-sites-open-ru-dark-390.png`, `org-sites-open-ru-light-390.png`, `org-units-list-dark-390.png`, `org-units-list-light-390.png`, `org-units-list-ru-dark-390.png`, `org-units-list-ru-light-390.png`, `org-units-open-dark-390.png`, `org-units-open-light-390.png`, `org-units-open-ru-dark-390.png`, `org-units-open-ru-light-390.png`.

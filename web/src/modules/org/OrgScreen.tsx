@@ -17,7 +17,6 @@ import { MasterDetail } from '@/components/ui/MasterDetail'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { StatusPill } from '@/components/ui/StatusPill'
-import { ToastContainer } from '@/components/ui/Toast'
 import { TreeView, type TreeNode } from '@/components/ui/TreeView'
 import { useOrgLocale } from './OrgIntlProvider'
 
@@ -113,6 +112,8 @@ export function OrgScreen(props: OrgScreenProps) {
       />
       <div onKeyDown={onKeyDown} data-testid="org-screen">
         <MasterDetail
+          detailOpen={props.detail !== null}
+          onBack={props.onClosePanel}
           tools={
             <div className="lf-btn-row lf-btn-row--between" data-testid="org-retired-row">
               <Checkbox label={t('org.common.showRetired')} checked={props.showRetired} onChange={props.onShowRetired} />
@@ -138,7 +139,6 @@ export function OrgScreen(props: OrgScreenProps) {
         />
       </div>
       {props.children}
-      <ToastContainer />
     </>
   )
 }
