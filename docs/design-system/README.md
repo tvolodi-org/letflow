@@ -37,3 +37,12 @@ cp <dir>/img/* <repo>/web/public/brand/
 - Geologica, Onest and IBM Plex Mono are loaded from Google Fonts in `web/index.html` (with preconnect).
 - Tenant branding is unchanged for now: it still writes `--color-brand-600` (an alias of `--current` in the bridge).
   Moving it to `--tenant-current` is task S0e.
+
+## Data-display components (T-1166)
+
+In `web/src/components/ui/`, styled only by `components.css` classes: `DataTable` (sort, selected, error/retired rows,
+density, skeleton rows, empty, load error with retry), `PaginationControls`, `FilterBar` (layout only; chips with
+remove; clear only when a filter is active), `StatusPill` (tone + glyph + word), `Tabs`, `TreeView`, `EmptyState`,
+`Skeleton`, `Tally`, `Steps`. `StatusBadge` is now a thin wrapper over `StatusPill` until its callers move to a
+per-module tone/glyph map. Fixed labels (Previous, Try again, Expand...) have English defaults and a `labels` prop;
+the page passes the translated text.
