@@ -1,24 +1,32 @@
 /** OrgListShell — GH 3609 / REQ-669. The shared list frame of the org screens (title, show-retired switch,
  *  loading/error through QueryStateBoundary), the list query hook and the small form pieces. */
 import type { ReactNode } from 'react'
-import { useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
+import { usersApi } from '@/api/identity'
 import { useAuth } from '@/auth/AuthContext'
 import { PageLayout } from '@/components/ui/PageLayout'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { classifyError, type RendererState } from '@/utils/classifyError'
-import type { EntityRecord } from '@/types/api'
+import type { EntityRecord, User } from '@/types/api'
 import { ACTIVE_TRUE, DELETED_FALSE, fetchAllRecords } from './org.api'
 import { orgQueryKeys } from './orgQueryKeys'
 import { errorMessageId, reasonOf, textOf } from './orgModel'
 
 /** All rows of a type (deleted rows excluded; retired rows only when asked). */
-export function useOrgRows(type: string, includeRetired: boolean): UseQueryResult<EntityRecord[]> {
+export function useOrgRows(type: string, includeRetired: boolean, unitId = ''): UseQueryResult<EntityRecord[]> {
   const { session } = useAuth()
   const tenantId = session?.tenant_id ?? ''
   return useQuery({
-    queryKey: orgQueryKeys.list(tenantId, type, includeRetired),
-    queryFn: () => fetchAllRecords(type, includeRetired ? [DELETED_FALSE] : [DELETED_FALSE, ACTIVE_TRUE]),
+    queryKey: orgQueryKeys.list(tenantId, type, includeRetired, unitId),
+    queryFn: () =>
+      fetchAllRecords(type, [
+        DELETED_FALSE,
+        ...(includeRetired ? [] : [ACTIVE_TRUE]),
+        ...(unitId !== '' ? [{ field: 'org_unit_id', op: 'eq' as const, value: unitId }] : []),
+      ]),
+    // a filter change keeps the old rows on screen (and the filter mounted) until the new ones arrive
+    placeholderData: keepPreviousData,
     retry: false,
   })
 }
@@ -56,13 +64,13 @@ export function OrgListShell(props: {
 }
 
 /** The message of a failed write, as an alert. Names the fields of record_payload_invalid (no values). */
-export function OrgErrorAlert({ error }: { error: unknown }) {
+export function OrgErrorAlert({ error, userLinked }: { error: unknown; userLinked?: boolean }) {
   const intl = useIntl()
   if (!error) return null
   const info = reasonOf(error)
   return (
     <div id="org-error" role="alert" style={{ color: 'var(--color-error-dark)', marginBottom: 'var(--space-3)' }}>
-      {intl.formatMessage({ id: errorMessageId(error) }, { fields: (info.fields ?? []).join(', ') })}
+      {intl.formatMessage({ id: errorMessageId(error, { userLinked }) }, { fields: (info.fields ?? []).join(', ') })}
     </div>
   )
 }
@@ -139,6 +147,34 @@ export function OrgSelectField(props: {
       </select>
     </div>
   )
+}
+
+/** The unit filter of the position and employee lists; empty value = all units. */
+export function OrgUnitFilter(props: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
+  const intl = useIntl()
+  return (
+    <OrgSelectField
+      name="unit_filter"
+      label={intl.formatMessage({ id: 'org.common.unitFilter' })}
+      value={props.value}
+      options={props.options}
+      placeholder={intl.formatMessage({ id: 'org.common.allUnits' })}
+      onChange={props.onChange}
+    />
+  )
+}
+
+/** Users of the tenant for the employee user picker. Kept out of the page's list queries: a 403 (no UsersManage)
+ *  must not blank the screen. */
+export function useUserSearch(search: string, enabled: boolean): UseQueryResult<User[]> {
+  const { session } = useAuth()
+  const tenantId = session?.tenant_id ?? ''
+  return useQuery({
+    queryKey: orgQueryKeys.users(tenantId, search),
+    queryFn: async () => (await usersApi.list({ search: search || undefined, page_size: 20 })).items,
+    enabled,
+    retry: false,
+  })
 }
 
 export function labelOf(rows: EntityRecord[], id: string, dash: string): string {
