@@ -1,6 +1,6 @@
 /** P1 — GH 3609 / REQ-669: the pure helpers. */
 import { describe, expect, it } from 'vitest'
-import { ORG_REASONS, binValid, buildUnitTree, descendantIds, errorMessageId, moveTargets, positionsOfUnit, reasonOf, unitOptions } from '../orgModel'
+import { ORG_REASONS, binValid, branchIds, buildUnitTree, descendantIds, errorMessageId, moveTargets, positionsOfUnit, reasonOf, unitOptions, unitPath, unitTreeNodes } from '../orgModel'
 import { rec } from './orgTestKit'
 
 const u = (id: string, code: string, parent?: string, active = true) =>
@@ -59,5 +59,18 @@ describe('P1 orgModel', () => {
     expect(opts.map((o) => o.value)).toEqual(['a', 'b'])
     expect(opts[1].label.startsWith('  ')).toBe(true)
     expect(opts[0].label.startsWith(' ')).toBe(false)
+  })
+})
+
+describe('P1 tree nodes', () => {
+  it('unitTreeNodes nests children under parents; branchIds lists the nodes with children; unitPath names the ancestors', () => {
+    const nodes = unitTreeNodes(rows)
+    expect(nodes.map((n) => n.id)).toEqual(['a', 'z', 'orphan'])
+    expect(nodes[0].children?.map((n) => n.id)).toEqual(['b'])
+    expect(nodes[0].children?.[0].children?.map((n) => n.id)).toEqual(['c'])
+    expect(branchIds(nodes)).toEqual(['a', 'b'])
+    expect(unitPath(rows, 'c')).toBe('A / A1')
+    expect(unitPath(rows, 'a')).toBe('')
+    expect(unitPath(rows, 'orphan')).toBe('')
   })
 })

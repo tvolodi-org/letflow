@@ -19,6 +19,7 @@ export interface FixtureReply {
 export interface FixtureRoute {
   match: (path: string, method: string) => boolean
   /** The reply per state. `loading` never answers; `error` defaults to a 500 problem body. */
+  /** `body` is the parsed JSON request body (undefined when there is none). */
   reply: (state: Exclude<HarnessState, 'loading'>, path: string, body?: unknown) => FixtureReply
 }
 

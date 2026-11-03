@@ -47,7 +47,7 @@
     {
       "files": [
         "src/modules/registry.ts",
-        "src/dev/harness/fixtures/**"
+        "src/dev/harness/**"
       ],
       "rules": {
         "no-restricted-imports": "off"

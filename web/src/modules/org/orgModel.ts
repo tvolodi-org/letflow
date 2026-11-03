@@ -1,4 +1,5 @@
 /** Pure helpers of the org screens (GH 3609 / REQ-669): the unit tree, move targets, BIN check, error mapping. */
+import type { TreeNode } from '@/components/ui/TreeView'
 import type { EntityRecord } from '@/types/api'
 
 export const LEGAL_ENTITY = 'org_legal_entity'
@@ -151,4 +152,44 @@ export function errorMessageId(err: unknown, ctx: { userLinked?: boolean } = {})
   if (isReason(info.reason)) return `org.error.${info.reason}`
   if (info.status === 422 && info.reason !== undefined) return 'org.error.unknown'
   return 'org.error.generic'
+}
+
+/** The loaded units as nested TreeView nodes (same order and root rule as buildUnitTree). */
+export function unitTreeNodes(rows: EntityRecord[]): TreeNode[] {
+  const roots: TreeNode[] = []
+  const stack: TreeNode[] = []
+  for (const { record, depth } of buildUnitTree(rows)) {
+    const node: TreeNode = {
+      id: record.record_id,
+      name: textOf(record, 'name') || textOf(record, 'code'),
+      code: textOf(record, 'code'),
+      retired: !isActive(record),
+      children: [],
+    }
+    if (depth === 0) roots.push(node)
+    else stack[depth - 1].children?.push(node)
+    stack[depth] = node
+    stack.length = depth + 1
+  }
+  return roots
+}
+
+/** Ids of the nodes that have children (the tree starts fully open). */
+export function branchIds(nodes: TreeNode[]): string[] {
+  return nodes.flatMap((n) => ((n.children ?? []).length > 0 ? [n.id, ...branchIds(n.children ?? [])] : []))
+}
+
+/** "Head office / Finance": names of the ancestors of a unit, root first (empty for a root). */
+export function unitPath(rows: EntityRecord[], id: string): string {
+  const byId = new Map(rows.map((r) => [r.record_id, r]))
+  const names: string[] = []
+  const seen = new Set<string>([id])
+  let parent = textOf(byId.get(id) ?? ({ field_values: {} } as EntityRecord), 'parent')
+  while (parent !== '' && byId.has(parent) && !seen.has(parent)) {
+    seen.add(parent)
+    const row = byId.get(parent) as EntityRecord
+    names.unshift(textOf(row, 'name') || textOf(row, 'code'))
+    parent = textOf(row, 'parent')
+  }
+  return names.join(' / ')
 }

@@ -5,12 +5,17 @@ import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react
 import { useIntl } from 'react-intl'
 import { usersApi } from '@/api/identity'
 import { useAuth } from '@/auth/AuthContext'
+import { Banner } from '@/components/ui/Banner'
+import { Checkbox } from '@/components/ui/Checkbox'
+import { Field } from '@/components/ui/Field'
 import { PageLayout } from '@/components/ui/PageLayout'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
+import { Select } from '@/components/ui/Select'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import type { EntityRecord, User } from '@/types/api'
 import { ACTIVE_TRUE, DELETED_FALSE, fetchAllRecords } from './org.api'
 import { orgQueryKeys } from './orgQueryKeys'
+import { useOrgLocale } from './OrgIntlProvider'
 import { errorMessageId, reasonOf, textOf } from './orgModel'
 
 /** All rows of a type (deleted rows excluded; retired rows only when asked). */
@@ -48,14 +53,11 @@ export function OrgListShell(props: {
       : 'success'
   return (
     <PageLayout title={props.title} actions={props.actions}>
-      <label style={{ display: 'inline-flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
-        <input
-          type="checkbox"
-          checked={props.showRetired}
-          onChange={(e) => props.onShowRetired(e.target.checked)}
-        />
-        {intl.formatMessage({ id: 'org.common.showRetired' })}
-      </label>
+      <Checkbox
+        label={intl.formatMessage({ id: 'org.common.showRetired' })}
+        checked={props.showRetired}
+        onChange={props.onShowRetired}
+      />
       <QueryStateBoundary state={state} onRetry={() => props.queries.forEach((q) => void q.refetch())}>
         {props.children}
       </QueryStateBoundary>
@@ -63,15 +65,15 @@ export function OrgListShell(props: {
   )
 }
 
-/** The message of a failed write, as an alert. Names the fields of record_payload_invalid (no values). */
+/** The message of a failed write, as a danger banner. Names the fields of record_payload_invalid (no values). */
 export function OrgErrorAlert({ error, userLinked }: { error: unknown; userLinked?: boolean }) {
   const intl = useIntl()
   if (!error) return null
   const info = reasonOf(error)
   return (
-    <div id="org-error" role="alert" style={{ color: 'var(--color-error-dark)', marginBottom: 'var(--space-3)' }}>
+    <Banner tone="danger">
       {intl.formatMessage({ id: errorMessageId(error, { userLinked }) }, { fields: (info.fields ?? []).join(', ') })}
-    </div>
+    </Banner>
   )
 }
 
@@ -84,34 +86,44 @@ export function fieldMarked(error: unknown, name: string): boolean {
   )
 }
 
+/** A text input in the design system's Field. `invalid` marks it with the generic field message;
+ *  `error` (a ready text) wins over it and is shown next to the field. */
 export function OrgTextField(props: {
   name: string
   label: string
   value: string
   onChange: (v: string) => void
   invalid?: boolean
+  error?: string
+  hint?: string
   readOnly?: boolean
   numeric?: boolean
+  mono?: boolean
   maxLength?: number
+  width?: 's' | 'm' | 'l'
 }) {
-  const id = `org-field-${props.name}`
+  const intl = useIntl()
+  const locale = useOrgLocale()
+  const error = props.error ?? (props.invalid ? intl.formatMessage({ id: 'org.error.field_invalid' }) : undefined)
   return (
-    <div style={{ marginBottom: 'var(--space-3)' }}>
-      <label htmlFor={id} style={{ display: 'block' }}>
-        {props.label}
-      </label>
+    <Field
+      label={props.label}
+      error={error}
+      hint={props.hint}
+      readOnly={props.readOnly}
+      mono={props.mono}
+      width={props.width}
+      locale={locale}
+    >
       <input
-        id={id}
+        id={`org-field-${props.name}`}
         name={props.name}
         value={props.value}
-        readOnly={props.readOnly}
         inputMode={props.numeric ? 'numeric' : undefined}
         maxLength={props.maxLength}
-        aria-invalid={props.invalid ? true : undefined}
-        aria-describedby={props.invalid ? 'org-error' : undefined}
         onChange={(e) => props.onChange(e.target.value)}
       />
-    </div>
+    </Field>
   )
 }
 
@@ -123,29 +135,26 @@ export function OrgSelectField(props: {
   options: { value: string; label: string }[]
   placeholder: string
   invalid?: boolean
+  disabled?: boolean
+  hint?: string
+  width?: 's' | 'm' | 'l'
 }) {
-  const id = `org-field-${props.name}`
+  const intl = useIntl()
+  const locale = useOrgLocale()
   return (
-    <div style={{ marginBottom: 'var(--space-3)' }}>
-      <label htmlFor={id} style={{ display: 'block' }}>
-        {props.label}
-      </label>
-      <select
-        id={id}
-        name={props.name}
-        value={props.value}
-        aria-invalid={props.invalid ? true : undefined}
-        aria-describedby={props.invalid ? 'org-error' : undefined}
-        onChange={(e) => props.onChange(e.target.value)}
-      >
-        <option value="">{props.placeholder}</option>
-        {props.options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </div>
+    <Select
+      name={props.name}
+      label={props.label}
+      value={props.value}
+      options={props.options}
+      placeholder={props.placeholder}
+      onChange={props.onChange}
+      error={props.invalid ? intl.formatMessage({ id: 'org.error.field_invalid' }) : undefined}
+      hint={props.hint}
+      disabled={props.disabled}
+      width={props.width}
+      locale={locale}
+    />
   )
 }
 

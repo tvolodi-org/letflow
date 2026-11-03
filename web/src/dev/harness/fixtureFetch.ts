@@ -15,11 +15,10 @@ export function pendingFixtureRequests(): number {
   return inFlight
 }
 
-/** The JSON body of a request, when it has one (fixtures of query routes answer by entity type). */
-function parseBody(body: BodyInit | null | undefined): unknown {
-  if (typeof body !== 'string') return undefined
+function parseBody(raw: unknown): unknown {
+  if (typeof raw !== 'string') return undefined
   try {
-    return JSON.parse(body)
+    return JSON.parse(raw)
   } catch {
     return undefined
   }
