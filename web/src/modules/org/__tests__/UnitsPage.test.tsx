@@ -132,3 +132,72 @@ describe('W3 writes', () => {
     expect(Object.keys(writeCalls(clientMock)[3].body)).toEqual(['idempotency_key'])
   })
 })
+
+describe('T-1181 child starts with the parent company', () => {
+  const two = {
+    ...DATA,
+    org_unit: [
+      rec('u-p', 'org_unit', { code: 'P', name: 'Unit P', legal_entity_id: 'le-2', site_id: 's-2' }),
+      rec('u-q', 'org_unit', { code: 'Q', name: 'Unit Q', legal_entity_id: 'le-1', site_id: 's-3' }),
+    ],
+    org_site: [
+      rec('s-1', 'org_site', { code: 'S1', name: 'Main site', legal_entity_id: 'le-1' }),
+      rec('s-2', 'org_site', { code: 'S2', name: 'Second site', legal_entity_id: 'le-2' }),
+      rec('s-3', 'org_site', { code: 'S3', name: 'Third site', legal_entity_id: 'le-1' }),
+    ],
+    org_legal_entity: [
+      rec('le-1', 'org_legal_entity', { code: 'LE1', name: 'Alpha LLP' }),
+      rec('le-2', 'org_legal_entity', { code: 'LE2', name: 'Beta LLP' }),
+    ],
+  }
+  const company = () => screen.getByLabelText('Legal company') as HTMLSelectElement
+  const site = () => screen.getByLabelText('Site') as HTMLSelectElement
+
+  it('pre-fills the parent company for a child, stays editable, saves the chosen value', async () => {
+    fakeServer(clientMock, two)
+    renderOrg('/admin/org/units')
+    await screen.findByText('Unit P')
+    pick('Unit P')
+    fireEvent.click(screen.getByRole('button', { name: 'Add child' }))
+    expect(company().value).toBe('le-2')
+    expect(company()).toBeEnabled()
+    expect(site().value).toBe('s-2')
+    expect(site()).toBeEnabled()
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: 'P1' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Kid' } })
+    fireEvent.change(screen.getByLabelText('Site'), { target: { value: 's-1' } })
+    fireEvent.change(company(), { target: { value: 'le-1' } })
+    fireEvent.click(screen.getByTestId('org-save'))
+    await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
+    expect(writeCalls(clientMock)[0].body).toMatchObject({ parent: 'u-p', legal_entity_id: 'le-1', site_id: 's-1' })
+  })
+
+  it('saves the pre-filled company unchanged', async () => {
+    fakeServer(clientMock, two)
+    renderOrg('/admin/org/units')
+    await screen.findByText('Unit P')
+    pick('Unit P')
+    fireEvent.click(screen.getByRole('button', { name: 'Add child' }))
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: 'P2' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Kid2' } })
+    fireEvent.click(screen.getByTestId('org-save'))
+    await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
+    expect(writeCalls(clientMock)[0].body['legal_entity_id']).toBe('le-2')
+    expect(writeCalls(clientMock)[0].body['site_id']).toBe('s-2')
+  })
+
+  it('starts empty for a root, and an existing unit shows its own company', async () => {
+    fakeServer(clientMock, two)
+    renderOrg('/admin/org/units')
+    await screen.findByText('Unit P')
+    fireEvent.click(screen.getByTestId('org-create'))
+    expect(company().value).toBe('')
+    expect(site().value).toBe('')
+    pick('Unit Q')
+    expect(company().value).toBe('le-1')
+    expect(site().value).toBe('s-3')
+    pick('Unit P')
+    expect(company().value).toBe('le-2')
+    expect(site().value).toBe('s-2')
+  })
+})
