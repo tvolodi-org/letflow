@@ -42,6 +42,16 @@ export function HarnessPage() {
     document.documentElement.lang = lang
   }, [theme, lang])
 
+  // Shared components pick their language from navigator.languages: give them the harness language while mounted.
+  useLayoutEffect(() => {
+    const original = Object.getOwnPropertyDescriptor(navigator, 'languages')
+    Object.defineProperty(navigator, 'languages', { value: [lang], configurable: true })
+    return () => {
+      if (original) Object.defineProperty(navigator, 'languages', original)
+      else delete (navigator as unknown as Record<string, unknown>).languages
+    }
+  }, [lang])
+
   useLayoutEffect(() => {
     if (!screen) return
     const restore = installFixtureFetch(screen.routes, state)
