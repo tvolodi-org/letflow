@@ -1,3 +1,4 @@
+import { ToastContainer } from '@/components/ui/Toast'
 import { useEffect, useState } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -198,6 +199,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <ToastContainer />
     </div>
   )
 }
