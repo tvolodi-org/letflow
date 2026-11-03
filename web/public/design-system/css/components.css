@@ -270,6 +270,7 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
 .lf-md { display: grid; grid-template-columns: var(--master-width) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
 .lf-md__master { position: sticky; top: calc(var(--topbar-height) + var(--space-4)); max-height: calc(100vh - var(--topbar-height) - var(--space-8)); display: flex; flex-direction: column; overflow: hidden; }
 .lf-md__master .lf-card__body { overflow-y: auto; padding: var(--space-2); }
+.lf-md__back { display: none; justify-self: start; margin-left: calc(var(--space-3) * -1); }
 .lf-md__tools { display: grid; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--line); }
 .lf-detail-head { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-4); align-items: flex-start; justify-content: space-between; padding: var(--space-6) var(--space-6) 0; }
 .lf-detail-head__title { display: grid; gap: var(--space-1); min-width: 0; }
@@ -368,6 +369,11 @@ th[aria-sort="ascending"] .lf-sort .lf-icon, th[aria-sort="descending"] .lf-sort
   .lf-md { grid-template-columns: minmax(0, 1fr); }
   .lf-md__master { position: static; max-height: none; }
   .lf-md__master .lf-card__body { max-height: 340px; }
+  /* Under 900 px a selected record REPLACES the list (owner rule, 2026-11-04): data-detail="open" on .lf-md is set
+     while a record is open; the back button returns to the list. With no record open only the list shows. */
+  .lf-md[data-detail="open"] > .lf-md__master { display: none; }
+  .lf-md:not([data-detail="open"]) > .lf-md__detail { display: none; }
+  .lf-md[data-detail="open"] .lf-md__back { display: inline-flex; }
 }
 @media (max-width: 640px) {
   :root { --control-h: 44px; --control-h-s: 36px; }
