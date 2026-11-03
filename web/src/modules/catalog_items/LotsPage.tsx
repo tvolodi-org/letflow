@@ -494,7 +494,7 @@ function LotsInner({ locale }: { locale: CatalogItemsUiLocale }) {
       <CatalogItemsBoundary queries={[itemsQuery, lotsQuery]}>
         {toolbar}
         {panelNode ? (
-          <MasterDetail master={table(compactColumns, true)} detail={panelNode} />
+          <MasterDetail master={table(compactColumns, true)} detail={panelNode} detailOpen onBack={() => setPanel(null)} />
         ) : (
           table(fullColumns, false)
         )}
