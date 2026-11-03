@@ -48975,7 +48975,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-687 -- the stock module of ledger slice L4 must exist before its documents are added
+    gh: 3749
     # Source: docs/assets/stock-workflow-documents.md (REQ-679, merged in #3728; sections 1.1 to 1.4, 2, 8, 9.1, 9.3, 11, 12), docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md (D5 order of issue and posting, D7 real receipt date, Consequences F4), docs/migration/decisions/0073-domain-neutral-ledger-primitive.md (D-T, D-P, D6, D9 OQ-21) with its section Amended (REQ-676, assets B1), docs/migration/decisions/0076-master-data-layer.md (R6, R7), entries REQ-687 (slice L4) and REQ-641 on origin/main d95e65e47. Functions read on origin/main: Letflow.Documents.create_draft/3, edit_draft/4, discard_draft/3 and issue/2 (lib/letflow/documents.ex); Letflow.Modules.CatalogItems.lookup/2, item_uom_valid?/3, item_lot_valid?/3 (lib/letflow/modules/catalog_items/catalog_items.ex); Letflow.Modules.Locations.linked?/3 (lib/letflow/modules/locations/locations.ex); Letflow.Modules.Org.active_employee?/2 (lib/letflow/modules/org/org.ex); the pack precedent priv/modules/locations/entity_definitions/location_node.json (foreign_keys, queried); the versioned-document precedent Letflow.Modules.Procurement (lib/letflow/modules/procurement/procurement.ex, @type_attrs and on_install/3). Owner decisions D-085, D-086, D-087 (2026-11-04: build fast; defaults for open questions, owner may change at GATE B). Written by the business analyst (T-1226) 2026-11-04.
     description: >
       Phase B item B4 of the assets and stock application, implementation part 1 of 4 (REQ-712 to REQ-715). It builds the
@@ -49052,7 +49052,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-712 -- the document foundation and the receipt draft and issue come first
+    gh: 3748
     # Source: docs/assets/stock-workflow-documents.md (sections 1.1, 2, 7.3, 9.1, 9.2, 9.3), decision 0078 (D4, D5 order and binding, the failure table, Consequences F4 and F5), decision 0073 (D-L12, D-T, D-C, D3 error aliases, D8 class 5b, Consequences cost note) with its section Amended (REQ-676, assets B1), entries REQ-637 (reversal), REQ-684, REQ-685 (HandlerWrites.post/3, credential and authority), REQ-686 (failure channel, ledger.posted) and REQ-687 (declare/2 command shape and its open question that B4 may amend it) on origin/main d95e65e47. Code read on origin/main: Letflow.Entities.HandlerWrites.create/3 and its policy/2 refusal :scoped_type (lib/letflow/entities/handler_writes.ex), the handler contract in lib/letflow/entities/handler_context.ex, Letflow.Definitions.ModuleWrites (lib/letflow/definitions/module_writes.ex), the handler precedent test/support/modules/fixture_ledger/handlers.ex, Letflow.Engine.complete_task/3 and VariableMerge (lib/letflow/engine.ex, lib/letflow/engine/variable_merge.ex: output_variables are merged without a per-node allowlist), Letflow.Engine.create/2, Letflow.Documents.cancel/3. Written by the business analyst (T-1226) 2026-11-04.
     description: >
       Phase B item B4, implementation part 2 of 4. It makes an issued receipt (REQ-712) post to the stock ledger and makes a
@@ -49133,7 +49133,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-712 -- the receipt types and the issue step come first; REQ-641 gives the tracking policy
+    gh: 3747
     # Source: docs/assets/stock-workflow-documents.md (sections 1.4 common line fields, 2 Receipt, 4 Price and value, 11 question 1), decision 0078 D7 (real receipt date, never event_time) and Consequences F3, entry REQ-641 (validate_capture/3 and its rule order a to d, the policies none, lot, serial, expiry) and REQ-687 (no serial slot; serial-tracked goods out of the pilot, 0073 OQ-23) on origin/main d95e65e47; priv/modules/catalog_items/entity_definitions/catalog_lot.json (fields item_id, code, expiry_date, active). Written by the business analyst (T-1226) 2026-11-04.
     description: >
       Phase B item B4, implementation part 3 of 4: the parts of the receipt that the other documents do not have. It adds
@@ -49177,7 +49177,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-713 -- the posting and reversal machinery comes first
+    gh: 3746
     # Source: docs/assets/stock-workflow-documents.md (sections 1.4, 3 Issue, 4 no value on issue and write off, 7.2 Write off, 8 master checks, 9.2, 11), decision 0073 (D-C sign rule negative, reason_required, D3 error_aliases insufficient_balance to insufficient_stock), entries REQ-687 (causes issue and write_off, declare/2 one leg of -quantity from the from side), REQ-712, REQ-713 and REQ-641 on origin/main d95e65e47. Written by the business analyst (T-1226) 2026-11-04.
     description: >
       Phase B item B4, implementation part 4 of 4: two documents that remove a quantity from the stock register. Issue: a
