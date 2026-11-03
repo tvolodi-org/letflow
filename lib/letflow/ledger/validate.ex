@@ -8,14 +8,19 @@ defmodule Letflow.Ledger.Validate do
   the neutral core code (the capability carries no aliases). `invalid_posting` details hold only
   `leg_no` (or nil) and a reason from the closed enum `t:reason/0`; no value is echoed.
 
-  `offline_fields_not_available`, `event_time_not_available` and `reversal_not_available` name
-  what later slices replace (offline fields and event time: part C of REQ-621; reversal: L2b).
+  Part C (offline fields): `device_id`, `client_seq` and `client_event_time` are read from the raw
+  command only. A posting that carries them, or an `event_time`, is `:posting_shape` (the posting is
+  the server-derived declaration; the client never sets the event time directly). The client time is
+  an ISO 8601 string with an offset (or a `DateTime`), year 2000..2100. `reversal_not_available`
+  names what a later slice replaces (reversal: L2b).
   """
 
   @type reason ::
           :reversal_not_available
-          | :offline_fields_not_available
-          | :event_time_not_available
+          | :offline_fields_incomplete
+          | :device_id_invalid
+          | :client_seq_invalid
+          | :client_event_time_invalid
           | :unknown_cause
           | :no_legs
           | :too_many_legs
@@ -42,6 +47,9 @@ defmodule Letflow.Ledger.Validate do
   @slot_uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
   @control ~r/[\x00-\x1f\x7f]/
 
+  @device_id ~r/\A[A-Za-z0-9._:-]+\z/
+  @max_client_seq 9_223_372_036_854_775_807
+
   @text_fields [reason_code: 64, document_type: 128, document_id: 128, related_document_id: 128]
 
   @doc "A typed refusal tuple."
@@ -62,7 +70,8 @@ defmodule Letflow.Ledger.Validate do
     with :ok <- check_shape(posting, command),
          :ok <- check_ledger_id(posting.ledger_id),
          :ok <- check_client_op_id(command),
-         :ok <- check_unavailable(posting, command),
+         :ok <- check_unavailable(posting),
+         {:ok, offline} <- check_offline(command),
          {:ok, cause} <- check_cause(posting.cause, registration),
          {:ok, legs} <- check_legs(posting.legs, registration),
          :ok <- check_text(posting),
@@ -78,7 +87,10 @@ defmodule Letflow.Ledger.Validate do
          document_id: Map.get(posting, :document_id),
          related_document_id: Map.get(posting, :related_document_id),
          correlation_id: Map.get(posting, :correlation_id),
-         scope_ref: Map.get(posting, :scope_ref)
+         scope_ref: Map.get(posting, :scope_ref),
+         device_id: offline.device_id,
+         client_seq: offline.client_seq,
+         client_event_time: offline.client_event_time
        }}
     end
   end
@@ -108,15 +120,12 @@ defmodule Letflow.Ledger.Validate do
     end
   end
 
-  defp check_unavailable(posting, command) do
-    offline = [:device_id, :client_seq, :client_event_time]
+  defp check_unavailable(posting) do
+    offline = [:device_id, :client_seq, :client_event_time, :event_time]
 
     cond do
-      Enum.any?(offline, &(Map.get(posting, &1) != nil or Map.get(command, &1) != nil)) ->
-        invalid(:offline_fields_not_available)
-
-      Map.get(posting, :event_time) != nil ->
-        invalid(:event_time_not_available)
+      Enum.any?(offline, &(Map.get(posting, &1) != nil)) ->
+        invalid(:posting_shape)
 
       posting.cause == "reversal" or Map.get(posting, :reverses_entry_id) != nil ->
         invalid(:reversal_not_available)
@@ -124,6 +133,52 @@ defmodule Letflow.Ledger.Validate do
       true ->
         :ok
     end
+  end
+
+  # The offline triple comes from the raw command; all nil for an online command.
+  defp check_offline(command) do
+    device = Map.get(command, :device_id)
+    seq = Map.get(command, :client_seq)
+    time = Map.get(command, :client_event_time)
+
+    cond do
+      device == nil and seq == nil and time == nil ->
+        {:ok, %{device_id: nil, client_seq: nil, client_event_time: nil}}
+
+      device == nil or seq == nil ->
+        invalid(:offline_fields_incomplete)
+
+      not (is_binary(device) and byte_size(device) in 1..64 and Regex.match?(@device_id, device)) ->
+        invalid(:device_id_invalid)
+
+      not (is_integer(seq) and seq in 0..@max_client_seq) ->
+        invalid(:client_seq_invalid)
+
+      time == nil ->
+        {:ok, %{device_id: device, client_seq: seq, client_event_time: nil}}
+
+      true ->
+        with {:ok, dt} <- parse_client_time(time),
+             do: {:ok, %{device_id: device, client_seq: seq, client_event_time: dt}}
+    end
+  end
+
+  defp parse_client_time(time) when is_binary(time) do
+    case DateTime.from_iso8601(time) do
+      {:ok, dt, _offset} -> normalise_time(dt)
+      {:error, _} -> invalid(:client_event_time_invalid)
+    end
+  end
+
+  defp parse_client_time(%DateTime{} = dt), do: normalise_time(dt)
+  defp parse_client_time(_other), do: invalid(:client_event_time_invalid)
+
+  defp normalise_time(%DateTime{} = dt) do
+    utc = dt |> DateTime.shift_zone!("Etc/UTC") |> DateTime.truncate(:microsecond)
+
+    if utc.year in 2000..2100,
+      do: {:ok, utc},
+      else: invalid(:client_event_time_invalid)
   end
 
   defp check_cause(name, registration) do
