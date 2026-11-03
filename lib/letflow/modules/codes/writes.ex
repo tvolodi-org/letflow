@@ -23,7 +23,10 @@ defmodule Letflow.Modules.Codes.Writes do
   (`:tag`, `:assignment`, `:change`, `:0..:n` for a batch). Records detects a replay by failing its own
   multi, which a surrounding transaction cannot survive, so when the first derived key of the call is
   already claimed the function skips the lock and the checks and returns the CURRENT state, writing
-  nothing. A replay with the same key and different input is not compared (runbook item 17).
+  nothing. A replay with the same key and a different body (other entries, count or actor) is
+  `{:error, :idempotency_key_reuse}` for `receive_codes/3`: each entry is offered to Records under its
+  derived key and Records compares it with the stored event. The single-code writers still replay
+  without comparing (runbook item 17).
   """
 
   import Ecto.Query, only: [from: 2]
@@ -59,8 +62,7 @@ defmodule Letflow.Modules.Codes.Writes do
         {:error, :batch_size}
 
       replay?(prefix, idem <> ":0") ->
-        {:ok,
-         entries |> Enum.flat_map(&current_by_value(prefix, &1)) |> Enum.map(&view(prefix, &1))}
+        replay_receive(prefix, entries, actor, idem)
 
       true ->
         Repo.transaction(fn ->
@@ -76,14 +78,47 @@ defmodule Letflow.Modules.Codes.Writes do
     end
   end
 
-  defp current_by_value(prefix, %{"value" => v}) when is_binary(v) do
-    case tag_ids_by_values(prefix, [v]) do
-      [{id, _}] -> [id]
-      _ -> []
+  # The key is claimed: the body must be the original one. Each entry is offered to Records under
+  # its own derived key with the document the first call wrote; Records compares it with the stored
+  # event (actor and field values) and answers the original or `:idempotency_key_reuse`, writing
+  # nothing. A batch of another length leaves one derived key unclaimed or unused: also a reuse.
+  defp replay_receive(prefix, entries, actor, idem) do
+    n = length(entries)
+
+    cond do
+      replay?(prefix, "#{idem}:#{n}") ->
+        {:error, :idempotency_key_reuse}
+
+      not Enum.all?(0..(n - 1)//1, &replay?(prefix, "#{idem}:#{&1}")) ->
+        {:error, :idempotency_key_reuse}
+
+      true ->
+        entries
+        |> Enum.with_index()
+        |> Enum.reduce_while({:ok, []}, fn {entry, i}, {:ok, acc} ->
+          case replay_entry(prefix, entry, actor, "#{idem}:#{i}") do
+            {:ok, id} -> {:cont, {:ok, [id | acc]}}
+            {:error, _} = err -> {:halt, err}
+          end
+        end)
+        |> case do
+          {:ok, ids} -> {:ok, ids |> Enum.reverse() |> Enum.map(&view(prefix, &1))}
+          err -> err
+        end
     end
   end
 
-  defp current_by_value(_prefix, _), do: []
+  defp replay_entry(prefix, %{"value" => v, "kind" => k}, actor, key) do
+    create_record(
+      prefix,
+      "code_tag",
+      %{"value" => v, "kind" => k, "status" => "not_assigned"},
+      actor,
+      key
+    )
+  end
+
+  defp replay_entry(_prefix, _entry, _actor, _key), do: {:error, :idempotency_key_reuse}
 
   defp check_entries(prefix, entries) do
     indexed = Enum.with_index(entries)
