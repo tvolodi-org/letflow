@@ -10,7 +10,8 @@ defmodule Letflow.Modules.CatalogItems do
 
     * `catalog_uom`: a unit of measure, unique `code`;
     * `catalog_item`: an item, unique `code`, with a `base_uom_id` (the record id of a
-      `catalog_uom`, a declarative string) and a `kind` enum (`material | service`);
+      `catalog_uom`, a declarative string), a `kind` enum (`material | service`) and an optional
+      `tracking_policy` enum (`none | lot | serial | expiry`, GH #3581 / REQ-641; absent means `none`);
     * `catalog_counterparty`: a supplier master (GH #3407 / REQ-604), unique `code`, a `kind` enum
       (`supplier | contractor`) and an optional `tax_id`; retired with `active` false, never deleted;
     * `catalog_lot`: a lot (batch) master (GH #3593 / REQ-647, owner decision D-065): `item_id` is a
@@ -27,7 +28,8 @@ defmodule Letflow.Modules.CatalogItems do
   are REQ-504 (#2660), not here. `catalog_lot.item_id` is a real foreign key (D-066); the other
   references between the types, `base_uom_id` among them, stay declarative strings (0050 D3.6).
   The manifest declares every type `:tenant_wide` in `scope_declarations` (D-067, 0051 M4;
-  enforcement is REQ-519). `item_lot_valid?/3` checks an item and one of its lots.
+  enforcement is REQ-519). `item_lot_valid?/3` checks an item and one of its lots; `validate_capture/3` checks the lot, serial and
+  expiry captured for an item against its tracking policy (nothing calls it yet).
 
   ## Read API contract (GH #2664)
 
@@ -63,7 +65,7 @@ defmodule Letflow.Modules.CatalogItems do
   @impl true
   defmanifest(
     id: "catalog_items",
-    version: "0.2.0",
+    version: "0.3.0",
     depends_on: [],
     pack: "modules/catalog_items/pack.json",
     permissions: [:CatalogLotsWrite],
@@ -181,6 +183,92 @@ defmodule Letflow.Modules.CatalogItems do
   end
 
   def item_lot_valid?(_prefix, _item_id, _lot_id), do: false
+
+  @capture_fields ["lot", "serial", "expiry"]
+
+  @doc """
+  Checks what a receipt or issue captured for an item against the item's `tracking_policy`
+  (GH #3581 / REQ-641). Read-only, never raises, tenant-scoped by `prefix` alone (derived
+  server-side from the authenticated tenant).
+
+  `capture` is a map with string keys `"lot"`, `"serial"` and `"expiry"` (ISO date text); an absent
+  key, `nil`, `""` and whitespace-only text are "not supplied". Required per policy: `none` nothing,
+  `lot` the lot, `serial` the serial, `expiry` the lot and the expiry date; a supplied value that the
+  policy does not require is refused. An item without the field is `none`. Order: item, active,
+  capture shape, then the fields lot, serial, expiry; the first failure is returned. Reasons carry
+  the field name only, never the supplied value. A non-uuid, unknown, soft-deleted or other-tenant
+  item, the id of a record of another type and a non-text `prefix` are all `:item_not_found`.
+  Serial uniqueness is the stock ledger's job, not this function's.
+  """
+  @spec validate_capture(prefix :: String.t(), item_id :: term(), capture :: term()) ::
+          :ok
+          | {:error,
+             :item_not_found
+             | :item_inactive
+             | :invalid_capture
+             | {:capture_required | :capture_not_allowed | :capture_invalid, String.t()}}
+  def validate_capture(prefix, item_id, capture) when is_binary(prefix) do
+    with {:ok, item_uuid} <- Ecto.UUID.cast(item_id),
+         {:ok, fields} <- live_fields(prefix, item_uuid, @item) do
+      check_capture(fields, capture)
+    else
+      _ -> {:error, :item_not_found}
+    end
+  end
+
+  def validate_capture(_prefix, _item_id, _capture), do: {:error, :item_not_found}
+
+  defp check_capture(%{"active" => active}, _capture) when active != true,
+    do: {:error, :item_inactive}
+
+  defp check_capture(_fields, capture) when not is_map(capture), do: {:error, :invalid_capture}
+
+  defp check_capture(fields, capture) do
+    case required_captures(Map.get(fields, "tracking_policy")) do
+      {:ok, required} ->
+        Enum.reduce_while(@capture_fields, :ok, fn field, :ok ->
+          case check_field(field, Map.get(capture, field), field in required) do
+            :ok -> {:cont, :ok}
+            error -> {:halt, error}
+          end
+        end)
+
+      :error ->
+        # Unreachable through the owner path (the enum is validated on write); INV-8 fallback.
+        {:error, {:capture_invalid, "tracking_policy"}}
+    end
+  end
+
+  defp required_captures(policy) when policy in [nil, "none"], do: {:ok, []}
+  defp required_captures("lot"), do: {:ok, ["lot"]}
+  defp required_captures("serial"), do: {:ok, ["serial"]}
+  defp required_captures("expiry"), do: {:ok, ["lot", "expiry"]}
+  defp required_captures(_other), do: :error
+
+  defp check_field(field, value, required?) do
+    case supplied(value) do
+      :invalid -> {:error, {:capture_invalid, field}}
+      :blank when required? -> {:error, {:capture_required, field}}
+      :blank -> :ok
+      {:ok, _text} when not required? -> {:error, {:capture_not_allowed, field}}
+      {:ok, text} when field == "expiry" -> check_date(text)
+      {:ok, _text} -> :ok
+    end
+  end
+
+  defp supplied(nil), do: :blank
+
+  defp supplied(value) when is_binary(value),
+    do: if(String.trim(value) == "", do: :blank, else: {:ok, value})
+
+  defp supplied(_value), do: :invalid
+
+  defp check_date(text) do
+    case Date.from_iso8601(text) do
+      {:ok, _date} -> :ok
+      _ -> {:error, {:capture_invalid, "expiry"}}
+    end
+  end
 
   @doc "Creates a lot of an active item (GH #3614 / REQ-664); see `Letflow.Modules.CatalogItems.Lots`."
   defdelegate create_lot(prefix, attrs, opts), to: Letflow.Modules.CatalogItems.Lots
