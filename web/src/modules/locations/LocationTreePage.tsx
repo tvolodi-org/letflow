@@ -437,7 +437,7 @@ function LocationTreeInner({ initialSelectedId }: { initialSelectedId?: string }
             master={
               <>
                 <div className="lf-md__tools">
-                  <div className="lf-btn-row">
+                  <div className="lf-btn-row lf-btn-row--between" data-testid="locations-retired-row">
                     <Checkbox label={t('locations.common.showRetired')} checked={showRetired} onChange={setShowRetired} />
                     <span className="caption lf-faint">
                       <span className="mono">{nodes.length}</span> {t('locations.tree.countUnit')}

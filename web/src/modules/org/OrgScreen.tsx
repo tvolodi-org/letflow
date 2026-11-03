@@ -114,7 +114,7 @@ export function OrgScreen(props: OrgScreenProps) {
       <div onKeyDown={onKeyDown} data-testid="org-screen">
         <MasterDetail
           tools={
-            <div className="lf-btn-row">
+            <div className="lf-btn-row lf-btn-row--between" data-testid="org-retired-row">
               <Checkbox label={t('org.common.showRetired')} checked={props.showRetired} onChange={props.onShowRetired} />
               {loaded && (
                 <span className="caption lf-faint" data-testid="org-count">

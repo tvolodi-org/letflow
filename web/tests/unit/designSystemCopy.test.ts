@@ -37,6 +37,14 @@ describe('design-system copy', () => {
     for (const f of [...PAGES, 'css/tokens.css', 'css/components.css', 'demo.js']) expect(files).toContain(f)
   })
 
+  // T-1177: the app's own generated copy (src/styles/components.css) and the shipped style-guide copy come from the
+  // same release.sh run, so they must be identical; both carry the S1 gate class lf-btn-row--between.
+  it('the app components.css equals the released copy and has lf-btn-row--between', () => {
+    const app = readFileSync(join(__dirname, '..', '..', 'src', 'styles', 'components.css'), 'utf8')
+    expect(app).toBe(readFileSync(join(ROOT, 'css', 'components.css'), 'utf8'))
+    expect(app).toMatch(/\.lf-btn-row--between\s*\{\s*justify-content:\s*space-between;/)
+  })
+
   it.each(PAGES)('%s is noindex and its local references exist', (page) => {
     const html = readFileSync(join(ROOT, page), 'utf8')
     expect(html).toContain('<meta name="robots" content="noindex">')
