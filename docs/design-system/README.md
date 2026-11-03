@@ -46,3 +46,8 @@ remove; clear only when a filter is active), `StatusPill` (tone + glyph + word),
 `Skeleton`, `Tally`, `Steps`. `StatusBadge` is now a thin wrapper over `StatusPill` until its callers move to a
 per-module tone/glyph map. Fixed labels (Previous, Try again, Expand...) have English defaults and a `labels` prop;
 the page passes the translated text.
+
+## Behaviour rules
+
+The behaviour rules kept from the retired `docs/frontend/design-system.md` (ConfirmDialog, status, pagination,
+FilterBar, DynamicForm mapping, toast timing, process canvas, breakpoints) are in [principles.md](principles.md).
