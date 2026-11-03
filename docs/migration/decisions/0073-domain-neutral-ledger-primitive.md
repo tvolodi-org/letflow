@@ -113,3 +113,104 @@ Slices (note section 17; neutral names):
 * OQ-2 (one ledger id per tenant or per warehouse): per tenant; per-warehouse only if T-LD-1 fails.
 * OQ-11 (role grants for the four permission atoms): decided in slice L4.
 * The record number 0073 replaced the note's "0062 (proposed)".
+
+## Amended (REQ-676, assets B1)
+
+Sources: owner decisions D-061 (one transaction may post to two registers), D-062 (shared ledger tables partitioned by ledger id, proven by a speed test, separate tables as the fallback) and D-073 (phase B specifications before GATE A, no phase B implementation before it) in `ai-dala-portfolio/DECISIONS.md`, and requirement REQ-676 (GH #3666) in `docs/requirements.yaml`. This section writes no code, no migration, no test, no seed and no route. It replaces D8 and the table shape of slice L1 part A, and adds to D-L3 and to the slice table rows L1 to L5. Everything above this heading stays as written. 0061 is not edited here: its class 5b text is applied by slice L3 (D8), now with the text of A3 below. The speed test itself and the partition migration are later requirements, written after GATE A.
+
+### A1 Why
+
+D8 allows at most one posting per transaction and one ledger id per posting, and the activation check `module_writes_multiple_ledger_postings` (note section 7.4) refuses a node with two posting lines. The owner decided (D-061) that a change of kind (a chair bought as stock becomes a tracked low-value asset) is one workflow document that posts to the stock register and to the asset register in one transaction, with the same document id in both. The owner also decided (D-062) that the registers keep the four shared ledger tables, partitioned by ledger id so each register is physically its own part, with separate tables as the fallback if a speed test says so. The tables of slice L1 part A exist on origin/main (migration `20261031100001_create_ledger_tables.exs`), are not partitioned, and hold no row on any tenant because no posting code exists.
+
+### A2 Two postings in one transaction (replaces the sentence "at most one posting per transaction ... and one ledger id per posting" of D8)
+
+* One transaction carries at most TWO postings. The two postings have different ledger ids. Both carry the same non-empty `document_type` and the same non-empty `document_id`. Either both are committed or neither is.
+* Refused with nothing committed: a second posting to the same ledger id in one transaction; a third posting; two postings whose `document_type` or `document_id` differ (or either is empty). The typed refusals are `ledger_duplicate_ledger_in_transaction`, `ledger_too_many_postings` and `ledger_document_mismatch` (neutral core codes, mapped by the module like the other codes of note section 12.2).
+* Activation check (replaces `module_writes_multiple_ledger_postings`): `Definitions.ModuleWrites` refuses a node whose `module_writes` contain MORE THAN TWO lines whose handler has `posts_ledger` (code `module_writes_too_many_ledger_postings`, 422), and refuses two such lines whose handlers register the same ledger id.
+* Run-time check (replaces the merge-function check of note section 7.4 item 2): `post/3` at build time reads the per-transaction posting plan carried in the accumulator of the one `Multi.merge` that reduces all `module_writes` lines (the structure T-LK-5 guards) and records a `deferred_refusal` when the plan already holds two postings, already holds the same ledger id, or holds a different `document_type` or `document_id`. The refusal is a contract failure with the same surfacing as the old `:too_many_postings`. The per-call rule (a second `post/3` inside ONE handler call) stays.
+* The SERVICE origin stays refused (D-L12); a two-posting node on a SERVICE_TASK is refused at activation like a one-posting node.
+
+### A3 Lock order, the new class 5b text (replaces the quoted text of D8)
+
+> Rule 1 gains class 5b: after class 5 (and after the ancestor group of class 3) and before class 6; relative to the projection-protected rows of the instance (own tokens, timers per 'Amended (GH #2707, PR-1)' item 1, sequence rows, projection) its position is UNCONSTRAINED, because those rows are touched only while the transaction holds `P_x`: the balance rows of ALL postings of the transaction, ascending by `(ledger_id, k1..k8)` (missing rows inserted first in the same order), then the counter rows of the ledger ids of the transaction, ascending by `ledger_id`. At most two postings per transaction, with different ledger ids and the same document type and id (static activation check plus the run-time check of 0073 A2). A transaction that holds the audit chain row or any later class never takes a ledger row; the SERVICE origin is refused (typed) until its pre-lock exists.
+
+Which step takes the locks of both postings: ONE lock step, placed after every `module_writes` line of the node has been built and before any posting step writes. `post/3` at build time only adds its posting (its balance keys come from its legs) to the per-transaction plan; the lock step sorts the union of the balance keys of both postings by `(ledger_id, k1..k8)`, inserts the missing rows in that order, locks all balance rows in that order, then locks the counter rows by `ledger_id`. The posting steps then allocate `posting_seq` and write under those locks. The lock order therefore does not depend on the order of the `module_writes` lines.
+
+Why it cannot form a cycle (in the style of note section 7.3). Take the total order on ledger resources: every balance row `(ledger_id, k1..k8)` precedes every counter row, balance rows are ordered by `(ledger_id, k1..k8)`, counter rows by `ledger_id`. Every transaction, whether it carries one or two postings and whatever the order of its lines, acquires its ledger locks in strictly ascending order of this one order, because the lock step sorts the union and never follows line order. A wait-for edge from a ledger-lock holder to a ledger resource therefore always points to a strictly greater resource, so no cycle consists of ledger resources only. A two-posting transaction against a one-posting transaction: the one-posting transaction locks a subset of the resources in the same ascending order; holding counter A it takes no further ledger lock, so it never waits for a balance row or a counter the two-posting transaction holds. Two two-posting transactions with lines in opposite order (stock line first in one node, asset line first in the other): both sort to the same sequence, so the second waits for the first at the first shared resource and holds nothing the first wants. Holders of tail rows (audit chain row, sequence rows, projection) never wait for a ledger row (note section 7.2), so edges into the tail cannot close a cycle either. The insert-if-absent pass runs over the whole union before any lock of the lock pass, in the same ascending order.
+
+The rules that a transaction holding the audit chain row never takes a ledger row, and that the SERVICE origin stays refused (D-L12), are kept word for word.
+
+### A4 Per-posting rules kept
+
+Each of the two postings keeps its own counter row, its own gap-free `posting_seq`, its own digest chain (`chain_hash` per ledger id) and its own `ledger.posted` audit entry. A reversal stays inside the ledger id of the entry it reverses. A two-posting document is reversed by ONE transaction that carries the two reversal postings under the rules of A2 (same `document_type` and `document_id`, both or neither), so a change of kind is never half undone: a reversal of one posting of a two-posting document alone is refused. How the sibling is identified (the two entries share `document_type`, `document_id` and `correlation_id`; a stored group column is an alternative) is decided in the L2b requirement; if a column is needed it joins the replacing migration of A5, since the tables hold no row.
+
+### A5 Partition shape (replaces the table shape of slice L1 part A; D-L3, one sequence per ledger id, stays)
+
+`ledger_entry`, `ledger_leg` and `ledger_balance` are declared `PARTITION BY LIST (ledger_id)`; `ledger_counter` is not partitioned (one row per ledger id). PostgreSQL requires the partition key in every primary key and unique index of a partitioned table (decision 0003). Every key of migration `20261031100001` is listed with its new column list:
+
+| Table, key | Today | New | What the narrower uniqueness means |
+|---|---|---|---|
+| `ledger_entry` primary key | `(id)` | `(id, ledger_id)` | an entry is identified within its ledger; ids are uuids, so no practical change |
+| `ledger_entry_ledger_seq_key` | `(ledger_id, posting_seq)` | already contains `ledger_id` | none |
+| `ledger_entry_subject_op_key` | `(subject_id, client_op_id)` | `(ledger_id, subject_id, client_op_id)` | the idempotency key is per ledger id, so the two postings of one command may share `client_op_id` |
+| `ledger_entry_origin_key_key` | `(origin_key)` | `(ledger_id, origin_key)` | origin keys are unique per ledger id; the origin key of each posting is built so that the two postings of one document differ in any case |
+| `ledger_entry_leg_target_key` | `(id, ledger_id, posting_seq, event_time)` | already contains `ledger_id` | none |
+| `ledger_entry_reverses_unique_index` (partial, `WHERE reverses_entry_id IS NOT NULL`) | `(reverses_entry_id)` | `(ledger_id, reverses_entry_id)` | one reversal per entry, still, because a reversal stays in the ledger id of its target |
+| `ledger_entry_device_seq_unique_index` (partial) | `(subject_id, device_id, client_seq)` | `(ledger_id, subject_id, device_id, client_seq)` | a device sequence number is unique per ledger id |
+| `ledger_entry.reverses_entry_id` self foreign key | `(reverses_entry_id)` to `ledger_entry (id)` | `(reverses_entry_id, ledger_id)` to `ledger_entry (id, ledger_id)` | the database itself refuses a reversal across ledger ids |
+| `ledger_leg` primary key | `(id)` | `(id, ledger_id)` | as for the entry |
+| `ledger_leg_entry_leg_no_key` | `(entry_id, leg_no)` | `(ledger_id, entry_id, leg_no)` | leg numbers are unique within an entry, which lives in one ledger id |
+| `ledger_leg_entry_fk` | `(entry_id, ledger_id, posting_seq, event_time)` to the entry target key | already contains `ledger_id` | none |
+| `ledger_balance` primary key | `(ledger_id, k1..k8)` | already contains `ledger_id` | none |
+| `ledger_counter` primary key | `(ledger_id)` | unchanged (not partitioned) | none |
+
+The non-unique indexes of the migration keep their columns; each is declared on the parent and exists per partition. The tables of migration `20261031100001` on existing tenants are replaced by a new tenant-scoped migration (registered in `Letflow.TenantProvisioning` like its predecessor) that drops the four tables and creates the partitioned shape; it REFUSES TO RUN when any of the four ledger tables has a row. This is safe because no posting code exists, so no tenant holds a row; the migration is written after the speed test result and after GATE A.
+
+### A6 Partition life cycle
+
+* The partitions of a ledger id (one each for `ledger_entry`, `ledger_leg` and `ledger_balance`, named from a fixed prefix and the first 16 hex characters of the SHA-256 of the ledger id, quoted as identifiers under INV-7, because the ledger id form allows `:` and `-`) are created when the module that registers that ledger id is installed or reactivated for the tenant, through `Letflow.Modules.Installs.install/3` and `reactivate/3` (`lib/letflow/modules/installs.ex`), in the same transaction as the install or reactivate transition, and never inside a posting transaction. Creation is `CREATE TABLE ... (LIKE parent INCLUDING ALL)` followed by `ALTER TABLE parent ATTACH PARTITION ... FOR VALUES IN ('<ledger id>')`, which takes SHARE UPDATE EXCLUSIVE on the parent and so does not block reads or writes of other ledger ids; the plain `CREATE TABLE ... PARTITION OF` form is not used because the PostgreSQL 16 documentation says it takes ACCESS EXCLUSIVE on the parent. The requirement that writes the creation code proves the lock mode with a `pg_locks` test. Creation is idempotent (a reactivate finds its partitions).
+* Per-instance ledger ids (the D-L3 scale path, slice L7) need their own creation rule and are NOT enabled by this amendment.
+* There is no DEFAULT partition. A row for a ledger id without a partition is refused by the database (no partition of relation found for row), a typed refusal in `post/3`.
+* Triggers of slice L1 part B (PostgreSQL 16, `CREATE TRIGGER`: a row-level trigger created on a partitioned table creates an identical trigger on each existing partition and on every partition created or attached later; a statement-level trigger on the parent fires only for statements run on the parent): BEFORE UPDATE and BEFORE DELETE (row) on `ledger_entry` and `ledger_leg`: declared on the PARENT only (cloned to partitions); the balance BEFORE INSERT and BEFORE UPDATE row triggers: on the PARENT only; the deferred constraint triggers (entry AFTER INSERT, counter AFTER UPDATE): on the PARENT only for the entry (row-level, cloned), on the counter table itself (not partitioned); BEFORE TRUNCATE (statement): on the parent AND on every partition, created by the partition creation of this section, because a TRUNCATE of a partition run directly does not fire the parent's statement trigger. The counter triggers are on the counter table as before.
+* `@expected_tenant_tables` in `test/support/tenant_fixture.ex` keeps the four parent names (`ledger_balance`, `ledger_counter`, `ledger_entry`, `ledger_leg`) and its count; the oracle that compares the table set to the database excludes partitions (`pg_class.relispartition`), so partitions are not listed. The unresettable list of D-L2 names the four parents; the dirty probe reads the parents and therefore sees every partition's rows, and the check that a partition exists for each registered ledger id belongs to the pool slot rebuild.
+
+### A7 Speed test plan (a plan for a later requirement)
+
+The test the owner asked for (D-062) compares three storage shapes on the same generated data, on the same host, with the same indexes per ledger id: (a) the unpartitioned tables of migration `20261031100001`; (b) the partitioned shape of A5; (c) the fallback of A8. Data: two ledger ids with the slot sets of `ai-dala-portfolio/architectures/assets.md`: the stock register (OrgUnit, Location, Responsible, SKU, Lot) loaded to the LARGE volume and the asset register (OrgUnit, Location, MaterialResponsible, ActualUser, Asset) loaded to the SMALL volume. Measured operations: one posting (entry, legs, balance rows, counter); one two-posting transaction; the balance of one key; the balances of one slot-1 value; the movements of one document id; the balance of one key as of an `event_time`.
+
+The test drives the tables with the SQL statements of the posting algorithm of note section 7.1, in a scratch tenant schema of the test database, never QA, because the posting code does not exist yet. The end-to-end T-LD-1 test of note section 13 stays with slices L3 and L4. One run takes at most 10 minutes with at most 4 concurrent workers (as T-LD-1 uses 4 workers).
+
+### A8 Pass rule and the fallback shape
+
+The posting floor is the T-LD-1 exit criterion of note section 7.6: with 4 concurrent workers on ONE tenant, at least 20 postings per second sustained for 60 seconds, p95 completion latency under 500 ms, contention 503 rate under 1 percent; it is applied to each ledger id while the other ledger id is loaded. Shape (b) is adopted when it meets that floor and the read thresholds of A9; otherwise shape (c) is adopted, if it meets them. If neither shape meets the floor the result goes to the owner and no shape is adopted.
+
+Shape (c): one set of entry, leg and balance tables per registered ledger id (`ledger_counter` stays shared, one row per ledger id). The table names are formed from a fixed prefix, the table kind and the first 16 hex characters of the SHA-256 of the ledger id, never from the ledger id itself, so the ledger id form of migration `20261031100001` (which allows `:` and `-`) cannot reach an identifier; every name is quoted as an identifier (INV-7) and the ledger id is checked against the form before use. Shape (c) keeps from slice L1 part A the column sets, the CHECK set, the counter table, the keys of the unpartitioned migration (they are per table, so `ledger_id` in them is redundant but harmless) and all triggers (created per table set at install or reactivate, TRUNCATE included). The posting code of L2a then addresses the tables through a ledger-id-to-table-names function.
+
+### A9 Open owner questions
+
+Not decided and not given a number here:
+
+* The large and small data volumes of the speed test (entries and legs per ledger id, distinct balance keys). Source: NF-01 and NF-02 of `docs/WMS/WMS_Procurement_Requirements_Draft.md`, which say the volumes are still to be defined.
+* The p95 threshold of each read operation of A7. Source: NF-02 of the same file (response-time targets still to be defined).
+
+The speed test requirement is not started until the owner has answered them.
+
+### A10 Impact on the slices (held ledger tasks: T-0889, T-0890, T-0898, T-0899, T-0900, T-0922, T-1003, T-1033, T-1034)
+
+| Slice | What this amendment changes | Waits for the speed test result |
+|---|---|---|
+| L1 part B (triggers; REQ-620) | triggers on the parents as in A6, TRUNCATE also per partition; the partitioned tables and keys of A5 replace part A's shape | yes (shape b or c) |
+| L1 part C (provisioning, oracle, TenantTemplate, fixture deny list; REQ-620) | parent names stay in `@expected_tenant_tables`, oracle excludes partitions, unresettable list names the parents (A6) | yes |
+| L2a (`post/1`; REQ-621) | idempotency keys are per ledger id (A5); lock order of A3; a ledger-id-to-table function if shape (c) | yes |
+| L2b (reversal, reads, reconcile) | a two-posting document is reversed as a pair (A4); reads are per ledger id | yes |
+| L3 (`HandlerWrites.post/3`, activation checks, 0061 amendment) | two-posting activation and run-time checks (A2); the new class 5b text of A3 is what is applied to 0061 | no |
+| L4 (stock module) | the module's install and reactivate create the partitions of its ledger id (A6) | yes (storage creation only) |
+| L5 (SERVICE-origin pre-locks) | no change; the SERVICE origin stays refused | no |
+
+REQ-620 and REQ-621 are the register entries whose criteria the later rework of slices L1 and L2a amends; this change does not edit them.
+
+### A11 Phase A dependencies
+
+This amendment rests on: D-066 (trees and storage) with REQ-649 (org tree path in the scope table, depth bound 40), REQ-645 and REQ-646 (location tree with a parent foreign key and no depth bound) and REQ-642 (master data as real columns, decision 0076); D-067 (access and scope) with decision 0076 (balances and movements scoped by org unit through the ledger scope slot; the scoped balances read is item B6, not this amendment); employees D-065 with REQ-643 (responsible person and actual user hold employee ids); links REQ-644 (a movement whose org unit and location are not linked is refused, D-065); codes REQ-648 (code record with assignment history); lots REQ-647. Per D-073 this amendment is amended if the GATE A check changes any of them.
+
+Out of scope: balance as of a date and the audit trail (B2), opening balances (B3), stock workflows (B4), counts (B5), the scoped balances read (B6), the asset register module (phase C), OQ-13 and OQ-23, and period close (D-062: not part of this product).
