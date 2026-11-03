@@ -16,3 +16,9 @@ pre,
 samp {
   font-family: var(--font-mono);
 }
+
+/* Toggle state of Button (aria-pressed): the design CSS has no rule for it (T-1165); nearest tokens. */
+.lf-btn.is-pressed {
+  background: var(--paper-sunken);
+  border-color: var(--line-strong);
+}
