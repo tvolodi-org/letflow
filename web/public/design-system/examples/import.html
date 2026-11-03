@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import data · Letflow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script>/* set the theme before first paint (no light-to-dark flash or transition) */(function(){try{var t=new URLSearchParams(location.search).get("theme")||localStorage.getItem("lf-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()</script>
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/components.css">
+</head>
+<body>
+<div class="lf-app">
+  <nav class="lf-sidenav" aria-label="Main">
+    <div class="lf-sidenav__brand"><span class="lf-sidenav__tenant">Demo Holding</span><span class="lf-sidenav__ws">gate-a-demo</span></div>
+    <div class="lf-sidenav__group"><p class="lf-sidenav__label" data-t="nav.work">Work</p>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-building"/></svg><span data-t="nav.legal">Legal companies</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-map-pin"/></svg><span data-t="nav.sites">Sites</span></a>
+      <a class="lf-sidenav__item" href="org-units.html"><svg class="lf-icon lf-icon--18"><use href="#i-network"/></svg><span data-t="nav.units">Org units</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-briefcase"/></svg><span data-t="nav.positions">Positions</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-users"/></svg><span data-t="nav.employees">Employees</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-layers"/></svg><span data-t="nav.locations">Locations</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-link"/></svg><span data-t="nav.links">Location links</span></a>
+      <a class="lf-sidenav__item" href="codes.html"><svg class="lf-icon lf-icon--18"><use href="#i-barcode"/></svg><span data-t="nav.codes">Codes</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-package"/></svg><span data-t="nav.lots">Lots</span></a>
+    </div>
+    <div class="lf-sidenav__group"><p class="lf-sidenav__label" data-t="nav.admin">Tenant administration</p>
+      <a class="lf-sidenav__item" href="import.html" aria-current="page"><svg class="lf-icon lf-icon--18"><use href="#i-upload"/></svg><span data-t="nav.import">Import data</span></a>
+    </div>
+    <div class="lf-sidenav__foot"><span class="lf-wordmark"><svg class="lf-mark" viewBox="0 0 64 64" aria-hidden="true"><path class="lf-mark__line" d="M15 13 V34 a14 14 0 0 0 14 14 H38"/><circle class="lf-mark__token" cx="46.5" cy="48" r="8"/></svg>Letflow</span></div>
+  </nav>
+  <div class="lf-main">
+    <header class="lf-topbar">
+      <button class="lf-btn lf-btn--ghost lf-btn--icon lf-topbar__menu" aria-label="Menu"><svg class="lf-icon lf-icon--20"><use href="#i-menu"/></svg></button>
+      <nav class="lf-crumbs" aria-label="Breadcrumb"><a href="#" data-t="nav.admin">Tenant administration</a><svg class="lf-icon"><use href="#i-chevron-right"/></svg><span aria-current="page" data-t="nav.import">Import data</span></nav>
+      <div class="lf-topbar__end">
+        <details class="lf-lang"><summary aria-label="Language"><svg class="lf-icon"><use href="#i-globe"/></svg><span class="lf-lang__cur">EN</span></summary>
+          <div class="lf-lang__menu"><a class="lf-lang__item" data-lang-link="en">English<span class="lf-lang__code">EN</span><span></span></a><a class="lf-lang__item" data-lang-link="ru">Русский<span class="lf-lang__code">RU</span><span></span></a><a class="lf-lang__item" data-lang-link="kk">Қазақ тілі<span class="lf-lang__code">KK</span><span></span></a></div></details>
+        <button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Switch theme" data-theme-toggle><svg class="lf-icon"><use href="#i-moon"/></svg></button>
+        <span class="lf-avatar" title="gate-a-admin">GA</span>
+      </div>
+    </header>
+
+    <main class="lf-content" id="main">
+      <header class="lf-pagehead">
+        <div class="lf-pagehead__text">
+          <p class="eyebrow" data-t="eyebrow">Tenant administration · Import</p>
+          <h1 class="lf-pagehead__title" data-t="title">Import master data</h1>
+          <p class="lf-pagehead__lede" data-t="lede">Load items, units, places and people from an Excel file. The file is checked first; nothing is written until the check is clean.</p>
+        </div>
+        <div class="lf-pagehead__actions">
+          <button class="lf-btn lf-btn--secondary"><svg class="lf-icon"><use href="#i-download"/></svg><span data-t="template">Download template</span></button>
+        </div>
+      </header>
+
+      <ol class="lf-steps" aria-label="Import steps">
+        <li class="lf-step is-done"><span class="lf-step__dot"><svg class="lf-icon" style="width:14px;height:14px"><use href="#i-check"/></svg></span><span class="lf-step__label" data-t="s1">Data type</span></li>
+        <li class="lf-step is-done"><span class="lf-step__dot"><svg class="lf-icon" style="width:14px;height:14px"><use href="#i-check"/></svg></span><span class="lf-step__label" data-t="s2">File</span></li>
+        <li class="lf-step is-current" aria-current="step"><span class="lf-step__dot">3</span><span class="lf-step__label" data-t="s3">Check</span></li>
+        <li class="lf-step"><span class="lf-step__dot">4</span><span class="lf-step__label" data-t="s4">Import</span></li>
+      </ol>
+
+      <div class="lf-wizard">
+        <div style="display:grid;gap:var(--space-6);min-width:0">
+          <section class="lf-card">
+            <div class="lf-card__head">
+              <h2 class="lf-card__title" data-t="chosen">Your file</h2>
+              <button class="lf-btn lf-btn--ghost lf-btn--s" data-t="change">Change type or file</button>
+            </div>
+            <div class="lf-card__body" style="display:grid;gap:var(--space-3)">
+              <dl class="lf-dl"><dt data-t="s1">Data type</dt><dd><span data-t="items">Items</span> <span class="mono-s lf-faint">catalog_item</span></dd></dl>
+              <div class="lf-file"><svg class="lf-icon"><use href="#i-sheet"/></svg><div><div class="lf-file__name">gate_a_items_with_error.xlsx</div><div class="lf-file__meta" data-t="fileMeta">9 KB · 4 data rows · sheet 1</div></div><button class="lf-btn lf-btn--secondary lf-btn--s"><svg class="lf-icon"><use href="#i-upload"/></svg><span data-t="replace">Replace file</span></button></div>
+            </div>
+          </section>
+
+          <section class="lf-card" aria-labelledby="res-h">
+            <div class="lf-card__head">
+              <div><h2 class="lf-card__title" id="res-h" data-t="resTitle">Check result</h2><p class="lf-muted" data-t="nothing">Nothing has been written yet.</p></div>
+              <span class="lf-pill lf-pill--danger"><span class="lf-glyph lf-glyph--triangle"></span><span data-t="needsFix">Needs fixing</span></span>
+            </div>
+            <div class="lf-card__body" style="display:grid;gap:var(--space-4)">
+              <div class="lf-tally">
+                <div class="lf-tally__item"><span class="lf-tally__num">3</span><span class="lf-tally__label"><span class="lf-glyph" style="color:var(--current)"></span><span data-t="created">Created</span></span></div>
+                <div class="lf-tally__item"><span class="lf-tally__num">0</span><span class="lf-tally__label"><span class="lf-glyph lf-glyph--half"></span><span data-t="updated">Updated</span></span></div>
+                <div class="lf-tally__item"><span class="lf-tally__num">0</span><span class="lf-tally__label"><span class="lf-glyph lf-glyph--ring"></span><span data-t="unchanged">Unchanged</span></span></div>
+                <div class="lf-tally__item lf-tally__item--danger"><span class="lf-tally__num">1</span><span class="lf-tally__label"><span class="lf-glyph lf-glyph--triangle"></span><span data-t="refused">Refused</span></span></div>
+              </div>
+              <div class="lf-table-wrap">
+                <table class="lf-table lf-table--compact lf-table--stack">
+                  <thead><tr><th class="is-end" data-t="line">Line</th><th data-t="outcome">Outcome</th><th data-t="extId">External id</th><th data-t="name">Name</th><th data-t="message">Message</th></tr></thead>
+                  <tbody>
+                    <tr><td class="is-num" data-label="Line" data-t-label="line">2</td><td data-label="Outcome" data-t-label="outcome"><span class="lf-pill lf-pill--current"><span class="lf-glyph"></span><span data-t="created">Created</span></span></td><td class="mono is-primary" data-label="External id" data-t-label="extId">ITM-GLOVES</td><td data-label="Name" data-t-label="name">Work gloves</td><td class="lf-faint" data-label="Message" data-t-label="message">—</td></tr>
+                    <tr class="is-error"><td class="is-num" data-label="Line" data-t-label="line">3</td><td data-label="Outcome" data-t-label="outcome"><span class="lf-pill lf-pill--danger"><span class="lf-glyph lf-glyph--triangle"></span><span data-t="refused">Refused</span></span></td><td class="mono is-primary" data-label="External id" data-t-label="extId">ITM-BAD</td><td data-label="Name" data-t-label="name">Safety boots</td><td data-label="Message" data-t-label="message"><span class="lf-cell-2"><strong><span data-t="column">Column:</span> <span class="mono">base_uom_id</span></strong><span data-t="notFound">The referenced record was not found.</span></span></td></tr>
+                    <tr><td class="is-num" data-label="Line" data-t-label="line">4</td><td data-label="Outcome" data-t-label="outcome"><span class="lf-pill lf-pill--current"><span class="lf-glyph"></span><span data-t="created">Created</span></span></td><td class="mono is-primary" data-label="External id" data-t-label="extId">ITM-VEST</td><td data-label="Name" data-t-label="name">Hi-vis vest</td><td class="lf-faint" data-label="Message" data-t-label="message">—</td></tr>
+                    <tr><td class="is-num" data-label="Line" data-t-label="line">5</td><td data-label="Outcome" data-t-label="outcome"><span class="lf-pill lf-pill--current"><span class="lf-glyph"></span><span data-t="created">Created</span></span></td><td class="mono is-primary" data-label="External id" data-t-label="extId">ITM-HELMET-2</td><td data-label="Name" data-t-label="name">Helmet, size L</td><td class="lf-faint" data-label="Message" data-t-label="message">—</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="lf-banner lf-banner--warning" role="status"><svg class="lf-icon"><use href="#i-alert"/></svg><div data-t="fix">Fix the refused rows and check the file again before importing.</div></div>
+              <div class="lf-form__actions">
+                <button class="lf-btn lf-btn--primary" disabled aria-describedby="why" data-t="import">Import</button>
+                <button class="lf-btn lf-btn--secondary"><svg class="lf-icon"><use href="#i-upload"/></svg><span data-t="checkAgain">Check a fixed file</span></button>
+                <span class="lf-hint" id="why" data-t="why">Import stays off while any row is refused.</span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="lf-card" aria-labelledby="help-h">
+          <div class="lf-card__head"><h2 class="lf-card__title" id="help-h" data-t="helpTitle">How to fill the file</h2></div>
+          <div class="lf-card__body" style="display:grid;gap:var(--space-4)">
+            <ul class="lf-help">
+              <li data-t="h1">Every row needs external_ref_system and external_ref_id.</li>
+              <li data-t="h2">A reference column holds the external id of the referenced record, for example PCS for base_uom_id, not its record id.</li>
+              <li data-t="h3">Parents and referenced records come first in the file or exist already.</li>
+              <li data-t="h4">Leave the active column empty: retiring is not done by import.</li>
+            </ul>
+            <div class="lf-banner lf-banner--info"><svg class="lf-icon"><use href="#i-info"/></svg><div data-t="limits">Limits: at most 2 MB per file, at most 200 data rows, only the first sheet is read.</div></div>
+            <p class="caption lf-faint" data-t="rerun">Importing the same file again changes nothing: rows are matched by external id.</p>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+window.LF_STRINGS = {
+  ru: {
+    'eyebrow': 'Администрирование · Импорт', 'title': 'Импорт справочных данных', 'lede': 'Загрузите номенклатуру, единицы, места и людей из файла Excel. Сначала файл проверяется; ничего не записывается, пока проверка не пройдёт без ошибок.',
+    'template': 'Скачать шаблон', 's1': 'Тип данных', 's2': 'Файл', 's3': 'Проверка', 's4': 'Импорт', 'chosen': 'Ваш файл', 'change': 'Изменить тип или файл', 'items': 'Номенклатура',
+    'fileMeta': '9 КБ · 4 строки данных · лист 1', 'replace': 'Заменить файл', 'resTitle': 'Результат проверки', 'nothing': 'Пока ничего не записано.', 'needsFix': 'Нужно исправить',
+    'created': 'Создано', 'updated': 'Обновлено', 'unchanged': 'Без изменений', 'refused': 'Отклонено', 'line': 'Строка', 'outcome': 'Результат', 'extId': 'Внешний id', 'name': 'Наименование', 'message': 'Сообщение',
+    'column': 'Колонка:', 'notFound': 'Связанная запись не найдена.', 'fix': 'Исправьте отклонённые строки и проверьте файл снова, прежде чем импортировать.',
+    'import': 'Импортировать', 'checkAgain': 'Проверить исправленный файл', 'why': 'Импорт недоступен, пока есть отклонённые строки.', 'helpTitle': 'Как заполнить файл',
+    'h1': 'В каждой строке нужны external_ref_system и external_ref_id.', 'h2': 'Колонка-ссылка содержит внешний идентификатор связанной записи, например PCS для base_uom_id, а не её внутренний id.', 'h3': 'Родительские и связанные записи идут в файле первыми или уже существуют.', 'h4': 'Колонку active оставьте пустой: вывод из использования импортом не выполняется.',
+    'limits': 'Ограничения: не более 2 МБ на файл, не более 200 строк данных, читается только первый лист.', 'rerun': 'Повторный импорт того же файла ничего не меняет: строки сопоставляются по внешнему id.'
+  },
+  kk: {
+    'eyebrow': 'Тенант әкімшілігі · Импорт', 'title': 'Анықтамалық деректерді импорттау', 'lede': 'Тауарларды, бірліктерді, орындар мен адамдарды Excel файлынан жүктеңіз. Файл алдымен тексеріледі; тексеру қатесіз өтпейінше ештеңе жазылмайды.',
+    'template': 'Үлгіні жүктеп алу', 's1': 'Дерек түрі', 's2': 'Файл', 's3': 'Тексеру', 's4': 'Импорт', 'chosen': 'Сіздің файлыңыз', 'change': 'Түрін немесе файлды өзгерту', 'items': 'Тауарлар',
+    'fileMeta': '9 КБ · 4 дерек жолы · 1-парақ', 'replace': 'Файлды ауыстыру', 'resTitle': 'Тексеру нәтижесі', 'nothing': 'Әзірге ештеңе жазылған жоқ.', 'needsFix': 'Түзету керек',
+    'created': 'Жасалды', 'updated': 'Жаңартылды', 'unchanged': 'Өзгеріссіз', 'refused': 'Қабылданбады', 'line': 'Жол', 'outcome': 'Нәтиже', 'extId': 'Сыртқы id', 'name': 'Атауы', 'message': 'Хабарлама',
+    'column': 'Баған:', 'notFound': 'Сілтеме жасалған жазба табылмады.', 'fix': 'Импорттау алдында қабылданбаған жолдарды түзетіп, файлды қайта тексеріңіз.',
+    'import': 'Импорттау', 'checkAgain': 'Түзетілген файлды тексеру', 'why': 'Қабылданбаған жол бар кезде импорт өшірулі тұрады.', 'helpTitle': 'Файлды қалай толтыру керек',
+    'h1': 'Әр жолда external_ref_system және external_ref_id болуы керек.', 'h2': 'Сілтеме бағанында байланысқан жазбаның сыртқы идентификаторы болады, мысалы base_uom_id үшін PCS, оның ішкі id-і емес.', 'h3': 'Ата-ана және байланысқан жазбалар файлда бірінші тұрады немесе бұрыннан бар.', 'h4': 'active бағанын бос қалдырыңыз: пайдаланудан шығару импорт арқылы жасалмайды.',
+    'limits': 'Шектеулер: файл көлемі 2 МБ-тан, деректер жолы 200-ден аспауы тиіс, тек бірінші парақ оқылады.', 'rerun': 'Сол файлды қайта импорттау ештеңені өзгертпейді: жолдар сыртқы id бойынша салыстырылады.'
+  }
+};
+</script>
+<script src="nav-strings.js"></script>
+<script src="../demo.js"></script>
+</body>
+</html>

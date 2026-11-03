@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codes · Letflow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script>/* set the theme before first paint (no light-to-dark flash or transition) */(function(){try{var t=new URLSearchParams(location.search).get("theme")||localStorage.getItem("lf-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()</script>
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/components.css">
+</head>
+<body>
+<div class="lf-app">
+  <nav class="lf-sidenav" aria-label="Main">
+    <div class="lf-sidenav__brand"><span class="lf-sidenav__tenant">Demo Holding</span><span class="lf-sidenav__ws">gate-a-demo</span></div>
+    <div class="lf-sidenav__group"><p class="lf-sidenav__label" data-t="nav.work">Work</p>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-building"/></svg><span data-t="nav.legal">Legal companies</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-map-pin"/></svg><span data-t="nav.sites">Sites</span></a>
+      <a class="lf-sidenav__item" href="org-units.html"><svg class="lf-icon lf-icon--18"><use href="#i-network"/></svg><span data-t="nav.units">Org units</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-briefcase"/></svg><span data-t="nav.positions">Positions</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-users"/></svg><span data-t="nav.employees">Employees</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-layers"/></svg><span data-t="nav.locations">Locations</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-link"/></svg><span data-t="nav.links">Location links</span></a>
+      <a class="lf-sidenav__item" href="codes.html" aria-current="page"><svg class="lf-icon lf-icon--18"><use href="#i-barcode"/></svg><span data-t="nav.codes">Codes</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-package"/></svg><span data-t="nav.lots">Lots</span></a>
+    </div>
+    <div class="lf-sidenav__group"><p class="lf-sidenav__label" data-t="nav.admin">Tenant administration</p>
+      <a class="lf-sidenav__item" href="import.html"><svg class="lf-icon lf-icon--18"><use href="#i-upload"/></svg><span data-t="nav.import">Import data</span></a>
+    </div>
+    <div class="lf-sidenav__foot"><span class="lf-wordmark"><svg class="lf-mark" viewBox="0 0 64 64" aria-hidden="true"><path class="lf-mark__line" d="M15 13 V34 a14 14 0 0 0 14 14 H38"/><circle class="lf-mark__token" cx="46.5" cy="48" r="8"/></svg>Letflow</span></div>
+  </nav>
+  <div class="lf-main">
+    <header class="lf-topbar">
+      <button class="lf-btn lf-btn--ghost lf-btn--icon lf-topbar__menu" aria-label="Menu"><svg class="lf-icon lf-icon--20"><use href="#i-menu"/></svg></button>
+      <nav class="lf-crumbs" aria-label="Breadcrumb"><a href="#" data-t="nav.work">Work</a><svg class="lf-icon"><use href="#i-chevron-right"/></svg><span aria-current="page" data-t="title">Codes</span></nav>
+      <div class="lf-topbar__end">
+        <details class="lf-lang"><summary aria-label="Language"><svg class="lf-icon"><use href="#i-globe"/></svg><span class="lf-lang__cur">EN</span></summary>
+          <div class="lf-lang__menu"><a class="lf-lang__item" data-lang-link="en">English<span class="lf-lang__code">EN</span><span></span></a><a class="lf-lang__item" data-lang-link="ru">Русский<span class="lf-lang__code">RU</span><span></span></a><a class="lf-lang__item" data-lang-link="kk">Қазақ тілі<span class="lf-lang__code">KK</span><span></span></a></div></details>
+        <button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Switch theme" data-theme-toggle><svg class="lf-icon"><use href="#i-moon"/></svg></button>
+        <span class="lf-avatar" title="gate-a-admin">GA</span>
+      </div>
+    </header>
+
+    <main class="lf-content" id="main">
+      <header class="lf-pagehead">
+        <div class="lf-pagehead__text">
+          <p class="eyebrow" data-t="eyebrow">Work · Codes</p>
+          <h1 class="lf-pagehead__title" data-t="title">Codes</h1>
+          <p class="lf-pagehead__lede" data-t="lede">Barcodes, QR codes and RFID tags, and what each one is attached to. Scan or type a full value to find one code.</p>
+        </div>
+        <div class="lf-pagehead__actions">
+          <button class="lf-btn lf-btn--primary" data-open="dlg-receive"><svg class="lf-icon"><use href="#i-plus"/></svg><span data-t="receive">Receive codes</span></button>
+        </div>
+      </header>
+
+      <form class="lf-toolbar" role="search" onsubmit="return false">
+        <div class="lf-field lf-field--l"><label class="lf-label" for="exact" data-t="exact">Exact value</label>
+          <div class="lf-control lf-control--mono"><span class="lf-control__lead"><svg class="lf-icon"><use href="#i-search"/></svg></span><input id="exact" placeholder="Scan or paste a full value" data-t-ph="exactPh"></div></div>
+        <div class="lf-field lf-field--s"><label class="lf-label" for="kind" data-t="kind">Kind</label>
+          <div class="lf-control"><select id="kind"><option data-t="allKinds">All kinds</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div></div>
+        <div class="lf-field lf-field--s"><label class="lf-label" for="status" data-t="status">Status</label>
+          <div class="lf-control"><select id="status"><option data-t="allStatuses">All statuses</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div></div>
+        <div class="lf-toolbar__end"><label class="lf-check"><input type="checkbox"> <span data-t="showRetired">Show retired</span></label></div>
+      </form>
+
+      <div class="lf-table-wrap">
+        <table class="lf-table lf-table--stack">
+          <caption class="sr-only" data-t="title">Codes</caption>
+          <thead><tr>
+            <th aria-sort="ascending"><button class="lf-sort"><span data-t="value">Value</span><svg class="lf-icon"><use href="#i-arrow-up"/></svg></button></th>
+            <th><button class="lf-sort"><span data-t="kind">Kind</span><svg class="lf-icon"><use href="#i-sort"/></svg></button></th>
+            <th><button class="lf-sort"><span data-t="status">Status</span><svg class="lf-icon"><use href="#i-sort"/></svg></button></th>
+            <th data-t="target">Target</th>
+            <th><button class="lf-sort"><span data-t="changed">Changed</span><svg class="lf-icon"><use href="#i-sort"/></svg></button></th>
+            <th class="is-actions"><span class="sr-only" data-t="actions">Actions</span></th>
+          </tr></thead>
+          <tbody>
+            <tr class="is-selected" aria-selected="true">
+              <td class="mono is-primary" data-label="Value" data-t-label="value">E280116061B9D57E00000001</td>
+              <td data-label="Kind" data-t-label="kind"><span class="lf-cell-2"><span>EPC</span><span class="caption" data-t="rfid">RFID tag</span></span></td>
+              <td data-label="Status" data-t-label="status"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span><span data-t="st.assigned">Assigned</span></span></td>
+              <td data-label="Target" data-t-label="target"><span class="lf-cell-2"><span>Laptop Dell Latitude 5440</span><span class="caption" data-t="tt.item">Item</span></span></td>
+              <td class="mono" data-label="Changed" data-t-label="changed">03.11.2026 10:42</td>
+              <td class="is-actions"><span class="lf-btn-row"><button class="lf-btn lf-btn--secondary lf-btn--s" data-t="release">Release</button><button class="lf-btn lf-btn--ghost lf-btn--s"><svg class="lf-icon"><use href="#i-history"/></svg><span data-t="history">History</span></button><button class="lf-btn lf-btn--ghost lf-btn--s lf-btn--icon" aria-label="More actions"><svg class="lf-icon"><use href="#i-more"/></svg></button></span></td>
+            </tr>
+            <tr>
+              <td class="mono is-primary" data-label="Value" data-t-label="value">E2801160200074A1B2C30001</td>
+              <td data-label="Kind" data-t-label="kind"><span class="lf-cell-2"><span>TID</span><span class="caption" data-t="rfid">RFID tag</span></span></td>
+              <td data-label="Status" data-t-label="status"><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--ring"></span><span data-t="st.not">Not assigned</span></span></td>
+              <td data-label="Target" data-t-label="target" class="lf-faint">—</td>
+              <td class="mono" data-label="Changed" data-t-label="changed">02.11.2026 16:05</td>
+              <td class="is-actions"><span class="lf-btn-row"><button class="lf-btn lf-btn--primary lf-btn--s" data-open="dlg-assign" data-t="assign">Assign</button><button class="lf-btn lf-btn--ghost lf-btn--s"><svg class="lf-icon"><use href="#i-history"/></svg><span data-t="history">History</span></button><button class="lf-btn lf-btn--ghost lf-btn--s lf-btn--icon" aria-label="More actions"><svg class="lf-icon"><use href="#i-more"/></svg></button></span></td>
+            </tr>
+            <tr>
+              <td class="mono is-primary" data-label="Value" data-t-label="value">GATEA-BC-0001</td>
+              <td data-label="Kind" data-t-label="kind" data-t="k.barcode">Barcode</td>
+              <td data-label="Status" data-t-label="status"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span><span data-t="st.assigned">Assigned</span></span></td>
+              <td data-label="Target" data-t-label="target"><span class="lf-cell-2"><span><span class="mono">GATEA-M-2611</span> · Milk 2.5% 1 l</span><span class="caption" data-t="tt.lot">Lot</span></span></td>
+              <td class="mono" data-label="Changed" data-t-label="changed">02.11.2026 15:58</td>
+              <td class="is-actions"><span class="lf-btn-row"><button class="lf-btn lf-btn--secondary lf-btn--s" data-t="release">Release</button><button class="lf-btn lf-btn--ghost lf-btn--s"><svg class="lf-icon"><use href="#i-history"/></svg><span data-t="history">History</span></button><button class="lf-btn lf-btn--ghost lf-btn--s lf-btn--icon" aria-label="More actions"><svg class="lf-icon"><use href="#i-more"/></svg></button></span></td>
+            </tr>
+            <tr>
+              <td class="mono is-primary" data-label="Value" data-t-label="value">GATEA-BC-0002</td>
+              <td data-label="Kind" data-t-label="kind" data-t="k.barcode">Barcode</td>
+              <td data-label="Status" data-t-label="status"><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--ring"></span><span data-t="st.not">Not assigned</span></span></td>
+              <td data-label="Target" data-t-label="target" class="lf-faint">—</td>
+              <td class="mono" data-label="Changed" data-t-label="changed">02.11.2026 15:58</td>
+              <td class="is-actions"><span class="lf-btn-row"><button class="lf-btn lf-btn--primary lf-btn--s" data-open="dlg-assign" data-t="assign">Assign</button><button class="lf-btn lf-btn--ghost lf-btn--s"><svg class="lf-icon"><use href="#i-history"/></svg><span data-t="history">History</span></button><button class="lf-btn lf-btn--ghost lf-btn--s lf-btn--icon" aria-label="More actions"><svg class="lf-icon"><use href="#i-more"/></svg></button></span></td>
+            </tr>
+            <tr>
+              <td class="mono is-primary" data-label="Value" data-t-label="value">GATEA-BC-0003-R2</td>
+              <td data-label="Kind" data-t-label="kind" data-t="k.barcode">Barcode</td>
+              <td data-label="Status" data-t-label="status"><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--ring"></span><span data-t="st.not">Not assigned</span></span></td>
+              <td data-label="Target" data-t-label="target"><span class="lf-cell-2"><span class="lf-faint">—</span><span class="caption" data-t="valueChanged">Value changed from GATEA-BC-0003</span></span></td>
+              <td class="mono" data-label="Changed" data-t-label="changed">02.11.2026 15:58</td>
+              <td class="is-actions"><span class="lf-btn-row"><button class="lf-btn lf-btn--primary lf-btn--s" data-open="dlg-assign" data-t="assign">Assign</button><button class="lf-btn lf-btn--ghost lf-btn--s"><svg class="lf-icon"><use href="#i-history"/></svg><span data-t="history">History</span></button><button class="lf-btn lf-btn--ghost lf-btn--s lf-btn--icon" aria-label="More actions"><svg class="lf-icon"><use href="#i-more"/></svg></button></span></td>
+            </tr>
+            <tr>
+              <td class="mono is-primary" data-label="Value" data-t-label="value">GATEA-QR-0001</td>
+              <td data-label="Kind" data-t-label="kind" data-t="k.qr">QR code</td>
+              <td data-label="Status" data-t-label="status"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span><span data-t="st.assigned">Assigned</span></span></td>
+              <td data-label="Target" data-t-label="target"><span class="lf-cell-2"><span data-t="rack">Rack 01</span><span class="caption" data-t="tt.loc">Location · WHGATEA-A-01</span></span></td>
+              <td class="mono" data-label="Changed" data-t-label="changed">02.11.2026 15:57</td>
+              <td class="is-actions"><span class="lf-btn-row"><button class="lf-btn lf-btn--secondary lf-btn--s" data-t="release">Release</button><button class="lf-btn lf-btn--ghost lf-btn--s"><svg class="lf-icon"><use href="#i-history"/></svg><span data-t="history">History</span></button><button class="lf-btn lf-btn--ghost lf-btn--s lf-btn--icon" aria-label="More actions"><svg class="lf-icon"><use href="#i-more"/></svg></button></span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="lf-table-foot"><span data-t="showing">Showing 1–6 of 6</span>
+          <nav class="lf-pager" aria-label="Pages"><button class="lf-pager__page" aria-label="Previous page" disabled><svg class="lf-icon"><use href="#i-chevron-left"/></svg></button><button class="lf-pager__page" aria-current="page">1</button><button class="lf-pager__page" aria-label="Next page" disabled><svg class="lf-icon"><use href="#i-chevron-right"/></svg></button></nav></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Assign dialog: open with ?open=dlg-assign -->
+<div class="lf-scrim" id="dlg-assign" hidden>
+  <div class="lf-dialog" role="dialog" aria-modal="true" aria-labelledby="da-t">
+    <div class="lf-dialog__head"><div><h2 class="lf-dialog__title" id="da-t" data-t="dlg.title">Assign code</h2><p class="lf-dialog__sub"><span class="mono">E2801160200074A1B2C30001</span> · TID</p></div><button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Close" data-close><svg class="lf-icon"><use href="#i-x"/></svg></button></div>
+    <div class="lf-dialog__body">
+      <fieldset style="border:0;padding:0;margin:0;display:grid;gap:var(--space-2)"><legend class="lf-label" style="margin-bottom:var(--space-2)" data-t="dlg.type">Target type</legend>
+        <div class="lf-btn-row" style="gap:var(--space-4)"><label class="lf-check"><input type="radio" name="tt" checked> <span data-t="tt.location">Location</span></label><label class="lf-check"><input type="radio" name="tt"> <span data-t="tt.item">Item</span></label><label class="lf-check"><input type="radio" name="tt"> <span data-t="tt.lot">Lot</span></label></div></fieldset>
+      <div class="lf-field"><label class="lf-label" for="tgt" data-t="dlg.target">Target</label>
+        <div class="lf-control"><span class="lf-control__lead"><svg class="lf-icon"><use href="#i-map-pin"/></svg></span><select id="tgt"><option data-t="room">Room 201</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div>
+        <span class="lf-hint" data-t="dlg.path">Kazakhstan / Almaty / Building 1 / Floor 2 / Room 201</span></div>
+      <div class="lf-banner lf-banner--info"><svg class="lf-icon"><use href="#i-info"/></svg><div data-t="dlg.note">A code has one target at a time. Release it before you assign it to something else.</div></div>
+    </div>
+    <div class="lf-dialog__foot"><button class="lf-btn lf-btn--ghost" data-close data-t="cancel">Cancel</button><button class="lf-btn lf-btn--primary" data-t="assign">Assign</button></div>
+  </div>
+</div>
+
+<!-- Receive dialog: open with ?open=dlg-receive -->
+<div class="lf-scrim" id="dlg-receive" hidden>
+  <div class="lf-dialog" role="dialog" aria-modal="true" aria-labelledby="dr-t">
+    <div class="lf-dialog__head"><div><h2 class="lf-dialog__title" id="dr-t" data-t="receive">Receive codes</h2><p class="lf-dialog__sub" data-t="rcv.sub">New codes start as Not assigned.</p></div><button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Close" data-close><svg class="lf-icon"><use href="#i-x"/></svg></button></div>
+    <div class="lf-dialog__body">
+      <div class="lf-field lf-field--s"><label class="lf-label" for="rk" data-t="rcv.kind">Kind of the batch</label><div class="lf-control"><select id="rk"><option data-t="k.barcode">Barcode</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div></div>
+      <div class="lf-field lf-field--error"><label class="lf-label" for="rv" data-t="rcv.values">Values, one per line</label><div class="lf-control lf-control--mono"><textarea id="rv" class="mono" aria-invalid="true" aria-describedby="rv-e">GATEA-BC-0001
+GATEA-BC-0004
+GATEA-BC-0005</textarea></div><span class="lf-error" id="rv-e"><svg class="lf-icon"><use href="#i-alert"/></svg><span data-t="rcv.err">Line 1: the value is already taken. Nothing was saved.</span></span></div>
+    </div>
+    <div class="lf-dialog__foot"><button class="lf-btn lf-btn--ghost" data-close data-t="cancel">Cancel</button><button class="lf-btn lf-btn--primary" data-t="rcv.submit">Receive</button></div>
+  </div>
+</div>
+
+<script>
+window.LF_STRINGS = {
+  ru: {
+    'eyebrow': 'Работа · Коды', 'title': 'Коды', 'lede': 'Штрихкоды, QR-коды и RFID-метки и то, к чему привязан каждый из них. Отсканируйте или введите полное значение, чтобы найти код.',
+    'receive': 'Приём кодов', 'exact': 'Точное значение', 'exactPh': 'Отсканируйте или вставьте полное значение', 'kind': 'Тип', 'allKinds': 'Все типы', 'status': 'Статус', 'allStatuses': 'Все статусы', 'showRetired': 'Показать выведенные',
+    'value': 'Значение', 'target': 'Объект', 'changed': 'Изменён', 'actions': 'Действия', 'rfid': 'RFID-метка',
+    'st.assigned': 'Назначен', 'st.not': 'Не назначен', 'tt.item': 'Номенклатура', 'tt.lot': 'Партия', 'tt.location': 'Местоположение', 'tt.loc': 'Местоположение · WHGATEA-A-01',
+    'release': 'Освободить', 'history': 'История', 'assign': 'Назначить', 'k.barcode': 'Штрихкод', 'k.qr': 'QR-код', 'valueChanged': 'Значение изменено с GATEA-BC-0003', 'rack': 'Стеллаж 01',
+    'showing': 'Показаны 1–6 из 6', 'dlg.title': 'Назначить код', 'dlg.type': 'Тип объекта', 'dlg.target': 'Объект', 'room': 'Кабинет 201', 'dlg.path': 'Казахстан / Алматы / Здание 1 / Этаж 2 / Кабинет 201',
+    'dlg.note': 'У кода одновременно только один объект. Освободите его, прежде чем назначать другому.', 'cancel': 'Отмена',
+    'rcv.sub': 'Новые коды получают статус «Не назначен».', 'rcv.kind': 'Тип партии кодов', 'rcv.values': 'Значения, по одному в строке', 'rcv.err': 'Строка 1: значение уже занято. Ничего не сохранено.', 'rcv.submit': 'Принять'
+  },
+  kk: {
+    'eyebrow': 'Жұмыс · Кодтар', 'title': 'Кодтар', 'lede': 'Штрихкодтар, QR-кодтар және RFID белгілері, әрқайсысы неге бекітілгені. Кодты табу үшін толық мәнді сканерлеңіз немесе енгізіңіз.',
+    'receive': 'Кодтарды қабылдау', 'exact': 'Нақты мән', 'exactPh': 'Толық мәнді сканерлеңіз немесе қойыңыз', 'kind': 'Түрі', 'allKinds': 'Барлық түрлер', 'status': 'Күйі', 'allStatuses': 'Барлық күйлер', 'showRetired': 'Шығарылғандарды көрсету',
+    'value': 'Мәні', 'target': 'Нысан', 'changed': 'Өзгертілді', 'actions': 'Әрекеттер', 'rfid': 'RFID белгісі',
+    'st.assigned': 'Тағайындалған', 'st.not': 'Тағайындалмаған', 'tt.item': 'Тауар', 'tt.lot': 'Партия', 'tt.location': 'Орналасқан жер', 'tt.loc': 'Орналасқан жер · WHGATEA-A-01',
+    'release': 'Босату', 'history': 'Тарих', 'assign': 'Тағайындау', 'k.barcode': 'Штрихкод', 'k.qr': 'QR-код', 'valueChanged': 'Мәні GATEA-BC-0003 мәнінен өзгертілді', 'rack': '01 сөре',
+    'showing': '6 жазбаның 1–6 көрсетілген', 'dlg.title': 'Кодты тағайындау', 'dlg.type': 'Нысан түрі', 'dlg.target': 'Нысан', 'room': '201-бөлме', 'dlg.path': 'Қазақстан / Алматы / 1-ғимарат / 2-қабат / 201-бөлме',
+    'dlg.note': 'Кодтың бір уақытта тек бір нысаны болады. Басқасына тағайындамас бұрын оны босатыңыз.', 'cancel': 'Болдырмау',
+    'rcv.sub': 'Жаңа кодтар «Тағайындалмаған» күйінде басталады.', 'rcv.kind': 'Топтама түрі', 'rcv.values': 'Мәндер, әр жолда біреу', 'rcv.err': '1-жол: мән бос емес. Ештеңе сақталмады.', 'rcv.submit': 'Қабылдау'
+  }
+};
+</script>
+<script src="nav-strings.js"></script>
+<script src="../demo.js"></script>
+</body>
+</html>
