@@ -8,6 +8,7 @@ import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 // not carry); the module boundary rule is about modules importing each other, not about this dev-only file.
 // eslint-disable-next-line no-restricted-imports
 import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
+import { orgLegal, orgSites, orgUnits } from './orgFixtures'
 import type { FixtureRoute, HarnessScreen } from './types'
 
 const verifyCertificate: HarnessScreen = {
@@ -119,6 +120,9 @@ function codesScreen(name: string, initial?: CodesInitial): HarnessScreen {
 export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries(
   [
     verifyCertificate,
+    orgLegal,
+    orgSites,
+    orgUnits,
     codesScreen('codes'),
     codesScreen('codes-detail', { selectedId: 'c1' }),
     codesScreen('codes-assign', { assignId: 'c2' }),
