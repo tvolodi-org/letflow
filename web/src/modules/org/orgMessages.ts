@@ -100,6 +100,9 @@ const en: Record<string, string> = {
   'org.error.position_inactive': 'The position is retired.',
   'org.error.employee_inactive': 'The employee is retired.',
   'org.error.user_not_found': 'The employee or the chosen user account was not found. The lists were reloaded.',
+  'import.type.org_unit': 'Org units',
+  'import.type.org_position': 'Positions',
+  'import.type.org_employee': 'Employees',
 }
 
 const ru: Record<string, string> = {
@@ -181,6 +184,9 @@ const ru: Record<string, string> = {
   'org.error.position_inactive': 'Должность выведена.',
   'org.error.employee_inactive': 'Сотрудник выведен.',
   'org.error.user_not_found': 'Сотрудник или выбранная учётная запись не найдены. Списки обновлены.',
+  'import.type.org_unit': 'Организационные единицы',
+  'import.type.org_position': 'Должности',
+  'import.type.org_employee': 'Сотрудники',
 }
 
 const kk: Record<string, string> = {
@@ -262,6 +268,9 @@ const kk: Record<string, string> = {
   'org.error.position_inactive': 'Лауазым шығарылған.',
   'org.error.employee_inactive': 'Қызметкер шығарылған.',
   'org.error.user_not_found': 'Қызметкер немесе таңдалған тіркелгі табылмады. Тізімдер жаңартылды.',
+  'import.type.org_unit': 'Ұйымдық бірліктер',
+  'import.type.org_position': 'Лауазымдар',
+  'import.type.org_employee': 'Қызметкерлер',
 }
 
 export const orgMessages: Record<OrgUiLocale, Record<string, string>> = { en, ru, kk }
