@@ -50,9 +50,9 @@ defmodule Letflow.Modules.Locations.RegistrationTest do
     assert Catalog.fetch("org") == {:ok, Letflow.Modules.Org}
   end
 
-  test "R-5: locations is 0.3.0, depends on org, manages exactly @types" do
+  test "R-5: locations is 0.4.0, depends on org, manages exactly @types" do
     m = Letflow.Modules.Locations.manifest()
-    assert m.version == "0.3.0"
+    assert m.version == "0.4.0"
     assert m.depends_on == ["org"]
     assert m.manages_entity_types == ["location_node", "location_org_unit_link"]
     assert Catalog.validate(m) == :ok
