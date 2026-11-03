@@ -48975,7 +48975,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-620 -- the replacing migration rebuilds the tables and triggers of REQ-620 slice L1 and comes after the per-ledger-id keys of the L2a rework (REQ-692, pending in task T-1204)
+    gh: 3752
     description: >
       Phase B of the assets and stock application (the stock register; owner decision D-085, 2026-11-04: build it fast),
       the storage part of decision 0073 "Amended (REQ-676, assets B1)"
@@ -49089,7 +49089,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-684 -- the ledger ids come from the :ledger manifest key of REQ-684 and the partitions are created by Letflow.Ledger.Storage of REQ-710
+    gh: 3751
     description: >
       Phase B of the assets and stock application (the stock register; owner decision D-085), part 2 of 2 of the storage
       rework for shape (b) of decision 0073 (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md, section
