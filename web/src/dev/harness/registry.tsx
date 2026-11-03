@@ -6,7 +6,6 @@ import type { AccessState } from '@/auth/access/types'
 import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 // The harness renders a module's screen directly (it needs the screen's `initial` preset, which the route does
 // not carry); the module boundary rule is about modules importing each other, not about this dev-only file.
-// eslint-disable-next-line no-restricted-imports
 import CodesPage, { type CodesInitial } from '@/modules/codes/CodesPage'
 import { orgLegal, orgSites, orgUnits } from './orgFixtures'
 import type { FixtureRoute, HarnessScreen } from './types'
