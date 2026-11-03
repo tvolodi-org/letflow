@@ -57,7 +57,29 @@
               "**/modules/*/**",
               "!**/modules/exam/**",
               "!**/modules/registry",
-              "!**/modules/types"
+              "!**/modules/types",
+              "**/org/**"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/modules/org/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@/modules/*/**",
+              "!@/modules/org/**",
+              "!@/modules/registry",
+              "!@/modules/types",
+              "**/modules/*/**",
+              "!**/modules/org/**",
+              "!**/modules/registry",
+              "!**/modules/types",
+              "**/exam/**"
             ]
           }
         ]

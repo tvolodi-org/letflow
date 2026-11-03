@@ -8,11 +8,13 @@
 import { createElement } from 'react'
 import type { InstalledModule, ModuleDefinition, ModuleNavItem } from './types'
 import { examModuleDefinition } from './exam/index'
+import { orgModuleDefinition } from './org/index'
 import { ModuleGuard } from '@/components/routing/ModuleGuard'
 import type { RouteObject } from 'react-router-dom'
 
 export const REGISTERED_MODULES: ModuleDefinition[] = [
   examModuleDefinition,
+  orgModuleDefinition,
 ]
 
 /** All registered module RouteObjects wrapped in ModuleGuard, for inclusion
