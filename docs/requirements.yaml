@@ -48922,7 +48922,7 @@ requirements:
     owner: CODE-DESIGNER
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-676 -- phase C specification (owner D-085), written before the two-register amendment of decision 0073 and the stock registration REQ-687 are implemented
+    gh: 3723
     description: >
       Phase C item C1 of the assets and stock application (owner decisions D-060 to D-063; D-085 point (3) releases the
       phase C specification tasks before GATE B, specifications only). ONE change, docs only: a new file
