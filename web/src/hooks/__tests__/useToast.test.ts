@@ -56,7 +56,7 @@ describe('REQ-275 — useToast', () => {
     expect(entries[0]).toMatchObject({ variant: 'warning', message: 'Instance is in an error state' })
   })
 
-  it('TC-REQ275-02: success/warning resolve to 4000ms, error resolves to 8000ms', () => {
+  it('TC-REQ275-02: success/info/warning resolve to 4000ms, error never auto-closes (0)', () => {
     const toast = useToast()
     toast.success('s')
     toast.warning('w')
@@ -66,7 +66,7 @@ describe('REQ-275 — useToast', () => {
     const byVariant = Object.fromEntries(entries.map((e) => [e.variant, e.durationMs]))
     expect(byVariant.success).toBe(4000)
     expect(byVariant.warning).toBe(4000)
-    expect(byVariant.error).toBe(8000)
+    expect(byVariant.error).toBe(0)
 
     // Confirm the timers actually fire at those offsets (not just the stored field).
     expect(getToastSnapshot()).toHaveLength(3)
@@ -76,8 +76,8 @@ describe('REQ-275 — useToast', () => {
     expect(remaining).toHaveLength(1)
     expect(remaining[0].variant).toBe('error')
 
-    vi.advanceTimersByTime(4000) // total 8000ms
-    expect(getToastSnapshot()).toHaveLength(0)
+    vi.advanceTimersByTime(60000) // an error stays until dismissed
+    expect(getToastSnapshot()).toHaveLength(1)
   })
 
   it('TC-REQ275-03: adding a 5th toast drops the oldest', () => {

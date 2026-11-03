@@ -54,7 +54,7 @@ const swatchStyle: React.CSSProperties = {
 // ── Component ──────────────────────────────────────────────────────────────
 
 /** Reads the SAME custom property applyBrandingColors/BrandingProvider
- * write to (never a second hardcoded '--color-brand-600' literal) — see
+ * write to (never a second hardcoded '--tenant-current' literal) — see
  * design doc §3.1/OQ-1. Returns '' if unset (tokens.css's own default is
  * then in effect, which is a legal state). */
 function readCurrentAppliedPrimary(): string {
@@ -161,7 +161,7 @@ export default function AppearanceSettingsPage() {
           />
           <span
             data-testid="appearance-settings-preview-swatch"
-            style={{ ...swatchStyle, background: appliedColor || 'var(--color-brand-600)' }}
+            style={{ ...swatchStyle, background: appliedColor || 'var(--current)' }}
             title="Currently applied colour"
           />
         </div>

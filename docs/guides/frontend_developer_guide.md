@@ -111,17 +111,11 @@ gated the same way backend work is. What that means concretely:
 
 ## 6. Known-false statements in `docs/frontend/`
 
-The specification was migrated verbatim and was not all current in R-Co. One thing it
-still asserts is not true of the code:
-
-- `design-system.md` §2 says colours live as CSS custom properties in
-  `web/src/styles/tokens.css`. That file does not exist. There is no `.css` file under
-  `web/src/` at all; components use inline `style={{...}}` objects with literal hex
-  values, which the `literal-colour` guard does not catch because it only matches
-  declarations ending in `;`.
-
-`REQ-120` decides what to do about this — it is a design question with more than one
-defensible answer, so don't settle it in passing. (`REQ-119` corrected the other
+The specification was migrated verbatim and was not all current in R-Co. Colours and
+other values now come from the generated `web/src/styles/tokens.css`; read
+`docs/design-system/README.md` and `docs/design-system/principles.md` (the old
+`docs/frontend/design-system.md` is only a pointer). Legacy inline `style={{...}}` objects
+with literal hex values may remain in older pages until they are restyled. (`REQ-119` corrected the other
 known-false statement this section used to list — the spec said "React 19"; the code
 is React 18.3.1, per `web/package-lock.json`.)
 
