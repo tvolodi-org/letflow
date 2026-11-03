@@ -139,9 +139,9 @@ describe('T-1166 — DataTable', () => {
     expect(screen.queryByTestId('datatable-retry')).toBeNull()
   })
 
-  it('TC-T1166-30: the file touches no inline colour or spacing (only the sticky header position)', () => {
+  it('TC-T1166-30: the file touches no inline colour or spacing (the sticky header is CSS)', () => {
     render(<DataTable columns={COLS} data={ROWS} emptyMessage="none" onRowClick={() => {}} selectedId="a" />)
     const styled = Array.from(document.querySelectorAll('[style]')).map((el) => el.getAttribute('style'))
-    expect(styled.every((s) => /^position: sticky; top: 0(px)?;?$/.test(s ?? ''))).toBe(true)
+    expect(styled).toEqual([])
   })
 })

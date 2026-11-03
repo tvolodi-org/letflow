@@ -74,11 +74,12 @@ describe('REQ-274 — DataTable', () => {
     expect(screen.queryAllByTestId('datatable-row')).toHaveLength(0)
   })
 
-  it('TC-REQ274-04: the header carries sticky positioning', () => {
+  it('TC-REQ274-04: the header is a thead; sticky positioning comes from .lf-table th, not an inline style', () => {
     render(<DataTable columns={COLUMNS} data={ROWS} emptyMessage="No rows" />)
 
     const header = screen.getByTestId('datatable-header')
-    expect(header).toHaveStyle({ position: 'sticky', top: '0px' })
+    expect(header.tagName).toBe('THEAD')
+    expect(header).not.toHaveAttribute('style')
   })
 
   it('TC-REQ274-05: clicking a sortable header toggles asc then desc order', () => {
