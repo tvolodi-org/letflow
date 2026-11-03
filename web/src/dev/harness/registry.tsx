@@ -2,6 +2,7 @@
  *  and a render function. Keep fixtures to plain data; no secrets, no real tenant names. */
 import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
 import type { HarnessScreen } from './types'
+import { masterDataImport, masterDataImportResult } from './importFixtures'
 
 const verifyCertificate: HarnessScreen = {
   name: 'verify-certificate',
@@ -29,5 +30,5 @@ const verifyCertificate: HarnessScreen = {
 }
 
 export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries(
-  [verifyCertificate].map(s => [s.name, s]),
+  [verifyCertificate, masterDataImport, masterDataImportResult].map(s => [s.name, s]),
 )

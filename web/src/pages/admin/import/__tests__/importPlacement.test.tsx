@@ -26,7 +26,7 @@ describe('P1 picker', () => {
       { module_id: 'org', version: '1' },
     ]
     renderPage()
-    const options = Array.from(screen.getByTestId('import-type').querySelectorAll('option')).map((o) => o.getAttribute('value'))
+    const options = screen.getAllByRole('radio').map((o) => o.getAttribute('value'))
     expect(options).toEqual(['org_unit', 'org_position', 'org_employee', 'catalog_uom', 'catalog_item', 'catalog_counterparty', 'catalog_lot'])
     expect(options).not.toContain('location_node')
   })
@@ -34,7 +34,7 @@ describe('P1 picker', () => {
   it('shows a message and no picker when no module lists a type', () => {
     INSTALLED.value = [{ module_id: 'exam', version: '1' }]
     renderPage()
-    expect(screen.queryByTestId('import-type')).not.toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
     expect(screen.getByText('No importable data types are installed.')).toBeInTheDocument()
   })
 })

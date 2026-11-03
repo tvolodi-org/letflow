@@ -1,14 +1,30 @@
-/** MasterDataImportPage -- GH 3650 / REQ-675 (assets phase A screen S6).
+/** MasterDataImportPage -- GH 3650 / REQ-675 (assets phase A screen S6), restyled in style task S6.
  *
- *  Type picker (from the installed modules' importTypes), template download, dry run, confirm, summary.
+ *  Type picker (from the installed modules' importTypes), template download, drop zone, dry run, confirm, summary.
  *  Core page: it never names a module (0039 D3). Every rule stays in the import route; the screen sends the file
  *  and shows the answer. No tenant identifier is sent (the tenant comes from the token).
+ *
+ *  Look: the design system's import wizard (platform/examples/import.html): PageHeader, Steps, cards, TypePicker,
+ *  DropZone, Tally, DataTable, Banner. Shared components only; no colour or spacing is set here.
+ *  Nothing on this screen is retired or listed per record, so there is no "Show retired" control.
  */
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
+import { Download } from 'lucide-react'
 import { P, useAccess } from '@/auth/access'
-import { PageLayout } from '@/components/ui/PageLayout'
+import { Banner } from '@/components/ui/Banner'
 import { Button } from '@/components/ui/Button'
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
+import { DropZone } from '@/components/ui/DropZone'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Skeleton } from '@/components/ui/Skeleton'
+import { StatusPill, type StatusGlyph, type StatusTone } from '@/components/ui/StatusPill'
+import { Steps } from '@/components/ui/Steps'
+import { Tally } from '@/components/ui/Tally'
+import { ToastContainer } from '@/components/ui/Toast'
+import { TypePicker } from '@/components/ui/TypePicker'
+import { useToast } from '@/hooks/useToast'
 import { useInstalledModules } from '@/hooks/useInstalledModules'
 import { getInstalledImportTypes } from '@/modules/registry'
 import { ImportIntlProvider } from '@/i18n/ImportIntlProvider'
@@ -24,15 +40,25 @@ import {
   type ImportResultRow,
 } from './importModel'
 
-const th: React.CSSProperties = { textAlign: 'left', padding: '.4rem .6rem', borderBottom: '2px solid var(--border-default)' }
-const td: React.CSSProperties = { padding: '.4rem .6rem', borderBottom: '1px solid var(--border-default)', verticalAlign: 'top' }
-
 type Phase =
   | { name: 'idle' }
   | { name: 'working'; what: 'template' | 'check' | 'import' }
   | { name: 'checked'; answer: ImportAnswer }
   | { name: 'done'; answer: ImportAnswer }
   | { name: 'error'; error: ImportErrorKind }
+
+type Outcome = 'created' | 'updated' | 'unchanged' | 'refused'
+
+const OUTCOME_LOOK: Record<Outcome, { tone: StatusTone; glyph: StatusGlyph }> = {
+  created: { tone: 'current', glyph: 'dot' },
+  updated: { tone: 'info', glyph: 'half' },
+  unchanged: { tone: 'neutral', glyph: 'ring' },
+  refused: { tone: 'danger', glyph: 'triangle' },
+}
+
+function outcomeOf(row: ImportResultRow): Outcome {
+  return row.status === 'error' ? 'refused' : (row.outcome ?? 'unchanged')
+}
 
 function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -54,101 +80,121 @@ function ReasonText({ row }: { row: ImportResultRow }) {
     ? intl.formatMessage({ id: `import.reason.${reason.type}` })
     : intl.formatMessage({ id: 'import.reason.unknown' }, { type: reason.type })
   return (
-    <div>
-      <div>{text}</div>
-      {reason.header ? <div>{intl.formatMessage({ id: 'import.reason.header' }, { header: reason.header })}</div> : null}
+    <span className="lf-cell-2">
+      {reason.header ? (
+        <strong>
+          {intl.formatMessage({ id: 'import.reason.header' }, { header: '' })}
+          <span className="mono">{reason.header}</span>
+        </strong>
+      ) : null}
+      <span>{text}</span>
       {reason.violations && reason.violations.length > 0 ? (
-        <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
+        <ul className="lf-help">
           {reason.violations.map((v, i) => (
             <li key={i}>
-              {violationField(v)}
+              <span className="mono">{violationField(v)}</span>
               {v.message ? `: ${v.message}` : v.code ? `: ${v.code}` : ''}
             </li>
           ))}
         </ul>
       ) : null}
-    </div>
+    </span>
   )
 }
 
 function ResultTable({ results }: { results: ImportResultRow[] }) {
   const intl = useIntl()
+  const columns: DataTableColumn<ImportResultRow>[] = [
+    { id: 'line', header: intl.formatMessage({ id: 'import.col.line' }), align: 'end', mono: true, render: (r) => r.line ?? '' },
+    {
+      id: 'outcome',
+      header: intl.formatMessage({ id: 'import.col.outcome' }),
+      render: (r) => {
+        const outcome = outcomeOf(r)
+        const look = OUTCOME_LOOK[outcome]
+        return (
+          <StatusPill tone={look.tone} glyph={look.glyph}>
+            {intl.formatMessage({ id: `import.outcome.${outcome}` })}
+          </StatusPill>
+        )
+      },
+    },
+    { id: 'externalId', header: intl.formatMessage({ id: 'import.col.externalId' }), mono: true, render: (r) => r.external_ref?.id ?? '' },
+    {
+      id: 'message',
+      header: intl.formatMessage({ id: 'import.col.message' }),
+      render: (r) => (r.status === 'error' ? <ReasonText row={r} /> : <span className="lf-faint">—</span>),
+    },
+  ]
   return (
-    <table data-testid="import-result-table" style={{ borderCollapse: 'collapse', width: '100%' }}>
-      <thead>
-        <tr>
-          <th style={th}>{intl.formatMessage({ id: 'import.col.line' })}</th>
-          <th style={th}>{intl.formatMessage({ id: 'import.col.outcome' })}</th>
-          <th style={th}>{intl.formatMessage({ id: 'import.col.externalId' })}</th>
-          <th style={th}>{intl.formatMessage({ id: 'import.col.message' })}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {results.map((row, i) => (
-          <tr key={i} data-testid="import-result-row">
-            <td style={td}>{row.line ?? ''}</td>
-            <td style={td}>
-              {intl.formatMessage({ id: `import.outcome.${row.status === 'error' ? 'refused' : (row.outcome ?? 'unchanged')}` })}
-            </td>
-            <td style={td}>{row.external_ref?.id ?? ''}</td>
-            <td style={td}>{row.status === 'error' ? <ReasonText row={row} /> : null}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div data-testid="import-result-table">
+      <DataTable
+        columns={columns}
+        data={results}
+        density="compact"
+        emptyMessage={intl.formatMessage({ id: 'import.results.empty' })}
+        rowState={(r) => (r.status === 'error' ? 'error' : undefined)}
+      />
+    </div>
   )
 }
 
 function Counts({ results }: { results: ImportResultRow[] }) {
   const intl = useIntl()
   const c = countResults(results)
+  const item = (outcome: Outcome, value: number) => ({
+    label: intl.formatMessage({ id: `import.outcome.${outcome}` }),
+    value,
+    glyph: OUTCOME_LOOK[outcome].glyph,
+    tone: outcome === 'refused' ? ('danger' as const) : undefined,
+  })
   return (
-    <p data-testid="import-counts" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-      <span>{intl.formatMessage({ id: 'import.count.created' }, { n: c.created })}</span>
-      <span>{intl.formatMessage({ id: 'import.count.updated' }, { n: c.updated })}</span>
-      <span>{intl.formatMessage({ id: 'import.count.unchanged' }, { n: c.unchanged })}</span>
-      <span>{intl.formatMessage({ id: 'import.count.refused' }, { n: c.refused })}</span>
-    </p>
+    <div data-testid="import-counts">
+      <Tally
+        aria-label={intl.formatMessage({ id: 'import.counts.label' })}
+        items={[item('created', c.created), item('updated', c.updated), item('unchanged', c.unchanged), item('refused', c.refused)]}
+      />
+    </div>
   )
 }
 
-function ErrorMessage({ error }: { error: ImportErrorKind }) {
-  const intl = useIntl()
-  let text: string
+function errorText(intl: ReturnType<typeof useIntl>, error: ImportErrorKind): string {
   switch (error.kind) {
     case 'limits':
-      text = intl.formatMessage({ id: 'import.error.limits' })
-      break
+      return intl.formatMessage({ id: 'import.error.limits' })
     case 'xlsx':
-      text = intl.formatMessage({ id: `import.error.${error.code}` })
-      break
+      return intl.formatMessage({ id: `import.error.${error.code}` })
     case 'unprocessable':
-      text = intl.formatMessage({ id: 'import.error.unprocessable' }, { detail: error.detail })
-      break
+      return intl.formatMessage({ id: 'import.error.unprocessable' }, { detail: error.detail })
     case 'notAvailable':
-      text = intl.formatMessage({ id: 'import.error.notAvailable' })
-      break
+      return intl.formatMessage({ id: 'import.error.notAvailable' })
     case 'forbidden':
-      text = intl.formatMessage({ id: 'import.error.forbidden' })
-      break
+      return intl.formatMessage({ id: 'import.error.forbidden' })
     case 'busy':
-      text = intl.formatMessage({ id: 'import.error.busy' })
-      break
+      return intl.formatMessage({ id: 'import.error.busy' })
     default:
-      text = intl.formatMessage({ id: 'import.error.other' })
+      return intl.formatMessage({ id: 'import.error.other' })
   }
+}
+
+function LoadingSkeleton({ label }: { label: string }) {
   return (
-    <p role="alert" data-testid="import-error" style={{ color: 'var(--color-danger, var(--text-primary))' }}>
-      {text}
-    </p>
+    <section className="lf-card" data-testid="import-loading" aria-busy="true" aria-label={label}>
+      <div className="lf-card__body lf-form">
+        <Skeleton width="40%" />
+        <Skeleton width="80%" />
+        <Skeleton width="60%" />
+      </div>
+    </section>
   )
 }
 
 function MasterDataImportPageInner() {
   const intl = useIntl()
   const access = useAccess()
-  const { data: installedModules = [] } = useInstalledModules()
-  const types = getInstalledImportTypes(installedModules)
+  const toast = useToast()
+  const installed = useInstalledModules()
+  const types = getInstalledImportTypes(installed.data ?? [])
   const [chosen, setChosen] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [phase, setPhase] = useState<Phase>({ name: 'idle' })
@@ -157,6 +203,13 @@ function MasterDataImportPageInner() {
   const locale = (['en', 'ru', 'kk'] as const).find((l) => l === intl.locale) ?? 'en'
   const entityType = chosen ?? types[0]?.entityType ?? ''
   const working = phase.name === 'working'
+
+  // The success toast is a side effect of reaching "done", not of rendering it.
+  const doneAnswer = phase.name === 'done' ? phase.answer : null
+  useEffect(() => {
+    if (doneAnswer) toast.success(intl.formatMessage({ id: 'import.summary.toast' }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doneAnswer])
 
   function reset() {
     setPhase({ name: 'idle' })
@@ -193,102 +246,218 @@ function MasterDataImportPageInner() {
   }
 
   const checkedClean = phase.name === 'checked' && countResults(phase.answer.results).refused === 0
+  const checkedDirty = phase.name === 'checked' && !checkedClean
   const shown = phase.name === 'checked' || phase.name === 'done' ? phase.answer : null
+  const title = intl.formatMessage({ id: 'import.title' })
+  const header = (actions?: React.ReactNode) => (
+    <PageHeader
+      eyebrow={intl.formatMessage({ id: 'import.eyebrow' })}
+      title={title}
+      lede={intl.formatMessage({ id: 'import.lede' })}
+      actions={actions}
+    />
+  )
 
+  if (installed.isLoading) {
+    return (
+      <div className="lf-form">
+        {header()}
+        <LoadingSkeleton label={intl.formatMessage({ id: 'import.loading' })} />
+        <ToastContainer />
+      </div>
+    )
+  }
+  if (installed.isError) {
+    return (
+      <div className="lf-form">
+        {header()}
+        <Banner
+          tone="danger"
+          action={
+            <Button variant="secondary" size="sm" data-testid="import-load-retry" onClick={() => void installed.refetch()}>
+              {intl.formatMessage({ id: 'import.retry' })}
+            </Button>
+          }
+        >
+          <span data-testid="import-load-error">{intl.formatMessage({ id: 'import.loadFailed' })}</span>
+        </Banner>
+      </div>
+    )
+  }
   if (types.length === 0) {
     return (
-      <PageLayout title={intl.formatMessage({ id: 'import.title' })}>
-        <p>{intl.formatMessage({ id: 'import.noTypes' })}</p>
-      </PageLayout>
+      <div className="lf-form">
+        {header()}
+        <section className="lf-card">
+          <EmptyState
+            data-testid="import-empty"
+            title={intl.formatMessage({ id: 'import.noTypes' })}
+            action={
+              <Button variant="secondary" size="md" onClick={() => void installed.refetch()}>
+                {intl.formatMessage({ id: 'import.noTypes.action' })}
+              </Button>
+            }
+          />
+        </section>
+      </div>
     )
   }
 
+  const stepCurrent = phase.name === 'done' ? 4 : file ? 2 : 1
+  const canTemplate = access.can(P.EntitiesRecordsExport)
+
   return (
-    <PageLayout title={intl.formatMessage({ id: 'import.title' })}>
-      <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
-        <label style={{ display: 'grid', gap: '.25rem', maxWidth: '24rem' }}>
-          <span>{intl.formatMessage({ id: 'import.type' })}</span>
-          <select
-            data-testid="import-type"
-            value={entityType}
+    <div className="lf-form">
+      {header(
+        canTemplate ? (
+          <Button
+            variant="secondary"
+            size="md"
+            icon={<Download className="lf-icon" aria-hidden="true" />}
+            data-testid="import-template"
             disabled={working}
-            onChange={(e) => {
-              setChosen(e.target.value)
-              reset()
-            }}
+            onClick={() => void onTemplate()}
           >
-            {types.map((t) => (
-              <option key={t.entityType} value={t.entityType}>
-                {t.labels[locale]}
-              </option>
-            ))}
-          </select>
-        </label>
+            {intl.formatMessage({ id: 'import.template.button' })}
+          </Button>
+        ) : undefined,
+      )}
 
-        <section>
-          <h2>{intl.formatMessage({ id: 'import.help.title' })}</h2>
-          <ul>
-            <li>{intl.formatMessage({ id: 'import.help.reference' })}</li>
-            <li>{intl.formatMessage({ id: 'import.help.order' })}</li>
-            <li>{intl.formatMessage({ id: 'import.help.externalRef' })}</li>
-            <li>{intl.formatMessage({ id: 'import.help.active' })}</li>
-          </ul>
-          {access.can(P.EntitiesRecordsExport) ? (
-            <Button variant="secondary" size="md" data-testid="import-template" disabled={working} onClick={() => void onTemplate()}>
-              {intl.formatMessage({ id: 'import.template.button' })}
-            </Button>
-          ) : null}
-          {templateFailed ? (
-            <p role="alert" data-testid="import-template-failed">
-              {intl.formatMessage({ id: 'import.template.failed' })}
-            </p>
-          ) : null}
-        </section>
+      <Steps
+        aria-label={intl.formatMessage({ id: 'import.steps.label' })}
+        current={stepCurrent}
+        steps={['type', 'file', 'check', 'import'].map((k) => ({ label: intl.formatMessage({ id: `import.steps.${k}` }) }))}
+      />
 
-        <section>
-          <p data-testid="import-limits">{intl.formatMessage({ id: 'import.limits' })}</p>
-          <label style={{ display: 'grid', gap: '.25rem', maxWidth: '24rem' }}>
-            <span>{intl.formatMessage({ id: 'import.file' })}</span>
-            <input
-              type="file"
-              data-testid="import-file"
-              accept=".xlsx"
-              disabled={working}
-              onChange={(e) => {
-                setFile(e.target.files?.[0] ?? null)
-                reset()
-              }}
-            />
-          </label>
-          <div style={{ display: 'flex', gap: '.5rem', marginTop: '.5rem' }}>
-            <Button variant="secondary" size="md" data-testid="import-check" disabled={!file || working} onClick={() => void onRun(true)}>
-              {intl.formatMessage({ id: phase.name === 'working' && phase.what !== 'template' ? 'import.busy' : 'import.check' })}
-            </Button>
-            <Button variant="primary" size="md" data-testid="import-confirm" disabled={!checkedClean || working} onClick={() => void onRun(false)}>
-              {intl.formatMessage({ id: 'import.confirm' })}
-            </Button>
-          </div>
-        </section>
+      {templateFailed ? (
+        <div data-testid="import-template-failed">
+          <Banner tone="danger">{intl.formatMessage({ id: 'import.template.failed' })}</Banner>
+        </div>
+      ) : null}
 
-        {phase.name === 'error' ? <ErrorMessage error={phase.error} /> : null}
-
-        {shown ? (
-          <section data-testid={phase.name === 'done' ? 'import-summary' : 'import-dry-run'}>
-            <h2>{intl.formatMessage({ id: phase.name === 'done' ? 'import.summary.title' : 'import.dryRun.title' })}</h2>
-            <Counts results={shown.results} />
-            <p>
-              {phase.name === 'done'
-                ? intl.formatMessage({ id: 'import.summary.done' })
-                : intl.formatMessage({ id: 'import.dryRun.nothingWritten' })}
-            </p>
-            {phase.name === 'checked' ? (
-              <p>{intl.formatMessage({ id: checkedClean ? 'import.dryRun.ready' : 'import.dryRun.fix' })}</p>
-            ) : null}
-            <ResultTable results={shown.results} />
+      <div className="lf-wizard">
+        <div className="lf-form">
+          <section className="lf-card" aria-labelledby="import-type-h">
+            <div className="lf-card__head">
+              <h2 className="lf-card__title" id="import-type-h">
+                {intl.formatMessage({ id: 'import.card.type' })}
+              </h2>
+            </div>
+            <div className="lf-card__body">
+              <TypePicker
+                name="import-type"
+                label={intl.formatMessage({ id: 'import.type' })}
+                value={entityType}
+                types={types.map((t) => ({ id: t.entityType, label: t.labels[locale] }))}
+                onChange={(id) => {
+                  if (working) return
+                  setChosen(id)
+                  reset()
+                }}
+              />
+            </div>
           </section>
-        ) : null}
+
+          <section className="lf-card" aria-labelledby="import-file-h">
+            <div className="lf-card__head">
+              <h2 className="lf-card__title" id="import-file-h">
+                {intl.formatMessage({ id: 'import.card.file' })}
+              </h2>
+            </div>
+            <div className="lf-card__body lf-form">
+              <DropZone
+                accept=".xlsx"
+                title={intl.formatMessage({ id: 'import.drop.title' })}
+                invalidText={intl.formatMessage({ id: 'import.drop.invalid' })}
+                chosen={file ? { file } : null}
+                onFile={(f) => {
+                  setFile(f)
+                  reset()
+                }}
+              />
+              {phase.name === 'error' ? (
+                <div data-testid="import-error">
+                  <Banner tone="danger">{errorText(intl, phase.error)}</Banner>
+                </div>
+              ) : null}
+              <div className="lf-form__actions">
+                <Button variant="secondary" size="md" data-testid="import-check" disabled={!file || working} loading={working && phase.what !== 'template'} onClick={() => void onRun(true)}>
+                  {intl.formatMessage({ id: phase.name === 'working' && phase.what !== 'template' ? 'import.busy' : 'import.check' })}
+                </Button>
+                <Button variant="primary" size="md" data-testid="import-confirm" disabled={!checkedClean || working} onClick={() => void onRun(false)}>
+                  {intl.formatMessage({ id: 'import.confirm' })}
+                </Button>
+                {checkedDirty ? (
+                  <span className="lf-hint" data-testid="import-why">
+                    {intl.formatMessage({ id: 'import.dryRun.why' })}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </section>
+
+          {shown ? (
+            <section
+              className="lf-card"
+              aria-labelledby="import-result-h"
+              data-testid={phase.name === 'done' ? 'import-summary' : 'import-dry-run'}
+            >
+              <div className="lf-card__head">
+                <div>
+                  <h2 className="lf-card__title" id="import-result-h">
+                    {intl.formatMessage({ id: phase.name === 'done' ? 'import.summary.title' : 'import.dryRun.title' })}
+                  </h2>
+                  <p className="lf-muted">
+                    {intl.formatMessage({ id: phase.name === 'done' ? 'import.summary.done' : 'import.dryRun.nothingWritten' })}
+                  </p>
+                </div>
+                {phase.name === 'checked' ? (
+                  checkedClean ? (
+                    <StatusPill tone="success" glyph="dot">
+                      {intl.formatMessage({ id: 'import.dryRun.readyPill' })}
+                    </StatusPill>
+                  ) : (
+                    <StatusPill tone="danger" glyph="triangle">
+                      {intl.formatMessage({ id: 'import.dryRun.needsFix' })}
+                    </StatusPill>
+                  )
+                ) : null}
+              </div>
+              <div className="lf-card__body lf-form">
+                <Counts results={shown.results} />
+                <ResultTable results={shown.results} />
+                {phase.name === 'checked' ? (
+                  <Banner tone={checkedClean ? 'success' : 'warning'}>
+                    {intl.formatMessage({ id: checkedClean ? 'import.dryRun.ready' : 'import.dryRun.fix' })}
+                  </Banner>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+        </div>
+
+        <aside className="lf-card" aria-labelledby="import-help-h">
+          <div className="lf-card__head">
+            <h2 className="lf-card__title" id="import-help-h">
+              {intl.formatMessage({ id: 'import.help.title' })}
+            </h2>
+          </div>
+          <div className="lf-card__body lf-form">
+            <ul className="lf-help">
+              <li>{intl.formatMessage({ id: 'import.help.externalRef' })}</li>
+              <li>{intl.formatMessage({ id: 'import.help.reference' })}</li>
+              <li>{intl.formatMessage({ id: 'import.help.order' })}</li>
+              <li>{intl.formatMessage({ id: 'import.help.active' })}</li>
+            </ul>
+            <div data-testid="import-limits">
+              <Banner tone="info">{intl.formatMessage({ id: 'import.limits' })}</Banner>
+            </div>
+            <p className="caption lf-faint">{intl.formatMessage({ id: 'import.help.rerun' })}</p>
+          </div>
+        </aside>
       </div>
-    </PageLayout>
+      <ToastContainer />
+    </div>
   )
 }
 

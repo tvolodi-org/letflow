@@ -45,13 +45,13 @@ describe('I3 locale', () => {
   ])('shows the title in %s', (lang, title) => {
     vi.stubGlobal('navigator', { languages: [lang], language: lang })
     renderPage()
-    expect(screen.getByTestId('page-layout-title')).toHaveTextContent(title)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(title)
   })
 
   it('shows type labels in the page locale', () => {
     vi.stubGlobal('navigator', { languages: ['ru'], language: 'ru' })
     renderPage()
-    expect(screen.getByRole('option', { name: 'Должности' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Должности/ })).toBeInTheDocument()
   })
 })
 

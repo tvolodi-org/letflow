@@ -104,7 +104,7 @@ describe('R1 row reasons', () => {
     chooseFile(xlsxFile())
     fireEvent.click(screen.getByTestId('import-check'))
     await screen.findByTestId('import-dry-run')
-    const rows = screen.getAllByTestId('import-result-row')
+    const rows = screen.getAllByTestId('datatable-row')
     expect(rows).toHaveLength(ROW_REASON_TYPES.length)
     ROW_REASON_TYPES.forEach((type, i) => {
       expect(rows[i]).toHaveTextContent(importMessages.en[`import.reason.${type}`])
@@ -116,6 +116,6 @@ describe('R1 row reasons', () => {
     renderPage()
     chooseFile(xlsxFile())
     fireEvent.click(screen.getByTestId('import-check'))
-    expect(await screen.findByTestId('import-result-row')).toHaveTextContent('The row was refused (brand_new_reason).')
+    expect(await screen.findByTestId('datatable-row')).toHaveTextContent('The row was refused (brand_new_reason).')
   })
 })
