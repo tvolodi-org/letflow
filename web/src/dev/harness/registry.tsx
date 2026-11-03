@@ -6,6 +6,7 @@ import { AccessStateProvider } from '@/auth/access/AccessContext'
 import { ToastContainer } from '@/components/ui/Toast'
 import LotsPage from '@/modules/catalog_items/LotsPage'
 import VerifyCertificatePage from '@/pages/VerifyCertificatePage'
+import { locationsScreens } from './fixtures/locations'
 import { orgLegal, orgSites, orgUnits } from './orgFixtures'
 import type { EntityRecord } from '@/types/api'
 import type { HarnessLang, HarnessScreen } from './types'
@@ -120,5 +121,5 @@ const catalogItemsLotsCreate: HarnessScreen = {
 }
 
 export const HARNESS_SCREENS: Record<string, HarnessScreen> = Object.fromEntries(
-  [verifyCertificate, orgLegal, orgSites, orgUnits, catalogItemsLots, catalogItemsLotsEdit, catalogItemsLotsCreate].map(s => [s.name, s]),
+  [verifyCertificate, orgLegal, orgSites, orgUnits, catalogItemsLots, catalogItemsLotsEdit, catalogItemsLotsCreate, ...locationsScreens].map(s => [s.name, s]),
 )

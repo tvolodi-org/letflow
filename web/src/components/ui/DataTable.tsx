@@ -139,6 +139,10 @@ export function DataTable<TRow>(props: DataTableProps<TRow>): React.ReactElement
     state: { sorting },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    // No pagination here. Without this, every render's fresh `sorting` array makes the sorted row model
+    // report a change, tanstack queues a page-index reset, that sets state, and the table re-renders for ever
+    // as soon as it has rows (a page froze after any reload of its rows).
+    autoResetPageIndex: false,
   })
 
   // `table` is a stable ref (mutated in place), so memoizing on it would never
