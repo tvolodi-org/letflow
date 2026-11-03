@@ -576,7 +576,10 @@ defmodule Letflow.LedgerTriggersMigrationTest do
     assert_raise RuntimeError, ~r/tamper protection/, fn -> CreateLedgerTriggers.down() end
 
     assert {20_261_031_200_001, CreateLedgerTriggers} ==
-             List.last(TenantProvisioning.tenant_scoped_migrations())
+             Enum.find(
+               TenantProvisioning.tenant_scoped_migrations(),
+               &(elem(&1, 0) == 20_261_031_200_001)
+             )
 
     count = fn ->
       %{rows: [[n]]} =
