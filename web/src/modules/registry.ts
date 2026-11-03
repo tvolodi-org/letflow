@@ -11,6 +11,7 @@ import { examModuleDefinition } from './exam/index'
 import { orgModuleDefinition } from './org/index'
 import { locationsModuleDefinition } from './locations/index'
 import { codesModuleDefinition } from './codes/index'
+import { catalogItemsModuleDefinition } from './catalog_items/index'
 import { ModuleGuard } from '@/components/routing/ModuleGuard'
 import type { RouteObject } from 'react-router-dom'
 
@@ -19,6 +20,7 @@ export const REGISTERED_MODULES: ModuleDefinition[] = [
   orgModuleDefinition,
   locationsModuleDefinition,
   codesModuleDefinition,
+  catalogItemsModuleDefinition,
 ]
 
 /** All registered module RouteObjects wrapped in ModuleGuard, for inclusion
