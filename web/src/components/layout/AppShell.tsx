@@ -1,4 +1,5 @@
-import { Outlet, NavLink } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/auth/AuthContext'
 import { P, useAccess, type Permission } from '@/auth/access'
@@ -6,6 +7,7 @@ import { ApiConnectivityBanner } from './ApiConnectivityBanner'
 import { TestEnvironmentBanner } from './TestEnvironmentBanner'
 import { SkipLink } from './SkipLink'
 import { TenantHeader } from './TenantHeader'
+import { TopBar } from '@/components/ui/TopBar'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { TenantSwitcher } from '@/auth/TenantSwitcher'
 import { dlqApi } from '@/api/dlq'
@@ -88,6 +90,18 @@ export function AppShell() {
   const access = useAccess()
   const tenantKeys = useTenantScopedQueryKeys()
   const { appName, logoUrl } = useBranding()
+  const [navOpen, setNavOpen] = useState(false)
+  const { pathname } = useLocation()
+  // The drawer closes on navigation and on Escape.
+  useEffect(() => setNavOpen(false), [pathname])
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNavOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navOpen])
   const { data: installedModules = [] } = useInstalledModules()
 
   const dlqThreshold = Number(import.meta.env.VITE_DLQ_ALERT_THRESHOLD ?? '10')
@@ -113,109 +127,61 @@ export function AppShell() {
     .filter((g) => g.items.length > 0)
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div className={navOpen ? 'lf-app is-nav-open' : 'lf-app'}>
       <SkipLink label="Skip to main content" />
-      {/* Sidebar */}
-      <aside
-        style={{
-          width: '220px',
-          background: 'var(--surface-sidebar)',
-          color: 'var(--on-night-muted)',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '1.5rem 0',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ padding: '0 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 700, fontSize: '1.1rem', color: 'var(--on-night)' }}>
-          {logoUrl != null && (
-            <img src={logoUrl} alt={appName} style={{ height: '1.5rem', width: 'auto' }} />
-          )}
-          {appName}
+      {/* Sidebar: night in both themes; a drawer under 900px (is-nav-open on .lf-app). */}
+      <aside className="lf-sidenav lf-night" id="app-sidenav" data-testid="sidenav">
+        <div className="lf-sidenav__brand">
+          <div className="lf-sidenav__tenant">
+            {logoUrl != null && <img src={logoUrl} alt={appName} height={24} />}
+            {appName}
+          </div>
+          <TenantHeader />
+          <TenantSwitcher />
         </div>
 
-        <TenantHeader />
-        <TenantSwitcher />
-
-        <nav style={{ flex: 1 }}>
+        <nav aria-label="Main">
           {visibleGroups.map((g) => (
-            <div key={g.id} role="group" aria-label={g.label} data-testid={`nav-group-${g.id}`}>
-              <div style={{ padding: '.75rem 1.25rem .25rem', fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--on-night-muted)' }}>
-                {g.label}
-              </div>
+            <div key={g.id} className="lf-sidenav__group" role="group" aria-label={g.label} data-testid={`nav-group-${g.id}`}>
+              <div className="lf-sidenav__label">{g.label}</div>
               {g.items.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              style={({ isActive }) => ({
-                display: 'block',
-                padding: '.5rem 1.25rem',
-                color: isActive ? 'var(--on-night)' : 'var(--on-night-muted)',
-                background: isActive ? 'var(--color-sidebar-active)' : 'transparent',
-                textDecoration: 'none',
-                fontSize: '.9rem',
-                borderLeft: isActive ? '3px solid var(--interactive-primary)' : '3px solid transparent',
-              })}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem' }}>
-                {n.label}
-                {n.to === '/dlq' && dlqSeverity !== 'none' && (
-                  <span
-                    style={{
-                      minWidth: '1.25rem',
-                      padding: '0 .35rem',
-                      borderRadius: '999px',
-                      fontSize: '.72rem',
-                      lineHeight: '1.15rem',
-                      textAlign: 'center',
-                      fontWeight: 700,
-                      color: 'var(--text-primary)',
-                      background: dlqSeverity === 'critical' ? 'var(--color-error)' : 'var(--color-warning)',
-                    }}
-                    aria-label={`DLQ pending count ${pendingDlqCount}`}
-                  >
-                    {pendingDlqCount}
-                  </span>
-                )}
-              </span>
-            </NavLink>
+                <NavLink key={n.to} to={n.to} className="lf-sidenav__item">
+                  <span>{n.label}</span>
+                  {n.to === '/dlq' && dlqSeverity !== 'none' && (
+                    <span
+                      className={dlqSeverity === 'critical' ? 'lf-pill lf-pill--danger' : 'lf-pill lf-pill--warning'}
+                      aria-label={`DLQ pending count ${pendingDlqCount}`}
+                    >
+                      {pendingDlqCount}
+                    </span>
+                  )}
+                </NavLink>
               ))}
             </div>
           ))}
         </nav>
 
-        <div style={{ padding: '.75rem 1.25rem', borderTop: '1px solid var(--color-sidebar-active)', fontSize: '.8rem', color: 'var(--on-night-muted)' }}>
-          <div
-            data-testid="user-display-name"
-            style={{ marginBottom: '.25rem', color: 'var(--on-night-muted)' }}
-          >
-            {session?.display_name}
-          </div>
-          <div
-            data-testid="user-roles"
-            style={{ marginBottom: '.5rem', color: 'var(--on-night-muted)', fontSize: '.75rem' }}
-          >
-            {access.roles.join(', ')}
-          </div>
-          <button
-            data-testid="logout-button"
-            onClick={logout}
-            style={{ background: 'none', border: 'none', color: 'var(--on-night-muted)', cursor: 'pointer', padding: 0, fontSize: '.8rem' }}
-          >
-            Sign out
-          </button>
-          <div style={{ marginTop: 'var(--space-2)' }}>
+        <div className="lf-sidenav__foot">
+          <div data-testid="user-display-name">{session?.display_name}</div>
+          <div data-testid="user-roles">{access.roles.join(', ')}</div>
+          <div className="lf-btn-row">
+            <button type="button" data-testid="logout-button" className="lf-btn lf-btn--ghost lf-btn--s" onClick={logout}>
+              Sign out
+            </button>
             <ThemeToggle />
           </div>
         </div>
       </aside>
+      {navOpen && <div className="lf-scrim" data-testid="nav-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />}
 
-      {/* Main content */}
-      <main id="main-content" tabIndex={-1} style={{ flex: 1, overflow: 'auto', background: 'var(--surface-page)' }}>
-        <TestEnvironmentBanner />
-        <ApiConnectivityBanner />
-        <Outlet />
-      </main>
+      <div className="lf-main">
+        <TopBar menuOpen={navOpen} onMenuToggle={() => setNavOpen((o) => !o)} menuControls="app-sidenav" />
+        <main id="main-content" className="lf-content" tabIndex={-1}>
+          <TestEnvironmentBanner />
+          <ApiConnectivityBanner />
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }

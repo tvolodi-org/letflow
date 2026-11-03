@@ -22,9 +22,26 @@ export const PLATFORM_DEFAULT_APP_NAME = 'Letflow'
  */
 export const BRAND_COLOR_CSS_PROPERTY: Readonly<Record<'primary' | 'secondary', string>> =
   Object.freeze({
-    primary: '--color-brand-600',
+    primary: '--tenant-current',
+    // Kept in the allowlist (the server still sends it) but no component reads it: an unused promise
+    // (NOTES.md section 3.4). It is not a fixed Letflow value and has no defined use yet.
     secondary: '--color-brand-secondary',
   })
+
+/**
+ * Partners derived in applyBranding.ts from the primary colour (task S0e). Only the CSS property they
+ * write to is listed here; the allowlist above stays closed. The `-dark` set feeds the dark theme.
+ */
+export const TENANT_DERIVED_CSS_PROPERTY = Object.freeze({
+  current: '--tenant-current',
+  currentStrong: '--tenant-current-strong',
+  currentTint: '--tenant-current-tint',
+  onCurrent: '--tenant-on-current',
+  currentDark: '--tenant-current-dark',
+  currentStrongDark: '--tenant-current-strong-dark',
+  currentTintDark: '--tenant-current-tint-dark',
+  onCurrentDark: '--tenant-on-current-dark',
+})
 
 /** The shape published via BrandingContext to consumers (e.g. AppShell). */
 export interface BrandingContextValue {

@@ -6,8 +6,8 @@
  * old name still used in web/src.
  *
  * Aliases are resolved on :root, so they follow data-theme set on <html>, not on a nested element.
- * The tenant branding allowlist still writes --color-brand-600 / --color-brand-secondary inline on
- * <html>; the chain below keeps that working (task S0e moves it to --tenant-current).
+ * The tenant branding allowlist still writes --tenant-current (+ derived partners) / --color-brand-secondary inline on
+ * <html>; the chain below keeps that working (done in S0e).
  *
  * Mapping choices not given by NOTES.md section 4 (the design is silent): the --color-neutral-*
  * greys follow their role (paper, line, ink) so dark works; --color-*-border and *-text map to the

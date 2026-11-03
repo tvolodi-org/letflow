@@ -1,4 +1,5 @@
-import { defineConfig, type Plugin } from 'vite'
+import { type Plugin } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 import { readFileSync } from 'fs'
@@ -39,12 +40,48 @@ function exprManifestPlugin(): Plugin {
   }
 }
 
+// Task S0e: the tenant-colour contrast check needs the fixed Letflow values (paper-raised and the default
+// on-current of each theme). They are read from the generated tokens.css at build time, never copied by
+// hand. (`?raw` on a .css file is empty under vitest, hence a virtual module.)
+const TENANT_THEME_VIRTUAL_ID = 'virtual:letflow-theme-tokens'
+
+function themeTokensPlugin(): Plugin {
+  const cssPath = resolve(__dirname, 'src', 'styles', 'tokens.css')
+  const pick = (name: string, last: boolean): string => {
+    const css = readFileSync(cssPath, 'utf-8')
+    const all = [...css.matchAll(new RegExp(`--${name}:\\s*(?:var\\([^,]+,\\s*)?(#[0-9a-fA-F]{6})`, 'g'))]
+    const m = last ? all[all.length - 1] : all[0]
+    if (!m) throw new Error(`tokens.css does not define --${name}`)
+    return m[1]
+  }
+  return {
+    name: 'letflow-theme-tokens',
+    resolveId(id) {
+      return id === TENANT_THEME_VIRTUAL_ID ? '\0' + id : null
+    },
+    load(id) {
+      if (id !== '\0' + TENANT_THEME_VIRTUAL_ID) return null
+      // First occurrence in tokens.css is the light theme, the last one the dark theme.
+      return `export default ${JSON.stringify({
+        paperRaisedLight: pick('paper-raised', false),
+        paperRaisedDark: pick('paper-raised', true),
+        onCurrentLight: pick('on-current', false),
+        onCurrentDark: pick('on-current', true),
+      })}`
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), exprManifestPlugin()],
+  plugins: [react(), exprManifestPlugin(), themeTokensPlugin()],
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
     },
+  },
+  test: {
+    // lf.sh caps workers with VITEST_MAX_FORKS/THREADS; a minimum above that cap makes tinypool throw.
+    poolOptions: { forks: { minForks: 1 }, threads: { minThreads: 1 } },
   },
   build: {
     rollupOptions: {

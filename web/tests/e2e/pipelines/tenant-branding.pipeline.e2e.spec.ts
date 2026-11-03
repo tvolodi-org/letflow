@@ -20,7 +20,7 @@
  *   - Contract regression guard (ISS-0887): a real GUI save through this
  *     screen must actually persist, not just report success client-side.
  *     None of the three tests above ever reads back a persisted value — they
- *     only read the client-side `--color-brand-600` DOM custom property,
+ *     only read the client-side `--tenant-current` DOM custom property,
  *     which `applyBrandingColors` writes on the mutation's `onSuccess`
  *     regardless of whether the PATCH body was recognized by the router.
  *     That gap is exactly why ISS-0887 (the web client sending a
@@ -58,7 +58,7 @@ const FAILING_COLOR = '#228be6' // matches tenant_settings_test.exs's AC2 reject
 
 async function readAppliedPrimary(page: import('@playwright/test').Page): Promise<string> {
   return page.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue('--color-brand-600').trim(),
+    getComputedStyle(document.documentElement).getPropertyValue('--tenant-current').trim(),
   )
 }
 
@@ -95,7 +95,7 @@ test.describe('Pipeline: tenant-branding-applied (PW-14)', () => {
     // No page.reload() here, deliberately -- a reload would also happen to
     // show the right colour via BrandingProvider's own effect, which would
     // stop this test from proving AC1's actual "no full reload" requirement.
-    // Reading the SAME --color-brand-600 custom property the preview swatch
+    // Reading the SAME --tenant-current custom property the preview swatch
     // itself renders from is the direct proof AC1 requires: "reflected
     // somewhere on the same screen" without a reload.
     await expect.poll(() => readAppliedPrimary(page)).toBe(newColor)

@@ -98,9 +98,10 @@ defmodule Letflow.Ledger.Validate do
   defp check_client_op_id(command) do
     case Map.get(command, :client_op_id) do
       id when is_binary(id) ->
-        if byte_size(id) in 1..128 and String.valid?(id) and not Regex.match?(@control, id),
-          do: :ok,
-          else: invalid(:client_op_id_invalid)
+        if byte_size(id) in 1..128 and String.valid?(id) and not Regex.match?(@control, id) and
+             not String.starts_with?(id, "sys:"),
+           do: :ok,
+           else: invalid(:client_op_id_invalid)
 
       _ ->
         invalid(:client_op_id_invalid)

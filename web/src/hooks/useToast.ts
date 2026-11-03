@@ -6,7 +6,7 @@
  *  <ToastProvider> wrapper.
  */
 
-export type ToastVariant = 'success' | 'error' | 'warning'
+export type ToastVariant = 'success' | 'info' | 'error' | 'warning'
 
 export interface ToastOptions {
   description?: string
@@ -23,15 +23,18 @@ export interface ToastEntry {
 
 export interface UseToastResult {
   success: (message: string, options?: ToastOptions) => void
+  info: (message: string, options?: ToastOptions) => void
   error: (message: string, options?: ToastOptions) => void
   warning: (message: string, options?: ToastOptions) => void
 }
 
-// Timing table (design §3.4): non-error variants dismiss after 4s, error after 8s.
+// Timing table (NOTES.md section 2): success/info/warning close after 4s; an error stays
+// until it is dismissed (durationMs 0 = no timer).
 const DURATION_MS: Record<ToastVariant, number> = {
   success: 4000,
+  info: 4000,
   warning: 4000,
-  error: 8000,
+  error: 0,
 }
 
 let entries: ReadonlyArray<ToastEntry> = []
@@ -94,8 +97,10 @@ function addToast(variant: ToastVariant, message: string, options?: ToastOptions
   }
   entries = next
 
-  const handle = setTimeout(() => dismissToast(id), entry.durationMs)
-  timeouts.set(id, handle)
+  if (entry.durationMs > 0) {
+    const handle = setTimeout(() => dismissToast(id), entry.durationMs)
+    timeouts.set(id, handle)
+  }
 
   notify()
 }
@@ -114,6 +119,7 @@ export function getToastSnapshot(): ReadonlyArray<ToastEntry> {
 export function useToast(): UseToastResult {
   return {
     success: (message, options) => addToast('success', message, options),
+    info: (message, options) => addToast('info', message, options),
     error: (message, options) => addToast('error', message, options),
     warning: (message, options) => addToast('warning', message, options),
   }

@@ -113,12 +113,8 @@ describe('RND-UI-06 §12.2 — error-mode regressions', () => {
     )
     fireEvent.click(screen.getByTestId('conflict-discard'))
     const confirmBtn = screen.getByTestId('confirm-dialog-confirm')
-    // The ConflictResolver wires confirmVariant="danger" — the ConfirmDialog
-    // applies background #dc2626 (→ rgb(220, 38, 38) in jsdom) to the confirm
-    // button. We assert the rendered style contains that colour.
-    const style = confirmBtn.getAttribute('style') ?? ''
-    // After token migration, ConfirmDialog uses var(--interactive-danger) instead of
-    // the literal hex; jsdom does not resolve CSS vars so we accept either form.
-    expect(style).toMatch(/background:\s*(?:#dc2626|rgb\(220,\s*38,\s*38\)|var\(--interactive-danger\))/i)
+    // The ConflictResolver wires confirmVariant="danger"; the design-system Dialog renders
+    // that as the danger button class (colours come from components.css tokens).
+    expect(confirmBtn).toHaveClass('lf-btn', 'lf-btn--danger')
   })
 })
