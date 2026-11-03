@@ -38,3 +38,13 @@ cp <dir>/img/* <repo>/web/public/brand/
 - Tenant branding writes `--tenant-current` (and the derived `-strong`, `-tint`, `--tenant-on-current` and the `-dark` set) from
   `primary`; a colour that gives under 4.5:1 for on-current text on paper-raised is refused and the Letflow teal stays.
   `secondary` stays in the allowlist but is unused.
+
+
+## Data-display components (T-1166)
+
+In `web/src/components/ui/`, styled only by `components.css` classes: `DataTable` (sort, selected, error/retired rows,
+density, skeleton rows, empty, load error with retry), `PaginationControls`, `FilterBar` (layout only; chips with
+remove; clear only when a filter is active), `StatusPill` (tone + glyph + word), `Tabs`, `TreeView`, `EmptyState`,
+`Skeleton`, `Tally`, `Steps`. `StatusBadge` is now a thin wrapper over `StatusPill` until its callers move to a
+per-module tone/glyph map. Fixed labels (Previous, Try again, Expand...) have English defaults and a `labels` prop;
+the page passes the translated text.

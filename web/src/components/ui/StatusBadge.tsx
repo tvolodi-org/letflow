@@ -1,15 +1,14 @@
-/** StatusBadge — design-system primitive (REQ-272, docs/frontend/design-system.md §5)
+/** StatusBadge — thin wrapper over StatusPill, kept until callers migrate to a
+ *  per-module pill map (NOTES.md §2: StatusPill replaces StatusBadge).
  *
- *  Resolves a (domain, status) pair to a background/text/dot token triple per
- *  §5.1 (definition), §5.2 (instance), §5.3 (task — no dot column). `timer`
- *  and `dlq` domains appear in §5.4's API but have no status table anywhere
- *  in design-system.md (spec gap, not an omission here) — any status in
- *  those domains, and any unrecognised status in a domain that does have a
- *  table, falls back to a defined neutral badge rather than throwing or
- *  rendering undefined styles.
+ *  Resolves a (domain, status) pair to a pill tone + glyph (the old §5 tables,
+ *  re-made for the new look). The word shown is the status itself. `timer`/`dlq`
+ *  domains and any unrecognised status fall back to a neutral ring pill.
+ *  `size` is accepted for source compatibility; pills have one size.
  */
 
 import React from 'react'
+import { StatusPill, type StatusGlyph, type StatusTone } from './StatusPill'
 
 export type StatusBadgeDomain = 'definition' | 'instance' | 'task' | 'timer' | 'dlq' | 'rollout' | 'rollout-outcome' | 'event-retirement' | 'event-retirement-outcome'
 
@@ -20,82 +19,65 @@ export interface StatusBadgeProps {
 }
 
 interface ResolvedStatus {
-  background: string
-  text: string
-  dot?: string
-  pulse?: boolean
+  tone: StatusTone
+  glyph: StatusGlyph
 }
 
-const FALLBACK: ResolvedStatus = {
-  background: 'var(--color-neutral-100)',
-  text: 'var(--text-secondary)',
-}
+const FALLBACK: ResolvedStatus = { tone: 'neutral', glyph: 'ring' }
+
+const ok: ResolvedStatus = { tone: 'success', glyph: 'dot' }
+const active: ResolvedStatus = { tone: 'info', glyph: 'half' }
+const bad: ResolvedStatus = { tone: 'danger', glyph: 'triangle' }
+const off: ResolvedStatus = { tone: 'neutral', glyph: 'dash' }
 
 const DEFINITION_STATUSES: Record<string, ResolvedStatus> = {
-  DRAFT: { background: 'var(--color-neutral-100)', text: 'var(--text-secondary)', dot: 'var(--color-neutral-500)' },
-  ACTIVE: { background: 'var(--color-success-light)', text: 'var(--color-success-dark)', dot: 'var(--color-success)' },
-  DEPRECATED: { background: 'var(--color-warning-light)', text: 'var(--color-warning-dark)', dot: 'var(--color-warning)' },
-  ARCHIVED: { background: 'var(--color-neutral-200)', text: 'var(--color-neutral-600)', dot: 'var(--color-neutral-400)' },
+  DRAFT: { tone: 'neutral', glyph: 'ring' },
+  ACTIVE: ok,
+  DEPRECATED: { tone: 'warning', glyph: 'half' },
+  ARCHIVED: off,
 }
 
 const INSTANCE_STATUSES: Record<string, ResolvedStatus> = {
-  ACTIVE: { background: 'var(--color-info-light)', text: 'var(--color-info-dark)', dot: 'var(--color-info)', pulse: true },
-  COMPLETED: { background: 'var(--color-success-light)', text: 'var(--color-success-dark)', dot: 'var(--color-success)', pulse: false },
-  CANCELLED: { background: 'var(--color-neutral-200)', text: 'var(--color-neutral-600)', dot: 'var(--color-neutral-400)', pulse: false },
-  ERROR: { background: 'var(--color-error-light)', text: 'var(--color-error-dark)', dot: 'var(--color-error)', pulse: false },
+  ACTIVE: active,
+  COMPLETED: ok,
+  CANCELLED: off,
+  ERROR: bad,
 }
 
-// Task domain has no Dot column in §5.3 — entries deliberately omit `dot`.
 const TASK_STATUSES: Record<string, ResolvedStatus> = {
-  PENDING: { background: 'var(--color-info-light)', text: 'var(--color-info-dark)' },
-  COMPLETED: { background: 'var(--color-success-light)', text: 'var(--color-success-dark)' },
-  CANCELLED: { background: 'var(--color-neutral-200)', text: 'var(--color-neutral-600)' },
+  PENDING: active,
+  COMPLETED: ok,
+  CANCELLED: off,
 }
 
-// REQ-375 §2/§7 — two DISTINCT enums live on a RolloutResult, and mixing them
-// under one domain table was a bug a REVIEWER caught (rollout.status is
-// 'running'|'completed'; outcome.status is 'pending'|'succeeded'|'failed' —
-// disjoint value sets, so one shared table silently fell through to
-// FALLBACK for every rollout-level badge). Two separate tables/domains now:
-
-// `rollout` domain — RolloutSummaryHeader's own rollout.status badge.
+// REQ-375: `rollout.status` and `outcome.status` are two DISJOINT enums, so
+// they stay two separate tables (one shared table fell through to FALLBACK).
 const ROLLOUT_STATUSES: Record<string, ResolvedStatus> = {
-  running: { background: 'var(--color-info-light)', text: 'var(--color-info-dark)', dot: 'var(--color-info)', pulse: true },
-  completed: { background: 'var(--color-success-light)', text: 'var(--color-success-dark)', dot: 'var(--color-success)' },
+  running: active,
+  completed: ok,
 }
 
-// `rollout-outcome` domain — RolloutOutcomeTable's per-company status column.
-// Maps REQ-374's own outcome-status enum (~w(pending succeeded failed)) onto
-// existing tokens, matching the neutral/success/error convention the other
-// domain tables above already use.
 const ROLLOUT_OUTCOME_STATUSES: Record<string, ResolvedStatus> = {
-  succeeded: { background: 'var(--color-success-light)', text: 'var(--color-success-dark)', dot: 'var(--color-success)' },
-  failed: { background: 'var(--color-error-light)', text: 'var(--color-error-dark)', dot: 'var(--color-error)' },
-  pending: { background: 'var(--color-info-light)', text: 'var(--color-info-dark)', dot: 'var(--color-info)', pulse: true },
+  succeeded: ok,
+  failed: bad,
+  pending: active,
 }
 
-// REQ-377 -- `event-retirement` domain: EventHistoryRetirement.status
-// ('running'|'completed'|'failed'), disjoint from the per-tenant outcome
-// enum below. Mirrors the rollout/rollout-outcome split above for the same
-// reason (two distinct enums must not share one lookup table).
+// REQ-377: EventHistoryRetirement.status and its per-tenant outcome enum.
 const EVENT_RETIREMENT_STATUSES: Record<string, ResolvedStatus> = {
-  running: { background: 'var(--color-info-light)', text: 'var(--color-info-dark)', dot: 'var(--color-info)', pulse: true },
-  completed: { background: 'var(--color-success-light)', text: 'var(--color-success-dark)', dot: 'var(--color-success)' },
-  failed: { background: 'var(--color-error-light)', text: 'var(--color-error-dark)', dot: 'var(--color-error)' },
+  running: active,
+  completed: ok,
+  failed: bad,
 }
 
-// `event-retirement-outcome` domain -- RetirementStatusPanel's per-tenant
-// outcome table status column (~w(pending succeeded skipped failed)).
 const EVENT_RETIREMENT_OUTCOME_STATUSES: Record<string, ResolvedStatus> = {
-  succeeded: { background: 'var(--color-success-light)', text: 'var(--color-success-dark)', dot: 'var(--color-success)' },
-  skipped: { background: 'var(--color-neutral-200)', text: 'var(--color-neutral-600)', dot: 'var(--color-neutral-400)' },
-  failed: { background: 'var(--color-error-light)', text: 'var(--color-error-dark)', dot: 'var(--color-error)' },
-  pending: { background: 'var(--color-info-light)', text: 'var(--color-info-dark)', dot: 'var(--color-info)', pulse: true },
+  succeeded: ok,
+  skipped: off,
+  failed: bad,
+  pending: active,
 }
 
-// timer/dlq: no status table exists anywhere in design-system.md (spec gap,
-// tracked as OQ-3 in lib/letflow/design/req272-design-system-primitives-group1.md).
-// Every status in these domains resolves through FALLBACK below.
+// timer/dlq: no status table exists in the spec; every status falls back.
 const STATUS_TABLES: Partial<Record<StatusBadgeDomain, Record<string, ResolvedStatus>>> = {
   definition: DEFINITION_STATUSES,
   instance: INSTANCE_STATUSES,
@@ -107,8 +89,7 @@ const STATUS_TABLES: Partial<Record<StatusBadgeDomain, Record<string, ResolvedSt
 }
 
 function resolveStatus(domain: StatusBadgeDomain, status: string): ResolvedStatus {
-  const table = STATUS_TABLES[domain]
-  const resolved = table?.[status]
+  const resolved = STATUS_TABLES[domain]?.[status]
   if (resolved) return resolved
 
   if (import.meta.env.DEV) {
@@ -117,56 +98,17 @@ function resolveStatus(domain: StatusBadgeDomain, status: string): ResolvedStatu
   return FALLBACK
 }
 
-interface SizeStyle {
-  padding: string
-  fontSize: string
-  dotDiameter: string
-}
-
-const SIZE_STYLES: Record<NonNullable<StatusBadgeProps['size']>, SizeStyle> = {
-  sm: { padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-xs)', dotDiameter: '6px' },
-  md: { padding: 'var(--space-1) var(--space-3)', fontSize: 'var(--text-sm)', dotDiameter: '8px' },
-}
-
 export function StatusBadge(props: StatusBadgeProps): React.ReactElement {
-  const { status, domain, size = 'md' } = props
-
-  const resolved = resolveStatus(domain, status)
-  const sizeStyle = SIZE_STYLES[size]
-
+  const { status, domain } = props
+  const { tone, glyph } = resolveStatus(domain, status)
   return (
-    <span
+    <StatusPill
+      tone={tone}
+      glyph={glyph}
       data-testid="status-badge"
-      data-status={status}
-      data-domain={domain}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 'var(--space-1)',
-        background: resolved.background,
-        color: resolved.text,
-        padding: sizeStyle.padding,
-        fontSize: sizeStyle.fontSize,
-        borderRadius: 'var(--radius-full)',
-      }}
+      dataAttributes={{ 'data-status': status, 'data-domain': domain }}
     >
-      {resolved.dot && (
-        <span
-          data-testid="status-badge-dot"
-          style={{
-            display: 'inline-block',
-            width: sizeStyle.dotDiameter,
-            height: sizeStyle.dotDiameter,
-            borderRadius: 'var(--radius-full)',
-            background: resolved.dot,
-            animation: resolved.pulse ? 'ds-status-badge-pulse 1.5s ease-in-out infinite' : undefined,
-          }}
-        />
-      )}
       {status}
-      <style>
-        {`@keyframes ds-status-badge-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.25); } }`}
-      </style>
-    </span>
+    </StatusPill>
   )
 }
