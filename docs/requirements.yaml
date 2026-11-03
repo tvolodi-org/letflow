@@ -48672,7 +48672,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-686 -- slice L5 lifts the SERVICE refusal that slice L3 (REQ-684, REQ-685, REQ-686) introduces; nothing to lift before L3 merges
+    gh: 3705
     description: >
       Slice L5 of the WMS stock ledger: the row "L5 | SERVICE-origin pre-locks and lifting the typed refusal (D-L12), with
       its 0061 amendment" of the slice table of decision 0073
