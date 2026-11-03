@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Org units · Letflow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script>/* set the theme before first paint (no light-to-dark flash or transition) */(function(){try{var t=new URLSearchParams(location.search).get("theme")||localStorage.getItem("lf-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()</script>
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/components.css">
+</head>
+<body>
+<div class="lf-app">
+  <nav class="lf-sidenav" aria-label="Main">
+    <div class="lf-sidenav__brand"><span class="lf-sidenav__tenant">Demo Holding</span><span class="lf-sidenav__ws">gate-a-demo</span></div>
+    <div class="lf-sidenav__group"><p class="lf-sidenav__label" data-t="nav.work">Work</p>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-building"/></svg><span data-t="nav.legal">Legal companies</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-map-pin"/></svg><span data-t="nav.sites">Sites</span></a>
+      <a class="lf-sidenav__item" href="org-units.html" aria-current="page"><svg class="lf-icon lf-icon--18"><use href="#i-network"/></svg><span data-t="nav.units">Org units</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-briefcase"/></svg><span data-t="nav.positions">Positions</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-users"/></svg><span data-t="nav.employees">Employees</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-layers"/></svg><span data-t="nav.locations">Locations</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-link"/></svg><span data-t="nav.links">Location links</span></a>
+      <a class="lf-sidenav__item" href="codes.html"><svg class="lf-icon lf-icon--18"><use href="#i-barcode"/></svg><span data-t="nav.codes">Codes</span></a>
+      <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-package"/></svg><span data-t="nav.lots">Lots</span></a>
+    </div>
+    <div class="lf-sidenav__group"><p class="lf-sidenav__label" data-t="nav.admin">Tenant administration</p>
+      <a class="lf-sidenav__item" href="import.html"><svg class="lf-icon lf-icon--18"><use href="#i-upload"/></svg><span data-t="nav.import">Import data</span></a>
+    </div>
+    <div class="lf-sidenav__foot"><span class="lf-wordmark"><svg class="lf-mark" viewBox="0 0 64 64" aria-hidden="true"><path class="lf-mark__line" d="M15 13 V34 a14 14 0 0 0 14 14 H38"/><circle class="lf-mark__token" cx="46.5" cy="48" r="8"/></svg>Letflow</span></div>
+  </nav>
+
+  <div class="lf-main">
+    <header class="lf-topbar">
+      <button class="lf-btn lf-btn--ghost lf-btn--icon lf-topbar__menu" aria-label="Menu"><svg class="lf-icon lf-icon--20"><use href="#i-menu"/></svg></button>
+      <nav class="lf-crumbs" aria-label="Breadcrumb"><a href="#" data-t="nav.work">Work</a><svg class="lf-icon"><use href="#i-chevron-right"/></svg><span aria-current="page" data-t="title">Org units</span></nav>
+      <div class="lf-topbar__end">
+        <details class="lf-lang"><summary aria-label="Language"><svg class="lf-icon"><use href="#i-globe"/></svg><span class="lf-lang__cur">EN</span></summary>
+          <div class="lf-lang__menu"><a class="lf-lang__item" data-lang-link="en">English<span class="lf-lang__code">EN</span><span></span></a><a class="lf-lang__item" data-lang-link="ru">Русский<span class="lf-lang__code">RU</span><span></span></a><a class="lf-lang__item" data-lang-link="kk">Қазақ тілі<span class="lf-lang__code">KK</span><span></span></a></div></details>
+        <button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Switch theme" data-theme-toggle><svg class="lf-icon"><use href="#i-moon"/></svg></button>
+        <span class="lf-avatar" title="gate-a-admin">GA</span>
+      </div>
+    </header>
+
+    <main class="lf-content" id="main">
+      <header class="lf-pagehead">
+        <div class="lf-pagehead__text">
+          <p class="eyebrow" data-t="eyebrow">Work · Org structure</p>
+          <h1 class="lf-pagehead__title" data-t="title">Org units</h1>
+          <p class="lf-pagehead__lede" data-t="lede">Departments and teams of both legal companies. Each unit belongs to one company and one site.</p>
+        </div>
+        <div class="lf-pagehead__actions">
+          <button class="lf-btn lf-btn--secondary"><svg class="lf-icon"><use href="#i-upload"/></svg><span data-t="importUnits">Import units</span></button>
+          <button class="lf-btn lf-btn--primary"><svg class="lf-icon"><use href="#i-plus"/></svg><span data-t="create">Create unit</span></button>
+        </div>
+      </header>
+
+      <div class="lf-md">
+        <!-- master: tree -->
+        <section class="lf-card lf-md__master" aria-labelledby="tree-h">
+          <div class="lf-md__tools">
+            <h2 class="sr-only" id="tree-h" data-t="treeTitle">Unit tree</h2>
+            <div class="lf-field"><label class="lf-label sr-only" for="q" data-t="search">Search units</label>
+              <div class="lf-control"><span class="lf-control__lead"><svg class="lf-icon"><use href="#i-search"/></svg></span><input id="q" placeholder="Search by name or code" data-t-ph="searchPh"></div></div>
+            <div class="lf-btn-row" style="justify-content:space-between">
+              <label class="lf-check"><input type="checkbox"> <span data-t="showRetired">Show retired</span></label>
+              <span class="caption lf-faint"><span class="mono">9</span> <span data-t="units">units</span></span>
+            </div>
+          </div>
+          <div class="lf-card__body">
+            <div class="lf-tree" role="tree" aria-labelledby="tree-h">
+              <div role="treeitem" aria-expanded="true" aria-level="1">
+                <div class="lf-tree__row" data-lvl="0" style="--lvl:0"><button class="lf-tree__toggle" tabindex="-1" aria-label="Collapse"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name" data-t="u.ho">Head office</span><span class="lf-tree__code">GATEA-OU-HO</span></span><span class="lf-tree__meta">1</span></div>
+                <div role="group">
+                  <div role="treeitem" aria-expanded="true" aria-level="2">
+                    <div class="lf-tree__row" style="--lvl:1"><button class="lf-tree__toggle" tabindex="-1" aria-label="Collapse"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name" data-t="u.fin">Finance department</span><span class="lf-tree__code">GATEA-OU-FIN</span></span><span class="lf-tree__meta">0</span></div>
+                    <div role="group">
+                      <div role="treeitem" aria-expanded="true" aria-level="3" aria-selected="true">
+                        <div class="lf-tree__row" style="--lvl:2" aria-selected="true" tabindex="0"><button class="lf-tree__toggle" tabindex="-1" aria-label="Collapse"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name" data-t="u.acc">Accounting</span><span class="lf-tree__code">GATEA-OU-ACC</span></span><span class="lf-tree__meta">3</span></div>
+                        <div role="group">
+                          <div role="treeitem" aria-level="4"><div class="lf-tree__row" style="--lvl:3"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name" data-t="u.pay">Payroll group</span><span class="lf-tree__code">GATEA-OU-PAY</span></span><span class="lf-tree__meta">1</span></div></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div role="treeitem" aria-level="2"><div class="lf-tree__row" style="--lvl:1"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name" data-t="u.it">IT department</span><span class="lf-tree__code">GATEA-OU-IT</span></span><span class="lf-tree__meta">1</span></div></div>
+                </div>
+              </div>
+              <div role="treeitem" aria-expanded="true" aria-level="1">
+                <div class="lf-tree__row" data-lvl="0" style="--lvl:0"><button class="lf-tree__toggle" tabindex="-1" aria-label="Collapse"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name" data-t="u.svc">Service company</span><span class="lf-tree__code">GATEA-OU-SVC</span></span><span class="lf-tree__meta">0</span></div>
+                <div role="group">
+                  <div role="treeitem" aria-expanded="true" aria-level="2">
+                    <div class="lf-tree__row" style="--lvl:1"><button class="lf-tree__toggle" tabindex="-1" aria-label="Collapse"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name" data-t="u.wh">Warehouse team</span><span class="lf-tree__code">GATEA-OU-WH</span></span><span class="lf-tree__meta">1</span></div>
+                    <div role="group">
+                      <div role="treeitem" aria-level="3"><div class="lf-tree__row" style="--lvl:2"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name" data-t="u.wha">Warehouse shift A</span><span class="lf-tree__code">GATEA-OU-WHA</span></span><span class="lf-tree__meta">1</span></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- detail -->
+        <section class="lf-card" aria-labelledby="d-h">
+          <div class="lf-detail-head">
+            <div class="lf-detail-head__title">
+              <span class="lf-detail-head__path" data-t="path">Head office / Finance department</span>
+              <h2 id="d-h" data-t="u.acc">Accounting</h2>
+            </div>
+            <div class="lf-btn-row">
+              <span class="lf-pill lf-pill--success"><span class="lf-glyph"></span><span data-t="active">Active</span></span>
+              <button class="lf-btn lf-btn--secondary lf-btn--s"><svg class="lf-icon"><use href="#i-plus"/></svg><span data-t="addChild">Add child</span></button>
+              <button class="lf-btn lf-btn--secondary lf-btn--s"><svg class="lf-icon"><use href="#i-move"/></svg><span data-t="move">Move</span></button>
+              <button class="lf-btn lf-btn--danger lf-btn--s"><svg class="lf-icon"><use href="#i-archive"/></svg><span data-t="retire">Retire</span></button>
+            </div>
+          </div>
+          <div style="padding: var(--space-4) var(--space-6) 0">
+            <div class="lf-tabs" role="tablist">
+              <button class="lf-tab" role="tab" aria-selected="true" data-t="tab.details">Details</button>
+              <button class="lf-tab" role="tab" aria-selected="false"><span data-t="tab.positions">Positions</span> <span class="lf-count">2</span></button>
+              <button class="lf-tab" role="tab" aria-selected="false"><span data-t="tab.employees">Employees</span> <span class="lf-count">3</span></button>
+              <button class="lf-tab" role="tab" aria-selected="false"><span data-t="tab.locations">Locations</span> <span class="lf-count">1</span></button>
+            </div>
+          </div>
+          <div class="lf-card__body">
+            <form class="lf-form" onsubmit="return false">
+              <div class="lf-banner lf-banner--danger" role="alert">
+                <svg class="lf-icon"><use href="#i-alert"/></svg>
+                <div><strong data-t="retireRefused">Not retired.</strong> <span data-t="retireReason">The unit still has active employees. Transfer them to another unit first.</span></div>
+                <button class="lf-btn lf-btn--ghost lf-btn--s" type="button" data-t="showEmployees">Show employees</button>
+              </div>
+              <div class="lf-form__section">
+                <div class="lf-form__row">
+                  <div class="lf-field lf-field--s"><label class="lf-label" for="code" data-t="f.code">Code</label>
+                    <div class="lf-control lf-control--readonly lf-control--mono"><input id="code" value="GATEA-OU-ACC" readonly aria-describedby="code-h"></div><span class="lf-hint" id="code-h" data-t="f.codeHint">Set once, cannot change.</span></div>
+                  <div class="lf-field lf-field--m"><label class="lf-label" for="name" data-t="f.name">Name</label>
+                    <div class="lf-control"><input id="name" value="Accounting"></div></div>
+                </div>
+              </div>
+              <div class="lf-form__section">
+                <p class="lf-form__title" data-t="f.place">Place in the structure</p>
+                <div class="lf-form__row">
+                  <div class="lf-field lf-field--m"><label class="lf-label" for="parent" data-t="f.parent">Parent unit</label>
+                    <div class="lf-control"><select id="parent"><option>Head office / Finance department</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div>
+                    <span class="lf-hint" data-t="f.parentHint">To change it, use Move: the whole branch moves with the unit.</span></div>
+                  <div class="lf-field lf-field--m"><label class="lf-label" for="le" data-t="f.legal">Legal company</label>
+                    <div class="lf-control"><select id="le"><option>GATEA-LE1 · Demo Holding LLP</option><option>GATEA-LE2 · Demo Service LLP</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div>
+                    <span class="lf-hint"><span data-t="f.bin">BIN</span> <span class="mono">163956876601</span></span></div>
+                </div>
+                <div class="lf-form__row">
+                  <div class="lf-field lf-field--m"><label class="lf-label" for="site" data-t="f.site">Site</label>
+                    <div class="lf-control"><select id="site"><option>GATEA-S-ALA · Almaty office</option><option>GATEA-S-AST · Astana depot</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div></div>
+                  <div class="lf-field lf-field--m"><label class="lf-label" for="ext" data-t="f.ext">External id <span class="lf-label__opt" data-t="optional">optional</span></label>
+                    <div class="lf-control lf-control--mono"><input id="ext" value="1C:000000117"></div></div>
+                </div>
+              </div>
+              <div class="lf-form__section">
+                <p class="lf-form__title" data-t="f.summary">In this unit</p>
+                <dl class="lf-dl">
+                  <dt data-t="tab.positions">Positions</dt><dd data-t="posList">Chief accountant, Accountant</dd>
+                  <dt data-t="tab.employees">Employees</dt><dd>Aigerim Seitkali, Dana Omarova, Yerlan Bekov</dd>
+                  <dt data-t="tab.locations">Locations</dt><dd data-t="locList">Room 201 (Kazakhstan / Almaty / Building 1 / Floor 2)</dd>
+                </dl>
+              </div>
+              <div class="lf-form__actions">
+                <button class="lf-btn lf-btn--primary" type="submit" data-t="save">Save</button>
+                <button class="lf-btn lf-btn--ghost" type="button" data-t="cancel">Cancel</button>
+                <span class="lf-hint" data-t="unsaved">1 unsaved change</span>
+              </div>
+            </form>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="lf-toasts" aria-live="polite">
+  <div class="lf-toast lf-toast--success" role="status"><svg class="lf-icon"><use href="#i-check-circle"/></svg><div><p class="lf-toast__title" data-t="toast.title">Unit moved</p><p class="lf-toast__body" data-t="toast.body">IT department is back under Head office.</p></div><button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Close"><svg class="lf-icon"><use href="#i-x"/></svg></button></div>
+</div>
+
+<script>
+window.LF_STRINGS = {
+  ru: {
+    'nav.work': 'Работа', 'nav.legal': 'Юридические лица', 'nav.sites': 'Площадки', 'nav.units': 'Организационные единицы', 'nav.positions': 'Должности', 'nav.employees': 'Сотрудники', 'nav.locations': 'Местоположения', 'nav.links': 'Связи местоположений', 'nav.codes': 'Коды', 'nav.lots': 'Партии', 'nav.admin': 'Администрирование', 'nav.import': 'Импорт данных',
+    'eyebrow': 'Работа · Оргструктура', 'title': 'Организационные единицы', 'lede': 'Отделы и группы обоих юридических лиц. Каждая единица относится к одному юрлицу и одной площадке.',
+    'importUnits': 'Импортировать единицы', 'create': 'Создать единицу', 'treeTitle': 'Дерево единиц', 'search': 'Поиск единиц', 'searchPh': 'Поиск по наименованию или коду', 'showRetired': 'Показать выведенные', 'units': 'единиц',
+    'u.ho': 'Головной офис', 'u.fin': 'Финансовый департамент', 'u.acc': 'Бухгалтерия', 'u.pay': 'Группа расчёта заработной платы', 'u.it': 'ИТ-департамент', 'u.svc': 'Сервисная компания', 'u.wh': 'Складская команда', 'u.wha': 'Складская смена А',
+    'path': 'Головной офис / Финансовый департамент', 'active': 'Действует', 'addChild': 'Добавить дочернюю', 'move': 'Переместить', 'retire': 'Вывести',
+    'tab.details': 'Сведения', 'tab.positions': 'Должности', 'tab.employees': 'Сотрудники', 'tab.locations': 'Местоположения',
+    'retireRefused': 'Не выведено.', 'retireReason': 'В единице ещё есть действующие сотрудники. Сначала переведите их в другую единицу.', 'showEmployees': 'Показать сотрудников',
+    'f.code': 'Код', 'f.codeHint': 'Задаётся один раз, изменить нельзя.', 'f.name': 'Наименование', 'f.place': 'Место в структуре', 'f.parent': 'Вышестоящая единица', 'f.parentHint': 'Чтобы изменить, используйте «Переместить»: ветка перемещается целиком.', 'f.legal': 'Юридическое лицо', 'f.bin': 'БИН', 'f.site': 'Площадка', 'f.ext': 'Внешний идентификатор', 'optional': 'необязательно', 'f.summary': 'В этой единице',
+    'posList': 'Главный бухгалтер, Бухгалтер', 'locList': 'Кабинет 201 (Казахстан / Алматы / Здание 1 / Этаж 2)',
+    'save': 'Сохранить', 'cancel': 'Отмена', 'unsaved': '1 несохранённое изменение', 'toast.title': 'Единица перемещена', 'toast.body': 'ИТ-департамент снова в головном офисе.'
+  },
+  kk: {
+    'nav.work': 'Жұмыс', 'nav.legal': 'Заңды тұлғалар', 'nav.sites': 'Алаңдар', 'nav.units': 'Ұйымдық бірліктер', 'nav.positions': 'Лауазымдар', 'nav.employees': 'Қызметкерлер', 'nav.locations': 'Орналасқан жерлер', 'nav.links': 'Орын байланыстары', 'nav.codes': 'Кодтар', 'nav.lots': 'Партиялар', 'nav.admin': 'Тенант әкімшілігі', 'nav.import': 'Деректерді импорттау',
+    'eyebrow': 'Жұмыс · Ұйымдық құрылым', 'title': 'Ұйымдық бірліктер', 'lede': 'Екі заңды тұлғаның бөлімдері мен топтары. Әр бірлік бір заңды тұлғаға және бір алаңға тиесілі.',
+    'importUnits': 'Бірліктерді импорттау', 'create': 'Бірлік жасау', 'treeTitle': 'Бірліктер ағашы', 'search': 'Бірліктерді іздеу', 'searchPh': 'Атауы немесе коды бойынша іздеу', 'showRetired': 'Шығарылғандарды көрсету', 'units': 'бірлік',
+    'u.ho': 'Бас кеңсе', 'u.fin': 'Қаржы департаменті', 'u.acc': 'Бухгалтерия', 'u.pay': 'Жалақы есептеу тобы', 'u.it': 'АТ департаменті', 'u.svc': 'Сервистік компания', 'u.wh': 'Қойма командасы', 'u.wha': 'Қойманың А ауысымы',
+    'path': 'Бас кеңсе / Қаржы департаменті', 'active': 'Белсенді', 'addChild': 'Еншілес бірлік қосу', 'move': 'Көшіру', 'retire': 'Шығару',
+    'tab.details': 'Мәліметтер', 'tab.positions': 'Лауазымдар', 'tab.employees': 'Қызметкерлер', 'tab.locations': 'Орындар',
+    'retireRefused': 'Шығарылмады.', 'retireReason': 'Бірлікте әлі белсенді қызметкерлер бар. Алдымен оларды басқа бірлікке ауыстырыңыз.', 'showEmployees': 'Қызметкерлерді көрсету',
+    'f.code': 'Код', 'f.codeHint': 'Бір рет беріледі, өзгертуге болмайды.', 'f.name': 'Атауы', 'f.place': 'Құрылымдағы орны', 'f.parent': 'Жоғары тұрған бірлік', 'f.parentHint': 'Өзгерту үшін «Көшіру» әрекетін пайдаланыңыз: тармақ толығымен көшеді.', 'f.legal': 'Заңды тұлға', 'f.bin': 'БСН', 'f.site': 'Алаң', 'f.ext': 'Сыртқы идентификатор', 'optional': 'міндетті емес', 'f.summary': 'Осы бірлікте',
+    'posList': 'Бас бухгалтер, Бухгалтер', 'locList': '201-бөлме (Қазақстан / Алматы / 1-ғимарат / 2-қабат)',
+    'save': 'Сақтау', 'cancel': 'Болдырмау', 'unsaved': '1 сақталмаған өзгеріс', 'toast.title': 'Бірлік көшірілді', 'toast.body': 'АТ департаменті қайтадан бас кеңседе.'
+  }
+};
+</script>
+<script src="nav-strings.js"></script>
+<script src="../demo.js"></script>
+</body>
+</html>

@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Letflow Platform style guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script>/* set the theme before first paint (no light-to-dark flash or transition) */(function(){try{var t=new URLSearchParams(location.search).get("theme")||localStorage.getItem("lf-theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()</script>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/components.css">
+<style>
+  /* Style-guide chrome only (not part of the system). Tokens only. */
+  .sg { max-width: 1240px; margin: 0 auto; padding: var(--space-12) var(--space-8) var(--space-24); display: grid; gap: var(--space-16); }
+  .sg-top { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-end; justify-content: space-between; }
+  .sg-top h1 { font-family: var(--font-display); font-weight: 600; font-size: 48px; line-height: 54px; letter-spacing: -0.015em; }
+  .sg-top p { color: var(--ink-muted); max-width: var(--measure); font: var(--type-body); margin-top: var(--space-2); }
+  .sg-toc { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font: var(--type-body-s); }
+  .sg-section { display: grid; gap: var(--space-6); scroll-margin-top: var(--space-8); }
+  .sg-head { display: grid; gap: var(--space-1); padding-top: var(--space-6); border-top: 2px solid var(--line-strong); }
+  .sg-head h2 { font: var(--type-heading-1); font-family: var(--font-display); }
+  .sg-head p { color: var(--ink-muted); max-width: var(--measure); font: var(--type-body); }
+  .sg-demo { align-content: start; padding: var(--space-6); background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); display: grid; gap: var(--space-6); }
+  .sg-demo--sunk { background: var(--paper); }
+  .sg-cap { font: var(--type-label); color: var(--ink-muted); margin-bottom: var(--space-2); }
+  .sg-row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+  .sg-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); }
+  .sg-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-6); }
+  .sg-sw { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-3); }
+  .sg-sw > div { border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; background: var(--paper-raised); }
+  .sg-sw i { display: block; height: 52px; border-bottom: 1px solid var(--line); }
+  .sg-sw b { display: block; padding: var(--space-2) var(--space-3) 0; font: var(--type-mono-s); color: var(--ink); font-weight: 500; }
+  .sg-sw small { display: block; padding: 0 var(--space-3) var(--space-2); font: var(--type-mono-s); color: var(--ink-faint); }
+  .sg-sw .is-plat b::after { content: " platform"; color: var(--ember-ink); }
+  .sg-type { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: var(--space-3) var(--space-6); align-items: baseline; }
+  .sg-type code { font: var(--type-mono-s); color: var(--ink-faint); }
+  .sg-space { display: grid; gap: var(--space-2); }
+  .sg-space div { display: grid; grid-template-columns: 140px auto; align-items: center; gap: var(--space-4); font: var(--type-mono-s); color: var(--ink-muted); }
+  .sg-space span { display: block; height: 12px; background: var(--current-tint); border: 1px solid var(--current); border-radius: 2px; }
+  .sg-themes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--line); }
+  .sg-themes > [data-theme] { padding: var(--space-6); display: grid; gap: var(--space-4); align-content: start; }
+  .sg-shell { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
+  .sg-shell .lf-app { min-height: 0; }
+  .sg-shell .lf-sidenav { position: static; height: auto; }
+  .sg-shell .lf-topbar { position: static; }
+  .sg-tenant { --tenant-current: #1f5f9e; --tenant-current-strong: #174a7c; --tenant-current-tint: #dbe6f2; --tenant-on-current: #f7f4ec;
+               --tenant-current-dark: #8ab8e8; --tenant-current-strong-dark: #b3d1f0; --tenant-current-tint-dark: #172a3e; --tenant-on-current-dark: #0b1a2b; }
+  @media (max-width: 900px) { .sg-grid2, .sg-grid3, .sg-themes { grid-template-columns: minmax(0, 1fr); } .sg { padding: var(--space-8) var(--space-4); } .sg-type { grid-template-columns: minmax(0, 1fr); gap: 0 0; } .sg-type code { margin-top: var(--space-3); } }
+</style>
+</head>
+<body>
+<main class="sg">
+<p class="eyebrow">Letflow platform design system, copy of 2026-11-03 of letflow-design</p>
+
+<header class="sg-top">
+  <div>
+    <p class="eyebrow">Letflow platform · design system v1</p>
+    <h1>Admin screens that look like Letflow.</h1>
+    <p>The front door's paper, ink and teal, made dense for trees, tables, forms and imports. Every value below comes from <code class="lf-code">tokens.css</code>; every class from <code class="lf-code">components.css</code>.</p>
+  </div>
+  <div class="sg-row">
+    <nav class="lf-seg" aria-label="Theme"><a href="?theme=light">Paper</a><a href="?theme=dark">Night</a></nav>
+  </div>
+</header>
+
+<nav class="sg-toc" aria-label="Sections">
+  <a href="#colors">Colours</a><a href="#type">Type</a><a href="#space">Spacing</a><a href="#themes">Light and dark</a><a href="#buttons">Buttons</a><a href="#fields">Fields</a><a href="#table">Data table</a><a href="#pills">Status pill</a><a href="#tabs">Tabs</a><a href="#tree">Tree</a><a href="#md">Master-detail</a><a href="#pagehead">Page header</a><a href="#import">Import wizard</a><a href="#dialog">Dialog</a><a href="#toast">Toast</a><a href="#nav">Side nav</a><a href="#lang">Language switch</a><a href="#tenant">Tenant brand</a>
+</nav>
+
+<!-- ============ COLOURS ============ -->
+<section class="sg-section" id="colors">
+  <div class="sg-head"><p class="eyebrow">01 — Colour</p><h2>Paper, ink and one teal.</h2>
+    <p>Ground is <code class="lf-code">paper</code>, everything you read or edit sits on <code class="lf-code">paper-raised</code>. Teal (<code class="lf-code">current</code>) means "you can act here". Status colours always come with a word and a shape.</p></div>
+  <div class="sg-demo">
+    <div><p class="sg-cap">Grounds and text</p>
+    <div class="sg-sw" data-sw="paper paper-raised paper-sunken row-hover line line-strong ink ink-muted ink-faint"></div></div>
+    <div><p class="sg-cap">Action and accent</p>
+    <div class="sg-sw" data-sw="current current-strong on-current current-tint ember ember-ink focus"></div></div>
+    <div><p class="sg-cap">Status (text on tint)</p>
+    <div class="sg-sw" data-sw="info info-tint warning warning-tint success success-tint danger danger-tint"></div></div>
+    <div><p class="sg-cap">Night (side nav) and overlays</p>
+    <div class="sg-sw" data-sw="night on-night on-night-muted current-on-night night-hover night-selected scrim"></div></div>
+  </div>
+</section>
+
+<!-- ============ TYPE ============ -->
+<section class="sg-section" id="type">
+  <div class="sg-head"><p class="eyebrow">02 — Type</p><h2>Geologica for titles, Onest for work, Plex Mono for codes.</h2>
+    <p>Admin screens live in <code class="lf-code">body-s</code> (14/22). Codes, BINs, EPCs and counts are always mono.</p></div>
+  <div class="sg-demo">
+    <div class="sg-type">
+      <code>heading-1 · 32/38</code><p class="heading-1">Ұйымдық бірліктер</p>
+      <code>heading-2 · 22/28</code><p class="heading-2">Организационные единицы</p>
+      <code>heading-3 · 18/24 · new</code><p class="heading-3">Accounting · Бухгалтерия</p>
+      <code>body · 16/26</code><p class="body">Each tenant gets its own workspace — Жұмыс ағыны ә ғ қ ң ө ұ ү һ і · 24 000 ₸</p>
+      <code>body-s · 14/22</code><p class="body-s">The unit still has active employees. В подразделении ещё есть сотрудники.</p>
+      <code>control · 15/22 · new</code><p class="control">Demo Holding LLP · ТОО «Демо Холдинг»</p>
+      <code>label · 13/18</code><p class="label">Legal company · Заңды тұлға</p>
+      <code>caption · 12/16</code><p class="caption lf-faint">Updated 3 min ago · 3 мин бұрын жаңартылды</p>
+      <code>eyebrow · mono</code><p class="eyebrow">Work · Org structure</p>
+      <code>mono · 13/20</code><p class="mono">E280116061B9D57E00000001 · BIN 163956876601</p>
+      <code>mono-s · 12/16 · new</code><p class="mono-s lf-faint">GATEA-OU-ACC</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SPACING ============ -->
+<section class="sg-section" id="space">
+  <div class="sg-head"><p class="eyebrow">03 — Space and size</p><h2>A 4px grid, with fixed sizes for dense parts.</h2>
+    <p>Spacing is the front door scale. The platform adds control, row and tree sizes so every table and form lines up.</p></div>
+  <div class="sg-grid2">
+    <div class="sg-demo"><div class="sg-space" data-space="space-1 space-2 space-3 space-4 space-6 space-8 space-12 space-16"></div></div>
+    <div class="sg-demo"><div class="sg-space" data-space="control-h-s control-h row-h-compact row-h tree-row-h tree-indent field-w-s field-w-m"></div></div>
+  </div>
+</section>
+
+<!-- ============ THEMES SIDE BY SIDE ============ -->
+<section class="sg-section" id="themes">
+  <div class="sg-head"><p class="eyebrow">04 — Paper and Night</p><h2>Same components, two themes.</h2>
+    <p>Set <code class="lf-code">data-theme="dark"</code> on any element, or follow the system setting. The side nav stays night in both.</p></div>
+  <div class="sg-themes">
+    <div data-theme="light" class="sg-mini">
+      <div class="sg-row"><button class="lf-btn lf-btn--primary">Assign</button><button class="lf-btn lf-btn--secondary">Release</button><button class="lf-btn lf-btn--danger">Retire</button></div>
+      <div class="lf-field"><label class="lf-label" for="t1">Exact value</label><div class="lf-control"><span class="lf-control__lead"><svg class="lf-icon"><use href="#i-search"/></svg></span><input id="t1" value="E280116061B9D57E00000001" class="mono"></div></div>
+      <div class="sg-row"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Assigned</span><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--ring"></span>Not assigned</span><span class="lf-pill lf-pill--danger"><span class="lf-glyph lf-glyph--triangle"></span>Refused</span><span class="lf-pill lf-pill--warning"><span class="lf-glyph lf-glyph--half"></span>Pending</span></div>
+      <div class="lf-banner lf-banner--danger"><svg class="lf-icon"><use href="#i-alert"/></svg><div>The unit still has active employees.</div></div>
+    </div>
+    <div data-theme="dark" class="sg-mini">
+      <div class="sg-row"><button class="lf-btn lf-btn--primary">Assign</button><button class="lf-btn lf-btn--secondary">Release</button><button class="lf-btn lf-btn--danger">Retire</button></div>
+      <div class="lf-field"><label class="lf-label" for="t2">Exact value</label><div class="lf-control"><span class="lf-control__lead"><svg class="lf-icon"><use href="#i-search"/></svg></span><input id="t2" value="E280116061B9D57E00000001" class="mono"></div></div>
+      <div class="sg-row"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Assigned</span><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--ring"></span>Not assigned</span><span class="lf-pill lf-pill--danger"><span class="lf-glyph lf-glyph--triangle"></span>Refused</span><span class="lf-pill lf-pill--warning"><span class="lf-glyph lf-glyph--half"></span>Pending</span></div>
+      <div class="lf-banner lf-banner--danger"><svg class="lf-icon"><use href="#i-alert"/></svg><div>The unit still has active employees.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ BUTTONS ============ -->
+<section class="sg-section" id="buttons">
+  <div class="sg-head"><p class="eyebrow">05 — Buttons</p><h2>One primary per area, verbs first.</h2>
+    <p>40px by default, 32px inside rows and toolbars, 44px on phones. Width follows the text: Russian and Kazakh labels never get cut.</p></div>
+  <div class="sg-demo">
+    <div><p class="sg-cap">Variants · default size</p>
+    <div class="sg-row"><button class="lf-btn lf-btn--primary"><svg class="lf-icon"><use href="#i-plus"/></svg>Create</button><button class="lf-btn lf-btn--secondary">Move</button><button class="lf-btn lf-btn--ghost">Cancel</button><button class="lf-btn lf-btn--danger">Retire</button><button class="lf-btn lf-btn--primary" disabled>Import</button><button class="lf-btn lf-btn--primary is-loading">Saving</button><button class="lf-btn lf-btn--secondary lf-btn--icon" aria-label="More actions"><svg class="lf-icon"><use href="#i-more"/></svg></button></div></div>
+    <div><p class="sg-cap">Russian and Kazakh, size s</p>
+    <div class="sg-row"><button class="lf-btn lf-btn--primary lf-btn--s">Изменить значение</button><button class="lf-btn lf-btn--secondary lf-btn--s">Освободить</button><button class="lf-btn lf-btn--secondary lf-btn--s">Үлгіні жүктеп алу</button><button class="lf-btn lf-btn--danger lf-btn--s">Пайдаланудан шығару</button><button class="lf-btn lf-btn--ghost lf-btn--s"><svg class="lf-icon"><use href="#i-history"/></svg>Тарих</button></div></div>
+  </div>
+</section>
+
+<!-- ============ FIELDS ============ -->
+<section class="sg-section" id="fields">
+  <div class="sg-head"><p class="eyebrow">06 — Fields</p><h2>Label on top, help below, error in words.</h2>
+    <p>Widths come from the content: <code class="lf-code">field-w-s</code> for codes and BINs, <code class="lf-code">field-w-m</code> for names, <code class="lf-code">field-w-l</code> at most.</p></div>
+  <div class="sg-demo">
+    <div class="lf-form__row">
+      <div class="lf-field lf-field--s"><label class="lf-label" for="f1">Code</label><div class="lf-control lf-control--readonly lf-control--mono"><input id="f1" value="GATEA-LE1" readonly></div><span class="lf-hint">Set once, cannot change.</span></div>
+      <div class="lf-field lf-field--m"><label class="lf-label" for="f2">Name</label><div class="lf-control"><input id="f2" value="Demo Holding LLP"></div></div>
+      <div class="lf-field lf-field--s lf-field--error"><label class="lf-label" for="f3">BIN</label><div class="lf-control lf-control--mono"><input id="f3" value="16395687660" aria-invalid="true" aria-describedby="f3e"></div><span class="lf-error" id="f3e"><svg class="lf-icon"><use href="#i-alert"/></svg>The BIN must be 12 digits.</span></div>
+    </div>
+    <div class="lf-form__row">
+      <div class="lf-field lf-field--m"><label class="lf-label" for="f4">Заңды тұлға</label><div class="lf-control"><select id="f4"><option>GATEA-LE2 · Demo Service LLP</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div><span class="lf-hint">Бірлік осы компанияға тиесілі болады.</span></div>
+      <div class="lf-field lf-field--m"><label class="lf-label" for="f5">Тип партии кодов</label><div class="lf-control"><select id="f5"><option>Штрихкод</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div></div>
+      <div class="lf-field lf-field--s"><label class="lf-label" for="f6">Expiry date <span class="lf-label__opt">optional</span></label><div class="lf-control"><input id="f6" placeholder="DD.MM.YYYY"></div></div>
+    </div>
+    <div class="lf-form__row">
+      <div class="lf-field lf-field--l"><label class="lf-label" for="f7">Значения, по одному в строке</label><div class="lf-control lf-control--mono"><textarea id="f7" class="mono">GATEA-BC-0004
+GATEA-BC-0005
+GATEA-BC-0006</textarea></div><span class="lf-hint">До 500 значений за один приём.</span></div>
+      <div class="lf-field" style="gap:var(--space-3)"><span class="lf-label">Options</span>
+        <label class="lf-check"><input type="checkbox" checked> Show retired</label>
+        <label class="lf-check"><input type="checkbox"> Шығарылғандарды көрсету</label>
+        <label class="lf-check"><input type="radio" name="r" checked> By org unit</label>
+        <label class="lf-check"><input type="radio" name="r"> By location</label>
+        <label class="lf-check lf-check--switch"><input type="checkbox" role="switch" checked> Compact rows</label>
+        <label class="lf-check"><input type="checkbox" disabled> Disabled option</label>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TABLE ============ -->
+<section class="sg-section" id="table">
+  <div class="sg-head"><p class="eyebrow">07 — Data table</p><h2>Rows you can scan, sort and act on.</h2>
+    <p>Hairline rows on <code class="lf-code">paper-raised</code>, a strong rule under the header, the selected row in <code class="lf-code">current-tint</code> with a 2px teal edge. On phones, rows stack into cards.</p></div>
+  <div class="sg-demo sg-demo--sunk">
+    <div class="lf-toolbar">
+      <div class="lf-field lf-field--m"><label class="lf-label" for="tq">Search</label><div class="lf-control"><span class="lf-control__lead"><svg class="lf-icon"><use href="#i-search"/></svg></span><input id="tq" placeholder="Code or name"></div></div>
+      <div class="lf-field lf-field--s"><label class="lf-label" for="ts">Status</label><div class="lf-control"><select id="ts"><option>All statuses</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div></div>
+      <div class="lf-toolbar__end"><span class="lf-chip">Unit: Accounting<button aria-label="Remove filter"><svg class="lf-icon"><use href="#i-x"/></svg></button></span><button class="lf-btn lf-btn--ghost lf-btn--s">Clear filters</button></div>
+    </div>
+    <div class="lf-table-wrap">
+      <table class="lf-table lf-table--stack">
+        <thead><tr><th class="is-check"><label class="lf-check"><input type="checkbox" aria-label="Select all"></label></th><th aria-sort="ascending"><button class="lf-sort">Code<svg class="lf-icon"><use href="#i-arrow-up"/></svg></button></th><th><button class="lf-sort">Name<svg class="lf-icon"><use href="#i-sort"/></svg></button></th><th>Org unit</th><th>Status</th><th class="is-end"><button class="lf-sort">Employees<svg class="lf-icon"><use href="#i-sort"/></svg></button></th><th class="is-actions"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+          <tr><td class="is-check"><label class="lf-check"><input type="checkbox" aria-label="Select"></label></td><td class="mono is-primary" data-label="Code">GATEA-P-ACC</td><td data-label="Name">Accountant</td><td data-label="Org unit">Accounting</td><td data-label="Status"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Active</span></td><td class="is-num" data-label="Employees">2</td><td class="is-actions"><button class="lf-btn lf-btn--secondary lf-btn--s">Edit</button></td></tr>
+          <tr class="is-selected" aria-selected="true"><td class="is-check"><label class="lf-check"><input type="checkbox" checked aria-label="Select"></label></td><td class="mono is-primary" data-label="Code">GATEA-P-CACC</td><td data-label="Name">Chief accountant</td><td data-label="Org unit">Accounting</td><td data-label="Status"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Active</span></td><td class="is-num" data-label="Employees">1</td><td class="is-actions"><button class="lf-btn lf-btn--secondary lf-btn--s">Edit</button></td></tr>
+          <tr><td class="is-check"><label class="lf-check"><input type="checkbox" aria-label="Select"></label></td><td class="mono is-primary" data-label="Code">GATEA-P-DIR</td><td data-label="Name">Director</td><td data-label="Org unit">Head office</td><td data-label="Status"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Active</span></td><td class="is-num" data-label="Employees">1</td><td class="is-actions"><button class="lf-btn lf-btn--secondary lf-btn--s">Edit</button></td></tr>
+          <tr class="is-retired"><td class="is-check"><label class="lf-check"><input type="checkbox" aria-label="Select"></label></td><td class="mono is-primary" data-label="Code">GATEA-P-OLD</td><td data-label="Name">Cashier</td><td data-label="Org unit">Accounting</td><td data-label="Status"><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--dash"></span>Retired</span></td><td class="is-num" data-label="Employees">0</td><td class="is-actions"><button class="lf-btn lf-btn--secondary lf-btn--s">Edit</button></td></tr>
+        </tbody>
+      </table>
+      <div class="lf-table-foot"><span>Showing <span class="mono">1–4</span> of <span class="mono">4</span> · 1 selected</span>
+        <nav class="lf-pager" aria-label="Pages"><button class="lf-pager__page" aria-label="Previous page" disabled><svg class="lf-icon"><use href="#i-chevron-left"/></svg></button><button class="lf-pager__page" aria-current="page">1</button><button class="lf-pager__page">2</button><button class="lf-pager__page" aria-label="Next page"><svg class="lf-icon"><use href="#i-chevron-right"/></svg></button></nav></div>
+    </div>
+    <div class="sg-grid2">
+      <div><p class="sg-cap">Loading (skeleton rows, no spinner)</p>
+        <div class="lf-table-wrap"><table class="lf-table"><thead><tr><th>Code</th><th>Name</th><th>Status</th></tr></thead><tbody>
+          <tr><td><span class="lf-skel" style="width:90px"></span></td><td><span class="lf-skel" style="width:140px"></span></td><td><span class="lf-skel" style="width:70px"></span></td></tr>
+          <tr><td><span class="lf-skel" style="width:80px"></span></td><td><span class="lf-skel" style="width:170px"></span></td><td><span class="lf-skel" style="width:70px"></span></td></tr>
+          <tr><td><span class="lf-skel" style="width:96px"></span></td><td><span class="lf-skel" style="width:120px"></span></td><td><span class="lf-skel" style="width:70px"></span></td></tr></tbody></table></div></div>
+      <div><p class="sg-cap">Empty (says what to do next)</p>
+        <div class="lf-table-wrap"><div class="lf-empty"><svg class="lf-icon lf-empty__icon"><use href="#i-link"/></svg><p class="lf-empty__title">No links yet</p><p class="lf-empty__text">Payroll group is not linked to any location. Link one so movements can use it.</p><button class="lf-btn lf-btn--secondary lf-btn--s"><svg class="lf-icon"><use href="#i-plus"/></svg>Link a location</button></div></div></div>
+    </div>
+    <div><p class="sg-cap">Load error (inline, with retry)</p>
+      <div class="lf-banner lf-banner--danger"><svg class="lf-icon"><use href="#i-alert"/></svg><div><strong>The list could not be loaded.</strong> The server did not answer. Your filters are kept.</div><button class="lf-btn lf-btn--secondary lf-btn--s">Try again</button></div></div>
+  </div>
+</section>
+
+<!-- ============ PILLS ============ -->
+<section class="sg-section" id="pills">
+  <div class="sg-head"><p class="eyebrow">08 — Status pill</p><h2>Colour, word and shape together.</h2>
+    <p>Filled dot: in force. Ring: not yet. Half: in progress. Triangle: needs action. Dash: ended. Never a fixed width.</p></div>
+  <div class="sg-demo">
+    <div class="sg-row"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Assigned</span><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--ring"></span>Not assigned</span><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--dash"></span>Retired</span><span class="lf-pill lf-pill--info"><span class="lf-glyph lf-glyph--half"></span>Updated</span><span class="lf-pill lf-pill--warning"><span class="lf-glyph lf-glyph--half"></span>Checking</span><span class="lf-pill lf-pill--danger"><span class="lf-glyph lf-glyph--triangle"></span>Refused</span><span class="lf-pill lf-pill--current"><span class="lf-glyph"></span>Created</span></div>
+    <div class="sg-row"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Назначен</span><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--ring"></span>Не назначен</span><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--dash"></span>Выведен</span><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Тағайындалған</span><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--ring"></span>Тағайындалмаған</span><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--dash"></span>Пайдаланудан шыққан</span><span class="lf-pill lf-pill--danger"><span class="lf-glyph lf-glyph--triangle"></span>Қабылданбады</span></div>
+  </div>
+</section>
+
+<!-- ============ TABS ============ -->
+<section class="sg-section" id="tabs">
+  <div class="sg-head"><p class="eyebrow">09 — Tabs</p><h2>Sections of one record, with counts.</h2>
+    <p>Tabs switch views of the same record. They scroll sideways on phones instead of wrapping.</p></div>
+  <div class="sg-demo">
+    <div class="lf-tabs" role="tablist"><button class="lf-tab" role="tab" aria-selected="true">Details</button><button class="lf-tab" role="tab" aria-selected="false">Positions <span class="lf-count">2</span></button><button class="lf-tab" role="tab" aria-selected="false">Employees <span class="lf-count">3</span></button><button class="lf-tab" role="tab" aria-selected="false">Locations <span class="lf-count">1</span></button></div>
+    <div class="lf-tabs" role="tablist"><button class="lf-tab" role="tab" aria-selected="false">Сведения</button><button class="lf-tab" role="tab" aria-selected="true">Должности <span class="lf-count">2</span></button><button class="lf-tab" role="tab" aria-selected="false">Сотрудники <span class="lf-count">3</span></button><button class="lf-tab" role="tab" aria-selected="false">Местоположения <span class="lf-count">1</span></button></div>
+  </div>
+</section>
+
+<!-- ============ TREE ============ -->
+<section class="sg-section" id="tree">
+  <div class="sg-head"><p class="eyebrow">10 — Tree view</p><h2>Hierarchies read as lines.</h2>
+    <p>Each level indents by <code class="lf-code">tree-indent</code> (20px) with a hairline guide. Arrow keys move, Right opens, Left closes, Enter selects. Names cut with an ellipsis; the full path is in the detail header.</p></div>
+  <div class="sg-grid2">
+    <div class="sg-demo">
+      <div class="lf-tree" role="tree" aria-label="Org units">
+        <div role="treeitem" aria-expanded="true" aria-level="1"><div class="lf-tree__row" data-lvl="0" style="--lvl:0"><button class="lf-tree__toggle" tabindex="-1" aria-label="Collapse"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">Head office</span><span class="lf-tree__code">GATEA-OU-HO</span></span><span class="lf-tree__meta">1</span></div>
+          <div role="group">
+            <div role="treeitem" aria-expanded="true" aria-level="2"><div class="lf-tree__row" style="--lvl:1"><button class="lf-tree__toggle" tabindex="-1" aria-label="Collapse"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">Finance department</span><span class="lf-tree__code">GATEA-OU-FIN</span></span><span class="lf-tree__meta">0</span></div>
+              <div role="group">
+                <div role="treeitem" aria-expanded="true" aria-level="3" aria-selected="true"><div class="lf-tree__row" style="--lvl:2" aria-selected="true" tabindex="0"><button class="lf-tree__toggle" tabindex="-1" aria-label="Collapse"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">Accounting</span><span class="lf-tree__code">GATEA-OU-ACC</span></span><span class="lf-tree__meta">3</span></div>
+                  <div role="group"><div role="treeitem" aria-level="4"><div class="lf-tree__row" style="--lvl:3"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name">Payroll group</span><span class="lf-tree__code">GATEA-OU-PAY</span></span><span class="lf-tree__meta">1</span></div></div></div>
+                </div>
+              </div>
+            </div>
+            <div role="treeitem" aria-expanded="false" aria-level="2"><div class="lf-tree__row" style="--lvl:1"><button class="lf-tree__toggle" tabindex="-1" aria-label="Expand"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">IT department</span><span class="lf-tree__code">GATEA-OU-IT</span></span><span class="lf-tree__meta">1</span></div><div role="group"><div role="treeitem"><div class="lf-tree__row" style="--lvl:2"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name">Help desk</span></span></div></div></div></div>
+          </div>
+        </div>
+        <div role="treeitem" aria-expanded="true" aria-level="1"><div class="lf-tree__row" data-lvl="0" style="--lvl:0"><button class="lf-tree__toggle" tabindex="-1" aria-label="Collapse"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">Service company</span><span class="lf-tree__code">GATEA-OU-SVC</span></span><span class="lf-tree__meta">0</span></div>
+          <div role="group"><div role="treeitem" aria-expanded="true" aria-level="2"><div class="lf-tree__row" style="--lvl:1"><button class="lf-tree__toggle" tabindex="-1" aria-label="Collapse"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">Warehouse team</span><span class="lf-tree__code">GATEA-OU-WH</span></span><span class="lf-tree__meta">2</span></div>
+            <div role="group"><div role="treeitem" aria-level="3"><div class="lf-tree__row" style="--lvl:2"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name">Warehouse shift A</span><span class="lf-tree__code">GATEA-OU-WHA</span></span><span class="lf-tree__meta">1</span></div></div>
+            <div role="treeitem" aria-level="3"><div class="lf-tree__row is-retired" style="--lvl:2"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name">Night shift</span><span class="lf-tree__code">GATEA-OU-WHN</span></span><span class="lf-pill lf-pill--neutral"><span class="lf-glyph lf-glyph--dash"></span>Retired</span></div></div></div></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="sg-demo">
+      <p class="sg-cap">Kazakh labels, location kinds</p>
+      <div class="lf-tree" role="tree" aria-label="Орналасқан жерлер">
+        <div role="treeitem" aria-expanded="true"><div class="lf-tree__row" data-lvl="0" style="--lvl:0"><button class="lf-tree__toggle" tabindex="-1" aria-label="Жабу"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">Қазақстан</span><span class="lf-tree__code">country</span></span></div>
+          <div role="group"><div role="treeitem" aria-expanded="true"><div class="lf-tree__row" style="--lvl:1"><button class="lf-tree__toggle" tabindex="-1"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">Алматы</span><span class="lf-tree__code">city</span></span></div>
+            <div role="group"><div role="treeitem" aria-expanded="true"><div class="lf-tree__row" style="--lvl:2"><button class="lf-tree__toggle" tabindex="-1"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">1-ғимарат</span><span class="lf-tree__code">building</span></span></div>
+              <div role="group"><div role="treeitem" aria-expanded="true"><div class="lf-tree__row" style="--lvl:3"><button class="lf-tree__toggle" tabindex="-1"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">2-қабат</span><span class="lf-tree__code">floor</span></span></div>
+                <div role="group"><div role="treeitem"><div class="lf-tree__row" style="--lvl:4" aria-selected="true"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name">201-бөлме, бухгалтерия және есеп бөлімі</span><span class="lf-tree__code">room</span></span></div></div></div></div></div></div></div></div></div>
+          <div role="group"><div role="treeitem" aria-expanded="false"><div class="lf-tree__row" style="--lvl:1"><button class="lf-tree__toggle" tabindex="-1"><svg class="lf-icon"><use href="#i-chevron-down"/></svg></button><span class="lf-tree__label"><span class="lf-tree__name">Астана</span><span class="lf-tree__code">city</span></span></div><div role="group"></div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MASTER-DETAIL ============ -->
+<section class="sg-section" id="md">
+  <div class="sg-head"><p class="eyebrow">11 — Master-detail form</p><h2>List on the left, the record on the right.</h2>
+    <p>The master column is <code class="lf-code">master-width</code> and scrolls on its own. The detail is a card: title with path, status, actions, tabs, then the form with its actions at the bottom. Full page: <a href="examples/org-units.html">Org units example</a>.</p></div>
+  <div class="sg-demo sg-demo--sunk">
+    <div class="lf-md" style="--master-width:280px">
+      <div class="lf-card"><div class="lf-md__tools"><div class="lf-field"><label class="lf-label sr-only" for="mq">Search units</label><div class="lf-control"><span class="lf-control__lead"><svg class="lf-icon"><use href="#i-search"/></svg></span><input id="mq" placeholder="Search units"></div></div></div>
+        <div class="lf-card__body"><div class="lf-tree" role="tree"><div role="treeitem"><div class="lf-tree__row" data-lvl="0" style="--lvl:0"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name">Head office</span></span></div></div><div role="treeitem"><div class="lf-tree__row" style="--lvl:1" aria-selected="true"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name">IT department</span></span></div></div><div role="treeitem"><div class="lf-tree__row" data-lvl="0" style="--lvl:0"><span class="lf-tree__leaf"></span><span class="lf-tree__label"><span class="lf-tree__name">Service company</span></span></div></div></div></div></div>
+      <div class="lf-card">
+        <div class="lf-detail-head"><div class="lf-detail-head__title"><span class="lf-detail-head__path">Head office / IT department</span><h2>IT department</h2></div><div class="lf-btn-row"><span class="lf-pill lf-pill--success"><span class="lf-glyph"></span>Active</span><button class="lf-btn lf-btn--secondary lf-btn--s"><svg class="lf-icon"><use href="#i-move"/></svg>Move</button></div></div>
+        <div class="lf-card__body"><div class="lf-form">
+          <div class="lf-form__row"><div class="lf-field lf-field--s"><label class="lf-label" for="m1">Code</label><div class="lf-control lf-control--readonly lf-control--mono"><input id="m1" value="GATEA-OU-IT" readonly></div></div><div class="lf-field lf-field--m"><label class="lf-label" for="m2">Name</label><div class="lf-control"><input id="m2" value="IT department"></div></div></div>
+          <div class="lf-form__actions"><button class="lf-btn lf-btn--primary">Save</button><button class="lf-btn lf-btn--ghost">Cancel</button><span class="lf-hint">No unsaved changes</span></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PAGE HEADER ============ -->
+<section class="sg-section" id="pagehead">
+  <div class="sg-head"><p class="eyebrow">12 — Page header</p><h2>Where you are, what this page is for, what you can do.</h2>
+    <p>Eyebrow with the menu group, the title, one sentence that answers "what is this", actions on the right. The actions wrap under the title when space runs out.</p></div>
+  <div class="sg-demo sg-demo--sunk">
+    <header class="lf-pagehead"><div class="lf-pagehead__text"><p class="eyebrow">Work · Codes</p><h1 class="lf-pagehead__title">Codes</h1><p class="lf-pagehead__lede">Barcodes, QR codes and RFID tags, and what each one is attached to.</p></div><div class="lf-pagehead__actions"><button class="lf-btn lf-btn--secondary"><svg class="lf-icon"><use href="#i-download"/></svg>Export</button><button class="lf-btn lf-btn--primary"><svg class="lf-icon"><use href="#i-plus"/></svg>Receive codes</button></div></header>
+    <header class="lf-pagehead"><div class="lf-pagehead__text"><p class="eyebrow">Әкімшілік · Импорт</p><h1 class="lf-pagehead__title">Анықтамалық деректерді импорттау</h1><p class="lf-pagehead__lede">Excel файлынан элементтерді, бірліктерді және орындарды жүктеңіз. Алдымен тексеріледі, содан кейін жазылады.</p></div><div class="lf-pagehead__actions"><button class="lf-btn lf-btn--secondary"><svg class="lf-icon"><use href="#i-download"/></svg>Үлгіні жүктеп алу</button></div></header>
+  </div>
+</section>
+
+<!-- ============ IMPORT WIZARD ============ -->
+<section class="sg-section" id="import">
+  <div class="sg-head"><p class="eyebrow">13 — Import wizard</p><h2>Pick, upload, check, then write.</h2>
+    <p>Nothing is written until the check is clean. Errors are shown per row, with the line, the column and a sentence. Full page: <a href="examples/import.html">Import example</a>.</p></div>
+  <div class="sg-demo">
+    <ol class="lf-steps" aria-label="Import steps"><li class="lf-step is-done"><span class="lf-step__dot">1</span><span class="lf-step__label">Data type</span></li><li class="lf-step is-done"><span class="lf-step__dot">2</span><span class="lf-step__label">File</span></li><li class="lf-step is-current" aria-current="step"><span class="lf-step__dot">3</span><span class="lf-step__label">Check</span></li><li class="lf-step"><span class="lf-step__dot">4</span><span class="lf-step__label">Import</span></li></ol>
+    <div><p class="sg-cap">1 · Type picker</p>
+      <div class="lf-types" role="radiogroup" aria-label="Data type">
+        <label class="lf-type"><input type="radio" name="dt" checked><svg class="lf-icon"><use href="#i-package"/></svg><span class="lf-type__name">Items</span><span class="lf-type__id">catalog_item</span></label>
+        <label class="lf-type"><input type="radio" name="dt"><svg class="lf-icon"><use href="#i-ruler"/></svg><span class="lf-type__name">Units of measure</span><span class="lf-type__id">uom</span></label>
+        <label class="lf-type"><input type="radio" name="dt"><svg class="lf-icon"><use href="#i-handshake"/></svg><span class="lf-type__name">Counterparties</span><span class="lf-type__id">counterparty</span></label>
+        <label class="lf-type"><input type="radio" name="dt"><svg class="lf-icon"><use href="#i-layers"/></svg><span class="lf-type__name">Lots</span><span class="lf-type__id">catalog_lot</span></label>
+        <label class="lf-type"><input type="radio" name="dt"><svg class="lf-icon"><use href="#i-network"/></svg><span class="lf-type__name">Ұйымдық бірліктер</span><span class="lf-type__id">org_unit</span></label>
+        <label class="lf-type"><input type="radio" name="dt"><svg class="lf-icon"><use href="#i-briefcase"/></svg><span class="lf-type__name">Должности</span><span class="lf-type__id">position</span></label>
+        <label class="lf-type"><input type="radio" name="dt"><svg class="lf-icon"><use href="#i-users"/></svg><span class="lf-type__name">Employees</span><span class="lf-type__id">employee</span></label>
+        <label class="lf-type"><input type="radio" name="dt"><svg class="lf-icon"><use href="#i-map-pin"/></svg><span class="lf-type__name">Locations</span><span class="lf-type__id">location_node</span></label>
+      </div></div>
+    <div class="sg-grid2">
+      <div><p class="sg-cap">2 · Upload (empty, drop target)</p><div class="lf-drop"><svg class="lf-icon"><use href="#i-upload"/></svg><strong>Drop an .xlsx file here</strong><span>or <a href="#">choose a file</a> · up to 2 MB, 200 rows, first sheet</span></div></div>
+      <div><p class="sg-cap">2 · Upload (file chosen)</p><div class="lf-file"><svg class="lf-icon"><use href="#i-sheet"/></svg><div><div class="lf-file__name">gate_a_items_with_error.xlsx</div><div class="lf-file__meta">9 KB · 4 data rows</div></div><button class="lf-btn lf-btn--ghost lf-btn--s">Replace</button></div>
+        <div class="lf-btn-row" style="margin-top:var(--space-3)"><button class="lf-btn lf-btn--primary">Check file</button><span class="lf-hint">Nothing is written by a check.</span></div></div>
+    </div>
+    <div><p class="sg-cap">3 · Check result with refused rows</p>
+      <div class="lf-form">
+        <div class="lf-tally"><div class="lf-tally__item"><span class="lf-tally__num">3</span><span class="lf-tally__label"><span class="lf-glyph" style="color:var(--current)"></span>Would be created</span></div><div class="lf-tally__item lf-tally__item--danger"><span class="lf-tally__num">1</span><span class="lf-tally__label"><span class="lf-glyph lf-glyph--triangle"></span>Refused</span></div></div>
+        <div class="lf-table-wrap"><table class="lf-table lf-table--compact lf-table--stack"><thead><tr><th class="is-end">Line</th><th>Outcome</th><th>External id</th><th>Message</th></tr></thead><tbody>
+          <tr><td class="is-num" data-label="Line">2</td><td data-label="Outcome"><span class="lf-pill lf-pill--current"><span class="lf-glyph"></span>Created</span></td><td class="mono" data-label="External id">ITM-GLOVES</td><td data-label="Message" class="lf-muted">—</td></tr>
+          <tr class="is-error"><td class="is-num" data-label="Line">3</td><td data-label="Outcome"><span class="lf-pill lf-pill--danger"><span class="lf-glyph lf-glyph--triangle"></span>Refused</span></td><td class="mono" data-label="External id">ITM-BAD</td><td data-label="Message"><strong>Column: <span class="mono">base_uom_id</span></strong> · The referenced record was not found.</td></tr>
+          <tr><td class="is-num" data-label="Line">4</td><td data-label="Outcome"><span class="lf-pill lf-pill--current"><span class="lf-glyph"></span>Created</span></td><td class="mono" data-label="External id">ITM-VEST</td><td data-label="Message" class="lf-muted">—</td></tr></tbody></table></div>
+        <div class="lf-banner lf-banner--warning"><svg class="lf-icon"><use href="#i-alert"/></svg><div>Fix the refused rows and check the file again before importing.</div></div>
+        <div class="lf-btn-row"><button class="lf-btn lf-btn--primary" disabled aria-describedby="why">Import</button><button class="lf-btn lf-btn--secondary">Choose another file</button><span class="lf-hint" id="why">Import stays off while any row is refused.</span></div>
+      </div></div>
+    <div class="sg-grid2">
+      <div><p class="sg-cap">3 · Check result, clean (confirm)</p>
+        <div class="lf-banner lf-banner--success"><svg class="lf-icon"><use href="#i-check-circle"/></svg><div><strong>The file is ready to import.</strong> 3 rows will be created. Nothing has been written yet.</div></div>
+        <div class="lf-btn-row" style="margin-top:var(--space-3)"><button class="lf-btn lf-btn--primary">Import 3 rows</button><button class="lf-btn lf-btn--ghost">Back</button></div></div>
+      <div><p class="sg-cap">4 · Result summary</p>
+        <div class="lf-tally"><div class="lf-tally__item"><span class="lf-tally__num">3</span><span class="lf-tally__label">Created</span></div><div class="lf-tally__item"><span class="lf-tally__num">0</span><span class="lf-tally__label">Updated</span></div><div class="lf-tally__item"><span class="lf-tally__num">0</span><span class="lf-tally__label">Unchanged</span></div></div>
+        <p class="lf-muted" style="margin-top:var(--space-3)">The import is finished. <a href="#">Open Lots</a> to see the new items.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DIALOG ============ -->
+<section class="sg-section" id="dialog">
+  <div class="sg-head"><p class="eyebrow">14 — Dialog</p><h2>One question, one decision.</h2>
+    <p>Title is the question, the body says what happens, the confirm button repeats the verb. Destructive confirms use the danger button. Escape closes; focus returns to the button that opened it.</p></div>
+  <div class="sg-grid2">
+    <div class="lf-scrim lf-scrim--inline"><div class="lf-dialog" role="dialog" aria-modal="true" aria-labelledby="d1t">
+      <div class="lf-dialog__head"><div><h3 class="lf-dialog__title" id="d1t">Вывести этот код?</h3><p class="lf-dialog__sub mono">GATEA-BC-0003</p></div><button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Закрыть"><svg class="lf-icon"><use href="#i-x"/></svg></button></div>
+      <div class="lf-dialog__body"><p>Выведенный код не возвращается; его значение остаётся занятым.</p></div>
+      <div class="lf-dialog__foot"><button class="lf-btn lf-btn--ghost">Отмена</button><button class="lf-btn lf-btn--danger">Вывести</button></div></div></div>
+    <div class="lf-scrim lf-scrim--inline"><div class="lf-dialog" role="dialog" aria-modal="true" aria-labelledby="d2t">
+      <div class="lf-dialog__head"><div><h3 class="lf-dialog__title" id="d2t">Payroll group бірлігін көшіру</h3><p class="lf-dialog__sub">Қазір: Head office / Finance department / Accounting</p></div><button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Жабу"><svg class="lf-icon"><use href="#i-x"/></svg></button></div>
+      <div class="lf-dialog__body"><div class="lf-field lf-field--error"><label class="lf-label" for="dm">Жаңа ата-ана</label><div class="lf-control"><select id="dm"><option>Payroll group</option></select><svg class="lf-icon lf-control__chev"><use href="#i-chevron-down"/></svg></div><span class="lf-error"><svg class="lf-icon"><use href="#i-alert"/></svg>Бірлікті өзінің немесе ұрпағының астына көшіруге болмайды.</span></div></div>
+      <div class="lf-dialog__foot"><button class="lf-btn lf-btn--ghost">Болдырмау</button><button class="lf-btn lf-btn--primary">Көшіру</button></div></div></div>
+  </div>
+</section>
+
+<!-- ============ TOAST ============ -->
+<section class="sg-section" id="toast">
+  <div class="sg-head"><p class="eyebrow">15 — Toast</p><h2>Confirm what just happened, then leave.</h2>
+    <p>Top right under the top bar. Success and info close after 4 s, errors stay until closed. Errors that block a form go in the form, not in a toast.</p></div>
+  <div class="sg-demo sg-demo--sunk"><div class="lf-toasts lf-toasts--inline">
+    <div class="lf-toast lf-toast--success" role="status"><svg class="lf-icon"><use href="#i-check-circle"/></svg><div><p class="lf-toast__title">Code assigned</p><p class="lf-toast__body"><span class="mono">E280116061B9D57E00000001</span> → Laptop Dell Latitude 5440</p></div><button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Close"><svg class="lf-icon"><use href="#i-x"/></svg></button></div>
+    <div class="lf-toast lf-toast--danger" role="alert"><svg class="lf-icon"><use href="#i-alert"/></svg><div><p class="lf-toast__title">Сақталмады</p><p class="lf-toast__body">Сұраныс орындалмады. Қайталап көріңіз.</p></div><button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Жабу"><svg class="lf-icon"><use href="#i-x"/></svg></button></div>
+    <div class="lf-toast lf-toast--info" role="status"><svg class="lf-icon"><use href="#i-info"/></svg><div><p class="lf-toast__title">Пользователь привязан</p><p class="lf-toast__body">Aigerim Seitkali · gate-a-admin</p></div><button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Закрыть"><svg class="lf-icon"><use href="#i-x"/></svg></button></div>
+  </div></div>
+</section>
+
+<!-- ============ SIDE NAV + TOP BAR ============ -->
+<section class="sg-section" id="nav">
+  <div class="sg-head"><p class="eyebrow">16 — Side nav and top bar</p><h2>Night rail, paper workspace.</h2>
+    <p>The side nav is <code class="lf-code">night</code> in both themes, like the front door CRM. The tenant name and logo sit on top; the active item gets the one ember dot. Under 900px it becomes a drawer behind the menu button.</p></div>
+  <div class="sg-shell"><div class="lf-app">
+    <nav class="lf-sidenav" aria-label="Main">
+      <div class="lf-sidenav__brand"><span class="lf-sidenav__tenant">Demo Holding</span><span class="lf-sidenav__ws">gate-a-demo</span></div>
+      <div class="lf-sidenav__group"><p class="lf-sidenav__label">Work</p>
+        <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-building"/></svg>Legal companies</a>
+        <a class="lf-sidenav__item" href="#" aria-current="page"><svg class="lf-icon lf-icon--18"><use href="#i-network"/></svg>Org units</a>
+        <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-briefcase"/></svg>Должности</a>
+        <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-users"/></svg>Қызметкерлер</a>
+        <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-map-pin"/></svg>Орналасқан жерлер</a>
+      </div>
+      <div class="lf-sidenav__group"><p class="lf-sidenav__label">Tenant administration</p>
+        <a class="lf-sidenav__item" href="#"><svg class="lf-icon lf-icon--18"><use href="#i-upload"/></svg>Import data</a></div>
+      <div class="lf-sidenav__foot"><span class="lf-wordmark"><svg class="lf-mark" viewBox="0 0 64 64" aria-hidden="true"><path class="lf-mark__line" d="M15 13 V34 a14 14 0 0 0 14 14 H38"/><circle class="lf-mark__token" cx="46.5" cy="48" r="8"/></svg>Letflow</span></div>
+    </nav>
+    <div class="lf-main">
+      <div class="lf-topbar"><nav class="lf-crumbs" aria-label="Breadcrumb"><a href="#">Work</a><svg class="lf-icon"><use href="#i-chevron-right"/></svg><span aria-current="page">Org units</span></nav>
+        <div class="lf-topbar__end"><details class="lf-lang"><summary><svg class="lf-icon"><use href="#i-globe"/></svg>EN</summary></details><button class="lf-btn lf-btn--ghost lf-btn--icon" aria-label="Switch theme"><svg class="lf-icon"><use href="#i-moon"/></svg></button><span class="lf-avatar">GA</span></div></div>
+      <div class="lf-content"><p class="lf-muted">Page content sits here, max <code class="lf-code">content-max-width</code>, padding <code class="lf-code">space-8</code>.</p></div>
+    </div>
+  </div></div>
+</section>
+
+<!-- ============ LANGUAGE SWITCH ============ -->
+<section class="sg-section" id="lang">
+  <div class="sg-head"><p class="eyebrow">17 — Language switch</p><h2>Names in their own language, no flags.</h2>
+    <p>In the top bar. Each language is written in itself, with its code. The choice is saved per user. The small segmented version is for settings pages.</p></div>
+  <div class="sg-demo" style="min-height:260px">
+    <div class="sg-row" style="align-items:flex-start;gap:var(--space-12)">
+      <details class="lf-lang" open><summary><svg class="lf-icon"><use href="#i-globe"/></svg>RU<svg class="lf-icon"><use href="#i-chevron-down"/></svg></summary>
+        <div class="lf-lang__menu" style="left:0;right:auto">
+          <a class="lf-lang__item" href="#">English<span class="lf-lang__code">EN</span><span></span></a>
+          <a class="lf-lang__item" href="#" aria-current="true">Русский<span class="lf-lang__code">RU</span><svg class="lf-icon"><use href="#i-check"/></svg></a>
+          <a class="lf-lang__item" href="#">Қазақ тілі<span class="lf-lang__code">KK</span><span></span></a>
+        </div></details>
+      <nav class="lf-seg" aria-label="Language" style="margin-left:180px"><a href="#">en</a><a href="#" aria-current="true">ru</a><a href="#">kk</a></nav>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TENANT BRAND ============ -->
+<section class="sg-section" id="tenant">
+  <div class="sg-head"><p class="eyebrow">18 — Tenant brand</p><h2>A tenant can replace the teal, nothing else.</h2>
+    <p>The tenant colour is applied through <code class="lf-code">--tenant-current</code> and its three partners. Paper, ink, status colours and ember stay Letflow. The sample uses a blue tenant (checked 6.3:1 on paper-raised).</p></div>
+  <div class="sg-themes sg-tenant">
+    <div data-theme="light"><div class="sg-row"><button class="lf-btn lf-btn--primary">Save</button><button class="lf-btn lf-btn--ghost">Cancel</button><a href="#">Open history</a><span class="lf-pill lf-pill--current"><span class="lf-glyph"></span>Created</span></div>
+      <div class="lf-tabs"><button class="lf-tab" aria-selected="true">Details</button><button class="lf-tab" aria-selected="false">Positions <span class="lf-count">2</span></button></div>
+      <label class="lf-check"><input type="checkbox" checked> Show retired</label></div>
+    <div data-theme="dark"><div class="sg-row"><button class="lf-btn lf-btn--primary">Save</button><button class="lf-btn lf-btn--ghost">Cancel</button><a href="#">Open history</a><span class="lf-pill lf-pill--current"><span class="lf-glyph"></span>Created</span></div>
+      <div class="lf-tabs"><button class="lf-tab" aria-selected="true">Details</button><button class="lf-tab" aria-selected="false">Positions <span class="lf-count">2</span></button></div>
+      <label class="lf-check"><input type="checkbox" checked> Show retired</label></div>
+  </div>
+</section>
+
+</main>
+<script src="demo.js"></script>
+<script>
+  // Fill colour swatches and spacing bars from the live tokens (style-guide chrome only).
+  var PLAT = ['row-hover', 'scrim', 'night-hover', 'night-selected'];
+  document.querySelectorAll('[data-sw]').forEach(function (box) {
+    box.getAttribute('data-sw').split(' ').forEach(function (n) {
+      var v = getComputedStyle(box).getPropertyValue('--' + n).trim();
+      var d = document.createElement('div'); if (PLAT.indexOf(n) >= 0) d.className = 'is-plat';
+      d.innerHTML = '<i style="background:var(--' + n + ')"></i><b>' + n + '</b><small>' + v.replace(/^var\(--tenant-[a-z-]+,\s*/, '').replace(/\)$/, '') + '</small>';
+      box.appendChild(d);
+    });
+  });
+  document.querySelectorAll('[data-space]').forEach(function (box) {
+    box.innerHTML = '';
+    box.getAttribute('data-space').split(' ').forEach(function (n) {
+      var v = getComputedStyle(box).getPropertyValue('--' + n).trim();
+      box.insertAdjacentHTML('beforeend', '<div>' + n + ' · ' + v + '<span style="width:var(--' + n + ')"></span></div>');
+    });
+  });
+  // ?only=colors,type shows just those sections (used for review screenshots)
+  var only = new URLSearchParams(location.search).get('only');
+  if (only) { var keep = only.split(',');
+    document.querySelectorAll('.sg-top, .sg-toc').forEach(function (e) { e.hidden = true; });
+    document.querySelectorAll('.sg-section').forEach(function (e) { if (keep.indexOf(e.id) < 0) e.hidden = true; }); }
+</script>
+</body>
+</html>

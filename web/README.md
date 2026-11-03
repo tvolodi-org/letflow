@@ -87,6 +87,16 @@ See [`.env.example`](.env.example) for every environment variable the app reads.
 | `npm run guards` | the three static-analysis guard specs (see below) |
 | `npm run test:e2e` | Playwright, needs a running backend |
 
+## Design-system style guide (`/design-system/`)
+
+`public/design-system/` is a release artifact: the Letflow platform style guide and its three example pages,
+copied from the design repo by `scripts/sync-design-system.sh` (it calls the design repo's `core/tools/release.sh
+platform`). Vite ships it as static files, so `/design-system/` and `/design-system/examples/org-units.html` open
+without sign-in or tenant; there is no React route for it, and every page is `noindex`. Never edit it by hand:
+change the design repo, then run the script. `scripts/sync-design-system.sh --check` fails when the copy differs
+from the design repo; `tests/unit/designSystemCopy.test.ts` fails on a hand edit (hash manifest), a missing file or a
+missing `noindex`. Set `DESIGN_REPO` if the design repo is not at `/home/tvolodi/dev/ai-dala/letflow-design`.
+
 ## Layout
 
 ```
