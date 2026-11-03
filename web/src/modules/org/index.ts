@@ -7,13 +7,24 @@
  *  Nav labels are English literals (ModuleNavItem.label is a plain string); the screens are en/ru/kk.
  */
 import type { ModuleDefinition } from '@/modules/types'
+import { orgMessages } from './orgMessages'
 import { orgRouteObjects } from './orgRoutes'
 import { ORG_EMPLOYEES_WRITE, ORG_STRUCTURE_WRITE } from './orgPermissions'
+
+function importLabels(entityType: string) {
+  const id = `import.type.${entityType}`
+  return { en: orgMessages.en[id], ru: orgMessages.ru[id], kk: orgMessages.kk[id] }
+}
 
 export const orgModuleDefinition: ModuleDefinition = {
   id: 'org',
   depends_on: [],
   routeObjects: orgRouteObjects,
+  importTypes: [
+    { entityType: 'org_unit', labels: importLabels('org_unit') },
+    { entityType: 'org_position', labels: importLabels('org_position') },
+    { entityType: 'org_employee', labels: importLabels('org_employee') },
+  ],
   navItems: [
     { to: '/admin/org/legal-entities', label: 'Legal companies', permission: ORG_STRUCTURE_WRITE },
     { to: '/admin/org/sites', label: 'Sites', permission: ORG_STRUCTURE_WRITE },
