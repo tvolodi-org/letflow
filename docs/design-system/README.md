@@ -35,8 +35,10 @@ cp <dir>/img/* <repo>/web/public/brand/
 - `data-theme="light|dark"` on `<html>`; without it the system setting applies. A script in `web/index.html` reads
   `localStorage["lf-theme"]` before first paint; `ThemeToggle` (`web/src/components/ui/ThemeToggle.tsx`) writes both.
 - Geologica, Onest and IBM Plex Mono are loaded from Google Fonts in `web/index.html` (with preconnect).
-- Tenant branding is unchanged for now: it still writes `--color-brand-600` (an alias of `--current` in the bridge).
-  Moving it to `--tenant-current` is task S0e.
+- Tenant branding writes `--tenant-current` (and the derived `-strong`, `-tint`, `--tenant-on-current` and the `-dark` set) from
+  `primary`; a colour that gives under 4.5:1 for on-current text on paper-raised is refused and the Letflow teal stays.
+  `secondary` stays in the allowlist but is unused.
+
 
 ## Data-display components (T-1166)
 
@@ -46,3 +48,8 @@ remove; clear only when a filter is active), `StatusPill` (tone + glyph + word),
 `Skeleton`, `Tally`, `Steps`. `StatusBadge` is now a thin wrapper over `StatusPill` until its callers move to a
 per-module tone/glyph map. Fixed labels (Previous, Try again, Expand...) have English defaults and a `labels` prop;
 the page passes the translated text.
+
+## Behaviour rules
+
+The behaviour rules kept from the retired `docs/frontend/design-system.md` (ConfirmDialog, status, pagination,
+FilterBar, DynamicForm mapping, toast timing, process canvas, breakpoints) are in [principles.md](principles.md).

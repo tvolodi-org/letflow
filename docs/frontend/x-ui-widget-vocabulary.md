@@ -19,9 +19,9 @@ platform code, keyed by an `x-ui.widget` name a tenant's schema may
 reference — the tenant names a widget, the platform decides what that
 widget is").
 
-## Relationship to design-system.md §7.6
+## Relationship to the DynamicForm mapping
 
-[`design-system.md` §7.6 "DynamicForm"](./design-system.md) is the
+[`docs/design-system/principles.md` "DynamicForm"](../design-system/principles.md) is the
 **default** mapping from a JSON-Schema `type`/`format` to an input.
 `x-ui.widget` is an optional override applied on top of that mapping for the
 same field: the field's JSON-Schema `type` still determines what value

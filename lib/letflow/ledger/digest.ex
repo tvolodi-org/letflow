@@ -17,6 +17,9 @@ defmodule Letflow.Ledger.Digest do
     `chain_hash`), then the legs in `leg_no` order, each as one record.
   * `chain_hash(previous, entry_digest)` is the SHA-256 of `previous <> 0x1E <> entry_digest`
     (`previous` is `""` for the first entry of a ledger).
+  * The functions are pure and total over the column types the tables hold (binary, integer,
+    `Decimal`, `DateTime`, nil, map, list). The golden vector is pinned in
+    `test/letflow/ledger/gap_free_test.exs`.
   """
 
   @us <<0x1F>>
