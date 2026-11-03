@@ -124,6 +124,19 @@ describe('S1 states', () => {
     const item = (await screen.findByText('Beta LLP')).closest('[role="treeitem"]') as HTMLElement
     expect(within(item).getByText('Retired')).toBeInTheDocument()
   })
+
+  // S-final (T-1177): the 'Show retired' + count row pushes the count right with the design-system class, not an
+  // inline style.
+  it('builds the Show retired row with lf-btn-row--between and no inline style', async () => {
+    fakeServer(clientMock, DATA)
+    renderPage(<LegalEntitiesPage />)
+    await screen.findByText('Alpha LLP')
+    const row = screen.getByTestId('org-retired-row')
+    expect(row).toHaveClass('lf-btn-row', 'lf-btn-row--between')
+    expect(row).not.toHaveAttribute('style')
+    expect(within(row).getByRole('checkbox', { name: 'Show retired' })).toBeInTheDocument()
+    expect(within(row).getByTestId('org-count')).toBeInTheDocument()
+  })
 })
 
 describe('S1 panel', () => {

@@ -53,6 +53,16 @@ describe('T1 tree', () => {
     const filters = queryBodies(clientMock, 'location_node')[0]['filters'] as { field: string }[]
     expect(filters.map((f) => f.field)).toEqual(['deleted', 'active'])
   })
+
+  // S-final (T-1177): the 'Show retired' + count row uses the design-system class, not an inline style.
+  it('builds the Show retired row with lf-btn-row--between and no inline style', async () => {
+    await openPage()
+    const row = screen.getByTestId('locations-retired-row')
+    expect(row).toHaveClass('lf-btn-row', 'lf-btn-row--between')
+    expect(row).not.toHaveAttribute('style')
+    expect(row).toHaveTextContent('Show retired')
+    expect(row.querySelector('.mono')?.textContent).toBe('5')
+  })
 })
 
 describe('T2 T3 create', () => {

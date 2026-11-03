@@ -53,6 +53,7 @@ button { font: inherit; color: inherit; }
 .lf-btn--secondary.is-loading::after { border-color: var(--ink); border-right-color: transparent; }
 @keyframes lf-spin { to { transform: rotate(360deg); } }
 .lf-btn-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.lf-btn-row--between { justify-content: space-between; }
 
 /* ---------- Status pill (shared; platform adds the glyph set) ---------- */
 .lf-pill { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 10px 2px 8px; border-radius: var(--radius-full); font: 600 12px/16px var(--font-sans); letter-spacing: .01em; white-space: nowrap; width: fit-content; }

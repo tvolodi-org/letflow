@@ -53,3 +53,8 @@ the page passes the translated text.
 
 The behaviour rules kept from the retired `docs/frontend/design-system.md` (ConfirmDialog, status, pagination,
 FilterBar, DynamicForm mapping, toast timing, process canvas, breakpoints) are in [principles.md](principles.md).
+
+## Gate A style check
+
+The check of the six phase A screens before the owner's Gate A look, with its open items:
+[gate-a-style-check.md](gate-a-style-check.md).
