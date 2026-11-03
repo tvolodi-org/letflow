@@ -131,7 +131,7 @@ defmodule Letflow.Ledger.KeyBoundTest do
     assert row.last_posting_seq == 1
   end
 
-  property "T-KB-1f on_hand equals the sum of the legs up to the counter (I-BAL)", %{
+  test "T-KB-1f on_hand equals the sum of the legs up to the counter (I-BAL)", %{
     schema: schema
   } do
     check all(

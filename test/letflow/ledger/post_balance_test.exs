@@ -15,8 +15,12 @@ defmodule Letflow.Ledger.PostBalanceTest do
     %{schema: Fx.tenant!()}
   end
 
-  defp refused(result, code),
-    do: assert({:error, {:ledger_refused, ^code, _wire, details}} = result) && details
+  defp refused(result, code) do
+    case result do
+      {:error, {:ledger_refused, ^code, _wire, details}} -> details
+      other -> flunk("expected ledger_refused #{inspect(code)}, got: #{inspect(other)}")
+    end
+  end
 
   defp invalid(result, reason, leg_no \\ nil) do
     details = refused(result, :invalid_posting)
