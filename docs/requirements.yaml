@@ -48672,7 +48672,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-637 -- the read routes call authorize/3, balances/4, entries/3 and reconcile/2 of slice L2b, and the registration needs the manifest key :ledger, Catalog rule and Letflow.Ledger.Policy of slice L3 (REQ-684 to REQ-686)
+    gh: 3707
     description: >
       Slice L4 of the WMS stock ledger (GH #2657, REQ-502), row L4 of the slice table of decision 0073
       (docs/migration/decisions/0073-domain-neutral-ledger-primitive.md, "Consequences"): "stock module: manifest
