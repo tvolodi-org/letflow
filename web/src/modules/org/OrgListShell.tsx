@@ -1,17 +1,13 @@
-/** OrgListShell — GH 3609 / REQ-669. The shared list frame of the org screens (title, show-retired switch,
- *  loading/error through QueryStateBoundary), the list query hook and the small form pieces. */
-import type { ReactNode } from 'react'
+/** OrgListShell — GH 3609 / REQ-669. The list query hook and the small form pieces shared by the org screens
+ *  (the page frame is OrgScreen). The query hooks here only return results: OrgScreen shows their loading skeleton and
+ *  load error itself, in place of a QueryStateBoundary. */
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useIntl } from 'react-intl'
 import { usersApi } from '@/api/identity'
 import { useAuth } from '@/auth/AuthContext'
 import { Banner } from '@/components/ui/Banner'
-import { Checkbox } from '@/components/ui/Checkbox'
 import { Field } from '@/components/ui/Field'
-import { PageLayout } from '@/components/ui/PageLayout'
-import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Select } from '@/components/ui/Select'
-import { classifyError, type RendererState } from '@/utils/classifyError'
 import type { EntityRecord, User } from '@/types/api'
 import { ACTIVE_TRUE, DELETED_FALSE, fetchAllRecords } from './org.api'
 import { orgQueryKeys } from './orgQueryKeys'
@@ -34,35 +30,6 @@ export function useOrgRows(type: string, includeRetired: boolean, unitId = ''): 
     placeholderData: keepPreviousData,
     retry: false,
   })
-}
-
-export function OrgListShell(props: {
-  title: string
-  queries: UseQueryResult<unknown>[]
-  showRetired: boolean
-  onShowRetired: (v: boolean) => void
-  actions?: ReactNode
-  children: ReactNode
-}) {
-  const intl = useIntl()
-  const failed = props.queries.find((q) => q.isError)
-  const state: RendererState = failed
-    ? classifyError(failed.error)
-    : props.queries.some((q) => q.isPending)
-      ? 'loading'
-      : 'success'
-  return (
-    <PageLayout title={props.title} actions={props.actions}>
-      <Checkbox
-        label={intl.formatMessage({ id: 'org.common.showRetired' })}
-        checked={props.showRetired}
-        onChange={props.onShowRetired}
-      />
-      <QueryStateBoundary state={state} onRetry={() => props.queries.forEach((q) => void q.refetch())}>
-        {props.children}
-      </QueryStateBoundary>
-    </PageLayout>
-  )
 }
 
 /** The message of a failed write, as a danger banner. Names the fields of record_payload_invalid (no values). */

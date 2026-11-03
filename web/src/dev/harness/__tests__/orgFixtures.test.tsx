@@ -23,14 +23,22 @@ afterEach(() => {
 })
 
 describe('org harness screens', () => {
-  it('registers the three screens', () => {
-    expect(Object.keys(HARNESS_SCREENS)).toEqual(expect.arrayContaining(['org-legal', 'org-sites', 'org-units']))
+  it('registers the five screens', () => {
+    expect(Object.keys(HARNESS_SCREENS)).toEqual(expect.arrayContaining(['org-legal', 'org-sites', 'org-units', 'org-positions', 'org-employees']))
   })
 
   it('org-units shows the tree and opens a unit in the panel', async () => {
     renderHarness('org-units')
     expect(await screen.findByRole('tree')).toBeTruthy()
     expect((await screen.findByTestId('detail-header')).textContent).toContain('Accounting')
+  })
+
+  it('org-positions and org-employees open a record in the panel', async () => {
+    renderHarness('org-positions')
+    expect((await screen.findByTestId('detail-header')).textContent).toContain('Chief accountant')
+    cleanup()
+    renderHarness('org-employees')
+    expect((await screen.findByTestId('detail-header')).textContent).toContain('Aigerim Sarsenova')
   })
 
   it('org-legal renders in Russian', async () => {

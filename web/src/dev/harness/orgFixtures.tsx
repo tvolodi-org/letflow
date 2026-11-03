@@ -1,4 +1,5 @@
-/** Harness fixtures of the org-structure screens (task S1): legal companies, sites and the org unit tree.
+/** Harness fixtures of the org-structure screens (tasks S1, S2): legal companies, sites, the org unit tree, positions
+ *  and employees.
  *  Plain invented data (the design repo's Gate A names); no real tenant, id or secret. The fake server honours
  *  the `active` and `deleted` filters of POST /api/v1/entities/query and answers by `entity_type`. */
 import { useEffect, type ReactNode } from 'react'
@@ -7,6 +8,8 @@ import { AccessStateProvider } from '@/auth/access/AccessContext'
 import type { AccessState } from '@/auth/access/types'
 import { OrgLocaleContext } from '@/modules/org/OrgIntlProvider'
 import LegalEntitiesPage from '@/modules/org/LegalEntitiesPage'
+import PositionsPage from '@/modules/org/PositionsPage'
+import EmployeesPage from '@/modules/org/EmployeesPage'
 import SitesPage from '@/modules/org/SitesPage'
 import UnitsPage from '@/modules/org/UnitsPage'
 import type { EntityRecord, UserSession } from '@/types/api'
@@ -45,6 +48,32 @@ const UNITS = [
   rec('u-old', 'org_unit', { code: 'GATEA-OU-OLD', name: 'Closed department', legal_entity_id: 'le-3', site_id: 's-3', active: false }),
 ]
 
+const pos = (id: string, code: string, name: string, unitId: string, active = true) =>
+  rec(id, 'org_position', { code, name, org_unit_id: unitId, active })
+const POSITIONS = [
+  pos('p-acc', 'GATEA-POS-ACC', 'Chief accountant', 'u-acc'),
+  pos('p-acc2', 'GATEA-POS-ACC2', 'Accountant', 'u-acc'),
+  pos('p-pay', 'GATEA-POS-PAY', 'Payroll specialist', 'u-pay'),
+  pos('p-it', 'GATEA-POS-IT', 'System administrator', 'u-it'),
+  pos('p-wh', 'GATEA-POS-WH', 'Warehouse keeper', 'u-wha'),
+  pos('p-old', 'GATEA-POS-OLD', 'Courier', 'u-wh', false),
+]
+const emp = (id: string, code: string, fullName: string, unitId: string, extra: Record<string, unknown> = {}) =>
+  rec(id, 'org_employee', { code, full_name: fullName, org_unit_id: unitId, ...extra })
+const EMPLOYEES = [
+  emp('e-1', 'GATEA-E001', 'Aigerim Sarsenova', 'u-acc', { position_id: 'p-acc', user_id: 'usr-1' }),
+  emp('e-2', 'GATEA-E002', 'Nurlan Bekov', 'u-acc', { position_id: 'p-acc2' }),
+  emp('e-3', 'GATEA-E003', 'Dana Omarova', 'u-pay', { position_id: 'p-pay' }),
+  emp('e-4', 'GATEA-E004', 'Timur Akhmetov', 'u-it', { position_id: 'p-it', user_id: 'usr-2' }),
+  emp('e-5', 'GATEA-E005', 'Saule Kenzhebaeva', 'u-wha', { position_id: 'p-wh' }),
+  emp('e-6', 'GATEA-E006', 'Marat Iskakov', 'u-wh', { active: false }),
+]
+const USERS = [
+  { id: 'usr-1', display_name: 'Aigerim Sarsenova', email: 'aigerim@demo.invalid' },
+  { id: 'usr-2', display_name: 'Timur Akhmetov', email: 'timur@demo.invalid' },
+  { id: 'usr-3', display_name: 'Dana Omarova', email: 'dana@demo.invalid' },
+]
+
 interface Clause {
   field: string
   op: string
@@ -56,11 +85,18 @@ function queryRoute(): FixtureRoute {
     match: (path, method) => method === 'POST' && path === '/api/v1/entities/query',
     reply: (state, _path, body) => {
       const b = (body ?? {}) as { entity_type?: string; filters?: Clause[] }
-      const all = [...LEGAL, ...SITES, ...UNITS].filter(r => r.entity_type === b.entity_type)
+      const all = [...LEGAL, ...SITES, ...UNITS, ...POSITIONS, ...EMPLOYEES].filter(r => r.entity_type === b.entity_type)
       const onlyActive = (b.filters ?? []).some(f => f.field === 'active' && f.value === true)
       const items = state === 'empty' ? [] : all.filter(r => !onlyActive || r.field_values['active'] === true)
       return { status: 200, body: { items, next_cursor: null } }
     },
+  }
+}
+
+function usersRoute(): FixtureRoute {
+  return {
+    match: (path, method) => method === 'GET' && path === '/api/v1/identity/users',
+    reply: () => ({ status: 200, body: { items: USERS, next_cursor: null } }),
   }
 }
 
@@ -73,7 +109,7 @@ const AUTH = {
 
 const ACCESS: AccessState = {
   status: 'ready',
-  info: { roles: [], platform_tenant: false, permissions: ['OrgStructureWrite'] },
+  info: { roles: [], platform_tenant: false, permissions: ['OrgStructureWrite', 'OrgEmployeesWrite'] },
 }
 
 /** Opens the record of the given tree row once it is on screen, so the screenshot shows the detail panel. */
@@ -134,6 +170,26 @@ export const orgUnits: HarnessScreen = {
   render: ({ lang, state }) => (
     <OrgHarness lang={lang} state={state} nodeId="u-acc">
       <UnitsPage />
+    </OrgHarness>
+  ),
+}
+
+export const orgPositions: HarnessScreen = {
+  name: 'org-positions',
+  routes: [queryRoute()],
+  render: ({ lang, state }) => (
+    <OrgHarness lang={lang} state={state} nodeId="p-acc">
+      <PositionsPage />
+    </OrgHarness>
+  ),
+}
+
+export const orgEmployees: HarnessScreen = {
+  name: 'org-employees',
+  routes: [queryRoute(), usersRoute()],
+  render: ({ lang, state }) => (
+    <OrgHarness lang={lang} state={state} nodeId="e-1">
+      <EmployeesPage />
     </OrgHarness>
   ),
 }

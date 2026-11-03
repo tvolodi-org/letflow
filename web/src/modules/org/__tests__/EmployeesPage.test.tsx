@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** L1, L2, W2-W6, E1-E3 — GH 3608 / REQ-670: the employees screen. */
+/** L1, L2, W2-W6, E1-E3 — GH 3608 / REQ-670, style S2: the employees screen (record in the detail panel, transfer in a dialog). */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -33,6 +33,9 @@ const USERS = [
   { id: 'usr-2', display_name: 'Bob', email: 'bob@x.kz' },
 ]
 const PATH = '/admin/org/employees'
+const pick = (name: string) => fireEvent.click(within(screen.getByRole('tree')).getByText(name))
+const dlg = () => within(screen.getByTestId('org-transfer'))
+const row = (code: string) => screen.getByText(`Emp ${code}`).closest('.lf-tree__row') as HTMLElement
 
 beforeEach(() => {
   clientMock.post.mockReset()
@@ -43,26 +46,27 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('L1 L2 list and unit filter', () => {
-  it('lists employees with unit, position and user-linked columns', async () => {
+  it('lists employees with unit and personnel number; the panel shows position and user link', async () => {
     fakeServer(clientMock, DATA)
     renderOrg(PATH, withEmployeesAtom)
-    const row = await screen.findByTestId('org-row-E1')
+    await screen.findByText('Emp E1')
     expect(queryBodies(clientMock, 'org_employee').length).toBeGreaterThan(0)
-    expect(within(row).getByText('Unit U1')).toBeInTheDocument()
-    expect(within(row).getByText('Pos P1')).toBeInTheDocument()
-    expect(within(row).getByText('Yes')).toBeInTheDocument()
-    expect(within(screen.getByTestId('org-row-E2')).getByText('No')).toBeInTheDocument()
-    expect(screen.queryByTestId('org-row-E3')).not.toBeInTheDocument()
+    expect(within(row('E1')).getByText('Unit U1')).toBeInTheDocument()
+    expect(within(row('E1')).getByText('E1')).toBeInTheDocument()
+    expect(screen.queryByText('Emp E3')).not.toBeInTheDocument()
     expect(clientMock.get).not.toHaveBeenCalled()
+    pick('Emp E1')
+    expect(screen.getByTestId('detail-header')).toHaveTextContent('Unit U1 / Pos P1')
+    expect(screen.getByLabelText('Position')).toHaveValue('Pos P1')
   })
 
   it('filters by unit on the server', async () => {
     fakeServer(clientMock, DATA)
     renderOrg(PATH, withEmployeesAtom)
-    await screen.findByTestId('org-row-E2')
+    await screen.findByText('Emp E2')
     fireEvent.change(screen.getByLabelText('Filter by unit'), { target: { value: 'u-2' } })
-    await waitFor(() => expect(screen.queryByTestId('org-row-E1')).not.toBeInTheDocument())
-    expect(await screen.findByTestId('org-row-E2')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Emp E1')).not.toBeInTheDocument())
+    expect(await screen.findByText('Emp E2')).toBeInTheDocument()
     const last = queryBodies(clientMock, 'org_employee').at(-1) as { filters: unknown[] }
     expect(last.filters).toContainEqual({ field: 'org_unit_id', op: 'eq', value: 'u-2' })
   })
@@ -72,7 +76,7 @@ describe('W2 W3 W6 create', () => {
   it('offers only active positions of the chosen unit and clears the position on a unit change', async () => {
     fakeServer(clientMock, DATA)
     renderOrg(PATH, withEmployeesAtom)
-    await screen.findByTestId('org-row-E1')
+    await screen.findByText('Emp E1')
     fireEvent.click(screen.getByTestId('org-create'))
     const position = () => screen.getByLabelText('Position') as HTMLSelectElement
     expect([...position().options].map((o) => o.value)).toEqual([''])
@@ -87,7 +91,7 @@ describe('W2 W3 W6 create', () => {
   it('sends only the keys it has: all of them, or none of position and user', async () => {
     fakeServer(clientMock, DATA)
     renderOrg(PATH, withEmployeesAtom)
-    await screen.findByTestId('org-row-E1')
+    await screen.findByText('Emp E1')
     fireEvent.click(screen.getByTestId('org-create'))
     fireEvent.change(screen.getByLabelText('Personnel number'), { target: { value: 'E9' } })
     fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Nine' } })
@@ -121,11 +125,11 @@ describe('W2 W3 W6 create', () => {
     clientMock.get.mockRejectedValue(problem(403, {}))
     fakeServer(clientMock, DATA)
     renderOrg(PATH, withEmployeesAtom)
-    await screen.findByTestId('org-row-E1')
+    await screen.findByText('Emp E1')
     expect(screen.queryByText(orgMessages.en['org.employees.usersUnavailable'])).not.toBeInTheDocument()
     fireEvent.click(screen.getByTestId('org-create'))
     expect(await screen.findByText(orgMessages.en['org.employees.usersUnavailable'])).toBeInTheDocument()
-    expect(screen.getByTestId('org-row-E1')).toBeInTheDocument()
+    expect(screen.getByText('Emp E1')).toBeInTheDocument()
   })
 })
 
@@ -133,8 +137,8 @@ describe('W4 W5 edit transfer retire', () => {
   it('edits the name, keeps the link, and removes it with null', async () => {
     fakeServer(clientMock, DATA)
     renderOrg(PATH, withEmployeesAtom)
-    await screen.findByTestId('org-row-E1')
-    fireEvent.click(within(screen.getByTestId('org-row-E1')).getByRole('button', { name: 'Edit' }))
+    await screen.findByText('Emp E1')
+    pick('Emp E1')
     expect(screen.getByLabelText('Personnel number')).toHaveAttribute('readonly')
     fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'Ann Smith' } })
     fireEvent.click(screen.getByTestId('org-save'))
@@ -144,8 +148,7 @@ describe('W4 W5 edit transfer retire', () => {
     expect(edit.body).toMatchObject({ full_name: 'Ann Smith', user_id: 'usr-1' })
     expect(Object.keys(edit.body).sort()).toEqual(['full_name', 'idempotency_key', 'user_id'])
 
-    await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument())
-    fireEvent.click(within(screen.getByTestId('org-row-E1')).getByRole('button', { name: 'Edit' }))
+    pick('Emp E1')
     fireEvent.click(screen.getByTestId('org-remove-user'))
     fireEvent.click(screen.getByTestId('org-save'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(2))
@@ -155,11 +158,12 @@ describe('W4 W5 edit transfer retire', () => {
   it('transfers with a position, then without one (null), and retires', async () => {
     fakeServer(clientMock, DATA)
     renderOrg(PATH, withEmployeesAtom)
-    await screen.findByTestId('org-row-E1')
-    fireEvent.click(within(screen.getByTestId('org-row-E2')).getByRole('button', { name: 'Transfer' }))
-    fireEvent.change(screen.getByLabelText('Org unit'), { target: { value: 'u-1' } })
-    expect([...(screen.getByLabelText('Position') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['', 'p-1'])
-    fireEvent.change(screen.getByLabelText('Position'), { target: { value: 'p-1' } })
+    await screen.findByText('Emp E1')
+    pick('Emp E2')
+    fireEvent.click(screen.getByTestId('org-transfer-open'))
+    fireEvent.change(dlg().getByLabelText('Org unit'), { target: { value: 'u-1' } })
+    expect([...(dlg().getByLabelText('Position') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['', 'p-1'])
+    fireEvent.change(dlg().getByLabelText('Position'), { target: { value: 'p-1' } })
     fireEvent.click(screen.getByTestId('org-transfer-confirm'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(1))
     const first = writeCalls(clientMock)[0]
@@ -167,15 +171,17 @@ describe('W4 W5 edit transfer retire', () => {
     expect(first.body).toMatchObject({ org_unit_id: 'u-1', position_id: 'p-1' })
     expect(Object.keys(first.body).sort()).toEqual(['idempotency_key', 'org_unit_id', 'position_id'])
 
-    await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument())
-    fireEvent.click(within(screen.getByTestId('org-row-E1')).getByRole('button', { name: 'Transfer' }))
-    fireEvent.change(screen.getByLabelText('Position'), { target: { value: '' } })
+    await waitFor(() => expect(screen.queryByTestId('org-transfer')).not.toBeInTheDocument())
+    pick('Emp E1')
+    fireEvent.click(screen.getByTestId('org-transfer-open'))
+    fireEvent.change(dlg().getByLabelText('Position'), { target: { value: '' } })
     fireEvent.click(screen.getByTestId('org-transfer-confirm'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(2))
     expect(writeCalls(clientMock)[1].body['position_id']).toBeNull()
 
-    await waitFor(() => expect(screen.queryByRole('form')).not.toBeInTheDocument())
-    fireEvent.click(within(screen.getByTestId('org-row-E2')).getByRole('button', { name: 'Retire' }))
+    await waitFor(() => expect(screen.queryByTestId('org-transfer')).not.toBeInTheDocument())
+    pick('Emp E2')
+    fireEvent.click(screen.getByTestId('org-retire'))
     fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'))
     await waitFor(() => expect(writeCalls(clientMock)).toHaveLength(3))
     expect(writeCalls(clientMock)[2].path).toBe('/api/v1/modules/org/employees/e-2/retire')
@@ -190,9 +196,10 @@ describe('E1 E2 E3 refusals', () => {
         throw problem(422, { reason })
       })
       renderOrg(PATH, withEmployeesAtom)
-      await screen.findByTestId('org-row-E1')
-      fireEvent.click(within(screen.getByTestId('org-row-E2')).getByRole('button', { name: 'Transfer' }))
-      fireEvent.change(screen.getByLabelText('Org unit'), { target: { value: 'u-1' } })
+      await screen.findByText('Emp E1')
+      pick('Emp E2')
+    fireEvent.click(screen.getByTestId('org-transfer-open'))
+      fireEvent.change(dlg().getByLabelText('Org unit'), { target: { value: 'u-1' } })
       fireEvent.click(screen.getByTestId('org-transfer-confirm'))
       expect(await screen.findByRole('alert')).toHaveTextContent(orgMessages.en[`org.error.${reason}`])
     })
@@ -203,8 +210,8 @@ describe('E1 E2 E3 refusals', () => {
       throw problem(422, { reason: 'record_payload_invalid', fields: ['code', 'user_id'] })
     })
     renderOrg(PATH, withEmployeesAtom)
-    await screen.findByTestId('org-row-E1')
-    fireEvent.click(within(screen.getByTestId('org-row-E1')).getByRole('button', { name: 'Edit' }))
+    await screen.findByText('Emp E1')
+    pick('Emp E1')
     fireEvent.click(screen.getByTestId('org-save'))
     expect(await screen.findByRole('alert')).toHaveTextContent('Fields: code, user_id')
   })
@@ -214,14 +221,14 @@ describe('E1 E2 E3 refusals', () => {
       throw problem(404, {})
     })
     renderOrg(PATH, withEmployeesAtom)
-    await screen.findByTestId('org-row-E1')
+    await screen.findByText('Emp E1')
     const before = queryBodies(clientMock, 'org_employee').length
-    fireEvent.click(within(screen.getByTestId('org-row-E1')).getByRole('button', { name: 'Edit' }))
+    pick('Emp E1')
     fireEvent.click(screen.getByTestId('org-save'))
     expect(await screen.findByRole('alert')).toHaveTextContent(orgMessages.en['org.error.user_not_found'])
     await waitFor(() => expect(queryBodies(clientMock, 'org_employee').length).toBeGreaterThan(before))
 
-    fireEvent.click(within(screen.getByTestId('org-row-E2')).getByRole('button', { name: 'Edit' }))
+    pick('Emp E2')
     fireEvent.click(screen.getByTestId('org-save'))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(orgMessages.en['org.error.notFound']))
   })
@@ -231,8 +238,9 @@ describe('E1 E2 E3 refusals', () => {
       throw problem(403, {})
     })
     renderOrg(PATH, withEmployeesAtom)
-    await screen.findByTestId('org-row-E1')
-    fireEvent.click(within(screen.getByTestId('org-row-E2')).getByRole('button', { name: 'Retire' }))
+    await screen.findByText('Emp E1')
+    pick('Emp E2')
+    fireEvent.click(screen.getByTestId('org-retire'))
     fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'))
     expect(await screen.findByRole('alert')).toHaveTextContent(orgMessages.en['org.error.forbidden'])
   })
