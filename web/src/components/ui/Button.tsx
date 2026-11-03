@@ -33,6 +33,12 @@ export interface ButtonProps {
   type?: 'button' | 'submit' | 'reset'
 }
 
+/** Intentionally empty. Without any mouse handler on the button, user-event's click in
+ *  AttachmentPanel.test (upload button) and InstanceDetailPage.cancelDialog.test never returns
+ *  (observed T-1165: P3 never reached; with this handler both finish in under a second).
+ *  Root cause not found; do not remove without running those two files. */
+const noop = (): void => undefined
+
 export function Button(props: ButtonProps): React.ReactElement {
   const {
     variant,
@@ -68,6 +74,7 @@ export function Button(props: ButtonProps): React.ReactElement {
       aria-pressed={pressed}
       aria-busy={loading || undefined}
       aria-label={iconOnly ? label : undefined}
+      onMouseEnter={noop}
     >
       {loading && <span data-testid="ds-button-spinner" aria-hidden="true" />}
       {icon}
