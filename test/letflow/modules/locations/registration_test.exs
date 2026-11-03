@@ -31,7 +31,7 @@ defmodule Letflow.Modules.Locations.RegistrationTest do
     assert manifest.depends_on == []
     assert Enum.sort(manifest.manages_entity_types) == @four
     assert manifest.pack == "modules/org/pack.json"
-    assert manifest.permissions == []
+    assert manifest.permissions == [:OrgStructureWrite, :OrgEmployeesWrite]
     assert manifest.role_grants == %{}
   end
 

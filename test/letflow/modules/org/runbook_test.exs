@@ -129,4 +129,13 @@ defmodule Letflow.Modules.Org.RunbookTest do
       assert line =~ symbol, "#{path}:#{line_no} no longer holds #{symbol}: #{inspect(line)}"
     end
   end
+
+  test "REQ-665 P4: the runbook names the write routes and both permissions" do
+    text = items() |> Enum.map_join("\n", &elem(&1, 1))
+    assert text =~ "Letflow.Modules.Org.Router"
+    assert text =~ "OrgStructureWrite"
+    assert text =~ "OrgEmployeesWrite"
+    assert text =~ "/api/v1/modules/org/"
+    assert text =~ "#3613"
+  end
 end
