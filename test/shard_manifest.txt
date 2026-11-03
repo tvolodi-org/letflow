@@ -1133,3 +1133,5 @@
 16 test/support/tenant_schema_reaper_test.exs 239.87
 4 test/letflow/migrations/tenant_module_upgrades_migration_test.exs 5746.12
 7 test/letflow/modules/catalog_upgrade_shapes_test.exs 5746.12
+11 test/letflow/modules/catalog_items/tracking_policy_test.exs 5000
+11 test/letflow/modules/catalog_items/tracking_policy_cross_tenant_test.exs 5000
