@@ -48975,7 +48975,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-687 -- the count order lives in module stock, which slice L4 creates
+    gh: 3737
     description: >
       Phase B item B5 of the assets and stock application (the stock register; owner decisions D-061, D-062, D-065,
       D-067, D-085 "build it fast"), first implementing requirement of the counts decision record
@@ -49077,7 +49077,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-700 -- the count sheet hangs on the count order of REQ-700
+    gh: 3736
     description: >
       Phase B item B5 of the assets and stock application, second implementing requirement of decision 0079
       (docs/migration/decisions/0079-counts-inventory-taking.md, REQ-680), split plan row C3 ("cut-off book quantities
@@ -49159,7 +49159,7 @@ requirements:
     owner: FRONTEND-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-701 -- the screens call the routes of REQ-700 and REQ-701
+    gh: 3735
     description: >
       Phase B item B5 of the assets and stock application: the first part of split plan row C8 of decision 0079
       (docs/migration/decisions/0079-counts-inventory-taking.md, REQ-680): the web screens for the count order and the
