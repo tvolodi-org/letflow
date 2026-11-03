@@ -46,7 +46,8 @@
   "overrides": [
     {
       "files": [
-        "src/modules/registry.ts"
+        "src/modules/registry.ts",
+        "src/dev/harness/**"
       ],
       "rules": {
         "no-restricted-imports": "off"
