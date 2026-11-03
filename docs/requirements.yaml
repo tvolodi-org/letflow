@@ -48975,7 +48975,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-681 -- follow-up F10 of decision 0078 (REQ-681), written by phase B task P28
+    gh: 3743
     description: >
       Phase B of the assets and stock application (the stock register), owner decision D-085 (2026-11-04: build it
       fast). Source: decision 0078 (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md,
@@ -49027,7 +49027,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-637 -- follow-up F1 of decision 0078 (REQ-681); needs balances/4 of slice L2b and the tenant time zone of REQ-703
+    gh: 3742
     description: >
       Phase B of the assets and stock application (the stock register), owner decision D-085. Source: decision 0078
       (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md, REQ-681) D2 ("The balance of a
@@ -49088,7 +49088,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-681 -- follow-up F6 of decision 0078 (REQ-681), written by phase B task P28
+    gh: 3741
     description: >
       Phase B of the assets and stock application, owner decision D-085. Source: decision 0078
       (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md, REQ-681) D8, row "Location
@@ -49129,7 +49129,7 @@ requirements:
     owner: ELIXIR-DEV
     status: pending
     stage: S7
-    # impl_order: UNREGISTERED -- blocked-by: REQ-681 -- follow-ups F7 and F8 of decision 0078 (REQ-681), written by phase B task P28
+    gh: 3739
     description: >
       Phase B of the assets and stock application, owner decision D-085. Source: decision 0078
       (docs/migration/decisions/0078-assets-operations-accounting-time-and-integrity.md, REQ-681) D8, rows "Catalog item
